@@ -18,6 +18,9 @@ export interface WeaponData {
   // For bow: projectile speed range [speedMin, speedMax]
   arrowSpeedMin?: number
   arrowSpeedMax?: number
+  // Melee specific
+  range?: number
+  isLance?: boolean
   description: string
 }
 
@@ -31,6 +34,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 12,
     damageMax: 12,
     speedOrCharge: 0.24, // Fast swing
+    range: 1.0,
     description: '生鏽短小的舊小刀，攻擊範圍短但揮速極快。',
   },
   steel_sword: {
@@ -41,7 +45,20 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 25,
     damageMax: 25,
     speedOrCharge: 0.35, // Standard baseline
+    range: 1.8,
     description: '標準諾德鍛造鋼鐵長劍，手感均衡。',
+  },
+  steel_lance: {
+    id: 'steel_lance',
+    name: '騎兵長槍 Steel Lance',
+    type: 'melee',
+    tier: 2,
+    damageMin: 30,
+    damageMax: 30,
+    speedOrCharge: 0.5,
+    range: 3.0,
+    isLance: true,
+    description: '專為騎兵設計的長木桿鋼頭長槍，擁有極長攻擊距離。高速衝刺時能造成3倍貫穿傷害。',
   },
   runic_greatsword: {
     id: 'runic_greatsword',
@@ -51,6 +68,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 45,
     damageMax: 45,
     speedOrCharge: 0.45, // Slow heavy swing
+    range: 2.2,
     description: '附魔藍金紋路的重型精鋼戰刃，具備破甲高傷害。',
   },
 

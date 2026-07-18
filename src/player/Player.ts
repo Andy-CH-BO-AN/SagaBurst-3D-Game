@@ -246,6 +246,22 @@ export class Player {
       this.swordPivot.add(fuller)
       this.swordTipLocal.set(0, 2.1, 0)
 
+    } else if (weaponId === 'steel_lance') {
+      const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
+      const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
+
+      // The lance is held near the back. The pole goes from y = -0.5 to y = 2.0
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
+      pole.position.y = 0.75 // Center of pole (2.5/2 = 1.25, minus offset to hold it lower)
+      this.swordPivot.add(pole)
+
+      // Lance cone head
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat)
+      head.position.y = 2.3 // 0.75 + 1.25 + 0.3
+      head.castShadow = true
+      this.swordPivot.add(head)
+      this.swordTipLocal.set(0, 2.6, 0)
+
     } else {
       // Tier 2 Authentic Medieval Steel Sword (標準中世紀十字鋼鐵長劍)
       const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true }) // 皮革握把

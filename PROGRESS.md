@@ -6,9 +6,9 @@ _Last updated: 2026-07-19 (Phase 13 Complete — Cavalry NPCs & Mounts)_
 
 ## Current Status
 
-**All Phases (0 ~ 8, 13) — ✅ COMPLETE**
+**All Phases (0 ~ 8, 13, 14) — ✅ COMPLETE**
 
-The 3D Action RPG web game now includes fully functional Cavalry NPCs, mount damage routing, impact damage, and specific player mount interaction rules.
+The 3D Action RPG web game now includes fully functional Cavalry NPCs, mount damage routing, impact damage, specific player mount interaction rules, and specialized cavalry variants (Lancers and Mounted Archers).
 
 ---
 
@@ -51,3 +51,8 @@ All 8 base phases in `PLAN.md` + Phase 13 are completed.
 - **Dismount on Death**: When a mount's HP zeroes out, the rider gracefully dismounts to resume combat.
 - **Impact Damage**: A robust line-segment horizontal collision checks for high-speed mounts trampling targets.
 - **E Key Filter**: Players can only steal unridden, alive mounts.
+
+### Phase 14 Summary: Cavalry Weapon Extensions
+- **Lancer (長槍騎兵)**: Uses a new Lance weapon (`steel_lance`). When charging at high speed (`movementSpeed > 10`), they deal **3x** melee damage, and their successful hit replaces the mount's impact damage for that frame.
+- **Mounted Archer (騎射手)**: Armed with bows, they can aim and shoot while their mount is moving, maintaining a distance of 6~15 meters from the target without stopping.
+- **Player Support**: Players can also pick up the `steel_lance` which has an extended attack range (3.0) and enjoys the same 3x damage charge bonus and impact-skip rule as NPCs.

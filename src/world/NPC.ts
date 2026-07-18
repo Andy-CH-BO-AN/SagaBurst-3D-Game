@@ -30,7 +30,6 @@ export enum AIType {
 }
 
 const DETECTION_RADIUS = 300.0
-const MELEE_ATTACK_RADIUS = 1.8
 const RANGED_ATTACK_MAX = 15.0
 const RANGED_ATTACK_MIN = 6.0
 
@@ -51,6 +50,8 @@ export class NPC {
   public readonly rangedDamage: number
   public readonly generatedAsCavalry: boolean
   public mount: Mount | null = null
+  public meleeAttackRadius = 1.8
+  public isUsingLance = false
 
   private bodyMesh: THREE.Mesh
   private headMesh: THREE.Mesh
@@ -129,6 +130,12 @@ export class NPC {
       this.rangedDamage = WEAPONS['recurve_longbow'].damageMax
     }
 
+    if (this.generatedAsCavalry && this.aiType === AIType.MELEE) {
+      this.isUsingLance = true
+      this.meleeAttackRadius = 3.0
+      this.meleeDamage = this.meleeDamage * 1.5 // Extra damage for lance
+    }
+
     // Calibrate waypoints to terrain height
     const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
     // Spawn 20 units in the air so they drop down
@@ -169,7 +176,11 @@ export class NPC {
     }
     this.group.add(this.bowPivot)
 
-    this._buildSword(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier)
+    if (this.isUsingLance) {
+      this._buildLance()
+    } else {
+      this._buildSword(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier)
+    }
     this._buildBow()
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
@@ -205,6 +216,20 @@ export class NPC {
     this.mount.releaseRider()
     this.mount = null
     this.group.position.copy(mountPosition)
+  }
+
+  private _buildLance(): void {
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
+    const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
+
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
+    pole.position.y = 0.75
+    this.swordPivot.add(pole)
+
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat)
+    head.position.y = 2.3
+    head.castShadow = true
+    this.swordPivot.add(head)
   }
 
   private _buildSword(faction: Faction, tier: number): void {
@@ -477,7 +502,7 @@ export class NPC {
           }
         } else {
           // Melee behavior
-          if (dist <= MELEE_ATTACK_RADIUS) {
+          if (dist <= this.meleeAttackRadius) {
             this.state = AIState.ATTACK
             this.attackTimer = 0
             this.attackHitProcessed = false
@@ -528,6 +553,27 @@ export class NPC {
         }
         
         this._faceTarget(targetInfo.position)
+        
+        // Mounted Archers can move while attacking
+        if (this.isMounted && this.arrows > 0) {
+          const dist = this.combatPosition.distanceTo(targetInfo.position)
+          let moveDir = new THREE.Vector3()
+          if (dist < RANGED_ATTACK_MIN) {
+            moveDir.copy(this.group.position).sub(targetInfo.position)
+          } else if (dist > RANGED_ATTACK_MAX) {
+            moveDir.copy(targetInfo.position).sub(this.group.position)
+          } else {
+            // Orbit target
+            moveDir.copy(targetInfo.position).sub(this.group.position).cross(new THREE.Vector3(0,1,0))
+          }
+          moveDir.y = 0
+          if (moveDir.lengthSq() > 0.001) {
+             moveDir.normalize()
+             moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+             this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+          }
+        }
+
         this.attackTimer += dt
         if (this.arrows > 0) {
           // Ranged Attack (Bow draw / Pilum throw animation)
@@ -592,9 +638,14 @@ export class NPC {
 
             if (!this.attackHitProcessed && progress >= 0.5) {
               const currentDist = this.combatPosition.distanceTo(targetInfo.position)
-              if (currentDist <= MELEE_ATTACK_RADIUS + 0.4) {
+              if (currentDist <= this.meleeAttackRadius + 0.4) {
                 this.attackHitProcessed = true
-                onHitEntity(this.meleeDamage, targetInfo.isPlayer, targetInfo.npc)
+                let finalDamage = this.meleeDamage
+                if (this.isUsingLance && this.isMounted && this.mount && this.mount.movementSpeed > 10) {
+                  finalDamage *= 3.0
+                  this.mount.skipImpactThisFrame = true
+                }
+                onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
               }
             }
           } else {
@@ -605,7 +656,7 @@ export class NPC {
 
           if (this.attackTimer >= MELEE_COOLDOWN) {
             const dist = this.combatPosition.distanceTo(targetInfo.position)
-            if (dist <= MELEE_ATTACK_RADIUS) {
+            if (dist <= this.meleeAttackRadius) {
               this.attackTimer = 0
               this.attackHitProcessed = false
             } else {

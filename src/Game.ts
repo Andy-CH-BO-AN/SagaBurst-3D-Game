@@ -131,7 +131,10 @@ export class Game {
         pz = -15 - Math.random() * 60
         attempts++
       } while (!isSpawnValid(px, pz) && attempts < 50)
-      this._spawnNpc(px, pz, Faction.PLAYER, AIType.MELEE, `維京騎兵 Viking Cavalry T2`, 2, true)
+      
+      const isArcher = Math.random() < 0.5
+      const name = isArcher ? `維京騎射手 Viking Mounted Archer` : `維京長槍騎兵 Viking Lancer`
+      this._spawnNpc(px, pz, Faction.PLAYER, isArcher ? AIType.RANGED : AIType.MELEE, name, 2, true)
     }
 
     for (let i = 0; i < 20; i++) {
@@ -142,7 +145,10 @@ export class Game {
         pz = 15 + Math.random() * 60
         attempts++
       } while (!isSpawnValid(px, pz) && attempts < 50)
-      this._spawnNpc(px, pz, Faction.ENEMY, AIType.MELEE, `羅馬騎兵 Roman Cavalry T2`, 2, true)
+
+      const isArcher = Math.random() < 0.5
+      const name = isArcher ? `羅馬騎射手 Roman Mounted Archer` : `羅馬長槍騎兵 Roman Lancer`
+      this._spawnNpc(px, pz, Faction.ENEMY, isArcher ? AIType.RANGED : AIType.MELEE, name, 2, true)
     }
 
     this.damageNumbers = new DamageNumbers()
@@ -212,6 +218,7 @@ export class Game {
     const weaponTypes = [
       'rusty_dagger',
       'steel_sword',
+      'steel_lance',
       'runic_greatsword',
       'wooden_shortbow',
       'recurve_longbow',
@@ -468,8 +475,17 @@ export class Game {
     if (!this.player.isHitFrame(equippedMelee)) return
 
     const swordTipPos = this.player.getSwordTipPosition()
-    const MELEE_HIT_THRESHOLD = 1.85
-    const baseDamage = equippedMelee.damageMax
+    const MELEE_HIT_THRESHOLD = equippedMelee.range || 1.85
+    let baseDamage = equippedMelee.damageMax
+    
+    // Lance Charge Bonus
+    const isLance = equippedMelee.isLance === true
+    const isCharging = this.player.isMounted && this.player.currentMount && this.player.currentMount.movementSpeed > 10
+    if (isLance && isCharging) {
+      baseDamage *= 3.0
+      this.player.currentMount!.skipImpactThisFrame = true
+    }
+
     const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
 
     // Check Dummy Enemy
@@ -665,6 +681,7 @@ export class Game {
 
   private _updateImpactDamage(now: number): void {
     const checkImpact = (mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean => {
+      if (mount.skipImpactThisFrame) return false
       const dx = mount.group.position.x - mount.previousPosition.x
       const dz = mount.group.position.z - mount.previousPosition.z
       const px = targetPos.x - mount.previousPosition.x
@@ -848,6 +865,11 @@ export class Game {
 
     // Resolve all entity overlaps after every entity has moved this frame.
     this._resolveEntityCollisions()
+
+    // Reset impact flag
+    for (const mount of this.mounts) {
+      mount.skipImpactThisFrame = false
+    }
 
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {

@@ -28,6 +28,7 @@ export class Mount {
   public previousPosition = new THREE.Vector3()
   public movementSpeed = 0
   public isSprinting = false
+  public skipImpactThisFrame = false
 
   private impactTimes = new Map<object, number>()
   
