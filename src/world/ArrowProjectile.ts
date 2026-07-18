@@ -18,6 +18,7 @@ export class ArrowProjectile {
 
   readonly damage: number
   readonly shooterFaction: Faction
+  readonly isPlayerFired: boolean
 
   get isAlive(): boolean { return this.alive }
   get isStuck(): boolean { return this.stuck }
@@ -28,10 +29,12 @@ export class ArrowProjectile {
     direction: THREE.Vector3,
     speed: number,
     damage: number,
-    shooterFaction: Faction
+    shooterFaction: Faction,
+    isPlayerFired: boolean = false
   ) {
     this.damage = damage
     this.shooterFaction = shooterFaction
+    this.isPlayerFired = isPlayerFired
     this.mesh = new THREE.Group()
 
     // ── Build Arrow Mesh ──

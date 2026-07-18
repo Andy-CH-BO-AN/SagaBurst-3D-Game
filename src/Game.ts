@@ -107,14 +107,34 @@ export class Game {
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
     
     // ── Spawn Phase 10 Test NPCs ──
-    this.npcs.push(new NPC(this.scene, -15, -15, Faction.PLAYER, AIType.MELEE, '維京戰士 Viking Ally (M)', 2))
-    this.npcs.push(new NPC(this.scene, -12, -15, Faction.PLAYER, AIType.RANGED, '維京弓箭手 Viking Ally (R)', 2))
-    
-    const romanTier1 = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
-    const romanTier2 = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+    // ── Spawn Massive Battle (30 Vikings vs 30 Romans) ──
+    for (let i = 0; i < 15; i++) {
+      const vikingTier = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+      const vikingRTier = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+      
+      const romanTier = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+      const romanRTier = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+      
+      const vx = -40 + Math.random() * 80
+      const vz = -30 - Math.random() * 20
+      
+      const vrx = -40 + Math.random() * 80
+      const vrz = -50 - Math.random() * 20
 
-    this.npcs.push(new NPC(this.scene, 18, -18, Faction.ENEMY, AIType.MELEE, `羅馬戰士 Roman Enemy (M) T${romanTier1}`, romanTier1))
-    this.npcs.push(new NPC(this.scene, 15, -18, Faction.ENEMY, AIType.RANGED, `羅馬投石手 Roman Enemy (R) T${romanTier2}`, romanTier2))
+      const rx = -40 + Math.random() * 80
+      const rz = 30 + Math.random() * 20
+      
+      const rrx = -40 + Math.random() * 80
+      const rrz = 50 + Math.random() * 20
+
+      // Vikings
+      this.npcs.push(new NPC(this.scene, vx, vz, Faction.PLAYER, AIType.MELEE, `維京戰士 Viking Ally (M) T${vikingTier}`, vikingTier))
+      this.npcs.push(new NPC(this.scene, vrx, vrz, Faction.PLAYER, AIType.RANGED, `維京弓箭手 Viking Ally (R) T${vikingRTier}`, vikingRTier))
+
+      // Romans
+      this.npcs.push(new NPC(this.scene, rx, rz, Faction.ENEMY, AIType.MELEE, `羅馬戰士 Roman Enemy (M) T${romanTier}`, romanTier))
+      this.npcs.push(new NPC(this.scene, rrx, rrz, Faction.ENEMY, AIType.RANGED, `羅馬投石手 Roman Enemy (R) T${romanRTier}`, romanRTier))
+    }
 
     this.damageNumbers = new DamageNumbers()
 
@@ -150,7 +170,8 @@ export class Game {
         evt.direction,
         evt.speed,
         evt.damage,
-        Faction.PLAYER
+        Faction.PLAYER,
+        true
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -571,7 +592,7 @@ export class Game {
       arrow.update(dt, this.dummyEnemy, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
-        if (!isPlayer) {
+        if (!isPlayer && arrow.isPlayerFired) {
           this._showEnemyHud(targetName, hpRatio)
           this.skillManager.addXp('archery', 35, this.soundManager)
         }

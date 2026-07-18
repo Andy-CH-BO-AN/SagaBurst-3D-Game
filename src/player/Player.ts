@@ -729,12 +729,12 @@ export class Player {
     const baseDamage = THREE.MathUtils.lerp(dmgMin, dmgMax, chargeRatio)
     const damage = Math.round(baseDamage * archeryMultiplier)
 
-    const origin = this.group.position.clone()
-    origin.y += 1.4
+    const arrowOrigin = this.group.position.clone()
+    arrowOrigin.y += 1.4
 
     if (this.onFireArrow) {
       this.onFireArrow({
-        origin,
+        origin: arrowOrigin,
         direction: cameraDirection.clone(),
         speed,
         damage,

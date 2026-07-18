@@ -27,7 +27,7 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
-const DETECTION_RADIUS = 35.0
+const DETECTION_RADIUS = 200.0
 const MELEE_ATTACK_RADIUS = 1.8
 const RANGED_ATTACK_MAX = 15.0
 const RANGED_ATTACK_MIN = 6.0
