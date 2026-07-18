@@ -206,6 +206,7 @@ export class Game {
         this._scheduleHintHide()
       } else {
         if (!this.equipmentUI?.visible) {
+          this.lockOverlay.style.display = 'flex'
           this.lockOverlay.classList.remove('hidden')
         }
         this.controlsHint.classList.remove('hidden')

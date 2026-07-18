@@ -4,7 +4,6 @@
  * Calibrated with getTerrainHeight(x, z) for procedural heightmap terrain.
  */
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { getTerrainHeight } from './Terrain'
@@ -30,7 +29,7 @@ export class EnemyAI {
   private headMesh: THREE.Mesh
   private hornLeft!: THREE.Mesh
   private hornRight!: THREE.Mesh
-  private enemyModelGroup: THREE.Group
+
   private alertSprite: THREE.Sprite
 
   private macePivot: THREE.Group
@@ -75,9 +74,6 @@ export class EnemyAI {
     this.group = new THREE.Group()
     this.group.name = 'enemy_ai'
 
-    this.enemyModelGroup = new THREE.Group()
-    this.group.add(this.enemyModelGroup)
-
     this.bodyMat  = new THREE.MeshLambertMaterial({ color: 0x3d352e })
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
 
@@ -85,79 +81,41 @@ export class EnemyAI {
     this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat)
     this.bodyMesh.position.y = 0.65
     this.bodyMesh.castShadow = true
-    this.bodyMesh.visible = false
     this.group.add(this.bodyMesh)
 
     const headGeo = new THREE.SphereGeometry(0.38, 12, 8)
     this.headMesh = new THREE.Mesh(headGeo, this.bodyMat)
     this.headMesh.position.y = 1.55
     this.headMesh.castShadow = true
-    this.headMesh.visible = false
     this.group.add(this.headMesh)
 
     const hornMat = new THREE.MeshLambertMaterial({ color: 0xc4b998 })
     this.hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
     this.hornLeft.position.set(-0.32, 1.8, 0)
     this.hornLeft.rotation.z = 0.5
-    this.hornLeft.visible = false
     this.group.add(this.hornLeft)
 
     this.hornRight = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
     this.hornRight.position.set(0.32, 1.8, 0)
     this.hornRight.rotation.z = -0.5
-    this.hornRight.visible = false
     this.group.add(this.hornRight)
 
     this.macePivot = new THREE.Group()
+    this.macePivot.position.set(0.45, 0.75, -0.1)
     this.group.add(this.macePivot)
 
-    const loader = new GLTFLoader()
-    loader.load('/models/characters/enemy.glb', (gltf) => {
-      const model = gltf.scene
-      model.scale.set(1.0, 1.0, 1.0)
-      model.position.y = 0
-      model.rotation.y = Math.PI
+    // Build geometric mace
+    const handleMat = new THREE.MeshLambertMaterial({ color: 0x4a3a2a })
+    const handleGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.7, 8)
+    const handleMesh = new THREE.Mesh(handleGeo, handleMat)
+    handleMesh.position.set(0, 0.35, 0)
+    this.macePivot.add(handleMesh)
 
-      let rightHandBone: THREE.Object3D | null = null
-
-      model.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          child.castShadow = true
-          child.receiveShadow = true
-          const nameLower = child.name.toLowerCase()
-          if (nameLower.includes('sword') || nameLower.includes('shield')) {
-            child.visible = false
-          }
-        }
-        if (child.name === 'handslot.r' || child.name === 'hand.r' || child.name === 'mixamorig:RightHand' || child.name === 'RightHand') {
-          rightHandBone = child
-        }
-      })
-
-      if (rightHandBone) {
-        (rightHandBone as THREE.Object3D).add(this.macePivot)
-        this.macePivot.position.set(0, 0, 0)
-        this.macePivot.rotation.set(Math.PI / 2, 0, 0)
-      }
-
-      this.enemyModelGroup.add(model)
-    }, undefined, () => {
-      if (this.bodyMesh) this.bodyMesh.visible = true
-      if (this.headMesh) this.headMesh.visible = true
-      if (this.hornLeft) this.hornLeft.visible = true
-      if (this.hornRight) this.hornRight.visible = true
-    })
-
-    loader.load('/models/weapons/sword.glb', (gltf) => {
-      while (this.macePivot.children.length > 0) {
-        this.macePivot.remove(this.macePivot.children[0])
-      }
-      const sword = gltf.scene
-      sword.scale.set(0.7, 0.7, 0.7)
-      sword.rotation.set(Math.PI / 2, 0, Math.PI / 2)
-      sword.position.set(0, 0, 0)
-      this.macePivot.add(sword)
-    })
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.4 })
+    const headGeo2 = new THREE.DodecahedronGeometry(0.18)
+    const headMesh2 = new THREE.Mesh(headGeo2, headMat)
+    headMesh2.position.set(0, 0.75, 0)
+    this.macePivot.add(headMesh2)
 
     this.alertSprite = this._createAlertSprite()
     this.alertSprite.position.set(0, 2.3, 0)

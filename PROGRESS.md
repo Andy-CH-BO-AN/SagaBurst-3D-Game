@@ -14,6 +14,8 @@ The 3D Action RPG web game is fully implemented, verified, and tested.
 
 ## What Was Done in Phase 7 & Phase 8 (Supplement: 6 Distinct 3D Weapon Models)
 
+> **Note**: An attempt was made to integrate a realistic FBX character model (`KnightCharacter.fbx`). However, due to complex issues with bone mounting, animation scales, and material rendering inconsistencies, the decision was made to roll back to the stable procedural capsule geometry version. The downloaded FBX assets remain in `public/models/characters/` for future reference, but are currently not active in the codebase.
+
 ### Files Created/Modified
 | File | Action | Purpose |
 |------|--------|---------|

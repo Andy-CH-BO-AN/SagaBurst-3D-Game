@@ -4,7 +4,6 @@
  * Uses emissive glow materials instead of heavy PointLights to keep 60+ FPS even with 30+ items.
  */
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { WEAPONS, getTierColor } from '../rpg/WeaponDatabase'
 import { getTerrainHeight } from './Terrain'
 
@@ -78,17 +77,9 @@ export class WeaponPickup {
   private _buildMesh(colorHex: number): void {
     if (this.isArrowPack || this.weaponId.includes('bow')) {
       const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.3 })
-      const loader = new GLTFLoader()
-      loader.load('/models/weapons/bow.glb', (gltf) => {
-        const model = gltf.scene
-        model.scale.set(0.6, 0.6, 0.6)
-        model.position.set(0, 0.5, 0)
-        this.meshGroup.add(model)
-      }, undefined, () => {
-        const bow = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 6, 12, Math.PI), mat)
-        bow.position.y = 0.45
-        this.meshGroup.add(bow)
-      })
+      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 6, 12, Math.PI), mat)
+      bow.position.y = 0.45
+      this.meshGroup.add(bow)
     } else {
       // 打造正宗中世紀十字鋼鐵長劍 (Steel Sword / Greatsword Pickup)
       const hiltMat   = new THREE.MeshLambertMaterial({ color: 0x4a3525 })

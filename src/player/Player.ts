@@ -6,9 +6,7 @@
  * Triggers SoundManager audio effects for sword swings and bow releases.
  */
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+
 import type { PlayerInput } from './PlayerInput'
 import type { StaminaBar } from '../ui/StaminaBar'
 import type { HpBar } from '../ui/HpBar'
@@ -51,16 +49,8 @@ export class Player {
   private bodyMesh!: THREE.Mesh
   private headMesh!: THREE.Mesh
   private faceCone!: THREE.Mesh
-  private characterModelGroup: THREE.Group
-  private gltfLoader: GLTFLoader
-  private flashTimer = 0
 
-  // FBX Animation System
-  private mixer: THREE.AnimationMixer | null = null
-  private animClips: THREE.AnimationClip[] = []
-  private currentAction: THREE.AnimationAction | null = null
-  private currentAnimName = ''
-  private knightMeshes: THREE.Mesh[] = []
+  private flashTimer = 0
 
   // 3D Weapon Pivots & Models
   private rightHandSocket!: THREE.Group
@@ -121,29 +111,22 @@ export class Player {
 
     this.bodyMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 })
     this.hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff3333 })
-    this.characterModelGroup = new THREE.Group()
-    this.group.add(this.characterModelGroup)
 
-    this.gltfLoader = new GLTFLoader()
+
 
     this._buildMesh()
-    this._loadCharacterFBX()
 
-    // Create Right Hand Socket (Attached to hand bone later)
+    // Create Right Hand Socket (Default position at player right hand T-pose palm)
     this.rightHandSocket = new THREE.Group()
+    this.rightHandSocket.position.set(0.45, 0.1, -0.1)
     this.group.add(this.rightHandSocket)
 
     // Create Weapon Pivots inside Right Hand Socket
     this.swordPivot = new THREE.Group()
     this.rightHandSocket.add(this.swordPivot)
 
-    // Create static Bow Socket (Keeps procedural bow aiming intact)
-    this.bowSocket = new THREE.Group()
-    this.bowSocket.position.set(0.68, 0.95, 0.05)
-    this.group.add(this.bowSocket)
-
     this.bowPivot = new THREE.Group()
-    this.bowSocket.add(this.bowPivot)
+    this.group.add(this.bowPivot)
 
     // Build default initial weapons (Steel Sword & Recurve Longbow)
     this.rebuildMeleeWeapon('steel_sword')
@@ -160,133 +143,19 @@ export class Player {
     const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 12)
     this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat)
     this.bodyMesh.castShadow = true
-    this.bodyMesh.visible = false
     this.group.add(this.bodyMesh)
 
     const headGeo = new THREE.SphereGeometry(0.35, 12, 8)
     this.headMesh = new THREE.Mesh(headGeo, this.bodyMat)
     this.headMesh.position.y = 0.95
     this.headMesh.castShadow = true
-    this.headMesh.visible = false
     this.group.add(this.headMesh)
 
     const faceMat = new THREE.MeshLambertMaterial({ color: 0x333333 })
     this.faceCone = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 6), faceMat)
     this.faceCone.rotation.x = -Math.PI / 2
     this.faceCone.position.set(0, 0.95, -0.38)
-    this.faceCone.visible = false
     this.group.add(this.faceCone)
-  }
-
-  private _loadCharacterFBX(): void {
-    const fbxLoader = new FBXLoader()
-    fbxLoader.load('/models/characters/KnightCharacter.fbx', (fbx) => {
-
-      // Scale: FBXLoader auto-applies 0.01 for cm-unit FBX files from Blender
-      fbx.scale.setScalar(0.01)
-      fbx.position.set(0, -PLAYER_HALF_HEIGHT, 0)
-      fbx.rotation.y = Math.PI
-
-      // Hide capsule fallback geometry — FBX loaded successfully
-      if (this.bodyMesh) this.bodyMesh.visible = false
-      if (this.headMesh) this.headMesh.visible = false
-      if (this.faceCone) this.faceCone.visible = false
-
-      // Shadow + collect mesh refs + dynamic bone finding
-      let rightHandBone: THREE.Object3D | null = null
-      let headBone: THREE.Object3D | null = null
-      let spineBone: THREE.Object3D | null = null
-
-      fbx.traverse((child) => {
-        const nameL = child.name.toLowerCase()
-        // Try to find the bones dynamically instead of hardcoding
-        if (nameL.includes('hand') && nameL.includes('r')) {
-          rightHandBone = child
-        }
-        if (nameL.includes('head')) headBone = child
-        if (nameL.includes('spine') || nameL.includes('chest')) spineBone = child
-
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh
-          mesh.castShadow = true
-          mesh.receiveShadow = true
-          this.knightMeshes.push(mesh)
-
-          if (mesh.material) {
-            const mat = mesh.material as THREE.MeshPhongMaterial
-            if (mat.name === 'Armor') {
-              mat.color.setHex(0x888888)
-              mat.specular = new THREE.Color(0x555555)
-              mat.shininess = 30
-            }
-          }
-        }
-      })
-
-      // Fallback if dynamic search missed it
-      if (!rightHandBone) rightHandBone = fbx.getObjectByName('MiddleHand.R') || null
-
-      // Attach weapon socket to right hand
-      let boneWorldScaleStr = 'N/A'
-      let rightHandName = rightHandBone ? rightHandBone.name : 'NOT FOUND'
-      
-      if (rightHandBone) {
-        rightHandBone.add(this.rightHandSocket)
-        this.rightHandSocket.position.set(0, 0, 0)
-        
-        fbx.updateMatrixWorld(true)
-        const boneWorldScale = new THREE.Vector3()
-        boneWorldScale.setFromMatrixScale(rightHandBone.matrixWorld)
-        
-        // Counteract the inherited scale, should be roughly 1.0 since root is 0.01 and bone is 100
-        this.rightHandSocket.scale.set(1 / boneWorldScale.x, 1 / boneWorldScale.y, 1 / boneWorldScale.z)
-        
-        // Correct the rotation so the sword points forward in the hand
-        this.rightHandSocket.rotation.set(Math.PI / 2, 0, 0)
-      } else {
-        console.warn('[Player] Right hand bone not found — weapon at fallback position')
-      }
-
-      // Find spine/chest dynamically using UpperArm's parent!
-      if (!spineBone) {
-        const upperArm = fbx.getObjectByName('UpperArm.L')
-        if (upperArm && upperArm.parent) {
-          spineBone = upperArm.parent
-        } else {
-          spineBone = fbx.getObjectByName('Hips') || null
-        }
-      }
-
-      // Load Accessories (Quaternius accessories are usually exported at 100x scale relative to character)
-      if (headBone) {
-        fbxLoader.load('/models/characters/Helmet1.fbx', (helmetFbx) => {
-          helmetFbx.scale.setScalar(0.01) // Correct for 100x native scale
-          helmetFbx.position.set(0, 0, 0)
-          helmetFbx.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true }})
-          headBone!.add(helmetFbx)
-        })
-      }
-      if (spineBone) {
-        fbxLoader.load('/models/characters/ShoulderPads.fbx', (padsFbx) => {
-          padsFbx.scale.setScalar(0.01) // Correct for 100x native scale
-          padsFbx.position.set(0, 0, 0)
-          padsFbx.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true }})
-          spineBone!.add(padsFbx)
-        })
-      }
-
-      this.mixer = new THREE.AnimationMixer(fbx)
-      this.animClips = fbx.animations
-      this._switchAnimation('HumanArmature|Idle')
-
-      this.characterModelGroup.add(fbx)
-
-    }, undefined, (err) => {
-      console.warn('[Player] FBX load failed, fallback to capsule geometry:', err)
-      if (this.bodyMesh) this.bodyMesh.visible = true
-      if (this.headMesh) this.headMesh.visible = true
-      if (this.faceCone) this.faceCone.visible = true
-    })
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -414,59 +283,121 @@ export class Player {
       this.bowPivot.remove(this.bowPivot.children[0])
     }
 
-    this.gltfLoader.load('/models/weapons/bow.glb', (gltf) => {
-      if (this.currentRangedId !== weaponId) return
-
-      while (this.bowPivot.children.length > 0) {
-        this.bowPivot.remove(this.bowPivot.children[0])
-      }
-
-      const bowModel = gltf.scene
-      bowModel.scale.set(0.6, 0.6, 0.6)
-      bowModel.rotation.set(0, Math.PI / 2, 0)
-      bowModel.position.set(0, 0, 0)
-
-      bowModel.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          child.castShadow = true
-        }
-      })
-
-      this.bowPivot.add(bowModel)
-      this._buildNockedArrow(weaponId)
-    }, undefined, () => {
-      this._buildGeometricRangedWeapon(weaponId)
-    })
-
+    this._buildGeometricRangedWeapon(weaponId)
     this.bowPivot.visible = false
   }
 
   private _buildGeometricRangedWeapon(weaponId: string): void {
     const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
     const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222 })
 
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.25, 8), gripMat)
-    this.bowPivot.add(grip)
+    let topTip = new THREE.Vector3(0, 0.75, 0.12)
+    let botTip = new THREE.Vector3(0, -0.75, 0.12)
+    let stringLength = 0.78
 
-    const upperLimb = new THREE.Group()
-    const limbSeg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.55, 8), woodMat)
-    limbSeg1.position.set(0, 0.35, -0.08)
-    limbSeg1.rotation.x = -0.3
-    upperLimb.add(limbSeg1)
-    this.bowPivot.add(upperLimb)
+    if (weaponId === 'wooden_shortbow') {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e })
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), gripMat)
+      this.bowPivot.add(grip)
 
-    const lowerLimb = new THREE.Group()
-    const limbSeg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.55, 8), woodMat)
-    limbSeg3.position.set(0, -0.35, -0.08)
-    limbSeg3.rotation.x = 0.3
-    lowerLimb.add(limbSeg3)
-    this.bowPivot.add(lowerLimb)
+      const upperLimb = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 0.45, 8), woodMat)
+      upperLimb.position.set(0, 0.3, -0.05)
+      upperLimb.rotation.x = -0.2
+      this.bowPivot.add(upperLimb)
 
-    this.stringMeshTop = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.78, 4), stringMat)
+      const lowerLimb = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 0.45, 8), woodMat)
+      lowerLimb.position.set(0, -0.3, -0.05)
+      lowerLimb.rotation.x = 0.2
+      this.bowPivot.add(lowerLimb)
+
+      topTip.set(0, 0.52, 0.04)
+      botTip.set(0, -0.52, 0.04)
+      stringLength = 0.53
+
+    } else if (weaponId === 'elven_runebow') {
+      const whiteWoodMat = new THREE.MeshLambertMaterial({ color: 0xdddddd })
+      const gemMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
+      
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.3, 8), gripMat)
+      this.bowPivot.add(grip)
+
+      // Elven Upper Limb (3 Segments for intense recurve)
+      const u1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.3, 8), whiteWoodMat)
+      u1.position.set(0, 0.28, -0.08)
+      u1.rotation.x = -0.4
+      this.bowPivot.add(u1)
+      const u2 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.35, 8), whiteWoodMat)
+      u2.position.set(0, 0.55, -0.15)
+      u2.rotation.x = 0.1
+      this.bowPivot.add(u2)
+      const u3 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.01, 0.3, 8), whiteWoodMat)
+      u3.position.set(0, 0.85, -0.08)
+      u3.rotation.x = 0.5
+      this.bowPivot.add(u3)
+
+      // Elven Lower Limb
+      const l1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.3, 8), whiteWoodMat)
+      l1.position.set(0, -0.28, -0.08)
+      l1.rotation.x = 0.4
+      this.bowPivot.add(l1)
+      const l2 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.35, 8), whiteWoodMat)
+      l2.position.set(0, -0.55, -0.15)
+      l2.rotation.x = -0.1
+      this.bowPivot.add(l2)
+      const l3 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.01, 0.3, 8), whiteWoodMat)
+      l3.position.set(0, -0.85, -0.08)
+      l3.rotation.x = -0.5
+      this.bowPivot.add(l3)
+
+      // Glowing Gems
+      const topGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), gemMat)
+      topGem.position.set(0, 0.98, -0.01)
+      this.bowPivot.add(topGem)
+      const botGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), gemMat)
+      botGem.position.set(0, -0.98, -0.01)
+      this.bowPivot.add(botGem)
+
+      topTip.set(0, 1.0, -0.01)
+      botTip.set(0, -1.0, -0.01)
+      stringLength = 1.0
+
+    } else {
+      // Default: Recurve Longbow
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x4a2e15 })
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.25, 8), gripMat)
+      this.bowPivot.add(grip)
+
+      const upperLimb = new THREE.Group()
+      const limbSeg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.45, 8), woodMat)
+      limbSeg1.position.set(0, 0.3, -0.08)
+      limbSeg1.rotation.x = -0.4
+      upperLimb.add(limbSeg1)
+      const limbSeg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.35, 8), woodMat)
+      limbSeg2.position.set(0, 0.65, -0.1)
+      limbSeg2.rotation.x = 0.2
+      upperLimb.add(limbSeg2)
+      this.bowPivot.add(upperLimb)
+
+      const lowerLimb = new THREE.Group()
+      const limbSeg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.45, 8), woodMat)
+      limbSeg3.position.set(0, -0.3, -0.08)
+      limbSeg3.rotation.x = 0.4
+      lowerLimb.add(limbSeg3)
+      const limbSeg4 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.35, 8), woodMat)
+      limbSeg4.position.set(0, -0.65, -0.1)
+      limbSeg4.rotation.x = -0.2
+      lowerLimb.add(limbSeg4)
+      this.bowPivot.add(lowerLimb)
+
+      topTip.set(0, 0.82, -0.04)
+      botTip.set(0, -0.82, -0.04)
+      stringLength = 0.85
+    }
+
+    this.stringMeshTop = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, stringLength, 4), stringMat)
     this.bowPivot.add(this.stringMeshTop)
 
-    this.stringMeshBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.78, 4), stringMat)
+    this.stringMeshBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, stringLength, 4), stringMat)
     this.bowPivot.add(this.stringMeshBottom)
 
     this._buildNockedArrow(weaponId)
@@ -501,51 +432,7 @@ export class Player {
     this.bowPivot.add(this.nockedArrow)
   }
 
-  private _switchAnimation(name: string, loop = true): void {
-    if (this.currentAnimName === name || !this.mixer) return
 
-    const clip = THREE.AnimationClip.findByName(this.animClips, name)
-    if (!clip) {
-      console.warn(`[Player] Animation clip not found: ${name}`)
-      return
-    }
-
-    const nextAction = this.mixer.clipAction(clip)
-    nextAction.loop = loop ? THREE.LoopRepeat : THREE.LoopOnce
-    if (!loop) nextAction.clampWhenFinished = true
-
-    if (this.currentAction && this.currentAction !== nextAction) {
-      nextAction.reset().fadeIn(0.2)
-      this.currentAction.fadeOut(0.2)
-    } else {
-      nextAction.reset().play()
-    }
-
-    this.currentAction = nextAction
-    this.currentAnimName = name
-  }
-
-  private _updateAnimationState(isMoving: boolean): void {
-    if (!this.mixer) return
-
-    if (this.isDead) {
-      this._switchAnimation('HumanArmature|Death', false)
-      return
-    }
-    if (this.isSwinging) {
-      this._switchAnimation('HumanArmature|Run_swordAttack', false)
-      return
-    }
-    if (this.isSprinting && isMoving) {
-      this._switchAnimation('HumanArmature|Run')
-      return
-    }
-    if (isMoving) {
-      this._switchAnimation('HumanArmature|Walking')
-      return
-    }
-    this._switchAnimation('HumanArmature|Idle')
-  }
 
   takeDamage(amount: number, hpBar: HpBar): void {
     if (this.isDead) return
@@ -593,23 +480,13 @@ export class Player {
     inventoryManager?: InventoryManager,
     archeryMultiplier = 1.0,
   ): void {
-    // Tick AnimationMixer
-    this.mixer?.update(dt)
-
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
       this.bodyMesh.material = this.hitFlashMat
       this.headMesh.material = this.hitFlashMat
-      for (const m of this.knightMeshes) {
-        (m as any)._origMat ??= m.material
-        m.material = this.hitFlashMat
-      }
     } else {
       this.bodyMesh.material = this.bodyMat
       this.headMesh.material = this.bodyMat
-      for (const m of this.knightMeshes) {
-        if ((m as any)._origMat) m.material = (m as any)._origMat
-      }
     }
 
     if (this.isDead) return
@@ -684,7 +561,7 @@ export class Player {
       this.isSprinting = false
     }
 
-    this._updateAnimationState(isMoving)
+
 
     if (this.isSprinting) {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
@@ -737,28 +614,45 @@ export class Player {
   private _updateBowPose(maxChargeTime = MAX_BOW_CHARGE_TIME): void {
     if (!this.aiming) return
 
-    this.bowPivot.position.set(-0.48, 0.9, -0.45)
-    this.bowPivot.rotation.set(0.1, -0.15, -0.2)
+    // Position bow on the right side (aligning with right-shoulder camera)
+    this.bowPivot.position.set(0.35, 0.8, -0.5)
+    this.bowPivot.rotation.set(0, 0, -0.1)
 
     const drawRatio = this.bowChargeTime / maxChargeTime
     const stringPullBack = drawRatio * 0.45
 
-    const topTip = new THREE.Vector3(0, 0.75, 0.12)
-    const botTip = new THREE.Vector3(0, -0.75, 0.12)
-    const nockPos = new THREE.Vector3(0.15, 0, 0.12 + stringPullBack)
+    let topTip = new THREE.Vector3(0, 0.82, -0.04)
+    let botTip = new THREE.Vector3(0, -0.82, -0.04)
+    let stringLength = 0.85
+    
+    if (this.currentRangedId === 'wooden_shortbow') {
+      topTip.set(0, 0.52, 0.04)
+      botTip.set(0, -0.52, 0.04)
+      stringLength = 0.53
+    } else if (this.currentRangedId === 'elven_runebow') {
+      topTip.set(0, 1.0, -0.01)
+      botTip.set(0, -1.0, -0.01)
+      stringLength = 1.0
+    }
+
+    // Draw string straight back in local space
+    const nockPos = new THREE.Vector3(0, 0, 0.12 + stringPullBack)
+
+    const worldNock = new THREE.Vector3()
+    this.bowPivot.localToWorld(worldNock.copy(nockPos))
 
     if (this.stringMeshTop) {
       this.stringMeshTop.position.copy(topTip).add(nockPos).multiplyScalar(0.5)
-      this.stringMeshTop.lookAt(nockPos)
-      this.stringMeshTop.rotation.x += Math.PI / 2
-      this.stringMeshTop.scale.set(1, topTip.distanceTo(nockPos) / 0.78, 1)
+      this.stringMeshTop.lookAt(worldNock)
+      this.stringMeshTop.rotateX(Math.PI / 2)
+      this.stringMeshTop.scale.set(1, topTip.distanceTo(nockPos) / stringLength, 1)
     }
 
     if (this.stringMeshBottom) {
       this.stringMeshBottom.position.copy(botTip).add(nockPos).multiplyScalar(0.5)
-      this.stringMeshBottom.lookAt(nockPos)
-      this.stringMeshBottom.rotation.x += Math.PI / 2
-      this.stringMeshBottom.scale.set(1, botTip.distanceTo(nockPos) / 0.78, 1)
+      this.stringMeshBottom.lookAt(worldNock)
+      this.stringMeshBottom.rotateX(Math.PI / 2)
+      this.stringMeshBottom.scale.set(1, botTip.distanceTo(nockPos) / stringLength, 1)
     }
 
     if (this.nockedArrow) {
