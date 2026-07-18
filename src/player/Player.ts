@@ -16,6 +16,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import type { WeaponData } from '../rpg/WeaponDatabase'
 import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { Mount } from '../world/Mount'
+import { buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 
 // ── Tuning constants ──
 const MOVE_SPEED        = 8    // units/s walk
@@ -45,11 +46,15 @@ export interface ArrowLaunchEvent {
 export class Player {
   readonly group: THREE.Group
 
-  private bodyMat: THREE.MeshLambertMaterial
+  private bodyMat!: THREE.MeshStandardMaterial
   private hitFlashMat: THREE.MeshBasicMaterial
   private bodyMesh!: THREE.Mesh
   private headMesh!: THREE.Mesh
-  private faceCone!: THREE.Mesh
+  private headMat!: THREE.MeshStandardMaterial
+  private characterVisualGroup: THREE.Group
+  private rightArm!: THREE.Group
+  private leftArm!: THREE.Group
+  private currentArmorTier: 1 | 2 | 3 = 2
 
   private flashTimer = 0
 
@@ -113,12 +118,10 @@ export class Player {
     this.group = new THREE.Group()
     this.group.name = 'player'
 
-    this.bodyMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 })
     this.hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff3333 })
-
-
-
-    this._buildMesh()
+    this.characterVisualGroup = new THREE.Group()
+    this.group.add(this.characterVisualGroup)
+    this._buildMesh(2)
 
     // Create Right Hand Socket (Default position at player right hand T-pose palm)
     this.rightHandSocket = new THREE.Group()
@@ -143,63 +146,20 @@ export class Player {
     this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
   }
 
-  private _buildMesh(): void {
-    this.bodyMat.flatShading = true
-
-    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 8)
-    this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat)
-    this.bodyMesh.castShadow = true
-    this.group.add(this.bodyMesh)
-
-    const headGeo = new THREE.SphereGeometry(0.35, 8, 6)
-    this.headMesh = new THREE.Mesh(headGeo, this.bodyMat)
-    this.headMesh.position.y = 0.95
-    this.headMesh.castShadow = true
-    this.group.add(this.headMesh)
-
-    const faceMat = new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true })
-    this.faceCone = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 6), faceMat)
-    this.faceCone.rotation.x = -Math.PI / 2
-    this.faceCone.position.set(0, 0.95, -0.38)
-    this.group.add(this.faceCone)
-
-    // --- Viking Tier 3 Helmet ---
-    const helmMat = new THREE.MeshLambertMaterial({ color: 0xc0c0c0, flatShading: true }) // Silver
-    const helmBase = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.4, 8), helmMat)
-    helmBase.position.y = 1.05
-    this.group.add(helmBase)
-
-    const hornMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-    const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
-    hornLeft.position.set(-0.35, 1.25, 0)
-    hornLeft.rotation.z = 0.5
-    this.group.add(hornLeft)
-
-    const hornRight = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
-    hornRight.position.set(0.35, 1.25, 0)
-    hornRight.rotation.z = -0.5
-    this.group.add(hornRight)
-
-    // --- Viking Tier 3 Armor ---
-    const leatherMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true })
-    
-    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.7, 8), leatherMat)
-    chest.position.y = 0.1
-    this.group.add(chest)
-
-    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.45), helmMat)
-    shoulderL.position.set(-0.38, 0.4, 0)
-    shoulderL.rotation.z = 0.2
-    this.group.add(shoulderL)
-
-    const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.45), helmMat)
-    shoulderR.position.set(0.38, 0.4, 0)
-    shoulderR.rotation.z = -0.2
-    this.group.add(shoulderR)
-    
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4), helmMat)
-    plate.position.y = -0.1
-    this.group.add(plate)
+  private _buildMesh(tier: 1 | 2 | 3): void {
+    this.currentArmorTier = tier
+    this.characterVisualGroup.clear()
+    const parts = buildCharacterVisual(this.characterVisualGroup, {
+      faction: 'viking',
+      tier,
+      isPlayer: true,
+    })
+    this.bodyMesh = parts.bodyMesh
+    this.headMesh = parts.headMesh
+    this.bodyMat = parts.bodyMaterial
+    this.headMat = parts.headMaterial
+    this.rightArm = parts.rightArm
+    this.leftArm = parts.leftArm
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -215,6 +175,7 @@ export class Player {
     }
 
     this._buildGeometricMeleeWeapon(weaponId)
+    polishWeaponMaterials(this.swordPivot)
   }
 
   private _buildGeometricMeleeWeapon(weaponId: string): void {
@@ -328,6 +289,7 @@ export class Player {
     }
 
     this._buildGeometricRangedWeapon(weaponId)
+    polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false
   }
 
@@ -530,13 +492,16 @@ export class Player {
       this.headMesh.material = this.hitFlashMat
     } else {
       this.bodyMesh.material = this.bodyMat
-      this.headMesh.material = this.bodyMat
+      this.headMesh.material = this.headMat
     }
 
     if (this.isDead) return
 
     const equippedMelee = inventoryManager?.equippedMelee
     const equippedRanged = inventoryManager?.equippedRanged
+
+    const visualTier = Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2) as 1 | 2 | 3
+    if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
@@ -831,6 +796,13 @@ export class Player {
   private _updateSwingAnimation(dt: number, swingDuration = SWING_DURATION): void {
     if (!this.isSwinging) {
       this.swordPivot.rotation.set(0, 0, 0)
+      if (this.aiming) {
+        this.rightArm.rotation.set(-0.55, 0, -0.18)
+        this.leftArm.rotation.set(-0.35, 0, 0.18)
+      } else {
+        this.rightArm.rotation.set(0, 0, -0.12)
+        this.leftArm.rotation.set(0, 0, 0.12)
+      }
       return
     }
 
@@ -843,12 +815,14 @@ export class Player {
       const yaw   = THREE.MathUtils.lerp(0, Math.PI / 2, t)
       const roll  = THREE.MathUtils.lerp(-Math.PI / 12, -Math.PI / 4, t)
       this.swordPivot.rotation.set(pitch, yaw, roll)
+      this.rightArm.rotation.set(pitch * 0.65, yaw * 0.3, roll)
     } else {
       const t = (progress - 0.5) / 0.5
       const pitch = THREE.MathUtils.lerp(-Math.PI / 3, Math.PI / 6, t)
       const yaw   = THREE.MathUtils.lerp(Math.PI / 2, 0, t)
       const roll  = THREE.MathUtils.lerp(-Math.PI / 4, -Math.PI / 12, t)
       this.swordPivot.rotation.set(pitch, yaw, roll)
+      this.rightArm.rotation.set(pitch * 0.65, yaw * 0.3, roll)
     }
 
     if (this.swingTimer >= swingDuration) {

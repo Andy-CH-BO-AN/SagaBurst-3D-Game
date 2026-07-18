@@ -113,10 +113,15 @@ export class Game {
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
     
     // ── Spawn Test NPCs ──
-    // 1 Viking Ally
+    // 3 Viking allies: melee T1, ranged T2, melee T3.
     this.npcs.push(new NPC(this.scene, -5, -5, Faction.PLAYER, AIType.MELEE, `維京戰士 Viking Ally (M) T1`, 1))
-    // 1 Roman Enemy
+    this.npcs.push(new NPC(this.scene, -8, 2, Faction.PLAYER, AIType.RANGED, `維京獵手 Viking Ally (R) T2`, 2))
+    this.npcs.push(new NPC(this.scene, -2, 8, Faction.PLAYER, AIType.MELEE, `維京侍衛 Viking Ally (M) T3`, 3))
+
+    // 3 Roman enemies: melee T1, ranged T2, melee T3.
     this.npcs.push(new NPC(this.scene, 5, 10, Faction.ENEMY, AIType.MELEE, `羅馬戰士 Roman Enemy (M) T1`, 1))
+    this.npcs.push(new NPC(this.scene, 10, 4, Faction.ENEMY, AIType.RANGED, `羅馬標槍兵 Roman Enemy (R) T2`, 2))
+    this.npcs.push(new NPC(this.scene, 7, 16, Faction.ENEMY, AIType.MELEE, `百夫長 Roman Centurion (M) T3`, 3))
 
     this.damageNumbers = new DamageNumbers()
 

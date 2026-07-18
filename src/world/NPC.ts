@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export enum AIState {
@@ -50,12 +51,15 @@ export class NPC {
 
   private bodyMesh: THREE.Mesh
   private headMesh: THREE.Mesh
+  private headMat: THREE.MeshStandardMaterial
+  private rightArm: THREE.Group
+  private leftArm: THREE.Group
   private alertSprite: THREE.Sprite
 
   private swordPivot: THREE.Group
   private bowPivot: THREE.Group
 
-  private bodyMat: THREE.MeshLambertMaterial
+  private bodyMat: THREE.MeshStandardMaterial
   private flashMat: THREE.MeshBasicMaterial
 
   readonly maxHp = 120
@@ -121,29 +125,18 @@ export class NPC {
     this.group = new THREE.Group()
     this.group.name = `npc_${faction}_${aiType}`
 
-    // Colors
-    let primaryColor = 0x2b4c7e // Viking Blue
-    if (this.faction === Faction.ENEMY) {
-      primaryColor = 0x8b0000 // Roman Red
-    }
-
-    this.bodyMat  = new THREE.MeshLambertMaterial({ color: primaryColor, flatShading: true })
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-
-    const bodyGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.3, 8)
-    this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat)
-    this.bodyMesh.position.y = 0.65
-    this.bodyMesh.castShadow = true
-    this.group.add(this.bodyMesh)
-
-    const headGeo = new THREE.SphereGeometry(0.38, 8, 6)
-    this.headMesh = new THREE.Mesh(headGeo, this.bodyMat)
-    this.headMesh.position.y = 1.55
-    this.headMesh.castShadow = true
-    this.group.add(this.headMesh)
-
-    this._buildHelmet()
-    this._buildArmor()
+    const visual = buildCharacterVisual(this.group, {
+      faction: this.faction === Faction.ENEMY ? 'roman' : 'viking',
+      tier: this.tier,
+      isPlayer: false,
+    })
+    this.bodyMesh = visual.bodyMesh
+    this.headMesh = visual.headMesh
+    this.bodyMat = visual.bodyMaterial
+    this.headMat = visual.headMaterial
+    this.rightArm = visual.rightArm
+    this.leftArm = visual.leftArm
 
     // Weapons
     this.swordPivot = new THREE.Group()
@@ -162,6 +155,8 @@ export class NPC {
 
     this._buildSword(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier)
     this._buildBow()
+    polishWeaponMaterials(this.swordPivot)
+    polishWeaponMaterials(this.bowPivot)
 
     if (this.arrows > 0) {
       this.swordPivot.visible = false
@@ -178,116 +173,6 @@ export class NPC {
 
     this.group.position.copy(basePos)
     scene.add(this.group)
-  }
-
-  private _buildHelmet() {
-    if (this.faction === Faction.PLAYER) {
-      // Viking Helmet
-      const helmMat = new THREE.MeshLambertMaterial({ color: 0xc0c0c0, flatShading: true }) // Silver
-      
-      const helmBase = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.4, 8), helmMat)
-      helmBase.position.y = 1.7
-      this.group.add(helmBase)
-
-      if (this.tier >= 2) {
-        // Horns
-        const hornMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-        const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
-        hornLeft.position.set(-0.35, 1.85, 0)
-        hornLeft.rotation.z = 0.5
-        this.group.add(hornLeft)
-
-        const hornRight = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
-        hornRight.position.set(0.35, 1.85, 0)
-        hornRight.rotation.z = -0.5
-        this.group.add(hornRight)
-      }
-    } else {
-      // Roman Helmet
-      const helmMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true }) // Gold/Bronze
-      
-      const helmBase = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.45, 8), helmMat)
-      helmBase.position.y = 1.65
-      this.group.add(helmBase)
-
-      if (this.tier >= 2) {
-        // Crest
-        const crestMat = new THREE.MeshLambertMaterial({ color: 0xcc0000, flatShading: true }) // Red crest
-        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 0.6), crestMat)
-        crest.position.y = 2.0
-        this.group.add(crest)
-      }
-    }
-  }
-
-  private _buildArmor() {
-    if (this.faction === Faction.PLAYER) {
-      // Viking Armor
-      const leatherMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true })
-      const ironMat = new THREE.MeshLambertMaterial({ color: 0xc0c0c0, flatShading: true })
-
-      // Base chest
-      const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.7, 8), leatherMat)
-      chest.position.y = 0.8
-      this.group.add(chest)
-
-      if (this.tier >= 2) {
-        // Shoulder pads
-        const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.5), ironMat)
-        shoulderL.position.set(-0.4, 1.1, 0)
-        shoulderL.rotation.z = 0.2
-        this.group.add(shoulderL)
-
-        const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.5), ironMat)
-        shoulderR.position.set(0.4, 1.1, 0)
-        shoulderR.rotation.z = -0.2
-        this.group.add(shoulderR)
-      }
-      
-      if (this.tier >= 3) {
-        // Belt buckle / iron plates
-        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 0.45), ironMat)
-        plate.position.y = 0.6
-        this.group.add(plate)
-      }
-
-    } else {
-      // Roman Armor
-      const leatherMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-      const goldMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-
-      // Base chest
-      const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.6, 8), leatherMat)
-      chest.position.y = 0.8
-      this.group.add(chest)
-
-      if (this.tier >= 2) {
-        // Lorica Segmentata (segmented armor)
-        for(let i=0; i<3; i++) {
-          const segment = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.15, 8), goldMat)
-          segment.position.y = 0.7 + i * 0.2
-          this.group.add(segment)
-        }
-      }
-
-      if (this.tier >= 3) {
-        // Centurion additions (shoulder guards and pteruges skirt)
-        const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.6), goldMat)
-        shoulderL.position.set(-0.4, 1.1, 0)
-        shoulderL.rotation.z = 0.2
-        this.group.add(shoulderL)
-
-        const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.6), goldMat)
-        shoulderR.position.set(0.4, 1.1, 0)
-        shoulderR.rotation.z = -0.2
-        this.group.add(shoulderR)
-        
-        // Skirt (pteruges)
-        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.48, 0.35, 8), leatherMat)
-        skirt.position.y = 0.3
-        this.group.add(skirt)
-      }
-    }
   }
 
   private _buildSword(faction: Faction, tier: number): void {
@@ -487,6 +372,8 @@ export class NPC {
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void
   ): void {
     const previousPosition = this.group.position.clone()
+    this.rightArm.rotation.set(0, 0, -0.12)
+    this.leftArm.rotation.set(0, 0, 0.12)
 
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
@@ -494,7 +381,7 @@ export class NPC {
       this.headMesh.material = this.flashMat
     } else {
       this.bodyMesh.material = this.bodyMat
-      this.headMesh.material = this.bodyMat
+      this.headMesh.material = this.headMat
     }
 
     const targetInfo = this._findTarget(player, allNPCs)
@@ -620,6 +507,8 @@ export class NPC {
             // Pilum throw animation (wind up)
             this.bowPivot.rotation.x = THREE.MathUtils.lerp(0, Math.PI / 4, progress) 
           }
+          this.rightArm.rotation.set(THREE.MathUtils.lerp(-0.35, -0.85, progress), 0, -0.18)
+          this.leftArm.rotation.set(THREE.MathUtils.lerp(-0.2, -0.45, progress), 0, 0.16)
 
           if (this.attackTimer >= RANGED_COOLDOWN) {
             // Reset rotation
@@ -661,9 +550,11 @@ export class NPC {
           if (progress < 0.4) {
             const t = progress / 0.4
             this.swordPivot.rotation.x = THREE.MathUtils.lerp(0, -Math.PI / 2, t)
+            this.rightArm.rotation.x = THREE.MathUtils.lerp(-0.2, -0.95, t)
           } else if (progress < 0.7) {
             const t = (progress - 0.4) / 0.3
             this.swordPivot.rotation.x = THREE.MathUtils.lerp(-Math.PI / 2, Math.PI / 3, t)
+            this.rightArm.rotation.x = THREE.MathUtils.lerp(-0.95, 0.55, t)
 
             if (!this.attackHitProcessed && progress >= 0.5) {
               const currentDist = this.group.position.distanceTo(targetInfo.position)
@@ -675,6 +566,7 @@ export class NPC {
           } else {
             const t = (progress - 0.7) / 0.3
             this.swordPivot.rotation.x = THREE.MathUtils.lerp(Math.PI / 3, 0, t)
+            this.rightArm.rotation.x = THREE.MathUtils.lerp(0.55, 0, t)
           }
 
           if (this.attackTimer >= MELEE_COOLDOWN) {
