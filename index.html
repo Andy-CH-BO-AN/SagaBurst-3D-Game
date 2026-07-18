@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Warriors: Dedicate Your Heart! — An original 3D action RPG with melee and archery combat." />
+    <title>Warriors: Dedicate Your Heart!</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        overflow: hidden;
+        background: #000;
+        font-family: 'Segoe UI', sans-serif;
+      }
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+      }
+      canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      /* ── HUD overlay ── */
+      #hud {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        pointer-events: none;
+        color: #fff;
+      }
+
+      /* Crosshair */
+      #crosshair {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 20px; height: 20px;
+      }
+      #crosshair::before,
+      #crosshair::after {
+        content: '';
+        position: absolute;
+        background: rgba(255,255,255,0.8);
+        border-radius: 2px;
+      }
+      #crosshair::before {
+        width: 2px; height: 100%;
+        top: 0; left: 50%;
+        transform: translateX(-50%);
+      }
+      #crosshair::after {
+        width: 100%; height: 2px;
+        top: 50%; left: 0;
+        transform: translateY(-50%);
+      }
+
+      /* Controls hint */
+      #controls-hint {
+        position: absolute;
+        bottom: 24px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.5);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 13px;
+        letter-spacing: 0.03em;
+        color: rgba(255,255,255,0.85);
+        text-align: center;
+        backdrop-filter: blur(6px);
+        transition: opacity 0.5s;
+      }
+      #controls-hint.hidden { opacity: 0; }
+
+      /* ── Vital bars (bottom-left) ── */
+      #vital-bars {
+        position: absolute;
+        bottom: 28px;
+        left: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        width: 200px;
+      }
+      .bar-row {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .bar-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.55);
+      }
+      .bar-track {
+        width: 100%;
+        height: 8px;
+        background: rgba(0,0,0,0.45);
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.15);
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.1s linear;
+      }
+      #hp-fill    { background: linear-gradient(90deg, #c0392b, #e74c3c); width: 100%; }
+      #stam-fill  { background: linear-gradient(90deg, #d4870a, #f39c12); width: 100%; }
+
+      /* Save / load notification */
+      #save-notify {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.65);
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 6px;
+        padding: 6px 18px;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        color: #e8c96a;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+      }
+      #save-notify.visible { opacity: 1; }
+
+      /* ── Enemy HUD (top-center) ── */
+      #enemy-hud {
+        position: absolute;
+        top: 48px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        width: 280px;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+      }
+      #enemy-hud.visible { opacity: 1; }
+      #enemy-name {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        color: #e8c96a;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      }
+      #enemy-hp-track {
+        width: 100%;
+        height: 10px;
+        background: rgba(0,0,0,0.6);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 5px;
+        overflow: hidden;
+      }
+      #enemy-hp-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #9b1c1c, #e74c3c);
+        transition: width 0.15s ease-out;
+      }
+
+      /* ── Norse Rune Compass Bar (Top-Center) ── */
+      #compass-container {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 460px;
+        height: 28px;
+        background: rgba(12, 12, 14, 0.7);
+        border: 1px solid rgba(232, 201, 106, 0.35);
+        border-radius: 4px;
+        backdrop-filter: blur(6px);
+        overflow: hidden;
+        pointer-events: none;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+      }
+      #compass-strip {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        font-family: 'Segoe UI', serif;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #d4af37;
+        transition: transform 0.05s linear;
+      }
+      .compass-mark {
+        display: inline-block;
+        width: 80px;
+        text-align: center;
+        text-shadow: 0 0 4px rgba(0,0,0,0.9);
+      }
+      #compass-indicator {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 100%;
+        background: #f39c12;
+        box-shadow: 0 0 6px #f39c12;
+        pointer-events: none;
+      }
+
+      /* ── Skill Level Up Toast ── */
+      #levelup-toast {
+        position: absolute;
+        top: 90px;
+        left: 50%;
+        transform: translateX(-50%) scale(0.9);
+        background: rgba(20, 18, 14, 0.88);
+        border: 1.5px solid #e8c96a;
+        border-radius: 8px;
+        padding: 10px 28px;
+        font-size: 16px;
+        font-weight: 700;
+        color: #f39c12;
+        letter-spacing: 0.08em;
+        text-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+        box-shadow: 0 0 20px rgba(232, 201, 106, 0.4);
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.3s;
+        pointer-events: none;
+      }
+      #levelup-toast.visible {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+      }
+
+      /* ── Pickup Prompt HUD ── */
+      #pickup-prompt {
+        position: absolute;
+        bottom: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(14, 12, 10, 0.85);
+        border: 1px solid #e8c96a;
+        border-radius: 6px;
+        padding: 8px 20px;
+        font-size: 15px;
+        font-weight: 600;
+        color: #e8c96a;
+        letter-spacing: 0.08em;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+      #pickup-prompt.visible { opacity: 1; }
+
+      /* ── RPG Character & Equipment Modal (Tab) ── */
+      #character-modal {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 540px;
+        background: rgba(18, 16, 14, 0.92);
+        border: 1.5px solid rgba(232, 201, 106, 0.5);
+        border-radius: 10px;
+        padding: 24px 30px;
+        color: #e8e0d0;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease-out;
+      }
+      #character-modal.visible {
+        opacity: 1;
+        pointer-events: all;
+      }
+      #character-modal h2 {
+        font-size: 20px;
+        color: #e8c96a;
+        letter-spacing: 0.1em;
+        margin-bottom: 18px;
+        border-bottom: 1px solid rgba(232, 201, 106, 0.3);
+        padding-bottom: 8px;
+        text-align: center;
+      }
+      .modal-section {
+        margin-bottom: 18px;
+      }
+      .modal-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.5);
+        letter-spacing: 0.1em;
+        margin-bottom: 10px;
+      }
+      .skill-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        background: rgba(0,0,0,0.3);
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      .skill-name { font-weight: 600; font-size: 14px; }
+      .skill-level { font-weight: 700; color: #e8c96a; font-size: 14px; }
+      .skill-xp-bar {
+        width: 140px;
+        height: 6px;
+        background: rgba(0,0,0,0.5);
+        border-radius: 3px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .skill-xp-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #d4870a, #f39c12);
+        width: 0%;
+      }
+      .inventory-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        padding-right: 6px;
+      }
+      /* Custom Scrollbar for Inventory Modal & Grid */
+      #character-modal::-webkit-scrollbar,
+      .inventory-grid::-webkit-scrollbar {
+        width: 7px;
+      }
+      #character-modal::-webkit-scrollbar-track,
+      .inventory-grid::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 4px;
+      }
+      #character-modal::-webkit-scrollbar-thumb,
+      .inventory-grid::-webkit-scrollbar-thumb {
+        background: #e8c96a;
+        border-radius: 4px;
+      }
+      #character-modal::-webkit-scrollbar-thumb:hover,
+      .inventory-grid::-webkit-scrollbar-thumb:hover {
+        background: #f39c12;
+      }
+      .equip-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(232, 201, 106, 0.2);
+        border-radius: 6px;
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .equip-slot { font-size: 10px; text-transform: uppercase; color: rgba(255,255,255,0.4); letter-spacing: 0.1em; }
+      .equip-item { font-size: 13px; font-weight: 700; color: #e8c96a; }
+
+      /* Floating Damage Numbers */
+      .damage-number {
+        position: absolute;
+        font-weight: 800;
+        font-size: 20px;
+        color: #ffeb3b;
+        text-shadow: 0 0 4px #000, 0 2px 4px #000;
+        pointer-events: none;
+        user-select: none;
+        transform: translate(-50%, -50%);
+        transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        white-space: nowrap;
+      }
+
+      /* ── Quiver & Bow Charge HUD ── */
+      #quiver-hud {
+        position: absolute;
+        bottom: 28px;
+        right: 28px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        pointer-events: none;
+      }
+      #arrow-count-box {
+        background: rgba(0,0,0,0.55);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #e8c96a;
+        letter-spacing: 0.05em;
+        backdrop-filter: blur(4px);
+      }
+
+      /* ── Archery Reticle & Radial Charge UI (Skyrim style) ── */
+      #aim-reticle {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 50px; height: 50px;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s, transform 0.2s;
+      }
+      #aim-reticle.active { opacity: 1; }
+
+      /* Center dot */
+      #reticle-dot {
+        width: 5px; height: 5px;
+        background: #e8c96a;
+        border-radius: 50%;
+        box-shadow: 0 0 6px rgba(232, 201, 106, 0.9);
+      }
+
+      /* Left & Right Bracket Arcs (Skyrim style) */
+      .reticle-bracket {
+        position: absolute;
+        width: 14px; height: 26px;
+        border: 2px solid rgba(232, 201, 106, 0.85);
+        border-radius: 50%;
+        transition: transform 0.15s ease-out;
+        box-shadow: 0 0 4px rgba(0,0,0,0.5);
+      }
+      .reticle-bracket.left {
+        left: 4px;
+        border-right: none;
+        transform: translateX(0);
+      }
+      .reticle-bracket.right {
+        right: 4px;
+        border-left: none;
+        transform: translateX(0);
+      }
+
+      /* When charging, brackets contract tightly towards center */
+      #aim-reticle.charging .reticle-bracket.left {
+        transform: translateX(7px);
+      }
+      #aim-reticle.charging .reticle-bracket.right {
+        transform: translateX(-7px);
+      }
+
+      /* Radial Charge Ring around reticle */
+      #charge-ring {
+        position: absolute;
+        width: 42px; height: 42px;
+        border-radius: 50%;
+        background: conic-gradient(#e8c96a var(--charge-deg, 0deg), rgba(255, 255, 255, 0.15) 0deg);
+        mask: radial-gradient(transparent 17px, #000 18px);
+        -webkit-mask: radial-gradient(transparent 17px, #000 18px);
+        opacity: 0;
+        transition: opacity 0.2s;
+        box-shadow: 0 0 8px rgba(232, 201, 106, 0.5);
+      }
+      #charge-ring.visible { opacity: 0.95; }
+
+      /* Default Crosshair (hidden when aiming) */
+      #crosshair.hidden { opacity: 0; }
+
+      /* ── Top-Left Menu Dropdown ── */
+      #game-menu {
+        position: fixed;
+        top: 14px;
+        left: 16px;
+        z-index: 999999;
+        pointer-events: all;
+      }
+      #menu-btn {
+        background: rgba(14, 12, 10, 0.92);
+        border: 1px solid rgba(232, 201, 106, 0.8);
+        border-radius: 6px;
+        color: #e8c96a;
+        padding: 6px 14px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+        transition: background 0.15s, border-color 0.15s;
+      }
+      #menu-btn:hover {
+        background: rgba(232, 201, 106, 0.3);
+        border-color: #e8c96a;
+      }
+      #menu-dropdown {
+        position: absolute;
+        top: 36px;
+        left: 0;
+        width: 180px;
+        background: rgba(18, 16, 14, 0.96);
+        border: 1.5px solid #e8c96a;
+        border-radius: 6px;
+        padding: 6px 0;
+        display: none;
+        flex-direction: column;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.9);
+      }
+      #game-menu.open #menu-dropdown,
+      #game-menu:hover #menu-dropdown {
+        display: flex;
+      }
+      .menu-item {
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #e8e0d0;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .menu-item:hover {
+        background: rgba(232, 201, 106, 0.2);
+        color: #e8c96a;
+      }
+
+      /* Click-to-lock overlay */
+      #lock-overlay {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.6);
+        backdrop-filter: blur(4px);
+        pointer-events: all;
+        cursor: pointer;
+        transition: opacity 0.4s;
+      }
+      #lock-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #lock-overlay h1 {
+        font-size: 2.8rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        margin-bottom: 12px;
+        text-shadow: 0 0 30px rgba(200,160,80,0.9);
+        color: #e8c96a;
+      }
+      #lock-overlay p {
+        font-size: 1rem;
+        color: rgba(255,255,255,0.7);
+        letter-spacing: 0.1em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-container"></div>
+
+    <div id="hud">
+      <!-- Crosshair -->
+      <div id="crosshair"></div>
+
+      <!-- Skyrim-style Archery Reticle & Radial Charge Ring -->
+      <div id="aim-reticle">
+        <div class="reticle-bracket left"></div>
+        <div id="charge-ring"></div>
+        <div id="reticle-dot"></div>
+        <div class="reticle-bracket right"></div>
+      </div>
+
+      <!-- Vital bars -->
+      <div id="vital-bars">
+        <div class="bar-row">
+          <span class="bar-label">HP</span>
+          <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">耐力 Stamina</span>
+          <div class="bar-track"><div id="stam-fill" class="bar-fill"></div></div>
+        </div>
+      </div>
+
+      <!-- Save / load toast -->
+      <div id="save-notify"></div>
+
+      <!-- Norse Rune Compass Bar (Top) -->
+      <div id="compass-container">
+        <div id="compass-strip"></div>
+        <div id="compass-indicator"></div>
+      </div>
+
+      <!-- Skill Level-Up Toast Banner -->
+      <div id="levelup-toast"></div>
+
+      <!-- Pickup Prompt HUD -->
+      <div id="pickup-prompt">[E] 拾取物品</div>
+
+      <!-- Enemy HUD (Top center) -->
+      <div id="enemy-hud">
+        <span id="enemy-name">訓練假人 Dummy Target</span>
+        <div id="enemy-hp-track">
+          <div id="enemy-hp-fill"></div>
+        </div>
+      </div>
+
+      <!-- RPG Character & Equipment Modal (Tab key toggle) -->
+      <div id="character-modal">
+        <h2>角色與裝備 Character & Equipment</h2>
+        <div class="modal-section">
+          <div class="modal-section-title">技能成長 Skills</div>
+          <div class="skill-row">
+            <div>
+              <span class="skill-name">⚔️ 單手武器 One-Handed</span>
+              <span id="skill-oh-lvl" class="skill-level"> Lv.1</span>
+            </div>
+            <div class="skill-xp-bar"><div id="skill-oh-fill" class="skill-xp-fill"></div></div>
+          </div>
+          <div class="skill-row">
+            <div>
+              <span class="skill-name">🏹 弓術 Archery</span>
+              <span id="skill-arc-lvl" class="skill-level"> Lv.1</span>
+            </div>
+            <div class="skill-xp-bar"><div id="skill-arc-fill" class="skill-xp-fill"></div></div>
+          </div>
+        </div>
+        <div class="modal-section">
+          <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>
+          <div id="inventory-list" class="inventory-grid"></div>
+        </div>
+      </div>
+
+      <!-- Damage numbers overlay container -->
+      <div id="damage-container" style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;"></div>
+
+      <!-- Quiver HUD -->
+      <div id="quiver-hud">
+        <div id="arrow-count-box">🏹 箭矢: <span id="arrow-count">30</span></div>
+      </div>
+
+      <div id="controls-hint">
+        WASD 移動 &nbsp;|&nbsp; Shift 衝刺 &nbsp;|&nbsp; E 拾取裝備 &nbsp;|&nbsp; 左鍵 揮劍 &nbsp;|&nbsp; 右鍵+左鍵 射箭 &nbsp;|&nbsp; 0 鍵/左上選單 存/讀檔 &nbsp;|&nbsp; Tab 角色背包
+      </div>
+    </div>
+
+    <div id="lock-overlay">
+      <h1>Warriors: Dedicate Your Heart!</h1>
+      <p>CLICK TO START</p>
+    </div>
+
+    <!-- Top-Left Menu Dropdown (placed after lock-overlay to float above everything) -->
+    <div id="game-menu">
+      <button id="menu-btn">☰ 選單 Menu ▾</button>
+      <div id="menu-dropdown">
+        <div id="menu-save" class="menu-item">💾 儲存進度 Save</div>
+        <div id="menu-load" class="menu-item">📂 載入進度 Load</div>
+        <div id="menu-inventory" class="menu-item">🎒 角色與背包 (Tab)</div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
