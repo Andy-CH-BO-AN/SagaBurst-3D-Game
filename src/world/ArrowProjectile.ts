@@ -1,10 +1,11 @@
 /**
  * ArrowProjectile.ts
- * Arrow projectile with realistic parabolic gravity trajectory and hit detection on all targetable enemies.
+ * Arrow projectile with realistic parabolic gravity trajectory and hit detection on all targetable entities based on Factions.
  */
 import * as THREE from 'three'
 import type { DummyEnemy } from './DummyEnemy'
-import type { EnemyAI } from './EnemyAI'
+import { NPC, Faction } from './NPC'
+import type { Player } from '../player/Player'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 
@@ -16,6 +17,7 @@ export class ArrowProjectile {
   private stuckTimer = 0
 
   readonly damage: number
+  readonly shooterFaction: Faction
 
   get isAlive(): boolean { return this.alive }
   get isStuck(): boolean { return this.stuck }
@@ -25,9 +27,11 @@ export class ArrowProjectile {
     origin: THREE.Vector3,
     direction: THREE.Vector3,
     speed: number,
-    damage: number
+    damage: number,
+    shooterFaction: Faction
   ) {
     this.damage = damage
+    this.shooterFaction = shooterFaction
     this.mesh = new THREE.Group()
 
     // ── Build Arrow Mesh ──
@@ -63,9 +67,10 @@ export class ArrowProjectile {
   update(
     dt: number,
     dummy: DummyEnemy,
-    enemyAI: EnemyAI,
+    player: Player,
+    npcs: NPC[],
     obstacles: THREE.Box3[],
-    onHitTarget: (damage: number, hitPos: THREE.Vector3, name: string, hpRatio: number) => void
+    onHitTarget: (damage: number, hitPos: THREE.Vector3, name: string, hpRatio: number, isPlayer: boolean, npc?: NPC) => void
   ): void {
     if (!this.alive) return
 
@@ -104,7 +109,7 @@ export class ArrowProjectile {
     }
 
     // ── Hit Detection 3: Dummy Enemy ──
-    if (!dummy.dead) {
+    if (this.shooterFaction === Faction.PLAYER && !dummy.dead) {
       const enemyCenter = dummy.position.clone()
       enemyCenter.y += 1.0 // Torso height
 
@@ -112,23 +117,36 @@ export class ArrowProjectile {
       if (dist <= 0.9) {
         const hitSuccess = dummy.takeDamage(this.damage)
         if (hitSuccess) {
-          onHitTarget(this.damage, this.mesh.position.clone(), '訓練假人 Dummy Target', dummy.hpRatio)
+          onHitTarget(this.damage, this.mesh.position.clone(), '訓練假人 Dummy Target', dummy.hpRatio, false)
         }
         this.destroy()
         return
       }
     }
 
-    // ── Hit Detection 4: Enemy AI (Bandit Warrior) ──
-    if (!enemyAI.dead) {
-      const aiCenter = enemyAI.position.clone()
+    // ── Hit Detection 4: Player (If shooter is ENEMY) ──
+    if (this.shooterFaction === Faction.ENEMY && !player.dead) {
+      const playerCenter = player.position.clone()
+      playerCenter.y += 1.0 // Torso height
+      const dist = this.mesh.position.distanceTo(playerCenter)
+      if (dist <= 0.9) {
+        onHitTarget(this.damage, this.mesh.position.clone(), 'Player', player.hpRatio, true)
+        this.destroy()
+        return
+      }
+    }
+
+    // ── Hit Detection 5: NPCs (Faction Check) ──
+    for (const npc of npcs) {
+      if (npc.dead || npc.faction === this.shooterFaction) continue
+      const aiCenter = npc.position.clone()
       aiCenter.y += 1.0 // Torso height
 
       const dist = this.mesh.position.distanceTo(aiCenter)
       if (dist <= 1.0) {
-        const hitSuccess = enemyAI.takeDamage(this.damage)
+        const hitSuccess = npc.takeDamage(this.damage)
         if (hitSuccess) {
-          onHitTarget(this.damage, this.mesh.position.clone(), enemyAI.name, enemyAI.hpRatio)
+          onHitTarget(this.damage, this.mesh.position.clone(), npc.name, npc.hpRatio, false, npc)
         }
         this.destroy()
         return

@@ -140,22 +140,62 @@ export class Player {
   }
 
   private _buildMesh(): void {
-    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 12)
+    this.bodyMat.flatShading = true
+
+    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2, 8)
     this.bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat)
     this.bodyMesh.castShadow = true
     this.group.add(this.bodyMesh)
 
-    const headGeo = new THREE.SphereGeometry(0.35, 12, 8)
+    const headGeo = new THREE.SphereGeometry(0.35, 8, 6)
     this.headMesh = new THREE.Mesh(headGeo, this.bodyMat)
     this.headMesh.position.y = 0.95
     this.headMesh.castShadow = true
     this.group.add(this.headMesh)
 
-    const faceMat = new THREE.MeshLambertMaterial({ color: 0x333333 })
+    const faceMat = new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true })
     this.faceCone = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 6), faceMat)
     this.faceCone.rotation.x = -Math.PI / 2
     this.faceCone.position.set(0, 0.95, -0.38)
     this.group.add(this.faceCone)
+
+    // --- Viking Tier 3 Helmet ---
+    const helmMat = new THREE.MeshLambertMaterial({ color: 0xc0c0c0, flatShading: true }) // Silver
+    const helmBase = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.4, 8), helmMat)
+    helmBase.position.y = 1.05
+    this.group.add(helmBase)
+
+    const hornMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
+    const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
+    hornLeft.position.set(-0.35, 1.25, 0)
+    hornLeft.rotation.z = 0.5
+    this.group.add(hornLeft)
+
+    const hornRight = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), hornMat)
+    hornRight.position.set(0.35, 1.25, 0)
+    hornRight.rotation.z = -0.5
+    this.group.add(hornRight)
+
+    // --- Viking Tier 3 Armor ---
+    const leatherMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true })
+    
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.7, 8), leatherMat)
+    chest.position.y = 0.1
+    this.group.add(chest)
+
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.45), helmMat)
+    shoulderL.position.set(-0.38, 0.4, 0)
+    shoulderL.rotation.z = 0.2
+    this.group.add(shoulderL)
+
+    const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.45), helmMat)
+    shoulderR.position.set(0.38, 0.4, 0)
+    shoulderR.rotation.z = -0.2
+    this.group.add(shoulderR)
+    
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4), helmMat)
+    plate.position.y = -0.1
+    this.group.add(plate)
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -175,9 +215,9 @@ export class Player {
 
   private _buildGeometricMeleeWeapon(weaponId: string): void {
     if (weaponId === 'rusty_dagger') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x3a3028 })
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0x555555 })
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 })
+      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x3a3028, flatShading: true })
+      const guardMat = new THREE.MeshLambertMaterial({ color: 0x555555, flatShading: true })
+      const bladeMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true })
 
       const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.18, 6), hiltMat)
       hilt.position.y = 0.09
@@ -198,10 +238,10 @@ export class Player {
       this.swordTipLocal.set(0, 0.87, 0)
 
     } else if (weaponId === 'runic_greatsword') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x222222 })
-      const ringMat  = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
-      const guardMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.95, roughness: 0.1 })
+      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+      const ringMat  = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
+      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
+      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
       const gemMat   = new THREE.MeshBasicMaterial({ color: 0x00d2ff })
 
       const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.45, 8), hiltMat)
@@ -235,10 +275,10 @@ export class Player {
 
     } else {
       // Tier 2 Authentic Medieval Steel Sword (標準中世紀十字鋼鐵長劍)
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x4a3525 }) // 皮革握把
-      const guardMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 }) // 黃金/青銅十字護手
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.95, roughness: 0.1 }) // 亮銀高金屬感長劍刀刃
-      const pommelMat= new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
+      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true }) // 皮革握把
+      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true }) // 黃金/青銅十字護手
+      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee, flatShading: true }) // 亮銀高金屬感長劍刀刃
+      const pommelMat= new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
 
       // 握柄 Hilt
       const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 8), hiltMat)
@@ -289,14 +329,14 @@ export class Player {
 
   private _buildGeometricRangedWeapon(weaponId: string): void {
     const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222 })
+    const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
 
     let topTip = new THREE.Vector3(0, 0.75, 0.12)
     let botTip = new THREE.Vector3(0, -0.75, 0.12)
     let stringLength = 0.78
 
     if (weaponId === 'wooden_shortbow') {
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e })
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e, flatShading: true })
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), gripMat)
       this.bowPivot.add(grip)
 
@@ -315,7 +355,7 @@ export class Player {
       stringLength = 0.53
 
     } else if (weaponId === 'elven_runebow') {
-      const whiteWoodMat = new THREE.MeshLambertMaterial({ color: 0xdddddd })
+      const whiteWoodMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
       const gemMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
       
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.3, 8), gripMat)
@@ -582,6 +622,10 @@ export class Player {
 
     const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
     this.group.position.addScaledVector(moveDir, speed * dt)
+    
+    // Map boundary clamp
+    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
+    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
 
     // Jump
     if (input.keys['Space'] && this.onGround) {

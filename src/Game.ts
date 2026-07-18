@@ -13,7 +13,7 @@ import { SaveManager } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { DummyEnemy } from './world/DummyEnemy'
-import { EnemyAI } from './world/EnemyAI'
+import { NPC, Faction, AIType } from './world/NPC'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { QuiverUI } from './ui/QuiverUI'
@@ -35,7 +35,7 @@ export class Game {
   private thirdPersonCamera: ThirdPersonCamera
 
   private dummyEnemy: DummyEnemy
-  private enemyAI: EnemyAI
+  private npcs: NPC[] = []
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
   private pickups: WeaponPickup[] = []
@@ -105,7 +105,17 @@ export class Game {
 
     // ── Combat & Enemies ──
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
-    this.enemyAI    = new EnemyAI(this.scene, 18, -18)
+    
+    // ── Spawn Phase 10 Test NPCs ──
+    this.npcs.push(new NPC(this.scene, -15, -15, Faction.PLAYER, AIType.MELEE, '維京戰士 Viking Ally (M)', 2))
+    this.npcs.push(new NPC(this.scene, -12, -15, Faction.PLAYER, AIType.RANGED, '維京弓箭手 Viking Ally (R)', 2))
+    
+    const romanTier1 = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+    const romanTier2 = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+
+    this.npcs.push(new NPC(this.scene, 18, -18, Faction.ENEMY, AIType.MELEE, `羅馬戰士 Roman Enemy (M) T${romanTier1}`, romanTier1))
+    this.npcs.push(new NPC(this.scene, 15, -18, Faction.ENEMY, AIType.RANGED, `羅馬投石手 Roman Enemy (R) T${romanTier2}`, romanTier2))
+
     this.damageNumbers = new DamageNumbers()
 
     // ── RPG Systems & Inventory ──
@@ -139,7 +149,8 @@ export class Game {
         evt.origin,
         evt.direction,
         evt.speed,
-        evt.damage
+        evt.damage,
+        Faction.PLAYER
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -404,19 +415,21 @@ export class Game {
       }
     }
 
-    // Check Enemy AI (Bandit Warrior)
-    if (!this.enemyAI.dead) {
-      const aiCenter = this.enemyAI.position.clone()
-      aiCenter.y += 1.0
-      if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
-        this.player.markHitProcessed()
-        if (this.enemyAI.takeDamage(damage)) {
-          this.soundManager.playHit()
-          this.damageNumbers.spawn(damage, aiCenter)
-          this._showEnemyHud(this.enemyAI.name, this.enemyAI.hpRatio)
-          this.skillManager.addXp('oneHanded', 45, this.soundManager)
+    // Check NPCs (Only hit Faction.ENEMY)
+    for (const npc of this.npcs) {
+      if (!npc.dead && npc.faction === Faction.ENEMY) {
+        const aiCenter = npc.position.clone()
+        aiCenter.y += 1.0
+        if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
+          this.player.markHitProcessed()
+          if (npc.takeDamage(damage)) {
+            this.soundManager.playHit()
+            this.damageNumbers.spawn(damage, aiCenter)
+            this._showEnemyHud(npc.name, npc.hpRatio)
+            this.skillManager.addXp('oneHanded', 45, this.soundManager)
+          }
+          return
         }
-        return
       }
     }
   }
@@ -510,14 +523,44 @@ export class Game {
     // Update Dummy Enemy
     this.dummyEnemy.update(dt)
 
-    // Update Enemy AI (Bandit Warrior) & handles damage to player
-    this.enemyAI.update(dt, this.player, this.hpBar, (damage) => {
-      this.player.takeDamage(damage, this.hpBar)
-      this.soundManager.playHit()
-      const hitPos = this.player.position.clone()
-      hitPos.y += 1.2
-      this.damageNumbers.spawn(damage, hitPos)
-    })
+    // Update NPCs
+    for (const npc of this.npcs) {
+      npc.update(
+        dt, 
+        this.player, 
+        this.npcs, 
+        this.hpBar, 
+        (damage, isPlayer, targetNpc) => {
+          // Melee Hit Callback
+          if (isPlayer) {
+            this.player.takeDamage(damage, this.hpBar)
+            this.soundManager.playHit()
+            const hitPos = this.player.position.clone()
+            hitPos.y += 1.2
+            this.damageNumbers.spawn(damage, hitPos)
+          } else if (targetNpc) {
+            targetNpc.takeDamage(damage)
+            this.soundManager.playHit()
+            const hitPos = targetNpc.position.clone()
+            hitPos.y += 1.2
+            this.damageNumbers.spawn(damage, hitPos)
+          }
+        },
+        (origin, direction) => {
+          // Ranged Fire Callback
+          const arrow = new ArrowProjectile(
+            this.scene,
+            origin,
+            direction,
+            15.0, // Arrow speed
+            npc.rangedDamage, // Arrow damage
+            npc.faction
+          )
+          this.arrows.push(arrow)
+          this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
+        }
+      )
+    }
 
     // Check Player Melee Sword Hits
     this._checkPlayerMeleeHits()
@@ -525,11 +568,13 @@ export class Game {
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
-      arrow.update(dt, this.dummyEnemy, this.enemyAI, this.obstacles, (damage, hitPos, targetName, hpRatio) => {
+      arrow.update(dt, this.dummyEnemy, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
-        this._showEnemyHud(targetName, hpRatio)
-        this.skillManager.addXp('archery', 35, this.soundManager)
+        if (!isPlayer) {
+          this._showEnemyHud(targetName, hpRatio)
+          this.skillManager.addXp('archery', 35, this.soundManager)
+        }
       })
 
       if (!arrow.isAlive) {
