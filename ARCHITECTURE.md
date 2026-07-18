@@ -21,8 +21,10 @@ skyrim 3D test/
     │   ├── Sky.ts             Background, atmospheric fog, direction sun & ambient lighting
     │   ├── Terrain.ts         Procedural 3D heightmap terrain with getTerrainHeight(x, z) & calibrated rocks/trees
     │   ├── DummyEnemy.ts      Training dummy enemy target calibrated with getTerrainHeight(x, z)
-    │   ├── EnemyAI.ts         Bandit Warrior AI with Finite State Machine (FSM) & terrain elevation tracking
-    │   ├── WeaponPickup.ts    3D world item drop nodes with 6 distinct 3D weapon models (floating animation, Tier light ring)
+    │   ├── NPC.ts             Generic NPC AI unit (Faction, Melee/Ranged, Lancer, Cavalry flags) with FSM AI
+    │   ├── Mount.ts           Mount entity (Black Cat / Corgi) providing movement & impact damage physics
+    │   ├── CharacterVisuals.ts Shared 3D procedural character mesh generation for Player and NPCs
+    │   ├── WeaponPickup.ts    3D world item drop nodes with distinct 3D weapon models (floating animation)
     │   └── ArrowProjectile.ts Arrow entity with parabolic physics and multi-target hit detection
     ├── camera/
     │   └── ThirdPersonCamera.ts  Orbit camera with smooth FOV zoom (70 -> 40) & shoulder offset
@@ -72,6 +74,7 @@ Game Loop
   └─► Mount Impact Damage ─► Horizontal line-segment collision vs Dummy/NPC/Player radii -> deals speed-based damage
   
 ### Cavalry & Mount Data Flow
-- **Spawn**: NPCs have 40% chance to generate as Cavalry. A Mount is spawned and assigned to them.
+- **Spawn**: NPCs can generate as Cavalry. A Mount is spawned and assigned to them.
+- **Roles**: Cavalry can be **Lancers** (3.0 reach, 3x charge damage that suppresses mount impact) or **Mounted Archers** (can shoot while moving, maintaining 6~15m distance).
 - **Damage Routing**: Melee/Arrow attacks against a Mounted entity route 100% of damage to `mount.takeDamage()`.
 - **Dismount**: If Mount HP drops to 0, `mount.dead = true`, and the entity calls `dismountFromMount()`, resuming foot AI / movement.
