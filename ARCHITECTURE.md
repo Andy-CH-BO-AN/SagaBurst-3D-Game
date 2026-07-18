@@ -8,7 +8,7 @@ skyrim 3D test/
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
-├── PLAN.md                    Full phase roadmap (All 8 Phases Completed)
+├── PLAN.md                    Full phase roadmap (Phases 0~8 & Phase 13)
 ├── ARCHITECTURE.md            This file
 ├── PROGRESS.md                Current progress & handoff notes
 └── src/
@@ -67,5 +67,11 @@ Game Loop
   │
   ├─► Player Melee Swing ──► Reads inventoryManager.equippedMelee stats (damage, speed)
   │
-  └─► Player Bow Fire ────► Reads inventoryManager.equippedRanged stats (damage, speed, maxChargeTime)
-```
+  ├─► Player Bow Fire ────► Reads inventoryManager.equippedRanged stats (damage, speed, maxChargeTime)
+  │
+  └─► Mount Impact Damage ─► Horizontal line-segment collision vs Dummy/NPC/Player radii -> deals speed-based damage
+  
+### Cavalry & Mount Data Flow
+- **Spawn**: NPCs have 40% chance to generate as Cavalry. A Mount is spawned and assigned to them.
+- **Damage Routing**: Melee/Arrow attacks against a Mounted entity route 100% of damage to `mount.takeDamage()`.
+- **Dismount**: If Mount HP drops to 0, `mount.dead = true`, and the entity calls `dismountFromMount()`, resuming foot AI / movement.

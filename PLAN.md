@@ -111,3 +111,12 @@ Pure frontend — no backend server. Save/load via localStorage.
 | Persistence  | localStorage                  |
 | Backend      | None (pure frontend)          |
 | Assets       | Procedural geometry (for now) |
+
+---
+
+### ✅ Phase 13 — Cavalry NPCs & Mount Interactions (DONE)
+- Cavalry NPCs spawn with a 40% chance and mount on a Corgi or Black Cat.
+- Mount damage routing: If an NPC or Player is mounted, all melee and arrow damage routes to the mount's HP.
+- Mount Death: When a mount's HP reaches 0, the rider is forcibly dismounted and resumes foot combat.
+- Impact Damage: Sprinting mounts deal horizontal collision-based damage to valid targets with a short cooldown.
+- Interaction Restrictions: Players cannot 'E' interact with a mount that is currently ridden by an NPC.

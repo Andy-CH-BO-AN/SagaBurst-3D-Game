@@ -74,7 +74,7 @@ export class ArrowProjectile {
     player: Player,
     npcs: NPC[],
     obstacles: ObstacleData[],
-    onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC) => void
+    onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC, isMountHit?: boolean) => void
   ): void {
     if (!this.alive) return
 
@@ -130,11 +130,21 @@ export class ArrowProjectile {
 
     // ── Hit Detection 4: Player (If shooter is ENEMY) ──
     if (this.shooterFaction === Faction.ENEMY && !player.dead) {
-      const playerCenter = player.position.clone()
+      const playerCenter = player.combatPosition.clone()
       playerCenter.y += 1.0 // Torso height
       const dist = this.mesh.position.distanceTo(playerCenter)
       if (dist <= 0.9) {
-        onHitTarget(this.damage, this.mesh.position.clone(), 'Player', player.hpRatio, true)
+        if (player.isMounted && player.currentMount) {
+          const mount = player.currentMount
+          const hitSuccess = mount.takeDamage(this.damage)
+          if (hitSuccess) {
+            const mountName = mount.type === 'BLACK_CAT' ? '坐騎：黑貓' : '坐騎：柯基'
+            onHitTarget(this.damage, this.mesh.position.clone(), mountName, mount.currentHp / mount.maxHp, true, undefined, true)
+            if (mount.dead) player.dismountFromMount()
+          }
+        } else {
+          onHitTarget(this.damage, this.mesh.position.clone(), 'Player', player.hpRatio, true, undefined, false)
+        }
         this.destroy()
         return
       }
@@ -143,14 +153,24 @@ export class ArrowProjectile {
     // ── Hit Detection 5: NPCs (Faction Check) ──
     for (const npc of npcs) {
       if (npc.dead || npc.faction === this.shooterFaction) continue
-      const aiCenter = npc.position.clone()
+      const aiCenter = npc.combatPosition.clone()
       aiCenter.y += 1.0 // Torso height
 
       const dist = this.mesh.position.distanceTo(aiCenter)
       if (dist <= 1.0) {
-        const hitSuccess = npc.takeDamage(this.damage)
-        if (hitSuccess) {
-          onHitTarget(this.damage, this.mesh.position.clone(), npc.name, npc.hpRatio, false, npc)
+        if (npc.isMounted && npc.mount) {
+          const mount = npc.mount
+          const hitSuccess = mount.takeDamage(this.damage)
+          if (hitSuccess) {
+            const mountName = mount.type === 'BLACK_CAT' ? '黑貓坐騎' : '柯基坐騎'
+            onHitTarget(this.damage, this.mesh.position.clone(), `${npc.name} 的${mountName}`, mount.currentHp / mount.maxHp, false, npc, true)
+            if (mount.dead) npc.dismountFromMount()
+          }
+        } else {
+          const hitSuccess = npc.takeDamage(this.damage)
+          if (hitSuccess) {
+            onHitTarget(this.damage, this.mesh.position.clone(), npc.name, npc.hpRatio, false, npc, false)
+          }
         }
         this.destroy()
         return

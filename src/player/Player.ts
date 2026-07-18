@@ -94,6 +94,14 @@ export class Player {
   get position(): THREE.Vector3 { return this.group.position }
   get staminaRatio(): number    { return this.stamina / MAX_STAMINA }
   get hpRatio(): number         { return Math.max(0, this.currentHp / MAX_HP) }
+
+  get combatPosition(): THREE.Vector3 {
+    if (this.isMounted && this.currentMount) {
+      return this.currentMount.group.position.clone()
+    }
+    return this.group.position.clone()
+  }
+
   get hp(): number              { return this.currentHp }
   get staminaValue(): number    { return this.stamina }
   get swinging(): boolean       { return this.isSwinging }
@@ -440,8 +448,26 @@ export class Player {
 
 
 
-  takeDamage(amount: number, hpBar: HpBar): void {
-    if (this.isDead) return
+  dismountFromMount(): void {
+    if (!this.isMounted || !this.currentMount) return
+    const mountPosition = this.currentMount.group.position.clone()
+    this.currentMount.releaseRider()
+    this.currentMount = null
+    this.isMounted = false
+    this.group.position.copy(mountPosition)
+    this.velY = 0
+  }
+
+  takeDamage(amount: number, hpBar: HpBar): boolean {
+    if (this.isDead) return false
+
+    if (this.isMounted && this.currentMount) {
+      const hitSuccess = this.currentMount.takeDamage(amount)
+      if (hitSuccess && this.currentMount.dead) {
+        this.dismountFromMount()
+      }
+      return hitSuccess
+    }
 
     this.currentHp = Math.max(0, this.currentHp - amount)
     this.flashTimer = 0.2
@@ -452,6 +478,7 @@ export class Player {
       if (this.onPlayerDeath) this.onPlayerDeath()
       this.respawn(hpBar)
     }
+    return true
   }
 
   respawn(hpBar: HpBar): void {
@@ -580,9 +607,9 @@ export class Player {
     staminaBar.setFill(this.staminaRatio)
 
     if (this.isMounted && this.currentMount) {
-      const previousMountPosition = this.currentMount.group.position.clone()
+      this.currentMount.beginControlledFrame()
       const speed = this.currentMount.baseSpeed * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
-      this.currentMount.group.position.addScaledVector(moveDir, speed * dt)
+      this.currentMount.addControlledMovement(moveDir, speed, dt)
       
       // Jump (Mount)
       if (input.keys['Space'] && this.currentMount.onGround) {
@@ -590,16 +617,7 @@ export class Player {
         this.currentMount.onGround = false
       }
 
-      // Gravity & Terrain
-      this.currentMount.velY += GRAVITY * dt
-      this.currentMount.group.position.y += this.currentMount.velY * dt
-      
-      const ty = getTerrainHeight(this.currentMount.group.position.x, this.currentMount.group.position.z)
-      if (this.currentMount.group.position.y <= ty) {
-        this.currentMount.group.position.y = ty
-        this.currentMount.velY = 0
-        this.currentMount.onGround = true
-      }
+      this.currentMount.finishControlledFrame(dt, obstacles)
 
       // Sync player to mount
       this.group.position.copy(this.currentMount.group.position)
@@ -621,27 +639,6 @@ export class Player {
         this.currentMount.group.rotation.y = cameraYaw + Math.PI
       }
 
-      // Block against obstacle sides and land on obstacle tops.
-      const mountCollision = resolveObstacleCollision(
-        this.currentMount.group.position,
-        previousMountPosition,
-        this.currentMount.velY,
-        this.currentMount.onGround,
-        1.0,
-        2.6,
-        0,
-        obstacles,
-      )
-      this.currentMount.velY = mountCollision.velocityY
-      this.currentMount.onGround = mountCollision.onGround
-
-      // Boundaries
-      const BOUND = 95
-      this.currentMount.group.position.x = THREE.MathUtils.clamp(this.currentMount.group.position.x, -BOUND, BOUND)
-      this.currentMount.group.position.z = THREE.MathUtils.clamp(this.currentMount.group.position.z, -BOUND, BOUND)
-      this.group.position.x = this.currentMount.group.position.x
-      this.group.position.z = this.currentMount.group.position.z
-      
       // Reset player velY so when dismounting they don't fall fast
       this.velY = 0
 

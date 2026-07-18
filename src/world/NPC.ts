@@ -8,6 +8,7 @@ import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
+import { Mount, MountType } from './Mount'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export enum AIState {
@@ -28,7 +29,7 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
-const DETECTION_RADIUS = 20.0
+const DETECTION_RADIUS = 300.0
 const MELEE_ATTACK_RADIUS = 1.8
 const RANGED_ATTACK_MAX = 15.0
 const RANGED_ATTACK_MIN = 6.0
@@ -48,6 +49,8 @@ export class NPC {
 
   public readonly meleeDamage: number
   public readonly rangedDamage: number
+  public readonly generatedAsCavalry: boolean
+  public mount: Mount | null = null
 
   private bodyMesh: THREE.Mesh
   private headMesh: THREE.Mesh
@@ -87,14 +90,26 @@ export class NPC {
   get currentState(): AIState { return this.state }
   get dead(): boolean { return this.state === AIState.DEAD }
   get position(): THREE.Vector3 { return this.group.position }
+  get combatPosition(): THREE.Vector3 { return this.mount ? this.mount.group.position : this.group.position }
+  get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
 
-  constructor(scene: THREE.Scene, spawnX: number, spawnZ: number, faction: Faction, aiType: AIType, name: string, tier: 1 | 2 | 3) {
+  constructor(
+    scene: THREE.Scene,
+    spawnX: number,
+    spawnZ: number,
+    faction: Faction,
+    aiType: AIType,
+    name: string,
+    tier: 1 | 2 | 3,
+    cavalry?: boolean,
+  ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this.faction = faction
     this.aiType = aiType
     this.name = name
     this.tier = tier
+    this.generatedAsCavalry = cavalry ?? Math.random() < 0.4
 
     if (this.aiType === AIType.RANGED) {
       this.arrows = 30
@@ -116,7 +131,8 @@ export class NPC {
 
     // Calibrate waypoints to terrain height
     const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
-    const basePos = new THREE.Vector3(spawnX, baseTerrainY, spawnZ)
+    // Spawn 20 units in the air so they drop down
+    const basePos = new THREE.Vector3(spawnX, baseTerrainY + 20, spawnZ)
 
     const wp1 = new THREE.Vector3(spawnX - 10, getTerrainHeight(spawnX - 10, spawnZ - 8), spawnZ - 8)
     const wp2 = new THREE.Vector3(spawnX + 8, getTerrainHeight(spawnX + 8, spawnZ - 12), spawnZ - 12)
@@ -173,6 +189,22 @@ export class NPC {
 
     this.group.position.copy(basePos)
     scene.add(this.group)
+
+    if (this.generatedAsCavalry) {
+      const mountType = Math.random() < 0.5 ? MountType.BLACK_CAT : MountType.CORGI
+      this.mount = new Mount(scene, mountType, spawnX, spawnZ, basePos.y)
+      this.mount.setNpcRider(this, this.faction)
+      this._syncToMount()
+    }
+  }
+
+  /** Releases this NPC from its mount and returns it to a normal walking body. */
+  dismountFromMount(): void {
+    if (!this.mount) return
+    const mountPosition = this.mount.group.position.clone()
+    this.mount.releaseRider()
+    this.mount = null
+    this.group.position.copy(mountPosition)
   }
 
   private _buildSword(faction: Faction, tier: number): void {
@@ -329,6 +361,7 @@ export class NPC {
     }
 
     if (this.currentHp <= 0) {
+      this.dismountFromMount()
       this.state = AIState.DEAD
       this.respawnTimer = RESPAWN_TIME
       this.alertSprite.visible = false
@@ -342,20 +375,20 @@ export class NPC {
 
     // Check Player
     if (this.faction === Faction.ENEMY && !player.dead) {
-      const d = this.group.position.distanceTo(player.position)
+      const d = this.combatPosition.distanceTo(player.combatPosition)
       if (d < closestDist) {
         closestDist = d
-        closestTarget = { position: player.position, isDead: player.dead, isPlayer: true }
+        closestTarget = { position: player.combatPosition, isDead: player.dead, isPlayer: true }
       }
     }
 
     // Check NPCs
     for (const npc of allNPCs) {
       if (npc === this || npc.dead || npc.faction === this.faction) continue
-      const d = this.group.position.distanceTo(npc.position)
+      const d = this.combatPosition.distanceTo(npc.combatPosition)
       if (d < closestDist) {
         closestDist = d
-        closestTarget = { position: npc.position, isDead: npc.dead, isPlayer: false, npc }
+        closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
       }
     }
 
@@ -372,6 +405,7 @@ export class NPC {
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void
   ): void {
     const previousPosition = this.group.position.clone()
+    if (this.mount) this.mount.beginControlledFrame()
     this.rightArm.rotation.set(0, 0, -0.12)
     this.leftArm.rotation.set(0, 0, 0.12)
 
@@ -392,7 +426,7 @@ export class NPC {
         this._updatePatrol(dt, obstacles)
 
         if (targetInfo && !targetInfo.isDead) {
-          const dist = this.group.position.distanceTo(targetInfo.position)
+          const dist = this.combatPosition.distanceTo(targetInfo.position)
           if (dist <= DETECTION_RADIUS) {
             this.state = AIState.ALERT
             this.alertTimer = 0.6
@@ -420,7 +454,7 @@ export class NPC {
           break
         }
 
-        const dist = this.group.position.distanceTo(targetInfo.position)
+        const dist = this.combatPosition.distanceTo(targetInfo.position)
         if (dist > DETECTION_RADIUS * 1.5) {
           this.state = AIState.IDLE
           break
@@ -477,7 +511,7 @@ export class NPC {
         moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
 
         // Move towards target / flee + separation
-        this.group.position.addScaledVector(moveDir, CHASE_SPEED * dt)
+        this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
         
         // Map boundary clamp
         this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
@@ -557,7 +591,7 @@ export class NPC {
             this.rightArm.rotation.x = THREE.MathUtils.lerp(-0.95, 0.55, t)
 
             if (!this.attackHitProcessed && progress >= 0.5) {
-              const currentDist = this.group.position.distanceTo(targetInfo.position)
+              const currentDist = this.combatPosition.distanceTo(targetInfo.position)
               if (currentDist <= MELEE_ATTACK_RADIUS + 0.4) {
                 this.attackHitProcessed = true
                 onHitEntity(this.meleeDamage, targetInfo.isPlayer, targetInfo.npc)
@@ -570,7 +604,7 @@ export class NPC {
           }
 
           if (this.attackTimer >= MELEE_COOLDOWN) {
-            const dist = this.group.position.distanceTo(targetInfo.position)
+            const dist = this.combatPosition.distanceTo(targetInfo.position)
             if (dist <= MELEE_ATTACK_RADIUS) {
               this.attackTimer = 0
               this.attackHitProcessed = false
@@ -592,7 +626,10 @@ export class NPC {
       }
     }
 
-    if (this.state !== AIState.DEAD) {
+    if (this.state !== AIState.DEAD && this.mount) {
+      this.mount.finishControlledFrame(dt, obstacles)
+      this._syncToMount()
+    } else if (this.state !== AIState.DEAD) {
       // NPCs use the same terrain/platform gravity as the player and mounts.
       const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
       this.velY += -22 * dt
@@ -617,6 +654,10 @@ export class NPC {
       )
       this.velY = collision.velocityY
       this.onGround = collision.onGround
+      
+      // Global Map boundary clamp for foot NPCs
+      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
+      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
     }
   }
 
@@ -631,9 +672,24 @@ export class NPC {
       dir.y = 0
       dir.normalize()
       dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
-      this.group.position.addScaledVector(dir, PATROL_SPEED * dt)
+      this._moveByDirection(dir, this.mount ? this.mount.baseSpeed : PATROL_SPEED, dt)
       this._faceTarget(target)
     }
+  }
+
+  private _moveByDirection(direction: THREE.Vector3, speed: number, dt: number): void {
+    if (this.mount) {
+      this.mount.addControlledMovement(direction, speed, dt)
+    } else {
+      this.group.position.addScaledVector(direction, speed * dt)
+    }
+  }
+
+  private _syncToMount(): void {
+    if (!this.mount) return
+    this.group.position.copy(this.mount.group.position)
+    this.group.position.y += 1.65
+    this.group.rotation.y = this.mount.group.rotation.y
   }
 
   private _faceTarget(targetPos: THREE.Vector3): void {
@@ -642,6 +698,7 @@ export class NPC {
     if (dir.lengthSq() > 0.001) {
       const targetAngle = Math.atan2(dir.x, dir.z)
       this.group.rotation.y = targetAngle
+      if (this.mount) this.mount.group.rotation.y = targetAngle
     }
   }
 

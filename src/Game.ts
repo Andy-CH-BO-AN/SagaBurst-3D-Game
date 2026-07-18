@@ -112,16 +112,38 @@ export class Game {
     // ── Combat & Enemies ──
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
     
-    // ── Spawn Test NPCs ──
-    // 3 Viking allies: melee T1, ranged T2, melee T3.
-    this.npcs.push(new NPC(this.scene, -5, -5, Faction.PLAYER, AIType.MELEE, `維京戰士 Viking Ally (M) T1`, 1))
-    this.npcs.push(new NPC(this.scene, -8, 2, Faction.PLAYER, AIType.RANGED, `維京獵手 Viking Ally (R) T2`, 2))
-    this.npcs.push(new NPC(this.scene, -2, 8, Faction.PLAYER, AIType.MELEE, `維京侍衛 Viking Ally (M) T3`, 3))
+    const isSpawnValid = (x: number, z: number) => {
+      for (const obs of this.obstacles) {
+        if (x > obs.box.min.x - 2 && x < obs.box.max.x + 2 &&
+            z > obs.box.min.z - 2 && z < obs.box.max.z + 2) {
+          return false
+        }
+      }
+      return true
+    }
 
-    // 3 Roman enemies: melee T1, ranged T2, melee T3.
-    this.npcs.push(new NPC(this.scene, 5, 10, Faction.ENEMY, AIType.MELEE, `羅馬戰士 Roman Enemy (M) T1`, 1))
-    this.npcs.push(new NPC(this.scene, 10, 4, Faction.ENEMY, AIType.RANGED, `羅馬標槍兵 Roman Enemy (R) T2`, 2))
-    this.npcs.push(new NPC(this.scene, 7, 16, Faction.ENEMY, AIType.MELEE, `百夫長 Roman Centurion (M) T3`, 3))
+    // ── Spawn Test NPCs ──
+    for (let i = 0; i < 20; i++) {
+      let px = 0, pz = 0
+      let attempts = 0
+      do {
+        px = -15 - Math.random() * 60
+        pz = -15 - Math.random() * 60
+        attempts++
+      } while (!isSpawnValid(px, pz) && attempts < 50)
+      this._spawnNpc(px, pz, Faction.PLAYER, AIType.MELEE, `維京騎兵 Viking Cavalry T2`, 2, true)
+    }
+
+    for (let i = 0; i < 20; i++) {
+      let px = 0, pz = 0
+      let attempts = 0
+      do {
+        px = 15 + Math.random() * 60
+        pz = 15 + Math.random() * 60
+        attempts++
+      } while (!isSpawnValid(px, pz) && attempts < 50)
+      this._spawnNpc(px, pz, Faction.ENEMY, AIType.MELEE, `羅馬騎兵 Roman Cavalry T2`, 2, true)
+    }
 
     this.damageNumbers = new DamageNumbers()
 
@@ -219,6 +241,20 @@ export class Game {
     this.mounts.push(new Mount(this.scene, MountType.BLACK_CAT, -15, 20))
     this.mounts.push(new Mount(this.scene, MountType.CORGI, 15, 15))
     this.mounts.push(new Mount(this.scene, MountType.CORGI, -20, -10))
+  }
+
+  private _spawnNpc(
+    x: number,
+    z: number,
+    faction: Faction,
+    aiType: AIType,
+    name: string,
+    tier: 1 | 2 | 3,
+    cavalry?: boolean,
+  ): void {
+    const npc = new NPC(this.scene, x, z, faction, aiType, name, tier, cavalry)
+    this.npcs.push(npc)
+    if (npc.mount) this.mounts.push(npc.mount)
   }
 
   // ── Pointer Lock ──
@@ -455,15 +491,27 @@ export class Game {
     // Check NPCs (Only hit Faction.ENEMY)
     for (const npc of this.npcs) {
       if (!npc.dead && npc.faction === Faction.ENEMY) {
-        const aiCenter = npc.position.clone()
+        const aiCenter = npc.combatPosition.clone()
         aiCenter.y += 1.0
         if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
           this.player.markHitProcessed()
-          if (npc.takeDamage(damage)) {
-            this.soundManager.playHit()
-            this.damageNumbers.spawn(damage, aiCenter)
-            this._showEnemyHud(npc.name, npc.hpRatio)
-            this.skillManager.addXp('oneHanded', 45, this.soundManager)
+          if (npc.isMounted && npc.mount) {
+            const mount = npc.mount
+            if (mount.takeDamage(damage)) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, aiCenter)
+              const mountName = mount.type === MountType.BLACK_CAT ? '黑貓坐騎' : '柯基坐騎'
+              this._showEnemyHud(`${npc.name} 的${mountName}`, mount.currentHp / mount.maxHp)
+              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+              if (mount.dead) npc.dismountFromMount()
+            }
+          } else {
+            if (npc.takeDamage(damage)) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, aiCenter)
+              this._showEnemyHud(npc.name, npc.hpRatio)
+              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+            }
           }
           return
         }
@@ -513,6 +561,7 @@ export class Game {
     }
 
     for (const mount of this.mounts) {
+      if (!mount.availableForPlayer) continue
       const dist = this.player.position.distanceTo(mount.group.position)
       if (dist < closestDist) {
         closestMount = mount
@@ -588,6 +637,7 @@ export class Game {
 
     for (const npc of this.npcs) {
       if (npc.dead) continue
+      if (npc.isMounted) continue
       bodies.push({
         position: npc.position,
         radius: 0.5,
@@ -609,6 +659,84 @@ export class Game {
     for (let i = 0; i < bodies.length; i++) {
       for (let j = i + 1; j < bodies.length; j++) {
         resolveEntityCollision(bodies[i], bodies[j])
+      }
+    }
+  }
+
+  private _updateImpactDamage(now: number): void {
+    const checkImpact = (mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean => {
+      const dx = mount.group.position.x - mount.previousPosition.x
+      const dz = mount.group.position.z - mount.previousPosition.z
+      const px = targetPos.x - mount.previousPosition.x
+      const pz = targetPos.z - mount.previousPosition.z
+      const lineLenSq = dx*dx + dz*dz
+      if (lineLenSq < 0.0001) return false
+      let t = (px * dx + pz * dz) / lineLenSq
+      t = Math.max(0, Math.min(1, t))
+      const closestX = mount.previousPosition.x + t * dx
+      const closestZ = mount.previousPosition.z + t * dz
+      const distSq = (closestX - targetPos.x) ** 2 + (closestZ - targetPos.z) ** 2
+      return distSq <= (targetRadius + 1.0) ** 2
+    }
+
+    const applyImpactDamage = (mount: Mount, target: any, targetPos: THREE.Vector3, onHit: (damage: number) => void): void => {
+      if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return
+      if (mount.movementSpeed > 4 && mount.canImpact(target, now)) {
+        const damage = Math.round(8 + mount.movementSpeed * 1.5 * (mount.isSprinting ? 1.5 : 1.0))
+        onHit(damage)
+      }
+    }
+
+    for (const mount of this.mounts) {
+      if (mount.state !== MountState.CONTROLLED || mount.dead) continue
+      
+      if (mount === this.player.currentMount) {
+        if (!this.dummyEnemy.dead && checkImpact(mount, this.dummyEnemy.position, 0.5)) {
+          applyImpactDamage(mount, this.dummyEnemy, this.dummyEnemy.position, (damage) => {
+            if (this.dummyEnemy.takeDamage(damage)) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, this.dummyEnemy.position.clone().add(new THREE.Vector3(0, 1, 0)))
+              this._showEnemyHud('訓練假人 Dummy Target', this.dummyEnemy.hpRatio)
+            }
+          })
+        }
+        for (const npc of this.npcs) {
+          if (npc.dead || npc.faction !== Faction.ENEMY) continue
+          if (checkImpact(mount, npc.combatPosition, 0.5)) {
+            applyImpactDamage(mount, npc, npc.combatPosition, (damage) => {
+              if (npc.isMounted && npc.mount) {
+                if (npc.mount.takeDamage(damage)) {
+                  this.soundManager.playHit()
+                  this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+                  const mName = npc.mount.type === MountType.BLACK_CAT ? '黑貓坐騎' : '柯基坐騎'
+                  this._showEnemyHud(`${npc.name} 的${mName}`, npc.mount.currentHp / npc.mount.maxHp)
+                  if (npc.mount.dead) npc.dismountFromMount()
+                }
+              } else {
+                if (npc.takeDamage(damage)) {
+                  this.soundManager.playHit()
+                  this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+                  this._showEnemyHud(npc.name, npc.hpRatio)
+                }
+              }
+            })
+          }
+        }
+      } else if (mount.riderFaction === Faction.ENEMY && !this.player.dead) {
+        if (checkImpact(mount, this.player.position, 0.38)) {
+          applyImpactDamage(mount, this.player, this.player.position, (damage) => {
+            const hitSuccess = this.player.takeDamage(damage, this.hpBar)
+            if (hitSuccess) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, this.player.position.clone().add(new THREE.Vector3(0, 1, 0)))
+              if (this.player.isMounted && this.player.currentMount) {
+                 this.mountHpFill.style.width = `${Math.max(0, (this.player.currentMount.currentHp / this.player.currentMount.maxHp) * 100)}%`
+              } else {
+                 this.mountHud.classList.remove('visible')
+              }
+            }
+          })
+        }
       }
     }
   }
@@ -664,17 +792,36 @@ export class Game {
         (damage, isPlayer, targetNpc) => {
           // Melee Hit Callback
           if (isPlayer) {
-            this.player.takeDamage(damage, this.hpBar)
-            this.soundManager.playHit()
-            const hitPos = this.player.position.clone()
-            hitPos.y += 1.2
-            this.damageNumbers.spawn(damage, hitPos)
+            const hitSuccess = this.player.takeDamage(damage, this.hpBar)
+            if (hitSuccess) {
+              this.soundManager.playHit()
+              const hitPos = this.player.position.clone()
+              hitPos.y += 1.2
+              this.damageNumbers.spawn(damage, hitPos)
+              if (this.player.isMounted && this.player.currentMount) {
+                 this.mountHpFill.style.width = `${Math.max(0, (this.player.currentMount.currentHp / this.player.currentMount.maxHp) * 100)}%`
+              } else {
+                 this.mountHud.classList.remove('visible')
+              }
+            }
           } else if (targetNpc) {
-            targetNpc.takeDamage(damage)
-            this.soundManager.playHit()
-            const hitPos = targetNpc.position.clone()
-            hitPos.y += 1.2
-            this.damageNumbers.spawn(damage, hitPos)
+            if (targetNpc.isMounted && targetNpc.mount) {
+              const mount = targetNpc.mount
+              if (mount.takeDamage(damage)) {
+                this.soundManager.playHit()
+                const hitPos = targetNpc.combatPosition.clone()
+                hitPos.y += 1.2
+                this.damageNumbers.spawn(damage, hitPos)
+                if (mount.dead) targetNpc.dismountFromMount()
+              }
+            } else {
+              if (targetNpc.takeDamage(damage)) {
+                this.soundManager.playHit()
+                const hitPos = targetNpc.combatPosition.clone()
+                hitPos.y += 1.2
+                this.damageNumbers.spawn(damage, hitPos)
+              }
+            }
           }
         },
         (origin, direction) => {
@@ -705,12 +852,19 @@ export class Game {
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
-      arrow.update(dt, this.dummyEnemy, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer) => {
+      arrow.update(dt, this.dummyEnemy, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
         if (!isPlayer && arrow.isPlayerFired) {
           this._showEnemyHud(targetName, hpRatio)
           this.skillManager.addXp('archery', 35, this.soundManager)
+        }
+        if (isPlayer && isMountHit) {
+          if (this.player.isMounted && this.player.currentMount) {
+            this.mountHpFill.style.width = `${Math.max(0, hpRatio * 100)}%`
+          } else {
+            this.mountHud.classList.remove('visible')
+          }
         }
       })
 
@@ -718,6 +872,9 @@ export class Game {
         this.arrows.splice(i, 1)
       }
     }
+
+    // Process Impact Damage
+    this._updateImpactDamage(this.clock.elapsedTime)
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)

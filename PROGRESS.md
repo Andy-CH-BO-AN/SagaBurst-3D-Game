@@ -1,14 +1,14 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-07-18 (Phase 7 & Phase 8 Complete — 6 Distinct 3D Weapon Geometries)_
+_Last updated: 2026-07-19 (Phase 13 Complete — Cavalry NPCs & Mounts)_
 
 ---
 
 ## Current Status
 
-**All Phases (0 ~ 8) — ✅ COMPLETE**
+**All Phases (0 ~ 8, 13) — ✅ COMPLETE**
 
-The 3D Action RPG web game is fully implemented, verified, and tested.
+The 3D Action RPG web game now includes fully functional Cavalry NPCs, mount damage routing, impact damage, and specific player mount interaction rules.
 
 ---
 
@@ -43,4 +43,11 @@ The 3D Action RPG web game is fully implemented, verified, and tested.
 
 ## Final Project Summary
 
-All 8 phases in `PLAN.md` are completed.
+All 8 base phases in `PLAN.md` + Phase 13 are completed.
+
+### Phase 13 Summary: Cavalry NPCs & Mount Interactions
+- **Cavalry Architecture**: NPCs are spawned with a `generatedAsCavalry` flag. They bind to a `Mount` instance and their movement controls the mount.
+- **Damage Routing**: Arrow and Melee damage are perfectly routed to the `currentMount`'s HP pool while riding.
+- **Dismount on Death**: When a mount's HP zeroes out, the rider gracefully dismounts to resume combat.
+- **Impact Damage**: A robust line-segment horizontal collision checks for high-speed mounts trampling targets.
+- **E Key Filter**: Players can only steal unridden, alive mounts.

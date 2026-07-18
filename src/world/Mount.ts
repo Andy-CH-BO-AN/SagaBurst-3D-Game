@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import type { Faction, NPC } from './NPC'
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
@@ -10,6 +11,7 @@ export enum MountState {
   IDLE = 'IDLE',
   WANDER = 'WANDER',
   CONTROLLED = 'CONTROLLED',
+  DEAD = 'DEAD',
 }
 
 export class Mount {
@@ -21,6 +23,13 @@ export class Mount {
   public baseSpeed: number = 12 // Faster than player walk (8)
   
   public state: MountState = MountState.IDLE
+  public riderNpc: NPC | null = null
+  public riderFaction: Faction | null = null
+  public previousPosition = new THREE.Vector3()
+  public movementSpeed = 0
+  public isSprinting = false
+
+  private impactTimes = new Map<object, number>()
   
   private wanderTimer = 0
   private wanderTarget = new THREE.Vector3()
@@ -29,7 +38,9 @@ export class Mount {
   public velY = 0
   public onGround = false
 
-  constructor(scene: THREE.Scene, type: MountType, x: number, z: number) {
+  public deathTimer: number = 3.0
+
+  constructor(scene: THREE.Scene, type: MountType, x: number, z: number, y?: number) {
     this.type = type
     this.group = new THREE.Group()
     this.group.name = 'mount_' + type
@@ -42,12 +53,94 @@ export class Mount {
       this._buildCorgi()
     }
 
-    const y = getTerrainHeight(x, z)
-    this.group.position.set(x, y, z)
+    const startY = y !== undefined ? y : getTerrainHeight(x, z)
+    this.group.position.set(x, startY, z)
+    this.previousPosition.copy(this.group.position)
     this.group.scale.set(2.2, 2.2, 2.2)
     scene.add(this.group)
     
     this._pickWanderTarget()
+  }
+
+  get dead(): boolean { return this.state === MountState.DEAD }
+  get availableForPlayer(): boolean {
+    return !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
+  }
+
+  setNpcRider(npc: NPC, faction: Faction): void {
+    if (this.dead) return
+    this.riderNpc = npc
+    this.riderFaction = faction
+    this.state = MountState.CONTROLLED
+  }
+
+  releaseRider(): void {
+    this.riderNpc = null
+    this.riderFaction = null
+    if (!this.dead) this.state = MountState.IDLE
+  }
+
+  takeDamage(amount: number): boolean {
+    if (this.dead) return false
+    this.currentHp = Math.max(0, this.currentHp - amount)
+    if (this.currentHp <= 0) {
+      this.state = MountState.DEAD
+      this.riderNpc = null
+      this.riderFaction = null
+    }
+    return true
+  }
+
+  beginControlledFrame(): void {
+    this.previousPosition.copy(this.group.position)
+    this.movementSpeed = 0
+  }
+
+  addControlledMovement(direction: THREE.Vector3, speed: number, dt: number): void {
+    if (this.dead || direction.lengthSq() === 0) return
+    this.group.position.addScaledVector(direction, speed * dt)
+  }
+
+  finishControlledFrame(dt: number, obstacles: ObstacleData[]): void {
+    if (this.dead) return
+
+    const ty = getTerrainHeight(this.group.position.x, this.group.position.z)
+    this.velY += -22 * dt
+    this.group.position.y += this.velY * dt
+
+    if (this.group.position.y <= ty) {
+      this.group.position.y = ty
+      this.velY = 0
+      this.onGround = true
+    } else {
+      this.onGround = false
+    }
+
+    const collision = resolveObstacleCollision(
+      this.group.position,
+      this.previousPosition,
+      this.velY,
+      this.onGround,
+      1.0,
+      2.6,
+      0,
+      obstacles,
+    )
+    this.velY = collision.velocityY
+    this.onGround = collision.onGround
+    
+    // Map boundary clamp
+    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
+    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+
+    this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
+  }
+
+  canImpact(target: object, now: number): boolean {
+    const lastImpact = this.impactTimes.get(target) ?? -Infinity
+    if (now - lastImpact < 0.6) return false
+    this.impactTimes.set(target, now)
+    return true
   }
 
   private _buildBlackCat() {
@@ -188,9 +281,18 @@ export class Mount {
   }
 
   update(dt: number, obstacles: ObstacleData[]) {
-    if (this.state === MountState.CONTROLLED) return // Player controls it
+    if (this.state === MountState.DEAD) {
+      this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
+      this.deathTimer -= dt
+      if (this.deathTimer <= 0) {
+        this.group.visible = false
+      }
+      return
+    }
 
-    const previousPosition = this.group.position.clone()
+    if (this.state === MountState.CONTROLLED) return // Rider controls it
+
+    this.beginControlledFrame()
 
     this.wanderTimer -= dt
 
@@ -229,30 +331,6 @@ export class Mount {
       }
     }
 
-    // Gravity / Terrain snap (if wandering)
-    const ty = getTerrainHeight(this.group.position.x, this.group.position.z)
-    this.velY += -22 * dt // gravity
-    this.group.position.y += this.velY * dt
-    
-    if (this.group.position.y <= ty) {
-      this.group.position.y = ty
-      this.velY = 0
-      this.onGround = true
-    } else {
-      this.onGround = false
-    }
-
-    const collision = resolveObstacleCollision(
-      this.group.position,
-      previousPosition,
-      this.velY,
-      this.onGround,
-      1.0,
-      2.6,
-      0,
-      obstacles,
-    )
-    this.velY = collision.velocityY
-    this.onGround = collision.onGround
+    this.finishControlledFrame(dt, obstacles)
   }
 }
