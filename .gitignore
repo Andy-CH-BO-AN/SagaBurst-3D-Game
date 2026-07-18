@@ -12,5 +12,4 @@ yarn-debug.log*
 yarn-error.log*
 .chrome_temp/
 debug_images/
-testxxx
-xxxtest
+*test*
