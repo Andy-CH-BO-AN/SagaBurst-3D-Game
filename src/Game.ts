@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import { createSky } from './world/Sky'
-import { createTerrain, ObstacleData } from './world/Terrain'
+import { createTerrain, EntityCollisionBody, ObstacleData, resolveEntityCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -470,7 +470,7 @@ export class Game {
   private _updateInteractions(dt: number): void {
     // Update Mounts
     for (const mount of this.mounts) {
-      mount.update(dt)
+      mount.update(dt, this.obstacles)
     }
 
     const isEPressed = this.input.consumeKeyE()
@@ -559,6 +559,55 @@ export class Game {
     }
   }
 
+  /** Prevent living people, NPCs, and mounts from occupying the same space. */
+  private _resolveEntityCollisions(): void {
+    const bodies: EntityCollisionBody[] = []
+    const controlledMount = this.player.isMounted ? this.player.currentMount : null
+
+    if (controlledMount) {
+      bodies.push({
+        position: controlledMount.group.position,
+        radius: 1.0,
+        height: 2.6,
+        bottomOffset: 0,
+        anchored: true,
+      })
+    } else {
+      bodies.push({
+        position: this.player.position,
+        radius: 0.38,
+        height: 1.9,
+        bottomOffset: 0.95,
+      })
+    }
+
+    for (const npc of this.npcs) {
+      if (npc.dead) continue
+      bodies.push({
+        position: npc.position,
+        radius: 0.5,
+        height: 2.3,
+        bottomOffset: 0,
+      })
+    }
+
+    for (const mount of this.mounts) {
+      if (mount === controlledMount) continue
+      bodies.push({
+        position: mount.group.position,
+        radius: 1.0,
+        height: 2.6,
+        bottomOffset: 0,
+      })
+    }
+
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        resolveEntityCollision(bodies[i], bodies[j])
+      }
+    }
+  }
+
   // ── Resize ──
   private _setupResize(): void {
     window.addEventListener('resize', () => {
@@ -603,8 +652,9 @@ export class Game {
     for (const npc of this.npcs) {
       npc.update(
         dt, 
-        this.player, 
-        this.npcs, 
+        this.player,
+        this.npcs,
+        this.obstacles,
         this.hpBar, 
         (damage, isPlayer, targetNpc) => {
           // Melee Hit Callback
@@ -643,6 +693,9 @@ export class Game {
 
     // Update Pickups & Mounts Interaction
     this._updateInteractions(dt)
+
+    // Resolve all entity overlaps after every entity has moved this frame.
+    this._resolveEntityCollisions()
 
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {

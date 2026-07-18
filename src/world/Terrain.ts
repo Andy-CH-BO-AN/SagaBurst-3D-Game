@@ -24,6 +24,159 @@ export interface TerrainResult {
   obstacles: ObstacleData[]
 }
 
+export interface ObstacleCollisionResult {
+  velocityY: number
+  onGround: boolean
+}
+
+export interface EntityCollisionBody {
+  position: THREE.Vector3
+  radius: number
+  height: number
+  bottomOffset: number
+  anchored?: boolean
+}
+
+/** Returns a direction that steers around an obstacle directly ahead. */
+export function getObstacleAvoidanceDirection(
+  position: THREE.Vector3,
+  desiredDirection: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+): THREE.Vector3 {
+  const desired = desiredDirection.clone()
+  desired.y = 0
+  if (desired.lengthSq() < 0.0001) return desired
+  desired.normalize()
+
+  const bottomY = position.y - bottomOffset
+  const topY = bottomY + height
+  const lookAhead = radius + 1.25
+  const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75]
+
+  const isBlocked = (direction: THREE.Vector3): boolean => {
+    const sampleX = position.x + direction.x * lookAhead
+    const sampleZ = position.z + direction.z * lookAhead
+    for (const obstacle of obstacles) {
+      const box = obstacle.box
+      if (bottomY >= box.max.y - 0.001 || topY <= box.min.y + 0.001) continue
+      if (
+        sampleX + radius > box.min.x && sampleX - radius < box.max.x &&
+        sampleZ + radius > box.min.z && sampleZ - radius < box.max.z
+      ) return true
+    }
+    return false
+  }
+
+  for (const angle of angles) {
+    const candidate = desired.clone()
+    candidate.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle)
+    if (!isBlocked(candidate)) return candidate
+  }
+
+  return desired
+}
+
+/** Resolves horizontal overlap between two living entities. */
+export function resolveEntityCollision(first: EntityCollisionBody, second: EntityCollisionBody): void {
+  const firstBottom = first.position.y - first.bottomOffset
+  const secondBottom = second.position.y - second.bottomOffset
+  const firstTop = firstBottom + first.height
+  const secondTop = secondBottom + second.height
+  if (firstBottom >= secondTop || secondBottom >= firstTop) return
+
+  const dx = first.position.x - second.position.x
+  const dz = first.position.z - second.position.z
+  const minDistance = first.radius + second.radius
+  const distanceSq = dx * dx + dz * dz
+  if (distanceSq >= minDistance * minDistance) return
+
+  const distance = Math.sqrt(distanceSq)
+  const normalX = distance > 0.0001 ? dx / distance : 1
+  const normalZ = distance > 0.0001 ? dz / distance : 0
+  const pushDistance = minDistance - distance
+
+  if (first.anchored && second.anchored) return
+  if (first.anchored) {
+    second.position.x -= normalX * pushDistance
+    second.position.z -= normalZ * pushDistance
+  } else if (second.anchored) {
+    first.position.x += normalX * pushDistance
+    first.position.z += normalZ * pushDistance
+  } else {
+    const halfPush = pushDistance * 0.5
+    first.position.x += normalX * halfPush
+    first.position.z += normalZ * halfPush
+    second.position.x -= normalX * halfPush
+    second.position.z -= normalZ * halfPush
+  }
+}
+
+/**
+ * Resolves a moving entity against the world obstacles.
+ * `position` is the entity origin; `bottomOffset` is the distance from that
+ * origin to its feet (0 for mounts/NPCs, PLAYER_HALF_HEIGHT for the player).
+ */
+export function resolveObstacleCollision(
+  position: THREE.Vector3,
+  previousPosition: THREE.Vector3,
+  velocityY: number,
+  onGround: boolean,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+): ObstacleCollisionResult {
+  const epsilon = 0.001
+  const bottomY = position.y - bottomOffset
+  const topY = bottomY + height
+
+  const overlapsHorizontally = (x: number, z: number, box: THREE.Box3): boolean =>
+    x + radius > box.min.x && x - radius < box.max.x &&
+    z + radius > box.min.z && z - radius < box.max.z
+
+  for (const obstacle of obstacles) {
+    const box = obstacle.box
+
+    // A descending entity lands on the obstacle's top surface.
+    if (
+      velocityY <= 0 &&
+      previousPosition.y - bottomOffset >= box.max.y - epsilon &&
+      bottomY <= box.max.y + epsilon &&
+      overlapsHorizontally(position.x, position.z, box)
+    ) {
+      position.y = box.max.y + bottomOffset
+      velocityY = 0
+      onGround = true
+      continue
+    }
+
+    // Above the obstacle: it is a walkable platform, not a wall.
+    if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
+
+    // Block each axis independently so the entity stops at the wall and slides
+    // along it instead of being pushed/bounced away from the obstacle.
+    const desiredX = position.x
+    const desiredZ = position.z
+
+    position.z = previousPosition.z
+    if (overlapsHorizontally(desiredX, position.z, box)) {
+      position.x = previousPosition.x
+    } else {
+      position.x = desiredX
+    }
+
+    position.z = desiredZ
+    if (overlapsHorizontally(position.x, position.z, box)) {
+      position.z = previousPosition.z
+    }
+  }
+
+  return { velocityY, onGround }
+}
+
 export function createTerrain(scene: THREE.Scene): TerrainResult {
   // 200x200 Plane with 64x64 subdivisions for smooth hill curves
   const geometry = new THREE.PlaneGeometry(200, 200, 64, 64)
@@ -151,7 +304,8 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     // Collision box for the barricade
     const box = new THREE.Box3(
       new THREE.Vector3(x - 2, ty, z - 2),
-      new THREE.Vector3(x + 2, ty + 15, z + 2)
+      // The rotated spikes reach roughly 2.7m above the ground.
+      new THREE.Vector3(x + 2, ty + 3.0, z + 2)
     )
     obstacles.push({ box, isBarricade: true })
   })

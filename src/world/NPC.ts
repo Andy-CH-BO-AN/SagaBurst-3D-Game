@@ -6,7 +6,7 @@
 import * as THREE from 'three'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
-import { getTerrainHeight } from './Terrain'
+import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export enum AIState {
@@ -75,6 +75,8 @@ export class NPC {
   private currentWaypointIdx = 0
 
   private arrows: number = 0
+  private velY = 0
+  private onGround = false
 
   get hp(): number { return this.currentHp }
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
@@ -479,10 +481,12 @@ export class NPC {
     dt: number,
     player: Player,
     allNPCs: NPC[],
+    obstacles: ObstacleData[],
     _playerHpBar: HpBar,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void
   ): void {
+    const previousPosition = this.group.position.clone()
 
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
@@ -498,7 +502,7 @@ export class NPC {
     switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
-        this._updatePatrol(dt)
+        this._updatePatrol(dt, obstacles)
 
         if (targetInfo && !targetInfo.isDead) {
           const dist = this.group.position.distanceTo(targetInfo.position)
@@ -583,6 +587,8 @@ export class NPC {
           moveDir.add(sep).normalize()
         }
 
+        moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+
         // Move towards target / flee + separation
         this.group.position.addScaledVector(moveDir, CHASE_SPEED * dt)
         
@@ -590,7 +596,6 @@ export class NPC {
         this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
         this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
         
-        this.group.position.y = getTerrainHeight(this.group.position.x, this.group.position.z)
         this._faceTarget(targetInfo.position)
         break
       }
@@ -603,8 +608,6 @@ export class NPC {
         
         this._faceTarget(targetInfo.position)
         this.attackTimer += dt
-        this.group.position.y = getTerrainHeight(this.group.position.x, this.group.position.z)
-
         if (this.arrows > 0) {
           // Ranged Attack (Bow draw / Pilum throw animation)
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
@@ -696,9 +699,36 @@ export class NPC {
         break
       }
     }
+
+    if (this.state !== AIState.DEAD) {
+      // NPCs use the same terrain/platform gravity as the player and mounts.
+      const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
+      this.velY += -22 * dt
+      this.group.position.y += this.velY * dt
+      if (this.group.position.y <= terrainY) {
+        this.group.position.y = terrainY
+        this.velY = 0
+        this.onGround = true
+      } else {
+        this.onGround = false
+      }
+
+      const collision = resolveObstacleCollision(
+        this.group.position,
+        previousPosition,
+        this.velY,
+        this.onGround,
+        0.5,
+        2.3,
+        0,
+        obstacles,
+      )
+      this.velY = collision.velocityY
+      this.onGround = collision.onGround
+    }
   }
 
-  private _updatePatrol(dt: number): void {
+  private _updatePatrol(dt: number, obstacles: ObstacleData[]): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
@@ -708,8 +738,8 @@ export class NPC {
       const dir = target.clone().sub(this.group.position)
       dir.y = 0
       dir.normalize()
+      dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
       this.group.position.addScaledVector(dir, PATROL_SPEED * dt)
-      this.group.position.y = getTerrainHeight(this.group.position.x, this.group.position.z)
       this._faceTarget(target)
     }
   }
@@ -738,6 +768,8 @@ export class NPC {
 
     const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
     this.group.position.set(this.spawnX, terrainY, this.spawnZ)
+    this.velY = 0
+    this.onGround = true
     this.group.rotation.set(0, 0, 0)
     this.swordPivot.rotation.set(0, 0, 0)
     this.alertSprite.visible = false

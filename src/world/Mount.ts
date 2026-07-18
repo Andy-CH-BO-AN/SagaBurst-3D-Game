@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { getTerrainHeight } from './Terrain'
+import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
@@ -187,8 +187,10 @@ export class Mount {
     this.wanderTarget.z = Math.max(-95, Math.min(95, this.wanderTarget.z))
   }
 
-  update(dt: number) {
+  update(dt: number, obstacles: ObstacleData[]) {
     if (this.state === MountState.CONTROLLED) return // Player controls it
+
+    const previousPosition = this.group.position.clone()
 
     this.wanderTimer -= dt
 
@@ -209,6 +211,7 @@ export class Mount {
         
         if (dir.length() > 0.5) {
           dir.normalize()
+          dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 1.0, 2.6, 0, obstacles))
           const speed = 2.0 // Slow wander speed
           this.group.position.addScaledVector(dir, speed * dt)
           
@@ -238,5 +241,18 @@ export class Mount {
     } else {
       this.onGround = false
     }
+
+    const collision = resolveObstacleCollision(
+      this.group.position,
+      previousPosition,
+      this.velY,
+      this.onGround,
+      1.0,
+      2.6,
+      0,
+      obstacles,
+    )
+    this.velY = collision.velocityY
+    this.onGround = collision.onGround
   }
 }
