@@ -44,6 +44,7 @@ export class Mount {
 
     const y = getTerrainHeight(x, z)
     this.group.position.set(x, y, z)
+    this.group.scale.set(2.2, 2.2, 2.2)
     scene.add(this.group)
     
     this._pickWanderTarget()
@@ -85,13 +86,29 @@ export class Mount {
     head.add(pupilR)
 
     // Ears
-    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 4), mat)
-    earL.position.set(0.15, 0.25, 0)
+    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), mat)
+    earL.position.set(0.18, 0.3, 0)
+    earL.rotation.z = -0.2
     head.add(earL)
     
-    const earR = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 4), mat)
-    earR.position.set(-0.15, 0.25, 0)
+    const earR = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), mat)
+    earR.position.set(-0.18, 0.3, 0)
+    earR.rotation.z = 0.2
     head.add(earR)
+
+    // Whiskers
+    const whiskerMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
+    for (let i = 0; i < 2; i++) {
+      const wL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.02, 0.02), whiskerMat)
+      wL.position.set(0.25, -0.05 + i * 0.08, 0.18)
+      wL.rotation.z = -0.1 + i * 0.2
+      head.add(wL)
+
+      const wR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.02, 0.02), whiskerMat)
+      wR.position.set(-0.25, -0.05 + i * 0.08, 0.18)
+      wR.rotation.z = 0.1 - i * 0.2
+      head.add(wR)
+    }
   }
 
   private _buildCorgi() {
@@ -120,13 +137,30 @@ export class Mount {
     snout.position.set(0, -0.05, 0.25)
     head.add(snout)
 
-    // Ears (Upright)
-    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 4), orangeMat)
-    earL.position.set(0.15, 0.3, 0)
+    // Nose
+    const blackMat = new THREE.MeshBasicMaterial({ color: 0x000000 })
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.05), blackMat)
+    nose.position.set(0, 0.05, 0.1)
+    snout.add(nose)
+
+    // Eyes
+    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.02), blackMat)
+    eyeL.position.set(0.12, 0.1, 0.21)
+    head.add(eyeL)
+
+    const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.02), blackMat)
+    eyeR.position.set(-0.12, 0.1, 0.21)
+    head.add(eyeR)
+
+    // Ears (Upright and larger)
+    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), orangeMat)
+    earL.position.set(0.18, 0.35, 0)
+    earL.rotation.z = -0.1
     head.add(earL)
     
-    const earR = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 4), orangeMat)
-    earR.position.set(-0.15, 0.3, 0)
+    const earR = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), orangeMat)
+    earR.position.set(-0.18, 0.35, 0)
+    earR.rotation.z = 0.1
     head.add(earR)
 
     // Short legs

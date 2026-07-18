@@ -133,14 +133,14 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
     // Cross spikes
     for (let i = -1.5; i <= 1.5; i += 1.5) {
-      const spike1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), woodMat)
-      spike1.position.set(i, 0.5, 0)
+      const spike1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, 0.3), woodMat)
+      spike1.position.set(i, 1.0, 0)
       spike1.rotation.x = Math.PI / 4
       spike1.castShadow = true
       barricadeGroup.add(spike1)
 
-      const spike2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), woodMat)
-      spike2.position.set(i, 0.5, 0)
+      const spike2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, 0.3), woodMat)
+      spike2.position.set(i, 1.0, 0)
       spike2.rotation.x = -Math.PI / 4
       spike2.castShadow = true
       barricadeGroup.add(spike2)
@@ -148,9 +148,11 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
     scene.add(barricadeGroup)
     
-    // Create collision box slightly smaller than the spikes to feel fair
-    const box = new THREE.Box3().setFromObject(barricadeGroup)
-    box.expandByScalar(-0.2)
+    // Collision box for the barricade
+    const box = new THREE.Box3(
+      new THREE.Vector3(x - 2, ty, z - 2),
+      new THREE.Vector3(x + 2, ty + 15, z + 2)
+    )
     obstacles.push({ box, isBarricade: true })
   })
 

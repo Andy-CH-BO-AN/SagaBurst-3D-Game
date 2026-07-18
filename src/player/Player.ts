@@ -637,20 +637,22 @@ export class Player {
 
       // Sync player to mount
       this.group.position.copy(this.currentMount.group.position)
-      this.group.position.y += 0.8 // Ride height
+      this.group.position.y += 1.8 // Ride height
       
       // Ride posture
       this.group.rotation.x = 0.3
-      this.group.position.y -= 0.1
+      this.group.position.y -= 0.2
       
       // Rotation
       if (isMoving) {
         moveDir.normalize()
-        const targetAngle = Math.atan2(-moveDir.x, -moveDir.z)
-        this.currentMount.group.rotation.y = targetAngle
-        this.group.rotation.y = targetAngle
+        const playerAngle = Math.atan2(-moveDir.x, -moveDir.z)
+        const mountAngle = Math.atan2(moveDir.x, moveDir.z)
+        this.currentMount.group.rotation.y = mountAngle
+        this.group.rotation.y = playerAngle
       } else if (this.aiming || this.isSwinging) {
         this.group.rotation.y = cameraYaw
+        this.currentMount.group.rotation.y = cameraYaw + Math.PI
       }
 
       // Obstacle Push-out for Mount
@@ -861,9 +863,9 @@ export class Player {
     if (!this.currentMount) return
     const pos = this.currentMount.group.position
     
-    // Mount is about radius 0.4, height 1.2
-    const mRadius = 0.4
-    const mHeight = 1.2
+    // Mount is about radius 0.9, height 2.6 (scaled)
+    const mRadius = 0.9
+    const mHeight = 2.6
     const pMin = new THREE.Vector3(pos.x - mRadius, pos.y, pos.z - mRadius)
     const pMax = new THREE.Vector3(pos.x + mRadius, pos.y + mHeight, pos.z + mRadius)
     const mountBox = new THREE.Box3(pMin, pMax)
