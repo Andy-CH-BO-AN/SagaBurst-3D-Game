@@ -14,9 +14,14 @@ export function getTerrainHeight(x: number, z: number): number {
   return h1 + h2
 }
 
+export interface ObstacleData {
+  box: THREE.Box3
+  isBarricade: boolean
+}
+
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
-  obstacles: THREE.Box3[]
+  obstacles: ObstacleData[]
 }
 
 export function createTerrain(scene: THREE.Scene): TerrainResult {
@@ -44,7 +49,7 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
   terrainMesh.receiveShadow = true
   scene.add(terrainMesh)
 
-  const obstacles: THREE.Box3[] = []
+  const obstacles: ObstacleData[] = []
 
   // ── Decorative rocks (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
   const rockMat = new THREE.MeshLambertMaterial({ color: 0x888888 })
@@ -71,10 +76,11 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
     // AABB collision box calibrated to terrain height
     const halfSize = size * 0.85
-    obstacles.push(new THREE.Box3(
+    const box = new THREE.Box3(
       new THREE.Vector3(x - halfSize, terrainY, z - halfSize),
       new THREE.Vector3(x + halfSize, terrainY + size * 2, z + halfSize)
-    ))
+    )
+    obstacles.push({ box, isBarricade: false })
   })
 
   // ── Pine trees (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
@@ -98,10 +104,54 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     scene.add(leaves)
 
     // Trunk collision box calibrated to terrain height
-    obstacles.push(new THREE.Box3(
+    const box = new THREE.Box3(
       new THREE.Vector3(tx - 0.4, terrainY, tz - 0.4),
       new THREE.Vector3(tx + 0.4, terrainY + 6, tz + 0.4)
-    ))
+    )
+    obstacles.push({ box, isBarricade: false })
+  })
+
+  // ── Cheval-de-frise (Barricades) for Phase 12 ──
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
+  const barricadePositions: [number, number, number][] = [
+    [15, -5, Math.PI / 4],
+    [20, 5, -Math.PI / 6],
+    [-15, 15, Math.PI / 2],
+  ]
+
+  barricadePositions.forEach(([x, z, rot]) => {
+    const barricadeGroup = new THREE.Group()
+    const ty = getTerrainHeight(x, z)
+    barricadeGroup.position.set(x, ty, z)
+    barricadeGroup.rotation.y = rot
+
+    // Base log
+    const base = new THREE.Mesh(new THREE.BoxGeometry(4, 0.4, 0.4), woodMat)
+    base.position.y = 0.2
+    base.castShadow = true
+    barricadeGroup.add(base)
+
+    // Cross spikes
+    for (let i = -1.5; i <= 1.5; i += 1.5) {
+      const spike1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), woodMat)
+      spike1.position.set(i, 0.5, 0)
+      spike1.rotation.x = Math.PI / 4
+      spike1.castShadow = true
+      barricadeGroup.add(spike1)
+
+      const spike2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), woodMat)
+      spike2.position.set(i, 0.5, 0)
+      spike2.rotation.x = -Math.PI / 4
+      spike2.castShadow = true
+      barricadeGroup.add(spike2)
+    }
+
+    scene.add(barricadeGroup)
+    
+    // Create collision box slightly smaller than the spikes to feel fair
+    const box = new THREE.Box3().setFromObject(barricadeGroup)
+    box.expandByScalar(-0.2)
+    obstacles.push({ box, isBarricade: true })
   })
 
   return { terrainMesh, obstacles }

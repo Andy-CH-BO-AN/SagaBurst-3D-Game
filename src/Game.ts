@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import { createSky } from './world/Sky'
-import { createTerrain } from './world/Terrain'
+import { createTerrain, ObstacleData } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -14,8 +14,9 @@ import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { DummyEnemy } from './world/DummyEnemy'
 import { NPC, Faction, AIType } from './world/NPC'
-import { DamageNumbers } from './ui/DamageNumbers'
 import { ArrowProjectile } from './world/ArrowProjectile'
+import { Mount, MountType, MountState } from './world/Mount'
+import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
 import { CompassUI } from './ui/CompassUI'
@@ -39,8 +40,9 @@ export class Game {
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
   private pickups: WeaponPickup[] = []
+  private mounts: Mount[] = []
 
-  private obstacles: THREE.Box3[] = []
+  private obstacles: ObstacleData[] = []
   private saveManager: SaveManager
   private staminaBar: StaminaBar
   private hpBar: HpBar
@@ -56,6 +58,10 @@ export class Game {
   private enemyNameEl: HTMLElement
   private enemyHpFill: HTMLElement
   private enemyHudTimer: number | null = null
+
+  private mountHud: HTMLElement
+  private mountNameEl: HTMLElement
+  private mountHpFill: HTMLElement
 
   private pickupPromptEl: HTMLElement
   // @ts-ignore
@@ -156,11 +162,16 @@ export class Game {
     this.enemyNameEl = document.getElementById('enemy-name')!
     this.enemyHpFill = document.getElementById('enemy-hp-fill')!
 
+    this.mountHud    = document.getElementById('mount-hud')!
+    this.mountNameEl = document.getElementById('mount-name')!
+    this.mountHpFill = document.getElementById('mount-hp-fill')!
+
     // ── Save Manager ──
     this.saveManager = new SaveManager()
 
-    // ── Spawn World Pickups ──
+    // ── Spawn World Pickups & Mounts ──
     this._spawnWorldPickups()
+    this._spawnMounts()
 
     // Listen for arrow fire from Player
     this.player.onFireArrow = (evt) => {
@@ -219,6 +230,14 @@ export class Game {
     this.pickups.push(new WeaponPickup(this.scene, '', -5, -4, true, 15))
     this.pickups.push(new WeaponPickup(this.scene, '', 12, 10, true, 15))
     this.pickups.push(new WeaponPickup(this.scene, '', -12, 10, true, 15))
+  }
+
+  private _spawnMounts(): void {
+    // 2 Cats, 2 Corgis
+    this.mounts.push(new Mount(this.scene, MountType.BLACK_CAT, 10, -5))
+    this.mounts.push(new Mount(this.scene, MountType.BLACK_CAT, -15, 20))
+    this.mounts.push(new Mount(this.scene, MountType.CORGI, 15, 15))
+    this.mounts.push(new Mount(this.scene, MountType.CORGI, -20, -10))
   }
 
   // ── Pointer Lock ──
@@ -360,6 +379,10 @@ export class Game {
         archery: skills.archery,
       },
       inventory: inv,
+      mountData: this.player.isMounted && this.player.currentMount ? {
+        isMounted: true,
+        type: this.player.currentMount.type
+      } : undefined
     })
     this._showNotify(ok ? '💾 遊戲已存檔（含背包裝備）' : '❌ 存檔失敗')
   }
@@ -380,6 +403,18 @@ export class Game {
     }
     if (data.inventory) {
       this.inventoryManager.loadSaveState(data.inventory)
+    }
+
+    if (data.mountData && data.mountData.isMounted) {
+      // Create mount for player at load position
+      const m = new Mount(this.scene, data.mountData.type as MountType, data.position.x, data.position.z)
+      this.mounts.push(m)
+      this.player.isMounted = true
+      this.player.currentMount = m
+      m.state = MountState.CONTROLLED
+      this.mountNameEl.textContent = m.type === MountType.BLACK_CAT ? '坐騎：黑貓' : '坐騎：柯基'
+      this.mountHpFill.style.width = `${Math.max(0, (m.currentHp / m.maxHp) * 100)}%`
+      this.mountHud.classList.add('visible')
     }
 
     this.staminaBar.setFill(data.stamina / 100)
@@ -455,9 +490,33 @@ export class Game {
     }
   }
 
-  // ── World Pickup Interaction ──
-  private _updatePickups(dt: number): void {
-    let closest: WeaponPickup | null = null
+  // ── World Pickup & Mount Interaction ──
+  private _updateInteractions(dt: number): void {
+    // Update Mounts
+    for (const mount of this.mounts) {
+      mount.update(dt)
+    }
+
+    const isEPressed = this.input.consumeKeyE()
+
+    if (this.player.isMounted && this.player.currentMount) {
+      // Handle Dismount
+      this.pickupPromptEl.textContent = `[E] 下騎`
+      this.pickupPromptEl.classList.add('visible')
+
+      if (isEPressed) {
+        this.player.isMounted = false
+        this.player.currentMount.state = MountState.IDLE
+        this.player.currentMount = null
+        this.soundManager.playHit() // Placeholder sound
+        this.pickupPromptEl.classList.remove('visible')
+        this.mountHud.classList.remove('visible')
+      }
+      return // Skip pickups while mounted
+    }
+
+    let closestPickup: WeaponPickup | null = null
+    let closestMount: Mount | null = null
     let closestDist = 2.5
 
     for (let i = this.pickups.length - 1; i >= 0; i--) {
@@ -466,37 +525,60 @@ export class Game {
 
       const dist = this.player.position.distanceTo(pickup.position)
       if (dist < closestDist) {
-        closest = pickup
+        closestPickup = pickup
+        closestMount = null
         closestDist = dist
       }
     }
 
-    this.activeNearbyPickup = closest
+    for (const mount of this.mounts) {
+      const dist = this.player.position.distanceTo(mount.group.position)
+      if (dist < closestDist) {
+        closestMount = mount
+        closestPickup = null
+        closestDist = dist
+      }
+    }
 
-    if (closest) {
-      this.pickupPromptEl.textContent = `[E] 拾取：${closest.name}`
+    if (closestPickup) {
+      this.pickupPromptEl.textContent = `[E] 拾取：${closestPickup.name}`
+      this.pickupPromptEl.classList.add('visible')
+    } else if (closestMount) {
+      const mountName = closestMount.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
+      this.pickupPromptEl.textContent = `[E] 騎乘：${mountName}`
       this.pickupPromptEl.classList.add('visible')
     } else {
       this.pickupPromptEl.classList.remove('visible')
     }
 
-    // Check if E key was pressed to pick up
-    if (this.input.consumeKeyE() && closest) {
-      if (closest.isArrowPack) {
-        this.player.setArrowCount(this.player.arrowCount + closest.arrowQuantity)
-        this.quiverUI.setArrowCount(this.player.arrowCount)
-        this._showNotify(`🏹 拾取：箭矢 x${closest.arrowQuantity}`)
-      } else {
-        const count = this.inventoryManager.addWeapon(closest.weaponId)
-        this._showNotify(`🎒 拾取：${closest.name} (數量: x${count})`)
+    // Check if E key was pressed to pick up or mount
+    if (isEPressed) {
+      if (closestPickup) {
+        if (closestPickup.isArrowPack) {
+          this.player.setArrowCount(this.player.arrowCount + closestPickup.arrowQuantity)
+          this.quiverUI.setArrowCount(this.player.arrowCount)
+          this._showNotify(`🏹 拾取：箭矢 x${closestPickup.arrowQuantity}`)
+        } else {
+          const count = this.inventoryManager.addWeapon(closestPickup.weaponId)
+          this._showNotify(`🎒 拾取：${closestPickup.name} (數量: x${count})`)
+        }
+        this.soundManager.playHit()
+        closestPickup.destroy()
+        
+        const idx = this.pickups.indexOf(closestPickup)
+        if (idx !== -1) this.pickups.splice(idx, 1)
+
+      } else if (closestMount) {
+        this.player.isMounted = true
+        this.player.currentMount = closestMount
+        closestMount.state = MountState.CONTROLLED
+        
+        // Show mount HUD
+        this.mountNameEl.textContent = closestMount.type === MountType.BLACK_CAT ? '坐騎：黑貓' : '坐騎：柯基'
+        this.mountHpFill.style.width = `${Math.max(0, (closestMount.currentHp / closestMount.maxHp) * 100)}%`
+        this.mountHud.classList.add('visible')
+        this.soundManager.playHit()
       }
-      this.soundManager.playHit()
-      closest.destroy()
-
-      const idx = this.pickups.indexOf(closest)
-      if (idx !== -1) this.pickups.splice(idx, 1)
-
-      this.activeNearbyPickup = null
       this.pickupPromptEl.classList.remove('visible')
     }
   }
@@ -523,9 +605,6 @@ export class Game {
 
     // Update Compass direction bar
     this.compassUI.update(this.thirdPersonCamera.cameraYaw)
-
-    // Update World Pickups
-    this._updatePickups(dt)
 
     // Update Player logic
     this.player.update(
@@ -585,6 +664,9 @@ export class Game {
 
     // Check Player Melee Sword Hits
     this._checkPlayerMeleeHits()
+
+    // Update Pickups & Mounts Interaction
+    this._updateInteractions(dt)
 
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {

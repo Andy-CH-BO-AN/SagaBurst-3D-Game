@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import type { DummyEnemy } from './DummyEnemy'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
+import type { ObstacleData } from './Terrain'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 
@@ -72,8 +73,8 @@ export class ArrowProjectile {
     dummy: DummyEnemy,
     player: Player,
     npcs: NPC[],
-    obstacles: THREE.Box3[],
-    onHitTarget: (damage: number, hitPos: THREE.Vector3, name: string, hpRatio: number, isPlayer: boolean, npc?: NPC) => void
+    obstacles: ObstacleData[],
+    onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC) => void
   ): void {
     if (!this.alive) return
 
@@ -103,9 +104,9 @@ export class ArrowProjectile {
       return
     }
 
-    // ── Hit Detection 2: Obstacles (Rocks / Trees) ──
-    for (const box of obstacles) {
-      if (box.containsPoint(this.mesh.position)) {
+    // ── Hit Detection 2: Obstacles (Rocks / Trees / Barricades) ──
+    for (const obs of obstacles) {
+      if (obs.box.containsPoint(this.mesh.position)) {
         this.stuck = true
         return
       }

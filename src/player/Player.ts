@@ -14,7 +14,8 @@ import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import type { WeaponData } from '../rpg/WeaponDatabase'
-import { getTerrainHeight } from '../world/Terrain'
+import { getTerrainHeight, ObstacleData } from '../world/Terrain'
+import { Mount } from '../world/Mount'
 
 // ── Tuning constants ──
 const MOVE_SPEED        = 8    // units/s walk
@@ -81,6 +82,9 @@ export class Player {
 
   onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
   onPlayerDeath: (() => void) | null = null
+
+  public isMounted = false
+  public currentMount: Mount | null = null
 
   get position(): THREE.Vector3 { return this.group.position }
   get staminaRatio(): number    { return this.stamina / MAX_STAMINA }
@@ -513,7 +517,7 @@ export class Player {
     input: PlayerInput,
     cameraYaw: number,
     cameraDirection: THREE.Vector3,
-    obstacles: THREE.Box3[],
+    obstacles: ObstacleData[],
     staminaBar: StaminaBar,
     quiverUI: QuiverUI,
     soundManager: SoundManager,
@@ -610,49 +614,105 @@ export class Player {
     }
     staminaBar.setFill(this.staminaRatio)
 
-    if (this.aiming) {
-      this.group.rotation.y = cameraYaw
-    } else if (isMoving) {
-      moveDir.normalize()
-      const targetAngle = Math.atan2(-moveDir.x, -moveDir.z)
-      this.group.rotation.y = targetAngle
-    } else if (this.isSwinging) {
-      this.group.rotation.y = cameraYaw
-    }
+    if (this.isMounted && this.currentMount) {
+      const speed = this.currentMount.baseSpeed * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+      this.currentMount.group.position.addScaledVector(moveDir, speed * dt)
+      
+      // Jump (Mount)
+      if (input.keys['Space'] && this.currentMount.onGround) {
+        this.currentMount.velY = JUMP_VELOCITY * 1.6 // Higher jump
+        this.currentMount.onGround = false
+      }
 
-    const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
-    this.group.position.addScaledVector(moveDir, speed * dt)
-    
-    // Map boundary clamp
-    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
-    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+      // Gravity & Terrain
+      this.currentMount.velY += GRAVITY * dt
+      this.currentMount.group.position.y += this.currentMount.velY * dt
+      
+      const ty = getTerrainHeight(this.currentMount.group.position.x, this.currentMount.group.position.z)
+      if (this.currentMount.group.position.y <= ty) {
+        this.currentMount.group.position.y = ty
+        this.currentMount.velY = 0
+        this.currentMount.onGround = true
+      }
 
-    // Jump
-    if (input.keys['Space'] && this.onGround) {
-      this.velY = JUMP_VELOCITY
-      this.onGround = false
-    }
+      // Sync player to mount
+      this.group.position.copy(this.currentMount.group.position)
+      this.group.position.y += 0.8 // Ride height
+      
+      // Ride posture
+      this.group.rotation.x = 0.3
+      this.group.position.y -= 0.1
+      
+      // Rotation
+      if (isMoving) {
+        moveDir.normalize()
+        const targetAngle = Math.atan2(-moveDir.x, -moveDir.z)
+        this.currentMount.group.rotation.y = targetAngle
+        this.group.rotation.y = targetAngle
+      } else if (this.aiming || this.isSwinging) {
+        this.group.rotation.y = cameraYaw
+      }
 
-    // Gravity
-    this.velY += GRAVITY * dt
-    this.group.position.y += this.velY * dt
+      // Obstacle Push-out for Mount
+      this._resolveMountObstacles(obstacles)
 
-    // Dynamic Heightmap Ground Collision
-    const currentGroundY = getTerrainHeight(this.group.position.x, this.group.position.z)
-    const footY = currentGroundY + PLAYER_HALF_HEIGHT
-    if (this.group.position.y <= footY) {
-      this.group.position.y = footY
+      // Boundaries
+      const BOUND = 95
+      this.currentMount.group.position.x = THREE.MathUtils.clamp(this.currentMount.group.position.x, -BOUND, BOUND)
+      this.currentMount.group.position.z = THREE.MathUtils.clamp(this.currentMount.group.position.z, -BOUND, BOUND)
+      this.group.position.x = this.currentMount.group.position.x
+      this.group.position.z = this.currentMount.group.position.z
+      
+      // Reset player velY so when dismounting they don't fall fast
       this.velY = 0
-      this.onGround = true
+
+    } else {
+      // Normal Player Movement
+      this.group.rotation.x = 0
+      const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+      this.group.position.addScaledVector(moveDir, speed * dt)
+      
+      if (this.aiming) {
+        this.group.rotation.y = cameraYaw
+      } else if (isMoving) {
+        moveDir.normalize()
+        const targetAngle = Math.atan2(-moveDir.x, -moveDir.z)
+        this.group.rotation.y = targetAngle
+      } else if (this.isSwinging) {
+        this.group.rotation.y = cameraYaw
+      }
+
+      // Map boundary clamp
+      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
+      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+
+      // Jump
+      if (input.keys['Space'] && this.onGround) {
+        this.velY = JUMP_VELOCITY
+        this.onGround = false
+      }
+
+      // Gravity
+      this.velY += GRAVITY * dt
+      this.group.position.y += this.velY * dt
+
+      // Dynamic Heightmap Ground Collision
+      const currentGroundY = getTerrainHeight(this.group.position.x, this.group.position.z)
+      const footY = currentGroundY + PLAYER_HALF_HEIGHT
+      if (this.group.position.y <= footY) {
+        this.group.position.y = footY
+        this.velY = 0
+        this.onGround = true
+      }
+
+      // Obstacle Push-out
+      this._resolveObstacles(obstacles)
+
+      // World Boundary Clamp
+      const BOUND = 95
+      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -BOUND, BOUND)
+      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -BOUND, BOUND)
     }
-
-    // Obstacle Push-out
-    this._resolveObstacles(obstacles)
-
-    // World Boundary Clamp
-    const BOUND = 95
-    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -BOUND, BOUND)
-    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -BOUND, BOUND)
   }
 
   private _updateBowPose(maxChargeTime = MAX_BOW_CHARGE_TIME): void {
@@ -770,27 +830,66 @@ export class Player {
     }
   }
 
-  private _resolveObstacles(obstacles: THREE.Box3[]): void {
+  private _resolveObstacles(obstacles: ObstacleData[]): void {
     const pos = this.group.position
+    const pMin = new THREE.Vector3(pos.x - PLAYER_RADIUS, pos.y - PLAYER_HALF_HEIGHT, pos.z - PLAYER_RADIUS)
+    const pMax = new THREE.Vector3(pos.x + PLAYER_RADIUS, pos.y + PLAYER_HALF_HEIGHT, pos.z + PLAYER_RADIUS)
+    const playerBox = new THREE.Box3(pMin, pMax)
 
-    for (const box of obstacles) {
-      const pMin = new THREE.Vector3(pos.x - PLAYER_RADIUS, pos.y - PLAYER_HALF_HEIGHT, pos.z - PLAYER_RADIUS)
-      const pMax = new THREE.Vector3(pos.x + PLAYER_RADIUS, pos.y + PLAYER_HALF_HEIGHT, pos.z + PLAYER_RADIUS)
-      const playerBox = new THREE.Box3(pMin, pMax)
+    for (const obs of obstacles) {
+      const box = obs.box
 
       if (!playerBox.intersectsBox(box)) continue
 
-      const overlapX1 = pMax.x - box.min.x
-      const overlapX2 = box.max.x - pMin.x
-      const overlapZ1 = pMax.z - box.min.z
-      const overlapZ2 = box.max.z - pMin.z
+      const centerObs = new THREE.Vector3()
+      box.getCenter(centerObs)
 
-      const minOverlap = Math.min(overlapX1, overlapX2, overlapZ1, overlapZ2)
+      const dx = pos.x - centerObs.x
+      const dz = pos.z - centerObs.z
+      const overlapX = (dx > 0 ? (playerBox.max.x - box.min.x) : (box.max.x - playerBox.min.x))
+      const overlapZ = (dz > 0 ? (playerBox.max.z - box.min.z) : (box.max.z - playerBox.min.z))
 
-      if (minOverlap === overlapX1) pos.x -= overlapX1
-      else if (minOverlap === overlapX2) pos.x += overlapX2
-      else if (minOverlap === overlapZ1) pos.z -= overlapZ1
-      else pos.z += overlapZ2
+      if (overlapX < overlapZ) {
+        pos.x += Math.sign(dx) * overlapX
+      } else {
+        pos.z += Math.sign(dz) * overlapZ
+      }
+    }
+  }
+
+  private _resolveMountObstacles(obstacles: ObstacleData[]): void {
+    if (!this.currentMount) return
+    const pos = this.currentMount.group.position
+    
+    // Mount is about radius 0.4, height 1.2
+    const mRadius = 0.4
+    const mHeight = 1.2
+    const pMin = new THREE.Vector3(pos.x - mRadius, pos.y, pos.z - mRadius)
+    const pMax = new THREE.Vector3(pos.x + mRadius, pos.y + mHeight, pos.z + mRadius)
+    const mountBox = new THREE.Box3(pMin, pMax)
+
+    for (const obs of obstacles) {
+      // If jumping high enough, ignore barricades
+      if (obs.isBarricade && !this.currentMount.onGround && pos.y > getTerrainHeight(pos.x, pos.z) + 1.2) {
+        continue
+      }
+
+      const box = obs.box
+      if (!mountBox.intersectsBox(box)) continue
+
+      const centerObs = new THREE.Vector3()
+      box.getCenter(centerObs)
+
+      const dx = pos.x - centerObs.x
+      const dz = pos.z - centerObs.z
+      const overlapX = (dx > 0 ? (mountBox.max.x - box.min.x) : (box.max.x - mountBox.min.x))
+      const overlapZ = (dz > 0 ? (mountBox.max.z - box.min.z) : (box.max.z - mountBox.min.z))
+
+      if (overlapX < overlapZ) {
+        pos.x += Math.sign(dx) * overlapX
+      } else {
+        pos.z += Math.sign(dz) * overlapZ
+      }
     }
   }
 }

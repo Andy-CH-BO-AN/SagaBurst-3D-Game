@@ -26,6 +26,10 @@ export interface PlayerSaveData {
     equippedMeleeId: string
     equippedRangedId: string
   }
+  mountData?: {
+    isMounted: boolean
+    type: string
+  }
 }
 
 export const DEFAULT_SAVE: PlayerSaveData = {
