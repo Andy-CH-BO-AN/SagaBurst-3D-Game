@@ -14,6 +14,7 @@ import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { DummyEnemy } from './world/DummyEnemy'
 import { NPC, Faction, AIType } from './world/NPC'
+import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { Mount, MountType, MountState } from './world/Mount'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -76,7 +77,11 @@ export class Game {
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpCameraDir = new THREE.Vector3()
+
   private readonly _tmpHitPos = new THREE.Vector3()
+
+  // LOD & Spatial Partitioning
+  private npcGrid = new SpatialGrid<NPC>(20)
 
   constructor(container: HTMLElement) {
     // ── Renderer ──
@@ -797,11 +802,26 @@ export class Game {
     this.dummyEnemy.update(dt)
 
     // Update NPCs
+    this.npcGrid.clear()
     for (const npc of this.npcs) {
+      if (npc.hp > 0) this.npcGrid.insert(npc)
+    }
+
+    const playerPos = this.player.combatPosition
+    const lodDistSq = 40 * 40
+
+    for (const npc of this.npcs) {
+      if (npc.hp > 0 && npc.combatPosition.distanceToSquared(playerPos) > lodDistSq) {
+        npc.tickMinimal(dt)
+        continue
+      }
+
+      const nearbyNPCs = npc.hp > 0 ? this.npcGrid.getNearby(npc.combatPosition, 30) : []
+
       npc.update(
         dt, 
         this.player,
-        this.npcs,
+        nearbyNPCs,
         this.obstacles,
         this.hpBar, 
         (damage, isPlayer, targetNpc) => {

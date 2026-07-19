@@ -263,7 +263,7 @@ export class NPC {
     return true
   }
 
-  private _findTarget(player: Player, allNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
+  private _findTarget(player: Player, nearbyNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     let closestTarget = null
     let closestDist = Infinity
 
@@ -277,7 +277,7 @@ export class NPC {
     }
 
     // Check NPCs
-    for (const npc of allNPCs) {
+    for (const npc of nearbyNPCs) {
       if (npc === this || npc.dead || npc.faction === this.faction) continue
       const d = this.combatPosition.distanceTo(npc.combatPosition)
       if (d < closestDist) {
@@ -289,10 +289,20 @@ export class NPC {
     return closestTarget
   }
 
+  tickMinimal(dt: number): void {
+    if (this.mount) {
+      this.group.position.copy(this.mount.group.position)
+    }
+
+    if (this.flashTimer > 0) this.flashTimer -= dt
+    if (this.state === AIState.ALERT && this.alertTimer > 0) this.alertTimer -= dt
+    if (this.state === AIState.ATTACK) this.attackTimer += dt
+  }
+
   update(
     dt: number,
     player: Player,
-    allNPCs: NPC[],
+    nearbyNPCs: NPC[],
     obstacles: ObstacleData[],
     _playerHpBar: HpBar,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
@@ -312,7 +322,7 @@ export class NPC {
       this.headMesh.material = this.headMat
     }
 
-    const targetInfo = this._findTarget(player, allNPCs)
+    const targetInfo = this._findTarget(player, nearbyNPCs)
 
     switch (this.state) {
       case AIState.IDLE: {
@@ -387,7 +397,7 @@ export class NPC {
         // Boid separation (prevent overlapping with other NPCs)
         this._tmpSep.set(0, 0, 0)
         let sepCount = 0
-        for (const other of allNPCs) {
+        for (const other of nearbyNPCs) {
           if (other === this || other.dead) continue
           const d = this.group.position.distanceTo(other.position)
           if (d < 1.2) {
