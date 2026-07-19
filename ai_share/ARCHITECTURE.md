@@ -18,6 +18,8 @@ skyrim 3D test/
 └── src/
     ├── main.ts                Vite entry — creates Game instance
     ├── Game.ts                Master orchestrator & combat, AI, heightmap physics, audio, inventory, pickup loop
+    ├── debug/
+    │   └── CombatTrajectoryDebugger.ts Query-only weapon grip direction, tip trails, and console summaries
     ├── player/
     │   ├── Player.ts          Segmented body (Torso & Limbs), 6 distinct 3D weapon builders, HP/damage/respawn state, heightmap ground collision
     │   └── PlayerInput.ts     Keyboard & mouse event aggregator (added E key detection)
@@ -28,10 +30,12 @@ skyrim 3D test/
     │   ├── NPC.ts             Generic NPC AI unit (Faction, Melee/Ranged, Lancer, Cavalry flags) with FSM AI
     │   ├── Mount.ts           Mount entity (Black Cat / Corgi) providing movement & impact damage physics
     │   ├── CharacterVisuals.ts Shared 3D procedural character mesh generation for Player and NPCs
+    │   ├── CharacterCombatAnimator.ts Shared allocation-free FK combat timeline and pose sampler
+    │   ├── CharacterBowVisual.ts Shared Player/NPC bow mesh, socket aim, string, nock, and launch controller
     │   ├── WeaponPickup.ts    3D world item drop nodes with distinct 3D weapon models (floating animation)
     │   └── ArrowProjectile.ts Arrow entity with parabolic physics and multi-target hit detection
     ├── camera/
-    │   └── ThirdPersonCamera.ts  Orbit camera with smooth FOV zoom (70 -> 40) & shoulder offset
+    │   └── ThirdPersonCamera.ts  Stable orbit camera with FOV-only aim zoom (70 -> 40) and reticle direction
     ├── rpg/
     │   ├── WeaponDatabase.ts  Centralized config for Tier 1~3 Melee & Ranged weapons & consumables
     │   ├── InventoryManager.ts Manages owned items, inventory grid state, and equipped weapons
@@ -64,8 +68,25 @@ skyrim 3D test/
 
 ### Dynamic Back-Shield System
 - `Player` and `NPC` use a generic `shieldPivot`.
-- In Melee mode, the shield attaches to `leftArm`.
+- In one-handed Melee mode, the shield attaches to the left `handSocket`.
 - In Ranged mode (or while aiming), the shield attaches to the `bodyMesh` and rotates to rest on the character's back, avoiding visual clipping.
+
+### Phase 20 FK Combat Rig
+- `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
+- Melee weapons attach to the right hand socket, bows to the left hand socket, and shields transition between the left hand socket and back.
+- `CharacterCombatAnimator` owns the data-driven dagger, sword, greatsword, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events.
+- `CharacterBowVisual` is the single implementation for Player and bow-equipped NPC bow geometry, vertical target alignment, string draw, nocked-arrow placement, and projectile launch origin/direction. Allied NPC tiers map to the same shortbow/longbow/runebow models used by the Player; Roman pilum remains separate.
+- Greatswords and foot lances use two-handed poses. Mounted lances remain couched under the right arm so the left arm can retain its shield.
+- `ThirdPersonCamera` keeps its optical axis and fixed reticle on one world ray. While aiming, `Game` raycasts that ray to a visible world hit (falling back to a distant point), and player arrows travel from the hand's nock socket toward that resolved point.
+- Entering aim mode changes FOV only; camera distance and lateral position remain fixed so the world point beneath the original reticle does not jump.
+- Melee meshes are authored along local `+Y`. Each hand now owns an animated action pivot with a static weapon-specific grip child, so idle alignment cannot be overwritten by slash/thrust deltas. Lance thrust translation follows its shaft axis.
+- Arrow geometry uses local `-Z` as visual forward for both nocked and flying arrows; projectile quaternions explicitly align that axis with physical velocity instead of relying on generic `Object3D.lookAt()`.
+- Hand-held shields are centred above the wrist and face character-forward; hand/back targets retain independent position and quaternion transitions.
+- Weapon and shield meshes retain `originalMat` for flash restoration, while shields are excluded from character damage-flash traversal.
+- `?devcombat` enables `CombatTrajectoryDebugger` and a fixed Tier-3 50v50 cavalry battle: each faction receives 25 ranged riders and 25 lancers, with front lines starting about 35m from the player. Viking ranged projectiles use arrow visuals while Roman ranged projectiles use full pilum visuals through the same collision pipeline. Grip-to-tip direction lines stay visible and melee actions retain world-space tip trails; completion logs local-space start/end/bounds for Player and NPCs. The debugger is not instantiated on normal URLs.
+- The normal release URL uses a deterministic beginner-friendly 10v5 battle: the Player plus nine allied Tier-2 infantry (five melee, four archers) face five Tier-2 Roman infantry (three melee, two pilum), with cavalry randomness disabled for those units.
+- NPC ranged units engage out to 22m. Their shared aim point adds distance-squared vertical compensation before both visual aiming and projectile launch, while NPC arrows/pilums use a 20m/s launch speed for readable longer arcs.
+- Player physics keeps its 0.95m capsule half-height, while the procedural render rig has a fixed -0.15m visual offset so its -0.8m boot soles meet the terrain exactly like NPC soles without altering collision, jump, or camera roots.
 
 ---
 
@@ -78,9 +99,9 @@ Game Loop
   │
   ├─► Tab / I Key Press ──► equipmentUI.open(skillManager, inventoryManager) ──► Click 【裝備】 ──► player.rebuildWeapon()
   │
-  ├─► Player Melee Swing ──► Reads inventoryManager.equippedMelee stats (damage, speed)
+  ├─► Player Melee Swing ──► Combat animation hit event ──► Read equipped melee damage/range ──► One hit check
   │
-  ├─► Player Bow Fire ────► Reads inventoryManager.equippedRanged stats (damage, speed, maxChargeTime)
+  ├─► Player Bow Fire ────► Charge pose ──► Bow release event ──► Spawn ArrowProjectile
   │
   └─► Mount Impact Damage ─► Horizontal line-segment collision vs Dummy/NPC/Player radii -> deals speed-based damage
   

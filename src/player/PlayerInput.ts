@@ -4,6 +4,7 @@
  * Phase 3 addition: right mouse button (aim mode) detection.
  */
 export class PlayerInput {
+  private readonly allowUnlockedInput = window.location.search.includes('nolock')
   // Movement & Action keys
   readonly keys: Record<string, boolean> = {}
 
@@ -18,7 +19,7 @@ export class PlayerInput {
   private _dy = 0
 
   // Pointer lock state
-  isLocked = false
+  isLocked = this.allowUnlockedInput
 
   private _keyETriggered = false
 
@@ -35,25 +36,32 @@ export class PlayerInput {
 
     window.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
-        this.isLeftMouseDown = true
-        if (this.isLocked) {
-          this._leftClickTriggered = true
+        if (this.allowUnlockedInput && this.isRightMouseDown) {
+          this.isLeftMouseDown = !this.isLeftMouseDown
+          if (this.isLeftMouseDown) this._leftClickTriggered = true
+          else this._leftClickReleased = true
+        } else {
+          this.isLeftMouseDown = true
+          if (this.isLocked) this._leftClickTriggered = true
         }
       }
       if (e.button === 2) {
-        this.isRightMouseDown = true
+        // Browser automation cannot hold pointer-lock mouse buttons.  In the
+        // explicit ?nolock QA mode, each right click toggles aim so the real
+        // input path can still be exercised end-to-end.
+        this.isRightMouseDown = this.allowUnlockedInput ? !this.isRightMouseDown : true
       }
     })
 
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) {
-        this.isLeftMouseDown = false
-        if (this.isLocked) {
-          this._leftClickReleased = true
+        if (!(this.allowUnlockedInput && this.isRightMouseDown)) {
+          this.isLeftMouseDown = false
+          if (this.isLocked) this._leftClickReleased = true
         }
       }
       if (e.button === 2) {
-        this.isRightMouseDown = false
+        if (!this.allowUnlockedInput) this.isRightMouseDown = false
       }
     })
 
@@ -69,7 +77,7 @@ export class PlayerInput {
     })
 
     document.addEventListener('pointerlockchange', () => {
-      this.isLocked = document.pointerLockElement !== null
+      this.isLocked = document.pointerLockElement !== null || this.allowUnlockedInput
     })
   }
 

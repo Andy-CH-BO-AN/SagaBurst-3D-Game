@@ -15,16 +15,37 @@ const CAMERA_HEIGHT_OFFSET = 1.6  // look-at offset above player root
 
 const NORMAL_FOV = 70
 const AIM_FOV    = 40
-const AIM_DISTANCE = 3.5
+const LEVEL_AIM_PITCH = 0.3
 
 export class ThirdPersonCamera {
   private yaw = Math.PI            // start behind player
   private pitch = 0.3
+  private readonly aimDirection = new THREE.Vector3(0, 0, 1)
+  private readonly cameraTarget = new THREE.Vector3()
 
   constructor(private camera: THREE.PerspectiveCamera, private player: Player) {}
 
   get cameraYaw(): number {
     return this.yaw
+  }
+
+  /** Direction represented by the orbit reticle, corrected for the camera's player look-at offset. */
+  getAimDirection(target: THREE.Vector3): THREE.Vector3 {
+    return target.copy(this.aimDirection)
+  }
+
+  /** A world-space point beneath the screen-centre reticle. */
+  getAimPoint(target: THREE.Vector3, distance = 60): THREE.Vector3 {
+    return target.copy(this.camera.position).addScaledVector(this.aimDirection, distance)
+  }
+
+  private _updateAimDirection(): void {
+    const aimPitch = LEVEL_AIM_PITCH - this.pitch
+    this.aimDirection.set(
+      -Math.sin(this.yaw) * Math.cos(aimPitch),
+      Math.sin(aimPitch),
+      -Math.cos(this.yaw) * Math.cos(aimPitch),
+    ).normalize()
   }
 
   update(input: PlayerInput, dt = 0.016): void {
@@ -42,26 +63,17 @@ export class ThirdPersonCamera {
     this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFOV, dt * 10)
     this.camera.updateProjectionMatrix()
 
-    // Smooth camera distance
-    const dist = this.player.isAiming ? AIM_DISTANCE : CAMERA_DISTANCE
+    // Keep the orbit position stable while aiming; FOV alone provides the zoom.
+    // Moving to a shoulder camera changes the world point beneath the fixed reticle.
+    const dist = CAMERA_DISTANCE
 
-    // Spherical offset from player
-    const offset = new THREE.Vector3(
-      dist * Math.sin(this.yaw) * Math.cos(this.pitch),
-      dist * Math.sin(this.pitch),
-      dist * Math.cos(this.yaw) * Math.cos(this.pitch)
-    )
-
-    // Shoulder offset when aiming
-    if (this.player.isAiming) {
-      const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
-      offset.addScaledVector(right, 0.6) // shift right shoulder
-    }
-
-    const target = this.player.position.clone()
-    target.y += CAMERA_HEIGHT_OFFSET
-
-    this.camera.position.copy(target).add(offset)
-    this.camera.lookAt(target)
+    // The camera and projectile share one forward ray.  Looking back at the
+    // player would make the screen-centre reticle point into the ground while
+    // arrows used a separate direction.
+    this._updateAimDirection()
+    this.cameraTarget.copy(this.player.position)
+    this.cameraTarget.y += CAMERA_HEIGHT_OFFSET
+    this.camera.position.copy(this.cameraTarget).addScaledVector(this.aimDirection, -dist)
+    this.camera.lookAt(this.cameraTarget.add(this.aimDirection))
   }
 }

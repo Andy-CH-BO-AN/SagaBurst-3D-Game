@@ -161,3 +161,15 @@ Pure frontend — no backend server. Save/load via localStorage.
 - Implement Direction A: Reactive Push-Out from Obstacles (`resolveObstacleCollision`).
 - Implement Direction B: Predictive Entity Push to prevent clipping when backed into walls.
 - Safety fallback: Handle anchored crushing (Mounts vs Obstacles) via soft overlap.
+
+---
+
+### ✅ Phase 20 — Procedural Character Combat Animation Overhaul (DONE)
+- Rebuilt Player and NPC arms as shoulder/elbow/wrist FK rigs with hand sockets.
+- Attached melee weapons and bows to hands instead of independent character-root pivots.
+- Added shared data-driven dagger, sword, greatsword, bow release, foot-lance, and mounted-lance timelines.
+- Aligned melee hit checks and arrow spawning with one-shot animation events.
+- Added two-handed greatsword/foot-lance poses, mounted couching, and smooth shield hand/back transitions.
+- Added deterministic combat timeline tests for event ordering, large frame deltas, recovery lockout, and completion.
+- Separated static weapon grip alignment from animated action pivots; fixed grounded blades, shaft-axis lance thrusts, shield height/facing, arrow visual direction, and reticle raycast targeting.
+- Consolidated Player and bow-NPC geometry, socket aiming, string/nock updates, and launch coordinates into one `CharacterBowVisual`; `?devcombat` currently runs a Tier-3 50v50 cavalry battle with 25 ranged riders and 25 lancers per faction.

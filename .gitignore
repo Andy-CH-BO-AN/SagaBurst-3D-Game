@@ -13,3 +13,5 @@ yarn-error.log*
 .chrome_temp/
 debug_images/
 *test*
+!tests/
+!tests/**/*.test.ts

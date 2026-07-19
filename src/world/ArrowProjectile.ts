@@ -6,10 +6,12 @@ import * as THREE from 'three'
 import type { DummyEnemy } from './DummyEnemy'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import type { ObstacleData } from './Terrain'
+import { getTerrainHeight, type ObstacleData } from './Terrain'
 import { damageNpc } from '../combat/DamageRouter'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
+const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
+export type ProjectileVisualKind = 'arrow' | 'pilum'
 
 export class ArrowProjectile {
   readonly mesh: THREE.Group
@@ -17,6 +19,8 @@ export class ArrowProjectile {
   private alive = true
   private stuck = false
   private stuckTimer = 0
+  private travelledDistance = 0
+  private readonly tipLocalZ: number
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpTargetPos = new THREE.Vector3()
@@ -28,6 +32,10 @@ export class ArrowProjectile {
   get isAlive(): boolean { return this.alive }
   get isStuck(): boolean { return this.stuck }
 
+  getTipPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.mesh.localToWorld(target.set(0, 0, this.tipLocalZ))
+  }
+
   constructor(
     scene: THREE.Scene,
     origin: THREE.Vector3,
@@ -35,40 +43,66 @@ export class ArrowProjectile {
     speed: number,
     damage: number,
     shooterFaction: Faction,
-    isPlayerFired: boolean = false
+    isPlayerFired: boolean = false,
+    visualKind: ProjectileVisualKind = 'arrow',
   ) {
     this.damage = damage
     this.shooterFaction = shooterFaction
     this.isPlayerFired = isPlayerFired
     this.mesh = new THREE.Group()
+    this.mesh.name = `${visualKind}-projectile`
+    this.mesh.userData.ignoreAimRaycast = true
 
-    // ── Build Arrow Mesh ──
     const woodMat  = new THREE.MeshLambertMaterial({ color: 0x6e4722 })
     const tipMat   = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 })
-    const featherMat = new THREE.MeshBasicMaterial({ color: 0xe8e0d0 })
+    if (visualKind === 'pilum') {
+      this.tipLocalZ = -1.32
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.5, 8), woodMat)
+      shaft.rotation.x = Math.PI / 2
+      shaft.castShadow = true
+      this.mesh.add(shaft)
 
-    // Shaft (cylinder)
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), woodMat)
-    shaft.rotation.x = Math.PI / 2
-    shaft.castShadow = true
-    this.mesh.add(shaft)
+      const ironNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.45, 6), tipMat)
+      ironNeck.rotation.x = Math.PI / 2
+      ironNeck.position.z = -0.96
+      this.mesh.add(ironNeck)
 
-    // Tip (cone)
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.15, 6), tipMat)
-    tip.rotation.x = -Math.PI / 2
-    tip.position.z = -0.5
-    this.mesh.add(tip)
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 6), tipMat)
+      tip.rotation.x = -Math.PI / 2
+      tip.position.z = this.tipLocalZ
+      this.mesh.add(tip)
 
-    // Fletching feathers (2 flat fins)
-    const fin1 = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.18), featherMat)
-    fin1.position.z = 0.4
-    this.mesh.add(fin1)
+      const wrap = new THREE.Mesh(
+        new THREE.TorusGeometry(0.032, 0.008, 6, 10),
+        new THREE.MeshLambertMaterial({ color: 0xd4af37 }),
+      )
+      wrap.position.z = 0.62
+      this.mesh.add(wrap)
+    } else {
+      this.tipLocalZ = -0.5
+      const featherMat = new THREE.MeshBasicMaterial({ color: 0xe8e0d0 })
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), woodMat)
+      shaft.rotation.x = Math.PI / 2
+      shaft.castShadow = true
+      this.mesh.add(shaft)
+
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.15, 6), tipMat)
+      tip.rotation.x = -Math.PI / 2
+      tip.position.z = this.tipLocalZ
+      this.mesh.add(tip)
+
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.18), featherMat)
+      fin.position.z = 0.4
+      this.mesh.add(fin)
+    }
 
     this.mesh.position.copy(origin)
     this.velocity = direction.clone().normalize().multiplyScalar(speed)
 
-    // Point arrow along velocity
-    this.mesh.lookAt(origin.clone().add(this.velocity))
+    // Arrow geometry points down local -Z. Align that axis—not Object3D's
+    // generic +Z lookAt axis—with the physical velocity.
+    this._tmpTargetPos.copy(this.velocity).normalize()
+    this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
     scene.add(this.mesh)
   }
 
@@ -96,23 +130,30 @@ export class ArrowProjectile {
 
     // Move along velocity
     this.mesh.position.addScaledVector(this.velocity, dt)
+    this.travelledDistance += this.velocity.length() * dt
 
     // Orient arrow towards velocity
-    const targetPos = this._tmpTargetPos.copy(this.mesh.position).add(this.velocity)
-    this.mesh.lookAt(targetPos)
+    this._tmpTargetPos.copy(this.velocity).normalize()
+    this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
 
-    // ── Hit Detection 1: Terrain / Ground (y <= 0) ──
-    if (this.mesh.position.y <= 0.05) {
-      this.mesh.position.y = 0.05
+    // Give the arrowhead enough clearance to leave the nock before testing
+    // world geometry, then collide against the procedural terrain height—not
+    // the global y=0 plane, which incorrectly swallowed shots fired in valleys.
+    const worldCollisionsEnabled = this.travelledDistance >= 0.12
+    const groundY = getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.05
+    if (worldCollisionsEnabled && this.mesh.position.y <= groundY) {
+      this.mesh.position.y = groundY
       this.stuck = true
       return
     }
 
     // ── Hit Detection 2: Obstacles (Rocks / Trees / Barricades) ──
-    for (const obs of obstacles) {
-      if (obs.box.containsPoint(this.mesh.position)) {
-        this.stuck = true
-        return
+    if (worldCollisionsEnabled) {
+      for (const obs of obstacles) {
+        if (obs.box.containsPoint(this.mesh.position)) {
+          this.stuck = true
+          return
+        }
       }
     }
 

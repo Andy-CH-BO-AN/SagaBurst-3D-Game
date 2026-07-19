@@ -8,6 +8,9 @@ import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
+import type { CharacterRig } from './CharacterVisuals'
+import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
+import { CharacterBowVisual } from './CharacterBowVisual'
 import { Mount, MountType } from './Mount'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -31,13 +34,14 @@ export enum AIType {
 }
 
 const DETECTION_RADIUS = 300.0
-const RANGED_ATTACK_MAX = 15.0
+const RANGED_ATTACK_MAX = 22.0
 const RANGED_ATTACK_MIN = 6.0
+const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 
 const CHASE_SPEED      = 4.8
 const PATROL_SPEED     = 2.2
-const MELEE_COOLDOWN   = 1.2
 const RANGED_COOLDOWN  = 1.5
+const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
 
 export class NPC {
@@ -59,13 +63,24 @@ export class NPC {
   private bodyMesh: THREE.Group
   private headMesh: THREE.Mesh
   private headMat: THREE.MeshStandardMaterial
-  private rightArm: THREE.Group
-  private leftArm: THREE.Group
+  private rig: CharacterRig
+  private animator: CharacterCombatAnimator
   private alertSprite: THREE.Sprite
 
   private swordPivot: THREE.Group
+  private swordGripPivot: THREE.Group
+  private readonly swordTipLocal = new THREE.Vector3(0, 1.04, 0)
   private bowPivot: THREE.Group
+  private bowGripPivot: THREE.Group
+  private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
+  private shieldOnBack = false
+  private readonly shieldTargetPosition = new THREE.Vector3()
+  private readonly shieldTargetQuaternion = new THREE.Quaternion()
+  private readonly shieldTargetEuler = new THREE.Euler()
+  private readonly shieldStartPosition = new THREE.Vector3()
+  private readonly shieldStartQuaternion = new THREE.Quaternion()
+  private shieldTransitionElapsed = 0.15
   public shieldId: string | null = null
 
   private flashMat: THREE.MeshBasicMaterial
@@ -94,6 +109,10 @@ export class NPC {
   private readonly _tmpMoveDir = new THREE.Vector3()
   private readonly _tmpSep = new THREE.Vector3()
   private readonly _tmpPush = new THREE.Vector3()
+  private readonly _tmpRangedOrigin = new THREE.Vector3()
+  private readonly _tmpRangedTarget = new THREE.Vector3()
+  private readonly _tmpRangedDirection = new THREE.Vector3()
+  private readonly _tmpWeaponTip = new THREE.Vector3()
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -107,6 +126,15 @@ export class NPC {
   get position(): THREE.Vector3 { return this.group.position }
   get combatPosition(): THREE.Vector3 { return this.mount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
+  get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+
+  getWeaponTipPosition(): THREE.Vector3 {
+    return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
+  }
+
+  getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.swordGripPivot.getWorldPosition(target)
+  }
 
   constructor(
     scene: THREE.Scene,
@@ -175,45 +203,62 @@ export class NPC {
     this.bodyMesh = visual.bodyMesh as THREE.Group
     this.headMesh = visual.headMesh as THREE.Mesh
     this.headMat = visual.headMaterial
-    this.rightArm = visual.rightArm
-    this.leftArm = visual.leftArm
+    this.rig = visual.rig
 
     // Create Weapon Pivots
     this.swordPivot = new THREE.Group()
-    this.swordPivot.position.set(0.45, 0.75, -0.1)
-    this.characterVisualGroup.add(this.swordPivot)
+    this.swordGripPivot = new THREE.Group()
+    this.swordPivot.add(this.swordGripPivot)
+    this.rig.right.handSocket.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
-    if (this.faction === Faction.ENEMY) {
-      this.bowPivot.position.set(0.45, 0.75, -0.1) // Pilum held in right hand like sword
-      this.bowPivot.rotation.set(0, 0, 0)
-    } else {
-      this.bowPivot.position.set(0.35, 0.8, -0.5) // Bow held
-      this.bowPivot.rotation.set(0, 0, -0.1)
-    }
-    this.characterVisualGroup.add(this.bowPivot)
+    this.bowGripPivot = new THREE.Group()
+    this.bowPivot.add(this.bowGripPivot)
+    if (this.faction === Faction.ENEMY) this.rig.right.handSocket.add(this.bowPivot)
+    else this.rig.left.handSocket.add(this.bowPivot)
 
     this.shieldPivot = new THREE.Group()
-    this.group.add(this.shieldPivot)
+    this.rig.left.handSocket.add(this.shieldPivot)
+    this.shieldPivot.position.set(0, 0.124, 0.019)
+    this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
+    this.shieldTargetPosition.copy(this.shieldPivot.position)
+    this.shieldTargetQuaternion.copy(this.shieldPivot.quaternion)
 
-    WeaponMeshFactory.buildNpcMelee(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier, this.isUsingLance, this.swordPivot)
-    WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowPivot)
+    this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
+
+    this.swordTipLocal.copy(
+      WeaponMeshFactory.buildNpcMelee(
+        this.faction,
+        this.aiType === AIType.RANGED ? 1 : this.tier,
+        this.isUsingLance,
+        this.swordGripPivot,
+      ),
+    )
+    this.swordGripPivot.position.set(0, 0.05, 0)
+    this.swordGripPivot.rotation.set(0, 0, Math.PI)
+    if (this.faction === Faction.PLAYER) {
+      this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+      const bowId = this.tier === 1
+        ? 'wooden_shortbow'
+        : this.tier === 2
+          ? 'recurve_longbow'
+          : 'elven_runebow'
+      this.bowVisual.rebuild(bowId)
+    } else {
+      WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowGripPivot)
+    }
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
 
     if (this.arrows > 0) {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
-      this.bodyMesh.add(this.shieldPivot)
-      this.shieldPivot.position.set(0, 0.3, 0.45)
-      this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
+      this._setShieldPlacement(true, true)
     } else {
       this.swordPivot.visible = true
       this.bowPivot.visible = false
       if (this.shieldId && this.aiType !== AIType.RANGED) {
-        this.leftArm.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, -0.35, 0)
-        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+        this._setShieldPlacement(false, true)
       }
     }
 
@@ -252,6 +297,64 @@ export class NPC {
       WeaponMeshFactory.buildShield(this.shieldId, this.shieldPivot)
       polishWeaponMaterials(this.shieldPivot)
     }
+  }
+
+  private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
+    if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
+    if (this.faction === Faction.ENEMY && this.tier === 1) return 'daggerSlash'
+    return 'swordSlash'
+  }
+
+  private _setShieldPlacement(onBack: boolean, immediate = false): void {
+    const targetParent = onBack ? this.bodyMesh : this.rig.left.handSocket
+    if (this.shieldOnBack !== onBack || this.shieldPivot.parent !== targetParent) {
+      this.shieldOnBack = onBack
+      if (onBack) {
+        this.bodyMesh.attach(this.shieldPivot)
+        this.shieldTargetPosition.set(0, 0.3, 0.45)
+        this.shieldTargetEuler.set(0, Math.PI, Math.PI / 8)
+      } else {
+        this.rig.left.handSocket.attach(this.shieldPivot)
+        // The socket is the rear grip; the shared arm guard pose moves the
+        // hand and shield forward together.
+        this.shieldTargetPosition.set(0, 0.124, 0.019)
+        this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
+      }
+      this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
+      this.shieldStartPosition.copy(this.shieldPivot.position)
+      this.shieldStartQuaternion.copy(this.shieldPivot.quaternion)
+      this.shieldTransitionElapsed = 0
+    }
+    if (immediate) {
+      this.shieldPivot.position.copy(this.shieldTargetPosition)
+      this.shieldPivot.quaternion.copy(this.shieldTargetQuaternion)
+      this.shieldTransitionElapsed = 0.15
+    }
+  }
+
+  private _updateShieldTransition(dt: number): void {
+    this.shieldTransitionElapsed = Math.min(0.15, this.shieldTransitionElapsed + dt)
+    const blend = this.shieldTransitionElapsed / 0.15
+    this.shieldPivot.position.lerpVectors(this.shieldStartPosition, this.shieldTargetPosition, blend)
+    this.shieldPivot.quaternion.slerpQuaternions(this.shieldStartQuaternion, this.shieldTargetQuaternion, blend)
+  }
+
+  private _getElevatedRangedAimPoint(targetWorld: THREE.Vector3): THREE.Vector3 {
+    const origin = this._tmpRangedOrigin
+    if (this.bowVisual) this.bowVisual.getNockPosition(origin)
+    else origin.copy(this.group.position).setY(this.group.position.y + 1.0)
+
+    const aimPoint = this._tmpRangedTarget.copy(targetWorld)
+    aimPoint.y += 1.4
+    const dx = aimPoint.x - origin.x
+    const dz = aimPoint.z - origin.z
+    const horizontalDistanceSq = dx * dx + dz * dz
+    aimPoint.y += horizontalDistanceSq * RANGED_AIM_LIFT_PER_METER_SQ
+    return aimPoint
+  }
+
+  private _updateBowVisual(drawRatio: number, targetWorld: THREE.Vector3): void {
+    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.arrows > 0)
   }
 
   private _createAlertSprite(): THREE.Sprite {
@@ -330,22 +433,28 @@ export class NPC {
     obstacles: ObstacleData[],
     _playerHpBar: HpBar,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
     skipBoidsAndObstacles: boolean = false
   ): void {
     const previousPosition = this.group.position.clone()
     if (this.mount) this.mount.beginControlledFrame()
-    this.rightArm.rotation.set(0, 0, -0.12)
-    this.leftArm.rotation.set(0, 0, 0.12)
+    const startsWithShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
+    this.animator.setShieldGuard(Boolean(this.shieldId) && !startsWithShieldOnBack)
+    if (!this.animator.busy) {
+      if (this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
+      else if (this.state !== AIState.ATTACK) this.animator.poseIdle()
+    }
 
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
       this.bodyMesh.traverse((child) => {
+        if (this.shieldPivot.getObjectById(child.id)) return
         if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.flashMat
       })
       this.headMesh.material = this.flashMat
     } else {
       this.bodyMesh.traverse((child) => {
+        if (this.shieldPivot.getObjectById(child.id)) return
         if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
           (child as THREE.Mesh).material = child.userData.originalMat
         }
@@ -502,87 +611,65 @@ export class NPC {
           }
         }
 
-        this.attackTimer += dt
         if (this.arrows > 0) {
-          // Ranged Attack (Bow draw / Pilum throw animation)
+          this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
-          
+
           if (this.faction === Faction.PLAYER) {
-            // Rotate bow up to aim (simulate drawing)
-            this.bowPivot.rotation.z = THREE.MathUtils.lerp(-0.1, -0.6, progress) // raise bow
-            this.bowPivot.rotation.x = THREE.MathUtils.lerp(0, 0.2, progress)   // tilt slightly
-          } else {
-            // Pilum throw animation (wind up)
-            this.bowPivot.rotation.x = THREE.MathUtils.lerp(0, Math.PI / 4, progress) 
-          }
-          this.rightArm.rotation.set(THREE.MathUtils.lerp(-0.35, -0.85, progress), 0, -0.18)
-          this.leftArm.rotation.set(THREE.MathUtils.lerp(-0.2, -0.45, progress), 0, 0.16)
-
-          if (this.attackTimer >= RANGED_COOLDOWN) {
-            // Reset rotation
-            if (this.faction === Faction.PLAYER) {
-              this.bowPivot.rotation.set(0, 0, -0.1)
-            } else {
-              this.bowPivot.rotation.set(0, 0, 0)
+            if (!this.animator.busy) this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
+            this._updateBowVisual(progress, targetInfo.position)
+            if (this.attackTimer >= RANGED_COOLDOWN && this.animator.currentAction === 'bowAim') {
+              this.animator.start('bowRelease')
             }
+          } else {
+            this.animator.posePilum(progress)
+          }
 
-            // Fire arrow
-            const origin = this.group.position.clone()
-            origin.y += 1.0 // Chest height
-
-            // Aim at head (y + 1.8) and compensate for gravity based on distance
-            const targetCenter = targetInfo.position.clone()
-            targetCenter.y += 1.8 // Aim even higher than head
-            const dist = origin.distanceTo(targetCenter)
-            
-            const dir = targetCenter.sub(origin)
-            // Gravity compensation approx (upward angle based on distance)
-            dir.y += dist * 0.25 
-            dir.normalize()
-            onFireArrow(origin, dir)
+          const rangedEvents = this.animator.update(dt)
+          const shouldFire = this.faction === Faction.PLAYER
+            ? rangedEvents.projectileRelease
+            : this.attackTimer >= RANGED_COOLDOWN
+          if (shouldFire) {
+            const origin = this._tmpRangedOrigin
+            const dir = this._tmpRangedDirection
+            const aimPoint = this._getElevatedRangedAimPoint(targetInfo.position)
+            if (this.faction === Faction.PLAYER && this.bowVisual) {
+              // Bow NPCs launch from the same nock and along the same visual
+              // target line as the player-controlled bow.
+              this.bowVisual.writeLaunch(origin, dir, aimPoint)
+            } else {
+              dir.copy(aimPoint).sub(origin).normalize()
+            }
+            onFireArrow(origin, dir, this.faction === Faction.ENEMY ? 'pilum' : 'arrow')
+            this.bowVisual?.hideArrow()
 
             this.arrows -= 1
-            if (this.arrows === 0) {
-              // Switch to melee mode
-              this._switchToMelee()
-            }
+            if (this.arrows === 0) this._switchToMelee()
 
             this.attackTimer = 0
             this.state = AIState.CHASE
+            this.animator.cancel()
           }
         } else {
-          // Melee Attack
-          const progress = Math.min(1, this.attackTimer / MELEE_COOLDOWN)
-
-          if (progress < 0.4) {
-            const t = progress / 0.4
-            this.swordPivot.rotation.x = THREE.MathUtils.lerp(0, -Math.PI / 2, t)
-            this.rightArm.rotation.x = THREE.MathUtils.lerp(-0.2, -0.95, t)
-          } else if (progress < 0.7) {
-            const t = (progress - 0.4) / 0.3
-            this.swordPivot.rotation.x = THREE.MathUtils.lerp(-Math.PI / 2, Math.PI / 3, t)
-            this.rightArm.rotation.x = THREE.MathUtils.lerp(-0.95, 0.55, t)
-
-            if (!this.attackHitProcessed && progress >= 0.5) {
-              const currentDist = this.combatPosition.distanceTo(targetInfo.position)
-              if (currentDist <= this.meleeAttackRadius + 0.4) {
-                this.attackHitProcessed = true
-                const finalDamage = this._calcLanceDamage(this.meleeDamage)
-                onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
-              }
-            }
-          } else {
-            const t = (progress - 0.7) / 0.3
-            this.swordPivot.rotation.x = THREE.MathUtils.lerp(Math.PI / 3, 0, t)
-            this.rightArm.rotation.x = THREE.MathUtils.lerp(0.55, 0, t)
+          if (!this.animator.busy && this.attackTimer <= 0) {
+            this.animator.start(this._meleeAction())
+            this.attackHitProcessed = false
           }
 
-          if (this.attackTimer >= MELEE_COOLDOWN) {
-            const dist = this.combatPosition.distanceTo(targetInfo.position)
-            if (dist <= this.meleeAttackRadius) {
-              this.attackTimer = 0
-              this.attackHitProcessed = false
-            } else {
+          const meleeEvents = this.animator.update(dt)
+          if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
+            const currentDist = this.combatPosition.distanceTo(targetInfo.position)
+            if (currentDist <= this.meleeAttackRadius + 0.4) {
+              this.attackHitProcessed = true
+              const finalDamage = this._calcLanceDamage(this.meleeDamage)
+              onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+            }
+          }
+          if (meleeEvents.actionCompleted) this.attackTimer = AI_ATTACK_GAP
+
+          if (!this.animator.busy && this.attackTimer > 0) {
+            this.attackTimer -= dt
+            if (this.attackTimer <= 0 && this.combatPosition.distanceTo(targetInfo.position) > this.meleeAttackRadius) {
               this.state = AIState.CHASE
             }
           }
@@ -599,6 +686,10 @@ export class NPC {
         break
       }
     }
+
+    const needsShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
+    this._setShieldPlacement(needsShieldOnBack)
+    this._updateShieldTransition(dt)
 
     if (this.state !== AIState.DEAD && this.isMounted && this.mount) {
       this.mount.finishControlledFrame(dt, obstacles)
@@ -690,16 +781,11 @@ export class NPC {
   }
 
   private _switchToMelee(): void {
-    if (this.arrows > 0) {
-      this.arrows = 0
-      this.swordPivot.visible = true
-      this.bowPivot.visible = false
-      if (this.shieldPivot.parent !== this.leftArm) {
-        this.leftArm.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, -0.35, 0)
-        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
-      }
-    }
+    this.arrows = 0
+    this.swordPivot.visible = true
+    this.bowPivot.visible = false
+    this.animator.cancel()
+    this._setShieldPlacement(this.isUsingLance && !this.isMounted)
   }
 
   respawn(): void {
@@ -709,20 +795,12 @@ export class NPC {
       this.arrows = 1
       this.swordPivot.visible = false
       this.bowPivot.visible = true
-      if (this.shieldPivot.parent !== this.bodyMesh) {
-        this.bodyMesh.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, 0.3, 0.45)
-        this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
-      }
+      this._setShieldPlacement(true, true)
     } else {
       this.arrows = 0
       this.swordPivot.visible = true
       this.bowPivot.visible = false
-      if (this.shieldPivot.parent !== this.leftArm) {
-        this.leftArm.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, -0.35, 0)
-        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
-      }
+      this._setShieldPlacement(this.isUsingLance && !this.isMounted, true)
     }
 
     const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
@@ -730,7 +808,7 @@ export class NPC {
     this.velY = 0
     this.onGround = true
     this.group.rotation.set(0, 0, 0)
-    this.swordPivot.rotation.set(0, 0, 0)
+    this.animator.cancel()
     this.alertSprite.visible = false
   }
 }

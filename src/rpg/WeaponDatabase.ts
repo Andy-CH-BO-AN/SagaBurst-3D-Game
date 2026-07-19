@@ -5,6 +5,7 @@
  */
 
 export type ItemType = 'melee' | 'ranged' | 'consumable'
+export type WeaponAnimationKind = 'dagger' | 'sword' | 'greatsword' | 'lance' | 'bow' | 'pilum'
 
 export interface WeaponData {
   id: string
@@ -15,6 +16,7 @@ export interface WeaponData {
   damageMax: number
   // For melee: swingDuration in seconds; for bow: maxChargeTime in seconds
   speedOrCharge: number
+  animationKind: WeaponAnimationKind
   // For bow: projectile speed range [speedMin, speedMax]
   arrowSpeedMin?: number
   arrowSpeedMax?: number
@@ -34,6 +36,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 12,
     damageMax: 12,
     speedOrCharge: 0.24, // Fast swing
+    animationKind: 'dagger',
     range: 1.0,
     description: '生鏽短小的舊小刀，攻擊範圍短但揮速極快。',
   },
@@ -45,6 +48,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 25,
     damageMax: 25,
     speedOrCharge: 0.35, // Standard baseline
+    animationKind: 'sword',
     range: 1.8,
     description: '標準諾德鍛造鋼鐵長劍，手感均衡。',
   },
@@ -56,6 +60,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 30,
     damageMax: 30,
     speedOrCharge: 0.5,
+    animationKind: 'lance',
     range: 3.0,
     isLance: true,
     description: '專為騎兵設計的長木桿鋼頭長槍，擁有極長攻擊距離。高速衝刺時能造成3倍貫穿傷害。',
@@ -68,6 +73,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 45,
     damageMax: 45,
     speedOrCharge: 0.45, // Slow heavy swing
+    animationKind: 'greatsword',
     range: 2.2,
     description: '附魔藍金紋路的重型精鋼戰刃，具備破甲高傷害。',
   },
@@ -81,6 +87,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 8,
     damageMax: 22,
     speedOrCharge: 0.8, // Quick charge max
+    animationKind: 'bow',
     arrowSpeedMin: 12,
     arrowSpeedMax: 32,
     description: '獵人使用的簡易木弓，拉弓快但傷害較低。',
@@ -93,6 +100,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 15,
     damageMax: 42,
     speedOrCharge: 1.2, // Standard baseline
+    animationKind: 'bow',
     arrowSpeedMin: 18,
     arrowSpeedMax: 48,
     description: '精心複合打造的反曲長弓，貫穿力適中。',
@@ -105,6 +113,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 28,
     damageMax: 75,
     speedOrCharge: 1.8, // Long charge for massive damage
+    animationKind: 'bow',
     arrowSpeedMin: 25,
     arrowSpeedMax: 65,
     description: '精靈工匠打造的符文弓，箭矢射速極快且帶有強大打擊力。',
@@ -119,6 +128,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 12,
     damageMax: 12,
     speedOrCharge: 0.24,
+    animationKind: 'dagger',
     description: '生鏽的羅馬兵短劍，傷害低但揮動極快。',
   },
   gladius_standard: {
@@ -129,6 +139,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 25,
     damageMax: 25,
     speedOrCharge: 0.35,
+    animationKind: 'sword',
     description: '制式羅馬軍團短劍，標準傷害。',
   },
   centurion_blade: {
@@ -139,6 +150,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 45,
     damageMax: 45,
     speedOrCharge: 0.45,
+    animationKind: 'sword',
     description: '羅馬百夫長專屬的發光精鋼劍，破壞力強。',
   },
 
@@ -151,6 +163,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 8,
     damageMax: 22,
     speedOrCharge: 0.8,
+    animationKind: 'pilum',
     arrowSpeedMin: 12,
     arrowSpeedMax: 32,
     description: '木製簡易標槍。',
@@ -163,6 +176,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 15,
     damageMax: 42,
     speedOrCharge: 1.2,
+    animationKind: 'pilum',
     arrowSpeedMin: 18,
     arrowSpeedMax: 48,
     description: '軍團制式重標槍。',
@@ -175,6 +189,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMin: 28,
     damageMax: 75,
     speedOrCharge: 1.8,
+    animationKind: 'pilum',
     arrowSpeedMin: 25,
     arrowSpeedMax: 65,
     description: '帶有發光效果的精銳軍團標槍。',

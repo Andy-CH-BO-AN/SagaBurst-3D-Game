@@ -18,6 +18,13 @@ import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../wor
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
+import type { CharacterRig } from '../world/CharacterVisuals'
+import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCombatAnimator'
+import {
+  CharacterBowVisual,
+} from '../world/CharacterBowVisual'
+
+export { positionArrowCenterFromNock, sampleBowBodyLocal } from '../world/CharacterBowVisual'
 
 // ── Tuning constants ──
 const MOVE_SPEED        = 8    // units/s walk
@@ -25,6 +32,7 @@ const SPRINT_MULTIPLIER = 2.0  // walk × this = sprint speed
 const JUMP_VELOCITY     = 9    // units/s upward
 const GRAVITY           = -22  // units/s²
 const PLAYER_HALF_HEIGHT = 0.95
+const PLAYER_VISUAL_GROUND_OFFSET = -0.15
 
 const MAX_HP            = 100
 const MAX_STAMINA       = 100
@@ -34,9 +42,7 @@ const STAMINA_SPRINT_MIN = 10  // must have at least this much to start sprint
 const SWING_STAMINA_COST = 15  // stamina consumed per sword swing
 
 const PLAYER_RADIUS = 0.38
-const SWING_DURATION = 0.35
 const MAX_BOW_CHARGE_TIME = 1.2
-
 export interface ArrowLaunchEvent {
   origin: THREE.Vector3
   direction: THREE.Vector3
@@ -52,25 +58,31 @@ export class Player {
   private headMesh!: THREE.Mesh
   private headMat!: THREE.MeshStandardMaterial
   private characterVisualGroup: THREE.Group
-  private rightArm!: THREE.Group
-  private leftArm!: THREE.Group
+  private rig!: CharacterRig
+  private animator!: CharacterCombatAnimator
   private currentArmorTier: 1 | 2 | 3 = 2
 
   private flashTimer = 0
 
   // 3D Weapon Pivots & Models
-  private rightHandSocket!: THREE.Group
   private swordPivot!: THREE.Group
+  private swordGripPivot!: THREE.Group
   private currentMeleeId: string = ''
 
   private bowPivot!: THREE.Group
+  private bowGripPivot!: THREE.Group
+  private bowVisual!: CharacterBowVisual
   private currentRangedId: string = ''
-  private stringMeshTop!: THREE.Mesh
-  private stringMeshBottom!: THREE.Mesh
-  private nockedArrow!: THREE.Group
 
   private shieldPivot!: THREE.Group
   private currentShieldId: string | null = null
+  private shieldOnBack = false
+  private readonly shieldTargetPosition = new THREE.Vector3()
+  private readonly shieldTargetQuaternion = new THREE.Quaternion()
+  private readonly shieldTargetEuler = new THREE.Euler()
+  private readonly shieldStartPosition = new THREE.Vector3()
+  private readonly shieldStartQuaternion = new THREE.Quaternion()
+  private shieldTransitionElapsed = 0.15
 
   private velY = 0
   private onGround = false
@@ -80,11 +92,18 @@ export class Player {
   private isSprinting = false
 
   private isSwinging = false
-  private swingTimer = 0
   private attackHitProcessed = false
+  private hitEventPending = false
 
   private aiming = false
   private bowChargeTime = 0
+  private bowVisualDrawRatio = 0
+  private nockedArrowReleased = false
+  private aimBlend = 0
+  private pendingBowChargeTime = 0
+  private pendingArcheryMultiplier = 1
+  private pendingRangedWeapon?: WeaponData
+  private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
 
@@ -97,8 +116,8 @@ export class Player {
   private readonly _tmpRight = new THREE.Vector3()
   private readonly _tmpMoveDir = new THREE.Vector3()
   private readonly _tmpPreviousPosition = new THREE.Vector3()
-  private readonly _tmpNockPos = new THREE.Vector3()
   private readonly _tmpWorldNock = new THREE.Vector3()
+  private readonly _tmpArrowDirection = new THREE.Vector3()
 
   public isMounted = false
   public currentMount: Mount | null = null
@@ -118,8 +137,42 @@ export class Player {
   get staminaValue(): number    { return this.stamina }
   get swinging(): boolean       { return this.isSwinging }
   get isAiming(): boolean       { return this.aiming }
+  get bowDrawRatio(): number    { return this.bowVisualDrawRatio }
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
+  get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+
+  getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.swordGripPivot.getWorldPosition(target)
+  }
+
+  getBowGripPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.bowVisual.getGripPosition(target)
+  }
+
+  getBowNockPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.bowVisual.getNockPosition(target)
+  }
+
+  getBowTopTipPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.bowVisual.getTopTipPosition(target)
+  }
+
+  getBowBottomTipPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.bowVisual.getBottomTipPosition(target)
+  }
+
+  writeBowBodyProfile(target: Float32Array, pointCount = 9): number {
+    return this.bowVisual.writeBodyProfile(target, pointCount)
+  }
+
+  getBowStringHandPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.rig.right.handSocket.getWorldPosition(target)
+  }
+
+  getNockedArrowTipPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.bowVisual.getArrowTipPosition(target)
+  }
 
   setPosition(x: number, y: number, z: number): void {
     this.group.position.set(x, y, z)
@@ -140,19 +193,19 @@ export class Player {
 
     this.hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff3333 })
     this.characterVisualGroup = new THREE.Group()
+    // The collision capsule centre rests 0.95m above terrain while the visual
+    // boot sole is authored at -0.8m. Lower only the render rig by the 0.15m
+    // difference so feet touch terrain without changing physics or camera roots.
+    this.characterVisualGroup.position.y = PLAYER_VISUAL_GROUND_OFFSET
     this.group.add(this.characterVisualGroup)
 
-    // Create Right Hand Socket (Default position at player right hand T-pose palm)
-    this.rightHandSocket = new THREE.Group()
-    this.rightHandSocket.position.set(0.45, 0.1, -0.1)
-    this.group.add(this.rightHandSocket)
-
-    // Create Weapon Pivots inside Right Hand Socket
     this.swordPivot = new THREE.Group()
-    this.rightHandSocket.add(this.swordPivot)
-
+    this.swordGripPivot = new THREE.Group()
+    this.swordPivot.add(this.swordGripPivot)
     this.bowPivot = new THREE.Group()
-    this.group.add(this.bowPivot)
+    this.bowGripPivot = new THREE.Group()
+    this.bowPivot.add(this.bowGripPivot)
+    this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
 
     // Shield Pivot (defaults to leftArm after character mesh is built)
     this.shieldPivot = new THREE.Group()
@@ -172,6 +225,9 @@ export class Player {
 
   private _buildMesh(tier: 1 | 2 | 3): void {
     this.currentArmorTier = tier
+    this.swordPivot.removeFromParent()
+    this.bowPivot.removeFromParent()
+    this.shieldPivot.removeFromParent()
     this.characterVisualGroup.clear()
     const parts = buildCharacterVisual(this.characterVisualGroup, {
       faction: 'viking',
@@ -181,13 +237,19 @@ export class Player {
     this.bodyMesh = parts.bodyMesh
     this.headMesh = parts.headMesh
     this.headMat = parts.headMaterial
-    this.rightArm = parts.rightArm
-    this.leftArm = parts.leftArm
-
-    // Reattach shieldPivot to the new leftArm
-    this.leftArm.add(this.shieldPivot)
-    this.shieldPivot.position.set(0, -0.35, 0)
-    this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+    this.rig = parts.rig
+    this.rig.right.handSocket.add(this.swordPivot)
+    this.rig.left.handSocket.add(this.bowPivot)
+    this.rig.left.handSocket.add(this.shieldPivot)
+    this.shieldOnBack = false
+    this.shieldPivot.position.set(0, 0.124, 0.019)
+    this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
+    this.shieldTargetPosition.set(0, 0.124, 0.019)
+    this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
+    this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
+    this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
+    this.isSwinging = false
+    this.hitEventPending = false
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -198,67 +260,33 @@ export class Player {
     this.currentMeleeId = weaponId
 
     // Clear existing meshes
-    while (this.swordPivot.children.length > 0) {
-      this.swordPivot.remove(this.swordPivot.children[0])
+    while (this.swordGripPivot.children.length > 0) {
+      this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
 
-    const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordPivot)
+    const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordGripPivot)
     this.swordTipLocal.copy(tipLocal)
 
-    polishWeaponMaterials(this.swordPivot)
+    // Meshes use +Y as their long axis. The static grip correction is kept
+    // separate from the action pivot animated by CharacterCombatAnimator.
+    this.swordGripPivot.position.set(0, 0.05, 0)
+    this.swordGripPivot.rotation.set(0, 0, Math.PI)
+
+    polishWeaponMaterials(this.swordGripPivot)
   }
 
   // ── Dynamic 3D Ranged Bow Builders (3 Distinct Geometries) ──
   rebuildRangedWeapon(weaponId: string): void {
     if (this.currentRangedId === weaponId) return
     this.currentRangedId = weaponId
-
-    while (this.bowPivot.children.length > 0) {
-      this.bowPivot.remove(this.bowPivot.children[0])
-    }
-
-    const { stringLength } = WeaponMeshFactory.buildRanged(weaponId, this.bowPivot)
-    
-    const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    this.stringMeshTop = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, stringLength, 4), stringMat)
-    this.bowPivot.add(this.stringMeshTop)
-
-    this.stringMeshBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, stringLength, 4), stringMat)
-    this.bowPivot.add(this.stringMeshBottom)
-
-    this._buildNockedArrow(weaponId)
-
-    polishWeaponMaterials(this.bowPivot)
+    this.bowVisual.rebuild(weaponId)
     this.bowPivot.visible = false
   }
 
   getSwordTipPosition(): THREE.Vector3 {
     const tipWorld = this._tmpTipWorld
-    this.swordPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
+    this.swordGripPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
     return tipWorld
-  }
-
-  private _buildNockedArrow(weaponId: string): void {
-    this.nockedArrow = new THREE.Group()
-    const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-
-    const arrowShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.95, 6), woodMat)
-    arrowShaft.rotation.x = Math.PI / 2
-    this.nockedArrow.add(arrowShaft)
-
-    const tipColor = weaponId === 'elven_runebow' ? 0x00f0ff : 0xaaaaaa
-    const tipMat = new THREE.MeshStandardMaterial({ color: tipColor, metalness: 0.9 })
-    const arrowTip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 6), tipMat)
-    arrowTip.rotation.x = -Math.PI / 2
-    arrowTip.position.z = -0.52
-    this.nockedArrow.add(arrowTip)
-
-    const featherMat = new THREE.MeshBasicMaterial({ color: weaponId === 'elven_runebow' ? 0x00d2ff : 0xdddddd })
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.16), featherMat)
-    fin.position.z = 0.4
-    this.nockedArrow.add(fin)
-
-    this.bowPivot.add(this.nockedArrow)
   }
 
   // ── Dynamic 3D Shield Builder ──
@@ -313,27 +341,85 @@ export class Player {
     this.currentHp = MAX_HP
     this.stamina = MAX_STAMINA
     this.isDead = false
+    this.animator.cancel()
+    this.isSwinging = false
+    this.hitEventPending = false
+    this.bowChargeTime = 0
+    this.bowVisualDrawRatio = 0
+    this.nockedArrowReleased = false
     const terrainY = getTerrainHeight(0, 0)
     this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
     hpBar.setFill(1)
   }
 
-  isHitFrame(equippedMelee?: WeaponData): boolean {
-    if (!this.isSwinging || this.attackHitProcessed) return false
-    const swingDuration = equippedMelee ? equippedMelee.speedOrCharge : SWING_DURATION
-    const progress = this.swingTimer / swingDuration
-    return progress >= 0.2 && progress <= 0.8
+  isHitFrame(_equippedMelee?: WeaponData): boolean {
+    return this.hitEventPending && !this.attackHitProcessed
   }
 
   markHitProcessed(): void {
     this.attackHitProcessed = true
+    this.hitEventPending = false
+  }
+
+  private _meleeAction(weapon: WeaponData): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
+    switch (weapon.animationKind) {
+      case 'dagger': return 'daggerSlash'
+      case 'greatsword': return 'greatswordSlash'
+      case 'lance': return this.isMounted ? 'mountedLance' : 'lanceThrust'
+      default: return 'swordSlash'
+    }
+  }
+
+  private _setShieldPlacement(onBack: boolean): void {
+    const targetParent = onBack ? this.bodyMesh : this.rig.left.handSocket
+    if (this.shieldOnBack === onBack && this.shieldPivot.parent === targetParent) return
+    this.shieldOnBack = onBack
+    if (onBack) {
+      this.bodyMesh.attach(this.shieldPivot)
+      this.shieldTargetPosition.set(0, 0.3, 0.45)
+      this.shieldTargetEuler.set(0, Math.PI, Math.PI / 8)
+    } else {
+      this.rig.left.handSocket.attach(this.shieldPivot)
+      // Keep the hand at the shield's rear grip. The arm pose, not a large
+      // socket offset, carries both hand and shield in front of the torso.
+      this.shieldTargetPosition.set(0, 0.124, 0.019)
+      this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
+    }
+    this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
+    this.shieldStartPosition.copy(this.shieldPivot.position)
+    this.shieldStartQuaternion.copy(this.shieldPivot.quaternion)
+    this.shieldTransitionElapsed = 0
+  }
+
+  private _updateShieldTransition(dt: number): void {
+    this.shieldTransitionElapsed = Math.min(0.15, this.shieldTransitionElapsed + dt)
+    const blend = this.shieldTransitionElapsed / 0.15
+    this.shieldPivot.position.lerpVectors(this.shieldStartPosition, this.shieldTargetPosition, blend)
+    this.shieldPivot.quaternion.slerpQuaternions(this.shieldStartQuaternion, this.shieldTargetQuaternion, blend)
+  }
+
+  private _startBowRelease(
+    cameraAimPoint: THREE.Vector3,
+    archeryMultiplier: number,
+    equippedRanged?: WeaponData,
+  ): void {
+    if (this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    this.pendingBowChargeTime = this.bowChargeTime
+    const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
+    this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
+    this.nockedArrowReleased = false
+    this.pendingArrowTarget.copy(cameraAimPoint)
+    this.pendingArcheryMultiplier = archeryMultiplier
+    this.pendingRangedWeapon = equippedRanged
+    this.animator.start('bowRelease')
+    this.bowChargeTime = 0
   }
 
   update(
     dt: number,
     input: PlayerInput,
     cameraYaw: number,
-    cameraDirection: THREE.Vector3,
+    cameraAimPoint: THREE.Vector3,
     obstacles: ObstacleData[],
     staminaBar: StaminaBar,
     quiverUI: QuiverUI,
@@ -344,11 +430,13 @@ export class Player {
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
       this.bodyMesh.traverse((child) => {
+        if (this.shieldPivot.getObjectById(child.id)) return
         if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.hitFlashMat
       })
       this.headMesh.material = this.hitFlashMat
     } else {
       this.bodyMesh.traverse((child) => {
+        if (this.shieldPivot.getObjectById(child.id)) return
         if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
           (child as THREE.Mesh).material = child.userData.originalMat
         }
@@ -357,6 +445,7 @@ export class Player {
     }
 
     if (this.isDead) return
+    this.hitEventPending = false
 
     const equippedMelee = inventoryManager?.equippedMelee
     const equippedRanged = inventoryManager?.equippedRanged
@@ -371,68 +460,83 @@ export class Player {
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
-    const swingDuration = equippedMelee ? equippedMelee.speedOrCharge : SWING_DURATION
-
     const wantAim = input.isRightMouseDown
-    this.aiming = wantAim && !this.isSwinging
+    const bowReleasing = this.animator.currentAction === 'bowRelease'
+    this.aiming = wantAim && !this.isSwinging && !bowReleasing
+    this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
 
     quiverUI.setAiming(this.aiming)
 
     if (this.aiming) {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
-
-      // Dynamic Back-Shield: move shield to back
-      if (this.shieldPivot.parent !== this.bodyMesh) {
-        this.bodyMesh.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, 0.3, 0.45)
-        this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8) // Slanted on back
-      }
+      this.nockedArrowReleased = false
 
       if (input.isLeftMouseDown && this.arrows > 0) {
         this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
         quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
       }
+      this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
 
       if (input.consumeLeftClickRelease()) {
-        if (this.bowChargeTime > 0.1 && this.arrows > 0) {
-          this._fireArrow(cameraDirection, archeryMultiplier, equippedRanged)
-          soundManager.playBowRelease()
-        }
-        this.bowChargeTime = 0
+        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
         quiverUI.setChargeRatio(0)
       }
-
     } else {
-      // If we stop aiming but have a charged shot, fire it (like releasing left click)
       if (this.bowChargeTime > 0.1 && this.arrows > 0) {
-        this._fireArrow(cameraDirection, archeryMultiplier, equippedRanged)
-        soundManager.playBowRelease()
+        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
       }
-
-      this.swordPivot.visible = true
-      this.bowPivot.visible = false
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      // Restore shield to left arm
-      if (this.shieldPivot.parent !== this.leftArm) {
-        this.leftArm.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, -0.35, 0)
-        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
-      }
-
-      if (input.consumeLeftClick() && !this.isSwinging && this.stamina >= SWING_STAMINA_COST) {
-        this.isSwinging = true
-        this.swingTimer = 0
-        this.attackHitProcessed = false
-        this.stamina -= SWING_STAMINA_COST
-        soundManager.playSwing()
+      if (input.consumeLeftClick() && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
+        const action = this._meleeAction(equippedMelee)
+        if (this.animator.start(action)) {
+          this.isSwinging = true
+          this.attackHitProcessed = false
+          this.hitEventPending = false
+          this.stamina -= SWING_STAMINA_COST
+          soundManager.playSwing()
+        }
       }
     }
 
-    this._updateBowPose(maxChargeTime)
-    this._updateSwingAnimation(dt, swingDuration)
+    const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
+    this.swordPivot.visible = !showingBow
+    this.bowPivot.visible = showingBow
+
+    const needsTwoHands = equippedMelee?.animationKind === 'greatsword'
+      || (equippedMelee?.animationKind === 'lance' && !this.isMounted)
+    this.animator.setShieldGuard(Boolean(equippedShield) && !showingBow && !needsTwoHands)
+
+    if (this.aiming) {
+      this.animator.poseBow(this.bowChargeTime / maxChargeTime, this.aimBlend)
+    } else if (!this.animator.busy) {
+      if (equippedMelee?.animationKind === 'lance') this.animator.poseLanceReady(this.isMounted)
+      else this.animator.poseIdle()
+    }
+
+    this._updateBowPose(maxChargeTime, cameraAimPoint)
+    const animationEvents = this.animator.update(dt)
+    if (animationEvents.hitActiveStarted) this.hitEventPending = true
+    if (animationEvents.projectileRelease) {
+      this._fireArrow(
+        this.pendingArrowTarget,
+        this.pendingArcheryMultiplier,
+        this.pendingRangedWeapon,
+        this.pendingBowChargeTime,
+      )
+      this.nockedArrowReleased = true
+      this.bowVisualDrawRatio = 0
+      soundManager.playBowRelease()
+    }
+    if (animationEvents.actionCompleted) {
+      this.isSwinging = false
+      this.hitEventPending = false
+    }
+
+    this._setShieldPlacement(showingBow || needsTwoHands)
+    this._updateShieldTransition(dt)
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
@@ -559,64 +663,19 @@ export class Player {
     }
   }
 
-  private _updateBowPose(maxChargeTime = MAX_BOW_CHARGE_TIME): void {
-    if (!this.aiming) return
-
-    // Position bow on the right side (aligning with right-shoulder camera)
-    this.bowPivot.position.set(0.35, 0.8, -0.5)
-    this.bowPivot.rotation.set(0, 0, -0.1)
-
-    const drawRatio = this.bowChargeTime / maxChargeTime
-    const stringPullBack = drawRatio * 0.45
-
-    let topTip = new THREE.Vector3(0, 0.82, -0.04)
-    let botTip = new THREE.Vector3(0, -0.82, -0.04)
-    let stringLength = 0.85
-    
-    if (this.currentRangedId === 'wooden_shortbow') {
-      topTip.set(0, 0.52, 0.04)
-      botTip.set(0, -0.52, 0.04)
-      stringLength = 0.53
-    } else if (this.currentRangedId === 'elven_runebow') {
-      topTip.set(0, 1.0, -0.01)
-      botTip.set(0, -1.0, -0.01)
-      stringLength = 1.0
-    }
-
-    // Draw string straight back in local space
-    const nockPos = this._tmpNockPos.set(0, 0, 0.12 + stringPullBack)
-
-    const worldNock = this._tmpWorldNock
-    this.bowPivot.localToWorld(worldNock.copy(nockPos))
-
-    if (this.stringMeshTop) {
-      this.stringMeshTop.position.copy(topTip).add(nockPos).multiplyScalar(0.5)
-      this.stringMeshTop.lookAt(worldNock)
-      this.stringMeshTop.rotateX(Math.PI / 2)
-      this.stringMeshTop.scale.set(1, topTip.distanceTo(nockPos) / stringLength, 1)
-    }
-
-    if (this.stringMeshBottom) {
-      this.stringMeshBottom.position.copy(botTip).add(nockPos).multiplyScalar(0.5)
-      this.stringMeshBottom.lookAt(worldNock)
-      this.stringMeshBottom.rotateX(Math.PI / 2)
-      this.stringMeshBottom.scale.set(1, botTip.distanceTo(nockPos) / stringLength, 1)
-    }
-
-    if (this.nockedArrow) {
-      if (this.arrows > 0) {
-        this.nockedArrow.visible = true
-        this.nockedArrow.position.copy(nockPos)
-      } else {
-        this.nockedArrow.visible = false
-      }
-    }
+  private _updateBowPose(maxChargeTime = MAX_BOW_CHARGE_TIME, cameraAimPoint?: THREE.Vector3): void {
+    if (!this.aiming && this.animator.currentAction !== 'bowRelease') return
+    const drawRatio = this.animator.currentAction === 'bowRelease'
+      ? this.bowVisualDrawRatio
+      : this.bowChargeTime / maxChargeTime
+    this.bowVisual.update(drawRatio, cameraAimPoint, this.arrows > 0 && !this.nockedArrowReleased)
   }
 
   private _fireArrow(
-    cameraDirection: THREE.Vector3,
+    cameraAimPoint: THREE.Vector3,
     archeryMultiplier = 1.0,
-    equippedRanged?: WeaponData
+    equippedRanged?: WeaponData,
+    chargeTime = this.bowChargeTime,
   ): void {
     if (this.arrows <= 0) return
 
@@ -628,58 +687,22 @@ export class Player {
     const dmgMin   = equippedRanged?.damageMin ?? 15
     const dmgMax   = equippedRanged?.damageMax ?? 42
 
-    const chargeRatio = this.bowChargeTime / maxChargeTime
+    const chargeRatio = chargeTime / maxChargeTime
     const speed  = THREE.MathUtils.lerp(speedMin, speedMax, chargeRatio)
     const baseDamage = THREE.MathUtils.lerp(dmgMin, dmgMax, chargeRatio)
     const damage = Math.round(baseDamage * archeryMultiplier)
 
-    const arrowOrigin = this.group.position.clone()
-    arrowOrigin.y += 1.4
+    const arrowOrigin = this._tmpWorldNock
+    const arrowDirection = this._tmpArrowDirection
+    this.bowVisual.writeLaunch(arrowOrigin, arrowDirection, cameraAimPoint)
 
     if (this.onFireArrow) {
       this.onFireArrow({
-        origin: arrowOrigin,
-        direction: cameraDirection.clone(),
+        origin: arrowOrigin.clone(),
+        direction: arrowDirection.clone(),
         speed,
         damage,
       })
-    }
-  }
-
-  private _updateSwingAnimation(dt: number, swingDuration = SWING_DURATION): void {
-    if (!this.isSwinging) {
-      this.swordPivot.rotation.set(0, 0, 0)
-      if (this.aiming) {
-        this.rightArm.rotation.set(-0.55, 0, -0.18)
-        this.leftArm.rotation.set(-0.35, 0, 0.18)
-      } else {
-        this.rightArm.rotation.set(0, 0, -0.12)
-        this.leftArm.rotation.set(0, 0, 0.12)
-      }
-      return
-    }
-
-    this.swingTimer += dt
-    const progress = Math.min(1, this.swingTimer / swingDuration)
-
-    if (progress < 0.5) {
-      const t = progress / 0.5
-      const pitch = THREE.MathUtils.lerp(Math.PI / 6, -Math.PI / 3, t)
-      const yaw   = THREE.MathUtils.lerp(0, Math.PI / 2, t)
-      const roll  = THREE.MathUtils.lerp(-Math.PI / 12, -Math.PI / 4, t)
-      this.swordPivot.rotation.set(pitch, yaw, roll)
-      this.rightArm.rotation.set(pitch * 0.65, yaw * 0.3, roll)
-    } else {
-      const t = (progress - 0.5) / 0.5
-      const pitch = THREE.MathUtils.lerp(-Math.PI / 3, Math.PI / 6, t)
-      const yaw   = THREE.MathUtils.lerp(Math.PI / 2, 0, t)
-      const roll  = THREE.MathUtils.lerp(-Math.PI / 4, -Math.PI / 12, t)
-      this.swordPivot.rotation.set(pitch, yaw, roll)
-      this.rightArm.rotation.set(pitch * 0.65, yaw * 0.3, roll)
-    }
-
-    if (this.swingTimer >= swingDuration) {
-      this.isSwinging = false
     }
   }
 

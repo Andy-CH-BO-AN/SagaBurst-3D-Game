@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 import { Faction } from './NPC'
 
+export interface NpcRangedMeshParts {
+  stringTop?: THREE.Mesh
+  stringBottom?: THREE.Mesh
+  nockedArrow?: THREE.Group
+}
+
 export class WeaponMeshFactory {
   /**
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
@@ -130,7 +136,9 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
-
+    const bowModel = new THREE.Group()
+    bowModel.name = 'bow-model'
+    pivot.add(bowModel)
     const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
 
     const topTip = new THREE.Vector3(0, 0.75, 0.12)
@@ -140,45 +148,49 @@ export class WeaponMeshFactory {
     if (weaponId === 'wooden_shortbow') {
       const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e, flatShading: true })
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), gripMat)
-      pivot.add(grip)
+      bowModel.add(grip)
 
       const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.04, 0.6, 6), woodMat)
       upperArm.position.set(0, 0.38, 0.05)
       upperArm.rotation.x = -0.2
-      pivot.add(upperArm)
+      bowModel.add(upperArm)
 
       const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.02, 0.6, 6), woodMat)
       lowerArm.position.set(0, -0.38, 0.05)
       lowerArm.rotation.x = 0.2
-      pivot.add(lowerArm)
+      bowModel.add(lowerArm)
+
+      topTip.set(0, 0.62, 0.05)
+      botTip.set(0, -0.62, 0.05)
+      stringLength = 0.62
 
     } else if (weaponId === 'elven_runebow') {
       const elvenMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
       const runeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
       
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.25, 8), gripMat)
-      pivot.add(grip)
+      bowModel.add(grip)
 
       // Sleek long curved arms
       for (let i = 1; i <= 3; i++) {
         const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.03 - i*0.005, 0.035 - i*0.005, 0.3, 8), elvenMat)
         seg.position.set(0, 0.1 + i*0.25, i*0.02)
         seg.rotation.x = -0.15 * i
-        pivot.add(seg)
+        bowModel.add(seg)
 
         const botSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.035 - i*0.005, 0.03 - i*0.005, 0.3, 8), elvenMat)
         botSeg.position.set(0, -0.1 - i*0.25, i*0.02)
         botSeg.rotation.x = 0.15 * i
-        pivot.add(botSeg)
+        bowModel.add(botSeg)
       }
 
       // Glowing Runes
       const rune1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.04), runeMat)
       rune1.position.set(0, 0.5, 0.04)
-      pivot.add(rune1)
+      bowModel.add(rune1)
       const rune2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.04), runeMat)
       rune2.position.set(0, -0.5, 0.04)
-      pivot.add(rune2)
+      bowModel.add(rune2)
 
       topTip.set(0, 1.0, -0.01)
       botTip.set(0, -1.0, -0.01)
@@ -189,31 +201,43 @@ export class WeaponMeshFactory {
       const woodMat = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true })
       
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.25, 8), gripMat)
-      pivot.add(grip)
+      bowModel.add(grip)
 
       const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.045, 0.6, 6), woodMat)
       upperArm.position.set(0, 0.4, 0.08)
       upperArm.rotation.x = -0.25
-      pivot.add(upperArm)
+      bowModel.add(upperArm)
 
       const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.025, 0.6, 6), woodMat)
       lowerArm.position.set(0, -0.4, 0.08)
       lowerArm.rotation.x = 0.25
-      pivot.add(lowerArm)
+      bowModel.add(lowerArm)
 
       const upperRecurve = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.25, 6), woodMat)
       upperRecurve.position.set(0, 0.78, 0.06)
       upperRecurve.rotation.x = 0.3
-      pivot.add(upperRecurve)
+      bowModel.add(upperRecurve)
 
       const lowerRecurve = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.25, 6), woodMat)
       lowerRecurve.position.set(0, -0.78, 0.06)
       lowerRecurve.rotation.x = -0.3
-      pivot.add(lowerRecurve)
+      bowModel.add(lowerRecurve)
 
       topTip.set(0, 0.82, -0.04)
       botTip.set(0, -0.82, -0.04)
     }
+
+    // Scale only the bow limbs and grip. Strings and the arrow are siblings on
+    // the weapon socket so their thickness/length and release alignment stay exact.
+    const visualScale = 1.22
+    // Mirror only the solid bow body toward local -Z (the target). Strings and
+    // arrows are sibling objects and remain on the archer side of the limbs.
+    bowModel.scale.set(visualScale, visualScale, -visualScale)
+    topTip.multiplyScalar(visualScale)
+    botTip.multiplyScalar(visualScale)
+    topTip.z *= -1
+    botTip.z *= -1
+    stringLength *= visualScale
 
     return { topTip, botTip, stringLength }
   }
@@ -270,7 +294,7 @@ export class WeaponMeshFactory {
   /**
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
-  static buildNpcMelee(faction: Faction, tier: number, isLance: boolean, pivot: THREE.Group): void {
+  static buildNpcMelee(faction: Faction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
     if (isLance) {
       const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
       const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
@@ -283,7 +307,7 @@ export class WeaponMeshFactory {
       head.position.y = 2.3
       head.castShadow = true
       pivot.add(head)
-      return
+      return new THREE.Vector3(0, 2.6, 0)
     }
 
     if (faction === Faction.PLAYER) {
@@ -303,6 +327,7 @@ export class WeaponMeshFactory {
       const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.015), bladeMat)
       blade.position.y = 0.62
       pivot.add(blade)
+      return new THREE.Vector3(0, 1.04, 0)
     } else {
       // Roman Gladius
       let bladeColor = 0x888888 // T1 Rusty
@@ -346,13 +371,14 @@ export class WeaponMeshFactory {
       tip.rotation.y = Math.PI / 4
       tip.position.y = 0.2 + bladeLength + 0.05
       pivot.add(tip)
+      return new THREE.Vector3(0, 0.2 + bladeLength + 0.1, 0)
     }
   }
 
   /**
    * 建構 NPC 專用遠程武器（羅馬標槍 vs 維京弓）
    */
-  static buildNpcRanged(faction: Faction, tier: number, pivot: THREE.Group): void {
+  static buildNpcRanged(faction: Faction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
     if (faction === Faction.ENEMY) {
       // Roman Pilum (Javelin)
       const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
@@ -389,6 +415,7 @@ export class WeaponMeshFactory {
         pivot.add(head)
       }
 
+      return {}
     } else {
       // Viking Bow
       const bowMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
@@ -404,9 +431,20 @@ export class WeaponMeshFactory {
       pivot.add(lowerCurve)
 
       const stringMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const bowString = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 1.0, 4), stringMat)
-      bowString.position.set(0.05, 0, 0)
-      pivot.add(bowString)
+      const stringTop = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat)
+      const stringBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.5, 4), stringMat)
+      pivot.add(stringTop, stringBottom)
+
+      const nockedArrow = new THREE.Group()
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), bowMat)
+      shaft.rotation.x = Math.PI / 2
+      nockedArrow.add(shaft)
+      const arrowHead = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 6), new THREE.MeshLambertMaterial({ color: 0xaaaaaa }))
+      arrowHead.rotation.x = -Math.PI / 2
+      arrowHead.position.z = -0.45
+      nockedArrow.add(arrowHead)
+      pivot.add(nockedArrow)
+      return { stringTop, stringBottom, nockedArrow }
     }
   }
 

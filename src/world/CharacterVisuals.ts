@@ -15,6 +15,19 @@ export interface CharacterVisualParts {
   headMaterial: THREE.MeshStandardMaterial
   rightArm: THREE.Group
   leftArm: THREE.Group
+  rig: CharacterRig
+}
+
+export interface ArmRig {
+  shoulder: THREE.Group
+  elbow: THREE.Group
+  wrist: THREE.Group
+  handSocket: THREE.Group
+}
+
+export interface CharacterRig {
+  right: ArmRig
+  left: ArmRig
 }
 
 function mesh<T extends THREE.BufferGeometry>(geometry: T, material: THREE.Material, position?: THREE.Vector3 | THREE.Vector3Tuple): THREE.Mesh {
@@ -57,12 +70,47 @@ function addLeg(root: THREE.Group, x: number, hipY: number, footBottomY: number,
   leg.add(thigh)
   // Calf
   const calf = mesh(new THREE.CylinderGeometry(0.13, 0.10, calfLen, 8), clothMat, [0, -thighLen - calfLen / 2, -0.05])
-  calf.rotation.x = 0.1 // slight backward bend
+  calf.rotation.x = 0.1 // lower leg leans toward character-forward (-Z)
   leg.add(calf)
-  // Boot
-  const boot = mesh(new THREE.BoxGeometry(0.25, bootHeight, 0.38), leatherMat, [0, -thighLen - calfLen - bootHeight / 2, 0.02])
+  // Front-long/back-short boot silhouette. Character-forward is local -Z.
+  const boot = mesh(new THREE.BoxGeometry(0.25, bootHeight, 0.45), leatherMat, [0, -thighLen - calfLen - bootHeight / 2, -0.12])
+  boot.name = x < 0 ? 'left-boot' : 'right-boot'
   leg.add(boot)
   root.add(leg)
+}
+
+function addArm(
+  root: THREE.Group,
+  side: -1 | 1,
+  shoulderY: number,
+  clothMat: THREE.Material,
+  leatherMat: THREE.Material,
+): ArmRig {
+  const shoulder = new THREE.Group()
+  shoulder.position.set(side * 0.49, shoulderY, 0)
+  shoulder.rotation.z = side * -0.12
+
+  shoulder.add(mesh(new THREE.CylinderGeometry(0.12, 0.10, 0.38, 8), clothMat, [0, -0.19, 0]))
+
+  const elbow = new THREE.Group()
+  elbow.position.set(0, -0.38, 0)
+  const lowerArm = mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.35, 8), leatherMat, [0, -0.175, 0])
+  elbow.add(lowerArm)
+  shoulder.add(elbow)
+
+  const wrist = new THREE.Group()
+  wrist.position.set(0, -0.35, 0)
+  const hand = mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), leatherMat, [0, -0.09, 0])
+  wrist.add(hand)
+  elbow.add(wrist)
+
+  const handSocket = new THREE.Group()
+  handSocket.name = side === 1 ? 'right-hand-socket' : 'left-hand-socket'
+  handSocket.position.set(0, -0.18, 0)
+  wrist.add(handSocket)
+
+  root.add(shoulder)
+  return { shoulder, elbow, wrist, handSocket }
 }
 
 export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualConfig): CharacterVisualParts {
@@ -105,29 +153,10 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
   addLeg(root, -0.2, hipY, footBottomY, cloth, leather)
   addLeg(root, 0.2, hipY, footBottomY, cloth, leather)
 
-  const leftArm = new THREE.Group()
-  leftArm.position.set(-0.49, bodyCenter + 0.35, 0)
-  leftArm.rotation.z = 0.12
-  leftArm.add(mesh(new THREE.CylinderGeometry(0.12, 0.10, 0.38, 8), cloth, [0, -0.18, 0])) // Upper Arm
-  const lLowerArm = mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.35, 8), leather, [0, -0.5, 0.05])
-  lLowerArm.rotation.x = -0.15 // Forward bend
-  leftArm.add(lLowerArm)
-  const lHand = mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), leather, [0, -0.72, 0.08])
-  lHand.rotation.x = -0.15
-  leftArm.add(lHand)
-  root.add(leftArm)
-
-  const rightArm = new THREE.Group()
-  rightArm.position.set(0.49, bodyCenter + 0.35, 0)
-  rightArm.rotation.z = -0.12
-  rightArm.add(mesh(new THREE.CylinderGeometry(0.12, 0.10, 0.38, 8), cloth, [0, -0.18, 0])) // Upper Arm
-  const rLowerArm = mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.35, 8), leather, [0, -0.5, 0.05])
-  rLowerArm.rotation.x = -0.15 // Forward bend
-  rightArm.add(rLowerArm)
-  const rHand = mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), leather, [0, -0.72, 0.08])
-  rHand.rotation.x = -0.15
-  rightArm.add(rHand)
-  root.add(rightArm)
+  const leftRig = addArm(root, -1, bodyCenter + 0.35, cloth, leather)
+  const rightRig = addArm(root, 1, bodyCenter + 0.35, cloth, leather)
+  const leftArm = leftRig.shoulder
+  const rightArm = rightRig.shoulder
 
   // Layered torso: cloth underlayer, cuirass, belt and back cape/tabard.
   if (!isViking && config.tier >= 2) {
@@ -184,9 +213,9 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
         }
       }
     }
-    // Iron plating on upper chest for Roman
-    addBox(root, [0.18, 0.38, 0.28], [-0.51, bodyCenter + 0.10, -0.02], iron)
-    addBox(root, [0.18, 0.38, 0.28], [0.51, bodyCenter + 0.10, -0.02], iron)
+    // Upper-arm plates follow the FK shoulders instead of masking the moving arms.
+    addBox(leftRig.shoulder, [0.17, 0.30, 0.23], [0, -0.17, 0], iron)
+    addBox(rightRig.shoulder, [0.17, 0.30, 0.23], [0, -0.17, 0], iron)
   }
 
   if (config.tier >= 3) {
@@ -249,7 +278,15 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
     }
   }
 
-  return { bodyMesh: body, headMesh: head, bodyMaterial, headMaterial: skin, rightArm, leftArm }
+  return {
+    bodyMesh: body,
+    headMesh: head,
+    bodyMaterial,
+    headMaterial: skin,
+    rightArm,
+    leftArm,
+    rig: { right: rightRig, left: leftRig },
+  }
 }
 
 /** Converts legacy Lambert weapon parts to consistent physically based materials. */
@@ -267,5 +304,6 @@ export function polishWeaponMaterials(root: THREE.Object3D): void {
     object.material = Array.isArray(object.material)
       ? object.material.map(upgrade)
       : upgrade(object.material)
+    object.userData.originalMat = object.material
   })
 }

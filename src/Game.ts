@@ -26,6 +26,7 @@ import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import { WeaponPickup } from './world/WeaponPickup'
 import { damageNpc, damagePlayer } from './combat/DamageRouter'
+import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 
 export class Game {
   private scene: THREE.Scene
@@ -54,6 +55,7 @@ export class Game {
   private equipmentUI: EquipmentUI
   private soundManager: SoundManager
   private inventoryManager: InventoryManager
+  private combatTrajectoryDebugger: CombatTrajectoryDebugger | null = null
 
   // Enemy HUD elements
   private enemyHud: HTMLElement
@@ -77,8 +79,41 @@ export class Game {
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpCameraDir = new THREE.Vector3()
+  private readonly _aimRaycaster = new THREE.Raycaster()
+  private readonly _aimScreenCenter = new THREE.Vector2(0, 0)
 
   private readonly _tmpHitPos = new THREE.Vector3()
+  private readonly _debugAimPoint = new THREE.Vector3()
+
+  private _isIgnoredAimObject(object: THREE.Object3D): boolean {
+    let current: THREE.Object3D | null = object
+    while (current) {
+      if (current === this.player.group || current === this.player.currentMount?.group) return true
+      if (current.name === 'arrow-projectile') return true
+      if (current.userData.ignoreAimRaycast === true) return true
+      current = current.parent
+    }
+    return false
+  }
+
+  private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
+    this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
+    target.copy(this.camera.position).addScaledVector(this._tmpCameraDir, 100)
+    if (!this.player.isAiming) return target
+
+    // setFromCamera also assigns Raycaster.camera, which Sprite.raycast needs.
+    // A plain set(origin, direction) reports an error as soon as recursive
+    // scene aiming encounters NPC alert sprites.
+    this._aimRaycaster.setFromCamera(this._aimScreenCenter, this.camera)
+    this._tmpCameraDir.copy(this._aimRaycaster.ray.direction)
+    target.copy(this._aimRaycaster.ray.origin).addScaledVector(this._tmpCameraDir, 100)
+    this._aimRaycaster.far = 100
+    const intersections = this._aimRaycaster.intersectObjects(this.scene.children, true)
+    for (const intersection of intersections) {
+      if (!this._isIgnoredAimObject(intersection.object)) return target.copy(intersection.point)
+    }
+    return target
+  }
 
   // LOD & Spatial Partitioning
   private npcGrid = new SpatialGrid<NPC>(20)
@@ -121,49 +156,12 @@ export class Game {
 
     // ── Combat & Enemies ──
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
-    
-    // @ts-ignore: Intentionally unused for testing
-    const isSpawnValid = (x: number, z: number) => {
-      for (const obs of this.obstacles) {
-        if (x > obs.box.min.x - 2 && x < obs.box.max.x + 2 &&
-            z > obs.box.min.z - 2 && z < obs.box.max.z + 2) {
-          return false
-        }
-      }
-      return true
-    }
-
-    // ── Spawn Test NPCs ──
-    for (let i = 0; i < 3; i++) {
-      let px = 0, pz = 0
-      let attempts = 0
-      do {
-        px = -5 - Math.random() * 20
-        pz = -5 - Math.random() * 20
-        attempts++
-      } while (!isSpawnValid(px, pz) && attempts < 50)
-      
-      const isArcher = Math.random() < 0.5
-      const tier = (i + 1) as 1 | 2 | 3
-      const name = isArcher ? `維京射手 Viking Archer T${tier}` : `維京步兵 Viking Infantry T${tier}`
-      const isMounted = Math.random() < 0.5
-      this._spawnNpc(px, pz, Faction.PLAYER, isArcher ? AIType.RANGED : AIType.MELEE, name, tier, isMounted)
-    }
-
-    for (let i = 0; i < 3; i++) {
-      let px = 0, pz = 0
-      let attempts = 0
-      do {
-        px = 5 + Math.random() * 20
-        pz = 5 + Math.random() * 20
-        attempts++
-      } while (!isSpawnValid(px, pz) && attempts < 50)
-
-      const isArcher = Math.random() < 0.5
-      const tier = (i + 1) as 1 | 2 | 3
-      const name = isArcher ? `羅馬射手 Roman Archer T${tier}` : `羅馬步兵 Roman Infantry T${tier}`
-      const isMounted = Math.random() < 0.5
-      this._spawnNpc(px, pz, Faction.ENEMY, isArcher ? AIType.RANGED : AIType.MELEE, name, tier, isMounted)
+    const isDevCombat = new URLSearchParams(window.location.search).has('devcombat')
+    if (isDevCombat) {
+      this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
+      this._spawnDevCombatForces()
+    } else {
+      this._spawnStandardForces()
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -284,6 +282,42 @@ export class Game {
     const npc = new NPC(this.scene, x, z, faction, aiType, name, tier, cavalry)
     this.npcs.push(npc)
     if (npc.mount) this.mounts.push(npc.mount)
+  }
+
+  /** Beginner-friendly release battle: Player + 9 allies versus 5 enemies. */
+  private _spawnStandardForces(): void {
+    for (let i = 0; i < 5; i++) {
+      const x = (i - 2) * 2.8
+      this._spawnNpc(x, 12, Faction.PLAYER, AIType.MELEE, `Viking Guard ${i + 1}`, 2, false)
+    }
+    for (let i = 0; i < 4; i++) {
+      const x = (i - 1.5) * 3.0
+      this._spawnNpc(x, 18, Faction.PLAYER, AIType.RANGED, `Viking Archer ${i + 1}`, 2, false)
+    }
+    for (let i = 0; i < 3; i++) {
+      const x = (i - 1) * 3.2
+      this._spawnNpc(x, -22, Faction.ENEMY, AIType.MELEE, `Roman Infantry ${i + 1}`, 2, false)
+    }
+    for (let i = 0; i < 2; i++) {
+      const x = (i - 0.5) * 4.0
+      this._spawnNpc(x, -28, Faction.ENEMY, AIType.RANGED, `Roman Pilum ${i + 1}`, 2, false)
+    }
+  }
+
+  /** Fixed Tier-3 50v50 cavalry battle for combat and performance testing. */
+  private _spawnDevCombatForces(): void {
+    const formationSize = 5
+    for (let row = 0; row < formationSize; row++) {
+      for (let column = 0; column < formationSize; column++) {
+        const index = row * formationSize + column + 1
+        const x = (column - 2) * 3.0
+        const depth = row * 3.0
+        this._spawnNpc(x, 35 + depth, Faction.PLAYER, AIType.MELEE, `Viking T3 Lancer ${index}`, 3, true)
+        this._spawnNpc(x, 55 + depth, Faction.PLAYER, AIType.RANGED, `Viking T3 Horse Archer ${index}`, 3, true)
+        this._spawnNpc(x, -35 - depth, Faction.ENEMY, AIType.MELEE, `Roman T3 Lancer ${index}`, 3, true)
+        this._spawnNpc(x, -55 - depth, Faction.ENEMY, AIType.RANGED, `Roman T3 Mounted Pilum ${index}`, 3, true)
+      }
+    }
   }
 
   // ── Pointer Lock ──
@@ -802,11 +836,10 @@ export class Game {
     requestAnimationFrame(this._loop)
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
-    this.camera.getWorldDirection(this._tmpCameraDir)
-    const cameraDirection = this._tmpCameraDir
-
     // Update ThirdPersonCamera
     this.thirdPersonCamera.update(this.input, dt)
+    const cameraAimPoint = this._getCameraAimPoint(this._tmpHitPos)
+    this._debugAimPoint.copy(cameraAimPoint)
 
     // Update Compass direction bar
     this.compassUI.update(this.thirdPersonCamera.cameraYaw)
@@ -816,7 +849,7 @@ export class Game {
       dt,
       this.input,
       this.thirdPersonCamera.cameraYaw,
-      cameraDirection,
+      cameraAimPoint,
       this.obstacles,
       this.staminaBar,
       this.quiverUI,
@@ -883,15 +916,17 @@ export class Game {
             }
           }
         },
-        (origin, direction) => {
+        (origin, direction, visualKind) => {
           // Ranged Fire Callback
           const arrow = new ArrowProjectile(
             this.scene,
             origin,
             direction,
-            15.0, // Arrow speed
+            20.0, // NPC arrow / pilum speed
             npc.rangedDamage, // Arrow damage
-            npc.faction
+            npc.faction,
+            false,
+            visualKind,
           )
           this.arrows.push(arrow)
           this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
@@ -943,6 +978,8 @@ export class Game {
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)
+
+    this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 
     this.renderer.render(this.scene, this.camera)
   }
