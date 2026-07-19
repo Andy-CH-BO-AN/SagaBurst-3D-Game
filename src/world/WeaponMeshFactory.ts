@@ -458,6 +458,15 @@ export class WeaponMeshFactory {
       // 把一半藏在盾裡
       boss.scale.z = 0.5
       pivot.add(boss)
+      
+      // Roman faction emblem (Glowing Cross or Sun)
+      const emblemMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.6 })
+      const emblemV = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.01), emblemMat)
+      emblemV.position.set(0, 0, 0.176)
+      pivot.add(emblemV)
+      const emblemH = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.01), emblemMat)
+      emblemH.position.set(0, 0, 0.176)
+      pivot.add(emblemH)
 
       // 裝飾紋路 (Tier 3)
       if (tier === 3) {
@@ -501,6 +510,17 @@ export class WeaponMeshFactory {
         rim.position.set(0, 0, 0.15)
         pivot.add(rim)
       }
+      
+      // Viking faction runes/patterns
+      const runeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xaabbcc, emissiveIntensity: 0.4 })
+      const rune1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.25, 0.01), runeMat)
+      rune1.position.set(0.15, 0.1, 0.17)
+      rune1.rotation.z = Math.PI / 6
+      pivot.add(rune1)
+      const rune2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 0.01), runeMat)
+      rune2.position.set(0.18, 0.15, 0.17)
+      rune2.rotation.z = -Math.PI / 4
+      pivot.add(rune2)
 
       // 鐵釘裝飾 (Tier 3)
       if (tier === 3) {

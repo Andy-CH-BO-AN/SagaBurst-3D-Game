@@ -56,14 +56,14 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
   const feetY = config.isPlayer ? -0.48 : 0.17
   const headY = config.isPlayer ? 0.95 : 1.55
 
-  const skin = standardMaterial(isViking ? 0xc58c68 : 0xb87555, 0, 0.82)
-  const bodyMaterial = standardMaterial(isViking ? 0x27485a : 0x5f2024, 0.05, 0.72)
-  const cloth = standardMaterial(isViking ? 0x1d5368 : 0x7b2228, 0, 0.85)
-  const leather = standardMaterial(isViking ? 0x4b2d20 : 0x30251f, 0.05, 0.9)
-  const iron = standardMaterial(isViking ? 0x71808a : 0x3e4145, 0.82, 0.28)
-  const bronze = standardMaterial(isViking ? 0x9aa9ae : 0x8d6335, 0.7, 0.34)
-  const accent = standardMaterial(isViking ? 0x4ca7b4 : 0xb23a32, 0.35, 0.45, config.tier === 3 ? (isViking ? 0x1b7c95 : 0x64151c) : 0)
-  const fur = standardMaterial(0x33251e, 0, 1)
+  const skin = standardMaterial(0xd9a066, 0, 0.82)
+  const bodyMaterial = standardMaterial(isViking ? 0x4a3420 : 0x6b6b6b, 0.05, 0.72) // Leather for Viking, Iron grey for Roman
+  const cloth = standardMaterial(0x3e352f, 0, 0.85) // Neutral dark cloth
+  const leather = standardMaterial(0x30251f, 0.05, 0.9)
+  const iron = standardMaterial(isViking ? 0x555555 : 0x6b6b6b, 0.82, 0.28)
+  const bronze = standardMaterial(0x8a7a5c, 0.7, 0.34)
+  const accent = standardMaterial(isViking ? 0x3d4a5c : 0xaa2222, 0.1, 0.7) // Viking blue-grey / Roman red
+  const fur = standardMaterial(0xa89880, 0, 1)
 
   const body = mesh(new THREE.CapsuleGeometry(0.34, 0.68, 6, 12), bodyMaterial, [0, bodyCenter, 0])
   root.add(body)
@@ -90,13 +90,46 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
   root.add(rightArm)
 
   // Layered torso: cloth underlayer, cuirass, belt and back cape/tabard.
-  const cuirass = mesh(new THREE.CylinderGeometry(0.405, 0.36, 0.66, 10), config.tier >= 2 ? iron : leather, [0, bodyCenter + 0.02, 0])
-  cuirass.scale.z = 0.82
-  root.add(cuirass)
+  if (!isViking && config.tier >= 2) {
+    // Roman Lorica Segmentata (banded armor)
+    for (let i = 0; i < 4; i++) {
+      const ring = mesh(new THREE.CylinderGeometry(0.41, 0.38, 0.15, 12), iron, [0, bodyCenter + 0.18 - i * 0.12, 0])
+      ring.scale.z = 0.83
+      root.add(ring)
+    }
+  } else {
+    const cuirass = mesh(new THREE.CylinderGeometry(0.405, 0.36, 0.66, 10), config.tier >= 2 ? iron : bodyMaterial, [0, bodyCenter + 0.02, 0])
+    cuirass.scale.z = 0.82
+    root.add(cuirass)
+  }
+  
+  if (!isViking) {
+    // Roman Pteruges (Leather skirt strips)
+    const pterugesMat = standardMaterial(0x6b4423, 0.05, 0.9)
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2
+      const strip = mesh(new THREE.BoxGeometry(0.08, 0.28, 0.02), pterugesMat, [
+        Math.cos(angle) * 0.32,
+        bodyCenter - 0.38,
+        Math.sin(angle) * 0.32
+      ])
+      strip.rotation.y = -angle
+      strip.rotation.x = 0.1 // slight outward flare
+      root.add(strip)
+    }
+  }
+
   const belt = mesh(new THREE.TorusGeometry(0.36, 0.035, 6, 16), leather, [0, bodyCenter - 0.28, 0])
   belt.rotation.x = Math.PI / 2
   root.add(belt)
-  addBox(root, [0.56, 0.58, 0.06], [0, bodyCenter + 0.02, 0.30], cloth)
+  
+  // Cape
+  if (config.tier >= 2) {
+    const capeMat = standardMaterial(isViking ? 0x3d4a5c : 0x8b2e2e, 0.05, 0.9)
+    const cape = mesh(new THREE.BoxGeometry(0.6, 0.75, 0.05), capeMat, [0, bodyCenter + 0.05, 0.38])
+    cape.rotation.x = 0.05
+    root.add(cape)
+  }
 
   if (config.tier >= 2) {
     const shoulderMaterial = isViking ? fur : bronze
@@ -142,8 +175,7 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
     addBox(root, [0.13, 0.36, 0.16], [0.29, headY - 0.02, 0], bronze)
   }
   if (isViking) {
-    addBox(root, [0.07, 0.28, 0.08], [0, headY - 0.02, -0.37], accent)
-    const hornMaterial = standardMaterial(0x5d4330, 0.05, 0.72)
+    const hornMaterial = standardMaterial(0x3a2a1a, 0.05, 0.72) // dark horns
     const leftHorn = mesh(new THREE.ConeGeometry(0.105, 0.42, 7), hornMaterial, [-0.27, headY + 0.42, 0])
     leftHorn.rotation.z = -0.45
     root.add(leftHorn)
@@ -151,14 +183,12 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
     rightHorn.rotation.z = 0.45
     root.add(rightHorn)
   } else if (config.tier >= 2) {
-    // Roman transverse crest/plume, a distinctive silhouette without horns.
-    addBox(root, [0.1, 0.12, 0.68], [0, headY + 0.4, 0], accent, [0.08, 0, 0])
-    const shield = mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.08, 12), accent, [-0.58, bodyCenter + 0.02, 0.08])
-    shield.rotation.x = Math.PI / 2
-    root.add(shield)
-    const shieldRim = mesh(new THREE.TorusGeometry(0.24, 0.025, 6, 16), bronze, [-0.58, bodyCenter + 0.02, 0.03])
-    shieldRim.rotation.x = Math.PI / 2
-    root.add(shieldRim)
+    // Roman transverse crest (Red)
+    const crestMat = standardMaterial(0xaa2222, 0.05, 0.8)
+    const crest = mesh(new THREE.BoxGeometry(0.6, 0.15, 0.08), crestMat, [0, headY + 0.45, 0])
+    const crestHolder = mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), bronze, [0, headY + 0.38, 0])
+    root.add(crest)
+    root.add(crestHolder)
   }
 
   if (!isViking && config.tier >= 2) {

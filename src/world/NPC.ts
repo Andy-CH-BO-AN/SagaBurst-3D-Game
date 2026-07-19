@@ -41,7 +41,9 @@ const RANGED_COOLDOWN  = 1.5
 const RESPAWN_TIME     = 10.0
 
 export class NPC {
-  readonly group: THREE.Group
+  // Visuals
+  group: THREE.Group
+  characterVisualGroup: THREE.Group
   readonly faction: Faction
   readonly aiType: AIType
   readonly name: string
@@ -161,8 +163,12 @@ export class NPC {
     this.group = new THREE.Group()
     this.group.name = `npc_${faction}_${aiType}`
 
+    this.characterVisualGroup = new THREE.Group()
+    this.characterVisualGroup.rotation.y = Math.PI // Flip visual mesh to match movement direction (-Z forward)
+    this.group.add(this.characterVisualGroup)
+
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    const visual = buildCharacterVisual(this.group, {
+    const visual = buildCharacterVisual(this.characterVisualGroup, {
       faction: this.faction === Faction.ENEMY ? 'roman' : 'viking',
       tier: this.tier,
       isPlayer: false,
@@ -177,7 +183,7 @@ export class NPC {
     // Create Weapon Pivots
     this.swordPivot = new THREE.Group()
     this.swordPivot.position.set(0.45, 0.75, -0.1)
-    this.group.add(this.swordPivot)
+    this.characterVisualGroup.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
     if (this.faction === Faction.ENEMY) {
@@ -187,7 +193,7 @@ export class NPC {
       this.bowPivot.position.set(0.35, 0.8, -0.5) // Bow held
       this.bowPivot.rotation.set(0, 0, -0.1)
     }
-    this.group.add(this.bowPivot)
+    this.characterVisualGroup.add(this.bowPivot)
 
     this.shieldPivot = new THREE.Group()
     this.group.add(this.shieldPivot)

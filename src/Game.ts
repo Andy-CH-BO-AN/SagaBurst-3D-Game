@@ -133,9 +133,39 @@ export class Game {
       return true
     }
 
-    // ── Spawn Test NPCs (Removed for testing) ──
+    // ── Spawn Test NPCs ──
+    for (let i = 0; i < 3; i++) {
+      let px = 0, pz = 0
+      let attempts = 0
+      do {
+        px = -5 - Math.random() * 20
+        pz = -5 - Math.random() * 20
+        attempts++
+      } while (!isSpawnValid(px, pz) && attempts < 50)
+      
+      const isArcher = Math.random() < 0.5
+      const tier = (i + 1) as 1 | 2 | 3
+      const name = isArcher ? `維京射手 Viking Archer T${tier}` : `維京步兵 Viking Infantry T${tier}`
+      const isMounted = Math.random() < 0.5
+      this._spawnNpc(px, pz, Faction.PLAYER, isArcher ? AIType.RANGED : AIType.MELEE, name, tier, isMounted)
+    }
 
+    for (let i = 0; i < 3; i++) {
+      let px = 0, pz = 0
+      let attempts = 0
+      do {
+        px = 5 + Math.random() * 20
+        pz = 5 + Math.random() * 20
+        attempts++
+      } while (!isSpawnValid(px, pz) && attempts < 50)
 
+      const isArcher = Math.random() < 0.5
+      const tier = (i + 1) as 1 | 2 | 3
+      const name = isArcher ? `羅馬射手 Roman Archer T${tier}` : `羅馬步兵 Roman Infantry T${tier}`
+      const isMounted = Math.random() < 0.5
+      this._spawnNpc(px, pz, Faction.ENEMY, isArcher ? AIType.RANGED : AIType.MELEE, name, tier, isMounted)
+    }
+    
     this.damageNumbers = new DamageNumbers()
 
     // ── RPG Systems & Inventory ──
