@@ -86,6 +86,12 @@ export class NPC {
   private velY = 0
   private onGround = false
 
+  // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
+  private readonly _tmpMoveDir = new THREE.Vector3()
+  private readonly _tmpSep = new THREE.Vector3()
+  private readonly _tmpPush = new THREE.Vector3()
+  private static readonly _UP = new THREE.Vector3(0, 1, 0)
+
   get hp(): number { return this.currentHp }
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
   get currentState(): AIState { return this.state }
@@ -485,7 +491,7 @@ export class NPC {
           break
         }
 
-        let moveDir = new THREE.Vector3()
+        const moveDir = this._tmpMoveDir
 
         if (this.arrows > 0) {
           // Ranged behavior
@@ -516,21 +522,21 @@ export class NPC {
         moveDir.normalize()
 
         // Boid separation (prevent overlapping with other NPCs)
-        const sep = new THREE.Vector3()
+        this._tmpSep.set(0, 0, 0)
         let sepCount = 0
         for (const other of allNPCs) {
           if (other === this || other.dead) continue
           const d = this.group.position.distanceTo(other.position)
           if (d < 1.2) {
-            const push = this.group.position.clone().sub(other.position)
-            push.y = 0
-            sep.add(push.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
+            this._tmpPush.copy(this.group.position).sub(other.position)
+            this._tmpPush.y = 0
+            this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
             sepCount++
           }
         }
         if (sepCount > 0) {
-          sep.divideScalar(sepCount)
-          moveDir.add(sep).normalize()
+          this._tmpSep.divideScalar(sepCount)
+          moveDir.add(this._tmpSep).normalize()
         }
 
         moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
@@ -557,14 +563,14 @@ export class NPC {
         // Mounted Archers can move while attacking
         if (this.isMounted && this.arrows > 0) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          let moveDir = new THREE.Vector3()
+          const moveDir = this._tmpMoveDir
           if (dist < RANGED_ATTACK_MIN) {
             moveDir.copy(this.group.position).sub(targetInfo.position)
           } else if (dist > RANGED_ATTACK_MAX) {
             moveDir.copy(targetInfo.position).sub(this.group.position)
           } else {
             // Orbit target
-            moveDir.copy(targetInfo.position).sub(this.group.position).cross(new THREE.Vector3(0,1,0))
+            moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
           }
           moveDir.y = 0
           if (moveDir.lengthSq() > 0.001) {

@@ -74,6 +74,10 @@ export class Game {
   private hintTimer: number | null = null
   private notifyTimer: number | null = null
 
+  // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
+  private readonly _tmpCameraDir = new THREE.Vector3()
+  private readonly _tmpHitPos = new THREE.Vector3()
+
   constructor(container: HTMLElement) {
     // ── Renderer ──
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -709,7 +713,9 @@ export class Game {
           applyImpactDamage(mount, this.dummyEnemy, this.dummyEnemy.position, (damage) => {
             if (this.dummyEnemy.takeDamage(damage)) {
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, this.dummyEnemy.position.clone().add(new THREE.Vector3(0, 1, 0)))
+              this._tmpHitPos.copy(this.dummyEnemy.position)
+              this._tmpHitPos.y += 1.0
+              this.damageNumbers.spawn(damage, this._tmpHitPos)
               this._showEnemyHud('訓練假人 Dummy Target', this.dummyEnemy.hpRatio)
             }
           })
@@ -721,7 +727,9 @@ export class Game {
               const result = damageNpc(npc, damage)
               if (result.hitSuccess) {
                 this.soundManager.playHit()
-                this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+                this._tmpHitPos.copy(npc.combatPosition)
+                this._tmpHitPos.y += 1.0
+                this.damageNumbers.spawn(damage, this._tmpHitPos)
                 this._showEnemyHud(result.targetName, result.hpRatio)
               }
             })
@@ -733,7 +741,9 @@ export class Game {
             const result = damagePlayer(this.player, damage, this.hpBar)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, this.player.position.clone().add(new THREE.Vector3(0, 1, 0)))
+              this._tmpHitPos.copy(this.player.position)
+              this._tmpHitPos.y += 1.0
+              this.damageNumbers.spawn(damage, this._tmpHitPos)
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -760,8 +770,8 @@ export class Game {
     requestAnimationFrame(this._loop)
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
-    const cameraDirection = new THREE.Vector3()
-    this.camera.getWorldDirection(cameraDirection)
+    this.camera.getWorldDirection(this._tmpCameraDir)
+    const cameraDirection = this._tmpCameraDir
 
     // Update ThirdPersonCamera
     this.thirdPersonCamera.update(this.input, dt)

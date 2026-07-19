@@ -18,6 +18,9 @@ export class ArrowProjectile {
   private stuck = false
   private stuckTimer = 0
 
+  // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
+  private readonly _tmpTargetPos = new THREE.Vector3()
+
   readonly damage: number
   readonly shooterFaction: Faction
   readonly isPlayerFired: boolean
@@ -95,7 +98,7 @@ export class ArrowProjectile {
     this.mesh.position.addScaledVector(this.velocity, dt)
 
     // Orient arrow towards velocity
-    const targetPos = this.mesh.position.clone().add(this.velocity)
+    const targetPos = this._tmpTargetPos.copy(this.mesh.position).add(this.velocity)
     this.mesh.lookAt(targetPos)
 
     // ── Hit Detection 1: Terrain / Ground (y <= 0) ──

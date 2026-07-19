@@ -15,6 +15,11 @@ interface DamageItem {
 export class DamageNumbers {
   private container: HTMLElement
   private items: DamageItem[] = []
+  
+  // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
+  private readonly _tmpOffset = new THREE.Vector3()
+  private readonly _tmpProject = new THREE.Vector3()
+
 
   constructor() {
     this.container = document.getElementById('damage-container')!
@@ -29,11 +34,12 @@ export class DamageNumbers {
     el.textContent = `-${Math.round(amount)}`
 
     // Random slight offset so numbers don't stack perfectly
-    const pos = worldPos.clone().add(new THREE.Vector3(
+    this._tmpOffset.set(
       (Math.random() - 0.5) * 0.6,
       (Math.random() - 0.5) * 0.4 + 1.2,
       (Math.random() - 0.5) * 0.6
-    ))
+    )
+    const pos = worldPos.clone().add(this._tmpOffset)
 
     this.container.appendChild(el)
     this.items.push({
@@ -62,7 +68,7 @@ export class DamageNumbers {
       item.worldPos.y += dt * 1.5
 
       // Project 3D world position to 2D normalized device coordinates (NDC)
-      const proj = item.worldPos.clone().project(camera)
+      const proj = this._tmpProject.copy(item.worldPos).project(camera)
 
       // Behind camera check
       if (proj.z > 1) {

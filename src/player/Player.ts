@@ -88,6 +88,15 @@ export class Player {
   onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
   onPlayerDeath: (() => void) | null = null
 
+  // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
+  private readonly _tmpTipWorld = new THREE.Vector3()
+  private readonly _tmpForward = new THREE.Vector3()
+  private readonly _tmpRight = new THREE.Vector3()
+  private readonly _tmpMoveDir = new THREE.Vector3()
+  private readonly _tmpPreviousPosition = new THREE.Vector3()
+  private readonly _tmpNockPos = new THREE.Vector3()
+  private readonly _tmpWorldNock = new THREE.Vector3()
+
   public isMounted = false
   public currentMount: Mount | null = null
 
@@ -434,7 +443,7 @@ export class Player {
   }
 
   getSwordTipPosition(): THREE.Vector3 {
-    const tipWorld = new THREE.Vector3()
+    const tipWorld = this._tmpTipWorld
     this.swordPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
     return tipWorld
   }
@@ -593,10 +602,10 @@ export class Player {
     this._updateBowPose(maxChargeTime)
     this._updateSwingAnimation(dt, swingDuration)
 
-    const forward = new THREE.Vector3(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
-    const right   = new THREE.Vector3( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
+    const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
+    const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
 
-    const moveDir = new THREE.Vector3()
+    const moveDir = this._tmpMoveDir.set(0, 0, 0)
     if (input.keys['KeyW']) moveDir.addScaledVector(forward, 1)
     if (input.keys['KeyS']) moveDir.addScaledVector(forward, -1)
     if (input.keys['KeyA']) moveDir.addScaledVector(right, -1)
@@ -661,7 +670,7 @@ export class Player {
     } else {
       // Normal Player Movement
       this.group.rotation.x = 0
-      const previousPlayerPosition = this.group.position.clone()
+      const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
       const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       this.group.position.addScaledVector(moveDir, speed * dt)
       
@@ -744,9 +753,9 @@ export class Player {
     }
 
     // Draw string straight back in local space
-    const nockPos = new THREE.Vector3(0, 0, 0.12 + stringPullBack)
+    const nockPos = this._tmpNockPos.set(0, 0, 0.12 + stringPullBack)
 
-    const worldNock = new THREE.Vector3()
+    const worldNock = this._tmpWorldNock
     this.bowPivot.localToWorld(worldNock.copy(nockPos))
 
     if (this.stringMeshTop) {
