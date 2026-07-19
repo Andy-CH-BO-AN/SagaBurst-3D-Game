@@ -362,6 +362,11 @@ export class NPC {
           break
         }
 
+        // Mounted archers draw swords and charge when enemy gets close
+        if (this.arrows > 0 && this.isMounted && dist < RANGED_ATTACK_MIN) {
+          this._switchToMelee()
+        }
+
         const moveDir = this._tmpMoveDir
 
         if (this.arrows > 0) {
@@ -431,6 +436,15 @@ export class NPC {
           break
         }
         
+        const dist = this.combatPosition.distanceTo(targetInfo.position)
+
+        // Mounted archers draw swords and charge when enemy gets close
+        if (this.arrows > 0 && this.isMounted && dist < RANGED_ATTACK_MIN) {
+          this._switchToMelee()
+          this.state = AIState.CHASE
+          break
+        }
+
         this._faceTarget(targetInfo.position)
         
         // Mounted Archers can move while attacking
@@ -641,6 +655,14 @@ export class NPC {
       return baseDamage * 3.0
     }
     return baseDamage
+  }
+
+  private _switchToMelee(): void {
+    if (this.arrows > 0) {
+      this.arrows = 0
+      this.swordPivot.visible = true
+      this.bowPivot.visible = false
+    }
   }
 
   respawn(): void {
