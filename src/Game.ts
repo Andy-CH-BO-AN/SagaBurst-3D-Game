@@ -808,15 +808,31 @@ export class Game {
     }
 
     const playerPos = this.player.combatPosition
-    const lodDistSq = 40 * 40
+    const lodDistSq = 40 * 40 // 1600
+    const minimalLodDistSq = 120 * 120 // 14400
 
     for (const npc of this.npcs) {
-      if (npc.hp > 0 && npc.combatPosition.distanceToSquared(playerPos) > lodDistSq) {
+      const distSq = npc.combatPosition.distanceToSquared(playerPos)
+
+      if (npc.hp <= 0) {
+        // Dead NPCs still need animation update, but no AI/Boids
+        npc.update(dt, this.player, [], this.obstacles, this.hpBar, 
+          () => {}, // dead npc can't hit
+          () => {}, // dead npc can't shoot
+          true // skipBoidsAndObstacles
+        )
+        continue
+      }
+
+      if (!npc.ignoreLOD && distSq > minimalLodDistSq) {
+        // Tier 3: > 120m
         npc.tickMinimal(dt)
         continue
       }
 
-      const nearbyNPCs = npc.hp > 0 ? this.npcGrid.getNearby(npc.combatPosition, 30) : []
+      // Tier 1 & 2: < 120m or forced charge
+      const skipBoidsAndObstacles = !npc.ignoreLOD && distSq > lodDistSq
+      const nearbyNPCs = skipBoidsAndObstacles ? [] : this.npcGrid.getNearby(npc.combatPosition, 30)
 
       npc.update(
         dt, 
@@ -861,7 +877,8 @@ export class Game {
           )
           this.arrows.push(arrow)
           this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
-        }
+        },
+        skipBoidsAndObstacles
       )
     }
 

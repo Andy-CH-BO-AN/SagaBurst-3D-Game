@@ -75,6 +75,8 @@ export class NPC {
   private attackTimer = 0
   private attackHitProcessed = false
 
+  public ignoreLOD: boolean = false
+
   private flashTimer = 0
   private respawnTimer = 0
 
@@ -328,7 +330,8 @@ export class NPC {
     obstacles: ObstacleData[],
     _playerHpBar: HpBar,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3) => void,
+    skipBoidsAndObstacles: boolean = false
   ): void {
     const previousPosition = this.group.position.clone()
     if (this.mount) this.mount.beginControlledFrame()
@@ -349,7 +352,7 @@ export class NPC {
     switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
-        this._updatePatrol(dt, obstacles)
+        this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
 
         if (targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
@@ -416,25 +419,27 @@ export class NPC {
         moveDir.y = 0
         moveDir.normalize()
 
-        // Boid separation (prevent overlapping with other NPCs)
-        this._tmpSep.set(0, 0, 0)
-        let sepCount = 0
-        for (const other of nearbyNPCs) {
-          if (other === this || other.dead) continue
-          const d = this.group.position.distanceTo(other.position)
-          if (d < 1.2) {
-            this._tmpPush.copy(this.group.position).sub(other.position)
-            this._tmpPush.y = 0
-            this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
-            sepCount++
+        // Boid separation & Obstacles
+        if (!skipBoidsAndObstacles) {
+          this._tmpSep.set(0, 0, 0)
+          let sepCount = 0
+          for (const other of nearbyNPCs) {
+            if (other === this || other.dead) continue
+            const d = this.group.position.distanceTo(other.position)
+            if (d < 1.2) {
+              this._tmpPush.copy(this.group.position).sub(other.position)
+              this._tmpPush.y = 0
+              this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))
+              sepCount++
+            }
           }
-        }
-        if (sepCount > 0) {
-          this._tmpSep.divideScalar(sepCount)
-          moveDir.add(this._tmpSep).normalize()
-        }
+          if (sepCount > 0) {
+            this._tmpSep.divideScalar(sepCount)
+            moveDir.add(this._tmpSep).normalize()
+          }
 
-        moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+          moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+        }
 
         // Move towards target / flee + separation
         this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
@@ -470,7 +475,9 @@ export class NPC {
           moveDir.y = 0
           if (moveDir.lengthSq() > 0.001) {
              moveDir.normalize()
-             moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+             if (!skipBoidsAndObstacles) {
+               moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+             }
              this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
           }
         }
@@ -609,7 +616,7 @@ export class NPC {
     }
   }
 
-  private _updatePatrol(dt: number, obstacles: ObstacleData[]): void {
+  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
@@ -619,8 +626,10 @@ export class NPC {
       const dir = target.clone().sub(this.group.position)
       dir.y = 0
       dir.normalize()
-      dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
-      this._moveByDirection(dir, this.mount ? this.mount.baseSpeed : PATROL_SPEED, dt)
+      if (!skipBoidsAndObstacles) {
+        dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
+      }
+      this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
       this._faceTarget(target)
     }
   }
