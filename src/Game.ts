@@ -133,12 +133,12 @@ export class Game {
     }
 
     // ── Spawn Test NPCs ──
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       let px = 0, pz = 0
       let attempts = 0
       do {
-        px = -15 - Math.random() * 60
-        pz = -15 - Math.random() * 60
+        px = -15 - Math.random() * 120
+        pz = -15 - Math.random() * 120
         attempts++
       } while (!isSpawnValid(px, pz) && attempts < 50)
       
@@ -147,12 +147,12 @@ export class Game {
       this._spawnNpc(px, pz, Faction.PLAYER, isArcher ? AIType.RANGED : AIType.MELEE, name, 2, true)
     }
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       let px = 0, pz = 0
       let attempts = 0
       do {
-        px = 15 + Math.random() * 60
-        pz = 15 + Math.random() * 60
+        px = 15 + Math.random() * 120
+        pz = 15 + Math.random() * 120
         attempts++
       } while (!isSpawnValid(px, pz) && attempts < 50)
 
