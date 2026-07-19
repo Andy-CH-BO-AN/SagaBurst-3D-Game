@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import { createSky } from './world/Sky'
-import { createTerrain, EntityCollisionBody, ObstacleData, resolveEntityCollision } from './world/Terrain'
+import { createTerrain, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -692,8 +692,23 @@ export class Game {
 
     for (let i = 0; i < bodies.length; i++) {
       for (let j = i + 1; j < bodies.length; j++) {
-        resolveEntityCollision(bodies[i], bodies[j])
+        resolveEntityCollision(bodies[i], bodies[j], this.obstacles)
       }
+    }
+
+    // Direction A post-validation fallback
+    for (const body of bodies) {
+      if (body.anchored) continue
+      resolveObstacleCollision(
+        body.position,
+        body.position,
+        0,
+        true,
+        body.radius,
+        body.height,
+        body.bottomOffset,
+        this.obstacles
+      )
     }
   }
 

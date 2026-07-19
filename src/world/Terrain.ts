@@ -80,7 +80,11 @@ export function getObstacleAvoidanceDirection(
 }
 
 /** Resolves horizontal overlap between two living entities. */
-export function resolveEntityCollision(first: EntityCollisionBody, second: EntityCollisionBody): void {
+export function resolveEntityCollision(
+  first: EntityCollisionBody, 
+  second: EntityCollisionBody, 
+  obstacles: ObstacleData[]
+): void {
   const firstBottom = first.position.y - first.bottomOffset
   const secondBottom = second.position.y - second.bottomOffset
   const firstTop = firstBottom + first.height
@@ -97,16 +101,40 @@ export function resolveEntityCollision(first: EntityCollisionBody, second: Entit
   const normalX = distance > 0.0001 ? dx / distance : 1
   const normalZ = distance > 0.0001 ? dz / distance : 0
   const pushDistance = minDistance - distance
+  const halfPush = pushDistance * 0.5
 
-  if (first.anchored && second.anchored) return
-  if (first.anchored) {
-    second.position.x -= normalX * pushDistance
-    second.position.z -= normalZ * pushDistance
-  } else if (second.anchored) {
-    first.position.x += normalX * pushDistance
-    first.position.z += normalZ * pushDistance
+  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number): boolean => {
+    const targetX = pos.x + offsetX
+    const targetZ = pos.z + offsetZ
+    const b = pos.y - bottomOffset
+    const t = b + height
+    for (const obs of obstacles) {
+      if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
+      if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
+          targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) {
+        return true
+      }
+    }
+    return false
+  }
+
+  // Direction B: Predictive Obstacle Check
+  // If pushed into a wall, treat the entity as temporarily anchored
+  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height)
+  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height)
+
+  if (firstAnchored && secondAnchored) return
+  if (firstAnchored) {
+    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height)) {
+      second.position.x -= normalX * pushDistance
+      second.position.z -= normalZ * pushDistance
+    }
+  } else if (secondAnchored) {
+    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height)) {
+      first.position.x += normalX * pushDistance
+      first.position.z += normalZ * pushDistance
+    }
   } else {
-    const halfPush = pushDistance * 0.5
     first.position.x += normalX * halfPush
     first.position.z += normalZ * halfPush
     second.position.x -= normalX * halfPush
@@ -156,21 +184,20 @@ export function resolveObstacleCollision(
     // Above the obstacle: it is a walkable platform, not a wall.
     if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
 
-    // Block each axis independently so the entity stops at the wall and slides
-    // along it instead of being pushed/bounced away from the obstacle.
-    const desiredX = position.x
-    const desiredZ = position.z
-
-    position.z = previousPosition.z
-    if (overlapsHorizontally(desiredX, position.z, box)) {
-      position.x = previousPosition.x
-    } else {
-      position.x = desiredX
-    }
-
-    position.z = desiredZ
+    // Reactive Push-Out (Direction A)
+    // Instantly teleport the entity to the closest valid outer edge if inside
     if (overlapsHorizontally(position.x, position.z, box)) {
-      position.z = previousPosition.z
+      const dxMax = (box.max.x + radius) - position.x
+      const dxMin = position.x - (box.min.x - radius)
+      const dzMax = (box.max.z + radius) - position.z
+      const dzMin = position.z - (box.min.z - radius)
+
+      const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
+
+      if (minDist === dxMax) position.x = box.max.x + radius
+      else if (minDist === dxMin) position.x = box.min.x - radius
+      else if (minDist === dzMax) position.z = box.max.z + radius
+      else if (minDist === dzMin) position.z = box.min.z - radius
     }
   }
 
