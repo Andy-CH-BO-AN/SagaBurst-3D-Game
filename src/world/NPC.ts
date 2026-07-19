@@ -269,25 +269,26 @@ export class NPC {
     return true
   }
 
-  private _findTarget(player: Player, nearbyNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
+  private _findTarget(player: Player, allNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     let closestTarget = null
-    let closestDist = Infinity
+    let closestDistSq = Infinity
 
     // Check Player
     if (this.faction === Faction.ENEMY && !player.dead) {
-      const d = this.combatPosition.distanceTo(player.combatPosition)
-      if (d < closestDist) {
-        closestDist = d
+      const dSq = this.combatPosition.distanceToSquared(player.combatPosition)
+      if (dSq < closestDistSq) {
+        closestDistSq = dSq
         closestTarget = { position: player.combatPosition, isDead: player.dead, isPlayer: true }
       }
     }
 
     // Check NPCs
-    for (const npc of nearbyNPCs) {
+    for (let i = 0; i < allNPCs.length; i++) {
+      const npc = allNPCs[i]
       if (npc === this || npc.dead || npc.faction === this.faction) continue
-      const d = this.combatPosition.distanceTo(npc.combatPosition)
-      if (d < closestDist) {
-        closestDist = d
+      const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
+      if (dSq < closestDistSq) {
+        closestDistSq = dSq
         closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
       }
     }
@@ -330,6 +331,7 @@ export class NPC {
   update(
     dt: number,
     player: Player,
+    allNPCs: NPC[],
     nearbyNPCs: NPC[],
     obstacles: ObstacleData[],
     _playerHpBar: HpBar,
@@ -351,7 +353,7 @@ export class NPC {
       this.headMesh.material = this.headMat
     }
 
-    const targetInfo = this._findTarget(player, nearbyNPCs)
+    const targetInfo = this._findTarget(player, allNPCs)
 
     switch (this.state) {
       case AIState.IDLE: {

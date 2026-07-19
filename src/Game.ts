@@ -816,7 +816,7 @@ export class Game {
 
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
-        npc.update(dt, this.player, [], this.obstacles, this.hpBar, 
+        npc.update(dt, this.player, this.npcs, [], this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
           () => {}, // dead npc can't shoot
           true // skipBoidsAndObstacles
@@ -837,6 +837,7 @@ export class Game {
       npc.update(
         dt, 
         this.player,
+        this.npcs,
         nearbyNPCs,
         this.obstacles,
         this.hpBar, 
