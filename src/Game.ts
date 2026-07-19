@@ -808,7 +808,7 @@ export class Game {
     }
 
     const playerPos = this.player.combatPosition
-    const lodDistSq = 40 * 40 // 1600
+    const boidDistSq = 80 * 80 // 6400
     const minimalLodDistSq = 120 * 120 // 14400
 
     for (const npc of this.npcs) {
@@ -824,14 +824,14 @@ export class Game {
         continue
       }
 
-      if (!npc.ignoreLOD && distSq > minimalLodDistSq) {
-        // Tier 3: > 120m
+      // Tier 3: > 120m, NOT in combat, NOT forced
+      if (!npc.ignoreLOD && !npc.inCombat && distSq > minimalLodDistSq) {
         npc.tickMinimal(dt)
         continue
       }
 
-      // Tier 1 & 2: < 120m or forced charge
-      const skipBoidsAndObstacles = !npc.ignoreLOD && distSq > lodDistSq
+      // Tier 1 & 2: Updating NPC. Decide if we skip collisions.
+      const skipBoidsAndObstacles = !npc.ignoreLOD && distSq > boidDistSq
       const nearbyNPCs = skipBoidsAndObstacles ? [] : this.npcGrid.getNearby(npc.combatPosition, 30)
 
       npc.update(

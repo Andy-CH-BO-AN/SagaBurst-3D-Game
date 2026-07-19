@@ -99,6 +99,10 @@ export class NPC {
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
   get currentState(): AIState { return this.state }
   get dead(): boolean { return this.state === AIState.DEAD }
+  
+  get inCombat(): boolean {
+    return this.state === AIState.CHASE || this.state === AIState.ATTACK
+  }
   get position(): THREE.Vector3 { return this.group.position }
   get combatPosition(): THREE.Vector3 { return this.mount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
