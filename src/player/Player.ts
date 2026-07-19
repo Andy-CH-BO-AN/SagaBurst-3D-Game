@@ -432,11 +432,10 @@ export class Player {
 
       // Sync player to mount
       this.group.position.copy(this.currentMount.group.position)
-      this.group.position.y += 1.8 // Ride height
+      this.group.position.y += this.currentMount.rideHeightOffset
       
       // Ride posture
-      this.group.rotation.x = 0.3
-      this.group.position.y -= 0.2
+      this.group.rotation.x = this.currentMount.ridePitch
       
       // Rotation
       if (isMoving) {

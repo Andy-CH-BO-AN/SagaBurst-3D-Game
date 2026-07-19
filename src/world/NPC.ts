@@ -554,10 +554,11 @@ export class NPC {
       }
     }
 
-    if (this.state !== AIState.DEAD && this.mount) {
+    if (this.state !== AIState.DEAD && this.isMounted && this.mount) {
       this.mount.finishControlledFrame(dt, obstacles)
       this._syncToMount()
     } else if (this.state !== AIState.DEAD) {
+      this.group.rotation.x = 0 // reset posture
       // NPCs use the same terrain/platform gravity as the player and mounts.
       const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
       this.velY += -22 * dt

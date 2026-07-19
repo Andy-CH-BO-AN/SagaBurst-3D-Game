@@ -41,6 +41,10 @@ export class Mount {
 
   public deathTimer: number = 3.0
 
+  // Riding visual offsets
+  public rideHeightOffset: number = 1.6
+  public ridePitch: number = 0.4
+
   constructor(scene: THREE.Scene, type: MountType, x: number, z: number, y?: number) {
     this.type = type
     this.group = new THREE.Group()
@@ -165,6 +169,15 @@ export class Mount {
     body.castShadow = true
     this.group.add(body)
 
+    // Saddle
+    const saddleMat = new THREE.MeshLambertMaterial({ color: 0x8B4513, flatShading: true })
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.4), saddleMat)
+    saddle.position.set(0, 0.65, 0.1) // slightly back
+    this.group.add(saddle)
+    
+    this.rideHeightOffset = 1.3
+    this.ridePitch = 0.4
+
     // Head
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), mat)
     head.position.set(0, 0.8, 0.7)
@@ -224,6 +237,15 @@ export class Mount {
     body.position.y = 0.35
     body.castShadow = true
     this.group.add(body)
+
+    // Saddle
+    const saddleMat = new THREE.MeshLambertMaterial({ color: 0x8B4513, flatShading: true })
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.4), saddleMat)
+    saddle.position.set(0, 0.58, 0.1) // slightly back
+    this.group.add(saddle)
+
+    this.rideHeightOffset = 1.15
+    this.ridePitch = 0.4
 
     // White belly
     const belly = new THREE.Mesh(new THREE.BoxGeometry(0.61, 0.2, 1.2), whiteMat)
