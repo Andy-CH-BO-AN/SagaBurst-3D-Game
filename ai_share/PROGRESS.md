@@ -149,3 +149,4 @@ All 8 base phases in `PLAN.md` + Phase 13 are completed.
 - 正式版一般網址改為固定 10v5 新手友善戰鬥：玩家＋5 名我方近戰＋4 名我方弓兵，對戰 3 名羅馬近戰＋2 名羅馬投槍兵；全部 Tier 2 且關閉隨機騎兵。
 - NPC 射手最大交戰距離由 15m 提高到 22m，弓兵與投槍兵共用根據水平距離平方增加的拋物線抬高瞄準點，並將 NPC 投射速度提高為 20m/s。
 - 修正玩家腳底懸空 15cm：保留玩家 0.95m 膠囊半高與物理根節點，只將程序角色視覺 rig 下移 0.15m，使玩家與 NPC 靴底都精確貼合地形。
+- 新增 `ai_share/skills/combat-browser-validation/` 作為 GPT Chrome extension 戰鬥驗證流程的唯一真實來源，統一正式版／devcombat 網址、畫面檢查、軌跡 log 判讀與瀏覽器擴充噪音排除規則；`.agents` 與 `.codex` 只保留指向此 skill 的連結。

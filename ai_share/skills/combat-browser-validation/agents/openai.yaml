@@ -1,0 +1,4 @@
+interface:
+  display_name: "Combat Browser Validation"
+  short_description: "Validate the Three.js combat game through Chrome"
+  default_prompt: "Use $combat-browser-validation to verify the latest combat changes in Chrome and interpret trajectory logs."

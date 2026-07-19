@@ -25,8 +25,9 @@ If you are an AI agent picking up this project, please read these guidelines car
 ## 4. How to Start a New Task
 1. Read `PLAN.md` to see the roadmap context.
 2. Read `PROGRESS.md` to know what was recently implemented.
-3. Use `grep_search` to find relevant methods (e.g., `takeDamage`, `rebuildWeapon`).
-4. Apply surgical edits to existing files using the provided tools.
-5. If the logic gets too complex, add debug logging (`console.log`) or use visual debug meshes (e.g., drawing a sphere at the collision point) to verify math.
+3. If the task changes or diagnoses browser-visible combat behavior, read and follow `skills/combat-browser-validation/SKILL.md` before validating it.
+4. Use `grep_search` to find relevant methods (e.g., `takeDamage`, `rebuildWeapon`).
+5. Apply surgical edits to existing files using the provided tools.
+6. If the logic gets too complex, add debug logging (`console.log`) or use visual debug meshes (e.g., drawing a sphere at the collision point) to verify math.
 
 *Dedicate your heart, and happy coding!*
