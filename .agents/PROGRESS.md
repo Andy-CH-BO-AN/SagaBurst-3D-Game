@@ -1,12 +1,12 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-07-19 (Phase 18 Complete — Character Body Proportions & Details)_
+_Last updated: 2026-07-19 (Phase 19 Complete — Physical Collision Fixes)_
 
 ---
 
 ## Current Status
 
-**All Phases (0 ~ 8, 13, 14, 15, 16, 17, 18) — ✅ COMPLETE**
+**All Phases (0 ~ 8, 13, 14, 15, 16, 17, 18, 19) — ✅ COMPLETE**
 
 The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
 
@@ -82,3 +82,9 @@ All 8 base phases in `PLAN.md` + Phase 13 are completed.
 - 四肢分節：新增「大腿」與「小腿」的幾何體分段結構，告別純圓柱四肢。
 - 比例修正：修復因頭部球體弧度造成的斷頸空隙（加長加粗脖子），並確保玩家與 NPC 擁有完全一致的腿長與整體身高比例（修正 NPC 蹲姿問題）。
 - 移除披風以防與箭筒及動態背盾發生嚴重的視覺穿模。
+
+### Phase 19: 實體碰撞與穿模卡死 Bug 修復 (Physical Collision Fixes)
+- 實作「方向 A (Reactive Push-Out)」：將 `resolveObstacleCollision` 的邏輯改為「事後推出」，若實體座標進入障礙物內，會自動瞬間擠出至最近的安全邊緣，徹底解決退回上一幀導致的死鎖卡死。
+- 實作「方向 B (Predictive Entity Push)」：在 `resolveEntityCollision` 進行實體推擠前，會預判目標位置是否有障礙物。若背後有牆，該實體將獲得臨時 Anchored (不可推動) 屬性，使得衝撞的另一方承受全部推力，增加了被逼到牆角的物理真實感。
+- 坐騎防卡死設計：若玩家被不可推動的坐騎推向牆壁（兩者皆視為 Anchored），則取消推擠動作，允許短暫重疊，確保玩家能隨時透過走位滑出，而不會被夾死。
+- 在 `Game.ts` 的每一幀最後，增加對所有實體的 `resolveObstacleCollision` 保底驗證。

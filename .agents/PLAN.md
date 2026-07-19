@@ -154,3 +154,10 @@ Pure frontend — no backend server. Save/load via localStorage.
 - Upgraded the body from a basic capsule to segmented Torso (chest + abdomen) and Legs (thigh + calf).
 - Adjusted joint pivots for arms/shoulders to match the new chest width.
 - Corrected proportions, fixed floating head gaps, and synchronized Player/NPC height profiles.
+
+---
+
+### ✅ Phase 19 — Physical Collision Fixes (DONE)
+- Implement Direction A: Reactive Push-Out from Obstacles (`resolveObstacleCollision`).
+- Implement Direction B: Predictive Entity Push to prevent clipping when backed into walls.
+- Safety fallback: Handle anchored crushing (Mounts vs Obstacles) via soft overlap.
