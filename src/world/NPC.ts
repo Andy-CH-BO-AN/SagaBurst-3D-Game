@@ -56,7 +56,7 @@ export class NPC {
   public meleeAttackRadius = 1.8
   public isUsingLance = false
 
-  private bodyMesh: THREE.Mesh
+  private bodyMesh: THREE.Group
   private headMesh: THREE.Mesh
   private headMat: THREE.MeshStandardMaterial
   private rightArm: THREE.Group
@@ -68,7 +68,6 @@ export class NPC {
   private shieldPivot: THREE.Group
   public shieldId: string | null = null
 
-  private bodyMat: THREE.MeshStandardMaterial
   private flashMat: THREE.MeshBasicMaterial
 
   readonly maxHp = 120
@@ -173,9 +172,8 @@ export class NPC {
       tier: this.tier,
       isPlayer: false,
     })
-    this.bodyMesh = visual.bodyMesh
-    this.headMesh = visual.headMesh
-    this.bodyMat = visual.bodyMaterial
+    this.bodyMesh = visual.bodyMesh as THREE.Group
+    this.headMesh = visual.headMesh as THREE.Mesh
     this.headMat = visual.headMaterial
     this.rightArm = visual.rightArm
     this.leftArm = visual.leftArm
@@ -207,7 +205,7 @@ export class NPC {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
       this.bodyMesh.add(this.shieldPivot)
-      this.shieldPivot.position.set(0, 0.3, -0.45)
+      this.shieldPivot.position.set(0, 0.3, 0.45)
       this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
     } else {
       this.swordPivot.visible = true
@@ -342,10 +340,16 @@ export class NPC {
 
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
-      this.bodyMesh.material = this.flashMat
+      this.bodyMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.flashMat
+      })
       this.headMesh.material = this.flashMat
     } else {
-      this.bodyMesh.material = this.bodyMat
+      this.bodyMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
+          (child as THREE.Mesh).material = child.userData.originalMat
+        }
+      })
       this.headMesh.material = this.headMat
     }
 
@@ -707,7 +711,7 @@ export class NPC {
       this.bowPivot.visible = true
       if (this.shieldPivot.parent !== this.bodyMesh) {
         this.bodyMesh.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, 0.3, -0.45)
+        this.shieldPivot.position.set(0, 0.3, 0.45)
         this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
       }
     } else {

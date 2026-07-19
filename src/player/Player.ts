@@ -47,9 +47,8 @@ export interface ArrowLaunchEvent {
 export class Player {
   readonly group: THREE.Group
 
-  private bodyMat!: THREE.MeshStandardMaterial
   private hitFlashMat: THREE.MeshBasicMaterial
-  private bodyMesh!: THREE.Mesh
+  private bodyMesh!: THREE.Group
   private headMesh!: THREE.Mesh
   private headMat!: THREE.MeshStandardMaterial
   private characterVisualGroup: THREE.Group
@@ -181,7 +180,6 @@ export class Player {
     })
     this.bodyMesh = parts.bodyMesh
     this.headMesh = parts.headMesh
-    this.bodyMat = parts.bodyMaterial
     this.headMat = parts.headMaterial
     this.rightArm = parts.rightArm
     this.leftArm = parts.leftArm
@@ -345,10 +343,16 @@ export class Player {
   ): void {
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
-      this.bodyMesh.material = this.hitFlashMat
+      this.bodyMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.hitFlashMat
+      })
       this.headMesh.material = this.hitFlashMat
     } else {
-      this.bodyMesh.material = this.bodyMat
+      this.bodyMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
+          (child as THREE.Mesh).material = child.userData.originalMat
+        }
+      })
       this.headMesh.material = this.headMat
     }
 
@@ -381,7 +385,7 @@ export class Player {
       // Dynamic Back-Shield: move shield to back
       if (this.shieldPivot.parent !== this.bodyMesh) {
         this.bodyMesh.add(this.shieldPivot)
-        this.shieldPivot.position.set(0, 0.3, -0.45)
+        this.shieldPivot.position.set(0, 0.3, 0.45)
         this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8) // Slanted on back
       }
 

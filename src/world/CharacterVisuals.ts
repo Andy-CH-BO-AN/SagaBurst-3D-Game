@@ -9,7 +9,7 @@ export interface CharacterVisualConfig {
 }
 
 export interface CharacterVisualParts {
-  bodyMesh: THREE.Mesh
+  bodyMesh: THREE.Group
   headMesh: THREE.Mesh
   bodyMaterial: THREE.MeshStandardMaterial
   headMaterial: THREE.MeshStandardMaterial
@@ -43,18 +43,32 @@ function addBox(root: THREE.Group, size: THREE.Vector3Tuple, position: THREE.Vec
   return part
 }
 
-function addLimb(root: THREE.Group, position: THREE.Vector3Tuple, material: THREE.Material, rotationZ = 0): THREE.Mesh {
-  const limb = mesh(new THREE.CapsuleGeometry(0.105, 0.42, 4, 8), material, position)
-  limb.rotation.z = rotationZ
-  root.add(limb)
-  return limb
+function addLeg(root: THREE.Group, x: number, hipY: number, footBottomY: number, clothMat: THREE.Material, leatherMat: THREE.Material): void {
+  const leg = new THREE.Group()
+  leg.position.set(x, hipY, 0)
+  
+  const totalLength = hipY - footBottomY
+  const thighLen = totalLength * 0.45
+  const calfLen = totalLength * 0.40
+  const bootHeight = totalLength * 0.15
+
+  // Thigh
+  const thigh = mesh(new THREE.CylinderGeometry(0.15, 0.12, thighLen, 8), clothMat, [0, -thighLen / 2, 0])
+  leg.add(thigh)
+  // Calf
+  const calf = mesh(new THREE.CylinderGeometry(0.13, 0.10, calfLen, 8), clothMat, [0, -thighLen - calfLen / 2, -0.05])
+  calf.rotation.x = 0.1 // slight backward bend
+  leg.add(calf)
+  // Boot
+  const boot = mesh(new THREE.BoxGeometry(0.25, bootHeight, 0.38), leatherMat, [0, -thighLen - calfLen - bootHeight / 2, 0.02])
+  leg.add(boot)
+  root.add(leg)
 }
 
 export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualConfig): CharacterVisualParts {
   const isViking = config.faction === 'viking'
-  const bodyCenter = config.isPlayer ? 0 : 0.65
-  const feetY = config.isPlayer ? -0.48 : 0.17
-  const headY = config.isPlayer ? 0.95 : 1.55
+  const bodyCenter = config.isPlayer ? 0 : 0.8
+  const headY = bodyCenter + 0.95 // Standardize head height relative to bodyCenter
 
   const skin = standardMaterial(0xd9a066, 0, 0.82)
   const bodyMaterial = standardMaterial(isViking ? 0x4a3420 : 0x6b6b6b, 0.05, 0.72) // Leather for Viking, Iron grey for Roman
@@ -65,44 +79,78 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
   const accent = standardMaterial(isViking ? 0x3d4a5c : 0xaa2222, 0.1, 0.7) // Viking blue-grey / Roman red
   const fur = standardMaterial(0xa89880, 0, 1)
 
-  const body = mesh(new THREE.CapsuleGeometry(0.34, 0.68, 6, 12), bodyMaterial, [0, bodyCenter, 0])
+  const body = new THREE.Group()
+  body.position.set(0, bodyCenter, 0)
+  
+  // Chest (Wider top, tapered bottom)
+  const chest = mesh(new THREE.CylinderGeometry(0.38, 0.32, 0.35, 10), bodyMaterial, [0, 0.325, 0])
+  chest.userData.originalMat = bodyMaterial
+  body.add(chest)
+  
+  // Abdomen (Waist)
+  const abdomen = mesh(new THREE.CylinderGeometry(0.32, 0.35, 0.25, 10), bodyMaterial, [0, 0.025, 0])
+  abdomen.userData.originalMat = bodyMaterial
+  body.add(abdomen)
+
+  // Neck - made taller to penetrate head and chest, avoiding visual gaps from sphere curvature
+  const neck = mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.35, 8), skin, [0, 0.65, 0])
+  neck.userData.originalMat = skin
+  body.add(neck)
+  
   root.add(body)
 
-  // Legs, boots, arms and gloves give the silhouette readable joints.
-  addLimb(root, [-0.19, feetY, 0], cloth, 0.02)
-  addLimb(root, [0.19, feetY, 0], cloth, -0.02)
-  addBox(root, [0.25, 0.18, 0.42], [-0.19, feetY - 0.22, -0.05], leather)
-  addBox(root, [0.25, 0.18, 0.42], [0.19, feetY - 0.22, -0.05], leather)
+  // Legs and boots
+  const hipY = bodyCenter - 0.10
+  const footBottomY = config.isPlayer ? -0.8 : 0
+  addLeg(root, -0.2, hipY, footBottomY, cloth, leather)
+  addLeg(root, 0.2, hipY, footBottomY, cloth, leather)
+
   const leftArm = new THREE.Group()
   leftArm.position.set(-0.49, bodyCenter + 0.35, 0)
   leftArm.rotation.z = 0.12
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.105, 0.42, 4, 8), cloth, [0, -0.16, 0]))
-  leftArm.add(mesh(new THREE.CapsuleGeometry(0.095, 0.34, 4, 8), leather, [0, -0.47, -0.02]))
-  leftArm.add(mesh(new THREE.BoxGeometry(0.18, 0.2, 0.2), leather, [0, -0.7, -0.03]))
+  leftArm.add(mesh(new THREE.CylinderGeometry(0.12, 0.10, 0.38, 8), cloth, [0, -0.18, 0])) // Upper Arm
+  const lLowerArm = mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.35, 8), leather, [0, -0.5, 0.05])
+  lLowerArm.rotation.x = -0.15 // Forward bend
+  leftArm.add(lLowerArm)
+  const lHand = mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), leather, [0, -0.72, 0.08])
+  lHand.rotation.x = -0.15
+  leftArm.add(lHand)
   root.add(leftArm)
 
   const rightArm = new THREE.Group()
   rightArm.position.set(0.49, bodyCenter + 0.35, 0)
   rightArm.rotation.z = -0.12
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.105, 0.42, 4, 8), cloth, [0, -0.16, 0]))
-  rightArm.add(mesh(new THREE.CapsuleGeometry(0.095, 0.34, 4, 8), leather, [0, -0.47, -0.02]))
-  rightArm.add(mesh(new THREE.BoxGeometry(0.18, 0.2, 0.2), leather, [0, -0.7, -0.03]))
+  rightArm.add(mesh(new THREE.CylinderGeometry(0.12, 0.10, 0.38, 8), cloth, [0, -0.18, 0])) // Upper Arm
+  const rLowerArm = mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.35, 8), leather, [0, -0.5, 0.05])
+  rLowerArm.rotation.x = -0.15 // Forward bend
+  rightArm.add(rLowerArm)
+  const rHand = mesh(new THREE.BoxGeometry(0.14, 0.18, 0.14), leather, [0, -0.72, 0.08])
+  rHand.rotation.x = -0.15
+  rightArm.add(rHand)
   root.add(rightArm)
 
   // Layered torso: cloth underlayer, cuirass, belt and back cape/tabard.
   if (!isViking && config.tier >= 2) {
     // Roman Lorica Segmentata (banded armor)
     for (let i = 0; i < 4; i++) {
-      const ring = mesh(new THREE.CylinderGeometry(0.41, 0.38, 0.15, 12), iron, [0, bodyCenter + 0.18 - i * 0.12, 0])
+      const ring = mesh(new THREE.CylinderGeometry(0.41, 0.38, 0.15, 12), iron, [0, bodyCenter + 0.28 - i * 0.12, 0])
       ring.scale.z = 0.83
       root.add(ring)
     }
   } else {
-    const cuirass = mesh(new THREE.CylinderGeometry(0.405, 0.36, 0.66, 10), config.tier >= 2 ? iron : bodyMaterial, [0, bodyCenter + 0.02, 0])
-    cuirass.scale.z = 0.82
+    // Viking Cuirass
+    const cuirass = mesh(new THREE.CylinderGeometry(0.405, 0.36, 0.60, 10), config.tier >= 2 ? iron : bodyMaterial, [0, bodyCenter + 0.15, 0])
+    cuirass.scale.z = 0.85
     root.add(cuirass)
   }
-  
+
+  // Belt
+  const belt = mesh(new THREE.TorusGeometry(0.36, 0.035, 6, 16), leather, [0, bodyCenter - 0.10, 0])
+  belt.rotation.x = Math.PI / 2
+  root.add(belt)
+
+  // Cape removed due to clipping with dynamic back shield and quiver
+
   if (!isViking) {
     // Roman Pteruges (Leather skirt strips)
     const pterugesMat = standardMaterial(0x6b4423, 0.05, 0.9)
@@ -117,18 +165,6 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
       strip.rotation.x = 0.1 // slight outward flare
       root.add(strip)
     }
-  }
-
-  const belt = mesh(new THREE.TorusGeometry(0.36, 0.035, 6, 16), leather, [0, bodyCenter - 0.28, 0])
-  belt.rotation.x = Math.PI / 2
-  root.add(belt)
-  
-  // Cape
-  if (config.tier >= 2) {
-    const capeMat = standardMaterial(isViking ? 0x3d4a5c : 0x8b2e2e, 0.05, 0.9)
-    const cape = mesh(new THREE.BoxGeometry(0.6, 0.75, 0.05), capeMat, [0, bodyCenter + 0.05, 0.38])
-    cape.rotation.x = 0.05
-    root.add(cape)
   }
 
   if (config.tier >= 2) {
@@ -148,15 +184,20 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
         }
       }
     }
-    addBox(root, [0.18, 0.38, 0.28], [-0.51, bodyCenter - 0.05, -0.02], iron)
-    addBox(root, [0.18, 0.38, 0.28], [0.51, bodyCenter - 0.05, -0.02], iron)
+    // Iron plating on upper chest for Roman
+    addBox(root, [0.18, 0.38, 0.28], [-0.51, bodyCenter + 0.10, -0.02], iron)
+    addBox(root, [0.18, 0.38, 0.28], [0.51, bodyCenter + 0.10, -0.02], iron)
   }
 
   if (config.tier >= 3) {
-    addBox(root, [0.5, 0.22, 0.08], [0, bodyCenter + 0.15, -0.37], bronze)
-    addBox(root, [0.16, 0.34, 0.08], [-0.25, bodyCenter - 0.38, -0.3], iron)
-    addBox(root, [0.16, 0.34, 0.08], [0.25, bodyCenter - 0.38, -0.3], iron)
-    const emblem = mesh(new THREE.OctahedronGeometry(0.075), accent, [0, bodyCenter + 0.05, -0.43])
+    addBox(root, [0.5, 0.22, 0.08], [0, bodyCenter + 0.30, -0.37], bronze)
+    addBox(root, [0.16, 0.34, 0.08], [-0.25, bodyCenter - 0.15, -0.3], iron)
+    addBox(root, [0.16, 0.34, 0.08], [0.25, bodyCenter - 0.15, -0.3], iron)
+  }
+
+  if (isViking && config.tier >= 2) {
+    // Viking Rune emblem on chest
+    const emblem = mesh(new THREE.OctahedronGeometry(0.075), accent, [0, bodyCenter + 0.20, -0.43])
     root.add(emblem)
   }
 
@@ -194,6 +235,17 @@ export function buildCharacterVisual(root: THREE.Group, config: CharacterVisualC
   if (!isViking && config.tier >= 2) {
     for (let i = 0; i < 3; i++) {
       addBox(root, [0.68, 0.065, 0.08], [0, bodyCenter - 0.18 + i * 0.16, -0.36], bronze)
+    }
+  }
+
+  if (config.isPlayer) {
+    // Quiver for Player
+    addBox(root, [0.18, 0.55, 0.15], [0, bodyCenter + 0.15, 0.42], leather)
+    // Arrows in quiver
+    for (let i = 0; i < 5; i++) {
+      const arrow = mesh(new THREE.BoxGeometry(0.02, 0.65, 0.02), bronze, [-0.06 + i * 0.03, bodyCenter + 0.3, 0.42])
+      arrow.rotation.z = 0.1 * (i - 2) // Fan out slightly
+      root.add(arrow)
     }
   }
 
