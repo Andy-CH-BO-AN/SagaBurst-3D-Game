@@ -292,6 +292,16 @@ export class NPC {
   tickMinimal(dt: number): void {
     if (this.mount) {
       this.group.position.copy(this.mount.group.position)
+    } else {
+      // Basic gravity so distant NPCs don't float in the sky
+      const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
+      this.velY += -22 * dt
+      this.group.position.y += this.velY * dt
+      if (this.group.position.y <= terrainY) {
+        this.group.position.y = terrainY
+        this.velY = 0
+        this.onGround = true
+      }
     }
 
     if (this.flashTimer > 0) this.flashTimer -= dt
