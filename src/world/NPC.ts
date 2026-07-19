@@ -619,7 +619,8 @@ export class NPC {
   private _syncToMount(): void {
     if (!this.mount) return
     this.group.position.copy(this.mount.group.position)
-    this.group.position.y += 1.65
+    this.group.position.y += this.mount.rideHeightOffset
+    this.group.rotation.x = this.mount.ridePitch
     this.group.rotation.y = this.mount.group.rotation.y
   }
 
