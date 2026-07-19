@@ -640,11 +640,7 @@ export class NPC {
               const currentDist = this.combatPosition.distanceTo(targetInfo.position)
               if (currentDist <= this.meleeAttackRadius + 0.4) {
                 this.attackHitProcessed = true
-                let finalDamage = this.meleeDamage
-                if (this.isUsingLance && this.isMounted && this.mount && this.mount.movementSpeed > 10) {
-                  finalDamage *= 3.0
-                  this.mount.skipImpactThisFrame = true
-                }
+                const finalDamage = this._calcLanceDamage(this.meleeDamage)
                 onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
               }
             }
@@ -751,6 +747,15 @@ export class NPC {
       this.group.rotation.y = targetAngle
       if (this.mount) this.mount.group.rotation.y = targetAngle
     }
+  }
+
+  /** Returns damage after applying lance charge multiplier (3x while galloping). */
+  private _calcLanceDamage(baseDamage: number): number {
+    if (this.isUsingLance && this.isMounted && this.mount && this.mount.movementSpeed > 10) {
+      this.mount.skipImpactThisFrame = true
+      return baseDamage * 3.0
+    }
+    return baseDamage
   }
 
   respawn(): void {

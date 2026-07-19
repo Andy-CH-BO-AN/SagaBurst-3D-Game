@@ -68,6 +68,16 @@ export class Mount {
     return !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
   }
 
+  /** Short display name, e.g. '黑貓' or '柯基' */
+  get displayName(): string {
+    return this.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
+  }
+
+  /** Full combat display name, e.g. '黑貓坐騎' or '柯基坐騎' */
+  get mountDisplayName(): string {
+    return this.type === MountType.BLACK_CAT ? '黑貓坐騎' : '柯基坐騎'
+  }
+
   setNpcRider(npc: NPC, faction: Faction): void {
     if (this.dead) return
     this.riderNpc = npc

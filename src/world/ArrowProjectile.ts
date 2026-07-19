@@ -138,7 +138,7 @@ export class ArrowProjectile {
           const mount = player.currentMount
           const hitSuccess = mount.takeDamage(this.damage)
           if (hitSuccess) {
-            const mountName = mount.type === 'BLACK_CAT' ? '坐騎：黑貓' : '坐騎：柯基'
+            const mountName = `坐騎：${mount.displayName}`
             onHitTarget(this.damage, this.mesh.position.clone(), mountName, mount.currentHp / mount.maxHp, true, undefined, true)
             if (mount.dead) player.dismountFromMount()
           }
@@ -162,8 +162,8 @@ export class ArrowProjectile {
           const mount = npc.mount
           const hitSuccess = mount.takeDamage(this.damage)
           if (hitSuccess) {
-            const mountName = mount.type === 'BLACK_CAT' ? '黑貓坐騎' : '柯基坐騎'
-            onHitTarget(this.damage, this.mesh.position.clone(), `${npc.name} 的${mountName}`, mount.currentHp / mount.maxHp, false, npc, true)
+            const mountName = `${npc.name} 的${mount.mountDisplayName}`
+            onHitTarget(this.damage, this.mesh.position.clone(), mountName, mount.currentHp / mount.maxHp, false, npc, true)
             if (mount.dead) npc.dismountFromMount()
           }
         } else {

@@ -436,7 +436,7 @@ export class Game {
       this.player.isMounted = true
       this.player.currentMount = m
       m.state = MountState.CONTROLLED
-      this.mountNameEl.textContent = m.type === MountType.BLACK_CAT ? '坐騎：黑貓' : '坐騎：柯基'
+      this.mountNameEl.textContent = `坐騎：${m.displayName}`
       this.mountHpFill.style.width = `${Math.max(0, (m.currentHp / m.maxHp) * 100)}%`
       this.mountHud.classList.add('visible')
     }
@@ -469,6 +469,19 @@ export class Game {
     }, 4000)
   }
 
+  // ── Shared: Lance Charge Bonus (C-5) ──
+  /** Returns the final damage after applying lance charge multiplier.
+   *  Also sets skipImpactThisFrame on the player's mount if charging. */
+  private _applyLanceChargeBonus(isLance: boolean, baseDamage: number): number {
+    if (!isLance) return baseDamage
+    const mount = this.player.isMounted ? this.player.currentMount : null
+    if (mount && mount.movementSpeed > 10) {
+      mount.skipImpactThisFrame = true
+      return baseDamage * 3.0
+    }
+    return baseDamage
+  }
+
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
   private _checkPlayerMeleeHits(): void {
     const equippedMelee = this.inventoryManager.equippedMelee
@@ -479,12 +492,7 @@ export class Game {
     let baseDamage = equippedMelee.damageMax
     
     // Lance Charge Bonus
-    const isLance = equippedMelee.isLance === true
-    const isCharging = this.player.isMounted && this.player.currentMount && this.player.currentMount.movementSpeed > 10
-    if (isLance && isCharging) {
-      baseDamage *= 3.0
-      this.player.currentMount!.skipImpactThisFrame = true
-    }
+    baseDamage = this._applyLanceChargeBonus(equippedMelee.isLance === true, baseDamage)
 
     const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
 
@@ -516,8 +524,7 @@ export class Game {
             if (mount.takeDamage(damage)) {
               this.soundManager.playHit()
               this.damageNumbers.spawn(damage, aiCenter)
-              const mountName = mount.type === MountType.BLACK_CAT ? '黑貓坐騎' : '柯基坐騎'
-              this._showEnemyHud(`${npc.name} 的${mountName}`, mount.currentHp / mount.maxHp)
+              this._showEnemyHud(`${npc.name} 的${mount.mountDisplayName}`, mount.currentHp / mount.maxHp)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
               if (mount.dead) npc.dismountFromMount()
             }
@@ -590,8 +597,7 @@ export class Game {
       this.pickupPromptEl.textContent = `[E] 拾取：${closestPickup.name}`
       this.pickupPromptEl.classList.add('visible')
     } else if (closestMount) {
-      const mountName = closestMount.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
-      this.pickupPromptEl.textContent = `[E] 騎乘：${mountName}`
+      this.pickupPromptEl.textContent = `[E] 騎乘：${closestMount.displayName}`
       this.pickupPromptEl.classList.add('visible')
     } else {
       this.pickupPromptEl.classList.remove('visible')
@@ -620,7 +626,7 @@ export class Game {
         closestMount.state = MountState.CONTROLLED
         
         // Show mount HUD
-        this.mountNameEl.textContent = closestMount.type === MountType.BLACK_CAT ? '坐騎：黑貓' : '坐騎：柯基'
+        this.mountNameEl.textContent = `坐騎：${closestMount.displayName}`
         this.mountHpFill.style.width = `${Math.max(0, (closestMount.currentHp / closestMount.maxHp) * 100)}%`
         this.mountHud.classList.add('visible')
         this.soundManager.playHit()
@@ -725,8 +731,7 @@ export class Game {
                 if (npc.mount.takeDamage(damage)) {
                   this.soundManager.playHit()
                   this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
-                  const mName = npc.mount.type === MountType.BLACK_CAT ? '黑貓坐騎' : '柯基坐騎'
-                  this._showEnemyHud(`${npc.name} 的${mName}`, npc.mount.currentHp / npc.mount.maxHp)
+                  this._showEnemyHud(`${npc.name} 的${npc.mount.mountDisplayName}`, npc.mount.currentHp / npc.mount.maxHp)
                   if (npc.mount.dead) npc.dismountFromMount()
                 }
               } else {
