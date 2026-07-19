@@ -24,6 +24,7 @@ import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import { WeaponPickup } from './world/WeaponPickup'
+import { damageNpc, damagePlayer } from './combat/DamageRouter'
 
 export class Game {
   private scene: THREE.Scene
@@ -519,22 +520,12 @@ export class Game {
         aiCenter.y += 1.0
         if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
           this.player.markHitProcessed()
-          if (npc.isMounted && npc.mount) {
-            const mount = npc.mount
-            if (mount.takeDamage(damage)) {
-              this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter)
-              this._showEnemyHud(`${npc.name} 的${mount.mountDisplayName}`, mount.currentHp / mount.maxHp)
-              this.skillManager.addXp('oneHanded', 45, this.soundManager)
-              if (mount.dead) npc.dismountFromMount()
-            }
-          } else {
-            if (npc.takeDamage(damage)) {
-              this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter)
-              this._showEnemyHud(npc.name, npc.hpRatio)
-              this.skillManager.addXp('oneHanded', 45, this.soundManager)
-            }
+          const result = damageNpc(npc, damage)
+          if (result.hitSuccess) {
+            this.soundManager.playHit()
+            this.damageNumbers.spawn(damage, aiCenter)
+            this._showEnemyHud(result.targetName, result.hpRatio)
+            this.skillManager.addXp('oneHanded', 45, this.soundManager)
           }
           return
         }
@@ -727,19 +718,11 @@ export class Game {
           if (npc.dead || npc.faction !== Faction.ENEMY) continue
           if (checkImpact(mount, npc.combatPosition, 0.5)) {
             applyImpactDamage(mount, npc, npc.combatPosition, (damage) => {
-              if (npc.isMounted && npc.mount) {
-                if (npc.mount.takeDamage(damage)) {
-                  this.soundManager.playHit()
-                  this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
-                  this._showEnemyHud(`${npc.name} 的${npc.mount.mountDisplayName}`, npc.mount.currentHp / npc.mount.maxHp)
-                  if (npc.mount.dead) npc.dismountFromMount()
-                }
-              } else {
-                if (npc.takeDamage(damage)) {
-                  this.soundManager.playHit()
-                  this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
-                  this._showEnemyHud(npc.name, npc.hpRatio)
-                }
+              const result = damageNpc(npc, damage)
+              if (result.hitSuccess) {
+                this.soundManager.playHit()
+                this.damageNumbers.spawn(damage, npc.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+                this._showEnemyHud(result.targetName, result.hpRatio)
               }
             })
           }
@@ -747,14 +730,14 @@ export class Game {
       } else if (mount.riderFaction === Faction.ENEMY && !this.player.dead) {
         if (checkImpact(mount, this.player.position, 0.38)) {
           applyImpactDamage(mount, this.player, this.player.position, (damage) => {
-            const hitSuccess = this.player.takeDamage(damage, this.hpBar)
-            if (hitSuccess) {
+            const result = damagePlayer(this.player, damage, this.hpBar)
+            if (result.hitSuccess) {
               this.soundManager.playHit()
               this.damageNumbers.spawn(damage, this.player.position.clone().add(new THREE.Vector3(0, 1, 0)))
-              if (this.player.isMounted && this.player.currentMount) {
-                 this.mountHpFill.style.width = `${Math.max(0, (this.player.currentMount.currentHp / this.player.currentMount.maxHp) * 100)}%`
+              if (result.isMountHit) {
+                this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
-                 this.mountHud.classList.remove('visible')
+                this.mountHud.classList.remove('visible')
               }
             }
           })
@@ -814,35 +797,25 @@ export class Game {
         (damage, isPlayer, targetNpc) => {
           // Melee Hit Callback
           if (isPlayer) {
-            const hitSuccess = this.player.takeDamage(damage, this.hpBar)
-            if (hitSuccess) {
+            const result = damagePlayer(this.player, damage, this.hpBar)
+            if (result.hitSuccess) {
               this.soundManager.playHit()
               const hitPos = this.player.position.clone()
               hitPos.y += 1.2
               this.damageNumbers.spawn(damage, hitPos)
-              if (this.player.isMounted && this.player.currentMount) {
-                 this.mountHpFill.style.width = `${Math.max(0, (this.player.currentMount.currentHp / this.player.currentMount.maxHp) * 100)}%`
+              if (result.isMountHit) {
+                this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
-                 this.mountHud.classList.remove('visible')
+                this.mountHud.classList.remove('visible')
               }
             }
           } else if (targetNpc) {
-            if (targetNpc.isMounted && targetNpc.mount) {
-              const mount = targetNpc.mount
-              if (mount.takeDamage(damage)) {
-                this.soundManager.playHit()
-                const hitPos = targetNpc.combatPosition.clone()
-                hitPos.y += 1.2
-                this.damageNumbers.spawn(damage, hitPos)
-                if (mount.dead) targetNpc.dismountFromMount()
-              }
-            } else {
-              if (targetNpc.takeDamage(damage)) {
-                this.soundManager.playHit()
-                const hitPos = targetNpc.combatPosition.clone()
-                hitPos.y += 1.2
-                this.damageNumbers.spawn(damage, hitPos)
-              }
+            const result = damageNpc(targetNpc, damage)
+            if (result.hitSuccess) {
+              this.soundManager.playHit()
+              const hitPos = targetNpc.combatPosition.clone()
+              hitPos.y += 1.2
+              this.damageNumbers.spawn(damage, hitPos)
             }
           }
         },

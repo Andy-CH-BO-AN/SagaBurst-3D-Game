@@ -7,6 +7,7 @@ import type { DummyEnemy } from './DummyEnemy'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import type { ObstacleData } from './Terrain'
+import { damageNpc } from '../combat/DamageRouter'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 
@@ -158,19 +159,9 @@ export class ArrowProjectile {
 
       const dist = this.mesh.position.distanceTo(aiCenter)
       if (dist <= 1.0) {
-        if (npc.isMounted && npc.mount) {
-          const mount = npc.mount
-          const hitSuccess = mount.takeDamage(this.damage)
-          if (hitSuccess) {
-            const mountName = `${npc.name} 的${mount.mountDisplayName}`
-            onHitTarget(this.damage, this.mesh.position.clone(), mountName, mount.currentHp / mount.maxHp, false, npc, true)
-            if (mount.dead) npc.dismountFromMount()
-          }
-        } else {
-          const hitSuccess = npc.takeDamage(this.damage)
-          if (hitSuccess) {
-            onHitTarget(this.damage, this.mesh.position.clone(), npc.name, npc.hpRatio, false, npc, false)
-          }
+        const result = damageNpc(npc, this.damage)
+        if (result.hitSuccess) {
+          onHitTarget(this.damage, this.mesh.position.clone(), result.targetName, result.hpRatio, false, npc, result.isMountHit)
         }
         this.destroy()
         return
