@@ -3,6 +3,7 @@
  * Manages player inventory, owned weapon stacks (quantity tracking), equipped weapons, and save state.
  */
 import { WEAPONS, WeaponData } from './WeaponDatabase'
+import { ARMORS, ArmorData } from './ArmorDatabase'
 
 export interface InventoryStack {
   id: string
@@ -17,11 +18,15 @@ export class InventoryManager {
 
   private equippedMeleeId: string  = 'steel_sword'
   private equippedRangedId: string = 'recurve_longbow'
+  private equippedShieldId: string | null = null
 
-  get inventoryStacks(): { weapon: WeaponData; quantity: number }[] {
+  get inventoryStacks(): { item: WeaponData | ArmorData; quantity: number }[] {
     return this.items
-      .map(item => ({ weapon: WEAPONS[item.id], quantity: item.quantity }))
-      .filter((entry): entry is { weapon: WeaponData; quantity: number } => entry.weapon !== undefined)
+      .map<{ item: WeaponData | ArmorData | undefined; quantity: number }>(stack => {
+        const item = WEAPONS[stack.id] || ARMORS[stack.id]
+        return { item, quantity: stack.quantity }
+      })
+      .filter((entry): entry is { item: WeaponData | ArmorData; quantity: number } => entry.item !== undefined)
   }
 
   get equippedMelee(): WeaponData {
@@ -32,15 +37,20 @@ export class InventoryManager {
     return WEAPONS[this.equippedRangedId] || WEAPONS['recurve_longbow']
   }
 
-  get saveState(): { items: InventoryStack[]; equippedMeleeId: string; equippedRangedId: string } {
+  get equippedShield(): ArmorData | null {
+    return this.equippedShieldId ? ARMORS[this.equippedShieldId] : null
+  }
+
+  get saveState(): { items: InventoryStack[]; equippedMeleeId: string; equippedRangedId: string; equippedShieldId: string | null } {
     return {
       items: this.items.map(item => ({ ...item })),
       equippedMeleeId: this.equippedMeleeId,
       equippedRangedId: this.equippedRangedId,
+      equippedShieldId: this.equippedShieldId,
     }
   }
 
-  loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string }): void {
+  loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null }): void {
     if (state.items && state.items.length > 0) {
       this.items = state.items.map(i => ({ id: i.id, quantity: i.quantity || 1 }))
     } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
@@ -53,10 +63,15 @@ export class InventoryManager {
     if (state.equippedRangedId && WEAPONS[state.equippedRangedId]) {
       this.equippedRangedId = state.equippedRangedId
     }
+    if (state.equippedShieldId && ARMORS[state.equippedShieldId]) {
+      this.equippedShieldId = state.equippedShieldId
+    } else if (state.equippedShieldId === null) {
+      this.equippedShieldId = null
+    }
   }
 
   addWeapon(id: string): number {
-    if (!WEAPONS[id]) return 0
+    if (!WEAPONS[id] && !ARMORS[id]) return 0
 
     const existing = this.items.find(item => item.id === id)
     if (existing) {
@@ -70,21 +85,29 @@ export class InventoryManager {
 
   equipWeapon(id: string): boolean {
     const weapon = WEAPONS[id]
-    if (!weapon) return false
+    const armor = ARMORS[id]
+    if (!weapon && !armor) return false
     const hasItem = this.items.some(item => item.id === id)
     if (!hasItem) return false
 
-    if (weapon.type === 'melee') {
-      this.equippedMeleeId = id
-      return true
-    } else if (weapon.type === 'ranged') {
-      this.equippedRangedId = id
-      return true
+    if (weapon) {
+      if (weapon.type === 'melee') {
+        this.equippedMeleeId = id
+        return true
+      } else if (weapon.type === 'ranged') {
+        this.equippedRangedId = id
+        return true
+      }
+    } else if (armor) {
+      if (armor.type === 'shield') {
+        this.equippedShieldId = id
+        return true
+      }
     }
     return false
   }
 
   isEquipped(id: string): boolean {
-    return this.equippedMeleeId === id || this.equippedRangedId === id
+    return this.equippedMeleeId === id || this.equippedRangedId === id || this.equippedShieldId === id
   }
 }

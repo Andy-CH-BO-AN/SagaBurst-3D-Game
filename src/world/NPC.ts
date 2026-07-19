@@ -63,6 +63,8 @@ export class NPC {
 
   private swordPivot: THREE.Group
   private bowPivot: THREE.Group
+  private shieldPivot: THREE.Group
+  public shieldId: string | null = null
 
   private bodyMat: THREE.MeshStandardMaterial
   private flashMat: THREE.MeshBasicMaterial
@@ -172,7 +174,7 @@ export class NPC {
     this.rightArm = visual.rightArm
     this.leftArm = visual.leftArm
 
-    // Weapons
+    // Create Weapon Pivots
     this.swordPivot = new THREE.Group()
     this.swordPivot.position.set(0.45, 0.75, -0.1)
     this.group.add(this.swordPivot)
@@ -187,6 +189,9 @@ export class NPC {
     }
     this.group.add(this.bowPivot)
 
+    this.shieldPivot = new THREE.Group()
+    this.group.add(this.shieldPivot)
+
     WeaponMeshFactory.buildNpcMelee(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier, this.isUsingLance, this.swordPivot)
     WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowPivot)
     polishWeaponMaterials(this.swordPivot)
@@ -195,10 +200,20 @@ export class NPC {
     if (this.arrows > 0) {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
+      this.bodyMesh.add(this.shieldPivot)
+      this.shieldPivot.position.set(0, 0.3, -0.45)
+      this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
     } else {
       this.swordPivot.visible = true
       this.bowPivot.visible = false
+      if (this.shieldId && this.aiType !== AIType.RANGED) {
+        this.leftArm.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, -0.35, 0)
+        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+      }
     }
+
+    this.rebuildShield()
 
     this.alertSprite = this._createAlertSprite()
     this.alertSprite.position.set(0, 2.3, 0)
@@ -225,7 +240,15 @@ export class NPC {
     this.group.position.copy(mountPosition)
   }
 
-
+  rebuildShield(): void {
+    while (this.shieldPivot.children.length > 0) {
+      this.shieldPivot.remove(this.shieldPivot.children[0])
+    }
+    if (this.shieldId) {
+      WeaponMeshFactory.buildShield(this.shieldId, this.shieldPivot)
+      polishWeaponMaterials(this.shieldPivot)
+    }
+  }
 
   private _createAlertSprite(): THREE.Sprite {
     const canvas = document.createElement('canvas')
@@ -511,8 +534,7 @@ export class NPC {
             this.arrows -= 1
             if (this.arrows === 0) {
               // Switch to melee mode
-              this.swordPivot.visible = true
-              this.bowPivot.visible = false
+              this._switchToMelee()
             }
 
             this.attackTimer = 0
@@ -662,6 +684,11 @@ export class NPC {
       this.arrows = 0
       this.swordPivot.visible = true
       this.bowPivot.visible = false
+      if (this.shieldPivot.parent !== this.leftArm) {
+        this.leftArm.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, -0.35, 0)
+        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+      }
     }
   }
 
@@ -672,10 +699,20 @@ export class NPC {
       this.arrows = 1
       this.swordPivot.visible = false
       this.bowPivot.visible = true
+      if (this.shieldPivot.parent !== this.bodyMesh) {
+        this.bodyMesh.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, 0.3, -0.45)
+        this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8)
+      }
     } else {
       this.arrows = 0
       this.swordPivot.visible = true
       this.bowPivot.visible = false
+      if (this.shieldPivot.parent !== this.leftArm) {
+        this.leftArm.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, -0.35, 0)
+        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+      }
     }
 
     const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)

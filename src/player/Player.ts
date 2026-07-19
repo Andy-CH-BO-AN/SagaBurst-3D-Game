@@ -70,6 +70,9 @@ export class Player {
   private stringMeshBottom!: THREE.Mesh
   private nockedArrow!: THREE.Group
 
+  private shieldPivot!: THREE.Group
+  private currentShieldId: string | null = null
+
   private velY = 0
   private onGround = false
 
@@ -139,7 +142,6 @@ export class Player {
     this.hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff3333 })
     this.characterVisualGroup = new THREE.Group()
     this.group.add(this.characterVisualGroup)
-    this._buildMesh(2)
 
     // Create Right Hand Socket (Default position at player right hand T-pose palm)
     this.rightHandSocket = new THREE.Group()
@@ -152,6 +154,11 @@ export class Player {
 
     this.bowPivot = new THREE.Group()
     this.group.add(this.bowPivot)
+
+    // Shield Pivot (defaults to leftArm after character mesh is built)
+    this.shieldPivot = new THREE.Group()
+
+    this._buildMesh(2)
 
     // Build default initial weapons (Steel Sword & Recurve Longbow)
     this.rebuildMeleeWeapon('steel_sword')
@@ -178,6 +185,11 @@ export class Player {
     this.headMat = parts.headMaterial
     this.rightArm = parts.rightArm
     this.leftArm = parts.leftArm
+
+    // Reattach shieldPivot to the new leftArm
+    this.leftArm.add(this.shieldPivot)
+    this.shieldPivot.position.set(0, -0.35, 0)
+    this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -251,7 +263,20 @@ export class Player {
     this.bowPivot.add(this.nockedArrow)
   }
 
+  // ── Dynamic 3D Shield Builder ──
+  rebuildShield(shieldId: string | null): void {
+    if (this.currentShieldId === shieldId) return
+    this.currentShieldId = shieldId
 
+    while (this.shieldPivot.children.length > 0) {
+      this.shieldPivot.remove(this.shieldPivot.children[0])
+    }
+
+    if (shieldId) {
+      WeaponMeshFactory.buildShield(shieldId, this.shieldPivot)
+      polishWeaponMaterials(this.shieldPivot)
+    }
+  }
 
   dismountFromMount(): void {
     if (!this.isMounted || !this.currentMount) return
@@ -337,6 +362,9 @@ export class Player {
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
+    
+    const equippedShield = inventoryManager?.equippedShield ?? null
+    this.rebuildShield(equippedShield ? equippedShield.id : null)
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
     const swingDuration = equippedMelee ? equippedMelee.speedOrCharge : SWING_DURATION
@@ -349,6 +377,13 @@ export class Player {
     if (this.aiming) {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
+
+      // Dynamic Back-Shield: move shield to back
+      if (this.shieldPivot.parent !== this.bodyMesh) {
+        this.bodyMesh.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, 0.3, -0.45)
+        this.shieldPivot.rotation.set(0, Math.PI, Math.PI / 8) // Slanted on back
+      }
 
       if (input.isLeftMouseDown && this.arrows > 0) {
         this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
@@ -375,6 +410,13 @@ export class Player {
       this.bowPivot.visible = false
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
+
+      // Restore shield to left arm
+      if (this.shieldPivot.parent !== this.leftArm) {
+        this.leftArm.add(this.shieldPivot)
+        this.shieldPivot.position.set(0, -0.35, 0)
+        this.shieldPivot.rotation.set(0, -Math.PI / 2, 0)
+      }
 
       if (input.consumeLeftClick() && !this.isSwinging && this.stamina >= SWING_STAMINA_COST) {
         this.isSwinging = true

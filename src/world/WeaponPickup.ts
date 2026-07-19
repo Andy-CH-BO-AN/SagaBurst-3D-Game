@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three'
 import { WEAPONS, getTierColor } from '../rpg/WeaponDatabase'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getTerrainHeight } from './Terrain'
 
@@ -36,12 +37,17 @@ export class WeaponPickup {
     this.arrowQuantity = arrowQuantity
 
     const weapon = WEAPONS[weaponId]
+    const armor = ARMORS[weaponId]
+    
     if (isArrowPack) {
       this.name = `箭矢補給包 Arrow Pack (x${arrowQuantity})`
       this.tier = 1
     } else if (weapon) {
       this.name = weapon.name
       this.tier = weapon.tier
+    } else if (armor) {
+      this.name = armor.name
+      this.tier = armor.tier
     } else {
       this.name = '未知物品 Item'
       this.tier = 1

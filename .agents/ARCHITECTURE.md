@@ -47,7 +47,7 @@ skyrim 3D test/
 
 ---
 
-## 3D Weapon Geometries (6 Distinct Models)
+## 3D Weapon & Armor Geometries
 
 1. **生鏽小刀 (Rusty Dagger - Tier 1)**: `CylinderGeometry` handle (0.18m) + minimal `BoxGeometry` guard + short `BoxGeometry` blade (0.55m) + `ConeGeometry` tip.
 2. **鋼鐵長劍 (Steel Sword - Tier 2)**: Standard 1.1m double-edged blade + 0.35m crossguard.
@@ -55,6 +55,13 @@ skyrim 3D test/
 4. **木製短弓 (Wooden Shortbow - Tier 1)**: 0.18m crude grip + 2 straight 0.45m limbs inclined at 0.2rad.
 5. **反曲長弓 (Recurve Longbow - Tier 2)**: 2-segment S-curve limbs (0.55m inner + 0.35m outer).
 6. **符文精靈弓 (Elven Runebow - Tier 3)**: 3-segment elven crescent limbs (0.65m + 0.45m + 0.35m) + 2 `OctahedronGeometry` cyan crystal gems + 2 `TorusGeometry` moon crescent spikes + glowing arrow.
+7. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+8. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+
+### Dynamic Back-Shield System
+- `Player` and `NPC` use a generic `shieldPivot`.
+- In Melee mode, the shield attaches to `leftArm`.
+- In Ranged mode (or while aiming), the shield attaches to the `bodyMesh` and rotates to rest on the character's back, avoiding visual clipping.
 
 ---
 
@@ -75,6 +82,7 @@ Game Loop
   
 ### Cavalry & Mount Data Flow
 - **Spawn**: NPCs can generate as Cavalry. A Mount is spawned and assigned to them.
-- **Roles**: Cavalry can be **Lancers** (3.0 reach, 3x charge damage that suppresses mount impact) or **Mounted Archers** (can shoot while moving, maintaining 6~15m distance).
+- **Visuals**: Mounts have unique geometries (Black Cat / Corgi) and provide `rideHeightOffset` and `ridePitch` to seamlessly adapt both Player and NPC avatars to a seated posture on custom procedural saddles.
+- **Roles**: Cavalry can be **Lancers** (3.0 reach, 3x charge damage that suppresses mount impact) or **Mounted Archers** (can shoot while moving, maintaining 6~15m distance. Will drop bows and auto-switch to melee sword charge if enemy enters <6m range).
 - **Damage Routing**: Melee/Arrow attacks against a Mounted entity route 100% of damage to `mount.takeDamage()`.
-- **Dismount**: If Mount HP drops to 0, `mount.dead = true`, and the entity calls `dismountFromMount()`, resuming foot AI / movement.
+- **Dismount**: If Mount HP drops to 0, `mount.dead = true`, and the entity resets rotation and resumes foot AI / movement.

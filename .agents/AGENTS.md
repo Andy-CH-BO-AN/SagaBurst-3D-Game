@@ -20,7 +20,7 @@ If you are an AI agent picking up this project, please read these guidelines car
 - **Maintain Naming Conventions**: Keep consistent naming for HTML DOM IDs (kebab-case) and TypeScript classes/variables (PascalCase/camelCase).
 - **Z-Axis is Forward (in some contexts)**: Pay close attention to `Math.atan2(dx, dz)`. Usually, Three.js defaults to -Z as forward, but ensure you match the existing trigonometric logic in `NPC.ts` or `Mount.ts`.
 - **DOM Overlay over WebGL**: All UI (Health bars, Stamina bars, Inventory Grid) is purely HTML/CSS overlaid on top of the `<canvas>`. Do NOT try to build UI using `three-mesh-ui` or 3D text unless specifically requested. Update DOM elements inside `Game.ts` or dedicated UI classes.
-- **Document Changes**: When completing a phase or significant feature, update `PROGRESS.md` and `ARCHITECTURE.md`.
+- **Document Changes**: 每次做完事，都必須檢查並更新 `ARCHITECTURE.md` 和 `PROGRESS.md` 來反映最新的系統架構改動。
 
 ## 4. How to Start a New Task
 1. Read `PLAN.md` to see the roadmap context.

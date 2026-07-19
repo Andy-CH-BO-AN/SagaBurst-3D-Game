@@ -227,6 +227,9 @@ export class WeaponMeshFactory {
       const bow = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 6, 12, Math.PI), mat)
       bow.position.y = 0.45
       pivot.add(bow)
+    } else if (weaponId.includes('shield') || weaponId.includes('scutum')) {
+      WeaponMeshFactory.buildShield(weaponId, pivot)
+      pivot.position.y = 0.5
     } else {
       // 打造正宗中世紀十字鋼鐵長劍 (Steel Sword / Greatsword Pickup)
       const hiltMat   = new THREE.MeshLambertMaterial({ color: 0x4a3525 })
@@ -404,6 +407,117 @@ export class WeaponMeshFactory {
       const bowString = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 1.0, 4), stringMat)
       bowString.position.set(0.05, 0, 0)
       pivot.add(bowString)
+    }
+  }
+
+  /**
+   * 建構盾牌的 3D mesh group，附加到指定 pivot
+   */
+  static buildShield(shieldId: string, pivot: THREE.Group): void {
+    const isRoman = shieldId.startsWith('scutum')
+    // Extract tier (e.g. "scutum_t2" -> 2)
+    const tier = parseInt(shieldId.split('_t')[1]) || 1
+
+    if (isRoman) {
+      // ── Roman Scutum (方形微彎盾) ──
+      const boardMat = new THREE.MeshLambertMaterial({ color: 0x8b0000, flatShading: true }) // 深紅
+      const rimMat = tier >= 2 
+        ? new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xd4af37 : 0x777777, flatShading: true })
+        : new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true })
+      const bossMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xd4af37 : 0x777777, flatShading: true })
+
+      // 本體 (稍微彎曲的效果可以用多個box拼或者直接用CylinderGeometry切一塊)
+      // 這裡用簡單的 BoxGeometry
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.05), boardMat)
+      // 稍微往前推，避免與手臂穿模
+      board.position.set(0, 0, 0.15)
+      pivot.add(board)
+
+      // 邊框
+      if (tier >= 2) {
+        const rimTop = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.04, 0.06), rimMat)
+        rimTop.position.set(0, 0.45, 0.15)
+        pivot.add(rimTop)
+
+        const rimBot = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.04, 0.06), rimMat)
+        rimBot.position.set(0, -0.45, 0.15)
+        pivot.add(rimBot)
+
+        const rimL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.06), rimMat)
+        rimL.position.set(0.25, 0, 0.15)
+        pivot.add(rimL)
+
+        const rimR = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.06), rimMat)
+        rimR.position.set(-0.25, 0, 0.15)
+        pivot.add(rimR)
+      }
+
+      // 盾凸 (Boss)
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), bossMat)
+      boss.position.set(0, 0, 0.18)
+      // 把一半藏在盾裡
+      boss.scale.z = 0.5
+      pivot.add(boss)
+
+      // 裝飾紋路 (Tier 3)
+      if (tier === 3) {
+        const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.06), rimMat)
+        wingL.position.set(0.15, 0.15, 0.15)
+        wingL.rotation.z = Math.PI / 4
+        pivot.add(wingL)
+
+        const wingR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.06), rimMat)
+        wingR.position.set(-0.15, 0.15, 0.15)
+        wingR.rotation.z = -Math.PI / 4
+        pivot.add(wingR)
+      }
+
+    } else {
+      // ── Viking Round Shield (圓盾) ──
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true }) // 木紋
+      const rimMat = tier >= 2 
+        ? new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xdddddd : 0x555555, flatShading: true })
+        : new THREE.MeshLambertMaterial({ color: 0x332211, flatShading: true })
+      const bossMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xdddddd : 0x555555, flatShading: true })
+      const paintMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0x004488 : 0x335533, flatShading: true })
+
+      // 圓盾主體 (木板)
+      const board = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.04, 16), woodMat)
+      board.rotation.x = Math.PI / 2
+      board.position.set(0, 0, 0.15)
+      pivot.add(board)
+
+      // 漆面裝飾 (稍微突出)
+      if (tier >= 2) {
+        const paint = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.042, 16), paintMat)
+        paint.rotation.x = Math.PI / 2
+        paint.position.set(0, 0, 0.15)
+        pivot.add(paint)
+      }
+
+      // 鐵環 (邊緣)
+      if (tier >= 2) {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.02, 8, 16), rimMat)
+        rim.position.set(0, 0, 0.15)
+        pivot.add(rim)
+      }
+
+      // 鐵釘裝飾 (Tier 3)
+      if (tier === 3) {
+        for (let i = 0; i < 4; i++) {
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.05, 4), bossMat)
+          spike.rotation.x = Math.PI / 2
+          const angle = i * Math.PI / 2
+          spike.position.set(Math.cos(angle) * 0.25, Math.sin(angle) * 0.25, 0.18)
+          pivot.add(spike)
+        }
+      }
+
+      // 盾凸
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), bossMat)
+      boss.position.set(0, 0, 0.17)
+      boss.scale.z = 0.5
+      pivot.add(boss)
     }
   }
 }

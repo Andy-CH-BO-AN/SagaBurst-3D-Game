@@ -64,19 +64,23 @@ export class EquipmentUI {
     this.inventoryListEl.innerHTML = ''
     const stacks = inventoryManager.inventoryStacks
 
-    stacks.forEach(({ weapon, quantity }) => {
-      const isEquipped = inventoryManager.isEquipped(weapon.id)
-      const tierColor  = getTierColor(weapon.tier)
-      const tierBadge  = getTierBadge(weapon.tier)
+    stacks.forEach(({ item, quantity }) => {
+      const isEquipped = inventoryManager.isEquipped(item.id)
+      const tierColor  = getTierColor(item.tier)
+      const tierBadge  = getTierBadge(item.tier)
 
       let dmgText = ''
-      if (weapon.type === 'melee') {
-        const scaledDmg = Math.round(weapon.damageMax * skillManager.getOneHandedMultiplier())
-        dmgText = `傷害: ${scaledDmg} | 揮速: ${weapon.speedOrCharge}s`
-      } else {
-        const scaledMin = Math.round(weapon.damageMin * skillManager.getArcheryMultiplier())
-        const scaledMax = Math.round(weapon.damageMax * skillManager.getArcheryMultiplier())
-        dmgText = `傷害: ${scaledMin}~${scaledMax} | 蓄力: ${weapon.speedOrCharge}s`
+      if (item.type === 'melee') {
+        const scaledDmg = Math.round((item as any).damageMax * skillManager.getOneHandedMultiplier())
+        dmgText = `傷害: ${scaledDmg} | 揮速: ${(item as any).speedOrCharge}s`
+      } else if (item.type === 'ranged') {
+        const scaledMin = Math.round((item as any).damageMin * skillManager.getArcheryMultiplier())
+        const scaledMax = Math.round((item as any).damageMax * skillManager.getArcheryMultiplier())
+        dmgText = `傷害: ${scaledMin}~${scaledMax} | 蓄力: ${(item as any).speedOrCharge}s`
+      } else if (item.type === 'shield') {
+        // armor data
+        const reductionPercent = Math.round((item as any).damageReduction * 100)
+        dmgText = `減傷: ${reductionPercent}%`
       }
 
       const qtyBadge = quantity > 1 ? `<span style="background: rgba(232, 201, 106, 0.25); border: 1px solid #e8c96a; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff;">x${quantity}</span>` : ''
@@ -85,18 +89,18 @@ export class EquipmentUI {
       card.className = `inventory-card ${isEquipped ? 'equipped' : ''}`
       card.innerHTML = `
         <div class="inv-item-header">
-          <span class="inv-item-name" style="color: ${tierColor};">${weapon.name} ${qtyBadge}</span>
+          <span class="inv-item-name" style="color: ${tierColor};">${item.name} ${qtyBadge}</span>
           <span class="inv-item-tier" style="color: ${tierColor};">${tierBadge}</span>
         </div>
         <div class="inv-item-stats">${dmgText}</div>
-        <div class="inv-item-desc">${weapon.description}</div>
+        <div class="inv-item-desc">${item.description}</div>
         <button class="btn-equip ${isEquipped ? 'is-active' : ''}">${isEquipped ? '已裝備' : '【裝備】'}</button>
       `
 
       const btn = card.querySelector('.btn-equip')!
       if (!isEquipped) {
         btn.addEventListener('click', () => {
-          inventoryManager.equipWeapon(weapon.id)
+          inventoryManager.equipWeapon(item.id)
           this.updateModal(skillManager, inventoryManager, onEquipChanged)
           if (onEquipChanged) onEquipChanged()
         })

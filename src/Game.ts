@@ -122,6 +122,7 @@ export class Game {
     // ── Combat & Enemies ──
     this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
     
+    // @ts-ignore: Intentionally unused for testing
     const isSpawnValid = (x: number, z: number) => {
       for (const obs of this.obstacles) {
         if (x > obs.box.min.x - 2 && x < obs.box.max.x + 2 &&
@@ -132,34 +133,8 @@ export class Game {
       return true
     }
 
-    // ── Spawn Test NPCs ──
-    for (let i = 0; i < 100; i++) {
-      let px = 0, pz = 0
-      let attempts = 0
-      do {
-        px = -15 - Math.random() * 120
-        pz = -15 - Math.random() * 120
-        attempts++
-      } while (!isSpawnValid(px, pz) && attempts < 50)
-      
-      const isArcher = Math.random() < 0.5
-      const name = isArcher ? `維京騎射手 Viking Mounted Archer` : `維京長槍騎兵 Viking Lancer`
-      this._spawnNpc(px, pz, Faction.PLAYER, isArcher ? AIType.RANGED : AIType.MELEE, name, 2, true)
-    }
+    // ── Spawn Test NPCs (Removed for testing) ──
 
-    for (let i = 0; i < 100; i++) {
-      let px = 0, pz = 0
-      let attempts = 0
-      do {
-        px = 15 + Math.random() * 120
-        pz = 15 + Math.random() * 120
-        attempts++
-      } while (!isSpawnValid(px, pz) && attempts < 50)
-
-      const isArcher = Math.random() < 0.5
-      const name = isArcher ? `羅馬騎射手 Roman Mounted Archer` : `羅馬長槍騎兵 Roman Lancer`
-      this._spawnNpc(px, pz, Faction.ENEMY, isArcher ? AIType.RANGED : AIType.MELEE, name, 2, true)
-    }
 
     this.damageNumbers = new DamageNumbers()
 
@@ -233,6 +208,12 @@ export class Game {
       'wooden_shortbow',
       'recurve_longbow',
       'elven_runebow',
+      'scutum_t1',
+      'scutum_t2',
+      'scutum_t3',
+      'round_shield_t1',
+      'round_shield_t2',
+      'round_shield_t3',
     ]
 
     // Spawn 30 weapon pickups in a golden spiral pattern around spawn
@@ -260,6 +241,7 @@ export class Game {
     this.mounts.push(new Mount(this.scene, MountType.CORGI, -20, -10))
   }
 
+  // @ts-ignore: Intentionally unused for testing
   private _spawnNpc(
     x: number,
     z: number,
@@ -743,7 +725,7 @@ export class Game {
       } else if (mount.riderFaction === Faction.ENEMY && !this.player.dead) {
         if (checkImpact(mount, this.player.position, 0.38)) {
           applyImpactDamage(mount, this.player, this.player.position, (damage) => {
-            const result = damagePlayer(this.player, damage, this.hpBar)
+            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
               this._tmpHitPos.copy(this.player.position)
@@ -834,7 +816,7 @@ export class Game {
         (damage, isPlayer, targetNpc) => {
           // Melee Hit Callback
           if (isPlayer) {
-            const result = damagePlayer(this.player, damage, this.hpBar)
+            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
               const hitPos = this.player.position.clone()
