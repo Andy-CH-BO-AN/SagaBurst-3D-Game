@@ -365,6 +365,12 @@ export class Player {
       }
 
     } else {
+      // If we stop aiming but have a charged shot, fire it (like releasing left click)
+      if (this.bowChargeTime > 0.1 && this.arrows > 0) {
+        this._fireArrow(cameraDirection, archeryMultiplier, equippedRanged)
+        soundManager.playBowRelease()
+      }
+
       this.swordPivot.visible = true
       this.bowPivot.visible = false
       this.bowChargeTime = 0
