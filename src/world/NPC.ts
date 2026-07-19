@@ -9,6 +9,7 @@ import type { HpBar } from '../ui/HpBar'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import { Mount, MountType } from './Mount'
+import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export enum AIState {
@@ -182,12 +183,8 @@ export class NPC {
     }
     this.group.add(this.bowPivot)
 
-    if (this.isUsingLance) {
-      this._buildLance()
-    } else {
-      this._buildSword(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier)
-    }
-    this._buildBow()
+    WeaponMeshFactory.buildNpcMelee(this.faction, this.aiType === AIType.RANGED ? 1 : this.tier, this.isUsingLance, this.swordPivot)
+    WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowPivot)
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
 
@@ -224,141 +221,7 @@ export class NPC {
     this.group.position.copy(mountPosition)
   }
 
-  private _buildLance(): void {
-    const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
 
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
-    pole.position.y = 0.75
-    this.swordPivot.add(pole)
-
-    const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat)
-    head.position.y = 2.3
-    head.castShadow = true
-    this.swordPivot.add(head)
-  }
-
-  private _buildSword(faction: Faction, tier: number): void {
-    if (faction === Faction.PLAYER) {
-      // Viking Steel Sword (T2)
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.2 })
-      const handleMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-      const guardMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 })
-
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.18, 8), handleMat)
-      handle.position.y = 0.09
-      this.swordPivot.add(handle)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.04, 0.06), guardMat)
-      guard.position.y = 0.2
-      this.swordPivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.015), bladeMat)
-      blade.position.y = 0.62
-      this.swordPivot.add(blade)
-    } else {
-      // Roman Gladius
-      let bladeColor = 0x888888 // T1 Rusty
-      let bladeLength = 0.6
-      let bladeWidth = 0.08
-      let metalness = 0.4
-      let emissive = 0x000000
-
-      if (tier === 2) {
-        bladeColor = 0xcccccc // Standard
-        metalness = 0.8
-      } else if (tier === 3) {
-        bladeColor = 0xffffcc // Centurion
-        bladeLength = 0.75
-        bladeWidth = 0.1
-        metalness = 1.0
-        emissive = 0x555500
-      }
-
-      const bladeMat = new THREE.MeshStandardMaterial({ color: bladeColor, metalness, roughness: 0.2, emissive })
-      const handleMat = new THREE.MeshLambertMaterial({ color: 0x3a1e00 })
-      const pommelMat = new THREE.MeshStandardMaterial({ color: tier === 3 ? 0xd4af37 : 0x444444, metalness: 0.8 })
-
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), pommelMat)
-      this.swordPivot.add(pommel)
-
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 0.15, 8), handleMat)
-      handle.position.y = 0.1
-      this.swordPivot.add(handle)
-
-      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), pommelMat)
-      guard.scale.set(1, 0.4, 0.6)
-      guard.position.y = 0.2
-      this.swordPivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(bladeWidth, bladeLength, 0.02), bladeMat)
-      blade.position.y = 0.2 + bladeLength / 2
-      this.swordPivot.add(blade)
-      
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(bladeWidth / 2, 0.1, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 0.2 + bladeLength + 0.05
-      this.swordPivot.add(tip)
-    }
-  }
-
-  private _buildBow() {
-    if (this.faction === Faction.ENEMY) {
-      // Roman Pilum (Javelin)
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
-      const ironMat = new THREE.MeshLambertMaterial({ color: 0x777777, flatShading: true })
-      const goldMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 6), woodMat)
-      shaft.position.y = 0.6
-      this.bowPivot.add(shaft)
-
-      if (this.tier === 1) {
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), ironMat)
-        head.position.y = 1.275
-        this.bowPivot.add(head)
-      } else if (this.tier === 2) {
-        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.015, 0.4, 4), ironMat)
-        neck.position.y = 1.4
-        this.bowPivot.add(neck)
-        
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 4), ironMat)
-        head.position.y = 1.65
-        this.bowPivot.add(head)
-      } else {
-        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.015, 0.5, 4), ironMat)
-        neck.position.y = 1.45
-        this.bowPivot.add(neck)
-        
-        const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), goldMat)
-        wrap.position.y = 1.2
-        this.bowPivot.add(wrap)
-
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), ironMat)
-        head.position.y = 1.775
-        this.bowPivot.add(head)
-      }
-
-    } else {
-      // Viking Bow
-      const bowMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
-      const stringMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-
-      const upperCurve = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.5, 6), bowMat)
-      upperCurve.position.set(0, 0.25, 0)
-      upperCurve.rotation.z = -0.1
-      this.bowPivot.add(upperCurve)
-
-      const lowerCurve = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.5, 6), bowMat)
-      lowerCurve.position.set(0, -0.25, 0)
-      lowerCurve.rotation.z = 0.1
-      this.bowPivot.add(lowerCurve)
-
-      const bowString = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 1.0, 4), stringMat)
-      bowString.position.set(0.05, 0, 0)
-      this.bowPivot.add(bowString)
-    }
-  }
 
   private _createAlertSprite(): THREE.Sprite {
     const canvas = document.createElement('canvas')

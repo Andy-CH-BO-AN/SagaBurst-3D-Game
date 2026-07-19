@@ -15,6 +15,7 @@ import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import type { WeaponData } from '../rpg/WeaponDatabase'
 import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
+import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 
@@ -191,125 +192,10 @@ export class Player {
       this.swordPivot.remove(this.swordPivot.children[0])
     }
 
-    this._buildGeometricMeleeWeapon(weaponId)
+    const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordPivot)
+    this.swordTipLocal.copy(tipLocal)
+
     polishWeaponMaterials(this.swordPivot)
-  }
-
-  private _buildGeometricMeleeWeapon(weaponId: string): void {
-    if (weaponId === 'rusty_dagger') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x3a3028, flatShading: true })
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0x555555, flatShading: true })
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true })
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.18, 6), hiltMat)
-      hilt.position.y = 0.09
-      this.swordPivot.add(hilt)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.04), guardMat)
-      guard.position.y = 0.18
-      this.swordPivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.55, 0.02), bladeMat)
-      blade.position.y = 0.48
-      blade.castShadow = true
-      this.swordPivot.add(blade)
-
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), bladeMat)
-      tip.position.y = 0.81
-      this.swordPivot.add(tip)
-      this.swordTipLocal.set(0, 0.87, 0)
-
-    } else if (weaponId === 'runic_greatsword') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-      const ringMat  = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const gemMat   = new THREE.MeshBasicMaterial({ color: 0x00d2ff })
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.45, 8), hiltMat)
-      hilt.position.y = 0.225
-      this.swordPivot.add(hilt)
-
-      for (let i = 0; i < 3; i++) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.012, 8, 16), ringMat)
-        ring.rotation.x = Math.PI / 2
-        ring.position.y = 0.1 + i * 0.12
-        this.swordPivot.add(ring)
-      }
-
-      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.085), gemMat)
-      gem.position.y = -0.04
-      this.swordPivot.add(gem)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.09, 0.12), guardMat)
-      guard.position.y = 0.48
-      this.swordPivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.55, 0.048), bladeMat)
-      blade.position.y = 1.3
-      blade.castShadow = true
-      this.swordPivot.add(blade)
-
-      const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.065, 1.35, 0.058), gemMat)
-      fuller.position.y = 1.25
-      this.swordPivot.add(fuller)
-      this.swordTipLocal.set(0, 2.1, 0)
-
-    } else if (weaponId === 'steel_lance') {
-      const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
-      const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
-
-      // The lance is held near the back. The pole goes from y = -0.5 to y = 2.0
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
-      pole.position.y = 0.75 // Center of pole (2.5/2 = 1.25, minus offset to hold it lower)
-      this.swordPivot.add(pole)
-
-      // Lance cone head
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat)
-      head.position.y = 2.3 // 0.75 + 1.25 + 0.3
-      head.castShadow = true
-      this.swordPivot.add(head)
-      this.swordTipLocal.set(0, 2.6, 0)
-
-    } else {
-      // Tier 2 Authentic Medieval Steel Sword (標準中世紀十字鋼鐵長劍)
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true }) // 皮革握把
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true }) // 黃金/青銅十字護手
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee, flatShading: true }) // 亮銀高金屬感長劍刀刃
-      const pommelMat= new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-
-      // 握柄 Hilt
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 8), hiltMat)
-      hilt.position.y = 0.15
-      this.swordPivot.add(hilt)
-
-      // 劍尾球 Pommel
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), pommelMat)
-      pommel.position.y = 0.0
-      this.swordPivot.add(pommel)
-
-      // 十字護手 Crossguard
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.05, 0.08), guardMat)
-      guard.position.y = 0.3
-      this.swordPivot.add(guard)
-
-      // 鋼鐵長劍刀刃 Blade
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.03), bladeMat)
-      blade.position.y = 0.85
-      blade.castShadow = true
-      this.swordPivot.add(blade)
-
-      // 劍尖 Tip
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.056, 0.2, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 1.48
-      this.swordPivot.add(tip)
-
-      this.swordTipLocal.set(0, 1.58, 0)
-    }
-
-    // Orient sword to naturally rest along the hand forward
-    this.swordPivot.rotation.set(0, 0, 0)
   }
 
   // ── Dynamic 3D Ranged Bow Builders (3 Distinct Geometries) ──
@@ -321,118 +207,9 @@ export class Player {
       this.bowPivot.remove(this.bowPivot.children[0])
     }
 
-    this._buildGeometricRangedWeapon(weaponId)
-    polishWeaponMaterials(this.bowPivot)
-    this.bowPivot.visible = false
-  }
-
-  private _buildGeometricRangedWeapon(weaponId: string): void {
+    const { stringLength } = WeaponMeshFactory.buildRanged(weaponId, this.bowPivot)
+    
     const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-
-    let topTip = new THREE.Vector3(0, 0.75, 0.12)
-    let botTip = new THREE.Vector3(0, -0.75, 0.12)
-    let stringLength = 0.78
-
-    if (weaponId === 'wooden_shortbow') {
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e, flatShading: true })
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), gripMat)
-      this.bowPivot.add(grip)
-
-      const upperLimb = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 0.45, 8), woodMat)
-      upperLimb.position.set(0, 0.3, -0.05)
-      upperLimb.rotation.x = -0.2
-      this.bowPivot.add(upperLimb)
-
-      const lowerLimb = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 0.45, 8), woodMat)
-      lowerLimb.position.set(0, -0.3, -0.05)
-      lowerLimb.rotation.x = 0.2
-      this.bowPivot.add(lowerLimb)
-
-      topTip.set(0, 0.52, 0.04)
-      botTip.set(0, -0.52, 0.04)
-      stringLength = 0.53
-
-    } else if (weaponId === 'elven_runebow') {
-      const whiteWoodMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const gemMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
-      
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.3, 8), gripMat)
-      this.bowPivot.add(grip)
-
-      // Elven Upper Limb (3 Segments for intense recurve)
-      const u1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.3, 8), whiteWoodMat)
-      u1.position.set(0, 0.28, -0.08)
-      u1.rotation.x = -0.4
-      this.bowPivot.add(u1)
-      const u2 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.35, 8), whiteWoodMat)
-      u2.position.set(0, 0.55, -0.15)
-      u2.rotation.x = 0.1
-      this.bowPivot.add(u2)
-      const u3 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.01, 0.3, 8), whiteWoodMat)
-      u3.position.set(0, 0.85, -0.08)
-      u3.rotation.x = 0.5
-      this.bowPivot.add(u3)
-
-      // Elven Lower Limb
-      const l1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.3, 8), whiteWoodMat)
-      l1.position.set(0, -0.28, -0.08)
-      l1.rotation.x = 0.4
-      this.bowPivot.add(l1)
-      const l2 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.35, 8), whiteWoodMat)
-      l2.position.set(0, -0.55, -0.15)
-      l2.rotation.x = -0.1
-      this.bowPivot.add(l2)
-      const l3 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.01, 0.3, 8), whiteWoodMat)
-      l3.position.set(0, -0.85, -0.08)
-      l3.rotation.x = -0.5
-      this.bowPivot.add(l3)
-
-      // Glowing Gems
-      const topGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), gemMat)
-      topGem.position.set(0, 0.98, -0.01)
-      this.bowPivot.add(topGem)
-      const botGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), gemMat)
-      botGem.position.set(0, -0.98, -0.01)
-      this.bowPivot.add(botGem)
-
-      topTip.set(0, 1.0, -0.01)
-      botTip.set(0, -1.0, -0.01)
-      stringLength = 1.0
-
-    } else {
-      // Default: Recurve Longbow
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x4a2e15 })
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.25, 8), gripMat)
-      this.bowPivot.add(grip)
-
-      const upperLimb = new THREE.Group()
-      const limbSeg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.45, 8), woodMat)
-      limbSeg1.position.set(0, 0.3, -0.08)
-      limbSeg1.rotation.x = -0.4
-      upperLimb.add(limbSeg1)
-      const limbSeg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.35, 8), woodMat)
-      limbSeg2.position.set(0, 0.65, -0.1)
-      limbSeg2.rotation.x = 0.2
-      upperLimb.add(limbSeg2)
-      this.bowPivot.add(upperLimb)
-
-      const lowerLimb = new THREE.Group()
-      const limbSeg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.45, 8), woodMat)
-      limbSeg3.position.set(0, -0.3, -0.08)
-      limbSeg3.rotation.x = 0.4
-      lowerLimb.add(limbSeg3)
-      const limbSeg4 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.35, 8), woodMat)
-      limbSeg4.position.set(0, -0.65, -0.1)
-      limbSeg4.rotation.x = -0.2
-      lowerLimb.add(limbSeg4)
-      this.bowPivot.add(lowerLimb)
-
-      topTip.set(0, 0.82, -0.04)
-      botTip.set(0, -0.82, -0.04)
-      stringLength = 0.85
-    }
-
     this.stringMeshTop = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, stringLength, 4), stringMat)
     this.bowPivot.add(this.stringMeshTop)
 
@@ -440,6 +217,9 @@ export class Player {
     this.bowPivot.add(this.stringMeshBottom)
 
     this._buildNockedArrow(weaponId)
+
+    polishWeaponMaterials(this.bowPivot)
+    this.bowPivot.visible = false
   }
 
   getSwordTipPosition(): THREE.Vector3 {

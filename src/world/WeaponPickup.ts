@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three'
 import { WEAPONS, getTierColor } from '../rpg/WeaponDatabase'
+import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getTerrainHeight } from './Terrain'
 
 export class WeaponPickup {
@@ -53,7 +54,7 @@ export class WeaponPickup {
     const colorHex = parseInt(getTierColor(this.tier).replace('#', '0x'))
 
     // ── Build 3D Representative Mesh ──
-    this._buildMesh(colorHex)
+    WeaponMeshFactory.buildPickupMesh(this.weaponId, this.isArrowPack, colorHex, this.meshGroup)
 
     // ── Glowing Light Ring (Lightweight Basic Material) ──
     const ringMat = new THREE.MeshBasicMaterial({
@@ -74,48 +75,7 @@ export class WeaponPickup {
     scene.add(this.group)
   }
 
-  private _buildMesh(colorHex: number): void {
-    if (this.isArrowPack || this.weaponId.includes('bow')) {
-      const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.3 })
-      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 6, 12, Math.PI), mat)
-      bow.position.y = 0.45
-      this.meshGroup.add(bow)
-    } else {
-      // 打造正宗中世紀十字鋼鐵長劍 (Steel Sword / Greatsword Pickup)
-      const hiltMat   = new THREE.MeshLambertMaterial({ color: 0x4a3525 })
-      const guardMat  = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
-      const bladeMat  = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.95, roughness: 0.1 })
-      const pommelMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
 
-      const swordGroup = new THREE.Group()
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 8), hiltMat)
-      hilt.position.y = 0.125
-      swordGroup.add(hilt)
-
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), pommelMat)
-      pommel.position.y = 0.0
-      swordGroup.add(pommel)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.045, 0.07), guardMat)
-      guard.position.y = 0.25
-      swordGroup.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.95, 0.025), bladeMat)
-      blade.position.y = 0.725
-      blade.castShadow = true
-      swordGroup.add(blade)
-
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 1.28
-      swordGroup.add(tip)
-
-      swordGroup.scale.set(0.7, 0.7, 0.7)
-      swordGroup.position.y = 0.2
-      this.meshGroup.add(swordGroup)
-    }
-  }
 
   update(dt: number): void {
     if (!this.alive) return
