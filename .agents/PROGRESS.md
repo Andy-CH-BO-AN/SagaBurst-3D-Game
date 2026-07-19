@@ -1,14 +1,14 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-07-19 (Phase 13 Complete — Cavalry NPCs & Mounts)_
+_Last updated: 2026-07-19 (Phase 18 Complete — Character Body Proportions & Details)_
 
 ---
 
 ## Current Status
 
-**All Phases (0 ~ 8, 13, 14) — ✅ COMPLETE**
+**All Phases (0 ~ 8, 13, 14, 15, 16, 17, 18) — ✅ COMPLETE**
 
-The 3D Action RPG web game now includes fully functional Cavalry NPCs, mount damage routing, impact damage, specific player mount interaction rules, and specialized cavalry variants (Lancers and Mounted Archers).
+The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
 
 ---
 
@@ -65,5 +65,20 @@ All 8 base phases in `PLAN.md` + Phase 13 are completed.
 - 索敵機制改為全場掃描 (O(N)，拔除開根號)
 - 已移除LOD分層機制，實測200人規模效能足夠，不需要此優化，避免衍生行為異常的風險。
 - **坐騎視覺優化**：為黑貓與柯基分別加上專屬幾何體馬鞍，並抽出 `rideHeightOffset` 與 `ridePitch`，讓玩家與NPC騎乘時能精準呈現前傾跨坐姿態。
-- **騎射手AI優化**：當敵人進入極近距離 (<6m) 時，騎射手會主動收起弓箭拔劍發起近戰衝鋒。
-- **Agent 文件重構**：將所有的 Agent 規則與進度文件 (`AGENTS.md`, `ARCHITECTURE.md`, `PLAN.md`, `PROGRESS.md`) 移入系統標準的 `.agents/` 目錄中，並新增「每次做完事皆需檢查並更新 ARCHITECTURE.md」的強制規則。
+- 騎射手AI優化：當敵人進入極近距離 (<6m) 時，騎射手會主動收起弓箭拔劍發起近戰衝鋒。
+- Agent 文件重構：將所有的 Agent 規則與進度文件 (`AGENTS.md`, `ARCHITECTURE.md`, `PLAN.md`, `PROGRESS.md`) 移入系統標準的 `.agents/` 目錄中，並新增「每次做完事皆需檢查並更新 ARCHITECTURE.md」的強制規則。
+
+### Phase 16: 動態背盾機制 (Dynamic Back Shield)
+- 玩家與 NPC 在切換為弓箭模式時，左手的盾牌會自動改掛在背後。
+- 切換回近戰武器時，盾牌會自動掛回左手。
+
+### Phase 17: 角色剪影與陣營識別重製 (Realistic Aesthetics)
+- 移除原本整身染成紅/藍色的「玩具兵人」感，改為寫實的金屬鐵灰與皮革棕色。
+- 維京陣營保留木製圓盾、牛角盔、以及胸前的藍色符文印記作為辨識。
+- 羅馬陣營則裝備鐵片盔甲（環形 Lorica Segmentata）、羅馬方盾、以及頭盔上的紅色羽冠。
+
+### Phase 18: 角色肢體結構細節化 (Anatomical Segmentation)
+- 軀幹分節：將原本的單一巨大圓柱膠囊體拆分為「胸甲 (Chest)」與「腹部 (Abdomen)」。
+- 四肢分節：新增「大腿」與「小腿」的幾何體分段結構，告別純圓柱四肢。
+- 比例修正：修復因頭部球體弧度造成的斷頸空隙（加長加粗脖子），並確保玩家與 NPC 擁有完全一致的腿長與整體身高比例（修正 NPC 蹲姿問題）。
+- 移除披風以防與箭筒及動態背盾發生嚴重的視覺穿模。

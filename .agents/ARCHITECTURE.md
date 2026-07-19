@@ -15,7 +15,7 @@ skyrim 3D test/
     ├── main.ts                Vite entry — creates Game instance
     ├── Game.ts                Master orchestrator & combat, AI, heightmap physics, audio, inventory, pickup loop
     ├── player/
-    │   ├── Player.ts          Capsule body, 6 distinct 3D weapon builders, HP/damage/respawn state, heightmap ground collision
+    │   ├── Player.ts          Segmented body (Torso & Limbs), 6 distinct 3D weapon builders, HP/damage/respawn state, heightmap ground collision
     │   └── PlayerInput.ts     Keyboard & mouse event aggregator (added E key detection)
     ├── world/
     │   ├── Sky.ts             Background, atmospheric fog, direction sun & ambient lighting

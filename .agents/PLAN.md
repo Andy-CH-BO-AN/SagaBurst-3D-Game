@@ -120,3 +120,37 @@ Pure frontend — no backend server. Save/load via localStorage.
 - Mount Death: When a mount's HP reaches 0, the rider is forcibly dismounted and resumes foot combat.
 - Impact Damage: Sprinting mounts deal horizontal collision-based damage to valid targets with a short cooldown.
 - Interaction Restrictions: Players cannot 'E' interact with a mount that is currently ridden by an NPC.
+
+---
+
+### ✅ Phase 14 — Cavalry Weapon Extensions (DONE)
+- Lancer (長槍騎兵): Uses a new Lance weapon (`steel_lance`). Charges deal 3x damage and skip mount impact damage.
+- Mounted Archer (騎射手): Aims and shoots while moving, maintaining a distance of 6~15m.
+
+---
+
+### ✅ Phase 15 — Performance & Architecture Refactoring (DONE)
+- Weapon mesh factory unification.
+- SpatialGrid optimization.
+- AI logic enhancements (Archers draw swords in melee).
+- Documentation moved to `.agents/`.
+
+---
+
+### ✅ Phase 16 — Dynamic Back Shield Mechanism (DONE)
+- Shields automatically unequip from the left hand and attach to the character's back when switching to Archery mode.
+- Re-equipping melee weapons automatically moves the shield back to the left hand.
+
+---
+
+### ✅ Phase 17 — Realistic Character Aesthetics (DONE)
+- Removed toy-like full-body dyes.
+- Characters feature realistic metal (iron/bronze) and leather tones.
+- Team identification relies on silhouettes (helmet/shield types) and localized accent colors (runes, crests).
+
+---
+
+### ✅ Phase 18 — Anatomical Limb Segmentation (DONE)
+- Upgraded the body from a basic capsule to segmented Torso (chest + abdomen) and Legs (thigh + calf).
+- Adjusted joint pivots for arms/shoulders to match the new chest width.
+- Corrected proportions, fixed floating head gaps, and synchronized Player/NPC height profiles.
