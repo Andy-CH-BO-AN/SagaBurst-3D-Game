@@ -832,7 +832,7 @@ export class Game {
 
       // Tier 1 & 2: Updating NPC. Decide if we skip collisions.
       const skipBoidsAndObstacles = !npc.ignoreLOD && distSq > boidDistSq
-      const nearbyNPCs = skipBoidsAndObstacles ? [] : this.npcGrid.getNearby(npc.combatPosition, 30)
+      const nearbyNPCs = this.npcGrid.getNearby(npc.combatPosition, 40)
 
       npc.update(
         dt, 
