@@ -56,3 +56,11 @@ All 8 base phases in `PLAN.md` + Phase 13 are completed.
 - **Lancer (長槍騎兵)**: Uses a new Lance weapon (`steel_lance`). When charging at high speed (`movementSpeed > 10`), they deal **3x** melee damage, and their successful hit replaces the mount's impact damage for that frame.
 - **Mounted Archer (騎射手)**: Armed with bows, they can aim and shoot while their mount is moving, maintaining a distance of 6~15 meters from the target without stopping.
 - **Player Support**: Players can also pick up the `steel_lance` which has an extended attack range (3.0) and enjoys the same 3x damage charge bonus and impact-skip rule as NPCs.
+
+### Phase 15: 程式碼與效能健檢
+- 統一武器建構邏輯 (`WeaponMeshFactory`)
+- 坐騎傷害路由重構
+- 修正坐騎名稱顯示
+- 空間分割優化 (SpatialGrid)
+- 索敵機制改為全場掃描 (O(N)，拔除開根號)
+- 已移除LOD分層機制，實測200人規模效能足夠，不需要此優化，避免衍生行為異常的風險。

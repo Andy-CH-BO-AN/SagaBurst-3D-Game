@@ -807,13 +807,9 @@ export class Game {
       if (npc.hp > 0) this.npcGrid.insert(npc)
     }
 
-    const playerPos = this.player.combatPosition
-    const boidDistSq = 80 * 80 // 6400
-    const minimalLodDistSq = 120 * 120 // 14400
+
 
     for (const npc of this.npcs) {
-      const distSq = npc.combatPosition.distanceToSquared(playerPos)
-
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
         npc.update(dt, this.player, this.npcs, [], this.obstacles, this.hpBar, 
@@ -824,14 +820,8 @@ export class Game {
         continue
       }
 
-      // Tier 3: > 120m, NOT in combat, NOT forced
-      if (!npc.ignoreLOD && !npc.inCombat && distSq > minimalLodDistSq) {
-        npc.tickMinimal(dt)
-        continue
-      }
-
-      // Tier 1 & 2: Updating NPC. Decide if we skip collisions.
-      const skipBoidsAndObstacles = !npc.ignoreLOD && distSq > boidDistSq
+      // No LOD tiers. Full update for everyone.
+      const skipBoidsAndObstacles = false
       const nearbyNPCs = this.npcGrid.getNearby(npc.combatPosition, 40)
 
       npc.update(

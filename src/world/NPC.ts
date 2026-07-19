@@ -75,8 +75,6 @@ export class NPC {
   private attackTimer = 0
   private attackHitProcessed = false
 
-  public ignoreLOD: boolean = false
-
   private flashTimer = 0
   private respawnTimer = 0
 
@@ -296,37 +294,6 @@ export class NPC {
     return closestTarget
   }
 
-  tickMinimal(dt: number): void {
-    if (this.mount) {
-      const terrainY = getTerrainHeight(this.mount.group.position.x, this.mount.group.position.z)
-      this.mount.velY += -22 * dt
-      this.mount.group.position.y += this.mount.velY * dt
-      if (this.mount.group.position.y <= terrainY) {
-        this.mount.group.position.y = terrainY
-        this.mount.velY = 0
-        this.mount.onGround = true
-      } else {
-        this.mount.onGround = false
-      }
-      this.group.position.copy(this.mount.group.position)
-    } else {
-      // Basic gravity so distant NPCs don't float in the sky
-      const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
-      this.velY += -22 * dt
-      this.group.position.y += this.velY * dt
-      if (this.group.position.y <= terrainY) {
-        this.group.position.y = terrainY
-        this.velY = 0
-        this.onGround = true
-      } else {
-        this.onGround = false
-      }
-    }
-
-    if (this.flashTimer > 0) this.flashTimer -= dt
-    if (this.state === AIState.ALERT && this.alertTimer > 0) this.alertTimer -= dt
-    if (this.state === AIState.ATTACK) this.attackTimer += dt
-  }
 
   update(
     dt: number,
