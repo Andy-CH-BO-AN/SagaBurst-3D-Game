@@ -1,0 +1,164 @@
+{
+  "stage": "phase23_v10_package_dry_run",
+  "decision": "READY_FOR_BUILD",
+  "source": {
+    "path": "/Users/chenboan/Desktop/gemini \u7684\u5bb6/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v9_final_candidate/build/horse_runtime.v9r11.raw.glb",
+    "sha256": "b828a4b6717bf4a81718984a40ec2481a81b0ab7713e0b1b66188b10d4cef50a",
+    "bytes": 17132800
+  },
+  "sourceContract": {
+    "skinCount": 1,
+    "jointCount": 80,
+    "clipNames": [
+      "idle",
+      "walk",
+      "trot",
+      "canter",
+      "gallop",
+      "jump",
+      "land",
+      "hit",
+      "death"
+    ],
+    "extensionsUsed": [
+      "KHR_materials_transmission",
+      "KHR_materials_specular",
+      "KHR_materials_ior"
+    ],
+    "extensionsRequired": [],
+    "materialCount": 18,
+    "imageCount": 51,
+    "meshCount": 54
+  },
+  "missing": {
+    "clips": [],
+    "lods": [],
+    "bodies": [],
+    "sockets": []
+  },
+  "lodTriangles": {
+    "horse_lod0": 64986,
+    "horse_lod1": 20279,
+    "horse_lod2": 5916
+  },
+  "lodCaps": {
+    "horse_lod0": 65000,
+    "horse_lod1": 22000,
+    "horse_lod2": 7000
+  },
+  "lodWithinCaps": {
+    "horse_lod0": true,
+    "horse_lod1": true,
+    "horse_lod2": true
+  },
+  "bodyMaterialUses": {
+    "horse_body_lod0": [
+      {
+        "materialIndex": 4,
+        "material": "horse_body_paint_01",
+        "baseColorTexture": 13,
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "normalTexture": 12,
+        "occlusionTexture": null,
+        "metallicRoughnessTexture": 14
+      }
+    ],
+    "horse_body_lod1": [
+      {
+        "materialIndex": 4,
+        "material": "horse_body_paint_01",
+        "baseColorTexture": 13,
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "normalTexture": 12,
+        "occlusionTexture": null,
+        "metallicRoughnessTexture": 14
+      }
+    ],
+    "horse_body_lod2": [
+      {
+        "materialIndex": 4,
+        "material": "horse_body_paint_01",
+        "baseColorTexture": 13,
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "normalTexture": 12,
+        "occlusionTexture": null,
+        "metallicRoughnessTexture": 14
+      }
+    ]
+  },
+  "toolAvailability": {
+    "toktx": {
+      "available": true,
+      "path": "/private/tmp/horse-ktx.lKGQwx/expanded/KTX-Software-4.4.2-Darwin-arm64-tools.pkg/Payload/usr/local/bin/toktx"
+    },
+    "gltfpack": {
+      "available": false,
+      "path": null
+    },
+    "gltf_transform": {
+      "available": false,
+      "path": null
+    },
+    "blender": {
+      "available": true,
+      "path": "/opt/homebrew/bin/blender"
+    },
+    "nodeMeshoptEncoder": {
+      "available": true,
+      "path": "node_modules/meshoptimizer/meshopt_encoder.module.js"
+    }
+  },
+  "prerequisites": {
+    "meshopt": true,
+    "ktx2": true,
+    "cleanBlenderImport": true
+  },
+  "eyePatchInput": {
+    "status": "PENDING_MAIN_AGENT_APPROVAL",
+    "expectedPath": "artifacts/mount_horse_pipeline/runtime_v10_eye_patch_candidate/build/horse_runtime.eye_approved.glb",
+    "contract": "same v9r11 geometry/skins/9 clips with only audited eye/cornea material/image edits",
+    "packagingRule": "copy the approved eye geometry/material payload into the final package; encode only its approved baseColor image with the recorded official toktx binary"
+  },
+  "outputContract": {
+    "runtimeGlb": "package/horse_runtime.glb",
+    "manifest": "package/manifest.json",
+    "coatVariants": [
+      "paint_01",
+      "paint_02",
+      "paint_03"
+    ],
+    "sharedElements": [
+      "mane",
+      "tail",
+      "hooves",
+      "eyes",
+      "tack"
+    ],
+    "requiredExtensions": [
+      "EXT_meshopt_compression",
+      "KHR_texture_basisu"
+    ],
+    "maxPackageBytes": 31457280
+  },
+  "publicPackageBlocker": {
+    "path": "public/models/mounts/v1/horse/horse_runtime.glb",
+    "knownFailure": "horse.rig translation.x=0.119088m exceeds the 0.02m static basis limit",
+    "resolution": "final package must be generated from the zero-translation v9r11 authority and must pass HorseRuntimePackage.test.ts before promotion"
+  },
+  "scope": "Read-only dry-run; no public or source/runtime files were modified."
+}

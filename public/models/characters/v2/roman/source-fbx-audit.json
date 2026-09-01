@@ -1,0 +1,898 @@
+{
+  "actions": [],
+  "armatures": [],
+  "blenderVersion": "5.2.0 LTS",
+  "images": [
+    {
+      "filepath": "Full_figure_42_T_pose_TXTR.jpg",
+      "name": "Diffuse Texture",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Armour_top_TXTR.jpg",
+      "name": "Diffuse Texture.001",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Dangles_TXTR.jpg",
+      "name": "Diffuse Texture.002",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Tunic_1_TXTR.jpg",
+      "name": "Diffuse Texture.003",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_eye_TXTR.jpg",
+      "name": "Diffuse Texture.004",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_eye_2_TXTR.jpg",
+      "name": "Diffuse Texture.005",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_arms_TXTR.jpg",
+      "name": "Diffuse Texture.006",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_legs_TXTR.jpg",
+      "name": "Diffuse Texture.007",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_head_TXTR.jpg",
+      "name": "Diffuse Texture.008",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Helmet3_TXTR.jpg",
+      "name": "Diffuse Texture.009",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Sword2_1_TXTR.jpg",
+      "name": "Diffuse Texture.010",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Scabbard_TXTR.jpg",
+      "name": "Diffuse Texture.011",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Boots_TXTR.jpg",
+      "name": "Diffuse Texture.012",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Wrist_guard1_TXTR.jpg",
+      "name": "Diffuse Texture.013",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Scutum_04_01_TXTR.jpg",
+      "name": "Diffuse Texture.014",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Full_figure_42_T_pose_NM.jpg",
+      "name": "Normal Map",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Armour_top_NM.jpg",
+      "name": "Normal Map.001",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Dangles_NM.jpg",
+      "name": "Normal Map.002",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Tunic_1_NM.jpg",
+      "name": "Normal Map.003",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_arms_NM.jpg",
+      "name": "Normal Map.004",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_legs_NM.jpg",
+      "name": "Normal Map.005",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "New_head_NM.jpg",
+      "name": "Normal Map.006",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Helmet3_NM.jpg",
+      "name": "Normal Map.007",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Sword2_1_NM.jpg",
+      "name": "Normal Map.008",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Scabbard_NM.jpg",
+      "name": "Normal Map.009",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Boots_NM.jpg",
+      "name": "Normal Map.010",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    },
+    {
+      "filepath": "Scutum_04_01_NM.jpg",
+      "name": "Normal Map.011",
+      "packed": true,
+      "size": [
+        2048,
+        2048
+      ]
+    }
+  ],
+  "materials": [
+    "Armour_top0",
+    "Armour_top1",
+    "Boots0",
+    "Dangles0",
+    "Full_figure_42_T_pose0",
+    "Helmet30",
+    "Helmet31",
+    "New_arms0",
+    "New_eye0",
+    "New_eye_20",
+    "New_head0",
+    "New_legs0",
+    "Scabbard0",
+    "Scabbard1",
+    "Scutum_04_010",
+    "Scutum_04_011",
+    "Sword2_10",
+    "Sword2_11",
+    "Ties0",
+    "Tunic_10",
+    "Wrist_guard10"
+  ],
+  "meshes": [
+    {
+      "bounds": {
+        "max": [
+          0.420297,
+          0.209117,
+          1.585667
+        ],
+        "min": [
+          -0.420322,
+          -0.176092,
+          1.301418
+        ],
+        "size": [
+          0.840618,
+          0.38521,
+          0.284249
+        ]
+      },
+      "materials": [
+        "Armour_top0",
+        "Armour_top1"
+      ],
+      "name": "Armour_top",
+      "triangles": 31276,
+      "vertexGroups": [],
+      "vertices": 15686
+    },
+    {
+      "bounds": {
+        "max": [
+          0.169007,
+          0.145179,
+          0.511926
+        ],
+        "min": [
+          -0.16872,
+          -0.222523,
+          -0.038366
+        ],
+        "size": [
+          0.337727,
+          0.367701,
+          0.550292
+        ]
+      },
+      "materials": [
+        "Boots0"
+      ],
+      "name": "Boots",
+      "triangles": 25812,
+      "vertexGroups": [],
+      "vertices": 12838
+    },
+    {
+      "bounds": {
+        "max": [
+          0.182061,
+          0.146199,
+          1.07096
+        ],
+        "min": [
+          -0.182077,
+          -0.186347,
+          0.623052
+        ],
+        "size": [
+          0.364138,
+          0.332546,
+          0.447909
+        ]
+      },
+      "materials": [
+        "Dangles0"
+      ],
+      "name": "Dangles",
+      "triangles": 1616,
+      "vertexGroups": [],
+      "vertices": 818
+    },
+    {
+      "bounds": {
+        "max": [
+          0.204873,
+          0.174478,
+          1.35586
+        ],
+        "min": [
+          -0.204868,
+          -0.151283,
+          0.946581
+        ],
+        "size": [
+          0.409741,
+          0.325761,
+          0.409279
+        ]
+      },
+      "materials": [
+        "Full_figure_42_T_pose0"
+      ],
+      "name": "Full_figure_42_T_pose",
+      "triangles": 12960,
+      "vertexGroups": [],
+      "vertices": 6480
+    },
+    {
+      "bounds": {
+        "max": [
+          0.118381,
+          0.201412,
+          1.844419
+        ],
+        "min": [
+          -0.117465,
+          -0.106741,
+          1.558059
+        ],
+        "size": [
+          0.235846,
+          0.308153,
+          0.286361
+        ]
+      },
+      "materials": [
+        "Helmet30",
+        "Helmet31"
+      ],
+      "name": "Helmet3",
+      "triangles": 35254,
+      "vertexGroups": [],
+      "vertices": 17679
+    },
+    {
+      "bounds": {
+        "max": [
+          0.943861,
+          0.147056,
+          1.552815
+        ],
+        "min": [
+          -0.943866,
+          -0.059322,
+          1.400946
+        ],
+        "size": [
+          1.887727,
+          0.206379,
+          0.15187
+        ]
+      },
+      "materials": [
+        "New_arms0"
+      ],
+      "name": "New_arms",
+      "triangles": 23420,
+      "vertexGroups": [],
+      "vertices": 11778
+    },
+    {
+      "bounds": {
+        "max": [
+          -0.018565,
+          -0.042221,
+          1.720884
+        ],
+        "min": [
+          -0.049587,
+          -0.073222,
+          1.689811
+        ],
+        "size": [
+          0.031022,
+          0.031001,
+          0.031072
+        ]
+      },
+      "materials": [
+        "New_eye0"
+      ],
+      "name": "New_eye",
+      "triangles": 432,
+      "vertexGroups": [],
+      "vertices": 218
+    },
+    {
+      "bounds": {
+        "max": [
+          0.050284,
+          -0.037165,
+          1.720884
+        ],
+        "min": [
+          0.019262,
+          -0.068166,
+          1.689811
+        ],
+        "size": [
+          0.031022,
+          0.031001,
+          0.031072
+        ]
+      },
+      "materials": [
+        "New_eye_20"
+      ],
+      "name": "New_eye_2",
+      "triangles": 432,
+      "vertexGroups": [],
+      "vertices": 218
+    },
+    {
+      "bounds": {
+        "max": [
+          0.098631,
+          0.144053,
+          1.836314
+        ],
+        "min": [
+          -0.098625,
+          -0.115176,
+          1.487599
+        ],
+        "size": [
+          0.197256,
+          0.259229,
+          0.348715
+        ]
+      },
+      "materials": [
+        "New_head0"
+      ],
+      "name": "New_head",
+      "triangles": 23706,
+      "vertexGroups": [],
+      "vertices": 11908
+    },
+    {
+      "bounds": {
+        "max": [
+          0.184103,
+          0.126518,
+          0.851809
+        ],
+        "min": [
+          -0.184072,
+          -0.197228,
+          -0.02508
+        ],
+        "size": [
+          0.368175,
+          0.323746,
+          0.87689
+        ]
+      },
+      "materials": [
+        "New_legs0"
+      ],
+      "name": "New_legs",
+      "triangles": 13374,
+      "vertexGroups": [],
+      "vertices": 6722
+    },
+    {
+      "bounds": {
+        "max": [
+          0.321274,
+          0.11655,
+          1.038935
+        ],
+        "min": [
+          0.098208,
+          -0.118242,
+          0.463776
+        ],
+        "size": [
+          0.223066,
+          0.234792,
+          0.575158
+        ]
+      },
+      "materials": [
+        "Scabbard0",
+        "Scabbard1"
+      ],
+      "name": "Scabbard",
+      "triangles": 32650,
+      "vertexGroups": [],
+      "vertices": 16341
+    },
+    {
+      "bounds": {
+        "max": [
+          1.014035,
+          0.28363,
+          1.852729
+        ],
+        "min": [
+          0.865274,
+          -0.218219,
+          1.042095
+        ],
+        "size": [
+          0.148761,
+          0.501849,
+          0.810635
+        ]
+      },
+      "materials": [
+        "Scutum_04_010",
+        "Scutum_04_011"
+      ],
+      "name": "Scutum_04_01",
+      "triangles": 6768,
+      "vertexGroups": [],
+      "vertices": 3390
+    },
+    {
+      "bounds": {
+        "max": [
+          -0.793939,
+          0.183504,
+          1.492898
+        ],
+        "min": [
+          -0.873077,
+          -0.628016,
+          1.431181
+        ],
+        "size": [
+          0.079138,
+          0.81152,
+          0.061717
+        ]
+      },
+      "materials": [
+        "Sword2_10",
+        "Sword2_11"
+      ],
+      "name": "Sword2_1",
+      "triangles": 8996,
+      "vertexGroups": [],
+      "vertices": 4502
+    },
+    {
+      "bounds": {
+        "max": [
+          0.031766,
+          0.175842,
+          1.31378
+        ],
+        "min": [
+          -0.035651,
+          -0.158057,
+          1.057888
+        ],
+        "size": [
+          0.067417,
+          0.333899,
+          0.255892
+        ]
+      },
+      "materials": [
+        "Ties0"
+      ],
+      "name": "Ties",
+      "triangles": 9880,
+      "vertexGroups": [],
+      "vertices": 5040
+    },
+    {
+      "bounds": {
+        "max": [
+          0.446995,
+          0.209888,
+          1.571547
+        ],
+        "min": [
+          -0.456988,
+          -0.152212,
+          0.551413
+        ],
+        "size": [
+          0.903983,
+          0.3621,
+          1.020135
+        ]
+      },
+      "materials": [
+        "Tunic_10"
+      ],
+      "name": "Tunic_1",
+      "triangles": 33600,
+      "vertexGroups": [],
+      "vertices": 16796
+    },
+    {
+      "bounds": {
+        "max": [
+          0.735236,
+          0.125457,
+          1.551053
+        ],
+        "min": [
+          -0.735236,
+          -0.012227,
+          1.432903
+        ],
+        "size": [
+          1.470472,
+          0.137685,
+          0.11815
+        ]
+      },
+      "materials": [
+        "Wrist_guard10"
+      ],
+      "name": "Wrist_guard1",
+      "triangles": 20448,
+      "vertexGroups": [],
+      "vertices": 10308
+    }
+  ],
+  "objects": [
+    {
+      "modifiers": [],
+      "name": "Armour_top",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Boots",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Dangles",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Full_figure_42_T_pose",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Helmet3",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "New_arms",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "New_eye",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "New_eye_2",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "New_head",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "New_legs",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Scabbard",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Scutum_04_01",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Sword2_1",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Ties",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Tunic_1",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "Wrist_guard1",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "MESH"
+    }
+  ],
+  "scene": {
+    "bounds": {
+      "max": [
+        1.014035,
+        0.28363,
+        1.852729
+      ],
+      "min": [
+        -0.943866,
+        -0.628016,
+        -0.038366
+      ],
+      "size": [
+        1.957901,
+        0.911647,
+        1.891095
+      ]
+    },
+    "scaleLength": 1.0,
+    "triangles": 280624,
+    "unitSystem": "METRIC"
+  },
+  "sha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400",
+  "source": "Old man head 12 FBX test.fbx"
+}

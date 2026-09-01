@@ -1,0 +1,156 @@
+{
+  "file": "lod0.glb",
+  "imageCount": 21,
+  "images": [
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Armour_top_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Armour_top_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Boots_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Boots_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Dangles_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Dangles_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Full_figure_42_T_pose_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Full_figure_42_T_pose_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Helmet3_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Helmet3_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "New_arms_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "New_arms_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "New_eye_2_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "New_eye_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "New_head_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "New_head_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "New_legs_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "New_legs_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Tunic_1_NM",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Tunic_1_TXTR",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Wrist_guard1_TXTR",
+      "packed": true,
+      "width": 2048
+    }
+  ],
+  "maxHeight": 2048,
+  "maxWidth": 2048,
+  "schemaVersion": 1
+}

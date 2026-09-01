@@ -1,0 +1,321 @@
+{
+  "stage": "phase23_v10_final_package_visual_evidence",
+  "source": "package/horse_runtime.glb",
+  "decision": "PENDING_MAIN_AGENT_VISUAL_REVIEW",
+  "captures": {
+    "paint_01_front_lod0": {
+      "name": "paint_01_front_lod0",
+      "variant": 0,
+      "view": "front",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_01_side_lod0": {
+      "name": "paint_01_side_lod0",
+      "variant": 0,
+      "view": "side",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_01_three_quarter_lod0": {
+      "name": "paint_01_three_quarter_lod0",
+      "variant": 0,
+      "view": "three_quarter",
+      "lod": 0,
+      "camera": "perspective",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_02_front_lod0": {
+      "name": "paint_02_front_lod0",
+      "variant": 1,
+      "view": "front",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_02.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_02_side_lod0": {
+      "name": "paint_02_side_lod0",
+      "variant": 1,
+      "view": "side",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_02.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_02_three_quarter_lod0": {
+      "name": "paint_02_three_quarter_lod0",
+      "variant": 1,
+      "view": "three_quarter",
+      "lod": 0,
+      "camera": "perspective",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_02.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_03_front_lod0": {
+      "name": "paint_03_front_lod0",
+      "variant": 2,
+      "view": "front",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_03.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_03_side_lod0": {
+      "name": "paint_03_side_lod0",
+      "variant": 2,
+      "view": "side",
+      "lod": 0,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_03.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_03_three_quarter_lod0": {
+      "name": "paint_03_three_quarter_lod0",
+      "variant": 2,
+      "view": "three_quarter",
+      "lod": 0,
+      "camera": "perspective",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_03.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_01_eye_close_lod0": {
+      "name": "paint_01_eye_close_lod0",
+      "variant": 0,
+      "view": "eye_close",
+      "lod": 0,
+      "camera": "perspective",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_01_side_lod1": {
+      "name": "paint_01_side_lod1",
+      "variant": 0,
+      "view": "side",
+      "lod": 1,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    },
+    "paint_01_side_lod2": {
+      "name": "paint_01_side_lod2",
+      "variant": 0,
+      "view": "side",
+      "lod": 2,
+      "camera": "orthographic",
+      "glb": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+      "paint": "/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/paint_01.baseColor.ktx2",
+      "bounds": {
+        "min": [
+          -0.7007003820330998,
+          -0.004039100331114203,
+          -1.3588694789689402
+        ],
+        "max": [
+          0.496052936304746,
+          2.273980341859281,
+          1.7203738874129237
+        ]
+      }
+    }
+  },
+  "renders": {
+    "paint_01_front_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_front_lod0.png",
+      "bytes": 165377,
+      "sha256": "9991dbf0b40ac8defc6b2d281ee61aa9e7cc2804595a232d733561672ace5fd4"
+    },
+    "paint_01_side_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_side_lod0.png",
+      "bytes": 300498,
+      "sha256": "c341cbd470fffec2df231e33434d25e5d47ee3b28231565425c068499a3f8b9b"
+    },
+    "paint_01_three_quarter_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_three_quarter_lod0.png",
+      "bytes": 227763,
+      "sha256": "b08a41cd5ddb751b602ed226bd3000396f8588d1b3b3a0937e0f9c610341599b"
+    },
+    "paint_02_front_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_02_front_lod0.png",
+      "bytes": 166637,
+      "sha256": "43edf3da4e4de0456e4ef0c305a4b00204f2a9710c47859950558755a38d1746"
+    },
+    "paint_02_side_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_02_side_lod0.png",
+      "bytes": 299432,
+      "sha256": "5c01f26f3cadfca59b52d9dd8a2b7ad1bb23c4bb16f97f7a04b6a44cbe53a2f1"
+    },
+    "paint_02_three_quarter_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_02_three_quarter_lod0.png",
+      "bytes": 226712,
+      "sha256": "e6391ebf33cbd19c8dd9a941ee2bdd39b999b7e1c4921b8be997da3089468dd4"
+    },
+    "paint_03_front_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_03_front_lod0.png",
+      "bytes": 158710,
+      "sha256": "51bc930e3c2ec196b36af9d5b6ddfad9bd43259b328bd97e3e2d2c2a0d740001"
+    },
+    "paint_03_side_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_03_side_lod0.png",
+      "bytes": 286432,
+      "sha256": "f037617cd7871ca6299679624a34cedf4836c7a5dc5fd3ac77193249d5accaa6"
+    },
+    "paint_03_three_quarter_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_03_three_quarter_lod0.png",
+      "bytes": 222189,
+      "sha256": "77efeecf406317dcd45d3bafc90f0e91d679a702e015578d2a681b2b52eb8b13"
+    },
+    "paint_01_eye_close_lod0": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_eye_close_lod0.png",
+      "bytes": 581551,
+      "sha256": "8dd99a89dd4458f60c826f3e07d71f00f8f899261483f2cf0564322e59b61a2a"
+    },
+    "paint_01_side_lod1": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_side_lod1.png",
+      "bytes": 289157,
+      "sha256": "8b798b07c6aa5ee588a468cd3bb3476570c13c8992730c32d80ff8a74ebb2b4a"
+    },
+    "paint_01_side_lod2": {
+      "path": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/renders/final_package_candidate/paint_01_side_lod2.png",
+      "bytes": 272866,
+      "sha256": "12f353394872f512b0137e784db1c47f5bad19ac057558c85c4b60b2870e6675"
+    }
+  }
+}

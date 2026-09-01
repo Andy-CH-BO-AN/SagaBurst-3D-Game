@@ -1,0 +1,127 @@
+{
+  "source": "/Users/chenboan/Downloads/Horse Rigged All Gaits.blend",
+  "renderEngine": "BLENDER_EEVEE",
+  "sourceObjects": [
+    "bit",
+    "bridle",
+    "bridle.body",
+    "horse",
+    "reins",
+    "saddle",
+    "saddle.pad",
+    "saddle.stirrup",
+    "saddle.stirrup.strap"
+  ],
+  "materials": {
+    "bit": [
+      "4F_Leather_Brown_Worn_mqm",
+      "0P_Metal_Bare_mqm"
+    ],
+    "bridle.body": [
+      "4F_Leather_Brown_Worn_mqm",
+      "0P_Metal_Bare_mqm"
+    ],
+    "saddle.stirrup": [
+      "0F_Corten_mqm"
+    ],
+    "saddle.stirrup.strap": [
+      "4C_Leather_Black_mqm"
+    ],
+    "saddle": [
+      "saddle.random",
+      "quilt.dark"
+    ],
+    "saddle.pad": [
+      "quilt.random"
+    ],
+    "reins": [
+      "4F_Leather_Brown_Worn_mqm"
+    ],
+    "horse": [
+      "horse.body.pattern",
+      "horse_hooves",
+      "horse_gums",
+      "horse_teeth",
+      "horse.eyes",
+      "horse_cornea",
+      "horse.hair.black"
+    ],
+    "bridle": [
+      "4F_Leather_Brown_Worn_mqm",
+      "0P_Metal_Bare_mqm"
+    ]
+  },
+  "particleSystems": [
+    {
+      "name": "horse.tail",
+      "type": "HAIR",
+      "count": 5000,
+      "hairLength": 0.7620000243186951,
+      "childType": "INTERPOLATED",
+      "renderedChildCount": 1,
+      "kink": "NO",
+      "clumpFactor": 0.6090909242630005,
+      "roughness1": 0.10000000149011612,
+      "roughness2": 0.032999999821186066,
+      "hairDynamics": true
+    },
+    {
+      "name": "mane",
+      "type": "HAIR",
+      "count": 1000,
+      "hairLength": 0.30480000376701355,
+      "childType": "INTERPOLATED",
+      "renderedChildCount": 5,
+      "kink": "NO",
+      "clumpFactor": 0.0,
+      "roughness1": 0.0,
+      "roughness2": 0.05000000074505806,
+      "hairDynamics": false
+    },
+    {
+      "name": "body",
+      "type": "HAIR",
+      "count": 200000,
+      "hairLength": 0.15000000596046448,
+      "childType": "INTERPOLATED",
+      "renderedChildCount": 5,
+      "kink": "NO",
+      "clumpFactor": 0.0,
+      "roughness1": 0.0,
+      "roughness2": 0.0,
+      "hairDynamics": false
+    },
+    {
+      "name": "eyelashes",
+      "type": "HAIR",
+      "count": 100,
+      "hairLength": 0.015240000560879707,
+      "childType": "INTERPOLATED",
+      "renderedChildCount": 3,
+      "kink": "NO",
+      "clumpFactor": 0.0,
+      "roughness1": 0.0,
+      "roughness2": 0.0010000000474974513,
+      "hairDynamics": false
+    }
+  ],
+  "bounds": {
+    "min": [
+      -0.3368454575538635,
+      1.1838613748550415,
+      -0.0024737867061048746
+    ],
+    "max": [
+      0.33502185344696045,
+      3.636782646179199,
+      2.0881927013397217
+    ]
+  },
+  "outputs": [
+    "source_front.png",
+    "source_side.png",
+    "source_tail_closeup.png",
+    "source_three_quarter.png"
+  ],
+  "note": "Horse meshes, source materials, particle systems and hair dynamics are unmodified; only review lights, ground and cameras were added."
+}

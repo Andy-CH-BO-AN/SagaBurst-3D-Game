@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "status": "pass-provisional-mounted",
+  "structural": {
+    "lod0": {"audit": "audit-lod0.json", "triangles": 59983, "joints": 31, "skins": 1, "animations": 0},
+    "lod1": {"audit": "audit-lod1.json", "triangles": 19985, "joints": 31, "skins": 1, "animations": 0},
+    "lod2": {"audit": "audit-lod2.json", "triangles": 5922, "joints": 31, "skins": 1, "animations": 0}
+  },
+  "images": {
+    "lod0": {"audit": "images-lod0.json", "count": 21, "maxDimension": 2048},
+    "lod1": {"audit": "images-lod1.json", "count": 21, "maxDimension": 1024},
+    "lod2": {"audit": "images-lod2.json", "count": 21, "maxDimension": 512}
+  },
+  "contract": {
+    "requiredBonesAndSockets": "pass",
+    "height": "pass",
+    "shoulderWidth": "pass",
+    "neckLength": "pass",
+    "kneeHeight": "pass",
+    "uniformRuntimeScale": "pass",
+    "finitePoseBounds": "pass"
+  },
+  "deformation": {
+    "audit": "evidence/deformation-audit.json",
+    "bindFrontSide": "pass",
+    "armsForwardFrontSide": "pass",
+    "mountedFrontSide": "provisional-pass-at-12:32",
+    "requiredFollowUp": "Validate the thigh, undertunic, skirt, dangles, and saddle clearance together in the browser."
+  },
+  "sourceWarnings": [
+    "Blender reported repeated excess FBX layer data while importing the source.",
+    "The source contained no armature, skin weights, or actions."
+  ]
+}

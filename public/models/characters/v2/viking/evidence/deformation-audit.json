@@ -1,0 +1,139 @@
+{
+  "armature": "project_humanoid",
+  "poses": {
+    "arms-forward": {
+      "front": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.85988
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.859879
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      },
+      "side": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.85988
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.859879
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      }
+    },
+    "bind": {
+      "front": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.85988
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.859879
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      },
+      "side": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.85988
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.859879
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      }
+    },
+    "mounted": {
+      "front": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.851865
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.851865
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      },
+      "side": {
+        "bounds": {
+          "max": [
+            0.951058,
+            1.0,
+            1.851865
+          ],
+          "min": [
+            -0.951058,
+            -1.0,
+            -1.0
+          ],
+          "size": [
+            1.902116,
+            2.0,
+            2.851865
+          ]
+        },
+        "extentPass": true,
+        "finite": true
+      }
+    }
+  },
+  "schemaVersion": 1,
+  "source": "lod0.glb"
+}

@@ -1,14 +1,47 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-07-19 (Phase 20 combat animation overhaul complete)_
+_Last updated: 2026-09-01 (Phase 23 realistic horse runtime completed)_
 
 ---
 
 ## Current Status
 
-**All Phases (0 ~ 8, 13, 14, 15, 16, 17, 18, 19, 20) — ✅ COMPLETE**
+**Phases 0 ~ 23 — ✅ IMPLEMENTED**
 
 The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
+
+### Phase 23：外部寫實戰馬整合（✅ DONE）
+
+- 正式 runtime 為 `public/models/mounts/v1/horse/horse_runtime.glb`（SHA-256 `097b3d5e4144749b1e4d9d1aaea3cc72393cbd3366d30926c496b485814cde63`），manifest ID 為 `realistic-warhorse-v10`。
+- 套件只有一套 80-joint skeleton 與九段 clips；每匹馬擁有獨立 skeleton／mixer，但共用 geometry、material、texture 與 clip。LOD 為 64,986／20,279／5,916 triangles。
+- 馬身有三種來源節點花色；鬃尾、蹄、眼睛與鞍具共用來源外觀。Meshopt／KTX2／Basis 完整套件約 6.05 MB。
+- 新遊戲、場景馬與 NPC 騎兵全部使用 `HORSE`；花色以穩定 FNV-1a key 分配。舊存檔的 `BLACK_CAT`／`CORGI` 仍會以上一個 commit 的程序外觀載入，本輪外部雕刻成果已清除。
+- `?devmodels=mounts&nolock` 已通過三色、1–9 動畫、LOD0／1／2、骨架、騎手與 socket 驗收；騎手膝蓋反折的重複 mounted pose 已移除。鬃髮 card 輪廓與睫毛依使用者決定列為可接受的非阻擋限制。
+- 正式 `?nolock` 10v5 及 `?devcombat&nolock` 50v50 都沒有崩潰或應用程式 console error。10v5 首次載入約 25 秒；50v50 約 23–31 FPS，geometry 暖機後穩定於 1,447，texture 在首次上傳時由 3,084 增至 3,085。遠方 NPC 隊形疑似浮空，列入後續 TODO，不阻擋 Phase 23。
+- 程式、套件測試共 62/62 通過，production build 通過；最終詳情見 `artifacts/mount_horse_pipeline/reports/phase23_final_acceptance.md`。
+
+### Phase 22：外部寫實人物、骨架與蒙皮重建
+- 新增 `HumanoidAssetRegistry`：非同步 manifest gate、GLTFLoader、共享 template、獨立 SkeletonUtils clone／AnimationMixer、LOD、bounds、dispose、遠距動畫降頻與骨架／socket adapter。
+- Player／NPC 正式 runtime 已切到外部角色入口；若 Viking 或 Roman manifest 未 ready，`Game.create()` 在出生任何單位前停止並顯示可讀錯誤。只有 Vitest 與 Vite development 的 `?legacyhumanoids` 可使用程序 fixture。
+- `CharacterCombatAnimator` 保留 hit／projectile／recovery／completed 時序，同時要求外部 clip cross-fade；一般 FOV 已由 70 改為 58，aim 維持 40。
+- 新增 `?devmodels=humans&nolock` 中性格線 studio；自由 Orbit camera 不跟隨 Player，支援旋轉／平移／縮放與 H 鍵骨架切換，方便固定檢查 front／side／動畫與騎乘。
+- 建立並驗證 `ai_share/skills/humanoid-rig-skinning/`，包含人體契約、asset manifest 契約與無依賴 GLB 稽核腳本；獨立 forward-test 正確拒絕在沒有實檔時推定比例或蒙皮通過。
+- 使用者提供合法下載原檔後，兩份 manifest 均為 `ready`。Viking／Roman 共用 `project-humanoid-v1` 31-joint skeleton、必要 sockets、獨立 skeleton/mixer 與 60k／20k／6k LOD；實測貼圖最大尺寸為 2K／1K／512。
+- Viking 高 1.86m、Roman 高 1.78m，肩寬、頸長與膝高比例通過 manifest gate；原始模型沒有 actions，因此 runtime 以共享 deterministic additive clips 驅動 `AnimationMixer`，戰鬥事件時序不變。
+- 授權證據記錄 CC BY 4.0、Andy Woodhead 作者聲明；Viking attribution 同時保留 Photodjo。Roman 原始 FBX 為分離網格且無骨架，mounted thigh／裙片已通過 isolated provisional review，仍須以實際鞍座持續檢查。
+- 維京短角是 `socket_head` 的 runtime 獨立快取配件，總跨度受 0.44m 測試限制。
+- 黑貓／柯基外部重建已延後；保留舊存檔 ID 與上一個 commit 的程序外觀，不在新場景出生。`?devmodels=mounts&nolock` 現為獨立戰馬工作室。
+- Player／NPC render heading 統一，W 前進時背部朝 camera、角色面向前進方向；第三人稱起始視角改從主角背後看向敵軍，mounted camera 依座高降低 look target。
+- Vitest 49/49 與 production build 通過。最新坐騎改版的 Chrome extension runtime 尚未列出可用瀏覽器，因此本輪沒有宣稱截圖外觀已通過；待連線後只需 hard reload `?devmodels=mounts&nolock`，檢查四個固定視圖與 application console。
+
+### Phase 21：人物、裝備、武器與坐騎程序寫實化
+- 新增共享程序 PBR 材質快取，在瀏覽器用 CanvasTexture 生成皮革、木紋、布料、金屬、皮膚與毛髮的顏色／粗糙度／凹凸細節；測試環境使用 DataTexture fallback。
+- 人物新增臉部輪廓、鼻、眉、眼、耳、頭髮／鬍鬚，以及髖、膝、踝、腳掌腿部 rig；黑貓與柯基分別有跨坐腿姿。
+- 維京與羅馬 Tier-2 護甲改為分層胸甲、環片、毛皮、護腕、裙片、護脛、護頰盔與低調陣營色。
+- Tier-2 長劍與 gladius 使用漸尖菱形截面，反曲弓使用連續曲線層壓弓臂，pilum、維京圓盾和羅馬弧面 scutum 皆補足結構細節；拾取物共用正式模型。
+- Phase 21 的黑貓／柯基外觀重建未納入最終提交；本次只保留舊程序版本與存檔相容性。活躍坐騎動畫、鞍具與 LOD 皆由 Phase 23 戰馬提供。
+- Renderer 改用 ACES filmic tone mapping 並重平衡戶外主光／補光；自動測試增加至 40/40，production build 通過。
+- 舊 `?devmodels&nolock` 黑貓測試場已由 Phase 23 的 `?devmodels=mounts&nolock` 戰馬工作室取代。
 
 ### Phase 20: 程序角色戰鬥動畫重製
 - 玩家與 NPC 共用肩、肘、腕三節 FK rig，所有武器改掛在 hand socket，手與武器不再各自動作。

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "viking-tier2-v2",
+  "status": "ready",
+  "readyAt": "2026-07-20T05:04:53Z",
+  "source": {
+    "uid": "79321179bafb4d558f0cd6a4a014ba9a",
+    "title": "Viking - rigged for animation",
+    "author": "Andy Woodhead",
+    "url": "https://sketchfab.com/3d-models/viking-rigged-for-animation-79321179bafb4d558f0cd6a4a014ba9a",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadedAt": "2026-07-20T03:49:30Z",
+    "sourceArchive": "Viking rigged1.zip",
+    "sourceSha256": "20751eaca2d86361b5e73a9cb2929484df3effb2e236c81c05e7401856a311e8",
+    "fbxSha256": "b3283c31998b0a76591a8e2639978a3abf551ce4b0a34d550fb861505e64f6f2"
+  },
+  "attribution": "Viking - rigged for animation by Andy Woodhead, licensed under CC BY 4.0. Male face image credit: Photodjo.",
+  "supplementaryPermission": "Andy Woodhead (Model author): Yes - you are free to use the whole model or parts of it in any way.",
+  "rightsRisk": "CC BY grants only rights the licensor has authority to grant; preserve both Andy Woodhead and Photodjo credits.",
+  "modifications": [
+    "Reconnected the supplied albedo, OpenGL normal, roughness, and metallic maps",
+    "Applied uniform metre normalization to 1.86 m",
+    "Rebuilt the UE4-compatible rig as project-humanoid-v1 and consolidated twist/finger weights into contract bones",
+    "Added hand, back, head, pelvis, foot, and sole socket bones",
+    "Removed 4,159 vertices belonging to the source shield and spear back-equipment islands",
+    "Generated approximately 60k, 20k, and 6k triangle LODs",
+    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions"
+  ],
+  "metrics": {
+    "heightM": 1.86,
+    "shoulderWidthM": 0.455137,
+    "neckLengthM": 0.098211,
+    "kneeHeightM": 0.536408,
+    "kneeHeightRatio": 0.288391,
+    "triangles": {
+      "lod0": 59996,
+      "lod1": 19998,
+      "lod2": 5972
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScaleAppliedInBlender": 0.9122049575833375,
+    "runtimeScale": [1, 1, 1]
+  },
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "fileSha256": {
+    "lod0": "9077eb55ba958804bde3c010b57e0ab9bc20ee493524d3d3ddf64b544c0fa7f5",
+    "lod1": "a6c8cb863b1ca9616daa6b58c702c20e49164c4cbfc9c308cb6c69695954b4c9",
+    "lod2": "10080283be96e0a93dc39c596769e97185ad83a2aa2d2000c3d5dc00c5ebca69"
+  },
+  "skeleton": "project-humanoid-v1",
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "animations": {
+    "embedded": [],
+    "runtimeGenerated": ["idle", "walk", "swordSlash", "stab", "bowAim", "mounted", "death"]
+  },
+  "evidence": {
+    "attribution": "attribution-evidence.json",
+    "sourcePackage": "source-package-audit.json",
+    "sourceFbx": "source-fbx-audit.json",
+    "deformation": "evidence/deformation-audit.json"
+  },
+  "remainingUncertainties": [
+    "The source contains no animation actions; runtime deterministic clips must preserve combat event timing.",
+    "The source has no horns. Use socket_head for the separate runtime short-horn accessory with total span at most 0.44 m.",
+    "Mounted clearance must still be checked against the actual cat and corgi saddles in the browser."
+  ]
+}

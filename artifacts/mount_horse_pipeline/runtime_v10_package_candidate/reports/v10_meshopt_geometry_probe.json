@@ -1,0 +1,31 @@
+{
+  "stage": "phase23_v10_meshopt_geometry_probe",
+  "decision": "PASS_NON_EYE_MESHOPT_INVARIANTS",
+  "source": {
+    "sha256": "b828a4b6717bf4a81718984a40ec2481a81b0ab7713e0b1b66188b10d4cef50a"
+  },
+  "probe": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/build/work/horse_runtime.v10.meshopt_geometry_probe.glb",
+    "sha256": "bcbf0bdd2adf4772abf35d6cb466a394906c02235e509f391232ce4e0b9f381c",
+    "bytes": 3954756
+  },
+  "roundTrip": {
+    "accessors": 2757,
+    "decodedBytes": 4764674
+  },
+  "contract": {
+    "triangles": {
+      "lod0": 64986,
+      "lod1": 20279,
+      "lod2": 5916
+    },
+    "rigTranslation": [
+      0,
+      -0.0008324970840476453,
+      0
+    ],
+    "imageCount": 50,
+    "textureCount": 52
+  },
+  "note": "This probe uses the previous, audited eye texture mapping only to verify meshopt binary packaging. It is not a final package and must never be promoted or used as an eye-patch substitute."
+}

@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 2,
+  "id": "realistic-warhorse-v10",
+  "status": "ready",
+  "file": "horse_runtime.glb",
+  "basisPath": "basis/",
+  "forward": "+Z",
+  "lodNodes": {
+    "lod0": "horse_lod0",
+    "lod1": "horse_lod1",
+    "lod2": "horse_lod2"
+  },
+  "bodyMeshNames": [
+    "horse_body_lod0",
+    "horse_body_lod1",
+    "horse_body_lod2"
+  ],
+  "variants": [
+    {
+      "id": "paint_01",
+      "label": "Source coat paint 01",
+      "baseColor": "textures/paint_01.baseColor.ktx2"
+    },
+    {
+      "id": "paint_02",
+      "label": "Source coat paint 02",
+      "baseColor": "textures/paint_02.baseColor.ktx2"
+    },
+    {
+      "id": "paint_03",
+      "label": "Source coat paint 03",
+      "baseColor": "textures/paint_03.baseColor.ktx2"
+    }
+  ],
+  "sharedBodyMaps": {
+    "normal": "textures/12_body.normal.ktx2",
+    "roughness": "textures/14_body.roughness.ktx2",
+    "ao": "textures/body.ao.ktx2"
+  },
+  "sharedElements": [
+    "source mane cards",
+    "source tail cards",
+    "source hooves",
+    "source tack"
+  ],
+  "eyePatch": {
+    "source": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/main_agent_visual_approval.md",
+    "sha256": "8a7990c9e43dd618b2e01868edf8926e73f6bc085424f0c785fb2eea58be6f52",
+    "geometryAccessorsChanged": [
+      47,
+      48,
+      49,
+      58,
+      53,
+      54,
+      55,
+      163,
+      164,
+      165,
+      174,
+      169,
+      170,
+      171,
+      281,
+      282,
+      283,
+      292,
+      287,
+      288,
+      289
+    ],
+    "baseColor": "textures/horse_eyes.baseColor.v10.ktx2"
+  },
+  "clips": [
+    "idle",
+    "walk",
+    "trot",
+    "canter",
+    "gallop",
+    "jump",
+    "land",
+    "hit",
+    "death"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_stirrup_l",
+    "socket_stirrup_r",
+    "socket_camera"
+  ],
+  "compression": {
+    "geometry": "EXT_meshopt_compression",
+    "textures": "KHR_texture_basisu"
+  },
+  "metrics": {
+    "shoulderHeightM": 1.649999976158142,
+    "overallHeightM": 2.2764512109570205,
+    "saddleHeightM": 1.7400000095367432,
+    "widthM": 0.7039595544338226,
+    "lengthM": 2.670880973339081,
+    "triangles": {
+      "lod0": 64986,
+      "lod1": 20279,
+      "lod2": 5916
+    },
+    "eyeBaseColor": {
+      "file": "textures/horse_eyes.baseColor.v10.ktx2",
+      "bytes": 12919,
+      "sha256": "5234a5c4ff1f3387afab8f948379e32178457abde3001e489ded9ffe1442889c",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "packageBytes": 6050753,
+    "textureCount": 48,
+    "textureMaxSize": 2048
+  },
+  "attribution": "Horse base mesh by Tarnyloo (CC BY 3.0); rig, locomotion and tack by fdoss001 (BlendSwap page declares CC0); supplemental motion reference by Quaternius (CC0).",
+  "sources": [
+    {
+      "author": "fdoss001",
+      "url": "https://blendswap.com/blend/28627",
+      "license": "CC0 page declaration; underlying Tarnyloo mesh remains attributed",
+      "sha256": "b848037332fe62064989f250a94faa04c75e3fb21ae93f6a100f19079c1b21aa"
+    },
+    {
+      "author": "Tarnyloo",
+      "url": "https://blendswap.com/blend/17172",
+      "license": "CC BY 3.0",
+      "sha256": "3372b6dea03939798cf2c4c7fa4a63a43933d4760b9b283e9e28e66fd5fe5f31"
+    },
+    {
+      "author": "Quaternius",
+      "url": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0",
+      "sha256": "56cb97026a6f4dbd9024e94cc58784e94e635042e4686b4c2344bf1eba715e01"
+    }
+  ],
+  "reports": {
+    "packageAudit": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_audit.json",
+    "preflight": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_preflight.json"
+  }
+}

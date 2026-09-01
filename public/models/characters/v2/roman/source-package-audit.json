@@ -1,0 +1,267 @@
+{
+  "archiveEntries": [],
+  "licenseFiles": [],
+  "provenanceConclusion": "No bundled license or provenance document was found; use the separately captured Sketchfab model-page/API evidence and retain all author-listed third-party credits.",
+  "schemaVersion": 1,
+  "source": {
+    "bytes": 23297808,
+    "isZip": false,
+    "label": "Sketchfab source/Old man head 12 FBX test.fbx",
+    "name": "Old man head 12 FBX test.fbx",
+    "sha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
+  },
+  "textures": [
+    {
+      "bytes": 927478,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Armour_top_NM.jpeg",
+      "sha256": "20df61de16cfe2dc166e64a2ee7c394c3755a55e3971eafbc2d4c09ad890fcae"
+    },
+    {
+      "bytes": 1292771,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Armour_top_TXTR.jpeg",
+      "sha256": "a1dddfae3f2377ba5eaa565a5251a0103b9a4a5b9d802bc71126ab82b6b5694b"
+    },
+    {
+      "bytes": 375927,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Boots_NM.jpeg",
+      "sha256": "c8f30c3e4d9c7775acfb11aa8424a71ed1fcf69c3817ba3cd7be5c8765168d3d"
+    },
+    {
+      "bytes": 503808,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Boots_TXTR.jpeg",
+      "sha256": "d92586a9879cf1adb61b40351a8e185567bd70f36afa775d28c3e2d26d49e00d"
+    },
+    {
+      "bytes": 727857,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Dangles_NM.jpeg",
+      "sha256": "c4429b95fe04ebbb4b4303e5220cbd51b140e2fbd495c901c50cb9560ffd4b39"
+    },
+    {
+      "bytes": 701596,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Dangles_TXTR.jpeg",
+      "sha256": "f9a517385072878e30fa2aeb1bc6d4ad6abbc32b7fe311716385f15cc59b70af"
+    },
+    {
+      "bytes": 567728,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Full_figure_42_T_pose_NM.jpeg",
+      "sha256": "b6c0321e65c030ddc9e494a48a3e5ccf52d1feebeae47c4ff5bde46a18bc8885"
+    },
+    {
+      "bytes": 799596,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Full_figure_42_T_pose_TXTR.jpeg",
+      "sha256": "2169b2ad24d5ac6ea8af4888dfb34029904a9f5a818866d69b54e247ae8d5bc2"
+    },
+    {
+      "bytes": 757774,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Helmet3_NM.jpeg",
+      "sha256": "1c4548e052f469214047e402f607280e64970e2d54726bb9d9058e97400db757"
+    },
+    {
+      "bytes": 907584,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Helmet3_TXTR.jpeg",
+      "sha256": "278160992ae223238be424574ef1f584df749aced2ed41dc694807042c52ea00"
+    },
+    {
+      "bytes": 34862,
+      "dimensions": [
+        512,
+        512
+      ],
+      "name": "internal_ground_ao_texture.jpeg",
+      "sha256": "2b2c0aeba89369afbb59486e45d08de1d72efb9c63e80eb312c1b3b86dd5a00a"
+    },
+    {
+      "bytes": 204211,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_arms_NM.jpeg",
+      "sha256": "63632aeb1a3b5bd71314b423a6028f3f89a60fceb56b7a700b522b078c2b96ce"
+    },
+    {
+      "bytes": 433734,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_arms_TXTR.jpeg",
+      "sha256": "d62054ff28e7d24e7042a97aab12c6911ec3a13a19661f9e988411ff48139ca3"
+    },
+    {
+      "bytes": 180664,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_eye_2_TXTR.jpeg",
+      "sha256": "6cf498b2a7165b2e34200a2b1165888e7973a7234c54f6fdb7ae6f580f345fbc"
+    },
+    {
+      "bytes": 180664,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_eye_TXTR.jpeg",
+      "sha256": "6cf498b2a7165b2e34200a2b1165888e7973a7234c54f6fdb7ae6f580f345fbc"
+    },
+    {
+      "bytes": 476952,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_head_NM.jpeg",
+      "sha256": "4ae5d913a0453f12c58eade33fd6047abe0723a1f6671c472a12c6ae3b0ea939"
+    },
+    {
+      "bytes": 464822,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_head_TXTR.jpeg",
+      "sha256": "83747a8d786a83425d03afd224629291594e9d8012ca40189f7255073fdc4944"
+    },
+    {
+      "bytes": 131340,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_legs_NM.jpeg",
+      "sha256": "9306ba1e2a42af5d5928d4a3a59c327952891f9849a2148d081922dd4c87de09"
+    },
+    {
+      "bytes": 337218,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "New_legs_TXTR.jpeg",
+      "sha256": "7c79d2c96543afbd46015c8edc5723f11262c0b09133bc40f259fc114aca8e27"
+    },
+    {
+      "bytes": 146446,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Scabbard_NM.jpeg",
+      "sha256": "f0236784df3182d51388c7af9877e3c2a9bbb5e034876e7b3c24390fa2047fda"
+    },
+    {
+      "bytes": 463918,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Scabbard_TXTR.jpeg",
+      "sha256": "c7cfdfd2005e6066ff4a3fd6176ee12454f5d40263ba42e17c5fb42d22065937"
+    },
+    {
+      "bytes": 201281,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Scutum_04_01_NM.jpeg",
+      "sha256": "a0461fb9a271c00fda23ed277e54c0ba582eddb0758de0b595aa9b354d188140"
+    },
+    {
+      "bytes": 811693,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Scutum_04_01_TXTR.jpeg",
+      "sha256": "51bb81d49ac57061e099adc6120b2870cee762dd0562273ec861c032a31aac6d"
+    },
+    {
+      "bytes": 198745,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Sword2_1_NM.jpeg",
+      "sha256": "18191034ef2eba7b7f986a724f65831f0d331f3f1535a83c336c82acdfb505c7"
+    },
+    {
+      "bytes": 178579,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Sword2_1_TXTR.jpeg",
+      "sha256": "a5b8fb69f6861da3b087eaa9245a2201aa3f83a8d890f66c76524ae24d33c711"
+    },
+    {
+      "bytes": 636215,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_1_NM.jpeg",
+      "sha256": "1820e5de450a9161a923ffb4e9555990c295e57080f4339d2aa62135da1024f9"
+    },
+    {
+      "bytes": 640783,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_1_TXTR.jpeg",
+      "sha256": "8d2f761f2e8f38e22fa393a2e7bb62d085fca2639c4c27ad1f24da7762fbf000"
+    },
+    {
+      "bytes": 843950,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Wrist_guard1_TXTR.jpeg",
+      "sha256": "ece130bb12e67f26ee282e393714c5a77da6cb0db39b1d045623bc02a7c98abe"
+    }
+  ]
+}

@@ -1,0 +1,341 @@
+{
+  "archiveEntries": [
+    {
+      "bytes": 678468,
+      "crc32": "883f9253",
+      "name": "Head_Base_color.jpg"
+    },
+    {
+      "bytes": 49483,
+      "crc32": "3a599159",
+      "name": "Head_Height.jpg"
+    },
+    {
+      "bytes": 884229,
+      "crc32": "4f53a573",
+      "name": "Head_Metallic.jpg"
+    },
+    {
+      "bytes": 426752,
+      "crc32": "fa939462",
+      "name": "Head_Mixed_AO.jpg"
+    },
+    {
+      "bytes": 982526,
+      "crc32": "d9e4c6ca",
+      "name": "Head_Normal.jpg"
+    },
+    {
+      "bytes": 999410,
+      "crc32": "b0c18ca6",
+      "name": "Head_Normal_DirectX.jpg"
+    },
+    {
+      "bytes": 1311244,
+      "crc32": "7d52e832",
+      "name": "Head_Roughness.jpg"
+    },
+    {
+      "bytes": 671663,
+      "crc32": "e70bd9f1",
+      "name": "Kit_Base_color.jpg"
+    },
+    {
+      "bytes": 50825,
+      "crc32": "28442c4d",
+      "name": "Kit_Height.jpg"
+    },
+    {
+      "bytes": 252013,
+      "crc32": "52812f8f",
+      "name": "Kit_Metallic.jpg"
+    },
+    {
+      "bytes": 394591,
+      "crc32": "a12ed050",
+      "name": "Kit_Mixed_AO.jpg"
+    },
+    {
+      "bytes": 898412,
+      "crc32": "935842a0",
+      "name": "Kit_Normal.jpg"
+    },
+    {
+      "bytes": 947098,
+      "crc32": "9f21a4c1",
+      "name": "Kit_Normal_DirectX.jpg"
+    },
+    {
+      "bytes": 597891,
+      "crc32": "2106b9b5",
+      "name": "Kit_Roughness.jpg"
+    },
+    {
+      "bytes": 578398,
+      "crc32": "1667bce8",
+      "name": "Legs Hands_Base_color.jpg"
+    },
+    {
+      "bytes": 126327,
+      "crc32": "ec3157cc",
+      "name": "Legs Hands_Height.jpg"
+    },
+    {
+      "bytes": 49484,
+      "crc32": "e5854ae3",
+      "name": "Legs Hands_Metallic.jpg"
+    },
+    {
+      "bytes": 485571,
+      "crc32": "c465429f",
+      "name": "Legs Hands_Mixed_AO.jpg"
+    },
+    {
+      "bytes": 989414,
+      "crc32": "71e959d4",
+      "name": "Legs Hands_Normal.jpg"
+    },
+    {
+      "bytes": 1143657,
+      "crc32": "5ff7412f",
+      "name": "Legs Hands_Normal_DirectX.jpg"
+    },
+    {
+      "bytes": 489742,
+      "crc32": "862c79d4",
+      "name": "Legs Hands_Roughness.jpg"
+    },
+    {
+      "bytes": 768284,
+      "crc32": "159723b9",
+      "name": "Tunic_Base_color.jpg"
+    },
+    {
+      "bytes": 68902,
+      "crc32": "85e40967",
+      "name": "Tunic_Height.jpg"
+    },
+    {
+      "bytes": 211324,
+      "crc32": "09a3f8e0",
+      "name": "Tunic_Metallic.jpg"
+    },
+    {
+      "bytes": 459571,
+      "crc32": "c1b1bb0e",
+      "name": "Tunic_Mixed_AO.jpg"
+    },
+    {
+      "bytes": 1402310,
+      "crc32": "691ab108",
+      "name": "Tunic_Normal.jpg"
+    },
+    {
+      "bytes": 1484508,
+      "crc32": "cb0a4a3e",
+      "name": "Tunic_Normal_DirectX.jpg"
+    },
+    {
+      "bytes": 819094,
+      "crc32": "8cf51c7e",
+      "name": "Tunic_Roughness.jpg"
+    },
+    {
+      "bytes": 9527452,
+      "crc32": "4d79288f",
+      "name": "Viking rigged1.fbx"
+    }
+  ],
+  "licenseFiles": [],
+  "provenanceConclusion": "No bundled license or provenance document was found; use the separately captured Sketchfab model-page/API evidence and retain all author-listed third-party credits.",
+  "schemaVersion": 1,
+  "source": {
+    "bytes": 27752445,
+    "isZip": true,
+    "label": "Sketchfab source/Viking rigged1.zip",
+    "name": "Viking rigged1.zip",
+    "sha256": "20751eaca2d86361b5e73a9cb2929484df3effb2e236c81c05e7401856a311e8"
+  },
+  "textures": [
+    {
+      "bytes": 678468,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Head_Base_color.jpeg",
+      "sha256": "713dd41f930fadbb625ea5c786909b12ea5e41cbf19b9729f6d2e3f2330f7ec9"
+    },
+    {
+      "bytes": 884229,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Head_Metallic.jpeg",
+      "sha256": "c3504a001a6fb1cc5207ef15e51ca3838e850606fc02f782ee571352d83ae034"
+    },
+    {
+      "bytes": 426752,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Head_Mixed_AO.jpeg",
+      "sha256": "8ffeb32adef1ad076f1fc4e519f7ea85e804f172fd52cd8363942d86bf29d65c"
+    },
+    {
+      "bytes": 999410,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Head_Normal_DirectX.jpeg",
+      "sha256": "db7acec28aea839cb58083491cdd1dd827eb61755c439e327624cf41c1afa7cc"
+    },
+    {
+      "bytes": 1311244,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Head_Roughness.jpeg",
+      "sha256": "f945de94efcd1636fff20485aaa04a6ebd1fc9629e54937b24e28b2393231bcf"
+    },
+    {
+      "bytes": 671663,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Kit_Base_color.jpeg",
+      "sha256": "da3f6172f87cafb4e8ba26f479c7ac7c1b7963e872263f74beb99f06430ea424"
+    },
+    {
+      "bytes": 252013,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Kit_Metallic.jpeg",
+      "sha256": "d9997149e58fee9990c1abeee7f2abe57e365990f0c54851680560bcf7478970"
+    },
+    {
+      "bytes": 394591,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Kit_Mixed_AO.jpeg",
+      "sha256": "8ddbb451a9f768b6c9ffc85381df171919ffbf79a153e406d7d123cd36a1e659"
+    },
+    {
+      "bytes": 947098,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Kit_Normal_DirectX.jpeg",
+      "sha256": "5812c0707789fc20c00ec1dcfd5cb1059e3a031b24febaa588258f3f408463ea"
+    },
+    {
+      "bytes": 597891,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Kit_Roughness.jpeg",
+      "sha256": "38ee2b6b4b2a2089a0eb6e0dbd2dc04f450d6ec8a54908a7127f110b5dc4496e"
+    },
+    {
+      "bytes": 578398,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Legs Hands_Base_color.jpeg",
+      "sha256": "17dfdbb907e88934341bf19e4f6db4e3d190b48082743ea348dc91be251b110e"
+    },
+    {
+      "bytes": 49484,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Legs Hands_Metallic.jpeg",
+      "sha256": "fbbf6bfade895926d9a39a4ccc287c30585c38c9c94896c733a6dbb126f2e0ad"
+    },
+    {
+      "bytes": 485571,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Legs Hands_Mixed_AO.jpeg",
+      "sha256": "c012d45a035f66ee5c3355dc8178e62349f38dd67f91181c36b63eb1fe1628b1"
+    },
+    {
+      "bytes": 1143657,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Legs Hands_Normal_DirectX.jpeg",
+      "sha256": "59b60185d5d216e4741670f2a574770e5393c4d6e85a0c2055ee6348be89abc0"
+    },
+    {
+      "bytes": 489742,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Legs Hands_Roughness.jpeg",
+      "sha256": "94525b1d110607237dd8893746a030fa6f04defc0e0cda95649afff8d2db12ab"
+    },
+    {
+      "bytes": 768284,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_Base_color.jpeg",
+      "sha256": "d3a9b1d35558e8d2539c277ef461031478214fef204ab55be8eaeb6a1115338f"
+    },
+    {
+      "bytes": 211324,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_Metallic.jpeg",
+      "sha256": "666f7ad0e0d2dc00b8e71ac31038bbbce7882e78321194068ca7e40ea95ae5f0"
+    },
+    {
+      "bytes": 459571,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_Mixed_AO.jpeg",
+      "sha256": "73bbf61cc0b15ef2e3e8abc30569be00718a080c39d3706604915410cafa4e3b"
+    },
+    {
+      "bytes": 1484508,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_Normal_DirectX.jpeg",
+      "sha256": "6617cfc3cb20bc264cb6cdc6afcd989626ea789d4666168b24d35c1eae787560"
+    },
+    {
+      "bytes": 819094,
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "name": "Tunic_Roughness.jpeg",
+      "sha256": "1f60d91247382506036901b0c87aca4c213b573f61097dd68b37c0a627a9e6bb"
+    }
+  ]
+}

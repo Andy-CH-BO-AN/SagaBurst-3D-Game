@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "structural": {
+    "lod0": {"audit": "audit-lod0.json", "triangles": 59996, "joints": 31, "skins": 1, "animations": 0},
+    "lod1": {"audit": "audit-lod1.json", "triangles": 19998, "joints": 31, "skins": 1, "animations": 0},
+    "lod2": {"audit": "audit-lod2.json", "triangles": 5972, "joints": 31, "skins": 1, "animations": 0}
+  },
+  "images": {
+    "lod0": {"audit": "images-lod0.json", "count": 12, "maxDimension": 2048},
+    "lod1": {"audit": "images-lod1.json", "count": 12, "maxDimension": 1024},
+    "lod2": {"audit": "images-lod2.json", "count": 12, "maxDimension": 512}
+  },
+  "contract": {
+    "requiredBonesAndSockets": "pass",
+    "height": "pass",
+    "shoulderWidth": "pass",
+    "neckLength": "pass",
+    "kneeHeight": "pass",
+    "uniformRuntimeScale": "pass",
+    "finitePoseBounds": "pass"
+  },
+  "deformation": {
+    "audit": "evidence/deformation-audit.json",
+    "bindFrontSide": "pass",
+    "armsForwardFrontSide": "pass",
+    "mountedFrontSide": "pass-first-pass"
+  }
+}

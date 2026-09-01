@@ -7,11 +7,13 @@ import * as THREE from 'three'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
-import { buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
-import type { CharacterRig } from './CharacterVisuals'
+import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
+import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
+import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
 import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
-import { Mount, MountType } from './Mount'
+import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
+import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
@@ -64,6 +66,7 @@ export class NPC {
   private headMesh: THREE.Mesh
   private headMat: THREE.MeshStandardMaterial
   private rig: CharacterRig
+  private externalPelvisHeight = 0
   private animator: CharacterCombatAnimator
   private alertSprite: THREE.Sprite
 
@@ -104,6 +107,7 @@ export class NPC {
   private arrows: number = 0
   private velY = 0
   private onGround = false
+  private visualMovementSpeed = 0
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpMoveDir = new THREE.Vector3()
@@ -113,6 +117,7 @@ export class NPC {
   private readonly _tmpRangedTarget = new THREE.Vector3()
   private readonly _tmpRangedDirection = new THREE.Vector3()
   private readonly _tmpWeaponTip = new THREE.Vector3()
+  private readonly _tmpPelvisWorld = new THREE.Vector3()
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -191,19 +196,31 @@ export class NPC {
     this.group.name = `npc_${faction}_${aiType}`
 
     this.characterVisualGroup = new THREE.Group()
-    this.characterVisualGroup.rotation.y = Math.PI // Flip visual mesh to match movement direction (-Z forward)
+    this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.
     this.group.add(this.characterVisualGroup)
 
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    const visual = buildCharacterVisual(this.characterVisualGroup, {
+    const visualConfig = {
       faction: this.faction === Faction.ENEMY ? 'roman' : 'viking',
       tier: this.tier,
       isPlayer: false,
-    })
+    } as const
+    const allowLegacyFixture = import.meta.env.MODE === 'test'
+      || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
+    const visual = HumanoidAssetRegistry.ready
+      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, visualConfig)
+      : allowLegacyFixture
+        ? buildCharacterVisual(this.characterVisualGroup, visualConfig)
+        : (() => { throw new Error(`${visualConfig.faction} humanoid assets were not preloaded`) })()
     this.bodyMesh = visual.bodyMesh as THREE.Group
     this.headMesh = visual.headMesh as THREE.Mesh
     this.headMat = visual.headMaterial
     this.rig = visual.rig
+    if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
+      this.characterVisualGroup.updateWorldMatrix(true, true)
+      this.rig.pelvis.getWorldPosition(this._tmpPelvisWorld)
+      this.externalPelvisHeight = this.characterVisualGroup.worldToLocal(this._tmpPelvisWorld).y
+    }
 
     // Create Weapon Pivots
     this.swordPivot = new THREE.Group()
@@ -273,8 +290,8 @@ export class NPC {
     scene.add(this.group)
 
     if (this.generatedAsCavalry) {
-      const mountType = Math.random() < 0.5 ? MountType.BLACK_CAT : MountType.CORGI
-      this.mount = new Mount(scene, mountType, spawnX, spawnZ, basePos.y)
+      const horseVariant = horseVariantForStableKey(`${this.faction}:${this.name}:${this.tier}`)
+      this.mount = new Mount(scene, DEFAULT_MOUNT_TYPE, spawnX, spawnZ, basePos.y, horseVariant)
       this.mount.setNpcRider(this, this.faction)
       this._syncToMount()
     }
@@ -286,6 +303,8 @@ export class NPC {
     const mountPosition = this.mount.group.position.clone()
     this.mount.releaseRider()
     this.mount = null
+    applyCharacterMountedPose(this.rig, false)
+    this._alignExternalVisualToMount(false)
     this.group.position.copy(mountPosition)
   }
 
@@ -437,12 +456,13 @@ export class NPC {
     skipBoidsAndObstacles: boolean = false
   ): void {
     const previousPosition = this.group.position.clone()
+    this.visualMovementSpeed = 0
     if (this.mount) this.mount.beginControlledFrame()
     const startsWithShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
     this.animator.setShieldGuard(Boolean(this.shieldId) && !startsWithShieldOnBack)
     if (!this.animator.busy) {
       if (this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
-      else if (this.state !== AIState.ATTACK) this.animator.poseIdle()
+      else if (this.state !== AIState.ATTACK && this.state !== AIState.DEAD) this.animator.poseIdle()
     }
 
     if (this.flashTimer > 0) {
@@ -678,6 +698,7 @@ export class NPC {
       }
 
       case AIState.DEAD: {
+        this.rig.animation?.play('death', 0.12, false)
         this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
         this.respawnTimer -= dt
         if (this.respawnTimer <= 0) {
@@ -688,6 +709,7 @@ export class NPC {
     }
 
     const needsShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
+    if (this.state !== AIState.DEAD) this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
     this._setShieldPlacement(needsShieldOnBack)
     this._updateShieldTransition(dt)
 
@@ -746,6 +768,7 @@ export class NPC {
   }
 
   private _moveByDirection(direction: THREE.Vector3, speed: number, dt: number): void {
+    this.visualMovementSpeed = Math.max(this.visualMovementSpeed, speed)
     if (this.mount) {
       this.mount.addControlledMovement(direction, speed, dt)
     } else {
@@ -755,10 +778,16 @@ export class NPC {
 
   private _syncToMount(): void {
     if (!this.mount) return
-    this.group.position.copy(this.mount.group.position)
-    this.group.position.y += this.mount.rideHeightOffset
+    applyCharacterMountedPose(this.rig, true, this.mount.type as MountedPoseKind)
+    this._alignExternalVisualToMount(true)
+    this.mount.getSaddleSeatWorld(this.group.position)
     this.group.rotation.x = this.mount.ridePitch
     this.group.rotation.y = this.mount.group.rotation.y
+  }
+
+  private _alignExternalVisualToMount(mounted: boolean): void {
+    if (this.externalPelvisHeight <= 0) return
+    this.characterVisualGroup.position.y = mounted ? -this.externalPelvisHeight : 0
   }
 
   private _faceTarget(targetPos: THREE.Vector3): void {
@@ -808,6 +837,7 @@ export class NPC {
     this.velY = 0
     this.onGround = true
     this.group.rotation.set(0, 0, 0)
+    this._alignExternalVisualToMount(false)
     this.animator.cancel()
     this.alertSprite.visible = false
   }

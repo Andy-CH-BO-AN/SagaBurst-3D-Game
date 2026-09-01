@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-20T03:21:22Z",
+  "modelUid": "79321179bafb4d558f0cd6a4a014ba9a",
+  "publicPage": {
+    "url": "https://sketchfab.com/3d-models/viking-rigged-for-animation-79321179bafb4d558f0cd6a4a014ba9a",
+    "title": "Viking - rigged for animation",
+    "author": "Andy Woodhead",
+    "licenseLabel": "CC Attribution",
+    "licenseLink": "https://creativecommons.org/licenses/by/4.0/",
+    "authorUsageStatement": "You are free to use this model in any way.",
+    "authorClarificationProvidedByUser": "Andy Woodhead (Model author): Yes - you are free to use the whole model or parts of it in any way.",
+    "thirdPartyCredit": "Male face image credit: Photodjo",
+    "reportedTriangles": 120055,
+    "reportedVertices": 60115
+  },
+  "publicApi": {
+    "metadataEndpoint": "https://api.sketchfab.com/v3/models/79321179bafb4d558f0cd6a4a014ba9a",
+    "metadataHttpStatus": 200,
+    "isDownloadable": true,
+    "license": {
+      "label": "CC Attribution",
+      "fullName": "Creative Commons Attribution",
+      "requirements": "Author must be credited. Commercial use is allowed.",
+      "url": "http://creativecommons.org/licenses/by/4.0/",
+      "slug": "by"
+    },
+    "downloadEndpoint": "https://api.sketchfab.com/v3/models/79321179bafb4d558f0cd6a4a014ba9a/download",
+    "downloadHttpStatus": 401,
+    "downloadResponse": {
+      "detail": "Authentication credentials were not provided."
+    }
+  },
+  "authorizedSource": {
+    "suppliedByUser": true,
+    "receivedAt": "2026-07-20T03:49:30Z",
+    "archive": "Viking rigged1.zip",
+    "archiveSha256": "20751eaca2d86361b5e73a9cb2929484df3effb2e236c81c05e7401856a311e8",
+    "fbxSha256": "b3283c31998b0a76591a8e2639978a3abf551ce4b0a34d550fb861505e64f6f2"
+  },
+  "auditConclusion": "The authorized source archive was later supplied by the user. The model page licenses the complete model under CC BY 4.0, permits use in any way, designates Photodjo for the male face-image credit, and the author separately clarified that the whole model or parts may be used in any way. Attribution must name Andy Woodhead and Photodjo. Residual legal risk: CC BY grants only rights the licensor has authority to grant."
+}

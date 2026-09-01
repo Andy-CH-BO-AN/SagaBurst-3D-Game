@@ -1,6 +1,6 @@
 ---
 name: combat-browser-validation
-description: Validate this Three.js combat game through the GPT Chrome extension. Use after changing Player/NPC combat animation, weapons, bows, shields, projectiles, mounts, spawn scenarios, aiming, grounding, or other browser-visible behavior; also use when interpreting CombatTrajectory console logs, screenshots, or user-reported browser errors.
+description: Validate this Three.js combat game through the GPT Chrome extension, with Playwright CLI fallback when the extension cannot connect. Use after changing Player/NPC combat animation, weapons, bows, shields, projectiles, mounts, spawn scenarios, aiming, grounding, or other browser-visible behavior; also use when interpreting CombatTrajectory console logs, screenshots, or user-reported browser errors.
 ---
 
 # Combat Browser Validation
@@ -13,10 +13,13 @@ Validate the actual WebGL result, not only TypeScript state. Reuse the user's ru
 - Use `http://localhost:5173/?nolock` for the same scenario without pointer lock. Prefer this URL when browser automation must click or inspect the page.
 - Use `http://localhost:5173/?devcombat&nolock` for visual combat diagnostics. The current debug scenario is a Tier-3 50v50 cavalry battle, with each side containing 25 ranged riders and 25 lancers.
 - Use `http://localhost:5173/?devcombat=all&nolock` only when NPC trajectory logs are necessary. This enables Player and NPC console output and can be very noisy.
+- Use `http://localhost:5173/?devmodels=mounts&nolock` for the isolated Phase-23 horse studio. It shows one realistic horse on a metre grid with a Player-independent Orbit camera. Press `0` to cycle the three stable coat variants, `1`–`9` for idle/walk/trot/canter/gallop/jump/land/hit/death, `Space` to pause, `R` to replay, `H` for the skeleton, and `V` for the rider. The status HUD must report variant, clip, LOD, one mixer, draw calls, geometry, and textures.
 
-Treat query parameters as independent switches: `devcombat` enables trajectory rendering and `nolock` disables pointer lock. Always validate the release URL after the diagnostic URL because their spawn scenarios differ.
+Treat query parameters as independent switches: `devcombat` enables trajectory rendering and `nolock` disables pointer lock. Normally validate the release URL after the diagnostic URL because their spawn scenarios differ. A phase may explicitly classify release and stress scenarios as non-blocking diagnostics, but their screenshots, console results, FPS, LOD, and resource counts still belong in the report.
 
 ## Run the Validation Workflow
+
+For a newly exported or post-processed horse GLB, browser validation is not the first visual gate. First import the raw GLB into a clean Blender scene and render true orthographic front/side views in REST plus the same views at a representative animation frame. Compare them with identically framed source-workfile renders. Do not compress, promote, or load the candidate in the browser while the head, neck, torso, limbs, hooves, mane/tail, or tack are collapsed, exploded, intersecting, or visibly different after round-trip import.
 
 1. Read `ai_share/PROGRESS.md` and identify the exact behavior changed.
 2. Check whether Vite is already running before starting another server. Reuse the user's `npm run dev` process when it exists.
@@ -55,6 +58,8 @@ await gameTab.dev.logs({ levels: ["error", "warn"], limit: 100 })
 ```
 
 Use the exact APIs documented by the currently installed Chrome skill if they differ from this example.
+
+If the Chrome extension remains unavailable after following that skill's connection and cleanup guidance, use the installed Playwright CLI skill against the same URLs. Save screenshots under `output/playwright/`, capture browser console output, and report that fallback explicitly; extension unavailability alone is not a project failure.
 
 ## Read the Debug Overlay
 
@@ -115,6 +120,10 @@ For bows:
 For mounted combat:
 
 - Confirm the rider is seated on the saddle.
+- In the horse studio, cycle all three coats and confirm only the horse body coat changes; tack, mane, tail, hooves, and eyes must remain source-consistent.
+- Confirm the status HUD reports exactly one mixer and the selected LOD/clip; orbit close to and far from the horse to exercise LOD changes.
+- Check mane/tail attachment and card silhouettes in idle, gallop, jump, land, hit, and the final death frame.
+- Toggle the skeleton and rider; confirm pelvis-to-saddle, knees, stirrups, feet, shield, and tack do not visibly intersect.
 - Confirm a mounted lance is couched under the right arm and points forward, rather than running from the shoulder into the ground.
 - Confirm the left hand retains the shield.
 

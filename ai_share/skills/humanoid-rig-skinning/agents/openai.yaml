@@ -1,0 +1,4 @@
+interface:
+  display_name: "Humanoid Rig & Skinning"
+  short_description: "Audit and prepare realistic skinned humanoids"
+  default_prompt: "Use $humanoid-rig-skinning to audit, rig, skin, and export a game-ready humanoid asset."

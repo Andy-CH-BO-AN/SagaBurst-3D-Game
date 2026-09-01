@@ -1,0 +1,118 @@
+{
+  "stage": "phase23_v10_runtime_package",
+  "decision": "PENDING_APPROVED_EYE_DEPTH_PATCH",
+  "source": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v9_final_candidate/build/horse_runtime.v9r11.raw.glb",
+    "sha256": "b828a4b6717bf4a81718984a40ec2481a81b0ab7713e0b1b66188b10d4cef50a",
+    "expectedSha256": "b828a4b6717bf4a81718984a40ec2481a81b0ab7713e0b1b66188b10d4cef50a"
+  },
+  "invariant": {
+    "clips": [
+      "idle",
+      "walk",
+      "trot",
+      "canter",
+      "gallop",
+      "jump",
+      "land",
+      "hit",
+      "death"
+    ],
+    "skinCount": 1,
+    "skinJoints": 80,
+    "rawTriangleCaps": {
+      "lod0": 64986,
+      "lod1": 20279,
+      "lod2": 5916
+    },
+    "publicRootTranslationBlocker": "Do not package public horse_runtime.glb; v9r11 horse.rig is required because public translation.x=0.119088m failed the 0.02m basis invariant.",
+    "finalAuthorityRule": "After raw-vs-patch rejection checks, the approved eye-depth patch is the authority passed to texture remapping, Meshopt packing and round-trip verification. Pristine raw is never substituted at final build time."
+  },
+  "texturePlan": {
+    "onlyNewKtx2": "textures/horse_eyes.baseColor.v10.ktx2",
+    "reusedAuditedKtx2": [
+      "textures/00_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.normal.ktx2",
+      "textures/01_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.baseColor.ktx2",
+      "textures/02_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.ktx2",
+      "textures/03_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.normal.ktx2",
+      "textures/04_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.baseColor.ktx2",
+      "textures/05_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.ktx2",
+      "textures/06_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.normal.ktx2",
+      "textures/07_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "textures/08_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.ktx2",
+      "textures/09_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.normal.ktx2",
+      "textures/10_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "textures/11_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.ktx2",
+      "textures/12_body.normal.ktx2",
+      "textures/14_body.roughness.ktx2",
+      "textures/15_horse_hair_black__horse_body_source.normal.ktx2",
+      "textures/16_horse_hair_black__horse_body_source-source_hair_guides.ktx2",
+      "textures/17_horse_teeth__horse_feature_00_horse_teeth.normal.ktx2",
+      "textures/18_horse_teeth__horse_feature_00_horse_teeth.baseColor.ktx2",
+      "textures/19_horse_teeth__horse_feature_00_horse_teeth-horse_teeth__horse_feature_00_horse_teeth.ktx2",
+      "textures/20_horse_hooves__horse_feature_01_horse_hooves.normal.ktx2",
+      "textures/21_horse_hooves__horse_feature_01_horse_hooves.baseColor.ktx2",
+      "textures/22_horse_hooves__horse_feature_01_horse_hooves-horse_hooves__horse_feature_01_horse_hooves.ktx2",
+      "textures/23_horse_eyes__horse_feature_02_horse_eyes.normal.ktx2",
+      "textures/25_horse_eyes__horse_feature_02_horse_eyes-horse_eyes__horse_feature_02_horse_eyes.ktx2",
+      "textures/26_horse_cornea__horse_feature_03_horse_cornea.normal.ktx2",
+      "textures/27_horse_cornea__horse_feature_03_horse_cornea.baseColor.ktx2",
+      "textures/28_horse_cornea__horse_feature_03_horse_cornea-horse_cornea__horse_feature_03_horse_cornea.ktx2",
+      "textures/29_horse_gums__horse_feature_04_horse_gums.normal.ktx2",
+      "textures/30_horse_gums__horse_feature_04_horse_gums.baseColor.ktx2",
+      "textures/31_horse_gums__horse_feature_04_horse_gums-horse_gums__horse_feature_04_horse_gums.ktx2",
+      "textures/32_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.normal.ktx2",
+      "textures/33_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "textures/34_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.ktx2",
+      "textures/35_quilt_random__saddle_pad_source_00_quilt_random.normal.ktx2",
+      "textures/36_quilt_random__saddle_pad_source_00_quilt_random.baseColor.ktx2",
+      "textures/37_quilt_random__saddle_pad_source_00_quilt_random-quilt_random__saddle_pad_source_00_quilt_random.ktx2",
+      "textures/38_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.normal.ktx2",
+      "textures/39_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.baseColor.ktx2",
+      "textures/40_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm-4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.ktx2",
+      "textures/41_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.normal.ktx2",
+      "textures/42_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.baseColor.ktx2",
+      "textures/43_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm-0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.ktx2",
+      "textures/44_quilt_dark__saddle_source_00_quilt_dark.normal.ktx2",
+      "textures/45_quilt_dark__saddle_source_00_quilt_dark.baseColor.ktx2",
+      "textures/46_quilt_dark__saddle_source_00_quilt_dark-quilt_dark__saddle_source_00_quilt_dark.ktx2",
+      "textures/47_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.normal.ktx2",
+      "textures/48_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.baseColor.ktx2",
+      "textures/49_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random-saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.ktx2",
+      "textures/body.ao.ktx2",
+      "textures/paint_01.baseColor.ktx2",
+      "textures/paint_02.baseColor.ktx2",
+      "textures/paint_03.baseColor.ktx2"
+    ],
+    "missingSourceKtx2": [],
+    "groomPolicy": "Both source-groom mane and tail card materials reuse the separately-audited source horse-hair KTX2 base/normal maps; no new groom texture is generated."
+  },
+  "toolPlan": {
+    "meshopt": "node_modules/meshoptimizer/meshopt_encoder.module.js (real EXT_meshopt_compression)",
+    "meshoptRoundTrip": {
+      "decision": "PASS_NON_EYE_MESHOPT_INVARIANTS",
+      "report": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_meshopt_geometry_probe.json",
+      "accessors": 2757,
+      "decodedBytes": 4764674
+    },
+    "patchAuthoritySelfTest": {
+      "decision": "PASS_PATCH_AUTHORITY_AND_REJECTION_TESTS",
+      "report": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_packer_self_test.json",
+      "acceptedEyeAccessor": 47,
+      "rejectedNonEyeAccessor": 0
+    },
+    "ktxSoftware": {
+      "releaseUrl": "https://github.com/KhronosGroup/KTX-Software/releases/tag/v4.4.2",
+      "toolsPackage": "KTX-Software-4.4.2-Darwin-arm64-tools.pkg",
+      "toolsPackageSha256": "500bd8…32c3c (parent-verified release package digest)"
+    },
+    "toktxEnvironmentVariable": "TOKTX_BIN",
+    "toktx": {
+      "available": false,
+      "path": null
+    },
+    "eyePatchInput": "artifacts/mount_horse_pipeline/runtime_v10_eye_patch_candidate/build/horse_runtime.eye_approved.glb",
+    "eyePatchGate": "Final build must preserve approved eye/cornea geometry accessor bytes and canonical material JSON; all non-eye accessor/material/image payloads remain anchored to v9r11."
+  },
+  "scope": "Candidate-only. No source v9r11 or public asset was modified."
+}

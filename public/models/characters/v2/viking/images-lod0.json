@@ -1,0 +1,93 @@
+{
+  "file": "lod0.glb",
+  "imageCount": 12,
+  "images": [
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Head_Base_color",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Head_Metallic-Head_Roughness",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Head_Normal",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Kit_Base_color",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Kit_Metallic-Kit_Roughness",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Kit_Normal",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Legs Hands_Base_color",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Legs Hands_Metallic-Legs Hands_Roughness",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Legs Hands_Normal",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "sRGB",
+      "height": 2048,
+      "name": "Tunic_Base_color",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Tunic_Metallic-Tunic_Roughness",
+      "packed": true,
+      "width": 2048
+    },
+    {
+      "colorspace": "Non-Color",
+      "height": 2048,
+      "name": "Tunic_Normal",
+      "packed": true,
+      "width": 2048
+    }
+  ],
+  "maxHeight": 2048,
+  "maxWidth": 2048,
+  "schemaVersion": 1
+}

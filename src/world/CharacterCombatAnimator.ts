@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { CharacterRig } from './CharacterVisuals'
+import { setRigRotation } from './CharacterVisuals'
 
 export type CombatAction =
   | 'idle'
@@ -67,16 +68,24 @@ export class CharacterCombatAnimator {
     this.shieldGuardEnabled = enabled
   }
 
+  setLocomotion(speed: number, mounted = false): void {
+    if (this.busy || this.action === 'bowAim') return
+    const state = mounted ? 'mounted' : speed > 10 ? 'run' : speed > 0.1 ? 'walk' : 'idle'
+    this.rig.animation?.play(state, 0.14, true)
+  }
+
   start(action: Exclude<CombatAction, 'idle' | 'bowAim'>): boolean {
     if (this.busy) return false
     this.action = action
     this.elapsed = 0
+    this.rig.animation?.play(action, 0.1, false)
     return true
   }
 
   cancel(): void {
     this.action = 'idle'
     this.elapsed = 0
+    this.rig.animation?.play('idle', 0.12, true)
     this.poseIdle()
   }
 
@@ -84,6 +93,8 @@ export class CharacterCombatAnimator {
     this.events.hitActiveStarted = false
     this.events.projectileRelease = false
     this.events.actionCompleted = false
+
+    this.rig.animation?.update(dt)
 
     if (this.action === 'idle' || this.action === 'bowAim') return this.events
 
@@ -117,13 +128,14 @@ export class CharacterCombatAnimator {
 
   poseIdle(): void {
     this.action = 'idle'
+    this.rig.animation?.play('idle', 0.12, true)
     const { right, left } = this.rig
-    right.shoulder.rotation.set(0, 0, -0.12)
-    right.elbow.rotation.set(0.15, 0, 0)
-    right.wrist.rotation.set(0, 0, 0)
-    left.shoulder.rotation.set(0, 0, 0.12)
-    left.elbow.rotation.set(0.15, 0, 0)
-    left.wrist.rotation.set(0, 0, 0)
+    setRigRotation(right.shoulder, 0, 0, -0.12)
+    setRigRotation(right.elbow, 0.15, 0, 0)
+    setRigRotation(right.wrist, 0, 0, 0)
+    setRigRotation(left.shoulder, 0, 0, 0.12)
+    setRigRotation(left.elbow, 0.15, 0, 0)
+    setRigRotation(left.wrist, 0, 0, 0)
     this.applyShieldGuard()
     this.meleePivot.position.set(0, 0, 0)
     // Static model-to-grip alignment lives below this action pivot.
@@ -137,6 +149,7 @@ export class CharacterCombatAnimator {
   poseBow(chargeRatio: number, aimBlend = 1): void {
     if (this.busy) return
     this.action = 'bowAim'
+    this.rig.animation?.play('bowAim', 0.12, true)
     this.applyBowPose(chargeRatio, aimBlend)
   }
 
@@ -150,16 +163,16 @@ export class CharacterCombatAnimator {
     // torso. This keeps the bow, string, and nocked arrow visibly clear of the body.
     // Keep the grip low enough that a vertical longbow's upper tip sits near
     // the forehead instead of extending above the helmet.
-    left.shoulder.rotation.set(1.2 * aim, -0.1 * aim, 0.12 - 0.22 * aim)
-    left.elbow.rotation.set(0.15 + 0.15 * aim, 0, 0.05 * aim)
-    left.wrist.rotation.set(-0.15 * aim, 0, 0.04 * aim)
+    setRigRotation(left.shoulder, 1.2 * aim, -0.1 * aim, 0.12 - 0.22 * aim)
+    setRigRotation(left.elbow, 0.15 + 0.15 * aim, 0, 0.05 * aim)
+    setRigRotation(left.wrist, -0.15 * aim, 0, 0.04 * aim)
 
     // Start near the nock, then draw the right hand back and upward to the cheek.
     // The progressively negative Z rotation crosses the arm in front of the chest
     // without leaving the hand (and the draw trajectory) buried inside the torso.
-    right.shoulder.rotation.set(1.45 * aim, 0, -0.12 - 0.68 * aim - 0.6 * draw)
-    right.elbow.rotation.set(0.15 + 0.15 * aim + 0.5 * draw, 0, 0.12 * draw)
-    right.wrist.rotation.set(-0.1 * draw, 0.08 * draw, 0)
+    setRigRotation(right.shoulder, 1.45 * aim, 0, -0.12 - 0.68 * aim - 0.6 * draw)
+    setRigRotation(right.elbow, 0.15 + 0.15 * aim + 0.5 * draw, 0, 0.12 * draw)
+    setRigRotation(right.wrist, -0.1 * draw, 0.08 * draw, 0)
     this.bowPivot.rotation.set(0, 0, -0.1)
   }
 
@@ -170,18 +183,18 @@ export class CharacterCombatAnimator {
   poseLanceReady(mounted: boolean): void {
     if (this.busy) return
     const { right, left } = this.rig
-    right.shoulder.rotation.set(mounted ? 1.25 : 1.08, 0.08, -0.32)
-    right.elbow.rotation.set(mounted ? 0.15 : 0.38, 0, 0.12)
-    right.wrist.rotation.set(0, 0, 0)
+    setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)
+    setRigRotation(right.elbow, mounted ? 0.15 : 0.38, 0, 0.12)
+    setRigRotation(right.wrist, 0, 0, 0)
     if (mounted) {
-      left.shoulder.rotation.set(0, 0, 0.12)
-      left.elbow.rotation.set(0.15, 0, 0)
-      left.wrist.rotation.set(0, 0, 0)
+      setRigRotation(left.shoulder, 0, 0, 0.12)
+      setRigRotation(left.elbow, 0.15, 0, 0)
+      setRigRotation(left.wrist, 0, 0, 0)
       this.applyShieldGuard()
     } else {
-      left.shoulder.rotation.set(1.02, -0.12, 0.42)
-      left.elbow.rotation.set(0.48, 0, -0.15)
-      left.wrist.rotation.set(0, -0.18, 0)
+      setRigRotation(left.shoulder, 1.02, -0.12, 0.42)
+      setRigRotation(left.elbow, 0.48, 0, -0.15)
+      setRigRotation(left.wrist, 0, -0.18, 0)
     }
     this.meleePivot.rotation.set(0, 0, 0)
     this.meleePivot.position.set(0, -0.08, 0)
@@ -191,11 +204,11 @@ export class CharacterCombatAnimator {
     if (this.busy) return
     const t = ease(progress)
     const { right, left } = this.rig
-    right.shoulder.rotation.set(THREE.MathUtils.lerp(-0.25, -1.4, t), 0.2 * t, -0.12)
-    right.elbow.rotation.set(THREE.MathUtils.lerp(-0.15, -0.8, t), 0, 0.25 * t)
-    right.wrist.rotation.set(-0.25 * t, 0, 0)
-    left.shoulder.rotation.set(-0.25 * t, 0, 0.12)
-    left.elbow.rotation.set(-0.15, 0, 0)
+    setRigRotation(right.shoulder, THREE.MathUtils.lerp(-0.25, -1.4, t), 0.2 * t, -0.12)
+    setRigRotation(right.elbow, THREE.MathUtils.lerp(-0.15, -0.8, t), 0, 0.25 * t)
+    setRigRotation(right.wrist, -0.25 * t, 0, 0)
+    setRigRotation(left.shoulder, -0.25 * t, 0, 0.12)
+    setRigRotation(left.elbow, -0.15, 0, 0)
     this.bowPivot.rotation.set(THREE.MathUtils.lerp(-Math.PI / 2, -0.35, t), 0, 0)
   }
 
@@ -287,21 +300,21 @@ export class CharacterCombatAnimator {
       }
     }
 
-    right.shoulder.rotation.set(shoulderX, shoulderY, shoulderZ)
-    right.elbow.rotation.set(elbowX, 0, 0)
-    right.wrist.rotation.set(0, 0, 0)
+    setRigRotation(right.shoulder, shoulderX, shoulderY, shoulderZ)
+    setRigRotation(right.elbow, elbowX, 0, 0)
+    setRigRotation(right.wrist, 0, 0, 0)
 
     if (great) {
       // The off hand follows the same extend/retract rhythm for a stable
       // two-handed heavy thrust. The shield remains on the back for this mode.
       const leftShoulderX = Math.max(0, shoulderX - 0.08)
-      left.shoulder.rotation.set(leftShoulderX, -0.1, 0.28)
-      left.elbow.rotation.set(Math.max(0.15, elbowX - 0.08), 0.08, -0.08)
-      left.wrist.rotation.set(0, -0.12, 0)
+      setRigRotation(left.shoulder, leftShoulderX, -0.1, 0.28)
+      setRigRotation(left.elbow, Math.max(0.15, elbowX - 0.08), 0.08, -0.08)
+      setRigRotation(left.wrist, 0, -0.12, 0)
     } else {
-      left.shoulder.rotation.set(0, 0, 0.12)
-      left.elbow.rotation.set(0.15, 0, 0)
-      left.wrist.rotation.set(0, 0, 0)
+      setRigRotation(left.shoulder, 0, 0, 0.12)
+      setRigRotation(left.elbow, 0.15, 0, 0)
+      setRigRotation(left.wrist, 0, 0, 0)
       this.applyShieldGuard()
     }
 
@@ -318,19 +331,19 @@ export class CharacterCombatAnimator {
 
     const readyShoulder = mounted ? 1.25 : 1.08
     const readyElbow = mounted ? 0.15 : 0.38
-    right.shoulder.rotation.set(readyShoulder - drawBack * 0.18 + thrust * 0.18, 0.08, -0.3)
-    right.elbow.rotation.set(readyElbow + drawBack * 0.24 - thrust * 0.22, 0, 0.12)
-    right.wrist.rotation.set(0, 0, 0)
+    setRigRotation(right.shoulder, readyShoulder - drawBack * 0.18 + thrust * 0.18, 0.08, -0.3)
+    setRigRotation(right.elbow, readyElbow + drawBack * 0.24 - thrust * 0.22, 0, 0.12)
+    setRigRotation(right.wrist, 0, 0, 0)
 
     if (mounted) {
-      left.shoulder.rotation.set(0, 0, 0.12)
-      left.elbow.rotation.set(0.15, 0, 0)
-      left.wrist.rotation.set(0, 0, 0)
+      setRigRotation(left.shoulder, 0, 0, 0.12)
+      setRigRotation(left.elbow, 0.15, 0, 0)
+      setRigRotation(left.wrist, 0, 0, 0)
       this.applyShieldGuard()
     } else {
-      left.shoulder.rotation.set(0.82 - drawBack * 0.18 + thrust * 0.12, -0.12, 0.42)
-      left.elbow.rotation.set(0.9 - thrust * 0.3, 0, -0.15)
-      left.wrist.rotation.set(0, -0.18, 0)
+      setRigRotation(left.shoulder, 0.82 - drawBack * 0.18 + thrust * 0.12, -0.12, 0.42)
+      setRigRotation(left.elbow, 0.9 - thrust * 0.3, 0, -0.15)
+      setRigRotation(left.wrist, 0, -0.18, 0)
     }
 
     this.meleePivot.rotation.set(0, 0, 0)
@@ -343,8 +356,8 @@ export class CharacterCombatAnimator {
   private applyShieldGuard(): void {
     if (!this.shieldGuardEnabled) return
     const { left } = this.rig
-    left.shoulder.rotation.set(1.05, -0.05, 0.1)
-    left.elbow.rotation.set(0.45, 0, -0.04)
-    left.wrist.rotation.set(-0.08, 0, 0.04)
+    setRigRotation(left.shoulder, 1.05, -0.05, 0.1)
+    setRigRotation(left.elbow, 0.45, 0, -0.04)
+    setRigRotation(left.wrist, -0.08, 0, 0.04)
   }
 }

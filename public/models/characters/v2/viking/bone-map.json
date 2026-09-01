@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "skeleton": "project-humanoid-v1",
+  "sourceArmature": "root",
+  "sourceToProject": {
+    "pelvis": "hips",
+    "spine_01": "spine",
+    "spine_02": "chest",
+    "spine_03": "upper_chest",
+    "neck_01": "neck",
+    "head": "head",
+    "clavicle_l": "clavicle_l",
+    "clavicle_r": "clavicle_r",
+    "upperarm_l": "upper_arm_l",
+    "upperarm_r": "upper_arm_r",
+    "lowerarm_l": "lower_arm_l",
+    "lowerarm_r": "lower_arm_r",
+    "hand_l": "hand_l",
+    "hand_r": "hand_r",
+    "thigh_l": "upper_leg_l",
+    "thigh_r": "upper_leg_r",
+    "calf_l": "lower_leg_l",
+    "calf_r": "lower_leg_r",
+    "foot_l": "foot_l",
+    "foot_r": "foot_r",
+    "ball_l": "toe_l",
+    "ball_r": "toe_r"
+  },
+  "weightsConsolidated": {
+    "upperarm_twist_01_l/r": "upper_arm_l/r",
+    "lowerarm_twist_01_l/r": "lower_arm_l/r",
+    "thigh_twist_01_l/r": "upper_leg_l/r",
+    "calf_twist_01_l/r": "lower_leg_l/r",
+    "finger_bones_l/r": "hand_l/r"
+  },
+  "generatedSockets": [
+    "socket_hand_l",
+    "socket_hand_r",
+    "socket_back",
+    "socket_head",
+    "socket_pelvis",
+    "socket_foot_l",
+    "socket_foot_r",
+    "sole_l",
+    "sole_r"
+  ]
+}

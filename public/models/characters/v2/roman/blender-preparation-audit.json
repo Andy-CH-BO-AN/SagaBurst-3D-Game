@@ -1,0 +1,352 @@
+{
+  "blenderVersion": "5.2.0 LTS",
+  "faction": "roman",
+  "lods": {
+    "lod0": {
+      "bounds": {
+        "max": [
+          0.892389,
+          0.161999,
+          1.743903
+        ],
+        "min": [
+          -0.892316,
+          -0.247007,
+          -0.03615
+        ],
+        "size": [
+          1.784704,
+          0.409006,
+          1.780052
+        ]
+      },
+      "excludedSourceObjects": [
+        "Sword2_1",
+        "Scutum_04_01",
+        "Scabbard"
+      ],
+      "heightM": 1.78,
+      "kneeHeightM": 0.516,
+      "neckLengthM": 0.09,
+      "objectScales": {
+        "Armour_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Boots": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Dangles": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Full_figure_42_T_pose": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Helmet3": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_arms": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye_2": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_legs": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_l": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_r": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Ties": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic_1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Wrist_guard1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "shoulderWidthM": 0.434887632727623,
+      "sourceHeightM": 1.8827851749956608,
+      "textureSize": 2048,
+      "triangles": 59983,
+      "uniformScaleApplied": 0.9454079114491128,
+      "weighting": "deterministic segmented initial weights; deformation approval required"
+    },
+    "lod1": {
+      "bounds": {
+        "max": [
+          0.892605,
+          0.162253,
+          1.743903
+        ],
+        "min": [
+          -0.892243,
+          -0.246354,
+          -0.03625
+        ],
+        "size": [
+          1.784848,
+          0.408608,
+          1.780153
+        ]
+      },
+      "excludedSourceObjects": [
+        "Sword2_1",
+        "Scutum_04_01",
+        "Scabbard"
+      ],
+      "heightM": 1.78,
+      "kneeHeightM": 0.516,
+      "neckLengthM": 0.09,
+      "objectScales": {
+        "Armour_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Boots": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Dangles": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Full_figure_42_T_pose": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Helmet3": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_arms": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye_2": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_legs": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_l": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_r": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Ties": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic_1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Wrist_guard1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "shoulderWidthM": 0.434887632727623,
+      "sourceHeightM": 1.8827851749956608,
+      "textureSize": 1024,
+      "triangles": 19985,
+      "uniformScaleApplied": 0.9454079114491128,
+      "weighting": "deterministic segmented initial weights; deformation approval required"
+    },
+    "lod2": {
+      "bounds": {
+        "max": [
+          0.891714,
+          0.161896,
+          1.742249
+        ],
+        "min": [
+          -0.892018,
+          -0.250338,
+          -0.034571
+        ],
+        "size": [
+          1.783732,
+          0.412234,
+          1.77682
+        ]
+      },
+      "excludedSourceObjects": [
+        "Sword2_1",
+        "Scutum_04_01",
+        "Scabbard"
+      ],
+      "heightM": 1.78,
+      "kneeHeightM": 0.516,
+      "neckLengthM": 0.09,
+      "objectScales": {
+        "Armour_top": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Boots": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Dangles": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Full_figure_42_T_pose": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Helmet3": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_arms": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_eye_2": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "New_legs": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_l": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "RomanUndertunic_r": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Ties": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic_1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Wrist_guard1": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "shoulderWidthM": 0.434887632727623,
+      "sourceHeightM": 1.8827851749956608,
+      "textureSize": 512,
+      "triangles": 5922,
+      "uniformScaleApplied": 0.9454079114491128,
+      "weighting": "deterministic segmented initial weights; deformation approval required"
+    }
+  },
+  "schemaVersion": 1
+}

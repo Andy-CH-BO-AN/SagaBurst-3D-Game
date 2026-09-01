@@ -1,0 +1,16 @@
+{
+  "stage": "phase23_v10_candidate_promotion",
+  "decision": "READY_MANIFEST_WRITTEN_AFTER_EXPLICIT_APPROVAL_AND_PACKAGE_TEST",
+  "approvedEyePatchSha256": "8a7990c9e43dd618b2e01868edf8926e73f6bc085424f0c785fb2eea58be6f52",
+  "manifest": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/manifest.json",
+    "sha256": "1893d07cc70c094e71be02662e210ede83c7e5f5f51ffe6264317e1c82959e5a"
+  },
+  "packageBytes": 6050712,
+  "validation": {
+    "command": "HORSE_PACKAGE_ROOT=<candidate/package> HORSE_MANIFEST_FILE=<ready validation copy> rtk vitest run tests/HorseRuntimePackage.test.ts",
+    "exitCode": 0,
+    "output": "PASS (6) FAIL (0)"
+  },
+  "scope": "Candidate-only promotion. Public assets remain untouched."
+}

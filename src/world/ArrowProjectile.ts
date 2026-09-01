@@ -8,10 +8,48 @@ import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
 import { damageNpc } from '../combat/DamageRouter'
+import { proceduralMaterial } from './ProceduralMaterials'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 export type ProjectileVisualKind = 'arrow' | 'pilum'
+
+interface SharedProjectileVisuals {
+  woodMaterial: THREE.Material
+  ironMaterial: THREE.Material
+  bronzeMaterial: THREE.Material
+  featherMaterial: THREE.Material
+  arrowShaft: THREE.BufferGeometry
+  arrowTip: THREE.BufferGeometry
+  arrowFin: THREE.BufferGeometry
+  pilumShaft: THREE.BufferGeometry
+  pilumSocket: THREE.BufferGeometry
+  pilumNeck: THREE.BufferGeometry
+  pilumTip: THREE.BufferGeometry
+  pilumWrap: THREE.BufferGeometry
+}
+
+let sharedProjectileVisuals: SharedProjectileVisuals | null = null
+
+/** Projectiles are frequent transient objects; their immutable render assets must be shared. */
+function getSharedProjectileVisuals(): SharedProjectileVisuals {
+  if (sharedProjectileVisuals) return sharedProjectileVisuals
+  sharedProjectileVisuals = {
+    woodMaterial: proceduralMaterial({ kind: 'wood', color: 0x6e4722, roughness: 0.78, repeat: [2, 7] }),
+    ironMaterial: proceduralMaterial({ kind: 'iron', color: 0xa8adae, metalness: 0.9, roughness: 0.3 }),
+    bronzeMaterial: proceduralMaterial({ kind: 'bronze', color: 0xa77d43, roughness: 0.42, metalness: 0.7 }),
+    featherMaterial: new THREE.MeshBasicMaterial({ color: 0xe8e0d0 }),
+    arrowShaft: new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6),
+    arrowTip: new THREE.ConeGeometry(0.04, 0.15, 6),
+    arrowFin: new THREE.BoxGeometry(0.01, 0.12, 0.18),
+    pilumShaft: new THREE.CylinderGeometry(0.022, 0.026, 1.5, 10),
+    pilumSocket: new THREE.CylinderGeometry(0.032, 0.025, 0.18, 10),
+    pilumNeck: new THREE.CylinderGeometry(0.008, 0.015, 0.48, 8),
+    pilumTip: new THREE.ConeGeometry(0.052, 0.2, 4),
+    pilumWrap: new THREE.TorusGeometry(0.032, 0.008, 6, 10),
+  }
+  return sharedProjectileVisuals
+}
 
 export class ArrowProjectile {
   readonly mesh: THREE.Group
@@ -53,45 +91,48 @@ export class ArrowProjectile {
     this.mesh.name = `${visualKind}-projectile`
     this.mesh.userData.ignoreAimRaycast = true
 
-    const woodMat  = new THREE.MeshLambertMaterial({ color: 0x6e4722 })
-    const tipMat   = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.1 })
+    const shared = getSharedProjectileVisuals()
     if (visualKind === 'pilum') {
-      this.tipLocalZ = -1.32
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.5, 8), woodMat)
+      this.tipLocalZ = -1.4
+      const shaft = new THREE.Mesh(shared.pilumShaft, shared.woodMaterial)
       shaft.rotation.x = Math.PI / 2
       shaft.castShadow = true
       this.mesh.add(shaft)
 
-      const ironNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.45, 6), tipMat)
+      const socket = new THREE.Mesh(shared.pilumSocket, shared.ironMaterial)
+      socket.rotation.x = Math.PI / 2
+      socket.position.z = -0.79
+      this.mesh.add(socket)
+
+      const ironNeck = new THREE.Mesh(shared.pilumNeck, shared.ironMaterial)
       ironNeck.rotation.x = Math.PI / 2
-      ironNeck.position.z = -0.96
+      ironNeck.position.z = -1.08
       this.mesh.add(ironNeck)
 
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 6), tipMat)
+      const tip = new THREE.Mesh(shared.pilumTip, shared.ironMaterial)
       tip.rotation.x = -Math.PI / 2
       tip.position.z = this.tipLocalZ
       this.mesh.add(tip)
 
       const wrap = new THREE.Mesh(
-        new THREE.TorusGeometry(0.032, 0.008, 6, 10),
-        new THREE.MeshLambertMaterial({ color: 0xd4af37 }),
+        shared.pilumWrap,
+        shared.bronzeMaterial,
       )
       wrap.position.z = 0.62
       this.mesh.add(wrap)
     } else {
       this.tipLocalZ = -0.5
-      const featherMat = new THREE.MeshBasicMaterial({ color: 0xe8e0d0 })
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), woodMat)
+      const shaft = new THREE.Mesh(shared.arrowShaft, shared.woodMaterial)
       shaft.rotation.x = Math.PI / 2
       shaft.castShadow = true
       this.mesh.add(shaft)
 
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.15, 6), tipMat)
+      const tip = new THREE.Mesh(shared.arrowTip, shared.ironMaterial)
       tip.rotation.x = -Math.PI / 2
       tip.position.z = this.tipLocalZ
       this.mesh.add(tip)
 
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.18), featherMat)
+      const fin = new THREE.Mesh(shared.arrowFin, shared.featherMaterial)
       fin.position.z = 0.4
       this.mesh.add(fin)
     }

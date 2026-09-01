@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "roman-tier2-v2",
+  "status": "ready",
+  "readyAt": "2026-07-20T05:04:53Z",
+  "source": {
+    "uid": "61cd5cae148042c38048bff2bd206af3",
+    "title": "Roman Soldier - T pose - free download",
+    "author": "Andy Woodhead",
+    "url": "https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadedAt": "2026-07-20T03:49:30Z",
+    "sourceFile": "Old man head 12 FBX test.fbx",
+    "sourceSha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
+  },
+  "attribution": "Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.",
+  "rightsRisk": "CC BY grants only rights the licensor has authority to grant; no separate third-party texture claim was found in the supplied package or model page.",
+  "modifications": [
+    "Excluded the source Sword2_1, Scutum_04_01, and Scabbard objects so runtime procedural equipment remains authoritative",
+    "Applied uniform metre normalization to 1.78 m",
+    "Reduced the armour shoulder outline to the 0.46 m contract limit",
+    "Built project-humanoid-v1 from the unrigged T-pose source",
+    "Applied deterministic segmented skin weights with rigid chest armour, upper-arm shoulder plates, limited skirt weights, and restrained dangle weights",
+    "Added fitted dark-red undertunic thigh layers to avoid an exposed wedge silhouette in the mounted pose",
+    "Added hand, back, head, pelvis, foot, and sole socket bones",
+    "Generated approximately 60k, 20k, and 6k triangle LODs",
+    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions"
+  ],
+  "metrics": {
+    "heightM": 1.78,
+    "shoulderWidthM": 0.434888,
+    "neckLengthM": 0.09,
+    "kneeHeightM": 0.516,
+    "kneeHeightRatio": 0.289888,
+    "triangles": {
+      "lod0": 59983,
+      "lod1": 19985,
+      "lod2": 5922
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScaleAppliedInBlender": 0.9454079114491128,
+    "runtimeScale": [1, 1, 1]
+  },
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "fileSha256": {
+    "lod0": "f3d3d4ae7ff8513971cd147d00dbc450965653447cd5d4b611ca2326b5d99087",
+    "lod1": "2d5444e27c4d259bc72268270294ecbf9f538117306ea9bfa09c847d45a5b2e9",
+    "lod2": "890dde65d932c1001ec7eb0a88fc72455dc993863d0527368351f6ec1b0ba1a8"
+  },
+  "skeleton": "project-humanoid-v1",
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "animations": {
+    "embedded": [],
+    "runtimeGenerated": ["idle", "walk", "swordSlash", "stab", "bowAim", "mounted", "death"]
+  },
+  "evidence": {
+    "attribution": "attribution-evidence.json",
+    "sourcePackage": "source-package-audit.json",
+    "sourceFbx": "source-fbx-audit.json",
+    "deformation": "evidence/deformation-audit.json"
+  },
+  "remainingUncertainties": [
+    "The source FBX contains disconnected meshes, no armature, no weights, no actions, and emits excess-layer warnings during Blender import.",
+    "The mounted thigh and skirt silhouette passed the isolated 12:32 asset review provisionally but must be validated against the actual saddle in the browser.",
+    "If saddle validation exposes gaps or clipping, the corrective path is manual topology and weight refinement in Blender, not runtime non-uniform scaling."
+  ]
+}

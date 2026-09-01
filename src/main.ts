@@ -20,9 +20,18 @@ window.addEventListener('error', (e) => {
 const container = document.getElementById('canvas-container')
 if (!container) throw new Error('#canvas-container not found')
 
+async function bootstrap(): Promise<void> {
 try {
-  (window as any).game = new Game(container)
-} catch (e: any) {
+  const loading = document.createElement('div')
+  loading.id = 'asset-loading-status'
+  loading.style.cssText = 'position:absolute;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
+  loading.textContent = '正在載入寫實人物與戰馬資產…'
+  document.body.appendChild(loading)
+  ;(window as any).game = await Game.create(container!)
+  loading.remove()
+} catch (error: unknown) {
+  const e = error instanceof Error ? error : new Error(String(error))
+  document.getElementById('asset-loading-status')?.remove()
   const errDiv = document.createElement('div')
   errDiv.style.position = 'absolute'
   errDiv.style.top = '10px'
@@ -31,6 +40,9 @@ try {
   errDiv.style.zIndex = '9999'
   errDiv.style.backgroundColor = 'rgba(0,0,0,0.8)'
   errDiv.style.padding = '10px'
-  errDiv.innerHTML = `Init Error: ${e.message}<br>${e.stack}`
+  errDiv.textContent = `寫實資產載入失敗：${e.message}`
   document.body.appendChild(errDiv)
 }
+}
+
+void bootstrap()

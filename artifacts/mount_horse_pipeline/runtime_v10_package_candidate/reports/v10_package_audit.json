@@ -1,0 +1,770 @@
+{
+  "stage": "phase23_v10_runtime_package",
+  "decision": "CANDIDATE_READY_FOR_MAIN_AGENT_REVIEW",
+  "source": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v9_final_candidate/build/horse_runtime.v9r11.raw.glb",
+    "sha256": "b828a4b6717bf4a81718984a40ec2481a81b0ab7713e0b1b66188b10d4cef50a"
+  },
+  "final": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/horse_runtime.glb",
+    "sha256": "097b3d5e4144749b1e4d9d1aaea3cc72393cbd3366d30926c496b485814cde63",
+    "bytes": 3953500
+  },
+  "manifest": {
+    "file": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/manifest.json",
+    "sha256": "6e10ffd3f13705364764358ceec61862c0452e4f7da8c523044a4547f63e577b"
+  },
+  "packageBytes": 6050828,
+  "contract": {
+    "triangles": {
+      "lod0": 64986,
+      "lod1": 20279,
+      "lod2": 5916
+    },
+    "rigTranslation": [
+      0,
+      -0.0008324970840476453,
+      0
+    ],
+    "imageCount": 45,
+    "textureCount": 47
+  },
+  "socketNormalization": {
+    "node": "socket_camera",
+    "reason": "Project local +Z is horse-forward; the follow camera landmark must remain behind the saddle on negative Z.",
+    "localBefore": [
+      0,
+      2.3964359760284424,
+      2.342315196990967
+    ],
+    "localAfter": [
+      0,
+      2.3964359760284424,
+      -2.342315196990967
+    ],
+    "worldBefore": [
+      0,
+      2.2500002633746305,
+      2.2000002643279117
+    ],
+    "worldAfter": [
+      0,
+      2.2500002633746305,
+      -2.2000002643279117
+    ],
+    "changedField": "nodes[socket_camera].translation[2]",
+    "allOtherNodeTransformsBitIdentical": true
+  },
+  "eyePatch": {
+    "file": "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v9_final_candidate/eye_material_candidate_v4_diagnostic/build/horse_runtime.v9r11.eye-v4.source-detail-v2-uv190.diagnostic.glb",
+    "sha256": "8a7990c9e43dd618b2e01868edf8926e73f6bc085424f0c785fb2eea58be6f52",
+    "permittedEyeGeometryAccessors": [
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174,
+      281,
+      282,
+      283,
+      284,
+      285,
+      286,
+      287,
+      288,
+      289,
+      290,
+      291,
+      292
+    ],
+    "eyeMaterial": "runtime_v2_source_horse_eyes__horse_feature_02_horse_eyes",
+    "eyeImageIndex": 52,
+    "deadAppendedTexturesToPrune": 1,
+    "deadAppendedImagesToPrune": 1,
+    "changedAllowedAccessors": [
+      47,
+      48,
+      49,
+      58,
+      53,
+      54,
+      55,
+      163,
+      164,
+      165,
+      174,
+      169,
+      170,
+      171,
+      281,
+      282,
+      283,
+      292,
+      287,
+      288,
+      289
+    ]
+  },
+  "eyeKtx": {
+    "output": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/horse_eyes.baseColor.v10.ktx2",
+    "info": {
+      "file": "package/textures/horse_eyes.baseColor.v10.ktx2",
+      "bytes": 12919,
+      "sha256": "5234a5c4ff1f3387afab8f948379e32178457abde3001e489ded9ffe1442889c",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "command": [
+      "/private/tmp/horse-ktx-v442-expanded/KTX-Software-4.4.2-Darwin-arm64-tools.pkg/Payload/usr/local/bin/toktx",
+      "--encode",
+      "etc1s",
+      "--threads",
+      "1",
+      "--genmipmap",
+      "--assign_oetf",
+      "srgb",
+      "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/package/textures/horse_eyes.baseColor.v10.ktx2",
+      "/Users/chenboan/Desktop/gemini 的家/skyrim 3D test/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/build/work/horse_eyes.baseColor.approved.png"
+    ],
+    "version": "toktx v4.4.2"
+  },
+  "meshopt": {
+    "compressedBytes": 2907716,
+    "virtualBytes": 4764708,
+    "compressedViewCount": 2757,
+    "roundTrip": {
+      "accessors": 2757,
+      "decodedBytes": 4764674
+    }
+  },
+  "eyePayloadPreservation": {
+    "canonicalEyeMaterials": [
+      {
+        "material": "runtime_v2_source_horse_cornea__horse_feature_03_horse_cornea",
+        "canonicalSha256": "36f2d840b8d5cc6074a6c1c910100f51c954766d6d61ee9a6e8269d98dabbb41"
+      },
+      {
+        "material": "runtime_v2_source_horse_eyes__horse_feature_02_horse_eyes",
+        "canonicalSha256": "8921a90cb53ed9219dbe158bad860107c8800afc8b76de275044a678f8a56e19"
+      }
+    ],
+    "eyeGeometryAccessorHashes": [
+      {
+        "index": 47,
+        "sha256": "84f7f71c5fdf6dce4ca0cf2a81b1627ebd772d47f82f8bfd139efc0f93d5e490"
+      },
+      {
+        "index": 48,
+        "sha256": "7478e1c59ec06fc650fcf67cd694e7917d6e1f07889dfcd825e661e183323274"
+      },
+      {
+        "index": 49,
+        "sha256": "bd7807f33bdecd37775df300693ad23450ac18449ca31b58437cc6364a66fa17"
+      },
+      {
+        "index": 50,
+        "sha256": "f1a1148b3154d75728726270d6c1128ccf168a5d8abad0d2a2014c1fe4f6f272"
+      },
+      {
+        "index": 51,
+        "sha256": "4623d6453ff275117858a2849dae3ecb23a2fe90808ea7ea5f7d6b7dc2646298"
+      },
+      {
+        "index": 52,
+        "sha256": "df20e10b206e8a20f03d4259143de247d603a0169e81dfb570f1d49f12926d72"
+      },
+      {
+        "index": 53,
+        "sha256": "b79d71161da1b18f4e304adcd349225fbad788906eb343f9bda4d11e6b40cc72"
+      },
+      {
+        "index": 54,
+        "sha256": "4e657618d6ac3dea9987f21722a5f636c6aff45f604da89eddeb1a77a2e1f489"
+      },
+      {
+        "index": 55,
+        "sha256": "e8e30dbf33c9cac03a9d5cf4e4ec7872a26c83f911fe19ff44142d20a3ae25f2"
+      },
+      {
+        "index": 56,
+        "sha256": "921a3592a7ea3ca02772acf1d924e727c4b9f266aae9c4d7b0593274100db763"
+      },
+      {
+        "index": 57,
+        "sha256": "230517b92aba9ec9faec0b005d8ee4bfc7068893197bca74ca95ec0022e013ac"
+      },
+      {
+        "index": 58,
+        "sha256": "a675171a1dc5b3b12c006e0b690cfb3126efc6108ee21e1f87cad8fd6d2ea169"
+      },
+      {
+        "index": 163,
+        "sha256": "7843d2b159d53d2250ba33a70cb5be25ec6cdb53f986dec2fab6d2a08517cd3c"
+      },
+      {
+        "index": 164,
+        "sha256": "3a7496a11b9d3a600c0f3acfbcd696e0248595aea7b32a8a8e13ba9cd66e789e"
+      },
+      {
+        "index": 165,
+        "sha256": "bd161fde71403b6a84bd708652ed712a1c50e5e0d9775209c12031a2a6fe5ae1"
+      },
+      {
+        "index": 166,
+        "sha256": "347bbf88b6c3ef6b724312402301e101687284be85d458a0f68c852f9b2eddd6"
+      },
+      {
+        "index": 167,
+        "sha256": "93356608089e52ec7dcb69d4932924ae33da63bdbbc9f93db35d7052d1844a2f"
+      },
+      {
+        "index": 168,
+        "sha256": "e92d3b471025e5d391421708eef3f5e65f762f9764f0c96b5602a98b8feb49c6"
+      },
+      {
+        "index": 169,
+        "sha256": "4ac1e8c2de5fa5ef39e73dae51bed9f2ec921ef2c6c34c8c8f444868f81041bf"
+      },
+      {
+        "index": 170,
+        "sha256": "f85f7d1640f203734475010ac30198be90d286db7e8b07ce38dd41dab3f342ef"
+      },
+      {
+        "index": 171,
+        "sha256": "cf9557adc135dda7c86c7d6f8ab6bc3dbfc97ce237ac1f160a27fbf74682ff3f"
+      },
+      {
+        "index": 172,
+        "sha256": "f091d0db27c502edf2b03da4395e43a18ecb924025a926d2eb435b8e4ef374d1"
+      },
+      {
+        "index": 173,
+        "sha256": "83bfd6026fa437b949316a487db7d9adac6b1df1855db7807e95a2857d8ef5a9"
+      },
+      {
+        "index": 174,
+        "sha256": "17528a65f2468e6b73d7da1dcc2e66f53cfc7d6389b7f3d3e1a76a1536051596"
+      },
+      {
+        "index": 281,
+        "sha256": "5b1904352bc6f555306539f1afea551b295b564611e8b6adac830354e50850a1"
+      },
+      {
+        "index": 282,
+        "sha256": "225dcc8aa445c02c8df7f2ce557fb881df139ea02ab3f0fc4cc362ec67365a11"
+      },
+      {
+        "index": 283,
+        "sha256": "3688ba62c5ed50279e5679ca9343a26f84967073fe77c3edc39c07fe91ef9907"
+      },
+      {
+        "index": 284,
+        "sha256": "d80036cfb957143ce84b1f0b1f26c11dfcedf997bc3a67a46e42e432b016bd81"
+      },
+      {
+        "index": 285,
+        "sha256": "b8efff5e7754f34c28952f5a79c0de4b267f371e59993a24b927d5cdeeac972d"
+      },
+      {
+        "index": 286,
+        "sha256": "c264d75931194ca305f32bfd72e175161188d9077ad82bbdd6ea2af84b1c19b0"
+      },
+      {
+        "index": 287,
+        "sha256": "cb48c529243c1598fc71a8daaf49eddeae1d8fbc68c4dfb09c4db7e54889ad36"
+      },
+      {
+        "index": 288,
+        "sha256": "fa2d8f8dc280f20dd8379f75bc88cf8011fd0d59b86ad3cf86ca82ddd497b666"
+      },
+      {
+        "index": 289,
+        "sha256": "a84f6b616da9a0388f5ee6a6e3857f857923b4fdf89c88e87d78621572c6f4dc"
+      },
+      {
+        "index": 290,
+        "sha256": "2294761dffd5c4b761438d63ed423306783c7ada083662322495a00f2d3c4fbf"
+      },
+      {
+        "index": 291,
+        "sha256": "ded29c32790078a97e70e57d5192458c80d7bdd500bdd7a41b93b4ed48bfac12"
+      },
+      {
+        "index": 292,
+        "sha256": "0820e5884055b9781ff4d544fd04ad98a1ddf4fbf66c6148455a09c57e3408d0"
+      }
+    ],
+    "reachableTextures": 47,
+    "reachableImages": 45,
+    "prunedSourceTextureIndices": [
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      52
+    ]
+  },
+  "textures": {
+    "textures/00_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.normal.ktx2": {
+      "file": "package/textures/00_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.normal.ktx2",
+      "bytes": 938,
+      "sha256": "a4d34df0ea93ba7200b1e0e56be92392c500d4c8cc30706744ebd1f16497124a",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/01_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.baseColor.ktx2": {
+      "file": "package/textures/01_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.baseColor.ktx2",
+      "bytes": 2630,
+      "sha256": "a184d4cc81d474e2a53872d8140c8216d74756298c38a5e1c7258ee7d5ac3f00",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/02_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.ktx2": {
+      "file": "package/textures/02_0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bit_source_00_0p_metal_bare_mqm.ktx2",
+      "bytes": 2003,
+      "sha256": "4f34f503eee2989e224832d0d852aa255560576c49fc14e62dc0db5d2be657bd",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/03_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.normal.ktx2": {
+      "file": "package/textures/03_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.normal.ktx2",
+      "bytes": 1547,
+      "sha256": "3dc98d9e0ee94d02226aaaf7b2e7c41541f756fc1e4892e8606da72026e4f579",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/04_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.baseColor.ktx2": {
+      "file": "package/textures/04_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.baseColor.ktx2",
+      "bytes": 8715,
+      "sha256": "bcc1a56545c407a21fc09b8f2404683b456d9871d202fc5b55e913defafbb65c",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/05_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.ktx2": {
+      "file": "package/textures/05_0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm-0p_metal_bare_mqm__bridle_body_source_00_0p_metal_bare_mqm.ktx2",
+      "bytes": 4772,
+      "sha256": "07161c9d287e5d0657cd71ef1893b3085b666d51c33659b4b1c9747ff07012aa",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/06_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.normal.ktx2": {
+      "file": "package/textures/06_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.normal.ktx2",
+      "bytes": 894,
+      "sha256": "169e4e4421a070944e3806593867a94f07cdd8de992c36257a12c2d768878c2e",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/07_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.baseColor.ktx2": {
+      "file": "package/textures/07_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "bytes": 4823,
+      "sha256": "710b20e87d6e5a07b5c46eaad0e69aa513737a62ba93148165730fdaf93866d2",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/08_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.ktx2": {
+      "file": "package/textures/08_4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_body_source_00_0p_metal_bare_mqm_source_01_4f_leather_brown_worn_mqm.ktx2",
+      "bytes": 3732,
+      "sha256": "e08646e2e125e7947421e13cd8bc9015de20d201aac23b15c267bd85a522de0d",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/09_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.normal.ktx2": {
+      "file": "package/textures/09_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.normal.ktx2",
+      "bytes": 1113,
+      "sha256": "ae53fbf80fd23f5b722e4425f99e8ae34dbe6b71d7d5598de55bc9f66c7c267f",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/10_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2": {
+      "file": "package/textures/10_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "bytes": 6261,
+      "sha256": "e8abfef178c9f11154542d53be26d8401a71129d9df56b1c70b46a48ec33b639",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/11_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.ktx2": {
+      "file": "package/textures/11_4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__bridle_source_00_4f_leather_brown_worn_mqm.ktx2",
+      "bytes": 4928,
+      "sha256": "18d3033ea66fdc2e088109f1f77c51b8a2bf6c6695b1b4d9bac5c2c7731b3481",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/12_body.normal.ktx2": {
+      "file": "package/textures/12_body.normal.ktx2",
+      "bytes": 89216,
+      "sha256": "03a67fe15744e8416801ce3158764424b119ad06721abd4cdad85aef7f231d2f",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/14_body.roughness.ktx2": {
+      "file": "package/textures/14_body.roughness.ktx2",
+      "bytes": 284962,
+      "sha256": "c1e4df84b538c936aa7a9f1af903e6690cf3eaeba4eb5f214f289f3509d6dcac",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/15_horse_hair_black__horse_body_source.normal.ktx2": {
+      "file": "package/textures/15_horse_hair_black__horse_body_source.normal.ktx2",
+      "bytes": 2138,
+      "sha256": "18b71e36f7e181ca0ec6cdb1a2966bad55ff6ebbe649e2ec51014ed308fe5503",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/16_horse_hair_black__horse_body_source-source_hair_guides.ktx2": {
+      "file": "package/textures/16_horse_hair_black__horse_body_source-source_hair_guides.ktx2",
+      "bytes": 13888,
+      "sha256": "61923521be4b28991cda9c36b9b3ea4545e4a5d60e536420842fe3d5359d7eb9",
+      "width": 256,
+      "height": 256,
+      "levels": 9,
+      "supercompressionScheme": 1
+    },
+    "textures/17_horse_teeth__horse_feature_00_horse_teeth.normal.ktx2": {
+      "file": "package/textures/17_horse_teeth__horse_feature_00_horse_teeth.normal.ktx2",
+      "bytes": 2250,
+      "sha256": "d57f2b2b81ad8abd9baba3c1c4a44e5cd9dea528ff78381084ddc10914e95d52",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/18_horse_teeth__horse_feature_00_horse_teeth.baseColor.ktx2": {
+      "file": "package/textures/18_horse_teeth__horse_feature_00_horse_teeth.baseColor.ktx2",
+      "bytes": 1036,
+      "sha256": "e2b4ce2772606fe15c921aa8ed0b8b31e81724f75377837aa68f64e6846a37c2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/19_horse_teeth__horse_feature_00_horse_teeth-horse_teeth__horse_feature_00_horse_teeth.ktx2": {
+      "file": "package/textures/19_horse_teeth__horse_feature_00_horse_teeth-horse_teeth__horse_feature_00_horse_teeth.ktx2",
+      "bytes": 1037,
+      "sha256": "84419aab96da53439042627a73759cc4e292c29803541d3f8b3dc6c8749e98f2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/20_horse_hooves__horse_feature_01_horse_hooves.normal.ktx2": {
+      "file": "package/textures/20_horse_hooves__horse_feature_01_horse_hooves.normal.ktx2",
+      "bytes": 4714,
+      "sha256": "a4038bae6d0ec8dffce7f6528526242fce6fad6c035a69b74bf90b2e21794658",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/21_horse_hooves__horse_feature_01_horse_hooves.baseColor.ktx2": {
+      "file": "package/textures/21_horse_hooves__horse_feature_01_horse_hooves.baseColor.ktx2",
+      "bytes": 6523,
+      "sha256": "88ec68269673a4eccd084a53852a63c1a65fbb059b11b3bbf1d43e5e822450e8",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/22_horse_hooves__horse_feature_01_horse_hooves-horse_hooves__horse_feature_01_horse_hooves.ktx2": {
+      "file": "package/textures/22_horse_hooves__horse_feature_01_horse_hooves-horse_hooves__horse_feature_01_horse_hooves.ktx2",
+      "bytes": 6198,
+      "sha256": "d2d7cf305a7b71b7af8f566f4c3ca8d4abeb1cc6c35e69f63a73a78177dd55ef",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/29_horse_gums__horse_feature_04_horse_gums.normal.ktx2": {
+      "file": "package/textures/29_horse_gums__horse_feature_04_horse_gums.normal.ktx2",
+      "bytes": 1591,
+      "sha256": "c08d4e07a179310e47b0e24f163401a278c9cc784bb616769b627322d730ff31",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/30_horse_gums__horse_feature_04_horse_gums.baseColor.ktx2": {
+      "file": "package/textures/30_horse_gums__horse_feature_04_horse_gums.baseColor.ktx2",
+      "bytes": 1036,
+      "sha256": "e2b4ce2772606fe15c921aa8ed0b8b31e81724f75377837aa68f64e6846a37c2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/31_horse_gums__horse_feature_04_horse_gums-horse_gums__horse_feature_04_horse_gums.ktx2": {
+      "file": "package/textures/31_horse_gums__horse_feature_04_horse_gums-horse_gums__horse_feature_04_horse_gums.ktx2",
+      "bytes": 1037,
+      "sha256": "84419aab96da53439042627a73759cc4e292c29803541d3f8b3dc6c8749e98f2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/32_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.normal.ktx2": {
+      "file": "package/textures/32_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.normal.ktx2",
+      "bytes": 1038,
+      "sha256": "74ad030669f1cb599f95c94e619734dd8c2380695d17e954c852e6ea3c7a8587",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/33_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2": {
+      "file": "package/textures/33_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.baseColor.ktx2",
+      "bytes": 1036,
+      "sha256": "e2b4ce2772606fe15c921aa8ed0b8b31e81724f75377837aa68f64e6846a37c2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/34_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.ktx2": {
+      "file": "package/textures/34_4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm-4f_leather_brown_worn_mqm__reins_source_00_4f_leather_brown_worn_mqm.ktx2",
+      "bytes": 1037,
+      "sha256": "84419aab96da53439042627a73759cc4e292c29803541d3f8b3dc6c8749e98f2",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/35_quilt_random__saddle_pad_source_00_quilt_random.normal.ktx2": {
+      "file": "package/textures/35_quilt_random__saddle_pad_source_00_quilt_random.normal.ktx2",
+      "bytes": 17259,
+      "sha256": "3762764b6decd94e5730b85230d8085c9305b2c772bdb30d9afd350a26bc15ab",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/36_quilt_random__saddle_pad_source_00_quilt_random.baseColor.ktx2": {
+      "file": "package/textures/36_quilt_random__saddle_pad_source_00_quilt_random.baseColor.ktx2",
+      "bytes": 26816,
+      "sha256": "404577b2252076bc195d115733bc5e76de92d9081ed58b3c50f773f770668eda",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/37_quilt_random__saddle_pad_source_00_quilt_random-quilt_random__saddle_pad_source_00_quilt_random.ktx2": {
+      "file": "package/textures/37_quilt_random__saddle_pad_source_00_quilt_random-quilt_random__saddle_pad_source_00_quilt_random.ktx2",
+      "bytes": 16729,
+      "sha256": "4ce0f697e8be23bba1136442498bd95a5111cbe775ada4886582a3e0bc3e4e4d",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/38_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.normal.ktx2": {
+      "file": "package/textures/38_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.normal.ktx2",
+      "bytes": 1038,
+      "sha256": "74ad030669f1cb599f95c94e619734dd8c2380695d17e954c852e6ea3c7a8587",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/39_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.baseColor.ktx2": {
+      "file": "package/textures/39_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.baseColor.ktx2",
+      "bytes": 9804,
+      "sha256": "fe82b27be0d0608fc41d3adf6b3d6cbd5e8e4a70455080aaf848fad2b627733f",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/40_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm-4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.ktx2": {
+      "file": "package/textures/40_4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm-4c_leather_black_mqm__saddle_stirrup_strap_source_00_4c_leather_black_mqm.ktx2",
+      "bytes": 6192,
+      "sha256": "bfbb1b2b5971ce8015122cec86fe8e95e092d93e97340e912c794ac7d9b08453",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/41_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.normal.ktx2": {
+      "file": "package/textures/41_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.normal.ktx2",
+      "bytes": 21292,
+      "sha256": "91a51d177491c9d5cdd57fa06af04133eb98753575a5765f0ec9a7e0f8e0211f",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/42_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.baseColor.ktx2": {
+      "file": "package/textures/42_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.baseColor.ktx2",
+      "bytes": 12633,
+      "sha256": "b064781382c74c34c0f0a4ae6da568349d3d14807a32006ad67fe2e876c8c8bd",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/43_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm-0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.ktx2": {
+      "file": "package/textures/43_0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm-0f_corten_mqm__saddle_stirrup_source_00_0f_corten_mqm.ktx2",
+      "bytes": 9167,
+      "sha256": "ce0615a7e98e4fe9ee6db18e4c173244292761d2cb98d111005e19933efedc25",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/44_quilt_dark__saddle_source_00_quilt_dark.normal.ktx2": {
+      "file": "package/textures/44_quilt_dark__saddle_source_00_quilt_dark.normal.ktx2",
+      "bytes": 12595,
+      "sha256": "c9dee1dbd1345f1c5c88f5862c6db05f2592397fa8193ff2b1172c17f937b95f",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/45_quilt_dark__saddle_source_00_quilt_dark.baseColor.ktx2": {
+      "file": "package/textures/45_quilt_dark__saddle_source_00_quilt_dark.baseColor.ktx2",
+      "bytes": 22011,
+      "sha256": "0277530db93ebb5796458a73e7b1745785c5efe6f4f5a8bba2045991f7a71a2a",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/46_quilt_dark__saddle_source_00_quilt_dark-quilt_dark__saddle_source_00_quilt_dark.ktx2": {
+      "file": "package/textures/46_quilt_dark__saddle_source_00_quilt_dark-quilt_dark__saddle_source_00_quilt_dark.ktx2",
+      "bytes": 17209,
+      "sha256": "2295d3a0715323456e97f75b234ada8de77936e89a201c3fa9d8342bd6ca55bf",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/47_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.normal.ktx2": {
+      "file": "package/textures/47_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.normal.ktx2",
+      "bytes": 17814,
+      "sha256": "1648b381dce11fa1e005612c39d737d8b4411419d5a12dc7e089edf50b0b9832",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/48_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.baseColor.ktx2": {
+      "file": "package/textures/48_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.baseColor.ktx2",
+      "bytes": 27732,
+      "sha256": "18c15ee12ed80227bc46645507ef0179adca7ce074e178b09547946943e419da",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/49_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random-saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.ktx2": {
+      "file": "package/textures/49_saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random-saddle_random__saddle_source_00_quilt_dark_source_01_saddle_random.ktx2",
+      "bytes": 23258,
+      "sha256": "cc6d6620939fd8f78ba6c6b6e2cd6d6d388bdd0ad8bcfe2a21259eb4346f552d",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    },
+    "textures/body.ao.ktx2": {
+      "file": "package/textures/body.ao.ktx2",
+      "bytes": 283736,
+      "sha256": "8290d2c7d7d12c0bd59514de780ba8b52f8923ef557a6ba7b054fd0351bf2440",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/paint_01.baseColor.ktx2": {
+      "file": "package/textures/paint_01.baseColor.ktx2",
+      "bytes": 176845,
+      "sha256": "36cb3ae17300fa70b9e09ae21d90a805fbe63acc8ffd9fdee2f796969c821a8a",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/paint_02.baseColor.ktx2": {
+      "file": "package/textures/paint_02.baseColor.ktx2",
+      "bytes": 183568,
+      "sha256": "250ee7054c3f4f69fb7de67a0fb500ab22d163ae0510c2f39b2f9a22f6d2b218",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/paint_03.baseColor.ktx2": {
+      "file": "package/textures/paint_03.baseColor.ktx2",
+      "bytes": 171548,
+      "sha256": "ef0f505001dd021123b840b4a8c33869418aa61e75a6607965592e57a7e114ec",
+      "width": 2048,
+      "height": 2048,
+      "levels": 12,
+      "supercompressionScheme": 1
+    },
+    "textures/horse_eyes.baseColor.v10.ktx2": {
+      "file": "package/textures/horse_eyes.baseColor.v10.ktx2",
+      "bytes": 12919,
+      "sha256": "5234a5c4ff1f3387afab8f948379e32178457abde3001e489ded9ffe1442889c",
+      "width": 512,
+      "height": 512,
+      "levels": 10,
+      "supercompressionScheme": 1
+    }
+  },
+  "ktxSoftware": {
+    "releaseUrl": "https://github.com/KhronosGroup/KTX-Software/releases/tag/v4.4.2",
+    "toolsPackage": "KTX-Software-4.4.2-Darwin-arm64-tools.pkg",
+    "toolsPackageSha256": "500bd8…32c3c (parent-verified release package digest)"
+  },
+  "scope": "Candidate-only. This build has not been copied to public/."
+}

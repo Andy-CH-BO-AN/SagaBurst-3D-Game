@@ -17,8 +17,9 @@ import type { WeaponData } from '../rpg/WeaponDatabase'
 import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
-import { buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
-import type { CharacterRig } from '../world/CharacterVisuals'
+import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
+import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
+import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCombatAnimator'
 import {
   CharacterBowVisual,
@@ -58,6 +59,8 @@ export class Player {
   private headMesh!: THREE.Mesh
   private headMat!: THREE.MeshStandardMaterial
   private characterVisualGroup: THREE.Group
+  private externalPelvisHeight = 0
+  private usesExternalForwardAdapter = false
   private rig!: CharacterRig
   private animator!: CharacterCombatAnimator
   private currentArmorTier: 1 | 2 | 3 = 2
@@ -118,6 +121,7 @@ export class Player {
   private readonly _tmpPreviousPosition = new THREE.Vector3()
   private readonly _tmpWorldNock = new THREE.Vector3()
   private readonly _tmpArrowDirection = new THREE.Vector3()
+  private readonly _tmpPelvisWorld = new THREE.Vector3()
 
   public isMounted = false
   public currentMount: Mount | null = null
@@ -229,15 +233,36 @@ export class Player {
     this.bowPivot.removeFromParent()
     this.shieldPivot.removeFromParent()
     this.characterVisualGroup.clear()
-    const parts = buildCharacterVisual(this.characterVisualGroup, {
+    this.characterVisualGroup.position.y = HumanoidAssetRegistry.ready
+      ? -PLAYER_HALF_HEIGHT
+      : PLAYER_VISUAL_GROUND_OFFSET
+    const config = {
       faction: 'viking',
       tier,
       isPlayer: true,
-    })
+    } as const
+    const allowLegacyFixture = import.meta.env.MODE === 'test'
+      || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
+    const parts = HumanoidAssetRegistry.ready
+      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, config)
+      : allowLegacyFixture
+        ? buildCharacterVisual(this.characterVisualGroup, config)
+        : (() => { throw new Error('Viking humanoid assets were not preloaded') })()
+    this.usesExternalForwardAdapter = HumanoidAssetRegistry.ready
+    // Project humanoids are exported facing the same +Z gameplay heading used
+    // by mounts and movement. Keep the render adapter unrotated; group yaw is
+    // therefore the actual desired world heading.
+    this.characterVisualGroup.rotation.y = 0
     this.bodyMesh = parts.bodyMesh
     this.headMesh = parts.headMesh
     this.headMat = parts.headMaterial
     this.rig = parts.rig
+    this.externalPelvisHeight = 0
+    if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
+      this.characterVisualGroup.updateWorldMatrix(true, true)
+      this.rig.pelvis.getWorldPosition(this._tmpPelvisWorld)
+      this.externalPelvisHeight = this.characterVisualGroup.worldToLocal(this._tmpPelvisWorld).y
+    }
     this.rig.right.handSocket.add(this.swordPivot)
     this.rig.left.handSocket.add(this.bowPivot)
     this.rig.left.handSocket.add(this.shieldPivot)
@@ -310,6 +335,8 @@ export class Player {
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
+    applyCharacterMountedPose(this.rig, false)
+    this._alignExternalVisualToMount(false)
     this.group.position.copy(mountPosition)
     this.velY = 0
   }
@@ -558,6 +585,13 @@ export class Player {
       this.isSprinting = false
     }
 
+    const visualSpeed = isMoving
+      ? this.isMounted && this.currentMount
+        ? this.currentMount.baseSpeed * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+        : MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+      : 0
+    this.animator.setLocomotion(visualSpeed, this.isMounted)
+
 
 
     if (this.isSprinting) {
@@ -574,15 +608,16 @@ export class Player {
       
       // Jump (Mount)
       if (input.keys['Space'] && this.currentMount.onGround) {
-        this.currentMount.velY = JUMP_VELOCITY * 1.6 // Higher jump
-        this.currentMount.onGround = false
+        this.currentMount.startJump(JUMP_VELOCITY * 1.6)
       }
 
       this.currentMount.finishControlledFrame(dt, obstacles)
 
       // Sync player to mount
-      this.group.position.copy(this.currentMount.group.position)
-      this.group.position.y += this.currentMount.rideHeightOffset
+      this.currentMount.getSaddleSeatWorld(this.group.position)
+      this.group.position.y += PLAYER_HALF_HEIGHT
+      applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
+      this._alignExternalVisualToMount(true)
       
       // Ride posture
       this.group.rotation.x = this.currentMount.ridePitch
@@ -590,12 +625,11 @@ export class Player {
       // Rotation
       if (isMoving) {
         moveDir.normalize()
-        const playerAngle = Math.atan2(-moveDir.x, -moveDir.z)
         const mountAngle = Math.atan2(moveDir.x, moveDir.z)
         this.currentMount.group.rotation.y = mountAngle
-        this.group.rotation.y = playerAngle
+        this.group.rotation.y = this._characterYaw(mountAngle)
       } else if (this.aiming || this.isSwinging) {
-        this.group.rotation.y = cameraYaw
+        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
         this.currentMount.group.rotation.y = cameraYaw + Math.PI
       }
 
@@ -605,18 +639,20 @@ export class Player {
     } else {
       // Normal Player Movement
       this.group.rotation.x = 0
+      applyCharacterMountedPose(this.rig, false)
+      this._alignExternalVisualToMount(false)
       const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
       const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       this.group.position.addScaledVector(moveDir, speed * dt)
       
       if (this.aiming) {
-        this.group.rotation.y = cameraYaw
+        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       } else if (isMoving) {
         moveDir.normalize()
-        const targetAngle = Math.atan2(-moveDir.x, -moveDir.z)
-        this.group.rotation.y = targetAngle
+        const targetAngle = Math.atan2(moveDir.x, moveDir.z)
+        this.group.rotation.y = this._characterYaw(targetAngle)
       } else if (this.isSwinging) {
-        this.group.rotation.y = cameraYaw
+        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 
       // Map boundary clamp
@@ -661,6 +697,18 @@ export class Player {
       this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -BOUND, BOUND)
       this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -BOUND, BOUND)
     }
+  }
+
+  private _alignExternalVisualToMount(mounted: boolean): void {
+    if (this.externalPelvisHeight <= 0) return
+    this.characterVisualGroup.position.y = -PLAYER_HALF_HEIGHT - (mounted ? this.externalPelvisHeight : 0)
+  }
+
+  private _characterYaw(desiredForwardYaw: number): number {
+    // Browser-validated v2 assets already align with the gameplay heading.
+    // Applying the legacy 180-degree procedural-mesh correction makes W move
+    // the character butt-first.
+    return desiredForwardYaw + (this.usesExternalForwardAdapter ? 0 : Math.PI)
   }
 
   private _updateBowPose(maxChargeTime = MAX_BOW_CHARGE_TIME, cameraAimPoint?: THREE.Vector3): void {

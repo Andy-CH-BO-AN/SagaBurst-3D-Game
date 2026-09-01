@@ -1,0 +1,1307 @@
+{
+  "actions": [],
+  "armatures": [
+    {
+      "boneCount": 67,
+      "boneLandmarks": {
+        "ball_l": {
+          "head": [
+            0.275301,
+            -0.121153,
+            0.04563
+          ],
+          "parent": "foot_l",
+          "tail": [
+            0.275301,
+            -0.121153,
+            0.269244
+          ]
+        },
+        "ball_r": {
+          "head": [
+            -0.275301,
+            -0.121153,
+            0.045632
+          ],
+          "parent": "foot_r",
+          "tail": [
+            -0.275301,
+            -0.121153,
+            -0.177982
+          ]
+        },
+        "calf_l": {
+          "head": [
+            0.183541,
+            0.007781,
+            0.605866
+          ],
+          "parent": "thigh_l",
+          "tail": [
+            0.157772,
+            0.358411,
+            0.65591
+          ]
+        },
+        "calf_r": {
+          "head": [
+            -0.183541,
+            0.007781,
+            0.605867
+          ],
+          "parent": "thigh_r",
+          "tail": [
+            -0.20931,
+            -0.342848,
+            0.555823
+          ]
+        },
+        "calf_twist_01_l": {
+          "head": [
+            0.21752,
+            0.043331,
+            0.374284
+          ],
+          "parent": "calf_l",
+          "tail": [
+            0.191751,
+            0.393961,
+            0.424328
+          ]
+        },
+        "calf_twist_01_r": {
+          "head": [
+            -0.21752,
+            0.043331,
+            0.374285
+          ],
+          "parent": "calf_r",
+          "tail": [
+            -0.243289,
+            -0.307298,
+            0.324241
+          ]
+        },
+        "clavicle_l": {
+          "head": [
+            0.062368,
+            0.028612,
+            1.627869
+          ],
+          "parent": "spine_03",
+          "tail": [
+            0.00152,
+            0.215714,
+            1.62749
+          ]
+        },
+        "clavicle_r": {
+          "head": [
+            -0.062368,
+            0.028612,
+            1.627869
+          ],
+          "parent": "spine_03",
+          "tail": [
+            -0.123215,
+            -0.158491,
+            1.628248
+          ]
+        },
+        "foot_l": {
+          "head": [
+            0.2515,
+            0.078881,
+            0.142702
+          ],
+          "parent": "calf_l",
+          "tail": [
+            0.225086,
+            0.300865,
+            0.148088
+          ]
+        },
+        "foot_r": {
+          "head": [
+            -0.251499,
+            0.078882,
+            0.142703
+          ],
+          "parent": "calf_r",
+          "tail": [
+            -0.277913,
+            -0.143102,
+            0.137317
+          ]
+        },
+        "hand_l": {
+          "head": [
+            0.669458,
+            -0.00436,
+            1.220054
+          ],
+          "parent": "lowerarm_l",
+          "tail": [
+            0.624431,
+            0.002142,
+            1.112143
+          ]
+        },
+        "hand_r": {
+          "head": [
+            -0.669458,
+            -0.00436,
+            1.220054
+          ],
+          "parent": "lowerarm_r",
+          "tail": [
+            -0.714486,
+            -0.010862,
+            1.327965
+          ]
+        },
+        "head": {
+          "head": [
+            -0.0,
+            0.049489,
+            1.782197
+          ],
+          "parent": "neck_01",
+          "tail": [
+            8e-06,
+            0.160339,
+            1.782197
+          ]
+        },
+        "ik_foot_l": {
+          "head": [
+            0.251499,
+            0.078881,
+            0.142702
+          ],
+          "parent": "ik_foot_root",
+          "tail": [
+            0.216095,
+            0.376426,
+            0.149922
+          ]
+        },
+        "ik_foot_r": {
+          "head": [
+            -0.251499,
+            0.078881,
+            0.142702
+          ],
+          "parent": "ik_foot_root",
+          "tail": [
+            -0.286904,
+            -0.218663,
+            0.135483
+          ]
+        },
+        "ik_foot_root": {
+          "head": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "parent": null,
+          "tail": [
+            0.0,
+            0.29973,
+            -0.0
+          ]
+        },
+        "ik_hand_gun": {
+          "head": [
+            -0.669458,
+            -0.00436,
+            1.220054
+          ],
+          "parent": "ik_hand_root",
+          "tail": [
+            -0.92686,
+            -0.04153,
+            1.836931
+          ]
+        },
+        "ik_hand_l": {
+          "head": [
+            0.669458,
+            -0.00436,
+            1.220055
+          ],
+          "parent": "ik_hand_gun",
+          "tail": [
+            0.412056,
+            0.032811,
+            0.603178
+          ]
+        },
+        "ik_hand_r": {
+          "head": [
+            -0.669458,
+            -0.00436,
+            1.220054
+          ],
+          "parent": "ik_hand_gun",
+          "tail": [
+            -0.92686,
+            -0.04153,
+            1.836931
+          ]
+        },
+        "ik_hand_root": {
+          "head": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "parent": null,
+          "tail": [
+            0.0,
+            1.391663,
+            -0.0
+          ]
+        },
+        "index_01_l": {
+          "head": [
+            0.767192,
+            -0.079187,
+            1.156741
+          ],
+          "parent": "hand_l",
+          "tail": [
+            0.742861,
+            -0.073103,
+            1.125789
+          ]
+        },
+        "index_01_r": {
+          "head": [
+            -0.767192,
+            -0.079187,
+            1.156742
+          ],
+          "parent": "hand_r",
+          "tail": [
+            -0.791522,
+            -0.085271,
+            1.187693
+          ]
+        },
+        "index_02_l": {
+          "head": [
+            0.795578,
+            -0.092012,
+            1.131907
+          ],
+          "parent": "index_01_l",
+          "tail": [
+            0.759871,
+            -0.086216,
+            1.106371
+          ]
+        },
+        "index_02_r": {
+          "head": [
+            -0.795578,
+            -0.092012,
+            1.131907
+          ],
+          "parent": "index_01_r",
+          "tail": [
+            -0.831285,
+            -0.097808,
+            1.157443
+          ]
+        },
+        "index_03_l": {
+          "head": [
+            0.82069,
+            -0.096666,
+            1.095735
+          ],
+          "parent": "index_02_l",
+          "tail": [
+            0.781482,
+            -0.096071,
+            1.075167
+          ]
+        },
+        "index_03_r": {
+          "head": [
+            -0.82069,
+            -0.096666,
+            1.095735
+          ],
+          "parent": "index_02_r",
+          "tail": [
+            -0.859899,
+            -0.097261,
+            1.116303
+          ]
+        },
+        "lowerarm_l": {
+          "head": [
+            0.459464,
+            0.076002,
+            1.423961
+          ],
+          "parent": "upperarm_l",
+          "tail": [
+            0.502705,
+            0.29553,
+            1.381974
+          ]
+        },
+        "lowerarm_r": {
+          "head": [
+            -0.459465,
+            0.076002,
+            1.423961
+          ],
+          "parent": "upperarm_r",
+          "tail": [
+            -0.416224,
+            -0.143526,
+            1.465948
+          ]
+        },
+        "lowerarm_twist_01_l": {
+          "head": [
+            0.564461,
+            0.035821,
+            1.322008
+          ],
+          "parent": "lowerarm_l",
+          "tail": [
+            0.634792,
+            0.25196,
+            1.309255
+          ]
+        },
+        "lowerarm_twist_01_r": {
+          "head": [
+            -0.564461,
+            0.035821,
+            1.322008
+          ],
+          "parent": "lowerarm_r",
+          "tail": [
+            -0.494131,
+            -0.180318,
+            1.33476
+          ]
+        },
+        "middle_01_l": {
+          "head": [
+            0.786609,
+            -0.0513,
+            1.168343
+          ],
+          "parent": "hand_l",
+          "tail": [
+            0.761026,
+            -0.047001,
+            1.129536
+          ]
+        },
+        "middle_01_r": {
+          "head": [
+            -0.786609,
+            -0.0513,
+            1.168343
+          ],
+          "parent": "hand_r",
+          "tail": [
+            -0.812192,
+            -0.0556,
+            1.20715
+          ]
+        },
+        "middle_02_l": {
+          "head": [
+            0.82447,
+            -0.059905,
+            1.14243
+          ],
+          "parent": "middle_01_l",
+          "tail": [
+            0.788646,
+            -0.056379,
+            1.113897
+          ]
+        },
+        "middle_02_r": {
+          "head": [
+            -0.82447,
+            -0.059904,
+            1.14243
+          ],
+          "parent": "middle_01_r",
+          "tail": [
+            -0.860294,
+            -0.06343,
+            1.170963
+          ]
+        },
+        "middle_03_l": {
+          "head": [
+            0.853011,
+            -0.061025,
+            1.106457
+          ],
+          "parent": "middle_02_l",
+          "tail": [
+            0.812591,
+            -0.059063,
+            1.084727
+          ]
+        },
+        "middle_03_r": {
+          "head": [
+            -0.853011,
+            -0.061025,
+            1.106458
+          ],
+          "parent": "middle_02_r",
+          "tail": [
+            -0.893431,
+            -0.062988,
+            1.128188
+          ]
+        },
+        "neck_01": {
+          "head": [
+            -0.0,
+            0.075876,
+            1.674534
+          ],
+          "parent": "spine_03",
+          "tail": [
+            -0.001491,
+            0.18353,
+            1.700919
+          ]
+        },
+        "pelvis": {
+          "head": [
+            0.0,
+            0.02138,
+            1.059769
+          ],
+          "parent": null,
+          "tail": [
+            4.3e-05,
+            0.147917,
+            1.059769
+          ]
+        },
+        "pinky_01_l": {
+          "head": [
+            0.790006,
+            0.010899,
+            1.169129
+          ],
+          "parent": "hand_l",
+          "tail": [
+            0.773868,
+            0.011457,
+            1.144322
+          ]
+        },
+        "pinky_01_r": {
+          "head": [
+            -0.790006,
+            0.010899,
+            1.16913
+          ],
+          "parent": "hand_r",
+          "tail": [
+            -0.806143,
+            0.010342,
+            1.193936
+          ]
+        },
+        "pinky_02_l": {
+          "head": [
+            0.814371,
+            0.016854,
+            1.153413
+          ],
+          "parent": "pinky_01_l",
+          "tail": [
+            0.793381,
+            0.016207,
+            1.136814
+          ]
+        },
+        "pinky_02_r": {
+          "head": [
+            -0.814371,
+            0.016854,
+            1.153413
+          ],
+          "parent": "pinky_01_r",
+          "tail": [
+            -0.835361,
+            0.017502,
+            1.170012
+          ]
+        },
+        "pinky_03_l": {
+          "head": [
+            0.830691,
+            0.021036,
+            1.132611
+          ],
+          "parent": "pinky_02_l",
+          "tail": [
+            0.806318,
+            0.020482,
+            1.121558
+          ]
+        },
+        "pinky_03_r": {
+          "head": [
+            -0.830691,
+            0.021036,
+            1.132612
+          ],
+          "parent": "pinky_02_r",
+          "tail": [
+            -0.855064,
+            0.021591,
+            1.143665
+          ]
+        },
+        "ring_01_l": {
+          "head": [
+            0.793009,
+            -0.023788,
+            1.17097
+          ],
+          "parent": "hand_l",
+          "tail": [
+            0.770824,
+            -0.021199,
+            1.134208
+          ]
+        },
+        "ring_01_r": {
+          "head": [
+            -0.793009,
+            -0.023788,
+            1.17097
+          ],
+          "parent": "hand_r",
+          "tail": [
+            -0.815194,
+            -0.026376,
+            1.207731
+          ]
+        },
+        "ring_02_l": {
+          "head": [
+            0.829787,
+            -0.024957,
+            1.148692
+          ],
+          "parent": "ring_01_l",
+          "tail": [
+            0.797494,
+            -0.022302,
+            1.121382
+          ]
+        },
+        "ring_02_r": {
+          "head": [
+            -0.829787,
+            -0.024957,
+            1.148693
+          ],
+          "parent": "ring_01_r",
+          "tail": [
+            -0.862081,
+            -0.027612,
+            1.176004
+          ]
+        },
+        "ring_03_l": {
+          "head": [
+            0.857151,
+            -0.024982,
+            1.116335
+          ],
+          "parent": "ring_02_l",
+          "tail": [
+            0.819418,
+            -0.024128,
+            1.097067
+          ]
+        },
+        "ring_03_r": {
+          "head": [
+            -0.85715,
+            -0.024982,
+            1.116335
+          ],
+          "parent": "ring_02_r",
+          "tail": [
+            -0.894884,
+            -0.025836,
+            1.135603
+          ]
+        },
+        "spine_01": {
+          "head": [
+            -0.0,
+            0.035004,
+            1.21346
+          ],
+          "parent": "pelvis",
+          "tail": [
+            0.00101,
+            0.188145,
+            1.232264
+          ]
+        },
+        "spine_02": {
+          "head": [
+            -0.0,
+            0.048628,
+            1.367152
+          ],
+          "parent": "spine_01",
+          "tail": [
+            7e-06,
+            0.201421,
+            1.345678
+          ]
+        },
+        "spine_03": {
+          "head": [
+            -0.0,
+            0.062252,
+            1.520843
+          ],
+          "parent": "spine_02",
+          "tail": [
+            0.0,
+            0.197922,
+            1.501776
+          ]
+        },
+        "thigh_l": {
+          "head": [
+            0.112659,
+            0.02138,
+            1.059769
+          ],
+          "parent": "pelvis",
+          "tail": [
+            0.096936,
+            0.365489,
+            1.047005
+          ]
+        },
+        "thigh_r": {
+          "head": [
+            -0.112659,
+            0.02138,
+            1.059769
+          ],
+          "parent": "pelvis",
+          "tail": [
+            -0.128381,
+            -0.322728,
+            1.072534
+          ]
+        },
+        "thigh_twist_01_l": {
+          "head": [
+            0.1481,
+            0.014581,
+            0.832818
+          ],
+          "parent": "thigh_l",
+          "tail": [
+            0.132378,
+            0.35869,
+            0.820053
+          ]
+        },
+        "thigh_twist_01_r": {
+          "head": [
+            -0.1481,
+            0.014581,
+            0.832818
+          ],
+          "parent": "thigh_r",
+          "tail": [
+            -0.163822,
+            -0.329527,
+            0.845583
+          ]
+        },
+        "thumb_01_l": {
+          "head": [
+            0.677284,
+            -0.035861,
+            1.189418
+          ],
+          "parent": "hand_l",
+          "tail": [
+            0.682605,
+            -0.00424,
+            1.168585
+          ]
+        },
+        "thumb_01_r": {
+          "head": [
+            -0.677284,
+            -0.035861,
+            1.189418
+          ],
+          "parent": "hand_r",
+          "tail": [
+            -0.671963,
+            -0.067481,
+            1.210251
+          ]
+        },
+        "thumb_02_l": {
+          "head": [
+            0.685109,
+            -0.057362,
+            1.158781
+          ],
+          "parent": "thumb_01_l",
+          "tail": [
+            0.686322,
+            0.000226,
+            1.155836
+          ]
+        },
+        "thumb_02_r": {
+          "head": [
+            -0.685109,
+            -0.057362,
+            1.158781
+          ],
+          "parent": "thumb_01_r",
+          "tail": [
+            -0.683897,
+            -0.114951,
+            1.161726
+          ]
+        },
+        "thumb_03_l": {
+          "head": [
+            0.707031,
+            -0.060547,
+            1.105528
+          ],
+          "parent": "thumb_02_l",
+          "tail": [
+            0.704279,
+            -0.003001,
+            1.108254
+          ]
+        },
+        "thumb_03_r": {
+          "head": [
+            -0.707031,
+            -0.060547,
+            1.105528
+          ],
+          "parent": "thumb_02_r",
+          "tail": [
+            -0.709784,
+            -0.118093,
+            1.102802
+          ]
+        },
+        "upperarm_l": {
+          "head": [
+            0.249471,
+            0.089459,
+            1.627869
+          ],
+          "parent": "clavicle_l",
+          "tail": [
+            0.254298,
+            0.235811,
+            1.623181
+          ]
+        },
+        "upperarm_r": {
+          "head": [
+            -0.249471,
+            0.089459,
+            1.627869
+          ],
+          "parent": "clavicle_r",
+          "tail": [
+            -0.244643,
+            -0.056893,
+            1.632556
+          ]
+        },
+        "upperarm_twist_01_l": {
+          "head": [
+            0.249471,
+            0.089459,
+            1.627869
+          ],
+          "parent": "upperarm_l",
+          "tail": [
+            0.254298,
+            0.235811,
+            1.623181
+          ]
+        },
+        "upperarm_twist_01_r": {
+          "head": [
+            -0.249471,
+            0.089459,
+            1.627868
+          ],
+          "parent": "upperarm_r",
+          "tail": [
+            -0.244643,
+            -0.056893,
+            1.632556
+          ]
+        }
+      },
+      "bones": [
+        "ik_foot_root",
+        "ik_foot_l",
+        "ik_foot_r",
+        "ik_hand_root",
+        "ik_hand_gun",
+        "ik_hand_l",
+        "ik_hand_r",
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "clavicle_l",
+        "upperarm_l",
+        "lowerarm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "lowerarm_twist_01_l",
+        "upperarm_twist_01_l",
+        "clavicle_r",
+        "upperarm_r",
+        "lowerarm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "lowerarm_twist_01_r",
+        "upperarm_twist_01_r",
+        "neck_01",
+        "head",
+        "thigh_l",
+        "calf_l",
+        "calf_twist_01_l",
+        "foot_l",
+        "ball_l",
+        "thigh_twist_01_l",
+        "thigh_r",
+        "calf_r",
+        "calf_twist_01_r",
+        "foot_r",
+        "ball_r",
+        "thigh_twist_01_r"
+      ],
+      "name": "root"
+    }
+  ],
+  "blenderVersion": "5.2.0 LTS",
+  "images": [
+    {
+      "filepath": "Head_TXTR.tga",
+      "name": "Diffuse Texture",
+      "packed": false,
+      "size": [
+        0,
+        0
+      ]
+    },
+    {
+      "filepath": "Tunic_TXTR.tga",
+      "name": "Diffuse Texture.001",
+      "packed": false,
+      "size": [
+        0,
+        0
+      ]
+    },
+    {
+      "filepath": "Kit_TXTR.tga",
+      "name": "Diffuse Texture.002",
+      "packed": false,
+      "size": [
+        0,
+        0
+      ]
+    },
+    {
+      "filepath": "Legs Hands_TXTR.tga",
+      "name": "Diffuse Texture.003",
+      "packed": false,
+      "size": [
+        0,
+        0
+      ]
+    }
+  ],
+  "materials": [
+    "Head",
+    "Kit",
+    "Legs Hands",
+    "Tunic"
+  ],
+  "meshes": [
+    {
+      "bounds": {
+        "max": [
+          0.146881,
+          0.157776,
+          2.056848
+        ],
+        "min": [
+          -0.155788,
+          -0.147546,
+          1.59524
+        ],
+        "size": [
+          0.302669,
+          0.305322,
+          0.461607
+        ]
+      },
+      "materials": [
+        "Head"
+      ],
+      "name": "Head",
+      "triangles": 19948,
+      "vertexGroups": [
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "clavicle_l",
+        "upperarm_l",
+        "upperarm_twist_01_l",
+        "clavicle_r",
+        "upperarm_r",
+        "upperarm_twist_01_r",
+        "neck_01",
+        "head"
+      ],
+      "vertices": 10005
+    },
+    {
+      "bounds": {
+        "max": [
+          0.371711,
+          0.319587,
+          2.32406
+        ],
+        "min": [
+          -0.413834,
+          -0.184235,
+          0.53776
+        ],
+        "size": [
+          0.785545,
+          0.503822,
+          1.786301
+        ]
+      },
+      "materials": [
+        "Kit"
+      ],
+      "name": "Kit",
+      "triangles": 27983,
+      "vertexGroups": [
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "clavicle_l",
+        "upperarm_l",
+        "upperarm_twist_01_l",
+        "clavicle_r",
+        "upperarm_r",
+        "upperarm_twist_01_r",
+        "neck_01",
+        "head",
+        "thigh_l",
+        "calf_l",
+        "calf_twist_01_l",
+        "thigh_twist_01_l",
+        "thigh_r",
+        "thigh_twist_01_r"
+      ],
+      "vertices": 14032
+    },
+    {
+      "bounds": {
+        "max": [
+          0.880964,
+          0.18023,
+          1.313662
+        ],
+        "min": [
+          -0.890229,
+          -0.208898,
+          0.017832
+        ],
+        "size": [
+          1.771193,
+          0.389128,
+          1.29583
+        ]
+      },
+      "materials": [
+        "Legs Hands"
+      ],
+      "name": "Legs Hands",
+      "triangles": 22824,
+      "vertexGroups": [
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "upperarm_l",
+        "lowerarm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "lowerarm_twist_01_l",
+        "lowerarm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "lowerarm_twist_01_r",
+        "thigh_l",
+        "calf_l",
+        "calf_twist_01_l",
+        "foot_l",
+        "ball_l",
+        "thigh_twist_01_l",
+        "thigh_r",
+        "calf_r",
+        "calf_twist_01_r",
+        "foot_r",
+        "ball_r",
+        "thigh_twist_01_r"
+      ],
+      "vertices": 11428
+    },
+    {
+      "bounds": {
+        "max": [
+          0.705801,
+          0.284456,
+          1.728189
+        ],
+        "min": [
+          -0.714912,
+          -0.186958,
+          0.605511
+        ],
+        "size": [
+          1.420713,
+          0.471413,
+          1.122678
+        ]
+      },
+      "materials": [
+        "Tunic"
+      ],
+      "name": "Tunic",
+      "triangles": 49300,
+      "vertexGroups": [
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "clavicle_l",
+        "upperarm_l",
+        "lowerarm_l",
+        "hand_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "lowerarm_twist_01_l",
+        "upperarm_twist_01_l",
+        "clavicle_r",
+        "upperarm_r",
+        "lowerarm_r",
+        "hand_r",
+        "pinky_01_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "lowerarm_twist_01_r",
+        "upperarm_twist_01_r",
+        "neck_01",
+        "head",
+        "thigh_l",
+        "calf_l",
+        "calf_twist_01_l",
+        "thigh_twist_01_l",
+        "thigh_r",
+        "calf_r",
+        "calf_twist_01_r",
+        "thigh_twist_01_r"
+      ],
+      "vertices": 24650
+    }
+  ],
+  "objects": [
+    {
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "name": "Head",
+      "parent": "root",
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "name": "Kit",
+      "parent": "root",
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "name": "Legs Hands",
+      "parent": "root",
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "name": "Tunic",
+      "parent": "root",
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "MESH"
+    },
+    {
+      "modifiers": [],
+      "name": "root",
+      "parent": null,
+      "scale": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "type": "ARMATURE"
+    }
+  ],
+  "scene": {
+    "bounds": {
+      "max": [
+        0.880964,
+        0.319587,
+        2.32406
+      ],
+      "min": [
+        -0.890229,
+        -0.208898,
+        0.017832
+      ],
+      "size": [
+        1.771193,
+        0.528486,
+        2.306228
+      ]
+    },
+    "scaleLength": 1.0,
+    "triangles": 120055,
+    "unitSystem": "METRIC"
+  },
+  "sha256": "b3283c31998b0a76591a8e2639978a3abf551ce4b0a34d550fb861505e64f6f2",
+  "source": "Viking rigged1.fbx from source archive"
+}

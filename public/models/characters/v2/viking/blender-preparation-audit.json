@@ -1,0 +1,172 @@
+{
+  "blenderVersion": "5.2.0 LTS",
+  "faction": "viking",
+  "lods": {
+    "lod0": {
+      "bounds": {
+        "max": [
+          0.803621,
+          0.259545,
+          1.859879
+        ],
+        "min": [
+          -0.812072,
+          -0.190557,
+          -6e-06
+        ],
+        "size": [
+          1.615693,
+          0.450103,
+          1.859885
+        ]
+      },
+      "heightM": 1.86,
+      "kneeHeightM": 0.5364078879356384,
+      "neckLengthM": 0.09821128845214844,
+      "objectScales": {
+        "Head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Kit": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Legs Hands": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "removedBackEquipmentVertices": 4159,
+      "shoulderWidthM": 0.45513659715652466,
+      "sourceHeightM": 2.0390154477208853,
+      "textureSize": 2048,
+      "triangles": 59996,
+      "uniformScaleApplied": 0.9122049575833375
+    },
+    "lod1": {
+      "bounds": {
+        "max": [
+          0.803923,
+          0.259557,
+          1.859539
+        ],
+        "min": [
+          -0.810981,
+          -0.192097,
+          0.000179
+        ],
+        "size": [
+          1.614904,
+          0.451654,
+          1.85936
+        ]
+      },
+      "heightM": 1.86,
+      "kneeHeightM": 0.5364078879356384,
+      "neckLengthM": 0.09821128845214844,
+      "objectScales": {
+        "Head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Kit": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Legs Hands": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "removedBackEquipmentVertices": 4159,
+      "shoulderWidthM": 0.45513659715652466,
+      "sourceHeightM": 2.0390154477208853,
+      "textureSize": 1024,
+      "triangles": 19998,
+      "uniformScaleApplied": 0.9122049575833375
+    },
+    "lod2": {
+      "bounds": {
+        "max": [
+          0.803415,
+          0.259521,
+          1.869505
+        ],
+        "min": [
+          -0.812122,
+          -0.194246,
+          0.000454
+        ],
+        "size": [
+          1.615537,
+          0.453766,
+          1.86905
+        ]
+      },
+      "heightM": 1.86,
+      "kneeHeightM": 0.5364078879356384,
+      "neckLengthM": 0.09821128845214844,
+      "objectScales": {
+        "Head": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Kit": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Legs Hands": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Tunic": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "project_humanoid": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "removedBackEquipmentVertices": 4159,
+      "shoulderWidthM": 0.45513659715652466,
+      "sourceHeightM": 2.0390154477208853,
+      "textureSize": 512,
+      "triangles": 5972,
+      "uniformScaleApplied": 0.9122049575833375
+    }
+  },
+  "schemaVersion": 1
+}

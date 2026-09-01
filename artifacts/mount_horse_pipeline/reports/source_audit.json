@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "role": "realistic rig, locomotion and tack",
+      "author": "fdoss001",
+      "url": "https://blendswap.com/blend/28627",
+      "license": "CC0 page declaration; underlying Tarnyloo mesh remains attributed",
+      "downloadPath": "/Users/chenboan/Downloads/Horse Rigged All Gaits.blend",
+      "bytes": 612745224,
+      "sha256": "b848037332fe62064989f250a94faa04c75e3fb21ae93f6a100f19079c1b21aa"
+    },
+    {
+      "role": "original realistic base topology and provenance",
+      "author": "Tarnyloo",
+      "url": "https://blendswap.com/blend/17172",
+      "license": "CC BY 3.0",
+      "downloadPath": "/Users/chenboan/Downloads/Horse/horse01b.blend",
+      "bytes": 4337020,
+      "sha256": "3372b6dea03939798cf2c4c7fa4a63a43933d4760b9b283e9e28e66fd5fe5f31"
+    },
+    {
+      "role": "supplemental missing-motion reference",
+      "author": "Quaternius",
+      "url": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0",
+      "downloadPath": "/Users/chenboan/Downloads/Ultimate Animated Animals - July 2021/Blends/Horse.blend",
+      "bytes": 2850084,
+      "sha256": "56cb97026a6f4dbd9024e94cc58784e94e635042e4686b4c2344bf1eba715e01"
+    }
+  ],
+  "primaryTechnicalAudit": {
+    "baseMesh": "horse",
+    "baseVertices": 22514,
+    "basePolygons": 22420,
+    "armature": "horse.rig / Rigify-derived control rig",
+    "sourceLocomotionActions": [
+      "horse.walk",
+      "horse.trot",
+      "horse.canter",
+      "horse.gallop"
+    ],
+    "removedSystems": [
+      "runtime particle simulation (source fur/mane/tail retained as appearance reference)",
+      "runtime hair dynamics (converted to skinned mesh/card representation)",
+      "cloth reins",
+      "collision caches",
+      "source HDR environment"
+    ],
+    "materialConversion": "fdoss001's CC0 procedural horse.body.pattern deep-bay setup and four horse appearance variants are accepted source inputs. Runtime GLBs use a flattened PBR deep-bay coat plus converted leather/wool/hair values."
+  },
+  "donorTechnicalAudit": {
+    "meshVertices": 1093,
+    "meshPolygons": 1112,
+    "armatureBones": 50,
+    "availableReferences": [
+      "Idle",
+      "Gallop_Jump",
+      "Jump_toIdle",
+      "Idle_HitReact_Left",
+      "Death"
+    ],
+    "use": "Motion reference only. Direct retarget was rejected because the low-poly donor uses a materially different skeleton, limb proportion and IK layout; missing clips are authored on the realistic source rig to avoid deformation collapse."
+  },
+  "licensePolicy": "fdoss001's rig, gaits, procedural horse materials, particle-hair appearance reference and tack are accepted under the BlendSwap page's CC0 declaration. The underlying Tarnyloo horse mesh remains attributed under CC BY 3.0."
+}

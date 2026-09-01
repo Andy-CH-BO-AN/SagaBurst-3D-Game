@@ -110,12 +110,12 @@ Pure frontend — no backend server. Save/load via localStorage.
 | Language     | TypeScript 5.5                |
 | Persistence  | localStorage                  |
 | Backend      | None (pure frontend)          |
-| Assets       | Procedural geometry (for now) |
+| Assets       | Licensed external humanoids and horse; procedural weapons/shields; legacy procedural save mounts |
 
 ---
 
 ### ✅ Phase 13 — Cavalry NPCs & Mount Interactions (DONE)
-- Cavalry NPCs spawn with a 40% chance and mount on a Corgi or Black Cat.
+- Historical behavior: cavalry NPCs spawned with a 40% chance on a Corgi or Black Cat. Phase 23 supersedes new spawns with Horses while keeping old save IDs.
 - Mount damage routing: If an NPC or Player is mounted, all melee and arrow damage routes to the mount's HP.
 - Mount Death: When a mount's HP reaches 0, the rider is forcibly dismounted and resumes foot combat.
 - Impact Damage: Sprinting mounts deal horizontal collision-based damage to valid targets with a short cooldown.
@@ -173,3 +173,35 @@ Pure frontend — no backend server. Save/load via localStorage.
 - Added deterministic combat timeline tests for event ordering, large frame deltas, recovery lockout, and completion.
 - Separated static weapon grip alignment from animated action pivots; fixed grounded blades, shaft-axis lance thrusts, shield height/facing, arrow visual direction, and reticle raycast targeting.
 - Consolidated Player and bow-NPC geometry, socket aiming, string/nock updates, and launch coordinates into one `CharacterBowVisual`; `?devcombat` currently runs a Tier-3 50v50 cavalry battle with 25 ranged riders and 25 lancers per faction.
+
+---
+
+### ✅ Phase 21 — Procedural Character, Equipment & Mount Realism (DONE)
+- Added cached procedural PBR textures for skin, cloth, leather, wood, metals and fur without external image/model assets.
+- Rebuilt shared anatomy, faces, Viking/Roman Tier-2 armor and articulated mounted leg poses while preserving the Phase-20 combat sockets.
+- Rebuilt Tier-2 swords, gladii, recurve bows, pilums, round shields and scuta with profiled/curved geometry and shared pickup models.
+- Prototyped proportioned Black Cat/Corgi rigs; these visuals were later excluded from the final change set in favor of the previous committed save-compatible versions.
+- Preserved mount physics, save IDs, movement speed, collision and damage routing; added Phase-21 regression coverage and Chrome validation requirements.
+
+---
+
+### ✅ Phase 22 — External Realistic Humanoids, Rigging & Skinning (IMPLEMENTED)
+- Runtime foundation implemented: async manifest-gated preload, shared GLTF templates, per-instance skeleton/mixer, three LOD levels, bone/socket adapter, event-compatible combat cross-fades, 58° gameplay FOV, readable startup failure, and `?devmodels=humans&nolock` studio route.
+- Canonical `humanoid-rig-skinning` skill, GLB audit script, anatomical contract, asset manifest contract, compatibility links, and forward-test are complete.
+- Authorized Viking and Roman sources were supplied and audited as CC BY 4.0. Both `characters/v2` manifests are ready with common skeleton/socket contracts, Blender skinning, measured proportions, three LODs, downsampled PBR maps and deformation evidence.
+- Runtime short horns, free-camera humanoid studio, rider alignment, unified forward heading and rear third-person start view are integrated. Transient arrows/pilums share render resources so the 50v50 live scene does not grow a new geometry/material set per shot. Roman mounted skirt clearance remains a documented provisional item for continued saddle testing.
+
+### ⏸ Black Cat / Corgi Rebuild — DEFERRED
+- Keep the exact legacy procedural Black Cat and Corgi visuals plus their save IDs for compatibility.
+- Do not spawn either type in new games or NPC formations while the horse runtime is active.
+- The discarded Stage-1 sculpt/blockout assets are not part of the repository. Re-open anatomy, topology, rigging, materials and animation as a separate phase only after the horse pipeline is stable.
+
+---
+
+### ✅ Phase 23 — External Realistic Horse Runtime (DONE)
+
+- `realistic-warhorse-v10` is the only shipped horse package: one 80-joint skin, one mixer per instance, nine clips, three source-derived coat variants and source-derived groom/tack.
+- Runtime geometry is Meshopt-compressed; 48 KTX2 textures and the Basis transcoder ship with the package. LOD0/1/2 contain 64,986 / 20,279 / 5,916 triangles and the complete payload is about 6.05 MB.
+- New scene mounts and NPC cavalry use `HORSE`; stable FNV-1a keys distribute the three coats. `BLACK_CAT` and `CORGI` remain loadable only for legacy saves.
+- The isolated `?devmodels=mounts&nolock` studio passed all coats, all nine clips, LOD0/1/2, skeleton, rider/socket and resource-stability review.
+- Unit tests and production build are blockers and pass. Release 10v5 and stress 50v50 are recorded diagnostics: neither crashed or emitted application errors; initial load latency, stress FPS and distant formation placement remain follow-up work.

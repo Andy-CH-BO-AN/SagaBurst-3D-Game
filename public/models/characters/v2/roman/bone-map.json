@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "skeleton": "project-humanoid-v1",
+  "sourceArmature": null,
+  "generatedFrom": "Unrigged T-pose mesh landmarks",
+  "generatedBones": [
+    "hips",
+    "spine",
+    "chest",
+    "upper_chest",
+    "neck",
+    "head",
+    "clavicle_l",
+    "clavicle_r",
+    "upper_arm_l",
+    "upper_arm_r",
+    "lower_arm_l",
+    "lower_arm_r",
+    "hand_l",
+    "hand_r",
+    "upper_leg_l",
+    "upper_leg_r",
+    "lower_leg_l",
+    "lower_leg_r",
+    "foot_l",
+    "foot_r",
+    "toe_l",
+    "toe_r"
+  ],
+  "weightPolicy": {
+    "rigidHead": ["Helmet3", "New_head", "New_eye", "New_eye_2"],
+    "chestArmour": "Chest-centre weights with shoulder islands bound to upper arms",
+    "arms": "Segmented upper-arm, lower-arm, and hand weights with joint blends",
+    "legs": "Segmented upper-leg, lower-leg, foot, and toe-region weights",
+    "skirt": "Pelvis dominant with upper-leg contribution below the tunic split",
+    "dangles": "85 percent hips and 15 percent corresponding upper leg",
+    "undertunic": "One fitted layer per upper leg"
+  },
+  "generatedSockets": [
+    "socket_hand_l",
+    "socket_hand_r",
+    "socket_back",
+    "socket_head",
+    "socket_pelvis",
+    "socket_foot_l",
+    "socket_foot_r",
+    "sole_l",
+    "sole_r"
+  ]
+}

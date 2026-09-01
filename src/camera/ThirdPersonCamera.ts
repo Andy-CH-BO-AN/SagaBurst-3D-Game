@@ -1,7 +1,7 @@
 /**
  * ThirdPersonCamera.ts
  * Third-person camera that orbits around the player.
- * Phase 3 addition: smooth FOV zoom (70 -> 40) & shoulder offset when in Aim Mode.
+ * Phase 22: realistic 58-degree gameplay FOV with 40-degree aim zoom.
  */
 import * as THREE from 'three'
 import type { Player } from '../player/Player'
@@ -11,9 +11,10 @@ const MOUSE_SENSITIVITY = 0.002   // radians per pixel
 const MIN_PITCH = -0.4            // ~-23 deg
 const MAX_PITCH = 1.1             // ~+63 deg
 const CAMERA_DISTANCE = 6
-const CAMERA_HEIGHT_OFFSET = 1.6  // look-at offset above player root
+const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
+const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 
-const NORMAL_FOV = 70
+const NORMAL_FOV = 58
 const AIM_FOV    = 40
 const LEVEL_AIM_PITCH = 0.3
 
@@ -72,7 +73,7 @@ export class ThirdPersonCamera {
     // arrows used a separate direction.
     this._updateAimDirection()
     this.cameraTarget.copy(this.player.position)
-    this.cameraTarget.y += CAMERA_HEIGHT_OFFSET
+    this.cameraTarget.y += this.player.isMounted ? MOUNTED_CAMERA_HEIGHT_OFFSET : CAMERA_HEIGHT_OFFSET
     this.camera.position.copy(this.cameraTarget).addScaledVector(this.aimDirection, -dist)
     this.camera.lookAt(this.cameraTarget.add(this.aimDirection))
   }

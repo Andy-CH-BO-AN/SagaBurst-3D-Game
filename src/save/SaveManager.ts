@@ -29,6 +29,7 @@ export interface PlayerSaveData {
   mountData?: {
     isMounted: boolean
     type: string
+    appearanceVariant?: 0 | 1 | 2
   }
 }
 

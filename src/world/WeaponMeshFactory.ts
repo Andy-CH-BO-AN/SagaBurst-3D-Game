@@ -1,5 +1,92 @@
 import * as THREE from 'three'
 import { Faction } from './NPC'
+import { proceduralMaterial } from './ProceduralMaterials'
+
+function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  const stationCount = widths.length
+  for (let station = 0; station < stationCount; station++) {
+    const y = length * station / (stationCount - 1)
+    const halfWidth = widths[station] / 2
+    positions.push(
+      halfWidth, y, 0,
+      0, y, thickness / 2,
+      -halfWidth, y, 0,
+      0, y, -thickness / 2,
+    )
+    const v = station / (stationCount - 1)
+    uvs.push(1, v, 0.5, v, 0, v, 0.5, v)
+  }
+  for (let station = 0; station < stationCount - 1; station++) {
+    const base = station * 4
+    const next = (station + 1) * 4
+    for (let face = 0; face < 4; face++) {
+      const adjacent = (face + 1) % 4
+      indices.push(base + face, next + face, next + adjacent, base + face, next + adjacent, base + adjacent)
+    }
+  }
+  indices.push(0, 3, 2, 0, 2, 1)
+  const tip = (stationCount - 1) * 4
+  indices.push(tip, tip + 1, tip + 2, tip, tip + 2, tip + 3)
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  return geometry
+}
+
+function addWrappedGrip(pivot: THREE.Group, length: number, radius: number, y: number, leather: THREE.Material, metal: THREE.Material): void {
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.94, length, 12), leather)
+  handle.position.y = y
+  pivot.add(handle)
+  for (let ring = 0; ring < 7; ring++) {
+    const wrap = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.02, radius * 0.1, 6, 16), metal)
+    wrap.rotation.x = Math.PI / 2
+    wrap.position.y = y - length / 2 + (ring + 0.5) * length / 7
+    pivot.add(wrap)
+  }
+}
+
+function curvedLimb(points: THREE.Vector3[], radius: number, material: THREE.Material): THREE.Mesh {
+  const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, radius, 8, false)
+  return new THREE.Mesh(geometry, material)
+}
+
+function curvedShieldBoard(width: number, height: number, depth: number, curve: number): THREE.BoxGeometry {
+  const geometry = new THREE.BoxGeometry(width, height, depth, 12, 14, 1)
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  for (let index = 0; index < position.count; index++) {
+    const x = position.getX(index)
+    const normalized = x / (width / 2)
+    position.setZ(index, position.getZ(index) + curve * (1 - normalized * normalized))
+  }
+  position.needsUpdate = true
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function curvedRectangleRim(width: number, height: number, curve: number, radius: number, material: THREE.Material): THREE.Mesh {
+  const points: THREE.Vector3[] = []
+  const steps = 8
+  const addEdge = (from: THREE.Vector2, to: THREE.Vector2) => {
+    for (let step = 0; step < steps; step++) {
+      const t = step / steps
+      const x = THREE.MathUtils.lerp(from.x, to.x, t)
+      const y = THREE.MathUtils.lerp(from.y, to.y, t)
+      const z = 0.15 + curve * (1 - (x / (width / 2)) ** 2)
+      points.push(new THREE.Vector3(x, y, z))
+    }
+  }
+  addEdge(new THREE.Vector2(-width / 2, height / 2), new THREE.Vector2(width / 2, height / 2))
+  addEdge(new THREE.Vector2(width / 2, height / 2), new THREE.Vector2(width / 2, -height / 2))
+  addEdge(new THREE.Vector2(width / 2, -height / 2), new THREE.Vector2(-width / 2, -height / 2))
+  addEdge(new THREE.Vector2(-width / 2, -height / 2), new THREE.Vector2(-width / 2, height / 2))
+  return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, true), 56, radius, 8, true), material)
+}
 
 export interface NpcRangedMeshParts {
   stringTop?: THREE.Mesh
@@ -90,40 +177,39 @@ export class WeaponMeshFactory {
       tipLocal.set(0, 2.6, 0)
 
     } else {
-      // Tier 2 Authentic Medieval Steel Sword (標準中世紀十字鋼鐵長劍)
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true }) // 皮革握把
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true }) // 黃金/青銅十字護手
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee, flatShading: true }) // 亮銀高金屬感長劍刀刃
-      const pommelMat= new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
+      const leather = proceduralMaterial({ kind: 'leather', color: 0x3f2b21, roughness: 0.82 })
+      const steel = proceduralMaterial({ kind: 'iron', color: 0xc2c7c9, roughness: 0.27, metalness: 0.92 })
+      const darkSteel = proceduralMaterial({ kind: 'iron', color: 0x555c60, roughness: 0.38, metalness: 0.82 })
+      addWrappedGrip(pivot, 0.29, 0.037, 0.15, leather, darkSteel)
 
-      // 握柄 Hilt
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 8), hiltMat)
-      hilt.position.y = 0.15
-      pivot.add(hilt)
-
-      // 劍尾球 Pommel
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), pommelMat)
-      pommel.position.y = 0.0
+      const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.064, 1), darkSteel)
+      pommel.scale.set(0.92, 1.18, 0.72)
+      pommel.position.y = -0.035
       pivot.add(pommel)
 
-      // 十字護手 Crossguard
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.05, 0.08), guardMat)
-      guard.position.y = 0.3
+      const guard = curvedLimb([
+        new THREE.Vector3(-0.23, 0, 0.02),
+        new THREE.Vector3(-0.1, 0.018, 0),
+        new THREE.Vector3(0, 0.025, 0),
+        new THREE.Vector3(0.1, 0.018, 0),
+        new THREE.Vector3(0.23, 0, 0.02),
+      ], 0.027, darkSteel)
+      guard.position.y = 0.31
       pivot.add(guard)
 
-      // 鋼鐵長劍刀刃 Blade
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.03), bladeMat)
-      blade.position.y = 0.85
+      const blade = new THREE.Mesh(profiledBladeGeometry(1.18, [0.105, 0.102, 0.086, 0.052, 0.004], 0.038), steel)
+      blade.position.y = 0.33
+      blade.name = 'steel-sword-profiled-blade'
       blade.castShadow = true
       pivot.add(blade)
+      const fullerFront = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.78, 0.004, 1, 8, 1), darkSteel)
+      fullerFront.position.set(0, 0.82, 0.021)
+      pivot.add(fullerFront)
+      const fullerBack = fullerFront.clone()
+      fullerBack.position.z = -0.021
+      pivot.add(fullerBack)
 
-      // 劍尖 Tip
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.056, 0.2, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 1.48
-      pivot.add(tip)
-
-      tipLocal.set(0, 1.58, 0)
+      tipLocal.set(0, 1.51, 0)
     }
 
     // Orient sword to naturally rest along the hand forward
@@ -198,33 +284,33 @@ export class WeaponMeshFactory {
 
     } else {
       // Default: recurve longbow
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true })
-      
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.25, 8), gripMat)
+      const woodMat = proceduralMaterial({ kind: 'wood', color: 0x6a4227, roughness: 0.76, repeat: [2, 6] })
+      const laminateMat = proceduralMaterial({ kind: 'wood', color: 0xb48752, roughness: 0.7, repeat: [2, 7] })
+      const leatherMat = proceduralMaterial({ kind: 'leather', color: 0x302019, roughness: 0.84 })
+      const hornMat = proceduralMaterial({ kind: 'leather', color: 0xc6a674, roughness: 0.72 })
+
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.048, 0.27, 12), leatherMat)
       bowModel.add(grip)
-
-      const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.045, 0.6, 6), woodMat)
-      upperArm.position.set(0, 0.4, 0.08)
-      upperArm.rotation.x = -0.25
-      bowModel.add(upperArm)
-
-      const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.025, 0.6, 6), woodMat)
-      lowerArm.position.set(0, -0.4, 0.08)
-      lowerArm.rotation.x = 0.25
-      bowModel.add(lowerArm)
-
-      const upperRecurve = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.25, 6), woodMat)
-      upperRecurve.position.set(0, 0.78, 0.06)
-      upperRecurve.rotation.x = 0.3
-      bowModel.add(upperRecurve)
-
-      const lowerRecurve = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.015, 0.25, 6), woodMat)
-      lowerRecurve.position.set(0, -0.78, 0.06)
-      lowerRecurve.rotation.x = -0.3
-      bowModel.add(lowerRecurve)
-
-      topTip.set(0, 0.82, -0.04)
-      botTip.set(0, -0.82, -0.04)
+      for (const side of [-1, 1]) {
+        const points = [
+          new THREE.Vector3(0, side * 0.12, 0),
+          new THREE.Vector3(0, side * 0.38, 0.075),
+          new THREE.Vector3(0, side * 0.67, 0.135),
+          new THREE.Vector3(0, side * 0.86, 0.02),
+        ]
+        const limb = curvedLimb(points, 0.032, woodMat)
+        limb.scale.x = 1.18
+        bowModel.add(limb)
+        const laminate = curvedLimb(points.map((point) => point.clone().add(new THREE.Vector3(0.019, 0, -0.002))), 0.009, laminateMat)
+        bowModel.add(laminate)
+        const nock = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.11, 8), hornMat)
+        nock.position.set(0, side * 0.9, -0.005)
+        nock.rotation.z = side === 1 ? 0 : Math.PI
+        bowModel.add(nock)
+      }
+      topTip.set(0, 0.9, -0.005)
+      botTip.set(0, -0.9, -0.005)
+      stringLength = 0.9
     }
 
     // Scale only the bow limbs and grip. Strings and the arrow are siblings on
@@ -246,46 +332,27 @@ export class WeaponMeshFactory {
    * 建構地面掉落用的簡化武器模型
    */
   static buildPickupMesh(weaponId: string, isArrowPack: boolean, colorHex: number, pivot: THREE.Group): void {
-    if (isArrowPack || weaponId.includes('bow')) {
+    if (isArrowPack) {
       const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.3 })
-      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 6, 12, Math.PI), mat)
-      bow.position.y = 0.45
-      pivot.add(bow)
+      for (let i = 0; i < 5; i++) {
+        const arrow = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.72, 6), mat)
+        arrow.position.set((i - 2) * 0.035, 0.45, 0)
+        pivot.add(arrow)
+      }
+    } else if (weaponId.includes('bow')) {
+      const bowGroup = new THREE.Group()
+      this.buildRanged(weaponId, bowGroup)
+      bowGroup.scale.setScalar(0.62)
+      bowGroup.rotation.z = Math.PI / 2
+      bowGroup.position.y = 0.45
+      pivot.add(bowGroup)
     } else if (weaponId.includes('shield') || weaponId.includes('scutum')) {
       WeaponMeshFactory.buildShield(weaponId, pivot)
       pivot.position.y = 0.5
     } else {
-      // 打造正宗中世紀十字鋼鐵長劍 (Steel Sword / Greatsword Pickup)
-      const hiltMat   = new THREE.MeshLambertMaterial({ color: 0x4a3525 })
-      const guardMat  = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
-      const bladeMat  = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.95, roughness: 0.1 })
-      const pommelMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 })
-
       const swordGroup = new THREE.Group()
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 8), hiltMat)
-      hilt.position.y = 0.125
-      swordGroup.add(hilt)
-
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), pommelMat)
-      pommel.position.y = 0.0
-      swordGroup.add(pommel)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.045, 0.07), guardMat)
-      guard.position.y = 0.25
-      swordGroup.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.95, 0.025), bladeMat)
-      blade.position.y = 0.725
-      blade.castShadow = true
-      swordGroup.add(blade)
-
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 1.28
-      swordGroup.add(tip)
-
-      swordGroup.scale.set(0.7, 0.7, 0.7)
+      this.buildMelee(weaponId, swordGroup)
+      swordGroup.scale.setScalar(0.62)
       swordGroup.position.y = 0.2
       pivot.add(swordGroup)
     }
@@ -311,67 +378,45 @@ export class WeaponMeshFactory {
     }
 
     if (faction === Faction.PLAYER) {
-      // Viking Steel Sword (T2)
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.2 })
-      const handleMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-      const guardMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 })
-
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.18, 8), handleMat)
-      handle.position.y = 0.09
-      pivot.add(handle)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.04, 0.06), guardMat)
-      guard.position.y = 0.2
-      pivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.015), bladeMat)
-      blade.position.y = 0.62
-      pivot.add(blade)
-      return new THREE.Vector3(0, 1.04, 0)
+      return this.buildMelee('steel_sword', pivot).tipLocal
     } else {
       // Roman Gladius
-      let bladeColor = 0x888888 // T1 Rusty
+      let bladeColor = 0x888888
       let bladeLength = 0.6
       let bladeWidth = 0.08
       let metalness = 0.4
-      let emissive = 0x000000
 
       if (tier === 2) {
-        bladeColor = 0xcccccc // Standard
+        bladeColor = 0xbfc3c3
+        bladeLength = 0.68
+        bladeWidth = 0.105
         metalness = 0.8
       } else if (tier === 3) {
-        bladeColor = 0xffffcc // Centurion
+        bladeColor = 0xd6d2b4
         bladeLength = 0.75
         bladeWidth = 0.1
         metalness = 1.0
-        emissive = 0x555500
       }
 
-      const bladeMat = new THREE.MeshStandardMaterial({ color: bladeColor, metalness, roughness: 0.2, emissive })
-      const handleMat = new THREE.MeshLambertMaterial({ color: 0x3a1e00 })
-      const pommelMat = new THREE.MeshStandardMaterial({ color: tier === 3 ? 0xd4af37 : 0x444444, metalness: 0.8 })
+      const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: 0.3 })
+      const handleMat = proceduralMaterial({ kind: 'leather', color: 0x3a2117, roughness: 0.82 })
+      const pommelMat = proceduralMaterial({ kind: tier === 3 ? 'bronze' : 'iron', color: tier === 3 ? 0xb38a4c : 0x575b5d, metalness: 0.8, roughness: 0.38 })
 
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), pommelMat)
+      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), pommelMat)
+      pommel.scale.y = 0.78
       pivot.add(pommel)
+      addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
 
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 0.15, 8), handleMat)
-      handle.position.y = 0.1
-      pivot.add(handle)
-
-      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), pommelMat)
-      guard.scale.set(1, 0.4, 0.6)
+      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), pommelMat)
+      guard.scale.set(1.3, 0.38, 0.65)
       guard.position.y = 0.2
       pivot.add(guard)
 
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(bladeWidth, bladeLength, 0.02), bladeMat)
-      blade.position.y = 0.2 + bladeLength / 2
+      const blade = new THREE.Mesh(profiledBladeGeometry(bladeLength, [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004], 0.034), bladeMat)
+      blade.position.y = 0.2
+      blade.name = 'roman-gladius-profiled-blade'
       pivot.add(blade)
-      
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(bladeWidth / 2, 0.1, 4), bladeMat)
-      tip.rotation.y = Math.PI / 4
-      tip.position.y = 0.2 + bladeLength + 0.05
-      pivot.add(tip)
-      return new THREE.Vector3(0, 0.2 + bladeLength + 0.1, 0)
+      return new THREE.Vector3(0, 0.2 + bladeLength, 0)
     }
   }
 
@@ -381,28 +426,32 @@ export class WeaponMeshFactory {
   static buildNpcRanged(faction: Faction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
     if (faction === Faction.ENEMY) {
       // Roman Pilum (Javelin)
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21, flatShading: true })
-      const ironMat = new THREE.MeshLambertMaterial({ color: 0x777777, flatShading: true })
-      const goldMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
+      const woodMat = proceduralMaterial({ kind: 'wood', color: 0x68452c, roughness: 0.78, repeat: [2, 7] })
+      const ironMat = proceduralMaterial({ kind: 'iron', color: 0x777d7f, roughness: 0.36, metalness: 0.82 })
+      const goldMat = proceduralMaterial({ kind: 'bronze', color: 0xa98248, roughness: 0.4, metalness: 0.74 })
 
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 6), woodMat)
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.021, 1.2, 10), woodMat)
       shaft.position.y = 0.6
       pivot.add(shaft)
+
+      const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.023, 0.16, 10), ironMat)
+      socket.position.y = 1.24
+      pivot.add(socket)
 
       if (tier === 1) {
         const head = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), ironMat)
         head.position.y = 1.275
         pivot.add(head)
       } else if (tier === 2) {
-        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.015, 0.4, 4), ironMat)
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.013, 0.4, 8), ironMat)
         neck.position.y = 1.4
         pivot.add(neck)
         
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 4), ironMat)
+        const head = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.13, 4), ironMat)
         head.position.y = 1.65
         pivot.add(head)
       } else {
-        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.015, 0.5, 4), ironMat)
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.5, 8), ironMat)
         neck.position.y = 1.45
         pivot.add(neck)
         
@@ -453,129 +502,74 @@ export class WeaponMeshFactory {
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
     const isRoman = shieldId.startsWith('scutum')
-    // Extract tier (e.g. "scutum_t2" -> 2)
     const tier = parseInt(shieldId.split('_t')[1]) || 1
+    const iron = proceduralMaterial({ kind: 'iron', color: tier === 3 ? 0xbfc2bd : 0x686d70, roughness: 0.4, metalness: 0.82 })
+    const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
+    const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
     if (isRoman) {
-      // ── Roman Scutum (方形微彎盾) ──
-      const boardMat = new THREE.MeshLambertMaterial({ color: 0x8b0000, flatShading: true }) // 深紅
-      const rimMat = tier >= 2 
-        ? new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xd4af37 : 0x777777, flatShading: true })
-        : new THREE.MeshLambertMaterial({ color: 0x4a3525, flatShading: true })
-      const bossMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xd4af37 : 0x777777, flatShading: true })
-
-      // 本體 (稍微彎曲的效果可以用多個box拼或者直接用CylinderGeometry切一塊)
-      // 這裡用簡單的 BoxGeometry
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.05), boardMat)
-      // 稍微往前推，避免與手臂穿模
-      board.position.set(0, 0, 0.15)
+      const boardMat = proceduralMaterial({ kind: 'leather', color: tier === 1 ? 0x68412b : 0x7f211d, roughness: 0.78, repeat: [4, 5] })
+      const board = new THREE.Mesh(curvedShieldBoard(0.58, 0.98, 0.055, 0.13), boardMat)
+      board.position.z = 0.02
+      board.name = 'curved-scutum-board'
+      board.castShadow = true
+      board.receiveShadow = true
       pivot.add(board)
+      pivot.add(curvedRectangleRim(0.58, 0.98, 0.13, 0.022, tier >= 2 ? iron : leather))
 
-      // 邊框
-      if (tier >= 2) {
-        const rimTop = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.04, 0.06), rimMat)
-        rimTop.position.set(0, 0.45, 0.15)
-        pivot.add(rimTop)
-
-        const rimBot = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.04, 0.06), rimMat)
-        rimBot.position.set(0, -0.45, 0.15)
-        pivot.add(rimBot)
-
-        const rimL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.06), rimMat)
-        rimL.position.set(0.25, 0, 0.15)
-        pivot.add(rimL)
-
-        const rimR = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.06), rimMat)
-        rimR.position.set(-0.25, 0, 0.15)
-        pivot.add(rimR)
-      }
-
-      // 盾凸 (Boss)
-      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), bossMat)
-      boss.position.set(0, 0, 0.18)
-      // 把一半藏在盾裡
-      boss.scale.z = 0.5
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron)
+      boss.position.set(0, 0, 0.285)
+      boss.scale.z = 0.58
+      boss.name = 'shield-boss'
       pivot.add(boss)
-      
-      // Roman faction emblem (Glowing Cross or Sun)
-      const emblemMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, emissive: 0xd4af37, emissiveIntensity: 0.6 })
-      const emblemV = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.01), emblemMat)
-      emblemV.position.set(0, 0, 0.176)
-      pivot.add(emblemV)
-      const emblemH = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.01), emblemMat)
-      emblemH.position.set(0, 0, 0.176)
-      pivot.add(emblemH)
-
-      // 裝飾紋路 (Tier 3)
-      if (tier === 3) {
-        const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.06), rimMat)
-        wingL.position.set(0.15, 0.15, 0.15)
-        wingL.rotation.z = Math.PI / 4
-        pivot.add(wingL)
-
-        const wingR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.06), rimMat)
-        wingR.position.set(-0.15, 0.15, 0.15)
-        wingR.rotation.z = -Math.PI / 4
-        pivot.add(wingR)
+      const emblemMat = tier === 3 ? bronze : proceduralMaterial({ kind: 'bronze', color: 0x9a7445, roughness: 0.55, metalness: 0.5 })
+      for (const rotation of [Math.PI / 4, -Math.PI / 4]) {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.012, 1, 5, 1), emblemMat)
+        wing.position.set(0, 0.08, 0.285)
+        wing.rotation.z = rotation
+        pivot.add(wing)
       }
-
+      const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
+      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.rotation.z = Math.PI / 2
+      rearGrip.name = 'shield-rear-grip'
+      pivot.add(rearGrip)
     } else {
-      // ── Viking Round Shield (圓盾) ──
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true }) // 木紋
-      const rimMat = tier >= 2 
-        ? new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xdddddd : 0x555555, flatShading: true })
-        : new THREE.MeshLambertMaterial({ color: 0x332211, flatShading: true })
-      const bossMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0xdddddd : 0x555555, flatShading: true })
-      const paintMat = new THREE.MeshLambertMaterial({ color: tier === 3 ? 0x004488 : 0x335533, flatShading: true })
-
-      // 圓盾主體 (木板)
-      const board = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.04, 16), woodMat)
+      const wood = proceduralMaterial({ kind: 'wood', color: 0x65452d, roughness: 0.84, repeat: [5, 3] })
+      const paint = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x294d64 : 0x435443, roughness: 0.82, repeat: [5, 3] })
+      const board = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.052, 32), tier >= 2 ? paint : wood)
       board.rotation.x = Math.PI / 2
-      board.position.set(0, 0, 0.15)
+      board.position.z = 0.15
+      board.name = 'round-shield-board'
+      board.castShadow = true
       pivot.add(board)
-
-      // 漆面裝飾 (稍微突出)
-      if (tier >= 2) {
-        const paint = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.042, 16), paintMat)
-        paint.rotation.x = Math.PI / 2
-        paint.position.set(0, 0, 0.15)
-        pivot.add(paint)
+      for (let seam = -3; seam <= 3; seam++) {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.72 - Math.abs(seam) * 0.055, 0.008), leather)
+        line.position.set(seam * 0.1, 0, 0.18)
+        pivot.add(line)
       }
-
-      // 鐵環 (邊緣)
-      if (tier >= 2) {
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.02, 8, 16), rimMat)
-        rim.position.set(0, 0, 0.15)
-        pivot.add(rim)
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.023, 10, 32), tier >= 2 ? iron : leather)
+      rim.position.z = 0.18
+      pivot.add(rim)
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron)
+      boss.position.set(0, 0, 0.205)
+      boss.scale.z = 0.58
+      boss.name = 'shield-boss'
+      pivot.add(boss)
+      for (const y of [-0.14, 0.14]) {
+        const rearStrap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.045, 0.025, 4, 1, 1), leather)
+        rearStrap.position.set(0, y, 0.11)
+        rearStrap.name = 'shield-rear-strap'
+        pivot.add(rearStrap)
       }
-      
-      // Viking faction runes/patterns
-      const runeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xaabbcc, emissiveIntensity: 0.4 })
-      const rune1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.25, 0.01), runeMat)
-      rune1.position.set(0.15, 0.1, 0.17)
-      rune1.rotation.z = Math.PI / 6
-      pivot.add(rune1)
-      const rune2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 0.01), runeMat)
-      rune2.position.set(0.18, 0.15, 0.17)
-      rune2.rotation.z = -Math.PI / 4
-      pivot.add(rune2)
-
-      // 鐵釘裝飾 (Tier 3)
       if (tier === 3) {
-        for (let i = 0; i < 4; i++) {
-          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.05, 4), bossMat)
-          spike.rotation.x = Math.PI / 2
-          const angle = i * Math.PI / 2
-          spike.position.set(Math.cos(angle) * 0.25, Math.sin(angle) * 0.25, 0.18)
-          pivot.add(spike)
+        for (let index = 0; index < 8; index++) {
+          const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 7, 5), bronze)
+          const angle = index / 8 * Math.PI * 2
+          rivet.position.set(Math.cos(angle) * 0.31, Math.sin(angle) * 0.31, 0.202)
+          pivot.add(rivet)
         }
       }
-
-      // 盾凸
-      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), bossMat)
-      boss.position.set(0, 0, 0.17)
-      boss.scale.z = 0.5
-      pivot.add(boss)
     }
   }
 }
