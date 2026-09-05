@@ -1,6 +1,6 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-01 (Phase 23 realistic horse runtime completed)_
+_Last updated: 2026-09-05 (external rider knee bend corrected)_
 
 ---
 
@@ -9,6 +9,13 @@ _Last updated: 2026-09-01 (Phase 23 realistic horse runtime completed)_
 **Phases 0 ~ 23 — ✅ IMPLEMENTED**
 
 The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
+
+### 2026-09-05：外部騎手膝蓋反折修正（✅ DONE）
+
+- `LegRig.forwardBendSign` 明確記錄骨架的局部 X 軸腿部彎曲慣例；project-humanoid 與舊程序化骨架不再共用錯誤的旋轉符號。
+- 外部 Viking／Roman 騎手的髮、膝、踝現在會一致地將膝蓋帶向馬頭，小腿再向下、略往後落至馬腹／馬鐙區域；玩家、NPC 與戰馬工作室沿用同一姿勢入口。
+- 新增世界座標回歸測試，覆蓋外部骨架正向彎膝、舊程序化方向相容性，以及下馬後恢復 bind pose。
+- Vitest 64/64 與 production build 通過；Chrome 已驗證 `?devmodels=mounts&nolock` idle／gallop 側視圖、`?devcombat&nolock` 50v50 與 `?nolock` 正式場景，無專案來源 console error。
 
 ### Phase 23：外部寫實戰馬整合（✅ DONE）
 

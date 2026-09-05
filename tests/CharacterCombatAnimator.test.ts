@@ -55,15 +55,17 @@ function arm(side: -1 | 1): ArmRig {
   return { shoulder, elbow, wrist, handSocket }
 }
 
-function leg(side: -1 | 1): LegRig {
+function leg(side: -1 | 1, forwardBendSign: -1 | 1 = -1): LegRig {
   const hip = new THREE.Group()
   const knee = new THREE.Group()
+  knee.position.y = -0.4
   const ankle = new THREE.Group()
+  ankle.position.y = -0.4
   const foot = new THREE.Mesh(new THREE.BoxGeometry())
   hip.add(knee)
   knee.add(ankle)
   ankle.add(foot)
-  return { hip, knee, ankle, foot, side }
+  return { hip, knee, ankle, foot, side, forwardBendSign }
 }
 
 function characterRig(): CharacterRig {
@@ -455,6 +457,8 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(rig.left.handSocket.parent?.name).toBe('hand.l')
     expect(rig.pelvis?.parent?.name).toBe('hips')
     expect(rig.leftFootSocket?.parent?.name).toBe('foot.l')
+    expect(rig.leftLeg.forwardBendSign).toBe(1)
+    expect(rig.rightLeg.forwardBendSign).toBe(1)
   })
 
   it('keeps combat timing while requesting mixer cross-fades', () => {
@@ -617,6 +621,45 @@ describe('Phase 23 horse asset contract', () => {
       expect(Math.abs(mountLeg.hip.rotation.z)).toBeCloseTo(0.25)
       expect(mountLeg.knee.rotation.x).toBeCloseTo(-1.22)
       expect(mountLeg.ankle.rotation.x).toBeCloseTo(0.44)
+    }
+  })
+
+  it('bends imported rider knees forward while preserving the legacy procedural convention', () => {
+    const importedRig = characterRig()
+    importedRig.leftLeg.forwardBendSign = 1
+    importedRig.rightLeg.forwardBendSign = 1
+    applyCharacterMountedPose(importedRig, true, 'HORSE')
+
+    const importedKnee = new THREE.Vector3()
+    const importedAnkle = new THREE.Vector3()
+    importedRig.leftLeg.knee.getWorldPosition(importedKnee)
+    importedRig.leftLeg.ankle.getWorldPosition(importedAnkle)
+    expect(importedRig.leftLeg.hip.rotation.x).toBeCloseTo(-0.68)
+    expect(importedRig.leftLeg.knee.rotation.x).toBeCloseTo(1.22)
+    expect(importedKnee.z).toBeGreaterThan(0)
+    expect(importedAnkle.y).toBeLessThan(importedKnee.y)
+
+    const proceduralRig = characterRig()
+    applyCharacterMountedPose(proceduralRig, true, 'HORSE')
+    expect(proceduralRig.leftLeg.knee.rotation.x).toBeCloseTo(-1.22)
+  })
+
+  it('restores imported rider legs to their bind pose after dismounting', () => {
+    const importedRig = characterRig()
+    for (const mountLeg of [importedRig.leftLeg, importedRig.rightLeg]) {
+      mountLeg.forwardBendSign = 1
+      for (const joint of [mountLeg.hip, mountLeg.knee, mountLeg.ankle]) {
+        joint.rotation.set(0.08, -0.04, 0.02)
+        joint.userData.humanoidRestQuaternion = joint.quaternion.toArray()
+      }
+    }
+
+    applyCharacterMountedPose(importedRig, true, 'HORSE')
+    applyCharacterMountedPose(importedRig, false)
+    for (const mountLeg of [importedRig.leftLeg, importedRig.rightLeg]) {
+      for (const joint of [mountLeg.hip, mountLeg.knee, mountLeg.ankle]) {
+        expect(joint.quaternion.angleTo(new THREE.Quaternion().fromArray(joint.userData.humanoidRestQuaternion))).toBeLessThan(0.000001)
+      }
     }
   })
 

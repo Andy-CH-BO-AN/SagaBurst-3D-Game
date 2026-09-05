@@ -114,6 +114,7 @@ skyrim 3D test/
 - Each horse receives an independent `SkeletonUtils` clone and `AnimationMixer`; geometry, materials, KTX2 textures and clips are shared. LOD distances are 0/18/38m and animation updates beyond 35m are throttled near 15 Hz.
 - `Mount` remains authoritative for HP, movement, collision, jumping, impact and save timing. Horse animation chooses idle/walk/trot/canter/gallop from movement speed and plays jump/land/hit/death once without an extra group-level death roll.
 - New scene horses and NPC cavalry use `HORSE`. Stable FNV-1a keys assign the three coat variants; saves accept an optional `appearanceVariant` and default invalid/missing values to 0 without a schema bump.
+- `LegRig.forwardBendSign` declares the local-X forward-bend convention for each humanoid rig. The external project-humanoid adapter and legacy procedural fixture provide their own sign, and `applyCharacterMountedPose` applies that convention consistently to hip, knee and ankle rotations so Player, NPC and studio riders share an anatomically forward knee bend.
 - Public assets live in `public/models/mounts/v1/horse/`; source hashes and licensing are recorded in its manifest/CREDITS and the retained audit reports under `artifacts/mount_horse_pipeline/`.
 
 ---

@@ -23,6 +23,8 @@ export interface LegRig {
   ankle: THREE.Object3D
   foot: THREE.Object3D
   side: -1 | 1
+  /** Local-X sign that bends the lower leg toward character-forward. */
+  forwardBendSign: -1 | 1
 }
 
 export interface HumanoidAnimationController {
@@ -153,7 +155,7 @@ function addLeg(
   ankle.add(foot)
   knee.add(ankle)
   root.add(hip)
-  return { hip, knee, ankle, foot, side }
+  return { hip, knee, ankle, foot, side, forwardBendSign: -1 }
 }
 
 export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, kind: MountedPoseKind = 'BLACK_CAT'): void {
@@ -165,10 +167,10 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       continue
     }
     const spread = kind === 'CORGI' ? 0.34 : kind === 'HORSE' ? 0.25 : 0.28
-    const kneeBend = kind === 'CORGI' ? -1.28 : kind === 'HORSE' ? -1.22 : -1.18
-    setRigRotation(leg.hip, 0.68, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend, 0, 0)
-    setRigRotation(leg.ankle, kind === 'HORSE' ? 0.44 : 0.38, 0, 0)
+    const kneeBend = kind === 'CORGI' ? 1.28 : kind === 'HORSE' ? 1.22 : 1.18
+    setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, 0)
+    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, 0)
   }
 }
 

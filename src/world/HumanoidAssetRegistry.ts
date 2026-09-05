@@ -297,7 +297,14 @@ function legRig(root: THREE.Object3D, side: 'L' | 'R'): LegRig {
   const knee = findBone(root, REQUIRED_BONES[`lowerLeg${suffix}` as RequiredBoneKey])
   const ankle = findBone(root, REQUIRED_BONES[`foot${suffix}` as RequiredBoneKey])
   const foot = findBone(root, REQUIRED_BONES[`toe${suffix}` as RequiredBoneKey])
-  return { hip, knee, ankle, foot, side: side === 'L' ? -1 : 1 }
+  return {
+    hip,
+    knee,
+    ankle,
+    foot,
+    side: side === 'L' ? -1 : 1,
+    forwardBendSign: 1,
+  }
 }
 
 export function createHumanoidRigAdapter(root: THREE.Object3D, animation: HumanoidAnimationController): CharacterRig {
