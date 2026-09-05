@@ -1,5 +1,7 @@
 # SagaBurst 3D Game
 
+**English** | [繁體中文](./README.zh-TW.md)
+
 A browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
 The current in-game title is **Warriors: Dedicate Your Heart!**. Explore the battlefield, fight enemies with melee weapons or a bow, collect equipment, ride horses, and build your character through combat.
