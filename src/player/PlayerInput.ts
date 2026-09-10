@@ -19,9 +19,13 @@ export class PlayerInput {
   private _dy = 0
 
   // Pointer lock state
-  isLocked = this.allowUnlockedInput
+  isLocked = false
 
   private _keyETriggered = false
+
+  private _syncPointerLockState(): void {
+    this.isLocked = (typeof document !== "undefined" && document.pointerLockElement !== null) || this.allowUnlockedInput
+  }
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -85,8 +89,11 @@ export class PlayerInput {
     })
 
     document.addEventListener('pointerlockchange', () => {
-      this.isLocked = document.pointerLockElement !== null || this.allowUnlockedInput
+      this._syncPointerLockState()
     })
+
+    // Critical: handle pointer lock acquired before PlayerInput existed.
+    this._syncPointerLockState()
   }
 
   /** Returns true if left click was triggered since last check, then resets flag. */
