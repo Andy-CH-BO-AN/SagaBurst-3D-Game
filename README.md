@@ -2,13 +2,58 @@
 
 **English** | [繁體中文](./README.zh-TW.md)
 
-A browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
+**SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-The current in-game title is **Warriors: Dedicate Your Heart!**. Explore the battlefield, fight enemies with melee weapons or a bow, collect equipment, ride horses, and build your character through combat.
+The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types and tiers, then join the Viking side as the player while both AI armies automatically engage on the battlefield.
+
+## ⚔️ Custom Battle
+
+Each side can field **1–50 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 50`.
+
+Each faction can be configured independently across four unit roles and three tiers:
+
+| Unit | Role |
+| --- | --- |
+| Infantry | Foot melee unit |
+| Archer | Foot ranged unit |
+| Cavalry | Mounted melee / lancer unit |
+| Horse Archer | Mounted ranged unit |
+
+Every unit role supports **T1 / T2 / T3**. Higher tiers use stronger faction-appropriate equipment and damage values.
+
+Quick presets are available for **10 vs 10**, **25 vs 25**, and **50 vs 50**, or you can build an army manually with the setup controls.
+
+The player is an additional Viking participant and does **not** count toward the configured Viking AI army total or victory condition.
+
+### Battle flow
+
+1. Open the game and configure both armies in the Custom Battle Setup screen.
+2. Click **START BATTLE**.
+3. The two AI armies spawn in deterministic formations and automatically move to engage each other.
+4. Fight alongside the Viking army using melee weapons, bows, shields, lances, and horses.
+5. A battle ends when either configured AI army is eliminated.
+6. Use **REMATCH** to replay the same configuration or **BACK TO SETUP** to build another battle.
+
+If both AI armies are eliminated at the same time, the result is a **DRAW**.
+
+## 🏕️ Battle Camps
+
+Normal Custom Battles include a support camp for each faction.
+
+Each camp provides player-usable equipment, including:
+
+- T1 / T2 / T3 melee weapons
+- T1 / T2 / T3 ranged weapons
+- T1 / T2 / T3 shields
+- One lance
+- Arrow supplies
+- Five spare horses
+
+Mounted troops use their own assigned mounts; the five spare horses at each camp are separate and remain available to the player.
 
 ## 🎮 How to Play
 
-### 1. Install and run
+### Install and run
 
 You need **Node.js** and **npm** installed.
 
@@ -19,9 +64,11 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite in your browser, then click **CLICK TO START** to lock the mouse and enter the game.
+Open the local URL printed by Vite in a desktop browser. The Custom Battle Setup UI appears before the heavy 3D assets are loaded.
 
-> The game is designed for desktop keyboard + mouse controls.
+After clicking **START BATTLE**, the game attempts to capture the mouse for camera control. Press `Esc` to release the cursor; click the battle screen again to resume pointer lock when needed.
+
+> The game is currently designed for desktop keyboard + mouse controls.
 
 ## 🕹️ Controls
 
@@ -36,30 +83,43 @@ Open the local URL printed by Vite in your browser, then click **CLICK TO START*
 | `E` | Pick up equipment / mount horse / dismount |
 | `Tab` or `I` | Open character & inventory |
 | `0` | Open game menu |
-| `Esc` | Close menu / inventory or release pointer lock |
+| `Esc` | Close UI / release pointer lock |
 
-## ⚔️ Gameplay
+## 🏹 Combat & RPG Systems
 
-- **Melee combat** — fight enemies using swords and other melee weapons.
+- **Melee combat** — use daggers, swords, greatswords, and lances.
 - **Archery** — hold right mouse to aim, then use the left mouse button to draw and fire.
-- **Equipment pickups** — explore the world and press `E` near dropped equipment to collect it.
-- **Weapon progression** — different melee weapons, bows, and shields are available across multiple tiers.
-- **Arrow supplies** — collect arrow supply pickups when your quiver runs low.
-- **Mounts** — approach a horse and press `E` to ride it. Press `E` again to dismount.
-- **Mounted movement** — horses use the same movement controls, including sprinting and jumping.
-- **Character progression** — combat feeds the RPG skill/progression systems shown in the character screen.
-- **Save / Load** — press `0` or use the top-left menu to save or restore your progress.
+- **Mounted combat** — cavalry can charge with lances while mounted ranged units fight from horseback.
+- **Tiered equipment** — T1 / T2 / T3 weapons and ranged equipment have distinct combat values.
+- **Shields** — Viking round shields and Roman scuta are available from battle camps.
+- **Equipment pickups** — approach camp equipment and press `E` to collect it.
+- **Arrow supplies** — refill ranged ammunition from camp supply pickups.
+- **Horses** — approach an available horse and press `E` to mount; press `E` again to dismount.
+- **Character progression** — player combat continues to feed the existing RPG skill and progression systems.
+- **Save / Load** — the existing game menu can still save and restore player progression.
 
-## 🏹 Getting Started In-Game
+## 🧪 Developer / QA Modes
 
-1. Click the screen to start and capture the mouse.
-2. Move around with `WASD` and use the mouse to look around.
-3. Find enemies and attack with the left mouse button.
-4. For ranged combat, hold the right mouse button to aim and use the left mouse button to fire.
-5. Look for weapons, shields, bows, and arrow supplies around the map; press `E` to collect them.
-6. Approach a horse and press `E` to mount it.
-7. Open `Tab` / `I` to inspect your character, skills, inventory, and equipment.
-8. Use the `0` menu to save your progress before leaving.
+The main gameplay URL always uses Custom Battle Setup unless a developer scene mode is explicitly requested.
+
+| Query | Purpose |
+| --- | --- |
+| `?devcombat` | Fixed 50 vs 50 mounted combat / performance scenario using the shared battle spawner; no camps or spare camp horses |
+| `?devmodels=humans` | Humanoid model / animation studio |
+| `?devmodels=mounts` | Horse, saddle, rider, gait, jump, and dismount QA studio |
+| `?legacyhumanoids` | Use the legacy humanoid rendering path as a modifier |
+| `?nolock` | Disable normal pointer-lock requirements for browser QA |
+
+Examples:
+
+```text
+http://localhost:5173/?devcombat&nolock
+http://localhost:5173/?devmodels=humans&nolock
+http://localhost:5173/?devmodels=mounts&nolock
+http://localhost:5173/?devcombat&legacyhumanoids&nolock
+```
+
+There is no separate hardcoded **Standard** battle mode. Normal gameplay is fully driven by Custom Battle configuration.
 
 ## 🧰 Development Commands
 
@@ -87,4 +147,6 @@ npm run preview
 
 ## 🚧 Project Status
 
-This project is actively evolving as a 3D action RPG prototype. Character models, combat animations, mounted gameplay, AI, equipment, and other gameplay systems may continue to change as development progresses.
+SagaBurst is an actively evolving 3D action RPG prototype focused on large AI battles, melee and ranged combat, mounted gameplay, equipment progression, and browser-based 3D character systems.
+
+Current development is centered on improving battle quality, combat behavior, animation fidelity, performance, and the Custom Battle experience.
