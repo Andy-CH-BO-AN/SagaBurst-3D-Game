@@ -124,7 +124,7 @@ export class Player {
   private readonly _tmpPelvisWorld = new THREE.Vector3()
 
   public spawnX = 0
-  public spawnZ = 70.0
+  public spawnZ = 82.2
   public isMounted = false
   public currentMount: Mount | null = null
 

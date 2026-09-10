@@ -89,6 +89,17 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
     return { valid: false, errors: ['Missing viking or roman army configuration'] }
   }
 
+  if (!c.rules || typeof c.rules !== 'object') {
+    errors.push('Missing or invalid battle rules configuration')
+  } else {
+    if (typeof c.rules.respawnEnabled !== 'boolean') {
+      errors.push('rules.respawnEnabled must be a boolean')
+    }
+    if (typeof c.rules.includeCamps !== 'boolean') {
+      errors.push('rules.includeCamps must be a boolean')
+    }
+  }
+
   const checkArmy = (army: ArmyConfig, sideName: string): number => {
     let sideTotal = 0
     const categories: BattleUnitType[] = ['infantry', 'archer', 'cavalry', 'horseArcher']

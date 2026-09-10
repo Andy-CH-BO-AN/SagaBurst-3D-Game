@@ -6,7 +6,14 @@
 import { NPC, Faction } from '../world/NPC'
 import { BattleConfig } from './BattleConfig'
 
+export type BattleResult = "VIKING_VICTORY" | "ROMAN_VICTORY" | "DRAW" | null
+
 export class BattleController {
+  private result: BattleResult = null
+
+  getResult(): BattleResult {
+    return this.result
+  }
   private readonly config: BattleConfig
   private battleEnded = false
 
@@ -41,14 +48,20 @@ export class BattleController {
     this._updateHud(vikingAlive, romanAlive)
 
     // Check victory conditions (Both sides must have initialized with > 0)
-    if (this.initialRomanCount > 0 && romanAlive === 0) {
-      this._endBattle('VIKING VICTORY', '#3498db', '維京軍團獲勝！')
+    if (this.initialVikingCount > 0 && this.initialRomanCount > 0 && vikingAlive === 0 && romanAlive === 0) {
+      this.result = "DRAW"
+      this._endBattle("DRAW", "#f39c12", "雙方同歸於盡！平局！")
+    } else if (this.initialRomanCount > 0 && romanAlive === 0) {
+      this.result = "VIKING_VICTORY"
+      this._endBattle("VIKING VICTORY", "#3498db", "維京軍團獲勝！")
     } else if (this.initialVikingCount > 0 && vikingAlive === 0) {
-      this._endBattle('ROMAN VICTORY', '#e74c3c', '羅馬軍團獲勝！')
+      this.result = "ROMAN_VICTORY"
+      this._endBattle("ROMAN VICTORY", "#e74c3c", "羅馬軍團獲勝！")
     }
   }
 
   private _createHud(): void {
+    if (typeof document === 'undefined') return
     const hud = document.createElement('div')
     hud.id = 'battle-status-hud'
     hud.style.cssText = `
@@ -81,6 +94,7 @@ export class BattleController {
   }
 
   private _updateHud(vikingAlive: number, romanAlive: number): void {
+    if (typeof document === 'undefined') return
     const vEl = document.getElementById('hud-viking-alive')
     const rEl = document.getElementById('hud-roman-alive')
     if (vEl) vEl.textContent = `${vikingAlive} / ${this.initialVikingCount}`
@@ -89,6 +103,7 @@ export class BattleController {
 
   private _endBattle(title: string, titleColor: string, subtitle: string): void {
     this.battleEnded = true
+    if (typeof document === 'undefined') return
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }

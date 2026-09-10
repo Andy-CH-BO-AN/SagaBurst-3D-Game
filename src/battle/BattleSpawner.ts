@@ -36,6 +36,9 @@ export interface CampHorseSpec {
   stableKey: string
 }
 
+export const VIKING_PLAYER_SPAWN = { x: 0, z: 82.2 }
+export const PLAYER_SAFE_CLEARANCE = 2.0
+
 export interface BattleSpawnPlan {
   npcSpecs: NpcSpawnSpec[]
   pickupSpecs: CampPickupSpec[]
@@ -135,9 +138,12 @@ export class BattleSpawner {
         const row = Math.floor(i / infPerRow)
         const col = i % infPerRow
         const countInRow = Math.min(infPerRow, units.infantry.length - row * infPerRow)
-        const x = (col - (countInRow - 1) / 2) * infSpacingX
+        let x = (col - (countInRow - 1) / 2) * infSpacingX
         const z = (infStartOffsetZ + row * infRowSpacingZ) * zSign
 
+        if (isViking && Math.hypot(x - VIKING_PLAYER_SPAWN.x, z - VIKING_PLAYER_SPAWN.z) < PLAYER_SAFE_CLEARANCE) {
+          x = x >= 0 ? x + PLAYER_SAFE_CLEARANCE : x - PLAYER_SAFE_CLEARANCE
+        }
         specs.push({
           x: Math.round(x * 100) / 100,
           z: Math.round(z * 100) / 100,
@@ -164,9 +170,12 @@ export class BattleSpawner {
       const row = Math.floor(i / archPerRow)
       const col = i % archPerRow
       const countInRow = Math.min(archPerRow, units.archer.length - row * archPerRow)
-      const x = (col - (countInRow - 1) / 2) * archSpacingX
+      let x = (col - (countInRow - 1) / 2) * archSpacingX
       const z = (archBaseZ + row * archRowSpacingZ) * zSign
 
+      if (isViking && Math.hypot(x - VIKING_PLAYER_SPAWN.x, z - VIKING_PLAYER_SPAWN.z) < PLAYER_SAFE_CLEARANCE) {
+        x = x >= 0 ? x + PLAYER_SAFE_CLEARANCE : x - PLAYER_SAFE_CLEARANCE
+      }
       specs.push({
         x: Math.round(x * 100) / 100,
         z: Math.round(z * 100) / 100,

@@ -215,11 +215,24 @@ export class Game {
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
     if (!this.isModelStudio) {
-      const playerZ = 70.0
+      const playerZ = 82.2
       const terrainY = getTerrainHeight(0, playerZ)
       this.player.group.position.set(0, terrainY + 0.95, playerZ)
       this.thirdPersonCamera.setYaw(0)
     }
+
+    this.lockOverlay    = document.getElementById('lock-overlay')!
+    this.controlsHint   = document.getElementById('controls-hint')!
+    this.saveNotify     = document.getElementById('save-notify')!
+    this.pickupPromptEl = document.getElementById('pickup-prompt')!
+
+    this.enemyHud    = document.getElementById('enemy-hud')!
+    this.enemyNameEl = document.getElementById('enemy-name')!
+    this.enemyHpFill = document.getElementById('enemy-hp-fill')!
+
+    this.mountHud    = document.getElementById('mount-hud')!
+    this.mountNameEl = document.getElementById('mount-name')!
+    this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Combat & Enemies ──
     const query = new URLSearchParams(window.location.search)
@@ -255,18 +268,6 @@ export class Game {
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager()
 
-    this.lockOverlay    = document.getElementById('lock-overlay')!
-    this.controlsHint   = document.getElementById('controls-hint')!
-    this.saveNotify     = document.getElementById('save-notify')!
-    this.pickupPromptEl = document.getElementById('pickup-prompt')!
-
-    this.enemyHud    = document.getElementById('enemy-hud')!
-    this.enemyNameEl = document.getElementById('enemy-name')!
-    this.enemyHpFill = document.getElementById('enemy-hp-fill')!
-
-    this.mountHud    = document.getElementById('mount-hud')!
-    this.mountNameEl = document.getElementById('mount-name')!
-    this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Save Manager ──
     this.saveManager = new SaveManager()
@@ -422,6 +423,16 @@ export class Game {
     mount.playStudioClip('idle')
     this.mounts.push(mount)
     this.mountStudioHorse = mount
+
+    // Stable browser-QA setup: start as a horse knight so saddle fit,
+    // rider legs, gait, jump and dismount can be inspected
+    // without depending on repeated single-frame keypresses.
+    this.player.isMounted = true
+    this.player.currentMount = mount
+    mount.state = MountState.CONTROLLED
+    this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+    this.mountHpFill.style.width = '100%'
+    this.mountHud.classList.add('visible')
 
     const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
     comparisonHorse.visualHold = true
@@ -615,6 +626,11 @@ export class Game {
     }
     this.lockOverlay.addEventListener('click', () => {
       if (!this.equipmentUI?.visible) {
+        this.input.requestPointerLock()
+      }
+    })
+    this.renderer.domElement.addEventListener('click', () => {
+      if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio) {
         this.input.requestPointerLock()
       }
     })

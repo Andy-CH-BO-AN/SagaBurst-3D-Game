@@ -53,9 +53,10 @@ async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
   const isDevCombat = query.has('devcombat')
   const isDevModels = query.has('devmodels')
+  const isLegacyHumanoids = query.has('legacyhumanoids')
 
   // 1. Highest priority: Developer query params (bypass setup UI)
-  if (isDevCombat || isDevModels) {
+  if (isDevCombat || isDevModels || isLegacyHumanoids) {
     await launchGame()
     return
   }

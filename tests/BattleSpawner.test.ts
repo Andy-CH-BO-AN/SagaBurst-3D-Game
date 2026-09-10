@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Faction, AIType } from '../src/world/NPC'
-import { BattleSpawner, BattleSpawnPlan } from '../src/battle/BattleSpawner'
+import { BattleSpawner, BattleSpawnPlan, VIKING_PLAYER_SPAWN, PLAYER_SAFE_CLEARANCE } from '../src/battle/BattleSpawner'
 import {
   BattleConfig,
   createEmptyArmyConfig,
@@ -143,5 +143,26 @@ describe('BattleSpawner Deterministic Formation', () => {
     expect(romanHorses.length).toBe(5)
     expect(vikingHorses.every(h => h.z === 88)).toBe(true)
     expect(romanHorses.every(h => h.z === -88)).toBe(true)
+  })
+
+  it('ensures all Viking NPC spawn positions maintain safe clearance from Player spawn in 50v50 and 50 Infantry', () => {
+    const configs = [
+      PRESET_50V50,
+      {
+        viking: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
+        roman: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
+        rules: { respawnEnabled: false, includeCamps: true },
+      },
+    ]
+
+    for (const config of configs) {
+      const plan = BattleSpawner.createSpawnPlan(config)
+      const vikingUnits = plan.npcSpecs.filter(s => s.faction === Faction.PLAYER)
+
+      for (const unit of vikingUnits) {
+        const dist = Math.hypot(unit.x - VIKING_PLAYER_SPAWN.x, unit.z - VIKING_PLAYER_SPAWN.z)
+        expect(dist).toBeGreaterThanOrEqual(PLAYER_SAFE_CLEARANCE)
+      }
+    }
   })
 })

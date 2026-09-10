@@ -15,7 +15,7 @@ import { CharacterBowVisual } from './CharacterBowVisual'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -166,21 +166,17 @@ export class NPC {
       this.arrows = 0
     }
 
-    // Assign Damages
-    const meleeT = this.aiType === AIType.RANGED ? 1 : this.tier
-    if (this.faction === Faction.ENEMY) {
-      this.meleeDamage = WEAPONS[meleeT === 1 ? 'gladius_rusty' : meleeT === 2 ? 'gladius_standard' : 'centurion_blade'].damageMax
-      this.rangedDamage = WEAPONS[this.tier === 1 ? 'pilum_basic' : this.tier === 2 ? 'pilum_standard' : 'legionary_pilum'].damageMax
-    } else {
-      this.meleeDamage = WEAPONS[meleeT === 1 ? 'rusty_dagger' : meleeT === 2 ? 'steel_sword' : 'runic_greatsword'].damageMax
-      this.rangedDamage = WEAPONS[this.tier === 1 ? 'wooden_shortbow' : this.tier === 2 ? 'recurve_longbow' : 'elven_runebow'].damageMax
-    }
+    // Assign authoritative combat profile & damages from BattleConfig
+    const unitType: BattleUnitType = this.generatedAsCavalry
+      ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
+      : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
+    const combatProfile = getUnitCombatProfile(this.faction, unitType, this.tier)
 
-    if (this.generatedAsCavalry && this.aiType === AIType.MELEE) {
-      this.isUsingLance = true
+    this.meleeDamage = combatProfile.finalMeleeDamage
+    this.rangedDamage = combatProfile.rangedDamage ?? 0
+    this.isUsingLance = combatProfile.isUsingLance
+    if (this.isUsingLance) {
       this.meleeAttackRadius = 3.0
-      const baseTierMelee = this.tier === 1 ? 12 : this.tier === 2 ? 25 : 45
-      this.meleeDamage = baseTierMelee * 1.5 // Extra damage for lance (18, 37.5, 67.5)
     }
 
     // Calibrate waypoints to terrain height
@@ -258,12 +254,7 @@ export class NPC {
     }
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-      const bowId = this.tier === 1
-        ? 'wooden_shortbow'
-        : this.tier === 2
-          ? 'recurve_longbow'
-          : 'elven_runebow'
-      this.bowVisual.rebuild(bowId)
+      this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow')
     } else {
       WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowGripPivot)
     }

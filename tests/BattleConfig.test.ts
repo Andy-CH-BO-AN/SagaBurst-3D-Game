@@ -182,4 +182,40 @@ describe('BattleConfig Domain & Validation', () => {
     expect(result.errors.some(e => e.includes('Viking army must have at least 1 unit'))).toBe(true)
     expect(result.errors.some(e => e.includes('Roman army must have at least 1 unit'))).toBe(true)
   })
+
+  it('validates battle rules strictly for existence and boolean types', () => {
+    const validConfig: BattleConfig = {
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      rules: { respawnEnabled: false, includeCamps: true },
+    }
+    expect(validateBattleConfig(validConfig).valid).toBe(true)
+
+    // Missing rules entirely (e.g. stale storage format)
+    const noRules = {
+      viking: validConfig.viking,
+      roman: validConfig.roman,
+    }
+    const noRulesRes = validateBattleConfig(noRules)
+    expect(noRulesRes.valid).toBe(false)
+    expect(noRulesRes.errors.some(e => e.includes('battle rules'))).toBe(true)
+
+    // Non-boolean respawnEnabled
+    const badRespawn = {
+      ...validConfig,
+      rules: { respawnEnabled: 'yes', includeCamps: true },
+    }
+    const badRespawnRes = validateBattleConfig(badRespawn)
+    expect(badRespawnRes.valid).toBe(false)
+    expect(badRespawnRes.errors.some(e => e.includes('respawnEnabled must be a boolean'))).toBe(true)
+
+    // Non-boolean includeCamps
+    const badCamps = {
+      ...validConfig,
+      rules: { respawnEnabled: false, includeCamps: 123 },
+    }
+    const badCampsRes = validateBattleConfig(badCamps)
+    expect(badCampsRes.valid).toBe(false)
+    expect(badCampsRes.errors.some(e => e.includes('includeCamps must be a boolean'))).toBe(true)
+  })
 })

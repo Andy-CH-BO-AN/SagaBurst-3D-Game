@@ -200,6 +200,13 @@ export class BattleSetupUI {
     document.getElementById('btn-start-battle')?.addEventListener('click', () => {
       const validation = validateBattleConfig(this.config)
       if (validation.valid && this.onStartCallback) {
+        if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
+          try {
+            document.body.requestPointerLock?.()
+          } catch {
+            // ignore
+          }
+        }
         this.destroy()
         this.onStartCallback(this.config)
       }
