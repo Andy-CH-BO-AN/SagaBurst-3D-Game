@@ -35,6 +35,11 @@ export class PlayerInput {
     })
 
     window.addEventListener('mousedown', (e) => {
+      // Auto-engage pointer lock on any gameplay click if not yet locked
+      if (!this.isLocked && !this.allowUnlockedInput) {
+        this.requestPointerLock()
+      }
+
       if (e.button === 0) {
         if (this.allowUnlockedInput && this.isRightMouseDown) {
           this.isLeftMouseDown = !this.isLeftMouseDown
@@ -42,7 +47,7 @@ export class PlayerInput {
           else this._leftClickReleased = true
         } else {
           this.isLeftMouseDown = true
-          if (this.isLocked) this._leftClickTriggered = true
+          this._leftClickTriggered = true
         }
       }
       if (e.button === 2) {
@@ -57,7 +62,7 @@ export class PlayerInput {
       if (e.button === 0) {
         if (!(this.allowUnlockedInput && this.isRightMouseDown)) {
           this.isLeftMouseDown = false
-          if (this.isLocked) this._leftClickReleased = true
+          this._leftClickReleased = true
         }
       }
       if (e.button === 2) {
@@ -71,7 +76,7 @@ export class PlayerInput {
     })
 
     document.addEventListener('mousemove', (e) => {
-      if (!this.isLocked) return
+      // Allow mouse movement to control camera immediately upon entering
       this._dx += e.movementX
       this._dy += e.movementY
     })
