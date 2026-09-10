@@ -26,6 +26,11 @@ export class ThirdPersonCamera {
 
   constructor(private camera: THREE.PerspectiveCamera, private player: Player) {}
 
+  setYaw(value: number): void {
+    this.yaw = value
+    this._updateAimDirection()
+  }
+
   get cameraYaw(): number {
     return this.yaw
   }

@@ -19,9 +19,13 @@ export class PlayerInput {
   private _dy = 0
 
   // Pointer lock state
-  isLocked = this.allowUnlockedInput
+  isLocked = false
 
   private _keyETriggered = false
+
+  private _syncPointerLockState(): void {
+    this.isLocked = (typeof document !== "undefined" && document.pointerLockElement !== null) || this.allowUnlockedInput
+  }
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -42,7 +46,11 @@ export class PlayerInput {
           else this._leftClickReleased = true
         } else {
           this.isLeftMouseDown = true
-          if (this.isLocked) this._leftClickTriggered = true
+          // Strict lock gating: only trigger melee action when already locked.
+          // The initial click to acquire pointer lock does not trigger attack.
+          if (this.isLocked) {
+            this._leftClickTriggered = true
+          }
         }
       }
       if (e.button === 2) {
@@ -57,7 +65,9 @@ export class PlayerInput {
       if (e.button === 0) {
         if (!(this.allowUnlockedInput && this.isRightMouseDown)) {
           this.isLeftMouseDown = false
-          if (this.isLocked) this._leftClickReleased = true
+          if (this.isLocked) {
+            this._leftClickReleased = true
+          }
         }
       }
       if (e.button === 2) {
@@ -71,14 +81,19 @@ export class PlayerInput {
     })
 
     document.addEventListener('mousemove', (e) => {
+      // Strict lock gating: mouse movement delta is only accumulated when locked.
+      // Pressing ESC to release pointer lock safely prevents camera rotation while navigating UI.
       if (!this.isLocked) return
       this._dx += e.movementX
       this._dy += e.movementY
     })
 
     document.addEventListener('pointerlockchange', () => {
-      this.isLocked = document.pointerLockElement !== null || this.allowUnlockedInput
+      this._syncPointerLockState()
     })
+
+    // Critical: handle pointer lock acquired before PlayerInput existed.
+    this._syncPointerLockState()
   }
 
   /** Returns true if left click was triggered since last check, then resets flag. */
@@ -110,7 +125,15 @@ export class PlayerInput {
     return result
   }
 
-  requestPointerLock() {
-    document.body.requestPointerLock()
+  requestPointerLock(element?: Element) {
+    const target = element || (typeof document !== "undefined" ? (document.querySelector("canvas") || document.body) : null)
+    try {
+      const p = target?.requestPointerLock?.()
+      if (p && typeof (p as any).catch === "function") {
+        ;(p as Promise<void>).catch(() => {})
+      }
+    } catch {
+      // ignore
+    }
   }
 }

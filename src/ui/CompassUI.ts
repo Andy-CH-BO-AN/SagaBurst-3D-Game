@@ -54,7 +54,7 @@ export class CompassUI {
 
     // 80px per 45 degrees = 1.777px per degree
     const pixelsPerDegree = 80 / 45
-    const offsetPx = -(deg * pixelsPerDegree)
+    const offsetPx = -((deg - 180) * pixelsPerDegree)
 
     this.strip.style.transform = `translateX(calc(-50% + ${offsetPx}px))`
   }

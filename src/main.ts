@@ -1,8 +1,11 @@
 /**
  * main.ts
- * Vite entry point. Instantiates the Game when the DOM is ready.
+ * Vite entry point.
+ * Implements Custom Battle Setup official entrance with developer bypass and untrusted sessionStorage validation.
  */
 import { Game } from './Game'
+import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
+import { BattleSetupUI } from './ui/BattleSetupUI'
 
 window.addEventListener('error', (e) => {
   const errDiv = document.createElement('div')
@@ -20,29 +23,78 @@ window.addEventListener('error', (e) => {
 const container = document.getElementById('canvas-container')
 if (!container) throw new Error('#canvas-container not found')
 
-async function bootstrap(): Promise<void> {
-try {
+async function launchGame(battleConfig?: BattleConfig): Promise<void> {
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
   loading.style.cssText = 'position:absolute;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
   loading.textContent = '正在載入寫實人物與戰馬資產…'
   document.body.appendChild(loading)
-  ;(window as any).game = await Game.create(container!)
-  loading.remove()
-} catch (error: unknown) {
-  const e = error instanceof Error ? error : new Error(String(error))
-  document.getElementById('asset-loading-status')?.remove()
-  const errDiv = document.createElement('div')
-  errDiv.style.position = 'absolute'
-  errDiv.style.top = '10px'
-  errDiv.style.left = '10px'
-  errDiv.style.color = 'red'
-  errDiv.style.zIndex = '9999'
-  errDiv.style.backgroundColor = 'rgba(0,0,0,0.8)'
-  errDiv.style.padding = '10px'
-  errDiv.textContent = `寫實資產載入失敗：${e.message}`
-  document.body.appendChild(errDiv)
+
+  try {
+    ;(window as any).game = await Game.create(container!, battleConfig)
+    loading.remove()
+  } catch (error: unknown) {
+    const e = error instanceof Error ? error : new Error(String(error))
+    loading.remove()
+    const errDiv = document.createElement('div')
+    errDiv.style.position = 'absolute'
+    errDiv.style.top = '10px'
+    errDiv.style.left = '10px'
+    errDiv.style.color = 'red'
+    errDiv.style.zIndex = '9999'
+    errDiv.style.backgroundColor = 'rgba(0,0,0,0.8)'
+    errDiv.style.padding = '10px'
+    errDiv.textContent = `寫實資產載入失敗：${e.message}`
+    document.body.appendChild(errDiv)
+  }
 }
+
+async function bootstrap(): Promise<void> {
+  const query = new URLSearchParams(window.location.search)
+  const isDevCombat = query.has('devcombat')
+  const isDevModels = query.has('devmodels')
+
+  // 1. Highest priority: Developer scene modes (bypass setup UI)
+  // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
+  if (isDevCombat || isDevModels) {
+    await launchGame()
+    return
+  }
+
+  // 2. Untrusted sessionStorage inspection (e.g. from REMATCH)
+  let savedConfig: BattleConfig | null = null
+  try {
+    const raw = sessionStorage.getItem('sagaburst_battle_config')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      const validation = validateBattleConfig(parsed)
+      if (validation.valid) {
+        savedConfig = parsed
+      } else {
+        console.warn('Invalid sessionStorage battle config, clearing:', validation.errors)
+        sessionStorage.removeItem('sagaburst_battle_config')
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse sessionStorage battle config:', err)
+    sessionStorage.removeItem('sagaburst_battle_config')
+  }
+
+  if (savedConfig) {
+    await launchGame(savedConfig)
+    return
+  }
+
+  // 3. Official entry: Custom Battle Setup UI
+  const setupUI = new BattleSetupUI()
+  setupUI.mount(document.body, async (config) => {
+    try {
+      sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
+    } catch (e) {
+      console.warn('sessionStorage set error', e)
+    }
+    await launchGame(config)
+  })
 }
 
 void bootstrap()

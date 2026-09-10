@@ -15,7 +15,7 @@ import { CharacterBowVisual } from './CharacterBowVisual'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -98,6 +98,7 @@ export class NPC {
 
   private flashTimer = 0
   private respawnTimer = 0
+  public respawnEnabled = true
 
   private spawnX: number
   private spawnZ: number
@@ -165,28 +166,22 @@ export class NPC {
       this.arrows = 0
     }
 
-    // Assign Damages
-    if (this.faction === Faction.ENEMY) {
-      // Ranged units' fallback melee weapon is always Tier 1
-      const meleeT = this.aiType === AIType.RANGED ? 1 : this.tier
-      this.meleeDamage = WEAPONS[meleeT === 1 ? 'gladius_rusty' : meleeT === 2 ? 'gladius_standard' : 'centurion_blade'].damageMax
-      this.rangedDamage = WEAPONS[this.tier === 1 ? 'pilum_basic' : this.tier === 2 ? 'pilum_standard' : 'legionary_pilum'].damageMax
-    } else {
-      // Viking Ally fallback fixed tiers
-      this.meleeDamage = WEAPONS['steel_sword'].damageMax
-      this.rangedDamage = WEAPONS['recurve_longbow'].damageMax
-    }
+    // Assign authoritative combat profile & damages from BattleConfig
+    const unitType: BattleUnitType = this.generatedAsCavalry
+      ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
+      : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
+    const combatProfile = getUnitCombatProfile(this.faction, unitType, this.tier)
 
-    if (this.generatedAsCavalry && this.aiType === AIType.MELEE) {
-      this.isUsingLance = true
+    this.meleeDamage = combatProfile.finalMeleeDamage
+    this.rangedDamage = combatProfile.rangedDamage ?? 0
+    this.isUsingLance = combatProfile.isUsingLance
+    if (this.isUsingLance) {
       this.meleeAttackRadius = 3.0
-      this.meleeDamage = this.meleeDamage * 1.5 // Extra damage for lance
     }
 
     // Calibrate waypoints to terrain height
     const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
-    // Spawn 20 units in the air so they drop down
-    const basePos = new THREE.Vector3(spawnX, baseTerrainY + 20, spawnZ)
+    const basePos = new THREE.Vector3(spawnX, baseTerrainY, spawnZ)
 
     const wp1 = new THREE.Vector3(spawnX - 10, getTerrainHeight(spawnX - 10, spawnZ - 8), spawnZ - 8)
     const wp2 = new THREE.Vector3(spawnX + 8, getTerrainHeight(spawnX + 8, spawnZ - 12), spawnZ - 12)
@@ -252,15 +247,14 @@ export class NPC {
       ),
     )
     this.swordGripPivot.position.set(0, 0.05, 0)
-    this.swordGripPivot.rotation.set(0, 0, Math.PI)
+    if (this.isUsingLance) {
+      this.swordGripPivot.rotation.set(0, 0, 0)
+    } else {
+      this.swordGripPivot.rotation.set(0, 0, Math.PI)
+    }
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-      const bowId = this.tier === 1
-        ? 'wooden_shortbow'
-        : this.tier === 2
-          ? 'recurve_longbow'
-          : 'elven_runebow'
-      this.bowVisual.rebuild(bowId)
+      this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow')
     } else {
       WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowGripPivot)
     }
@@ -274,6 +268,9 @@ export class NPC {
     } else {
       this.swordPivot.visible = true
       this.bowPivot.visible = false
+      if (this.isUsingLance) {
+        this.animator.poseMountedLanceReady()
+      }
       if (this.shieldId && this.aiType !== AIType.RANGED) {
         this._setShieldPlacement(false, true)
       }
@@ -320,7 +317,8 @@ export class NPC {
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
-    if (this.faction === Faction.ENEMY && this.tier === 1) return 'daggerSlash'
+    const meleeT = this.aiType === AIType.RANGED ? 1 : this.tier
+    if (meleeT === 1) return 'daggerSlash'
     return 'swordSlash'
   }
 
@@ -377,6 +375,9 @@ export class NPC {
   }
 
   private _createAlertSprite(): THREE.Sprite {
+    if (typeof document === 'undefined') {
+      return new THREE.Sprite()
+    }
     const canvas = document.createElement('canvas')
     canvas.width = 64
     canvas.height = 64
@@ -700,9 +701,11 @@ export class NPC {
       case AIState.DEAD: {
         this.rig.animation?.play('death', 0.12, false)
         this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
-        this.respawnTimer -= dt
-        if (this.respawnTimer <= 0) {
-          this.respawn()
+        if (this.respawnEnabled) {
+          this.respawnTimer -= dt
+          if (this.respawnTimer <= 0) {
+            this.respawn()
+          }
         }
         break
       }

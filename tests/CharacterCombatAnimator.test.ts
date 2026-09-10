@@ -11,7 +11,6 @@ import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 import { ThirdPersonCamera } from '../src/camera/ThirdPersonCamera'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
 import { CharacterBowVisual } from '../src/world/CharacterBowVisual'
-import type { DummyEnemy } from '../src/world/DummyEnemy'
 import { getTerrainHeight } from '../src/world/Terrain'
 import { Faction } from '../src/world/NPC'
 import {
@@ -808,10 +807,9 @@ describe('combat presentation regressions', () => {
     const origin = new THREE.Vector3(x, getTerrainHeight(x, z) + 1.2, z)
     expect(origin.y).toBeLessThan(0.05)
     const arrow = new ArrowProjectile(scene, origin, new THREE.Vector3(0, 0, -1), 20, 10, Faction.PLAYER, true)
-    const dummy = { dead: true } as DummyEnemy
     const player = { dead: true } as Player
     for (let i = 0; i < 5; i++) {
-      arrow.update(0.01, dummy, player, [], [], () => undefined)
+      arrow.update(0.01, player, [], [], () => undefined)
     }
     expect(arrow.isAlive).toBe(true)
     expect(arrow.isStuck).toBe(false)
