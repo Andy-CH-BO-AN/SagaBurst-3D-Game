@@ -123,6 +123,8 @@ export class Player {
   private readonly _tmpArrowDirection = new THREE.Vector3()
   private readonly _tmpPelvisWorld = new THREE.Vector3()
 
+  public spawnX = 0
+  public spawnZ = 70.0
   public isMounted = false
   public currentMount: Mount | null = null
 
@@ -295,7 +297,11 @@ export class Player {
     // Meshes use +Y as their long axis. The static grip correction is kept
     // separate from the action pivot animated by CharacterCombatAnimator.
     this.swordGripPivot.position.set(0, 0.05, 0)
-    this.swordGripPivot.rotation.set(0, 0, Math.PI)
+    if (weaponId === 'steel_lance') {
+      this.swordGripPivot.rotation.set(0, 0, 0)
+    } else {
+      this.swordGripPivot.rotation.set(0, 0, Math.PI)
+    }
 
     polishWeaponMaterials(this.swordGripPivot)
   }
@@ -374,8 +380,8 @@ export class Player {
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.nockedArrowReleased = false
-    const terrainY = getTerrainHeight(0, 0)
-    this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
+    const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
+    this.group.position.set(this.spawnX, terrainY + PLAYER_HALF_HEIGHT, this.spawnZ)
     hpBar.setFill(1)
   }
 

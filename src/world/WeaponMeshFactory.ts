@@ -378,7 +378,8 @@ export class WeaponMeshFactory {
     }
 
     if (faction === Faction.PLAYER) {
-      return this.buildMelee('steel_sword', pivot).tipLocal
+      const weaponId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
+      return this.buildMelee(weaponId, pivot).tipLocal
     } else {
       // Roman Gladius
       let bladeColor = 0x888888

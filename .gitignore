@@ -15,3 +15,6 @@ debug_images/
 *test*
 !tests/
 !tests/**/*.test.ts
+
+output/
+node_modules

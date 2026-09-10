@@ -6,15 +6,17 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createSky } from './world/Sky'
-import { createTerrain, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import { SaveManager } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { DummyEnemy } from './world/DummyEnemy'
-import { NPC, Faction, AIType } from './world/NPC'
+import { NPC, Faction } from './world/NPC'
+import { BattleConfig, PRESET_DEVCOMBAT } from './battle/BattleConfig'
+import { BattleSpawner, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
+import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
@@ -53,7 +55,7 @@ const HORSE_STUDIO_CLIPS: HorseAnimationState[] = [
 ]
 
 export class Game {
-  static async create(container: HTMLElement): Promise<Game> {
+  static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(window.innerWidth, window.innerHeight)
@@ -68,10 +70,10 @@ export class Game {
     try {
       if (legacyQa) {
         await HorseAssetRegistry.preload(renderer)
-        return new Game(renderer)
+        return new Game(renderer, battleConfig)
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer)])
-      return new Game(renderer)
+      return new Game(renderer, battleConfig)
     } catch (error) {
       renderer.dispose()
       renderer.domElement.remove()
@@ -93,7 +95,7 @@ export class Game {
   private isModelStudio = false
   private isDevCombat = false
 
-  private dummyEnemy: DummyEnemy
+  private battleController: BattleController | null = null
   private npcs: NPC[] = []
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
@@ -184,7 +186,7 @@ export class Game {
   // LOD & Spatial Partitioning
   private npcGrid = new SpatialGrid<NPC>(20)
 
-  constructor(renderer: THREE.WebGLRenderer) {
+  constructor(renderer: THREE.WebGLRenderer, battleConfig?: BattleConfig) {
     this.renderer = renderer
 
     // ── Scene ──
@@ -212,26 +214,34 @@ export class Game {
 
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
+    if (!this.isModelStudio) {
+      const playerZ = 70.0
+      const terrainY = getTerrainHeight(0, playerZ)
+      this.player.group.position.set(0, terrainY + 0.95, playerZ)
+      this.thirdPersonCamera.setYaw(0)
+    }
 
     // ── Combat & Enemies ──
-    this.dummyEnemy = new DummyEnemy(this.scene, 0, -6)
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
     const devModelsMode = query.get('devmodels')
-    const isDevModels = query.has('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
     if (this.isModelStudio) this._setupModelStudioCamera()
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
-      this._spawnDevCombatForces()
+      const plan = BattleSpawner.createSpawnPlan(PRESET_DEVCOMBAT)
+      this._executeBattleSpawnPlan(plan)
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()
     } else if (devModelsMode === 'mounts') {
       this._spawnMountStudio()
-    } else if (!isDevModels) {
-      this._spawnStandardForces()
+    } else if (battleConfig) {
+      const plan = BattleSpawner.createSpawnPlan(battleConfig)
+      this._executeBattleSpawnPlan(plan)
+      this.battleController = new BattleController(battleConfig)
+      this.battleController.initCounts(this.npcs)
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -262,8 +272,6 @@ export class Game {
     this.saveManager = new SaveManager()
 
     // ── Spawn World Pickups & Mounts ──
-    if (!isDevModels) this._spawnWorldPickups()
-    if (!this.isModelStudio) this._spawnMounts(isDevModels)
     if (this.isDevCombat) this._createDevCombatStatus()
 
     // Listen for arrow fire from Player
@@ -296,40 +304,6 @@ export class Game {
     this.quiverUI.setArrowCount(this.player.arrowCount)
 
     this._loop()
-  }
-
-  private _spawnWorldPickups(): void {
-    const weaponTypes = [
-      'rusty_dagger',
-      'steel_sword',
-      'steel_lance',
-      'runic_greatsword',
-      'wooden_shortbow',
-      'recurve_longbow',
-      'elven_runebow',
-      'scutum_t1',
-      'scutum_t2',
-      'scutum_t3',
-      'round_shield_t1',
-      'round_shield_t2',
-      'round_shield_t3',
-    ]
-
-    // Spawn 30 weapon pickups in a golden spiral pattern around spawn
-    for (let i = 0; i < 30; i++) {
-      const wId = weaponTypes[i % weaponTypes.length]
-      const angle = i * 0.45
-      const dist  = 6 + i * 1.3
-      const px = Math.cos(angle) * dist
-      const pz = Math.sin(angle) * dist
-      this.pickups.push(new WeaponPickup(this.scene, wId, px, pz))
-    }
-
-    // Spawn 4 Arrow Supply Packs
-    this.pickups.push(new WeaponPickup(this.scene, '', 3, -3, true, 15))
-    this.pickups.push(new WeaponPickup(this.scene, '', -5, -4, true, 15))
-    this.pickups.push(new WeaponPickup(this.scene, '', 12, 10, true, 15))
-    this.pickups.push(new WeaponPickup(this.scene, '', -12, 10, true, 15))
   }
 
   private _spawnHumanoidStudio(): void {
@@ -439,7 +413,6 @@ export class Game {
 
   private _spawnMountStudio(): void {
     this.player.group.visible = false
-    this.dummyEnemy.group.visible = false
     const grid = new THREE.GridHelper(12, 24, 0x9e8e73, 0x4b453d)
     grid.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.012
     this.scene.add(grid)
@@ -449,6 +422,10 @@ export class Game {
     mount.playStudioClip('idle')
     this.mounts.push(mount)
     this.mountStudioHorse = mount
+
+    const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
+    comparisonHorse.visualHold = true
+    this.mounts.push(comparisonHorse)
     this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
 
     if (mount.horseSkeleton) {
@@ -601,78 +578,33 @@ export class Game {
     })
   }
 
-  private _spawnMounts(modelShowcase = false): void {
-    if (modelShowcase) {
-      const horse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 0, 0, undefined, 0)
-      const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
-      comparisonHorse.visualHold = true
-      this.mounts.push(horse, comparisonHorse)
-
-      // Stable browser-QA setup: start as a horse knight so saddle fit,
-      // rider legs, gait, jump and dismount can be inspected
-      // without depending on repeated single-frame keypresses.
-      this.player.isMounted = true
-      this.player.currentMount = horse
-      horse.state = MountState.CONTROLLED
-      this.mountNameEl.textContent = `坐騎：${horse.displayName}`
-      this.mountHpFill.style.width = '100%'
-      this.mountHud.classList.add('visible')
-      return
-    }
-    for (const [index, [x, z]] of [[10, -5], [-15, 20], [15, 15], [-20, -10]].entries()) {
-      const variant = horseVariantForStableKey(`world:${index}:${x}:${z}`)
-      this.mounts.push(new Mount(this.scene, DEFAULT_MOUNT_TYPE, x, z, undefined, variant))
-    }
-  }
-
-  // @ts-ignore: Intentionally unused for testing
-  private _spawnNpc(
-    x: number,
-    z: number,
-    faction: Faction,
-    aiType: AIType,
-    name: string,
-    tier: 1 | 2 | 3,
-    cavalry?: boolean,
-  ): void {
-    const npc = new NPC(this.scene, x, z, faction, aiType, name, tier, cavalry)
+  private _spawnNpc(spec: NpcSpawnSpec): NPC {
+    const npc = new NPC(
+      this.scene,
+      spec.x,
+      spec.z,
+      spec.faction,
+      spec.aiType,
+      spec.name,
+      spec.tier,
+      spec.cavalry,
+    )
+    npc.respawnEnabled = spec.respawnEnabled
     this.npcs.push(npc)
     if (npc.mount) this.mounts.push(npc.mount)
+    return npc
   }
 
-  /** Beginner-friendly release battle: Player + 9 allies versus 5 enemies. */
-  private _spawnStandardForces(): void {
-    for (let i = 0; i < 5; i++) {
-      const x = (i - 2) * 2.8
-      this._spawnNpc(x, 12, Faction.PLAYER, AIType.MELEE, `Viking Guard ${i + 1}`, 2, false)
+  private _executeBattleSpawnPlan(plan: BattleSpawnPlan): void {
+    for (const spec of plan.npcSpecs) {
+      this._spawnNpc(spec)
     }
-    for (let i = 0; i < 4; i++) {
-      const x = (i - 1.5) * 3.0
-      this._spawnNpc(x, 18, Faction.PLAYER, AIType.RANGED, `Viking Archer ${i + 1}`, 2, false)
+    for (const p of plan.pickupSpecs) {
+      this.pickups.push(new WeaponPickup(this.scene, p.weaponId, p.x, p.z, p.isArrowPack, p.arrowQuantity))
     }
-    for (let i = 0; i < 3; i++) {
-      const x = (i - 1) * 3.2
-      this._spawnNpc(x, -22, Faction.ENEMY, AIType.MELEE, `Roman Infantry ${i + 1}`, 2, false)
-    }
-    for (let i = 0; i < 2; i++) {
-      const x = (i - 0.5) * 4.0
-      this._spawnNpc(x, -28, Faction.ENEMY, AIType.RANGED, `Roman Pilum ${i + 1}`, 2, false)
-    }
-  }
-
-  /** Fixed Tier-3 50v50 cavalry battle for combat and performance testing. */
-  private _spawnDevCombatForces(): void {
-    const formationSize = 5
-    for (let row = 0; row < formationSize; row++) {
-      for (let column = 0; column < formationSize; column++) {
-        const index = row * formationSize + column + 1
-        const x = (column - 2) * 3.0
-        const depth = row * 3.0
-        this._spawnNpc(x, 35 + depth, Faction.PLAYER, AIType.MELEE, `Viking T3 Lancer ${index}`, 3, true)
-        this._spawnNpc(x, 55 + depth, Faction.PLAYER, AIType.RANGED, `Viking T3 Horse Archer ${index}`, 3, true)
-        this._spawnNpc(x, -35 - depth, Faction.ENEMY, AIType.MELEE, `Roman T3 Lancer ${index}`, 3, true)
-        this._spawnNpc(x, -55 - depth, Faction.ENEMY, AIType.RANGED, `Roman T3 Mounted Pilum ${index}`, 3, true)
-      }
+    for (const h of plan.horseSpecs) {
+      const variant = horseVariantForStableKey(h.stableKey)
+      this.mounts.push(new Mount(this.scene, DEFAULT_MOUNT_TYPE, h.x, h.z, undefined, variant))
     }
   }
 
@@ -924,22 +856,6 @@ export class Game {
 
     const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
 
-    // Check Dummy Enemy
-    if (!this.dummyEnemy.dead) {
-      const dummyCenter = this.dummyEnemy.position.clone()
-      dummyCenter.y += 1.0
-      if (swordTipPos.distanceTo(dummyCenter) <= MELEE_HIT_THRESHOLD) {
-        this.player.markHitProcessed()
-        if (this.dummyEnemy.takeDamage(damage)) {
-          this.soundManager.playHit()
-          this.damageNumbers.spawn(damage, dummyCenter)
-          this._showEnemyHud('訓練假人 Dummy Target', this.dummyEnemy.hpRatio)
-          this.skillManager.addXp('oneHanded', 35, this.soundManager)
-        }
-        return
-      }
-    }
-
     // Check NPCs (Only hit Faction.ENEMY)
     for (const npc of this.npcs) {
       if (!npc.dead && npc.faction === Faction.ENEMY) {
@@ -1146,17 +1062,6 @@ export class Game {
       if (mount.state !== MountState.CONTROLLED || mount.dead) continue
       
       if (mount === this.player.currentMount) {
-        if (!this.dummyEnemy.dead && checkImpact(mount, this.dummyEnemy.position, 0.5)) {
-          applyImpactDamage(mount, this.dummyEnemy, this.dummyEnemy.position, (damage) => {
-            if (this.dummyEnemy.takeDamage(damage)) {
-              this.soundManager.playHit()
-              this._tmpHitPos.copy(this.dummyEnemy.position)
-              this._tmpHitPos.y += 1.0
-              this.damageNumbers.spawn(damage, this._tmpHitPos)
-              this._showEnemyHud('訓練假人 Dummy Target', this.dummyEnemy.hpRatio)
-            }
-          })
-        }
         for (const npc of this.npcs) {
           if (npc.dead || npc.faction !== Faction.ENEMY) continue
           if (checkImpact(mount, npc.combatPosition, 0.5)) {
@@ -1236,8 +1141,7 @@ export class Game {
       this.skillManager.getArcheryMultiplier()
     )
 
-    // Update Dummy Enemy
-    this.dummyEnemy.update(dt)
+    this.battleController?.update(this.npcs)
 
     // Update NPCs
     this.npcGrid.clear()
@@ -1332,7 +1236,7 @@ export class Game {
     // Update Arrow Projectiles
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
-      arrow.update(dt, this.dummyEnemy, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
+      arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
         if (!isPlayer && arrow.isPlayerFired) {

@@ -3,7 +3,6 @@
  * Arrow projectile with realistic parabolic gravity trajectory and hit detection on all targetable entities based on Factions.
  */
 import * as THREE from 'three'
-import type { DummyEnemy } from './DummyEnemy'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
@@ -149,7 +148,6 @@ export class ArrowProjectile {
 
   update(
     dt: number,
-    dummy: DummyEnemy,
     player: Player,
     npcs: NPC[],
     obstacles: ObstacleData[],
@@ -195,22 +193,6 @@ export class ArrowProjectile {
           this.stuck = true
           return
         }
-      }
-    }
-
-    // ── Hit Detection 3: Dummy Enemy ──
-    if (this.shooterFaction === Faction.PLAYER && !dummy.dead) {
-      const enemyCenter = dummy.position.clone()
-      enemyCenter.y += 1.0 // Torso height
-
-      const dist = this.mesh.position.distanceTo(enemyCenter)
-      if (dist <= 0.9) {
-        const hitSuccess = dummy.takeDamage(this.damage)
-        if (hitSuccess) {
-          onHitTarget(this.damage, this.mesh.position.clone(), '訓練假人 Dummy Target', dummy.hpRatio, false)
-        }
-        this.destroy()
-        return
       }
     }
 

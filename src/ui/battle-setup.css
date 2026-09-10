@@ -1,0 +1,276 @@
+/* ── Battle Setup UI Styles (SagaBurst Dark Medieval) ── */
+#battle-setup-container {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #1b1612 0%, #0a0807 100%);
+  color: #ded2be;
+  font-family: 'Cinzel', 'Trajan Pro', Georgia, serif;
+  overflow-y: auto;
+  padding: 20px;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.setup-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.setup-title {
+  font-size: 38px;
+  letter-spacing: 0.25em;
+  color: #e5c386;
+  text-shadow: 0 0 24px rgba(229, 195, 134, 0.4);
+  margin: 0;
+  font-weight: 700;
+}
+
+.setup-subtitle {
+  font-size: 14px;
+  letter-spacing: 0.35em;
+  color: #8b7962;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.setup-main {
+  display: flex;
+  gap: 32px;
+  width: 100%;
+  max-width: 1040px;
+  justify-content: center;
+  align-items: stretch;
+}
+
+.faction-card {
+  flex: 1;
+  background: rgba(18, 15, 13, 0.85);
+  border: 1px solid #4a3e31;
+  border-radius: 8px;
+  padding: 24px 28px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+}
+
+.faction-card.viking {
+  border-top: 3px solid #3498db;
+}
+
+.faction-card.roman {
+  border-top: 3px solid #e74c3c;
+}
+
+.faction-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid #332a21;
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+
+.faction-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.viking .faction-name { color: #5dade2; }
+.roman .faction-name { color: #ec7063; }
+
+.faction-total-badge {
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  color: #bbb;
+}
+
+.total-num {
+  font-weight: bold;
+  font-size: 18px;
+  color: #f1c40f;
+}
+
+.total-num.error {
+  color: #e74c3c;
+  text-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
+}
+
+.unit-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.unit-table th {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: #8c7b65;
+  padding-bottom: 10px;
+  text-align: center;
+}
+
+.unit-table th.col-unit {
+  text-align: left;
+}
+
+.unit-row {
+  border-top: 1px solid #282119;
+}
+
+.unit-label {
+  padding: 10px 0;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #dfd5c4;
+}
+
+.unit-sublabel {
+  font-size: 10px;
+  color: #7b6d5c;
+  display: block;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.step-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid #5a4b3a;
+  background: #231b14;
+  color: #dcd2bf;
+  border-radius: 3px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.step-btn:hover:not(:disabled) {
+  background: #3d3023;
+  border-color: #8f795d;
+}
+
+.step-btn:active:not(:disabled) {
+  background: #18120c;
+}
+
+.step-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.step-input {
+  width: 40px;
+  height: 24px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5eedf;
+  background: rgba(18, 14, 10, 0.7);
+  border: 1px solid #5a4835;
+  border-radius: 3px;
+  outline: none;
+  font-family: inherit;
+  padding: 0;
+  -moz-appearance: textfield;
+}
+
+.step-input::-webkit-inner-spin-button,
+.step-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.step-input:focus {
+  border-color: #d4af37;
+  background: rgba(30, 24, 18, 0.9);
+  box-shadow: 0 0 6px rgba(212, 175, 55, 0.35);
+}
+
+.setup-validation-msg {
+  min-height: 24px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: #e74c3c;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+.setup-presets {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  justify-content: center;
+}
+
+.preset-btn {
+  background: #221c17;
+  border: 1px solid #5a4b3a;
+  color: #d1c4af;
+  padding: 8px 18px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.preset-btn:hover {
+  background: #352b22;
+  border-color: #a4875e;
+  color: #fff;
+}
+
+.preset-btn:active {
+  background: #17120e;
+}
+
+.setup-actions {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.start-btn {
+  padding: 14px 48px;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  background: radial-gradient(circle at center, #8a2419 0%, #50130c 100%);
+  color: #f7ede0;
+  border: 2px solid #d4af37;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+  transition: all 0.2s;
+}
+
+.start-btn:hover:not(:disabled) {
+  background: radial-gradient(circle at center, #a82e20 0%, #681910 100%);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.4), 0 6px 30px rgba(0, 0, 0, 0.9);
+  transform: translateY(-2px);
+}
+
+.start-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.start-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #555;
+  background: #333;
+}
