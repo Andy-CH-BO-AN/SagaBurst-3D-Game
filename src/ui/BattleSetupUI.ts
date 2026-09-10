@@ -202,7 +202,12 @@ export class BattleSetupUI {
       if (validation.valid && this.onStartCallback) {
         if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
           try {
-            document.body.requestPointerLock?.()
+            const canvasContainer = document.getElementById('canvas-container')
+            const target = canvasContainer || document.body
+            const p = target.requestPointerLock?.()
+            if (p && typeof (p as any).catch === "function") {
+              ;(p as Promise<void>).catch(() => {})
+            }
           } catch {
             // ignore
           }

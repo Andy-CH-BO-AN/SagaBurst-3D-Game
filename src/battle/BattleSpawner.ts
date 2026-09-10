@@ -36,7 +36,7 @@ export interface CampHorseSpec {
   stableKey: string
 }
 
-export const VIKING_PLAYER_SPAWN = { x: 0, z: 82.2 }
+export const VIKING_PLAYER_SPAWN = { x: 0, z: 80.8 }
 export const PLAYER_SAFE_CLEARANCE = 2.0
 
 export interface BattleSpawnPlan {

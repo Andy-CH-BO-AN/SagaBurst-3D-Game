@@ -375,6 +375,9 @@ export class NPC {
   }
 
   private _createAlertSprite(): THREE.Sprite {
+    if (typeof document === 'undefined') {
+      return new THREE.Sprite()
+    }
     const canvas = document.createElement('canvas')
     canvas.width = 64
     canvas.height = 64

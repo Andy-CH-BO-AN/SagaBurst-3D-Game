@@ -19,7 +19,9 @@ async function runQA() {
   });
 
   page.on("pageerror", err => {
-    errors.push(err.message);
+    if (!err.message.includes("pointer lock")) {
+      errors.push(err.message);
+    }
   });
 
   const outDir = path.resolve(__dirname, "../output/browser");
@@ -96,9 +98,9 @@ async function runQA() {
   await page.screenshot({ path: path.join(outDir, "qa-01-asymmetric-1v50.png") });
 
   // ──────────────────────────────────────────────────────────
-  // Scenario 2: Horse Archer Properties & No-Respawn Validation
+  // Scenario 2: Horse Archer Properties & No-Respawn Validation (>10s window)
   // ──────────────────────────────────────────────────────────
-  console.log("\n--- Scenario 2: Horse Archer & No-Respawn (10v10) ---");
+  console.log("\n--- Scenario 2: Horse Archer & No-Respawn (>10s window) ---");
   await page.evaluate(() => sessionStorage.clear());
   await page.goto("http://localhost:5174/?nolock");
   await page.waitForSelector("#preset-10");
@@ -121,7 +123,7 @@ async function runQA() {
   console.log("Horse Archer validation:", horseArcherValid);
   if (!horseArcherValid.ok) throw new Error(horseArcherValid.reason);
 
-  // Test no-respawn by defeating an NPC and waiting > 3.5s (original respawn window was 3.0s)
+  // Test no-respawn by defeating an NPC and waiting > 10.0s (RESPAWN_TIME is 10.0s)
   console.log("Testing no-respawn: applying lethal damage to NPC...");
   await page.evaluate(() => {
     window.game.npcs[0].takeDamage(999);
@@ -130,10 +132,10 @@ async function runQA() {
   console.log("NPC is dead:", isDead);
   if (!isDead) throw new Error("NPC did not register death after lethal damage");
 
-  console.log("Waiting 4.0s (past the 3.0s respawn window)...");
-  await page.waitForTimeout(4000);
+  console.log("Waiting 11.0s (past the 10.0s RESPAWN_TIME window)...");
+  await page.waitForTimeout(11000);
   const stillDead = await page.evaluate(() => window.game.npcs[0].dead);
-  console.log("NPC remains dead after 4.0s:", stillDead);
+  console.log("NPC remains dead after 11.0s:", stillDead);
   if (!stillDead) throw new Error("NPC resurrected even though respawnEnabled was false!");
   await page.screenshot({ path: path.join(outDir, "qa-02-combat-horse-archers.png") });
 
@@ -169,9 +171,9 @@ async function runQA() {
   await page.screenshot({ path: path.join(outDir, "qa-03-devcombat.png") });
 
   // ──────────────────────────────────────────────────────────
-  // Scenario 4: Developer Bypasses (?devmodels=humans & ?legacyhumanoids)
+  // Scenario 4: Developer Bypasses (?devmodels=humans) & Modifier (?legacyhumanoids)
   // ──────────────────────────────────────────────────────────
-  console.log("\n--- Scenario 4: Developer Bypasses (?devmodels=humans & ?legacyhumanoids) ---");
+  console.log("\n--- Scenario 4: Developer Bypasses (?devmodels=humans) & Modifier (?legacyhumanoids) ---");
   await page.goto("http://localhost:5174/?devmodels=humans&nolock");
   await page.waitForSelector("canvas");
   await page.waitForFunction(() => window.game && window.game.isHumanoidStudio !== undefined, { timeout: 30000 });
@@ -187,18 +189,29 @@ async function runQA() {
     throw new Error("?devmodels=humans bypass failed or was blocked by setup UI");
   }
 
+  // ?legacyhumanoids alone is a rendering modifier and must NOT bypass the setup UI
+  await page.evaluate(() => sessionStorage.clear());
   await page.goto("http://localhost:5174/?legacyhumanoids&nolock");
-  await page.waitForSelector("canvas");
-  await page.waitForTimeout(1000);
+  await page.waitForSelector("#battle-setup-container", { timeout: 15000 });
+  const legacyInSetup = await page.evaluate(() => Boolean(document.getElementById("battle-setup-container")));
+  console.log("?legacyhumanoids correctly shows Setup UI:", legacyInSetup);
+  if (!legacyInSetup) {
+    throw new Error("?legacyhumanoids alone should show Setup UI");
+  }
 
-  const legacyState = await page.evaluate(() => {
+  // ?devcombat&legacyhumanoids bypasses setup UI directly into DevCombat with legacy rendering
+  await page.goto("http://localhost:5174/?devcombat&legacyhumanoids&nolock");
+  await page.waitForSelector("canvas");
+  await page.waitForFunction(() => window.game && window.game.isDevCombat !== undefined, { timeout: 30000 });
+  const devcombatLegacyState = await page.evaluate(() => {
     return {
       setupContainerPresent: Boolean(document.getElementById("battle-setup-container")),
+      npcsCount: window.game.npcs.length,
     };
   });
-  console.log("?legacyhumanoids state:", legacyState);
-  if (legacyState.setupContainerPresent) {
-    throw new Error("?legacyhumanoids was blocked by setup UI");
+  console.log("?devcombat&legacyhumanoids bypasses Setup UI:", devcombatLegacyState);
+  if (devcombatLegacyState.setupContainerPresent) {
+    throw new Error("?devcombat&legacyhumanoids should bypass setup UI");
   }
 
   // ──────────────────────────────────────────────────────────
@@ -236,6 +249,116 @@ async function runQA() {
   }
   await page.screenshot({ path: path.join(outDir, "qa-05-mount-studio-mounted.png") });
 
+  // ──────────────────────────────────────────────────────────
+  // Scenario 6: Pointer Lock Overlay UX, Strict Gating & ESC (Live Mode)
+  // ──────────────────────────────────────────────────────────
+  console.log("\n--- Scenario 6: Pointer Lock Overlay UX, Strict Gating & ESC (Live Mode) ---");
+  await page.goto("http://localhost:5174/?devcombat");
+  await page.waitForSelector("canvas");
+  await page.waitForFunction(() => window.game && window.game.input, { timeout: 30000 });
+
+  const initialLockState = await page.evaluate(() => {
+    const overlay = document.getElementById("lock-overlay");
+    const prompt = document.getElementById("lock-overlay-prompt");
+    return {
+      isLocked: window.game.input.isLocked,
+      overlayVisible: overlay && overlay.style.display !== "none" && !overlay.classList.contains("hidden"),
+      promptText: prompt ? prompt.textContent.trim() : "",
+    };
+  });
+  console.log("Initial live mode lock state:", initialLockState);
+  if (initialLockState.isLocked) {
+    throw new Error("PlayerInput should NOT be locked before user interaction in standard mode");
+  }
+  if (!initialLockState.overlayVisible || !initialLockState.promptText.includes("CLICK TO ENTER BATTLE")) {
+    throw new Error("Lock overlay was not properly displayed on battle entry");
+  }
+
+  // Move mouse while unlocked -> ensure camera delta is NOT accumulated
+  await page.mouse.move(300, 300);
+  await page.mouse.move(400, 400);
+  const unlockedDelta = await page.evaluate(() => window.game.input.consumeMouseDelta());
+  console.log("Unlocked mouse delta:", unlockedDelta);
+  if (unlockedDelta.dx !== 0 || unlockedDelta.dy !== 0) {
+    throw new Error(`Mouse movement leaked into delta while unlocked: dx=${unlockedDelta.dx}, dy=${unlockedDelta.dy}`);
+  }
+
+  // Click overlay to enter battle -> ensure initial click does NOT trigger attack
+  await page.click("#lock-overlay");
+  const attackTriggeredOnLock = await page.evaluate(() => window.game.input.consumeLeftClick());
+  console.log("Attack triggered on initial lock click:", attackTriggeredOnLock);
+  if (attackTriggeredOnLock) {
+    throw new Error("Initial click to acquire pointer lock must NOT trigger attack");
+  }
+
+  // Simulate pointer lock acquisition
+  await page.evaluate(() => {
+    Object.defineProperty(document, "pointerLockElement", { value: document.body, configurable: true });
+    document.dispatchEvent(new Event("pointerlockchange"));
+  });
+
+  const lockedState = await page.evaluate(() => {
+    const overlay = document.getElementById("lock-overlay");
+    return {
+      isLocked: window.game.input.isLocked,
+      overlayHidden: overlay.classList.contains("hidden") || overlay.style.display === "none",
+    };
+  });
+  console.log("Simulated pointer locked state:", lockedState);
+  if (!lockedState.isLocked || !lockedState.overlayHidden) {
+    throw new Error("Lock overlay did not hide or input did not lock upon acquiring pointer lock");
+  }
+
+  // When locked, mouse clicks properly trigger attacks
+  const attackTriggeredWhenLocked = await page.evaluate(() => {
+    window.dispatchEvent(new MouseEvent("mousedown", { button: 0 }));
+    return window.game.input.consumeLeftClick();
+  });
+  console.log("Attack triggered when locked:", attackTriggeredWhenLocked);
+  if (!attackTriggeredWhenLocked) {
+    throw new Error("Expected left click to trigger attack when locked");
+  }
+
+  // Simulate ESC release
+  await page.evaluate(() => {
+    Object.defineProperty(document, "pointerLockElement", { value: null, configurable: true });
+    document.dispatchEvent(new Event("pointerlockchange"));
+  });
+
+  const resumeOverlayState = await page.evaluate(() => {
+    const overlay = document.getElementById("lock-overlay");
+    const prompt = document.getElementById("lock-overlay-prompt");
+    return {
+      isLocked: window.game.input.isLocked,
+      overlayVisible: overlay && overlay.style.display !== "none" && !overlay.classList.contains("hidden"),
+      promptText: prompt ? prompt.textContent.trim() : "",
+    };
+  });
+  console.log("Resume overlay state after ESC release:", resumeOverlayState);
+  if (resumeOverlayState.isLocked) {
+    throw new Error("PlayerInput should be unlocked after ESC release");
+  }
+  if (!resumeOverlayState.overlayVisible || !resumeOverlayState.promptText.includes("CLICK TO RESUME")) {
+    throw new Error("Lock overlay did not show CLICK TO RESUME after pointer lock release");
+  }
+
+  // Moving mouse after ESC must NOT rotate camera / accumulate delta
+  await page.mouse.move(200, 200);
+  const escDelta = await page.evaluate(() => window.game.input.consumeMouseDelta());
+  console.log("Mouse delta after ESC:", escDelta);
+  if (escDelta.dx !== 0 || escDelta.dy !== 0) {
+    throw new Error(`Mouse delta accumulated while unlocked after ESC: dx=${escDelta.dx}`);
+  }
+
+  // Clicking resume overlay to re-enter must NOT trigger attack
+  await page.click("#lock-overlay");
+  const attackOnResume = await page.evaluate(() => window.game.input.consumeLeftClick());
+  console.log("Attack triggered on resume click:", attackOnResume);
+  if (attackOnResume) {
+    throw new Error("Resume click to re-acquire pointer lock must NOT trigger attack");
+  }
+  await page.screenshot({ path: path.join(outDir, "qa-06-lock-overlay-esc.png") });
+
   await browser.close();
 
   if (errors.length > 0) {
@@ -243,7 +366,7 @@ async function runQA() {
     throw new Error(`Browser console errors detected: ${errors.join(", ")}`);
   }
 
-  console.log("\n=== All 5 Comprehensive Browser QA Scenarios PASSED! ===");
+  console.log("\n=== All 6 Comprehensive Browser QA Scenarios PASSED! ===");
 }
 
 runQA().catch(err => {

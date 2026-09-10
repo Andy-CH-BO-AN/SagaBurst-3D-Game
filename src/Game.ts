@@ -15,7 +15,7 @@ import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { NPC, Faction } from './world/NPC'
 import { BattleConfig, PRESET_DEVCOMBAT } from './battle/BattleConfig'
-import { BattleSpawner, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
+import { BattleSpawner, VIKING_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
@@ -215,9 +215,10 @@ export class Game {
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
     if (!this.isModelStudio) {
-      const playerZ = 82.2
-      const terrainY = getTerrainHeight(0, playerZ)
-      this.player.group.position.set(0, terrainY + 0.95, playerZ)
+      const terrainY = getTerrainHeight(VIKING_PLAYER_SPAWN.x, VIKING_PLAYER_SPAWN.z)
+      this.player.group.position.set(VIKING_PLAYER_SPAWN.x, terrainY + 0.95, VIKING_PLAYER_SPAWN.z)
+      this.player.spawnX = VIKING_PLAYER_SPAWN.x
+      this.player.spawnZ = VIKING_PLAYER_SPAWN.z
       this.thirdPersonCamera.setYaw(0)
     }
 
@@ -621,26 +622,48 @@ export class Game {
 
   // ── Pointer Lock ──
   private _setupPointerLock(): void {
-    if (window.location.search.includes('nolock')) {
-      this.lockOverlay.style.display = 'none'
+    const isNoLock = window.location.search.includes('nolock')
+    const promptEl = document.getElementById('lock-overlay-prompt')
+
+    const updateOverlay = (isResume: boolean) => {
+      if (promptEl) {
+        promptEl.textContent = isResume ? '點擊繼續戰鬥 ｜ CLICK TO RESUME' : '點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE'
+      }
     }
+
+    if (this.isModelStudio || isNoLock) {
+      this.lockOverlay.style.display = 'none'
+      this.lockOverlay.classList.add('hidden')
+    } else if (document.pointerLockElement) {
+      // If pointer lock was already acquired from user gesture, enter directly without overlay
+      this.lockOverlay.style.display = 'none'
+      this.lockOverlay.classList.add('hidden')
+    } else {
+      updateOverlay(false)
+      this.lockOverlay.style.display = 'flex'
+      this.lockOverlay.classList.remove('hidden')
+    }
+
     this.lockOverlay.addEventListener('click', () => {
       if (!this.equipmentUI?.visible) {
-        this.input.requestPointerLock()
+        this.lockOverlay.style.display = 'none'
+        this.lockOverlay.classList.add('hidden')
+        this.input.requestPointerLock(this.renderer.domElement)
       }
     })
     this.renderer.domElement.addEventListener('click', () => {
-      if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio) {
-        this.input.requestPointerLock()
+      if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio && !isNoLock) {
+        this.input.requestPointerLock(this.renderer.domElement)
       }
     })
     document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement || window.location.search.includes('nolock')) {
+      if (document.pointerLockElement || isNoLock || this.isModelStudio) {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this._scheduleHintHide()
       } else {
         if (!this.equipmentUI?.visible) {
+          updateOverlay(true)
           this.lockOverlay.style.display = 'flex'
           this.lockOverlay.classList.remove('hidden')
         }

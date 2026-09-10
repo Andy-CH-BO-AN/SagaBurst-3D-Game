@@ -35,11 +35,6 @@ export class PlayerInput {
     })
 
     window.addEventListener('mousedown', (e) => {
-      // Auto-engage pointer lock on any gameplay click if not yet locked
-      if (!this.isLocked && !this.allowUnlockedInput) {
-        this.requestPointerLock()
-      }
-
       if (e.button === 0) {
         if (this.allowUnlockedInput && this.isRightMouseDown) {
           this.isLeftMouseDown = !this.isLeftMouseDown
@@ -47,7 +42,11 @@ export class PlayerInput {
           else this._leftClickReleased = true
         } else {
           this.isLeftMouseDown = true
-          this._leftClickTriggered = true
+          // Strict lock gating: only trigger melee action when already locked.
+          // The initial click to acquire pointer lock does not trigger attack.
+          if (this.isLocked) {
+            this._leftClickTriggered = true
+          }
         }
       }
       if (e.button === 2) {
@@ -62,7 +61,9 @@ export class PlayerInput {
       if (e.button === 0) {
         if (!(this.allowUnlockedInput && this.isRightMouseDown)) {
           this.isLeftMouseDown = false
-          this._leftClickReleased = true
+          if (this.isLocked) {
+            this._leftClickReleased = true
+          }
         }
       }
       if (e.button === 2) {
@@ -76,7 +77,9 @@ export class PlayerInput {
     })
 
     document.addEventListener('mousemove', (e) => {
-      // Allow mouse movement to control camera immediately upon entering
+      // Strict lock gating: mouse movement delta is only accumulated when locked.
+      // Pressing ESC to release pointer lock safely prevents camera rotation while navigating UI.
+      if (!this.isLocked) return
       this._dx += e.movementX
       this._dy += e.movementY
     })
@@ -115,7 +118,15 @@ export class PlayerInput {
     return result
   }
 
-  requestPointerLock() {
-    document.body.requestPointerLock()
+  requestPointerLock(element?: Element) {
+    const target = element || (typeof document !== "undefined" ? (document.querySelector("canvas") || document.body) : null)
+    try {
+      const p = target?.requestPointerLock?.()
+      if (p && typeof (p as any).catch === "function") {
+        ;(p as Promise<void>).catch(() => {})
+      }
+    } catch {
+      // ignore
+    }
   }
 }

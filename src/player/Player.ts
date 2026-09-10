@@ -1,3 +1,4 @@
+import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 /**
  * Player.ts
  * The player character (capsule geometry).
@@ -123,8 +124,8 @@ export class Player {
   private readonly _tmpArrowDirection = new THREE.Vector3()
   private readonly _tmpPelvisWorld = new THREE.Vector3()
 
-  public spawnX = 0
-  public spawnZ = 82.2
+  public spawnX = VIKING_PLAYER_SPAWN.x
+  public spawnZ = VIKING_PLAYER_SPAWN.z
   public isMounted = false
   public currentMount: Mount | null = null
 

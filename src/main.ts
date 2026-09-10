@@ -53,10 +53,10 @@ async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
   const isDevCombat = query.has('devcombat')
   const isDevModels = query.has('devmodels')
-  const isLegacyHumanoids = query.has('legacyhumanoids')
 
-  // 1. Highest priority: Developer query params (bypass setup UI)
-  if (isDevCombat || isDevModels || isLegacyHumanoids) {
+  // 1. Highest priority: Developer scene modes (bypass setup UI)
+  // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
+  if (isDevCombat || isDevModels) {
     await launchGame()
     return
   }
