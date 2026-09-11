@@ -10,6 +10,10 @@ import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveO
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
+import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
+
+const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
+const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
@@ -100,6 +104,9 @@ export class NPC {
   private flashTimer = 0
   private respawnTimer = 0
   public respawnEnabled = true
+  public readonly aimCollider: THREE.Mesh
+  public readonly onDeathCallbacks: Array<(npc: NPC) => void> = []
+  public readonly onRespawnCallbacks: Array<(npc: NPC) => void> = []
 
   private spawnX: number
   private spawnZ: number
@@ -195,6 +202,12 @@ export class NPC {
     this.characterVisualGroup = new THREE.Group()
     this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.
     this.group.add(this.characterVisualGroup)
+
+    this.aimCollider = new THREE.Mesh(NPC_AIM_GEOMETRY, AIM_PROXY_MATERIAL)
+    this.aimCollider.name = `aim_proxy_${faction}_${name}`
+    this.aimCollider.position.set(0, 0.925, 0)
+    this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
+    this.group.add(this.aimCollider)
 
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
     const visualConfig = {
@@ -415,6 +428,7 @@ export class NPC {
       this.state = AIState.DEAD
       this.respawnTimer = RESPAWN_TIME
       this.alertSprite.visible = false
+      for (const cb of this.onDeathCallbacks) cb(this)
     }
     return true
   }
@@ -852,5 +866,6 @@ export class NPC {
     this._alignExternalVisualToMount(false)
     this.animator.cancel()
     this.alertSprite.visible = false
+    for (const cb of this.onRespawnCallbacks) cb(this)
   }
 }

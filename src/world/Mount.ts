@@ -9,6 +9,10 @@ import {
   type HorseDebugState,
   type HorseInstance,
 } from './HorseAssetRegistry'
+import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
+
+const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
+const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
@@ -37,6 +41,8 @@ export class Mount {
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
   public appearanceVariant: HorseAppearanceVariant
+  public readonly aimCollider: THREE.Mesh
+  public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
   public maxHp = 100
   public currentHp = 100
@@ -93,6 +99,13 @@ export class Mount {
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
     if (type !== MountType.HORSE) this.group.scale.set(2.2, 2.2, 2.2)
+
+    this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
+    this.aimCollider.name = `aim_proxy_mount_${type}`
+    this.aimCollider.position.set(0, 0.825, 0)
+    this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
+    this.group.add(this.aimCollider)
+
     scene.add(this.group)
     this._pickWanderTarget()
   }
@@ -178,6 +191,7 @@ export class Mount {
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
+      for (const cb of this.onDeathCallbacks) cb(this)
     } else {
       this.horseVisual?.playOnce('hit')
     }

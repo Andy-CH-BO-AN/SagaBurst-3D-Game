@@ -50,7 +50,36 @@ function getSharedProjectileVisuals(): SharedProjectileVisuals {
   return sharedProjectileVisuals
 }
 
+/** Prewarms shared projectile procedural textures, materials, and geometries ahead of time. */
+export function prewarmProjectileVisuals(): void {
+  getSharedProjectileVisuals()
+}
+
+/** Creates a representative group containing all projectile materials & geometries for GPU compilation. */
+export function createProjectileWarmupGroup(): THREE.Group {
+  const shared = getSharedProjectileVisuals()
+  const group = new THREE.Group()
+  group.name = 'projectile-warmup-group'
+  group.add(new THREE.Mesh(shared.arrowShaft, shared.woodMaterial))
+  group.add(new THREE.Mesh(shared.arrowTip, shared.ironMaterial))
+  group.add(new THREE.Mesh(shared.arrowFin, shared.featherMaterial))
+  group.add(new THREE.Mesh(shared.pilumShaft, shared.woodMaterial))
+  group.add(new THREE.Mesh(shared.pilumSocket, shared.ironMaterial))
+  group.add(new THREE.Mesh(shared.pilumNeck, shared.ironMaterial))
+  group.add(new THREE.Mesh(shared.pilumTip, shared.ironMaterial))
+  group.add(new THREE.Mesh(shared.pilumWrap, shared.bronzeMaterial))
+  return group
+}
+
 export class ArrowProjectile {
+  static prewarm(): void {
+    prewarmProjectileVisuals()
+  }
+
+  static getSharedVisuals(): SharedProjectileVisuals {
+    return getSharedProjectileVisuals()
+  }
+
   readonly mesh: THREE.Group
   private velocity: THREE.Vector3
   private alive = true

@@ -6,14 +6,27 @@
 export class SoundManager {
   private ctx: AudioContext | null = null
 
+  /**
+   * Unlock and initialize AudioContext on a user interaction gesture.
+   * Complies with browser autoplay policies.
+   */
+  unlockAudio(): void {
+    try {
+      if (!this.ctx && typeof window !== 'undefined') {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        if (AudioCtx) this.ctx = new AudioCtx()
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {})
+      }
+    } catch {
+      // Ignore autoplay restriction errors
+    }
+  }
+
   private _init(): AudioContext {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      this.ctx = new AudioCtx()
-    }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume()
-    }
+    this.unlockAudio()
+    if (!this.ctx) throw new Error('AudioContext unavailable')
     return this.ctx
   }
 

@@ -12,6 +12,9 @@ import type {
   LegRig,
 } from './CharacterVisuals'
 
+export const HUMANOID_LOD_DISTANCES = [0, 28, 60] as const
+export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
+
 export interface HumanoidAssetManifest {
   schemaVersion: 1
   id: string
@@ -262,7 +265,7 @@ class MixerController implements HumanoidAnimationController {
 
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt <= 0) return
-    if (cameraDistance > 28) {
+    if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE) {
       this.farAccumulator += dt
       if (this.farAccumulator < 1 / 12) return
       dt = this.farAccumulator
@@ -375,6 +378,14 @@ export class HumanoidAssetRegistry {
     }))
   }
 
+  static forEachLODLevel(callback: (levelScene: THREE.Group, faction: CharacterFaction, lodIndex: number) => void): void {
+    for (const [faction, template] of this.templates) {
+      template.levels.forEach((gltf, index) => {
+        callback(gltf.scene, faction, index)
+      })
+    }
+  }
+
   static createCharacterInstance(config: CharacterVisualConfig): HumanoidCharacterInstance {
     const template = this.templates.get(config.faction)
     if (!template) throw new Error(`HumanoidAssetRegistry is not preloaded for ${config.faction}`)
@@ -399,7 +410,7 @@ export class HumanoidAssetRegistry {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory())
       }
-      lod.addLevel(level, [0, 12, 28][index])
+      lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
       clipsPerLevel.push(gltf.animations.length > 0 ? gltf.animations : PROJECT_ANIMATION_CLIPS)
       if (index === 0) {

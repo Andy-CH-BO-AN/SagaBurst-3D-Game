@@ -20,6 +20,8 @@ import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
+import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
+import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
@@ -131,10 +133,14 @@ export class Game {
     try {
       if (legacyQa) {
         await HorseAssetRegistry.preload(renderer)
-        return new Game(renderer, battleConfig)
+        const game = new Game(renderer, battleConfig)
+        CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+        return game
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer)])
-      return new Game(renderer, battleConfig)
+      const game = new Game(renderer, battleConfig)
+      CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+      return game
     } catch (error) {
       renderer.dispose()
       renderer.domElement.remove()
@@ -211,36 +217,23 @@ export class Game {
   private readonly _tmpCameraDir = new THREE.Vector3()
   private readonly _aimRaycaster = new THREE.Raycaster()
   private readonly _aimScreenCenter = new THREE.Vector2(0, 0)
+  private readonly _aimTargetRegistry = new AimTargetRegistry()
 
   private readonly _tmpHitPos = new THREE.Vector3()
   private readonly _debugAimPoint = new THREE.Vector3()
-
-  private _isIgnoredAimObject(object: THREE.Object3D): boolean {
-    let current: THREE.Object3D | null = object
-    while (current) {
-      if (current === this.player.group || current === this.player.currentMount?.group) return true
-      if (current.name === 'arrow-projectile') return true
-      if (current.userData.ignoreAimRaycast === true) return true
-      current = current.parent
-    }
-    return false
-  }
 
   private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
     this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
     target.copy(this.camera.position).addScaledVector(this._tmpCameraDir, 100)
     if (!this.player.isAiming) return target
 
-    // setFromCamera also assigns Raycaster.camera, which Sprite.raycast needs.
-    // A plain set(origin, direction) reports an error as soon as recursive
-    // scene aiming encounters NPC alert sprites.
     this._aimRaycaster.setFromCamera(this._aimScreenCenter, this.camera)
     this._tmpCameraDir.copy(this._aimRaycaster.ray.direction)
     target.copy(this._aimRaycaster.ray.origin).addScaledVector(this._tmpCameraDir, 100)
     this._aimRaycaster.far = 100
-    const intersections = this._aimRaycaster.intersectObjects(this.scene.children, true)
-    for (const intersection of intersections) {
-      if (!this._isIgnoredAimObject(intersection.object)) return target.copy(intersection.point)
+    const intersections = this._aimRaycaster.intersectObjects(this._aimTargetRegistry.targets, false)
+    if (intersections.length > 0) {
+      return target.copy(intersections[0].point)
     }
     return target
   }
@@ -264,11 +257,16 @@ export class Game {
 
     // ── Audio ──
     this.soundManager = new SoundManager()
+    this._aimRaycaster.layers.enable(AIM_RAYCAST_LAYER)
 
     // ── World ──
     createSky(this.scene)
-    const { obstacles } = createTerrain(this.scene)
+    const { terrainMesh, obstacles, obstacleMeshes } = createTerrain(this.scene)
     this.obstacles = obstacles
+    this._aimTargetRegistry.addStaticTarget(terrainMesh)
+    for (const obstacleMesh of obstacleMeshes) {
+      this._aimTargetRegistry.addStaticTarget(obstacleMesh)
+    }
 
     // ── Player & Input ──
     this.input = new PlayerInput()
@@ -677,7 +675,11 @@ export class Game {
     )
     npc.respawnEnabled = spec.respawnEnabled
     this.npcs.push(npc)
-    if (npc.mount) this.mounts.push(npc.mount)
+    this._aimTargetRegistry.registerNpc(npc)
+    if (npc.mount) {
+      this.mounts.push(npc.mount)
+      this._aimTargetRegistry.registerMount(npc.mount)
+    }
     return npc
   }
 
@@ -690,7 +692,9 @@ export class Game {
     }
     for (const h of plan.horseSpecs) {
       const variant = horseVariantForStableKey(h.stableKey)
-      this.mounts.push(new Mount(this.scene, DEFAULT_MOUNT_TYPE, h.x, h.z, undefined, variant))
+      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, h.x, h.z, undefined, variant)
+      this.mounts.push(mount)
+      this._aimTargetRegistry.registerMount(mount)
     }
   }
 
@@ -704,6 +708,13 @@ export class Game {
         promptEl.textContent = isResume ? '點擊繼續戰鬥 ｜ CLICK TO RESUME' : '點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE'
       }
     }
+
+    const unlockAudio = (): void => {
+      this.soundManager.unlockAudio()
+    }
+    this.lockOverlay.addEventListener('click', unlockAudio)
+    this.renderer.domElement.addEventListener('click', unlockAudio)
+    window.addEventListener('pointerdown', unlockAudio, { once: true })
 
     if (this.isModelStudio || isNoLock) {
       this.lockOverlay.style.display = 'none'
@@ -933,6 +944,7 @@ export class Game {
   }
 
   private _mountPlayer(mount: Mount): void {
+    this._aimTargetRegistry.unregisterMount(mount)
     this.player.isMounted = true
     this.player.currentMount = mount
     mount.state = MountState.CONTROLLED
@@ -1027,7 +1039,9 @@ export class Game {
       this.pickupPromptEl.classList.add('visible')
 
       if (isEPressed) {
+        const prevMount = this.player.currentMount
         this.player.dismountFromMount()
+        if (prevMount) this._aimTargetRegistry.registerMount(prevMount)
         this.soundManager.playHit() // Placeholder sound
         this.pickupPromptEl.classList.remove('visible')
         this.mountHud.classList.remove('visible')
