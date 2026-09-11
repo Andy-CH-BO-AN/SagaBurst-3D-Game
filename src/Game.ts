@@ -1265,7 +1265,9 @@ export class Game {
   // ── Main loop ──
   private _loop = (): void => {
     requestAnimationFrame(this._loop)
-    const frameStart = performance.now()
+    const profile = this.isDevCombat
+    const frameStart = profile ? performance.now() : 0
+    let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
     for (const instance of this.humanoidShowcase) {
@@ -1300,15 +1302,15 @@ export class Game {
     this.battleController?.update(this.npcs)
 
     // 1. NPC Grid Build
-    const tGridStart = performance.now()
+    if (profile) t0 = performance.now()
     this.npcGrid.clear()
     for (const npc of this.npcs) {
       if (npc.hp > 0) this.npcGrid.insert(npc)
     }
-    const npcGridMs = performance.now() - tGridStart
+    const npcGridMs = profile ? performance.now() - t0 : 0
 
     // 2. NPC Update
-    const tNpcStart = performance.now()
+    if (profile) t0 = performance.now()
     for (const npc of this.npcs) {
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
@@ -1374,20 +1376,20 @@ export class Game {
         skipBoidsAndObstacles
       )
     }
-    const npcUpdateMs = performance.now() - tNpcStart
+    const npcUpdateMs = profile ? performance.now() - t0 : 0
 
     // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()
 
     // 3. Mount / Interaction
-    const tInteractStart = performance.now()
+    if (profile) t0 = performance.now()
     this._updateInteractions(dt)
-    const mountInteractionMs = performance.now() - tInteractStart
+    const mountInteractionMs = profile ? performance.now() - t0 : 0
 
     // 4. Entity Collision
-    const tCollisionStart = performance.now()
+    if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
-    const collisionMs = performance.now() - tCollisionStart
+    const collisionMs = profile ? performance.now() - t0 : 0
 
     // Reset impact flag
     for (const mount of this.mounts) {
@@ -1395,7 +1397,7 @@ export class Game {
     }
 
     // 5. Arrow / Projectile
-    const tArrowStart = performance.now()
+    if (profile) t0 = performance.now()
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
@@ -1418,12 +1420,12 @@ export class Game {
         this.arrows.splice(i, 1)
       }
     }
-    const arrowMs = performance.now() - tArrowStart
+    const arrowMs = profile ? performance.now() - t0 : 0
 
     // 6. Impact / Damage
-    const tImpactStart = performance.now()
+    if (profile) t0 = performance.now()
     this._updateImpactDamage(this.clock.elapsedTime)
-    const impactMs = performance.now() - tImpactStart
+    const impactMs = profile ? performance.now() - t0 : 0
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)
@@ -1431,31 +1433,34 @@ export class Game {
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 
     // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)
-    const tRenderStart = performance.now()
+    if (profile) t0 = performance.now()
     this.renderer.render(this.scene, this.camera)
-    const renderSubmitMs = performance.now() - tRenderStart
-
-    const frameEnd = performance.now()
-    const cpuFrameMs = frameEnd - frameStart
-    const accountedMs = npcGridMs + npcUpdateMs + mountInteractionMs + collisionMs + arrowMs + impactMs + renderSubmitMs
-    const otherMs = Math.max(0, cpuFrameMs - accountedMs)
-
-    const newSnapshot = this.runtimeProfiler.recordFrame({
-      cpuFrameMs,
-      npcGridMs,
-      npcUpdateMs,
-      mountInteractionMs,
-      collisionMs,
-      arrowMs,
-      impactMs,
-      renderSubmitMs,
-      otherMs,
-    }, frameEnd)
+    const renderSubmitMs = profile ? performance.now() - t0 : 0
 
     if (this.isMountStudio) this._updateMountStudioStatus()
-    if (this.isDevCombat && (newSnapshot || !this.hasDevCombatRenderedInitialHud)) {
-      this._updateDevCombatStatus()
-      this.hasDevCombatRenderedInitialHud = true
+
+    if (profile) {
+      const frameEnd = performance.now()
+      const cpuFrameMs = frameEnd - frameStart
+      const accountedMs = npcGridMs + npcUpdateMs + mountInteractionMs + collisionMs + arrowMs + impactMs + renderSubmitMs
+      const otherMs = Math.max(0, cpuFrameMs - accountedMs)
+
+      const newSnapshot = this.runtimeProfiler.recordFrame({
+        cpuFrameMs,
+        npcGridMs,
+        npcUpdateMs,
+        mountInteractionMs,
+        collisionMs,
+        arrowMs,
+        impactMs,
+        renderSubmitMs,
+        otherMs,
+      }, frameEnd)
+
+      if (newSnapshot || !this.hasDevCombatRenderedInitialHud) {
+        this._updateDevCombatStatus()
+        this.hasDevCombatRenderedInitialHud = true
+      }
     }
   }
 }

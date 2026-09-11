@@ -79,8 +79,8 @@ function resetAccumulator(acc: MetricAccumulator): void {
 
 export class RuntimeProfiler {
   private readonly sampleWindowMs: number
-  private hasWindowStarted: boolean = false
-  private windowStart: number = 0
+  private lastFrameTime: number | null = null
+  private accumulatedDurationMs: number = 0
   private sampleCount: number = 0
 
   private readonly accCpuFrame = createAccumulator()
@@ -104,12 +104,18 @@ export class RuntimeProfiler {
    * Returns true if a new aggregation snapshot was produced this frame.
    */
   recordFrame(metrics: ProfilerFrameMetrics, now: number): boolean {
-    if (!this.hasWindowStarted) {
-      this.windowStart = now
-      this.hasWindowStarted = true
+    if (this.lastFrameTime === null) {
+      this.lastFrameTime = now
+      return false
     }
 
+    const dt = now - this.lastFrameTime
+    this.lastFrameTime = now
+    if (dt <= 0) return false
+
+    this.accumulatedDurationMs += dt
     this.sampleCount++
+
     updateAccumulator(this.accCpuFrame, metrics.cpuFrameMs)
     updateAccumulator(this.accNpcGrid, metrics.npcGridMs)
     updateAccumulator(this.accNpcUpdate, metrics.npcUpdateMs)
@@ -120,14 +126,13 @@ export class RuntimeProfiler {
     updateAccumulator(this.accRenderSubmit, metrics.renderSubmitMs)
     updateAccumulator(this.accOther, metrics.otherMs)
 
-    const elapsed = now - this.windowStart
-    if (elapsed >= this.sampleWindowMs && this.sampleCount > 0) {
-      const fps = (this.sampleCount / elapsed) * 1000
+    if (this.accumulatedDurationMs >= this.sampleWindowMs && this.sampleCount > 0) {
+      const fps = (this.sampleCount / this.accumulatedDurationMs) * 1000
 
       this.latestSnapshot = {
         fps,
         sampleCount: this.sampleCount,
-        windowDurationMs: elapsed,
+        windowDurationMs: this.accumulatedDurationMs,
         cpuFrame: finalizeStat(this.accCpuFrame, this.sampleCount),
         npcGrid: finalizeStat(this.accNpcGrid, this.sampleCount),
         npcUpdate: finalizeStat(this.accNpcUpdate, this.sampleCount),
@@ -140,7 +145,7 @@ export class RuntimeProfiler {
       }
 
       // Reset accumulators for next window
-      this.windowStart = now
+      this.accumulatedDurationMs = 0
       this.sampleCount = 0
       resetAccumulator(this.accCpuFrame)
       resetAccumulator(this.accNpcGrid)
@@ -163,13 +168,8 @@ export class RuntimeProfiler {
   }
 
   reset(now?: number): void {
-    if (now !== undefined) {
-      this.windowStart = now
-      this.hasWindowStarted = true
-    } else {
-      this.windowStart = 0
-      this.hasWindowStarted = false
-    }
+    this.lastFrameTime = now !== undefined ? now : null
+    this.accumulatedDurationMs = 0
     this.sampleCount = 0
     resetAccumulator(this.accCpuFrame)
     resetAccumulator(this.accNpcGrid)

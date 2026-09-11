@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { RuntimeProfiler, ProfilerFrameMetrics } from '../src/debug/RuntimeProfiler'
 
 describe('RuntimeProfiler', () => {
-  it('aggregates avg and max accurately over a sampling window', () => {
+  it('aggregates avg and max accurately over frame intervals within a sampling window', () => {
     const profiler = new RuntimeProfiler(1000)
 
     const frame1: ProfilerFrameMetrics = {
@@ -29,11 +29,15 @@ describe('RuntimeProfiler', () => {
       otherMs: 10,
     }
 
-    // Frame 1 at t=0
+    // Frame 0 at t=0 establishes initial timestamp; no interval elapsed yet
     expect(profiler.recordFrame(frame1, 0)).toBe(false)
     expect(profiler.getLatestSnapshot()).toBeNull()
 
-    // Frame 2 at t=1000 (completes 1000ms window)
+    // Frame 1 at t=500: interval 500ms (1 sample, 500ms elapsed)
+    expect(profiler.recordFrame(frame1, 500)).toBe(false)
+    expect(profiler.getLatestSnapshot()).toBeNull()
+
+    // Frame 2 at t=1000: interval 500ms (2 samples, total 1000ms elapsed)
     const emitted = profiler.recordFrame(frame2, 1000)
     expect(emitted).toBe(true)
 
@@ -43,7 +47,7 @@ describe('RuntimeProfiler', () => {
 
     expect(snapshot.sampleCount).toBe(2)
     expect(snapshot.windowDurationMs).toBe(1000)
-    // 2 samples in 1000ms = 2.0 FPS
+    // 2 completed frame intervals in 1000ms = 2.0 FPS
     expect(snapshot.fps).toBeCloseTo(2.0, 3)
 
     // CPU Frame Work: avg = (100 + 120)/2 = 110, max = 120
@@ -63,10 +67,40 @@ describe('RuntimeProfiler', () => {
     expect(snapshot.other.max).toBe(10)
   })
 
-  it('resets accumulators cleanly for the next sampling window', () => {
+  it('measures true wall-clock 1.0 FPS for a single 1000ms frame interval without off-by-one inflation', () => {
     const profiler = new RuntimeProfiler(1000)
 
-    // First window (0 to 1000ms)
+    const metrics: ProfilerFrameMetrics = {
+      cpuFrameMs: 80,
+      npcGridMs: 1,
+      npcUpdateMs: 30,
+      mountInteractionMs: 2,
+      collisionMs: 10,
+      arrowMs: 2,
+      impactMs: 1,
+      renderSubmitMs: 25,
+      otherMs: 9,
+    }
+
+    // Window begins at t=0
+    profiler.reset(0)
+
+    // A single frame completes at t=1000 (1 frame completed in 1.0 second)
+    const emitted = profiler.recordFrame(metrics, 1000)
+    expect(emitted).toBe(true)
+
+    const snap = profiler.getLatestSnapshot()
+    expect(snap?.sampleCount).toBe(1)
+    expect(snap?.windowDurationMs).toBe(1000)
+    // Exactly 1 frame in 1000ms interval = 1.0 FPS, NOT 2.0 FPS
+    expect(snap?.fps).toBeCloseTo(1.0, 3)
+  })
+
+  it('resets accumulators cleanly for the next sampling window', () => {
+    const profiler = new RuntimeProfiler(1000)
+    profiler.reset(0)
+
+    // First window (0 to 1000ms): 2 frames of 500ms
     profiler.recordFrame({
       cpuFrameMs: 80,
       npcGridMs: 1,
@@ -77,7 +111,7 @@ describe('RuntimeProfiler', () => {
       impactMs: 1,
       renderSubmitMs: 25,
       otherMs: 9,
-    }, 0)
+    }, 500)
     profiler.recordFrame({
       cpuFrameMs: 90,
       npcGridMs: 1,
@@ -114,7 +148,7 @@ describe('RuntimeProfiler', () => {
       impactMs: 0.5,
       renderSubmitMs: 15,
       otherMs: 6,
-    }, 2050)
+    }, 2000)
 
     const snapshot2 = profiler.getLatestSnapshot()
     expect(snapshot2).not.toBeNull()

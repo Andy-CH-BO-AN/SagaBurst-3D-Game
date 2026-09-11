@@ -236,6 +236,62 @@ async function main() {
       }
     })
 
+    function evaluateGpuReliability(rendererStr, vendorStr, isHeadless = false) {
+      if (isHeadless) {
+        return {
+          reliable: false,
+          hardwareAccelerated: false,
+          label: 'No',
+          reason: 'Headless browser environment',
+        }
+      }
+      const r = (rendererStr || '').toLowerCase()
+      const v = (vendorStr || '').toLowerCase()
+
+      const isSoftware = (
+        r.includes('swiftshader') ||
+        r.includes('llvmpipe') ||
+        r.includes('software') ||
+        r.includes('mesa') ||
+        r.includes('virtualbox') ||
+        r.includes('vmware') ||
+        r === 'unknown' ||
+        v === 'unknown'
+      )
+
+      if (isSoftware) {
+        return {
+          reliable: false,
+          hardwareAccelerated: false,
+          label: 'No',
+          reason: `Software rasterizer detected (${rendererStr})`,
+        }
+      }
+
+      const isHardware = (
+        r.includes('metal') ||
+        r.includes('apple') ||
+        r.includes('nvidia') ||
+        r.includes('amd') ||
+        r.includes('radeon') ||
+        r.includes('intel') ||
+        r.includes('adreno') ||
+        r.includes('mali') ||
+        r.includes('direct3d')
+      )
+
+      return {
+        reliable: isHardware,
+        hardwareAccelerated: isHardware,
+        label: isHardware ? 'Yes' : 'No',
+        reason: isHardware ? (r.includes('metal') ? 'Yes (Apple Silicon ANGLE Metal)' : 'Yes (Hardware GPU)') : 'Unknown GPU',
+      }
+    }
+
+    const gpuEval = evaluateGpuReliability(envInfo.webglRenderer, envInfo.webglVendor, false)
+    envInfo.hardwareAcceleration = gpuEval.hardwareAccelerated ? 'Yes' : 'No'
+    envInfo.reliableHeadedGpuBaseline = gpuEval.label
+
     console.log('\n================ BROWSER ENVIRONMENT ================')
     console.log(`Execution Surface: Antigravity environment (Current execution surface does not expose Antigravity built-in Browser Agent)`)
     console.log(`Browser Control Method: Local Playwright Headed Google Chrome`)
@@ -245,8 +301,8 @@ async function main() {
     console.log(`WebGL Vendor: ${envInfo.webglVendor}`)
     console.log(`WebGL Renderer: ${envInfo.webglRenderer}`)
     console.log(`WebGL Version: ${envInfo.webglVersion}`)
-    console.log(`Hardware Acceleration: ${envInfo.webglRenderer.includes('Metal') || envInfo.webglRenderer.includes('Apple') ? 'Yes (Apple Silicon ANGLE Metal)' : 'Unknown'}`)
-    console.log(`Reliable Headed GPU Baseline: Yes`)
+    console.log(`Hardware Acceleration: ${gpuEval.reason}`)
+    console.log(`Reliable Headed GPU Baseline: ${gpuEval.label}`)
     console.log('====================================================\n')
 
     const scenarios = [
