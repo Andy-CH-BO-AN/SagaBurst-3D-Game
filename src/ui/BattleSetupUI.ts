@@ -8,9 +8,11 @@ import {
   BattleConfig,
   BattleUnitType,
   UnitTier,
+  MAX_ARMY_SIZE,
   PRESET_10V10,
   PRESET_25V25,
   PRESET_50V50,
+  PRESET_100V100,
   calculateArmyTotal,
   validateBattleConfig,
   getDefaultBattleConfig,
@@ -77,7 +79,7 @@ export class BattleSetupUI {
                   <td>
                     <div class="stepper">
                       <button class="step-btn btn-dec" data-faction="${faction}" data-unit="${r.type}" data-tier="${t}">-</button>
-                      <input type="number" min="0" max="50" class="step-input" id="val-${faction}-${r.type}-${t}" data-faction="${faction}" data-unit="${r.type}" data-tier="${t}" value="0" />
+                      <input type="number" min="0" max="${MAX_ARMY_SIZE}" class="step-input" id="val-${faction}-${r.type}-${t}" data-faction="${faction}" data-unit="${r.type}" data-tier="${t}" value="0" />
                       <button class="step-btn btn-inc" data-faction="${faction}" data-unit="${r.type}" data-tier="${t}">+</button>
                     </div>
                   </td>
@@ -101,7 +103,7 @@ export class BattleSetupUI {
           <div class="faction-header">
             <span class="faction-name">VIKING CLANS</span>
             <span class="faction-total-badge">
-              Total: <span id="viking-total" class="total-num">0</span> / 50
+              Total: <span id="viking-total" class="total-num">0</span> / ${MAX_ARMY_SIZE}
             </span>
           </div>
           ${renderTable('viking')}
@@ -112,7 +114,7 @@ export class BattleSetupUI {
           <div class="faction-header">
             <span class="faction-name">ROMAN LEGION</span>
             <span class="faction-total-badge">
-              Total: <span id="roman-total" class="total-num">0</span> / 50
+              Total: <span id="roman-total" class="total-num">0</span> / ${MAX_ARMY_SIZE}
             </span>
           </div>
           ${renderTable('roman')}
@@ -125,6 +127,7 @@ export class BattleSetupUI {
         <button class="preset-btn" id="preset-10">10 VS 10</button>
         <button class="preset-btn" id="preset-25">25 VS 25</button>
         <button class="preset-btn" id="preset-50">50 VS 50</button>
+        <button class="preset-btn" id="preset-100">100 VS 100</button>
         <button class="preset-btn" id="preset-reset">RESET</button>
       </div>
 
@@ -166,7 +169,7 @@ export class BattleSetupUI {
         const unit = input.dataset.unit as BattleUnitType
         const tier = parseInt(input.dataset.tier || '1', 10) as UnitTier
         const raw = parseInt(input.value, 10)
-        const val = isNaN(raw) ? 0 : Math.max(0, Math.min(50, raw))
+        const val = isNaN(raw) ? 0 : Math.max(0, Math.min(MAX_ARMY_SIZE, raw))
         this._setUnitCount(faction, unit, tier, val)
       })
 
@@ -189,6 +192,10 @@ export class BattleSetupUI {
     })
     document.getElementById('preset-50')?.addEventListener('click', () => {
       this.config = JSON.parse(JSON.stringify(PRESET_50V50))
+      this._refreshView()
+    })
+    document.getElementById('preset-100')?.addEventListener('click', () => {
+      this.config = JSON.parse(JSON.stringify(PRESET_100V100))
       this._refreshView()
     })
     document.getElementById('preset-reset')?.addEventListener('click', () => {
@@ -227,7 +234,7 @@ export class BattleSetupUI {
     const army = this.config[faction]
     const oldVal = army[unit][tier] || 0
     const otherTotal = calculateArmyTotal(army) - oldVal
-    const maxAllowed = Math.max(0, 50 - otherTotal)
+    const maxAllowed = Math.max(0, MAX_ARMY_SIZE - otherTotal)
     const clamped = Math.max(0, Math.min(value, maxAllowed))
 
     army[unit][tier] = clamped
@@ -245,7 +252,7 @@ export class BattleSetupUI {
     const currentTotal = calculateArmyTotal(army)
 
     if (delta > 0) {
-      if (currentTotal >= 50 || currentVal >= 50) return
+      if (currentTotal >= MAX_ARMY_SIZE || currentVal >= MAX_ARMY_SIZE) return
       army[unit][tier] = currentVal + 1
     } else if (delta < 0) {
       if (currentVal <= 0) return
@@ -278,11 +285,11 @@ export class BattleSetupUI {
     const rTotalEl = document.getElementById('roman-total')
     if (vTotalEl) {
       vTotalEl.textContent = String(vTotal)
-      vTotalEl.classList.toggle('error', vTotal > 50 || vTotal < 1)
+      vTotalEl.classList.toggle('error', vTotal > MAX_ARMY_SIZE || vTotal < 1)
     }
     if (rTotalEl) {
       rTotalEl.textContent = String(rTotal)
-      rTotalEl.classList.toggle('error', rTotal > 50 || rTotal < 1)
+      rTotalEl.classList.toggle('error', rTotal > MAX_ARMY_SIZE || rTotal < 1)
     }
 
     const validation = validateBattleConfig(this.config)

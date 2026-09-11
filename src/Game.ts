@@ -14,7 +14,14 @@ import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { NPC, Faction } from './world/NPC'
-import { BattleConfig, PRESET_DEVCOMBAT } from './battle/BattleConfig'
+import {
+  BattleConfig,
+  PRESET_DEVCOMBAT,
+  PRESET_SCENARIO_A,
+  PRESET_SCENARIO_B,
+  PRESET_SCENARIO_C,
+  PRESET_SCENARIO_D,
+} from './battle/BattleConfig'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -305,7 +312,18 @@ export class Game {
     if (this.isModelStudio) this._setupModelStudioCamera()
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
-      const plan = BattleSpawner.createSpawnPlan(PRESET_DEVCOMBAT)
+      const devVal = query.get('devcombat')?.toLowerCase()
+      let scenarioConfig = PRESET_DEVCOMBAT
+      if (devVal === 'a' || devVal === 'scenarioa') {
+        scenarioConfig = PRESET_SCENARIO_A
+      } else if (devVal === 'b' || devVal === 'scenariob') {
+        scenarioConfig = PRESET_SCENARIO_B
+      } else if (devVal === 'c' || devVal === 'scenarioc') {
+        scenarioConfig = PRESET_SCENARIO_C
+      } else if (devVal === 'd' || devVal === 'scenariod') {
+        scenarioConfig = PRESET_SCENARIO_D
+      }
+      const plan = BattleSpawner.createSpawnPlan(scenarioConfig)
       this._executeBattleSpawnPlan(plan)
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()

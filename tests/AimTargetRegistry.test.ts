@@ -149,7 +149,7 @@ describe('AimTargetRegistry', () => {
     expect(meshHits[0].point.z).toBeCloseTo(9.8, 1) // 10 - half thickness (0.2)
   })
 
-  it('regression: createTerrain registers barricade child meshes so aim raycast hits obstacles with recursive=false', () => {
+  it('regression: createTerrain registers static obstacle meshes so aim raycast hits obstacles with recursive=false', () => {
     // Import createTerrain dynamically or test directly
     const scene = new THREE.Scene()
     const { obstacleMeshes } = createTerrain(scene)
@@ -167,10 +167,10 @@ describe('AimTargetRegistry', () => {
 
     scene.updateMatrixWorld(true)
 
-    // Barricade is at [15, -5, Math.PI/4]
-    const ty = getTerrainHeight(15, -5)
-    // Aim directly through the base log (height 0.2 above terrain)
-    const rayOrigin = new THREE.Vector3(15, ty + 0.2, -20)
+    // Pine tree is at [18, -22], trunk centered at ty + 1
+    const ty = getTerrainHeight(18, -22)
+    // Aim directly through the tree trunk
+    const rayOrigin = new THREE.Vector3(18, ty + 1.0, -35)
     const rayDir = new THREE.Vector3(0, 0, 1).normalize()
 
     const raycaster = new THREE.Raycaster(rayOrigin, rayDir)

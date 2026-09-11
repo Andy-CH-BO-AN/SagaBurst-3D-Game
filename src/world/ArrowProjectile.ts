@@ -264,8 +264,8 @@ export class ArrowProjectile {
       }
     }
 
-    // Out of bounds check
-    if (this.mesh.position.lengthSq() > 200 * 200) {
+    // Out of bounds check (despawn radius scaled with world scale)
+    if (this.mesh.position.lengthSq() > 400 * 400) {
       this.destroy()
     }
   }
