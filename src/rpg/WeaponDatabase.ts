@@ -211,3 +211,15 @@ export function getTierBadge(tier: 1 | 2 | 3): string {
     case 3: return '★★★ Tier 3 (史詩)'
   }
 }
+
+export function calculateLanceChargeDamage(
+  isLance: boolean,
+  movementSpeed: number,
+  baseDamage: number
+): { damage: number; skipImpact: boolean } {
+  if (!isLance) return { damage: baseDamage, skipImpact: false }
+  if (movementSpeed > 10) {
+    return { damage: baseDamage * 3.0, skipImpact: true }
+  }
+  return { damage: baseDamage, skipImpact: false }
+}
