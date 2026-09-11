@@ -314,6 +314,8 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
   barricadePositions.forEach(([x, z, rot]) => {
     const barricadeGroup = new THREE.Group()
+    barricadeGroup.name = 'barricade-group'
+    barricadeGroup.userData.isBarricade = true
     const ty = getTerrainHeight(x, z)
     barricadeGroup.position.set(x, ty, z)
     barricadeGroup.rotation.y = rot
@@ -322,6 +324,8 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     const baseGeo = new THREE.BoxGeometry(4, 0.4, 0.4)
     baseGeo.computeBoundingSphere()
     const base = new THREE.Mesh(baseGeo, woodMat)
+    base.name = 'barricade-base'
+    base.userData.isBarricade = true
     base.position.y = 0.2
     base.castShadow = true
     barricadeGroup.add(base)
@@ -334,12 +338,16 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
     for (let i = -1.5; i <= 1.5; i += 1.5) {
       const spike1 = new THREE.Mesh(spikeGeo1, woodMat)
+      spike1.name = 'barricade-spike-1'
+      spike1.userData.isBarricade = true
       spike1.position.set(i, 1.0, 0)
       spike1.rotation.x = Math.PI / 4
       spike1.castShadow = true
       barricadeGroup.add(spike1)
 
       const spike2 = new THREE.Mesh(spikeGeo2, woodMat)
+      spike2.name = 'barricade-spike-2'
+      spike2.userData.isBarricade = true
       spike2.position.set(i, 1.0, 0)
       spike2.rotation.x = -Math.PI / 4
       spike2.castShadow = true

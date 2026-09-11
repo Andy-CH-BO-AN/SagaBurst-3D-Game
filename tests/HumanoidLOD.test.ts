@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as THREE from 'three'
 import {
   HUMANOID_LOD_DISTANCES,
@@ -6,6 +6,20 @@ import {
   HumanoidAssetRegistry,
 } from '../src/world/HumanoidAssetRegistry'
 import { CombatRenderWarmup } from '../src/world/CombatRenderWarmup'
+
+let registrySnapshot: any = null
+
+beforeEach(() => {
+  registrySnapshot = HumanoidAssetRegistry._snapshotTemplatesForTesting()
+  CombatRenderWarmup._resetForTesting()
+})
+
+afterEach(() => {
+  if (registrySnapshot) {
+    HumanoidAssetRegistry._restoreTemplatesForTesting(registrySnapshot)
+  }
+  CombatRenderWarmup._resetForTesting()
+})
 
 function createMockLODScene(lodIndex: number): THREE.Group {
   const root = new THREE.Group()
@@ -180,5 +194,42 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
     expect(level0Mesh.castShadow).toBe(true)
     expect(level1Mesh.castShadow).toBe(true)
     expect(level2Mesh.castShadow).toBe(false) // Strictly false, unpolluted by warmup!
+  })
+
+  it('regression: CombatRenderWarmup handles renderer exceptions safely, restores render target, disposes temp target, and keeps isWarmed false', () => {
+    expect(CombatRenderWarmup.isWarmed()).toBe(false)
+
+    const prevRenderTarget = { isPrev: true } as unknown as THREE.WebGLRenderTarget
+    let currentRenderTarget: any = prevRenderTarget
+    let renderTargetDisposed = false
+
+    let capturedTempTarget: any = null
+
+    const failingRenderer = {
+      compile: () => {},
+      render: () => {
+        throw new Error('GPU context lost / shader compilation aborted')
+      },
+      setRenderTarget: (target: any) => {
+        currentRenderTarget = target
+        if (target && target !== prevRenderTarget && typeof target.dispose === 'function') {
+          capturedTempTarget = target
+          const origDispose = target.dispose.bind(target)
+          target.dispose = () => {
+            renderTargetDisposed = true
+            origDispose()
+          }
+        }
+      },
+      getRenderTarget: () => prevRenderTarget,
+    } as unknown as THREE.WebGLRenderer
+
+    CombatRenderWarmup.warmup(failingRenderer, new THREE.PerspectiveCamera(), new THREE.Scene())
+
+    // Must not crash, must restore target, must dispose temp target, must keep isWarmed false
+    expect(CombatRenderWarmup.isWarmed()).toBe(false)
+    expect(currentRenderTarget).toBe(prevRenderTarget)
+    expect(capturedTempTarget).not.toBeNull()
+    expect(renderTargetDisposed).toBe(true)
   })
 })

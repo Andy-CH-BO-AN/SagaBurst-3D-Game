@@ -410,6 +410,23 @@ export class HumanoidAssetRegistry {
     return template?.levels[lodIndex]?.scene
   }
 
+  /**
+   * Test-only seam to snapshot registry templates.
+   */
+  static _snapshotTemplatesForTesting(): Map<CharacterFaction, HumanoidTemplate> {
+    return new Map(this.templates)
+  }
+
+  /**
+   * Test-only seam to restore registry templates after test execution.
+   */
+  static _restoreTemplatesForTesting(snapshot: Map<CharacterFaction, HumanoidTemplate>): void {
+    this.templates.clear()
+    for (const [k, v] of snapshot) {
+      this.templates.set(k, v)
+    }
+  }
+
   static forEachLODLevel(callback: (levelScene: THREE.Group, faction: CharacterFaction, lodIndex: number) => void): void {
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
