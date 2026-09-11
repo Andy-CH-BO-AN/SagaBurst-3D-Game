@@ -16,6 +16,7 @@ import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
+import { getDirectionalMovementFromVector, getEffectiveSpeedMultiplier } from '../movement/DirectionalMovement'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -119,6 +120,7 @@ export class NPC {
   private readonly _tmpRangedDirection = new THREE.Vector3()
   private readonly _tmpWeaponTip = new THREE.Vector3()
   private readonly _tmpPelvisWorld = new THREE.Vector3()
+  private readonly _tmpFacing = new THREE.Vector3()
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -525,24 +527,21 @@ export class NPC {
           break
         }
 
-        // Mounted archers draw swords and charge when enemy gets close
-        if (this.arrows > 0 && this.isMounted && dist < RANGED_ATTACK_MIN) {
+        // Ranged NPCs (both foot and mounted) switch to melee when enemy gets close (< 6m)
+        if (this.arrows > 0 && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
         }
 
         const moveDir = this._tmpMoveDir
 
         if (this.arrows > 0) {
-          // Ranged behavior
+          // Ranged behavior (6 <= dist <= 22)
           if (dist <= RANGED_ATTACK_MAX && dist >= RANGED_ATTACK_MIN) {
             this.state = AIState.ATTACK
             this.attackTimer = 0
             break
-          } else if (dist < RANGED_ATTACK_MIN) {
-            // Flee (move backwards)
-            moveDir.copy(this.group.position).sub(targetInfo.position)
           } else {
-            // Approach
+            // Approach when dist > 22
             moveDir.copy(targetInfo.position).sub(this.group.position)
           }
         } else {
@@ -582,14 +581,15 @@ export class NPC {
           moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
         }
 
-        // Move towards target / flee + separation
+        // Face target before applying directional movement
+        this._faceTarget(targetInfo.position)
+
+        // Move towards target / charge + separation
         this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
         
         // Map boundary clamp
         this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
         this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
-        
-        this._faceTarget(targetInfo.position)
         break
       }
 
@@ -601,27 +601,27 @@ export class NPC {
         
         const dist = this.combatPosition.distanceTo(targetInfo.position)
 
-        // Mounted archers draw swords and charge when enemy gets close
-        if (this.arrows > 0 && this.isMounted && dist < RANGED_ATTACK_MIN) {
+        // Ranged NPCs (both foot and mounted) draw swords and commit to melee when enemy gets close (< 6m)
+        if (this.arrows > 0 && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
+          this.state = AIState.CHASE
+          break
+        }
+
+        // Target retreated beyond max ranged attack distance (> 22m), approach in CHASE
+        if (this.arrows > 0 && dist > RANGED_ATTACK_MAX) {
+          this.animator.cancel()
           this.state = AIState.CHASE
           break
         }
 
         this._faceTarget(targetInfo.position)
         
-        // Mounted Archers can move while attacking
+        // Mounted Archers orbit target while attacking within 6m <= dist <= 22m
         if (this.isMounted && this.arrows > 0) {
-          const dist = this.combatPosition.distanceTo(targetInfo.position)
           const moveDir = this._tmpMoveDir
-          if (dist < RANGED_ATTACK_MIN) {
-            moveDir.copy(this.group.position).sub(targetInfo.position)
-          } else if (dist > RANGED_ATTACK_MAX) {
-            moveDir.copy(targetInfo.position).sub(this.group.position)
-          } else {
-            // Orbit target
-            moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
-          }
+          // Orbit target
+          moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
           moveDir.y = 0
           if (moveDir.lengthSq() > 0.001) {
              moveDir.normalize()
@@ -765,17 +765,26 @@ export class NPC {
       if (!skipBoidsAndObstacles) {
         dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
       }
-      this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
       this._faceTarget(target)
+      this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
     }
   }
 
-  private _moveByDirection(direction: THREE.Vector3, speed: number, dt: number): void {
-    this.visualMovementSpeed = Math.max(this.visualMovementSpeed, speed)
+  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number): void {
+    if (direction.lengthSq() <= 0.0001) return
+    direction.normalize()
+
+    const facingYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+    const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
+    const policy = getDirectionalMovementFromVector(facing, direction)
+    const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
+    const effectiveSpeed = baseSpeed * multiplier
+
+    this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
-      this.mount.addControlledMovement(direction, speed, dt)
+      this.mount.addControlledMovement(direction, effectiveSpeed, dt)
     } else {
-      this.group.position.addScaledVector(direction, speed * dt)
+      this.group.position.addScaledVector(direction, effectiveSpeed * dt)
     }
   }
 
