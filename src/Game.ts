@@ -196,7 +196,7 @@ export class Game {
   private mountStudioStatus: HTMLElement | null = null
   private devCombatStatus: HTMLElement | null = null
   private devCombatFrames = 0
-  private devCombatElapsed = 0
+  private devCombatLastFpsSample = typeof performance !== 'undefined' ? performance.now() : 0
   private startingHorse: Mount | null = null
   private loadedSaveMount: Mount | null = null
 
@@ -637,15 +637,17 @@ export class Game {
     this.devCombatStatus = status
   }
 
-  private _updateDevCombatStatus(dt: number): void {
+  private _updateDevCombatStatus(): void {
     if (!this.devCombatStatus) return
     this.devCombatFrames++
-    this.devCombatElapsed += dt
-    if (this.devCombatElapsed < 1) return
 
-    const fps = this.devCombatFrames / this.devCombatElapsed
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const elapsed = (now - this.devCombatLastFpsSample) / 1000
+    if (elapsed < 1) return
+
+    const fps = this.devCombatFrames / elapsed
     this.devCombatFrames = 0
-    this.devCombatElapsed = 0
+    this.devCombatLastFpsSample = now
     const lodCounts = [0, 0, 0]
     let horses = 0
     for (const mount of this.mounts) {
@@ -1383,7 +1385,7 @@ export class Game {
     // Update Pickups & Mounts Interaction
     this._updateInteractions(dt)
     if (this.isMountStudio) this._updateMountStudioStatus()
-    if (this.isDevCombat) this._updateDevCombatStatus(dt)
+    if (this.isDevCombat) this._updateDevCombatStatus()
 
     // Resolve all entity overlaps after every entity has moved this frame.
     this._resolveEntityCollisions()
