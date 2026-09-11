@@ -40,12 +40,15 @@ function verifyPlanInvariants(plan: BattleSpawnPlan): void {
         const dx = u1.x - u2.x
         const dz = u1.z - u2.z
         const dist = Math.hypot(dx, dz)
+        if (dist < minObservedDist) minObservedDist = dist
         // No two units can spawn at duplicate coordinates or collide (min 2.0m spacing)
-        expect(dist).toBeGreaterThanOrEqual(1.95)
+        expect(dist).toBeGreaterThanOrEqual(2.0)
       }
     }
   }
 }
+
+let minObservedDist = Infinity
 
 describe('BattleSpawner Deterministic Formation', () => {
   it('generates non-overlapping coordinates in bounds for PRESET_10V10', () => {
@@ -168,5 +171,10 @@ describe('BattleSpawner Deterministic Formation', () => {
         expect(dist).toBeGreaterThanOrEqual(PLAYER_SAFE_CLEARANCE)
       }
     }
+  })
+
+  it('reports minimum observed friendly spawn distance', () => {
+    console.log(`[SPAWN METRICS] Global minimum friendly spawn distance: ${minObservedDist.toFixed(4)}m`)
+    expect(minObservedDist).toBeGreaterThanOrEqual(2.0)
   })
 })

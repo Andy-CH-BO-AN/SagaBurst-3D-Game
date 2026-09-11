@@ -241,8 +241,9 @@ export class BattleSpawner {
     placeWingUnits(units.cavalry, cavalryBaseX, AIType.MELEE, 'Lancer')
     placeWingUnits(units.horseArcher, horseArcherBaseX, AIType.RANGED, 'Horse Archer')
 
-    // Relaxation to guarantee >= 2.0m spacing between all friendly units and clearance from player
-    for (let iter = 0; iter < 8; iter++) {
+    // Relaxation to strictly guarantee >= 2.0m spacing between all friendly units and clearance from player
+    const MIN_FRIENDLY_SPAWN_SPACING = 2.05
+    for (let iter = 0; iter < 10; iter++) {
       let moved = false
       for (let i = 0; i < specs.length; i++) {
         for (let j = i + 1; j < specs.length; j++) {
@@ -251,8 +252,8 @@ export class BattleSpawner {
           const dx = u1.x - u2.x
           const dz = u1.z - u2.z
           const dist = Math.hypot(dx, dz)
-          if (dist < 2.0 && dist > 0.0001) {
-            const push = (2.0 - dist) * 0.5
+          if (dist < MIN_FRIENDLY_SPAWN_SPACING && dist > 0.0001) {
+            const push = (MIN_FRIENDLY_SPAWN_SPACING - dist) * 0.5
             const nx = dx / dist
             const nz = dz / dist
             u1.x = Math.round((u1.x + nx * push) * 100) / 100
