@@ -22,6 +22,7 @@ export interface ObstacleData {
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
   obstacles: ObstacleData[]
+  obstacleMeshes: THREE.Object3D[]
 }
 
 export interface ObstacleCollisionResult {
@@ -218,6 +219,8 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     posAttr.setY(i, vy)
   }
   geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  geometry.computeBoundingBox()
 
   const material = new THREE.MeshLambertMaterial({
     color: 0x4a7c3f,
@@ -230,6 +233,7 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
   scene.add(terrainMesh)
 
   const obstacles: ObstacleData[] = []
+  const obstacleMeshes: THREE.Object3D[] = []
 
   // ── Decorative rocks (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
   const rockMat = new THREE.MeshLambertMaterial({ color: 0x888888 })
@@ -244,8 +248,10 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
   rockPositions.forEach(([x, z]) => {
     const size = 1.2
     const terrainY = getTerrainHeight(x, z)
+    const rockGeo = new THREE.DodecahedronGeometry(size, 0)
+    rockGeo.computeBoundingSphere()
     const rock = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(size, 0),
+      rockGeo,
       rockMat
     )
     rock.position.set(x, terrainY + size * 0.5, z)
@@ -253,6 +259,7 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     rock.castShadow = true
     rock.receiveShadow = true
     scene.add(rock)
+    obstacleMeshes.push(rock)
 
     // AABB collision box calibrated to terrain height
     const halfSize = size * 0.85
@@ -273,15 +280,21 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
   treePositions.forEach(([tx, tz]) => {
     const terrainY = getTerrainHeight(tx, tz)
 
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 2, 8), treeTrunkMat)
+    const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
+    trunkGeo.computeBoundingSphere()
+    const trunk = new THREE.Mesh(trunkGeo, treeTrunkMat)
     trunk.position.set(tx, terrainY + 1, tz)
     trunk.castShadow = true
     scene.add(trunk)
+    obstacleMeshes.push(trunk)
 
-    const leaves = new THREE.Mesh(new THREE.ConeGeometry(2, 4, 8), treeLeafMat)
+    const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
+    leavesGeo.computeBoundingSphere()
+    const leaves = new THREE.Mesh(leavesGeo, treeLeafMat)
     leaves.position.set(tx, terrainY + 4, tz)
     leaves.castShadow = true
     scene.add(leaves)
+    obstacleMeshes.push(leaves)
 
     // Trunk collision box calibrated to terrain height
     const box = new THREE.Box3(
@@ -301,25 +314,40 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
   barricadePositions.forEach(([x, z, rot]) => {
     const barricadeGroup = new THREE.Group()
+    barricadeGroup.name = 'barricade-group'
+    barricadeGroup.userData.isBarricade = true
     const ty = getTerrainHeight(x, z)
     barricadeGroup.position.set(x, ty, z)
     barricadeGroup.rotation.y = rot
 
     // Base log
-    const base = new THREE.Mesh(new THREE.BoxGeometry(4, 0.4, 0.4), woodMat)
+    const baseGeo = new THREE.BoxGeometry(4, 0.4, 0.4)
+    baseGeo.computeBoundingSphere()
+    const base = new THREE.Mesh(baseGeo, woodMat)
+    base.name = 'barricade-base'
+    base.userData.isBarricade = true
     base.position.y = 0.2
     base.castShadow = true
     barricadeGroup.add(base)
 
     // Cross spikes
+    const spikeGeo1 = new THREE.BoxGeometry(0.3, 4.5, 0.3)
+    spikeGeo1.computeBoundingSphere()
+    const spikeGeo2 = new THREE.BoxGeometry(0.3, 4.5, 0.3)
+    spikeGeo2.computeBoundingSphere()
+
     for (let i = -1.5; i <= 1.5; i += 1.5) {
-      const spike1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, 0.3), woodMat)
+      const spike1 = new THREE.Mesh(spikeGeo1, woodMat)
+      spike1.name = 'barricade-spike-1'
+      spike1.userData.isBarricade = true
       spike1.position.set(i, 1.0, 0)
       spike1.rotation.x = Math.PI / 4
       spike1.castShadow = true
       barricadeGroup.add(spike1)
 
-      const spike2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, 0.3), woodMat)
+      const spike2 = new THREE.Mesh(spikeGeo2, woodMat)
+      spike2.name = 'barricade-spike-2'
+      spike2.userData.isBarricade = true
       spike2.position.set(i, 1.0, 0)
       spike2.rotation.x = -Math.PI / 4
       spike2.castShadow = true
@@ -327,6 +355,12 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     }
 
     scene.add(barricadeGroup)
+    barricadeGroup.updateMatrixWorld(true)
+    barricadeGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        obstacleMeshes.push(child as THREE.Mesh)
+      }
+    })
     
     // Collision box for the barricade
     const box = new THREE.Box3(
@@ -337,5 +371,5 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     obstacles.push({ box, isBarricade: true })
   })
 
-  return { terrainMesh, obstacles }
+  return { terrainMesh, obstacles, obstacleMeshes }
 }
