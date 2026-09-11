@@ -330,4 +330,46 @@ describe('Phase 23 shipped horse runtime package', () => {
       }
     }
   })
+
+  it('consolidates LOD2 into exactly 3 SkinnedMeshes while keeping LOD0 and LOD1 intact', () => {
+    const document = parseGlb(resolve(PACKAGE_ROOT, manifest.file!))
+    const lod0Index = document.nodes?.findIndex((n) => n.name === 'horse_lod0') ?? -1
+    const lod1Index = document.nodes?.findIndex((n) => n.name === 'horse_lod1') ?? -1
+    const lod2Index = document.nodes?.findIndex((n) => n.name === 'horse_lod2') ?? -1
+
+    expect(lod0Index).toBeGreaterThanOrEqual(0)
+    expect(lod1Index).toBeGreaterThanOrEqual(0)
+    expect(lod2Index).toBeGreaterThanOrEqual(0)
+
+    const lod0Children = document.nodes![lod0Index].children ?? []
+    const lod1Children = document.nodes![lod1Index].children ?? []
+    const lod2Children = document.nodes![lod2Index].children ?? []
+
+    // LOD0 and LOD1 retain 18 meshes
+    expect(lod0Children.length).toBe(18)
+    expect(lod1Children.length).toBe(18)
+
+    // LOD2 consolidated into 3 SkinnedMeshes
+    expect(lod2Children.length).toBe(3)
+    const lod2ChildNodes = lod2Children.map((i) => document.nodes![i])
+    const lod2Names = lod2ChildNodes.map((n) => n.name).sort()
+    expect(lod2Names).toEqual([
+      'horse_body_lod2',
+      'horse_groom_hair_lod2',
+      'horse_tack_lod2',
+    ].sort())
+
+    // All LOD2 children must have a mesh and reference skin 0
+    for (const childNode of lod2ChildNodes) {
+      expect(childNode.mesh).toBeDefined()
+      expect(childNode.skin).toBe(0)
+      const primitives = document.meshes![childNode.mesh!].primitives ?? []
+      expect(primitives.length).toBe(1)
+      const prim = primitives[0]
+      expect(prim.attributes?.POSITION).toBeDefined()
+      expect(prim.attributes?.NORMAL).toBeDefined()
+      expect(prim.attributes?.JOINTS_0).toBeDefined()
+      expect(prim.attributes?.WEIGHTS_0).toBeDefined()
+    }
+  })
 })
