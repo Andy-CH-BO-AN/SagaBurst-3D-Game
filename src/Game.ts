@@ -10,7 +10,7 @@ import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, res
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
-import { SaveManager } from './save/SaveManager'
+import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { NPC, Faction } from './world/NPC'
@@ -27,7 +27,68 @@ import { CompassUI } from './ui/CompassUI'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
+import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
 import { WeaponPickup } from './world/WeaponPickup'
+
+export function reconcileLoadedMounts(
+  mounts: Mount[],
+  startingHorse: Mount | null,
+  loadedSaveMount: Mount | null,
+  newMountToLoad: Mount | null
+): {
+  mounts: Mount[]
+  startingHorse: null
+  loadedSaveMount: Mount | null
+} {
+  if (startingHorse) {
+    const idx = mounts.indexOf(startingHorse)
+    if (idx !== -1) mounts.splice(idx, 1)
+    startingHorse.dispose()
+  }
+  if (loadedSaveMount) {
+    const idx = mounts.indexOf(loadedSaveMount)
+    if (idx !== -1) mounts.splice(idx, 1)
+    loadedSaveMount.dispose()
+  }
+  if (newMountToLoad) {
+    mounts.push(newMountToLoad)
+  }
+  return {
+    mounts,
+    startingHorse: null,
+    loadedSaveMount: newMountToLoad,
+  }
+}
+
+/**
+ * Resolves the ground spawn position for a mount being restored from save data.
+ * Prefers mountData.position (ground position of mount).
+ * Falls back to data.position (rider saddle position) for legacy saves lacking mountData.position.
+ */
+export function resolveMountSpawnPosition(
+  saveData: {
+    position: { x: number; y: number; z: number }
+    mountData?: PlayerSaveData['mountData']
+  }
+): { x: number; y: number; z: number } {
+  if (saveData.mountData && saveData.mountData.position) {
+    return { ...saveData.mountData.position }
+  }
+  return { ...saveData.position }
+}
+
+/**
+ * Resolves the ground spawn Y coordinate for a mount being restored from save data.
+ * Returns mountData.position.y when saved with modern format.
+ * Returns undefined for legacy saves so terrain height is used rather than rider saddle Y.
+ */
+export function resolveMountSpawnY(
+  saveData: {
+    mountData?: PlayerSaveData['mountData']
+  }
+): number | undefined {
+  return saveData.mountData?.position ? saveData.mountData.position.y : undefined
+}
 import { damageNpc, damagePlayer } from './combat/DamageRouter'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
@@ -123,6 +184,7 @@ export class Game {
   private devCombatStatus: HTMLElement | null = null
   private devCombatFrames = 0
   private devCombatElapsed = 0
+  private startingHorse: Mount | null = null
   private loadedSaveMount: Mount | null = null
 
   // Enemy HUD elements
@@ -256,6 +318,18 @@ export class Game {
       this._executeBattleSpawnPlan(plan)
       this.battleController = new BattleController(battleConfig)
       this.battleController.initCounts(this.npcs)
+    }
+
+    if (!this.isModelStudio) {
+      const startingHorse = new Mount(
+        this.scene,
+        DEFAULT_MOUNT_TYPE,
+        VIKING_PLAYER_SPAWN.x,
+        VIKING_PLAYER_SPAWN.z
+      )
+      this.startingHorse = startingHorse
+      this.mounts.push(startingHorse)
+      this._mountPlayer(startingHorse)
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -792,6 +866,11 @@ export class Game {
         appearanceVariant: this.player.currentMount.type === MountType.HORSE
           ? this.player.currentMount.appearanceVariant
           : undefined,
+        position: {
+          x: this.player.currentMount.group.position.x,
+          y: this.player.currentMount.group.position.y,
+          z: this.player.currentMount.group.position.z,
+        },
       } : undefined
     })
     this._showNotify(ok ? '💾 遊戲已存檔（含背包裝備）' : '❌ 存檔失敗')
@@ -804,13 +883,20 @@ export class Game {
     }
     const data = this.saveManager.load()
     if (this.player.isMounted) this.player.dismountFromMount()
-    if (this.loadedSaveMount) {
-      const index = this.mounts.indexOf(this.loadedSaveMount)
-      if (index !== -1) this.mounts.splice(index, 1)
-      this.loadedSaveMount.dispose()
-      this.loadedSaveMount = null
+
+    let newMountToLoad: Mount | null = null
+    if (data.mountData && data.mountData.isMounted) {
+      // Create mount for player at load position (prefers mountData.position with data.position fallback)
+      const mountType = mountTypeFromSave(data.mountData.type)
+      const variant = mountType === MountType.HORSE
+        ? horseVariantFromSave(data.mountData.appearanceVariant)
+        : 0
+      const mountPos = resolveMountSpawnPosition(data)
+      const mountY = resolveMountSpawnY(data)
+      newMountToLoad = new Mount(this.scene, mountType, mountPos.x, mountPos.z, mountY, variant)
     }
-    this.mountHud.classList.remove('visible')
+
+    // 1. Restore player stats, position, skills & inventory first
     this.player.setPosition(data.position.x, data.position.y, data.position.z)
     this.player.setStamina(data.stamina)
     this.player.setHp(data.hp ?? 100)
@@ -823,28 +909,38 @@ export class Game {
       this.inventoryManager.loadSaveState(data.inventory)
     }
 
-    if (data.mountData && data.mountData.isMounted) {
-      // Create mount for player at load position
-      const mountType = mountTypeFromSave(data.mountData.type)
-      const variant = mountType === MountType.HORSE
-        ? horseVariantFromSave(data.mountData.appearanceVariant)
-        : 0
-      const m = new Mount(this.scene, mountType, data.position.x, data.position.z, undefined, variant)
-      this.mounts.push(m)
-      this.loadedSaveMount = m
-      this.player.isMounted = true
-      this.player.currentMount = m
-      m.state = MountState.CONTROLLED
-      this.mountNameEl.textContent = `坐騎：${m.displayName}`
-      this.mountHpFill.style.width = `${Math.max(0, (m.currentHp / m.maxHp) * 100)}%`
-      this.mountHud.classList.add('visible')
-    }
-
     this.staminaBar.setFill(data.stamina / 100)
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI.setArrowCount(this.player.arrowCount)
 
+    // 2. Reconcile mounts and perform mounted orchestration as final authoritative transform state
+    const reconciled = reconcileLoadedMounts(
+      this.mounts,
+      this.startingHorse,
+      this.loadedSaveMount,
+      newMountToLoad
+    )
+    this.startingHorse = reconciled.startingHorse
+    this.loadedSaveMount = reconciled.loadedSaveMount
+
+    if (newMountToLoad) {
+      this._mountPlayer(newMountToLoad)
+    } else {
+      this.mountHud.classList.remove('visible')
+    }
+
     this._showNotify('📂 讀檔成功（還原背包與裝備）')
+  }
+
+  private _mountPlayer(mount: Mount): void {
+    this.player.isMounted = true
+    this.player.currentMount = mount
+    mount.state = MountState.CONTROLLED
+    this.player.syncMountTransform()
+
+    this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+    this.mountHpFill.style.width = `${Math.max(0, (mount.currentHp / mount.maxHp) * 100)}%`
+    this.mountHud.classList.add('visible')
   }
 
   private _showNotify(msg: string): void {
@@ -872,13 +968,13 @@ export class Game {
   /** Returns the final damage after applying lance charge multiplier.
    *  Also sets skipImpactThisFrame on the player's mount if charging. */
   private _applyLanceChargeBonus(isLance: boolean, baseDamage: number): number {
-    if (!isLance) return baseDamage
     const mount = this.player.isMounted ? this.player.currentMount : null
-    if (mount && mount.movementSpeed > 10) {
+    const speed = mount ? mount.movementSpeed : 0
+    const result = calculateLanceChargeDamage(isLance, speed, baseDamage)
+    if (mount && result.skipImpact) {
       mount.skipImpactThisFrame = true
-      return baseDamage * 3.0
     }
-    return baseDamage
+    return result.damage
   }
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
@@ -993,14 +1089,7 @@ export class Game {
         if (idx !== -1) this.pickups.splice(idx, 1)
 
       } else if (closestMount) {
-        this.player.isMounted = true
-        this.player.currentMount = closestMount
-        closestMount.state = MountState.CONTROLLED
-        
-        // Show mount HUD
-        this.mountNameEl.textContent = `坐騎：${closestMount.displayName}`
-        this.mountHpFill.style.width = `${Math.max(0, (closestMount.currentHp / closestMount.maxHp) * 100)}%`
-        this.mountHud.classList.add('visible')
+        this._mountPlayer(closestMount)
         this.soundManager.playHit()
       }
       this.pickupPromptEl.classList.remove('visible')

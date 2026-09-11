@@ -12,13 +12,15 @@ export interface InventoryStack {
 
 export class InventoryManager {
   private items: InventoryStack[] = [
-    { id: 'steel_sword', quantity: 1 },
-    { id: 'recurve_longbow', quantity: 1 },
+    { id: 'steel_lance', quantity: 1 },
+    { id: 'runic_greatsword', quantity: 1 },
+    { id: 'elven_runebow', quantity: 1 },
+    { id: 'round_shield_t3', quantity: 1 },
   ]
 
-  private equippedMeleeId: string  = 'steel_sword'
-  private equippedRangedId: string = 'recurve_longbow'
-  private equippedShieldId: string | null = null
+  private equippedMeleeId: string  = 'steel_lance'
+  private equippedRangedId: string = 'elven_runebow'
+  private equippedShieldId: string | null = 'round_shield_t3'
 
   get inventoryStacks(): { item: WeaponData | ArmorData; quantity: number }[] {
     return this.items
@@ -30,11 +32,11 @@ export class InventoryManager {
   }
 
   get equippedMelee(): WeaponData {
-    return WEAPONS[this.equippedMeleeId] || WEAPONS['steel_sword']
+    return WEAPONS[this.equippedMeleeId] || WEAPONS['steel_lance']
   }
 
   get equippedRanged(): WeaponData {
-    return WEAPONS[this.equippedRangedId] || WEAPONS['recurve_longbow']
+    return WEAPONS[this.equippedRangedId] || WEAPONS['elven_runebow']
   }
 
   get equippedShield(): ArmorData | null {

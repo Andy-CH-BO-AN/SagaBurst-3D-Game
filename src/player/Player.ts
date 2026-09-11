@@ -341,6 +341,15 @@ export class Player {
     }
   }
 
+  syncMountTransform(): void {
+    if (!this.isMounted || !this.currentMount) return
+    this.currentMount.getSaddleSeatWorld(this.group.position)
+    this.group.position.y += PLAYER_HALF_HEIGHT
+    applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
+    this._alignExternalVisualToMount(true)
+    this.group.rotation.x = this.currentMount.ridePitch
+  }
+
   dismountFromMount(): void {
     if (!this.isMounted || !this.currentMount) return
     const mountPosition = this.currentMount.group.position.clone()
@@ -639,13 +648,7 @@ export class Player {
       this.currentMount.finishControlledFrame(dt, obstacles)
 
       // Sync player to mount
-      this.currentMount.getSaddleSeatWorld(this.group.position)
-      this.group.position.y += PLAYER_HALF_HEIGHT
-      applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
-      this._alignExternalVisualToMount(true)
-      
-      // Ride posture
-      this.group.rotation.x = this.currentMount.ridePitch
+      this.syncMountTransform()
       
       // Rotation
       if (isMoving) {
