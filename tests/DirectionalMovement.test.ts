@@ -5,8 +5,10 @@ import {
   DIRECTIONAL_THRESHOLD,
   FORWARD_SPEED_MULTIPLIER,
   LATERAL_SPEED_MULTIPLIER,
+  MOUNT_LATERAL_SPEED_MULTIPLIER,
   getDirectionalMovementFromKeyboard,
   getDirectionalMovementFromVector,
+  getEffectiveSpeedMultiplier,
 } from '../src/movement/DirectionalMovement'
 
 describe('DirectionalMovement Policy', () => {
@@ -236,6 +238,32 @@ describe('DirectionalMovement Policy', () => {
       const res = getDirectionalMovementFromVector(facing, move)
       expect(res.direction).toBe('forward')
       expect(res.multiplier).toBe(1.0)
+    })
+  })
+
+  describe('getEffectiveSpeedMultiplier for Mount vs Foot', () => {
+    it('applies 1.0 for foot lateral and 0.5 for mount lateral', () => {
+      const leftPolicy = getDirectionalMovementFromKeyboard(false, false, true, false)!
+      const rightPolicy = getDirectionalMovementFromKeyboard(false, false, false, true)!
+
+      // Foot (isMounted: false)
+      expect(getEffectiveSpeedMultiplier(leftPolicy, false)).toBe(LATERAL_SPEED_MULTIPLIER) // 1.0
+      expect(getEffectiveSpeedMultiplier(rightPolicy, false)).toBe(LATERAL_SPEED_MULTIPLIER) // 1.0
+
+      // Mount (isMounted: true)
+      expect(getEffectiveSpeedMultiplier(leftPolicy, true)).toBe(MOUNT_LATERAL_SPEED_MULTIPLIER) // 0.5
+      expect(getEffectiveSpeedMultiplier(rightPolicy, true)).toBe(MOUNT_LATERAL_SPEED_MULTIPLIER) // 0.5
+    })
+
+    it('preserves forward (1.0) and backward (0.3) multipliers identically for foot and mount', () => {
+      const fwdPolicy = getDirectionalMovementFromKeyboard(true, false, false, false)!
+      const backPolicy = getDirectionalMovementFromKeyboard(false, true, false, false)!
+
+      expect(getEffectiveSpeedMultiplier(fwdPolicy, false)).toBe(1.0)
+      expect(getEffectiveSpeedMultiplier(fwdPolicy, true)).toBe(1.0)
+
+      expect(getEffectiveSpeedMultiplier(backPolicy, false)).toBe(0.3)
+      expect(getEffectiveSpeedMultiplier(backPolicy, true)).toBe(0.3)
     })
   })
 })

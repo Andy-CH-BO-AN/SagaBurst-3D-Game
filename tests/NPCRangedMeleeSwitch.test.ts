@@ -253,5 +253,48 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       expect(dist).toBeCloseTo(0.36, 5)
       expect((npc as any).visualMovementSpeed).toBeCloseTo(3.6, 5) // 12 * 0.3
     })
+
+    it('updates mounted NPC position at 50% speed when moving lateral/orbiting (mount.baseSpeed * 0.5)', () => {
+      const { npc, mount } = createMountedNpc(0, 10, Faction.PLAYER, AIType.RANGED, 'MountedArcher')
+      mount.group.rotation.y = 0 // mount facing +Z
+      mount.group.position.set(0, 0, 10)
+      const startPos = mount.group.position.clone()
+
+      // Call _moveByDirection with lateral direction (+X, 1, 0, 0)
+      const lateralDir = new THREE.Vector3(1, 0, 0)
+      ;(npc as any)._moveByDirection(lateralDir, mount.baseSpeed, 0.1)
+
+      const dist = Math.hypot(mount.group.position.x - startPos.x, mount.group.position.z - startPos.z)
+      // mount baseSpeed = 12, lateral mount multiplier = 0.5, dt = 0.1 -> 12 * 0.5 * 0.1 = 0.6
+      expect(dist).toBeCloseTo(0.6, 5)
+      expect((npc as any).visualMovementSpeed).toBeCloseTo(6.0, 5) // 12 * 0.5
+    })
+
+    it('updates foot NPC position at 100% speed when moving lateral', () => {
+      const npc = new NPC(scene, 0, 10, Faction.PLAYER, AIType.MELEE, 'FootNPC', 1, false)
+      npc.group.rotation.y = 0 // facing +Z
+      const startPos = npc.group.position.clone()
+
+      // Call _moveByDirection with lateral direction (+X, 1, 0, 0)
+      const lateralDir = new THREE.Vector3(1, 0, 0)
+      ;(npc as any)._moveByDirection(lateralDir, 10.0, 0.1)
+
+      const dist = Math.hypot(npc.group.position.x - startPos.x, npc.group.position.z - startPos.z)
+      // foot baseSpeed = 10, lateral multiplier = 1.0, dt = 0.1 -> 10 * 1.0 * 0.1 = 1.0
+      expect(dist).toBeCloseTo(1.0, 5)
+      expect((npc as any).visualMovementSpeed).toBeCloseTo(10.0, 5)
+    })
+
+    it('early returns on zero vector movement without altering position or visualMovementSpeed', () => {
+      const npc = new NPC(scene, 0, 10, Faction.PLAYER, AIType.MELEE, 'TestNPC', 1, false)
+      ;(npc as any).visualMovementSpeed = 0
+      const startPos = npc.group.position.clone()
+
+      const zeroDir = new THREE.Vector3(0, 0, 0)
+      ;(npc as any)._moveByDirection(zeroDir, 10.0, 0.1)
+
+      expect(npc.group.position.distanceTo(startPos)).toBe(0)
+      expect((npc as any).visualMovementSpeed).toBe(0)
+    })
   })
 })

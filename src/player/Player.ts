@@ -27,6 +27,7 @@ import {
 } from '../world/CharacterBowVisual'
 import {
   getDirectionalMovementFromKeyboard,
+  getEffectiveSpeedMultiplier,
   FORWARD_SPEED_MULTIPLIER,
 } from '../movement/DirectionalMovement'
 
@@ -607,8 +608,11 @@ export class Player {
       this.isSprinting = false
     }
 
-    const speedMultiplier = directionalPolicy ? directionalPolicy.multiplier : FORWARD_SPEED_MULTIPLIER
-    const baseSpeed = this.isMounted && this.currentMount
+    const isMounted = Boolean(this.isMounted && this.currentMount)
+    const speedMultiplier = directionalPolicy
+      ? getEffectiveSpeedMultiplier(directionalPolicy, isMounted)
+      : FORWARD_SPEED_MULTIPLIER
+    const baseSpeed = isMounted && this.currentMount
       ? this.currentMount.baseSpeed
       : MOVE_SPEED
     const effectiveSpeed = isMoving

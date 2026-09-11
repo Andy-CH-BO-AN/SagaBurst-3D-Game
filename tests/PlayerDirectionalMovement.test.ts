@@ -232,5 +232,27 @@ describe('Player Directional Movement & Stamina', () => {
       updatePlayer(player, 0.1, createMockInput({ KeyS: true, ShiftLeft: true }))
       expect(horizontalDistance(mount.group.position, startS)).toBeCloseTo(0.36, 5)
     })
+
+    it('applies 50% speed for mounted lateral movement (A/D) while foot lateral remains 100%', () => {
+      const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      player.isMounted = true
+      player.currentMount = mount
+
+      // Mounted A (left) -> 12 * 0.5 * 0.1 = 0.6
+      const startA = mount.group.position.clone()
+      updatePlayer(player, 0.1, createMockInput({ KeyA: true }))
+      expect(horizontalDistance(mount.group.position, startA)).toBeCloseTo(0.6, 5)
+
+      // Mounted D (right) -> 12 * 0.5 * 0.1 = 0.6
+      const startD = mount.group.position.clone()
+      updatePlayer(player, 0.1, createMockInput({ KeyD: true }))
+      expect(horizontalDistance(mount.group.position, startD)).toBeCloseTo(0.6, 5)
+
+      // Foot A (left) on a dismounted player remains 100% (8 * 1.0 * 0.1 = 0.8)
+      const footPlayer = new Player(scene)
+      const footStartA = footPlayer.position.clone()
+      updatePlayer(footPlayer, 0.1, createMockInput({ KeyA: true }))
+      expect(horizontalDistance(footPlayer.position, footStartA)).toBeCloseTo(0.8, 5)
+    })
   })
 })

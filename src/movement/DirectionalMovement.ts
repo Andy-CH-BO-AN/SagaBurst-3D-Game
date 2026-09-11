@@ -3,6 +3,7 @@ import * as THREE from 'three'
 export const BACKWARD_SPEED_MULTIPLIER = 0.3
 export const FORWARD_SPEED_MULTIPLIER = 1.0
 export const LATERAL_SPEED_MULTIPLIER = 1.0
+export const MOUNT_LATERAL_SPEED_MULTIPLIER = 0.5
 export const DIRECTIONAL_THRESHOLD = Math.cos((Math.PI * 3) / 8) // ~0.3826834323650898
 
 export type MovementDirection =
@@ -19,6 +20,20 @@ export interface DirectionalMovementPolicy {
   direction: MovementDirection
   multiplier: number
   canSprint: boolean
+}
+
+/**
+ * Returns the effective speed multiplier given a directional policy and mount status.
+ * Mounted entities use 0.5 for pure lateral movement (left / right) to prevent kite orbiting.
+ */
+export function getEffectiveSpeedMultiplier(
+  policy: DirectionalMovementPolicy,
+  isMounted: boolean = false,
+): number {
+  if (isMounted && (policy.direction === 'left' || policy.direction === 'right')) {
+    return MOUNT_LATERAL_SPEED_MULTIPLIER
+  }
+  return policy.multiplier
 }
 
 const UP = new THREE.Vector3(0, 1, 0)

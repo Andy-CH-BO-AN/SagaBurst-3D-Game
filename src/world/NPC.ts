@@ -16,7 +16,7 @@ import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
-import { getDirectionalMovementFromVector } from '../movement/DirectionalMovement'
+import { getDirectionalMovementFromVector, getEffectiveSpeedMultiplier } from '../movement/DirectionalMovement'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -771,13 +771,14 @@ export class NPC {
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number): void {
-    if (direction.lengthSq() > 0.0001) {
-      direction.normalize()
-    }
+    if (direction.lengthSq() <= 0.0001) return
+    direction.normalize()
+
     const facingYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
     const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
     const policy = getDirectionalMovementFromVector(facing, direction)
-    const effectiveSpeed = baseSpeed * policy.multiplier
+    const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
+    const effectiveSpeed = baseSpeed * multiplier
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
