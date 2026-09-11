@@ -54,17 +54,49 @@ async function main() {
     }
   }
 
-  // Compare Mat 5 and Mat 6 property equivalence
+  // Compare Mat 5 and Mat 6 property equivalence (thorough render-property check)
   const mat5 = gltf.materials[5]
   const mat6 = gltf.materials[6]
-  if (mat5.alphaMode !== mat6.alphaMode || mat5.alphaCutoff !== mat6.alphaCutoff) {
-    throw new Error('Mat 5 and Mat 6 alpha properties mismatch')
+
+  if (mat5.alphaMode !== mat6.alphaMode) {
+    throw new Error(`Mat 5 alphaMode (${mat5.alphaMode}) !== Mat 6 (${mat6.alphaMode})`)
   }
+  if (mat5.alphaCutoff !== mat6.alphaCutoff) {
+    throw new Error(`Mat 5 alphaCutoff (${mat5.alphaCutoff}) !== Mat 6 (${mat6.alphaCutoff})`)
+  }
+  if (mat5.doubleSided !== mat6.doubleSided) {
+    throw new Error(`Mat 5 doubleSided (${mat5.doubleSided}) !== Mat 6 (${mat6.doubleSided})`)
+  }
+
   const tex5 = gltf.textures[mat5.pbrMetallicRoughness.baseColorTexture.index]
   const tex6 = gltf.textures[mat6.pbrMetallicRoughness.baseColorTexture.index]
   const src5 = tex5.extensions?.KHR_texture_basisu?.source ?? tex5.source
   const src6 = tex6.extensions?.KHR_texture_basisu?.source ?? tex6.source
   if (src5 !== src6) throw new Error(`Mat 5 and Mat 6 baseColor texture mismatch: ${src5} vs ${src6}`)
+
+  const normTex5 = gltf.textures[mat5.normalTexture.index]
+  const normTex6 = gltf.textures[mat6.normalTexture.index]
+  const normSrc5 = normTex5.extensions?.KHR_texture_basisu?.source ?? normTex5.source
+  const normSrc6 = normTex6.extensions?.KHR_texture_basisu?.source ?? normTex6.source
+  if (normSrc5 !== normSrc6) throw new Error(`Mat 5 and Mat 6 normal texture mismatch: ${normSrc5} vs ${normSrc6}`)
+  if ((mat5.normalTexture.scale ?? 1) !== (mat6.normalTexture.scale ?? 1)) {
+    throw new Error('Mat 5 and Mat 6 normalTexture scale mismatch')
+  }
+
+  if (mat5.pbrMetallicRoughness.roughnessFactor !== mat6.pbrMetallicRoughness.roughnessFactor) {
+    throw new Error('Mat 5 and Mat 6 roughnessFactor mismatch')
+  }
+  if (mat5.pbrMetallicRoughness.metallicFactor !== mat6.pbrMetallicRoughness.metallicFactor) {
+    throw new Error('Mat 5 and Mat 6 metallicFactor mismatch')
+  }
+  const bcf5 = JSON.stringify(mat5.pbrMetallicRoughness.baseColorFactor)
+  const bcf6 = JSON.stringify(mat6.pbrMetallicRoughness.baseColorFactor)
+  if (bcf5 !== bcf6) throw new Error(`Mat 5 and Mat 6 baseColorFactor mismatch: ${bcf5} vs ${bcf6}`)
+
+  const spec5 = mat5.extensions?.KHR_materials_specular?.specularFactor
+  const spec6 = mat6.extensions?.KHR_materials_specular?.specularFactor
+  if (spec5 !== spec6) throw new Error(`Mat 5 and Mat 6 specularFactor mismatch: ${spec5} vs ${spec6}`)
+
   console.log('Hard assertions passed: skinning, transforms, and hair materials are fully compatible.')
 
   // Helper to decode a bufferView
@@ -119,6 +151,11 @@ async function main() {
   const maneData = getMeshPrimitives(41)
   const tailData = getMeshPrimitives(42)
 
+  // Hard assertion: Mane and Tail must only have JOINTS_0 / WEIGHTS_0 (fail-closed)
+  if (maneData.joints1 || maneData.weights1 || tailData.joints1 || tailData.weights1) {
+    throw new Error('Hair source mesh unexpectedly contains JOINTS_1 / WEIGHTS_1')
+  }
+
   const totalHairVerts = maneData.vertexCount + tailData.vertexCount
   const totalHairIndices = maneData.indexCount + tailData.indexCount
 
@@ -129,7 +166,7 @@ async function main() {
   const hairWeights = new Float32Array(totalHairVerts * 4)
   const hairIndices = new Uint16Array(totalHairIndices)
 
-  // Copy Mane
+  // Copy Mane (verbatim influences, zero re-normalization)
   hairPositions.set(maneData.positions, 0)
   hairNormals.set(maneData.normals, 0)
   hairUvs.set(maneData.uvs, 0)
@@ -137,7 +174,7 @@ async function main() {
   hairWeights.set(maneData.weights0, 0)
   hairIndices.set(maneData.indices, 0)
 
-  // Copy Tail (offset vertex index)
+  // Copy Tail (offset vertex index, verbatim influences, zero re-normalization)
   const tailOffset = maneData.vertexCount
   hairPositions.set(tailData.positions, maneData.vertexCount * 3)
   hairNormals.set(tailData.normals, maneData.vertexCount * 3)
@@ -180,8 +217,10 @@ async function main() {
   const tackNormals = new Float32Array(totalTackVerts * 3)
   const tackUvs = new Float32Array(totalTackVerts * 2)
   const tackColors = new Float32Array(totalTackVerts * 4)
-  const tackJoints = new Uint8Array(totalTackVerts * 4)
-  const tackWeights = new Float32Array(totalTackVerts * 4)
+  const tackJoints0 = new Uint8Array(totalTackVerts * 4)
+  const tackWeights0 = new Float32Array(totalTackVerts * 4)
+  const tackJoints1 = new Uint8Array(totalTackVerts * 4)
+  const tackWeights1 = new Float32Array(totalTackVerts * 4)
   const tackIndices = new Uint16Array(totalTackIndices)
 
   let currentVertOffset = 0
@@ -205,33 +244,15 @@ async function main() {
       tackColors[idx4 + 3] = item.color[3]
     }
 
-    // Set joints and normalized weights
-    for (let v = 0; v < vCount; v++) {
-      const v4 = v * 4
-      const target4 = (currentVertOffset + v) * 4
+    // Set joints and weights: preserve semantics completely without sorting or re-normalizing
+    tackJoints0.set(d.joints0, currentVertOffset * 4)
+    tackWeights0.set(d.weights0, currentVertOffset * 4)
 
-      if (d.weights1) {
-        // Collect all up to 8 weights
-        const influences = []
-        for (let k = 0; k < 4; k++) {
-          influences.push({ joint: d.joints0[v4 + k], weight: d.weights0[v4 + k] })
-          influences.push({ joint: d.joints1[v4 + k], weight: d.weights1[v4 + k] })
-        }
-        influences.sort((a, b) => b.weight - a.weight)
-        const top4 = influences.slice(0, 4)
-        const sum = top4.reduce((acc, cur) => acc + cur.weight, 0) || 1.0
-        for (let k = 0; k < 4; k++) {
-          tackJoints[target4 + k] = top4[k].joint
-          tackWeights[target4 + k] = top4[k].weight / sum
-        }
-      } else {
-        const sum = (d.weights0[v4] + d.weights0[v4 + 1] + d.weights0[v4 + 2] + d.weights0[v4 + 3]) || 1.0
-        for (let k = 0; k < 4; k++) {
-          tackJoints[target4 + k] = d.joints0[v4 + k]
-          tackWeights[target4 + k] = d.weights0[v4 + k] / sum
-        }
-      }
+    if (d.weights1 && d.joints1) {
+      tackJoints1.set(d.joints1, currentVertOffset * 4)
+      tackWeights1.set(d.weights1, currentVertOffset * 4)
     }
+    // For meshes without second influence set, tackJoints1 and tackWeights1 remain zeros
 
     // Indices with vertex offset
     for (let i = 0; i < iCount; i++) {
@@ -487,16 +508,32 @@ async function main() {
     filter: 'NONE',
     target: 34962,
   })
-  const tackJointBv = appendBufferView({
-    uncompressedData: tackJoints,
+  const tackJoint0Bv = appendBufferView({
+    uncompressedData: tackJoints0,
     count: totalTackVerts,
     byteStride: 4,
     mode: 'ATTRIBUTES',
     filter: 'NONE',
     target: 34962,
   })
-  const tackWeightBv = appendBufferView({
-    uncompressedData: tackWeights,
+  const tackWeight0Bv = appendBufferView({
+    uncompressedData: tackWeights0,
+    count: totalTackVerts,
+    byteStride: 16,
+    mode: 'ATTRIBUTES',
+    filter: 'NONE',
+    target: 34962,
+  })
+  const tackJoint1Bv = appendBufferView({
+    uncompressedData: tackJoints1,
+    count: totalTackVerts,
+    byteStride: 4,
+    mode: 'ATTRIBUTES',
+    filter: 'NONE',
+    target: 34962,
+  })
+  const tackWeight1Bv = appendBufferView({
+    uncompressedData: tackWeights1,
     count: totalTackVerts,
     byteStride: 16,
     mode: 'ATTRIBUTES',
@@ -548,17 +585,33 @@ async function main() {
     count: totalTackVerts,
     type: 'VEC4',
   })
-  const tackJointAcc = gltf.accessors.length
+  const tackJoint0Acc = gltf.accessors.length
   gltf.accessors.push({
-    bufferView: tackJointBv,
+    bufferView: tackJoint0Bv,
     byteOffset: 0,
     componentType: 5121,
     count: totalTackVerts,
     type: 'VEC4',
   })
-  const tackWeightAcc = gltf.accessors.length
+  const tackWeight0Acc = gltf.accessors.length
   gltf.accessors.push({
-    bufferView: tackWeightBv,
+    bufferView: tackWeight0Bv,
+    byteOffset: 0,
+    componentType: 5126,
+    count: totalTackVerts,
+    type: 'VEC4',
+  })
+  const tackJoint1Acc = gltf.accessors.length
+  gltf.accessors.push({
+    bufferView: tackJoint1Bv,
+    byteOffset: 0,
+    componentType: 5121,
+    count: totalTackVerts,
+    type: 'VEC4',
+  })
+  const tackWeight1Acc = gltf.accessors.length
+  gltf.accessors.push({
+    bufferView: tackWeight1Bv,
     byteOffset: 0,
     componentType: 5126,
     count: totalTackVerts,
@@ -572,11 +625,13 @@ async function main() {
       {
         attributes: {
           COLOR_0: tackColorAcc,
-          JOINTS_0: tackJointAcc,
+          JOINTS_0: tackJoint0Acc,
+          JOINTS_1: tackJoint1Acc,
           NORMAL: tackNormAcc,
           POSITION: tackPosAcc,
           TEXCOORD_0: tackUvAcc,
-          WEIGHTS_0: tackWeightAcc,
+          WEIGHTS_0: tackWeight0Acc,
+          WEIGHTS_1: tackWeight1Acc,
         },
         indices: tackIndAcc,
         material: tackMatIdx,
