@@ -38,6 +38,7 @@ import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
 import { WeaponPickup } from './world/WeaponPickup'
+import { RuntimeProfiler } from './debug/RuntimeProfiler'
 
 export function reconcileLoadedMounts(
   mounts: Mount[],
@@ -195,8 +196,8 @@ export class Game {
   private mountStudioSkeleton: THREE.SkeletonHelper | null = null
   private mountStudioStatus: HTMLElement | null = null
   private devCombatStatus: HTMLElement | null = null
-  private devCombatFrames = 0
-  private devCombatLastFpsSample = typeof performance !== 'undefined' ? performance.now() : 0
+  private hasDevCombatRenderedInitialHud = false
+  readonly runtimeProfiler = new RuntimeProfiler(1000)
   private startingHorse: Mount | null = null
   private loadedSaveMount: Mount | null = null
 
@@ -632,22 +633,13 @@ export class Game {
   private _createDevCombatStatus(): void {
     const status = document.createElement('div')
     status.id = 'dev-combat-status'
-    status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:30;min-width:220px;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 ui-monospace,monospace;pointer-events:none'
+    status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:30;min-width:290px;padding:10px 14px;border:1px solid #8b7962;background:rgba(20,17,14,.92);color:#eadfce;font:12px/1.42 ui-monospace,monospace;white-space:pre;pointer-events:none'
     document.body.appendChild(status)
     this.devCombatStatus = status
   }
 
   private _updateDevCombatStatus(): void {
     if (!this.devCombatStatus) return
-    this.devCombatFrames++
-
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    const elapsed = (now - this.devCombatLastFpsSample) / 1000
-    if (elapsed < 1) return
-
-    const fps = this.devCombatFrames / elapsed
-    this.devCombatFrames = 0
-    this.devCombatLastFpsSample = now
     const lodCounts = [0, 0, 0]
     let horses = 0
     for (const mount of this.mounts) {
@@ -657,16 +649,17 @@ export class Game {
       lodCounts[state.lod]++
     }
     const info = this.renderer.info
-    this.devCombatStatus.textContent = [
-      `FPS: ${fps.toFixed(1)}`,
-      `horses: ${horses}`,
-      `mixers: ${horses}`,
-      `LOD 0/1/2: ${lodCounts.join('/')}`,
-      `draw calls: ${info.render.calls}`,
-      `triangles: ${info.render.triangles}`,
-      `geometry: ${info.memory.geometries}`,
-      `textures: ${info.memory.textures}`,
-    ].join('\n')
+    this.devCombatStatus.textContent = this.runtimeProfiler.formatHUD({
+      npcCount: this.npcs.length,
+      horseCount: horses,
+      arrowCount: this.arrows.length,
+      drawCalls: info.render.calls,
+      triangles: info.render.triangles,
+      mixers: horses,
+      lodCounts,
+      textures: info.memory.textures,
+      geometries: info.memory.geometries,
+    })
   }
 
   private _createHumanoidStudioHelp(): void {
@@ -1272,6 +1265,9 @@ export class Game {
   // ── Main loop ──
   private _loop = (): void => {
     requestAnimationFrame(this._loop)
+    const profile = this.isDevCombat
+    const frameStart = profile ? performance.now() : 0
+    let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
     for (const instance of this.humanoidShowcase) {
@@ -1305,14 +1301,16 @@ export class Game {
 
     this.battleController?.update(this.npcs)
 
-    // Update NPCs
+    // 1. NPC Grid Build
+    if (profile) t0 = performance.now()
     this.npcGrid.clear()
     for (const npc of this.npcs) {
       if (npc.hp > 0) this.npcGrid.insert(npc)
     }
+    const npcGridMs = profile ? performance.now() - t0 : 0
 
-
-
+    // 2. NPC Update
+    if (profile) t0 = performance.now()
     for (const npc of this.npcs) {
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
@@ -1378,24 +1376,28 @@ export class Game {
         skipBoidsAndObstacles
       )
     }
+    const npcUpdateMs = profile ? performance.now() - t0 : 0
 
-    // Check Player Melee Sword Hits
+    // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()
 
-    // Update Pickups & Mounts Interaction
+    // 3. Mount / Interaction
+    if (profile) t0 = performance.now()
     this._updateInteractions(dt)
-    if (this.isMountStudio) this._updateMountStudioStatus()
-    if (this.isDevCombat) this._updateDevCombatStatus()
+    const mountInteractionMs = profile ? performance.now() - t0 : 0
 
-    // Resolve all entity overlaps after every entity has moved this frame.
+    // 4. Entity Collision
+    if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
+    const collisionMs = profile ? performance.now() - t0 : 0
 
     // Reset impact flag
     for (const mount of this.mounts) {
       mount.skipImpactThisFrame = false
     }
 
-    // Update Arrow Projectiles
+    // 5. Arrow / Projectile
+    if (profile) t0 = performance.now()
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
@@ -1418,15 +1420,47 @@ export class Game {
         this.arrows.splice(i, 1)
       }
     }
+    const arrowMs = profile ? performance.now() - t0 : 0
 
-    // Process Impact Damage
+    // 6. Impact / Damage
+    if (profile) t0 = performance.now()
     this._updateImpactDamage(this.clock.elapsedTime)
+    const impactMs = profile ? performance.now() - t0 : 0
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)
 
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 
+    // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)
+    if (profile) t0 = performance.now()
     this.renderer.render(this.scene, this.camera)
+    const renderSubmitMs = profile ? performance.now() - t0 : 0
+
+    if (this.isMountStudio) this._updateMountStudioStatus()
+
+    if (profile) {
+      const frameEnd = performance.now()
+      const cpuFrameMs = frameEnd - frameStart
+      const accountedMs = npcGridMs + npcUpdateMs + mountInteractionMs + collisionMs + arrowMs + impactMs + renderSubmitMs
+      const otherMs = Math.max(0, cpuFrameMs - accountedMs)
+
+      const newSnapshot = this.runtimeProfiler.recordFrame({
+        cpuFrameMs,
+        npcGridMs,
+        npcUpdateMs,
+        mountInteractionMs,
+        collisionMs,
+        arrowMs,
+        impactMs,
+        renderSubmitMs,
+        otherMs,
+      }, frameEnd)
+
+      if (newSnapshot || !this.hasDevCombatRenderedInitialHud) {
+        this._updateDevCombatStatus()
+        this.hasDevCombatRenderedInitialHud = true
+      }
+    }
   }
 }
