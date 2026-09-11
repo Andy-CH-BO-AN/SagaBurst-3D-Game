@@ -347,7 +347,12 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
     }
 
     scene.add(barricadeGroup)
-    obstacleMeshes.push(barricadeGroup)
+    barricadeGroup.updateMatrixWorld(true)
+    barricadeGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        obstacleMeshes.push(child as THREE.Mesh)
+      }
+    })
     
     // Collision box for the barricade
     const box = new THREE.Box3(

@@ -69,21 +69,14 @@ export class CombatRenderWarmup {
     const hornAccessory = createVikingHornAccessory()
     warmupScene.add(hornAccessory)
 
-    // Humanoid LOD levels (Viking & Roman, LOD0/1/2)
-    const attachedTemplateLevels: THREE.Group[] = []
+    // Humanoid LOD levels (Viking & Roman, LOD0/1/2) via isolated representative clones
+    // Note: Canonical registry templates are NEVER added to warmupScene or mutated.
     if (HumanoidAssetRegistry.ready) {
-      HumanoidAssetRegistry.forEachLODLevel((levelScene, _faction, lodIndex) => {
-        levelScene.traverse((object) => {
-          if (object instanceof THREE.Mesh) {
-            object.castShadow = lodIndex < 2
-            object.receiveShadow = true
-          }
-        })
-        warmupScene.add(levelScene)
-        attachedTemplateLevels.push(levelScene)
-      })
+      const humanoidWarmupGroup = HumanoidAssetRegistry.createWarmupGroup()
+      warmupScene.add(humanoidWarmupGroup)
     }
 
+    // Ensure all warmup-specific meshes in warmupScene have shadows enabled for shader compilation
     warmupScene.traverse((object) => {
       if (object instanceof THREE.Mesh) {
         object.castShadow = true
@@ -110,10 +103,7 @@ export class CombatRenderWarmup {
     } catch {
       // Safe fallback for environments without full WebGL context (e.g. unit tests)
     } finally {
-      // 4. Detach template scenes cleanly so they remain unpolluted
-      for (const levelScene of attachedTemplateLevels) {
-        warmupScene.remove(levelScene)
-      }
+      // 4. Clear warmupScene cleanly
       warmupScene.clear()
     }
   }

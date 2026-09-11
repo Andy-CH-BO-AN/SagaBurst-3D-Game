@@ -378,6 +378,38 @@ export class HumanoidAssetRegistry {
     }))
   }
 
+  /**
+   * Creates an isolated representative warmup group containing cloned skeleton scenes
+   * for each LOD level. This ensures GPU shader compilation without mutating or attaching
+   * the canonical registry templates.
+   */
+  static createWarmupGroup(): THREE.Group {
+    const warmupGroup = new THREE.Group()
+    warmupGroup.name = 'humanoid-warmup-templates'
+    for (const [faction, template] of this.templates) {
+      template.levels.forEach((gltf, index) => {
+        const levelClone = cloneSkeleton(gltf.scene) as THREE.Group
+        levelClone.name = `${faction}-warmup-lod${index}`
+        levelClone.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            obj.castShadow = true
+            obj.receiveShadow = true
+          }
+        })
+        warmupGroup.add(levelClone)
+      })
+    }
+    return warmupGroup
+  }
+
+  /**
+   * Test seam to inspect canonical template without modifying it.
+   */
+  static getCanonicalLODScene(faction: CharacterFaction, lodIndex: number): THREE.Group | undefined {
+    const template = this.templates.get(faction)
+    return template?.levels[lodIndex]?.scene
+  }
+
   static forEachLODLevel(callback: (levelScene: THREE.Group, faction: CharacterFaction, lodIndex: number) => void): void {
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
