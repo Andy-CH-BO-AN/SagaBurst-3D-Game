@@ -232,4 +232,78 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
     expect(capturedTempTarget).not.toBeNull()
     expect(renderTargetDisposed).toBe(true)
   })
+
+  it('regression Case A: getRenderTarget() returns null (default canvas framebuffer) + warmup succeeds -> restores setRenderTarget(null), temp disposed, isWarmed true', () => {
+    CombatRenderWarmup._resetForTesting()
+    expect(CombatRenderWarmup.isWarmed()).toBe(false)
+
+    const setRenderTargetHistory: any[] = []
+    let tempTargetDisposed = false
+    let capturedTempTarget: any = null
+
+    const successRenderer = {
+      compile: () => {},
+      render: () => {},
+      setRenderTarget: (target: any) => {
+        setRenderTargetHistory.push(target)
+        if (target !== null && typeof target?.dispose === 'function') {
+          capturedTempTarget = target
+          const origDispose = target.dispose.bind(target)
+          target.dispose = () => {
+            tempTargetDisposed = true
+            origDispose()
+          }
+        }
+      },
+      getRenderTarget: () => null, // Crucial: default framebuffer is null
+    } as unknown as THREE.WebGLRenderer
+
+    CombatRenderWarmup.warmup(successRenderer, new THREE.PerspectiveCamera(), new THREE.Scene())
+
+    expect(CombatRenderWarmup.isWarmed()).toBe(true)
+    expect(capturedTempTarget).not.toBeNull()
+    // History should be: [tempTarget, null]
+    expect(setRenderTargetHistory.length).toBe(2)
+    expect(setRenderTargetHistory[0]).toBe(capturedTempTarget)
+    expect(setRenderTargetHistory[1]).toBeNull() // Default framebuffer correctly restored!
+    expect(tempTargetDisposed).toBe(true)
+  })
+
+  it('regression Case B: getRenderTarget() returns null (default canvas framebuffer) + renderer.render() throws -> restores setRenderTarget(null), temp disposed, isWarmed false', () => {
+    CombatRenderWarmup._resetForTesting()
+    expect(CombatRenderWarmup.isWarmed()).toBe(false)
+
+    const setRenderTargetHistory: any[] = []
+    let tempTargetDisposed = false
+    let capturedTempTarget: any = null
+
+    const failingRenderer = {
+      compile: () => {},
+      render: () => {
+        throw new Error('GPU allocation failed during render')
+      },
+      setRenderTarget: (target: any) => {
+        setRenderTargetHistory.push(target)
+        if (target !== null && typeof target?.dispose === 'function') {
+          capturedTempTarget = target
+          const origDispose = target.dispose.bind(target)
+          target.dispose = () => {
+            tempTargetDisposed = true
+            origDispose()
+          }
+        }
+      },
+      getRenderTarget: () => null, // Default framebuffer is null
+    } as unknown as THREE.WebGLRenderer
+
+    CombatRenderWarmup.warmup(failingRenderer, new THREE.PerspectiveCamera(), new THREE.Scene())
+
+    expect(CombatRenderWarmup.isWarmed()).toBe(false)
+    expect(capturedTempTarget).not.toBeNull()
+    // History should be: [tempTarget, null]
+    expect(setRenderTargetHistory.length).toBe(2)
+    expect(setRenderTargetHistory[0]).toBe(capturedTempTarget)
+    expect(setRenderTargetHistory[1]).toBeNull() // Default framebuffer correctly restored even after exception!
+    expect(tempTargetDisposed).toBe(true)
+  })
 })

@@ -39,7 +39,7 @@ export class CombatRenderWarmup {
     warmupScene.name = 'combat-warmup-scene'
 
     let renderTarget: THREE.WebGLRenderTarget | null = null
-    let prevTarget: THREE.WebGLRenderTarget | null = null
+    let prevTarget: THREE.WebGLRenderTarget | null | undefined = undefined
 
     try {
       // Match game lighting and shadows so shaders compile with shadow map passes
@@ -115,8 +115,9 @@ export class CombatRenderWarmup {
         console.warn('CombatRenderWarmup failed:', error)
       }
     } finally {
-      // Guaranteed cleanup: restore previous render target, dispose temporary target, and clear scene
-      if (prevTarget !== null && renderer) {
+      // Guaranteed cleanup: restore previous render target (even when null for default framebuffer),
+      // dispose temporary target, and clear scene
+      if (prevTarget !== undefined && renderer) {
         try {
           renderer.setRenderTarget(prevTarget)
         } catch {
