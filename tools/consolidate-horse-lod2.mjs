@@ -189,15 +189,14 @@ async function main() {
   console.log(`Hair consolidated: ${totalHairVerts} vertices, ${totalHairIndices / 3} triangles`)
 
   // --- 2. CONSOLIDATE TACK + HOOVES ---
-  console.log('Consolidating Tack & Hooves...')
+  // Plan B: Exclude meshes 37 (bridle), 39 (bridle_body_leather), 49 (saddle_pad) which have JOINTS_1 / WEIGHTS_1.
+  // They remain independent in LOD2 with 100% untouched geometry, materials, and skinning influences.
+  console.log('Consolidating Tack & Hooves (8 meshes with JOINTS_0/WEIGHTS_0 only)...')
   const tackConfigs = [
     { meshIdx: 36, name: 'bit', color: [0.45, 0.45, 0.45, 1.0] },
-    { meshIdx: 37, name: 'bridle', color: [0.24, 0.16, 0.10, 1.0] },
     { meshIdx: 38, name: 'bridle_body_metal', color: [0.45, 0.45, 0.45, 1.0] },
-    { meshIdx: 39, name: 'bridle_body_leather', color: [0.24, 0.16, 0.10, 1.0] },
     { meshIdx: 46, name: 'hooves', color: [0.12, 0.11, 0.10, 1.0] },
     { meshIdx: 48, name: 'reins', color: [0.24, 0.16, 0.10, 1.0] },
-    { meshIdx: 49, name: 'saddle_pad', color: [0.18, 0.16, 0.15, 1.0] },
     { meshIdx: 50, name: 'saddle_quilt_dark', color: [0.15, 0.13, 0.12, 1.0] },
     { meshIdx: 51, name: 'saddle_saddle', color: [0.22, 0.14, 0.09, 1.0] },
     { meshIdx: 52, name: 'saddle_stirrup', color: [0.42, 0.40, 0.38, 1.0] },
@@ -208,6 +207,10 @@ async function main() {
   let totalTackIndices = 0
   const tackDataList = tackConfigs.map((cfg) => {
     const data = getMeshPrimitives(cfg.meshIdx)
+    // Hard assertion: All tack source meshes in consolidation must only have JOINTS_0 / WEIGHTS_0 (fail-closed)
+    if (data.joints1 || data.weights1) {
+      throw new Error(`Tack source mesh ${cfg.name} (mesh ${cfg.meshIdx}) unexpectedly contains JOINTS_1 / WEIGHTS_1`)
+    }
     totalTackVerts += data.vertexCount
     totalTackIndices += data.indexCount
     return { ...cfg, data }
@@ -219,8 +222,6 @@ async function main() {
   const tackColors = new Float32Array(totalTackVerts * 4)
   const tackJoints0 = new Uint8Array(totalTackVerts * 4)
   const tackWeights0 = new Float32Array(totalTackVerts * 4)
-  const tackJoints1 = new Uint8Array(totalTackVerts * 4)
-  const tackWeights1 = new Float32Array(totalTackVerts * 4)
   const tackIndices = new Uint16Array(totalTackIndices)
 
   let currentVertOffset = 0
@@ -244,15 +245,9 @@ async function main() {
       tackColors[idx4 + 3] = item.color[3]
     }
 
-    // Set joints and weights: preserve semantics completely without sorting or re-normalizing
+    // Set joints and weights: verbatim copy, zero sorting, zero re-normalization
     tackJoints0.set(d.joints0, currentVertOffset * 4)
     tackWeights0.set(d.weights0, currentVertOffset * 4)
-
-    if (d.weights1 && d.joints1) {
-      tackJoints1.set(d.joints1, currentVertOffset * 4)
-      tackWeights1.set(d.weights1, currentVertOffset * 4)
-    }
-    // For meshes without second influence set, tackJoints1 and tackWeights1 remain zeros
 
     // Indices with vertex offset
     for (let i = 0; i < iCount; i++) {
@@ -524,22 +519,6 @@ async function main() {
     filter: 'NONE',
     target: 34962,
   })
-  const tackJoint1Bv = appendBufferView({
-    uncompressedData: tackJoints1,
-    count: totalTackVerts,
-    byteStride: 4,
-    mode: 'ATTRIBUTES',
-    filter: 'NONE',
-    target: 34962,
-  })
-  const tackWeight1Bv = appendBufferView({
-    uncompressedData: tackWeights1,
-    count: totalTackVerts,
-    byteStride: 16,
-    mode: 'ATTRIBUTES',
-    filter: 'NONE',
-    target: 34962,
-  })
 
   const tackPosBounds = computeMinMaxVec3(tackPositions, totalTackVerts)
 
@@ -601,22 +580,6 @@ async function main() {
     count: totalTackVerts,
     type: 'VEC4',
   })
-  const tackJoint1Acc = gltf.accessors.length
-  gltf.accessors.push({
-    bufferView: tackJoint1Bv,
-    byteOffset: 0,
-    componentType: 5121,
-    count: totalTackVerts,
-    type: 'VEC4',
-  })
-  const tackWeight1Acc = gltf.accessors.length
-  gltf.accessors.push({
-    bufferView: tackWeight1Bv,
-    byteOffset: 0,
-    componentType: 5126,
-    count: totalTackVerts,
-    type: 'VEC4',
-  })
 
   const tackMeshIdx = gltf.meshes.length
   gltf.meshes.push({
@@ -626,12 +589,10 @@ async function main() {
         attributes: {
           COLOR_0: tackColorAcc,
           JOINTS_0: tackJoint0Acc,
-          JOINTS_1: tackJoint1Acc,
           NORMAL: tackNormAcc,
           POSITION: tackPosAcc,
           TEXCOORD_0: tackUvAcc,
           WEIGHTS_0: tackWeight0Acc,
-          WEIGHTS_1: tackWeight1Acc,
         },
         indices: tackIndAcc,
         material: tackMatIdx,
@@ -656,11 +617,24 @@ async function main() {
   })
 
   // Node 122 is horse_body_lod2 (mesh 40, mat 4)
+  // Plan B: Excluded nodes 119 (bridle, mesh 37), 121 (bridle_body_leather, mesh 39), 131 (saddle_pad, mesh 49)
+  // are retained 100% untouched to preserve their second influence set (JOINTS_1 / WEIGHTS_1).
   const bodyNodeIdx = 122
-  lod2Node.children = [bodyNodeIdx, hairNodeIdx, tackNodeIdx]
+  const bridleNodeIdx = 119
+  const bridleLeatherNodeIdx = 121
+  const saddlePadNodeIdx = 131
+
+  lod2Node.children = [
+    bodyNodeIdx,
+    hairNodeIdx,
+    tackNodeIdx,
+    bridleNodeIdx,
+    bridleLeatherNodeIdx,
+    saddlePadNodeIdx,
+  ]
 
   console.log(`LOD2 children updated: [${lod2Node.children.join(', ')}]`)
-  console.log('LOD2 now contains exactly 3 SkinnedMeshes: horse_body_lod2, horse_groom_hair_lod2, horse_tack_lod2')
+  console.log('LOD2 now contains exactly 6 SkinnedMeshes: body, hair, tack, bridle, bridle_leather, saddle_pad')
 
   // --- 6. ASSEMBLE FINAL GLB BUFFER ---
   const finalBin = Buffer.concat(binBuffers)
@@ -708,7 +682,12 @@ async function main() {
   const prevTriangles = manifest.metrics.triangles.lod2
   const prevPackageBytes = manifest.metrics.packageBytes
 
-  manifest.metrics.triangles.lod2 = 1244 + (totalHairIndices / 3) + (totalTackIndices / 3)
+  // Plan B: LOD2 triangles = body (1244) + hair (1944) + merged tack (831) + mesh 37 (17) + mesh 39 (11) + mesh 49 (57) = 4104
+  const excludedTackTris = (readAccessor(gltf.meshes[37].primitives[0].indices).acc.count / 3) +
+    (readAccessor(gltf.meshes[39].primitives[0].indices).acc.count / 3) +
+    (readAccessor(gltf.meshes[49].primitives[0].indices).acc.count / 3)
+
+  manifest.metrics.triangles.lod2 = 1244 + (totalHairIndices / 3) + (totalTackIndices / 3) + excludedTackTris
 
   // Calculate new packageBytes
   const packageDir = path.dirname(MANIFEST_PATH)
@@ -762,8 +741,8 @@ async function main() {
     }
   }
 
-  if (lod2Meshes.length !== 3) {
-    throw new Error(`Expected exactly 3 meshes in LOD2, found ${lod2Meshes.length}`)
+  if (lod2Meshes.length !== 6) {
+    throw new Error(`Expected exactly 6 meshes in LOD2, found ${lod2Meshes.length}`)
   }
   if (reloadedLod2Triangles !== manifest.metrics.triangles.lod2) {
     throw new Error(`Reloaded LOD2 triangles (${reloadedLod2Triangles}) !== manifest (${manifest.metrics.triangles.lod2})`)

@@ -331,7 +331,7 @@ describe('Phase 23 shipped horse runtime package', () => {
     }
   })
 
-  it('consolidates LOD2 into exactly 3 SkinnedMeshes while keeping LOD0 and LOD1 intact', () => {
+  it('consolidates LOD2 into exactly 6 SkinnedMeshes while keeping LOD0 and LOD1 intact', () => {
     const document = parseGlb(resolve(PACKAGE_ROOT, manifest.file!))
     const lod0Index = document.nodes?.findIndex((n) => n.name === 'horse_lod0') ?? -1
     const lod1Index = document.nodes?.findIndex((n) => n.name === 'horse_lod1') ?? -1
@@ -349,14 +349,17 @@ describe('Phase 23 shipped horse runtime package', () => {
     expect(lod0Children.length).toBe(18)
     expect(lod1Children.length).toBe(18)
 
-    // LOD2 consolidated into 3 SkinnedMeshes
-    expect(lod2Children.length).toBe(3)
+    // LOD2 consolidated into 6 SkinnedMeshes (Plan B: 3 merged + 3 untouched second-influence meshes)
+    expect(lod2Children.length).toBe(6)
     const lod2ChildNodes = lod2Children.map((i) => document.nodes![i])
     const lod2Names = lod2ChildNodes.map((n) => n.name).sort()
     expect(lod2Names).toEqual([
       'horse_body_lod2',
       'horse_groom_hair_lod2',
       'horse_tack_lod2',
+      'bridle_4F_Leather_Brown_Worn_mqm_lod2',
+      'bridle_body_4F_Leather_Brown_Worn_mqm_lod2',
+      'saddle_pad_quilt_random_lod2',
     ].sort())
 
     // All LOD2 children must have a mesh and reference skin 0
