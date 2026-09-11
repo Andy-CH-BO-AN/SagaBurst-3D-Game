@@ -36,6 +36,21 @@ The player is an additional Viking participant and does **not** count toward the
 
 If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
+## 🐎 Player Starting Loadout
+
+Normal Custom Battles now start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse at the Viking spawn point.
+
+Default equipment:
+
+- **Steel Lance** — equipped melee weapon for mounted combat and high-speed lance charges.
+- **Elven Runebow** — equipped Tier 3 ranged weapon.
+- **Round Shield T3** — equipped Viking shield.
+- **Runic Greatsword** — carried in the inventory as an alternate Tier 3 melee weapon.
+
+After dismounting, open the Equipment UI with `Tab` or `I` to switch from the lance to the Runic Greatsword. The existing two-handed weapon behavior automatically moves the equipped shield to the player's back while the greatsword is in use.
+
+The player's starting horse is separate from the five spare horses in the Viking camp. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
+
 ## 🏕️ Battle Camps
 
 Normal Custom Battles include a support camp for each faction.
@@ -96,7 +111,7 @@ After clicking **START BATTLE**, the game attempts to capture the mouse for came
 - **Arrow supplies** — refill ranged ammunition from camp supply pickups.
 - **Horses** — approach an available horse and press `E` to mount; press `E` again to dismount.
 - **Character progression** — player combat continues to feed the existing RPG skill and progression systems.
-- **Save / Load** — the existing game menu can still save and restore player progression.
+- **Save / Load** — saves restore player progression, inventory, equipped shield, mounted state, mount appearance, and mount position.
 
 ## 🧪 Developer / QA Modes
 
