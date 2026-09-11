@@ -7,18 +7,16 @@ import {
   PRESET_10V10,
   PRESET_25V25,
   PRESET_50V50,
+  PRESET_100V100,
   PRESET_DEVCOMBAT,
 } from '../src/battle/BattleConfig'
 
 function verifyPlanInvariants(plan: BattleSpawnPlan): void {
-  // 1. Dual-axis bounds validation
+  // 1. Dual-axis bounds validation (within 400x400 terrain, X: -200..200, Z: -200..200)
   for (const spec of plan.npcSpecs) {
-    expect(Math.abs(spec.x)).toBeLessThanOrEqual(35)
+    expect(Math.abs(spec.x)).toBeLessThanOrEqual(190)
     const absZ = Math.abs(spec.z)
-    expect(absZ).toBeGreaterThanOrEqual(68)
-    expect(absZ).toBeLessThanOrEqual(82)
-
-    // Ensure staging area never invades camp area (|Z| >= 83)
+    expect(absZ).toBeGreaterThanOrEqual(67.5)
     expect(absZ).toBeLessThan(84)
 
     // Directional sign check
@@ -42,12 +40,15 @@ function verifyPlanInvariants(plan: BattleSpawnPlan): void {
         const dx = u1.x - u2.x
         const dz = u1.z - u2.z
         const dist = Math.hypot(dx, dz)
+        if (dist < minObservedDist) minObservedDist = dist
         // No two units can spawn at duplicate coordinates or collide (min 2.0m spacing)
         expect(dist).toBeGreaterThanOrEqual(2.0)
       }
     }
   }
 }
+
+let minObservedDist = Infinity
 
 describe('BattleSpawner Deterministic Formation', () => {
   it('generates non-overlapping coordinates in bounds for PRESET_10V10', () => {
@@ -72,6 +73,12 @@ describe('BattleSpawner Deterministic Formation', () => {
     verifyPlanInvariants(plan)
   })
 
+  it('generates non-overlapping coordinates in bounds for PRESET_100V100', () => {
+    const plan = BattleSpawner.createSpawnPlan(PRESET_100V100)
+    expect(plan.npcSpecs.length).toBe(200)
+    verifyPlanInvariants(plan)
+  })
+
   it('generates clean devcombat performance scenario without camps or spare horses', () => {
     const plan = BattleSpawner.createSpawnPlan(PRESET_DEVCOMBAT)
     expect(plan.npcSpecs.length).toBe(100)
@@ -85,47 +92,47 @@ describe('BattleSpawner Deterministic Formation', () => {
     expect(plan.npcSpecs.every(s => s.cavalry)).toBe(true)
   })
 
-  it('handles Extreme Composition: 50 Infantry per side within X/Z bounds', () => {
+  it('handles Extreme Composition: 100 Infantry per side within X/Z bounds', () => {
     const config: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
-      roman: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
     const plan = BattleSpawner.createSpawnPlan(config)
-    expect(plan.npcSpecs.length).toBe(100)
+    expect(plan.npcSpecs.length).toBe(200)
     verifyPlanInvariants(plan)
   })
 
-  it('handles Extreme Composition: 50 Archer per side within X/Z bounds', () => {
+  it('handles Extreme Composition: 100 Archer per side within X/Z bounds', () => {
     const config: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), archer: { 1: 0, 2: 50, 3: 0 } },
-      roman: { ...createEmptyArmyConfig(), archer: { 1: 0, 2: 50, 3: 0 } },
+      viking: { ...createEmptyArmyConfig(), archer: { 1: 0, 2: 100, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), archer: { 1: 0, 2: 100, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
     const plan = BattleSpawner.createSpawnPlan(config)
-    expect(plan.npcSpecs.length).toBe(100)
+    expect(plan.npcSpecs.length).toBe(200)
     verifyPlanInvariants(plan)
   })
 
-  it('handles Extreme Composition: 50 Cavalry per side within bounded wings', () => {
+  it('handles Extreme Composition: 100 Cavalry per side within bounded wings', () => {
     const config: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), cavalry: { 1: 0, 2: 0, 3: 50 } },
-      roman: { ...createEmptyArmyConfig(), cavalry: { 1: 0, 2: 0, 3: 50 } },
+      viking: { ...createEmptyArmyConfig(), cavalry: { 1: 0, 2: 0, 3: 100 } },
+      roman: { ...createEmptyArmyConfig(), cavalry: { 1: 0, 2: 0, 3: 100 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
     const plan = BattleSpawner.createSpawnPlan(config)
-    expect(plan.npcSpecs.length).toBe(100)
+    expect(plan.npcSpecs.length).toBe(200)
     verifyPlanInvariants(plan)
   })
 
-  it('handles Extreme Composition: 50 Horse Archer per side within bounded wings', () => {
+  it('handles Extreme Composition: 100 Horse Archer per side within bounded wings', () => {
     const config: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), horseArcher: { 1: 0, 2: 0, 3: 50 } },
-      roman: { ...createEmptyArmyConfig(), horseArcher: { 1: 0, 2: 0, 3: 50 } },
+      viking: { ...createEmptyArmyConfig(), horseArcher: { 1: 0, 2: 0, 3: 100 } },
+      roman: { ...createEmptyArmyConfig(), horseArcher: { 1: 0, 2: 0, 3: 100 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
     const plan = BattleSpawner.createSpawnPlan(config)
-    expect(plan.npcSpecs.length).toBe(100)
+    expect(plan.npcSpecs.length).toBe(200)
     verifyPlanInvariants(plan)
   })
 
@@ -145,12 +152,12 @@ describe('BattleSpawner Deterministic Formation', () => {
     expect(romanHorses.every(h => h.z === -88)).toBe(true)
   })
 
-  it('ensures all Viking NPC spawn positions maintain safe clearance from Player spawn in 50v50 and 50 Infantry', () => {
+  it('ensures all Viking NPC spawn positions maintain safe clearance from Player spawn in 100v100 and 100 Infantry', () => {
     const configs = [
-      PRESET_50V50,
+      PRESET_100V100,
       {
-        viking: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
-        roman: { ...createEmptyArmyConfig(), infantry: { 1: 50, 2: 0, 3: 0 } },
+        viking: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
+        roman: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
         rules: { respawnEnabled: false, includeCamps: true },
       },
     ]
@@ -164,5 +171,10 @@ describe('BattleSpawner Deterministic Formation', () => {
         expect(dist).toBeGreaterThanOrEqual(PLAYER_SAFE_CLEARANCE)
       }
     }
+  })
+
+  it('reports minimum observed friendly spawn distance', () => {
+    console.log(`[SPAWN METRICS] Global minimum friendly spawn distance: ${minObservedDist.toFixed(4)}m`)
+    expect(minObservedDist).toBeGreaterThanOrEqual(2.0)
   })
 })

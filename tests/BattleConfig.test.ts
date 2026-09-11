@@ -6,9 +6,15 @@ import {
   getUnitCombatProfile,
   createEmptyArmyConfig,
   createEmptyBattleConfig,
+  MAX_ARMY_SIZE,
   PRESET_10V10,
   PRESET_25V25,
   PRESET_50V50,
+  PRESET_100V100,
+  PRESET_SCENARIO_A,
+  PRESET_SCENARIO_B,
+  PRESET_SCENARIO_C,
+  PRESET_SCENARIO_D,
   PRESET_DEVCOMBAT,
   BattleConfig,
 } from '../src/battle/BattleConfig'
@@ -24,17 +30,19 @@ describe('BattleConfig Domain & Validation', () => {
     expect(calculateArmyTotal(army)).toBe(15)
   })
 
-  it('validates army counts strictly within 1 to 50 bounds', () => {
+  it('validates army counts strictly within 1 to 100 bounds', () => {
+    expect(MAX_ARMY_SIZE).toBe(100)
+
     const validConfig: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), infantry: { 1: 10, 2: 0, 3: 0 } },
-      roman: { ...createEmptyArmyConfig(), infantry: { 1: 10, 2: 0, 3: 0 } },
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
     expect(validateBattleConfig(validConfig).valid).toBe(true)
 
-    // Over 50 rejection
+    // Over 100 rejection (101 units)
     const overConfig: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), infantry: { 1: 51, 2: 0, 3: 0 } },
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 101, 2: 0, 3: 0 } },
       roman: { ...createEmptyArmyConfig(), infantry: { 1: 10, 2: 0, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
@@ -166,6 +174,28 @@ describe('BattleConfig Domain & Validation', () => {
     expect(validateBattleConfig(PRESET_50V50).valid).toBe(true)
     expect(calculateArmyTotal(PRESET_50V50.viking)).toBe(50)
     expect(calculateArmyTotal(PRESET_50V50.roman)).toBe(50)
+
+    expect(validateBattleConfig(PRESET_100V100).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_100V100.viking)).toBe(100)
+    expect(calculateArmyTotal(PRESET_100V100.roman)).toBe(100)
+    expect(PRESET_100V100.rules.includeCamps).toBe(true)
+
+    // Developer Stress Scenarios A-D
+    expect(validateBattleConfig(PRESET_SCENARIO_A).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_SCENARIO_A.viking)).toBe(50)
+    expect(calculateArmyTotal(PRESET_SCENARIO_A.roman)).toBe(50)
+
+    expect(validateBattleConfig(PRESET_SCENARIO_B).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_SCENARIO_B.viking)).toBe(100)
+    expect(calculateArmyTotal(PRESET_SCENARIO_B.roman)).toBe(100)
+
+    expect(validateBattleConfig(PRESET_SCENARIO_C).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_SCENARIO_C.viking)).toBe(100)
+    expect(calculateArmyTotal(PRESET_SCENARIO_C.roman)).toBe(100)
+
+    expect(validateBattleConfig(PRESET_SCENARIO_D).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_SCENARIO_D.viking)).toBe(100)
+    expect(calculateArmyTotal(PRESET_SCENARIO_D.roman)).toBe(100)
 
     expect(validateBattleConfig(PRESET_DEVCOMBAT).valid).toBe(true)
     expect(calculateArmyTotal(PRESET_DEVCOMBAT.viking)).toBe(50)

@@ -14,7 +14,14 @@ import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { NPC, Faction } from './world/NPC'
-import { BattleConfig, PRESET_DEVCOMBAT } from './battle/BattleConfig'
+import {
+  BattleConfig,
+  PRESET_DEVCOMBAT,
+  PRESET_SCENARIO_A,
+  PRESET_SCENARIO_B,
+  PRESET_SCENARIO_C,
+  PRESET_SCENARIO_D,
+} from './battle/BattleConfig'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -189,7 +196,7 @@ export class Game {
   private mountStudioStatus: HTMLElement | null = null
   private devCombatStatus: HTMLElement | null = null
   private devCombatFrames = 0
-  private devCombatElapsed = 0
+  private devCombatLastFpsSample = typeof performance !== 'undefined' ? performance.now() : 0
   private startingHorse: Mount | null = null
   private loadedSaveMount: Mount | null = null
 
@@ -305,7 +312,18 @@ export class Game {
     if (this.isModelStudio) this._setupModelStudioCamera()
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
-      const plan = BattleSpawner.createSpawnPlan(PRESET_DEVCOMBAT)
+      const devVal = query.get('devcombat')?.toLowerCase()
+      let scenarioConfig = PRESET_DEVCOMBAT
+      if (devVal === 'a' || devVal === 'scenarioa') {
+        scenarioConfig = PRESET_SCENARIO_A
+      } else if (devVal === 'b' || devVal === 'scenariob') {
+        scenarioConfig = PRESET_SCENARIO_B
+      } else if (devVal === 'c' || devVal === 'scenarioc') {
+        scenarioConfig = PRESET_SCENARIO_C
+      } else if (devVal === 'd' || devVal === 'scenariod') {
+        scenarioConfig = PRESET_SCENARIO_D
+      }
+      const plan = BattleSpawner.createSpawnPlan(scenarioConfig)
       this._executeBattleSpawnPlan(plan)
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()
@@ -619,15 +637,17 @@ export class Game {
     this.devCombatStatus = status
   }
 
-  private _updateDevCombatStatus(dt: number): void {
+  private _updateDevCombatStatus(): void {
     if (!this.devCombatStatus) return
     this.devCombatFrames++
-    this.devCombatElapsed += dt
-    if (this.devCombatElapsed < 1) return
 
-    const fps = this.devCombatFrames / this.devCombatElapsed
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const elapsed = (now - this.devCombatLastFpsSample) / 1000
+    if (elapsed < 1) return
+
+    const fps = this.devCombatFrames / elapsed
     this.devCombatFrames = 0
-    this.devCombatElapsed = 0
+    this.devCombatLastFpsSample = now
     const lodCounts = [0, 0, 0]
     let horses = 0
     for (const mount of this.mounts) {
@@ -1365,7 +1385,7 @@ export class Game {
     // Update Pickups & Mounts Interaction
     this._updateInteractions(dt)
     if (this.isMountStudio) this._updateMountStudioStatus()
-    if (this.isDevCombat) this._updateDevCombatStatus(dt)
+    if (this.isDevCombat) this._updateDevCombatStatus()
 
     // Resolve all entity overlaps after every entity has moved this frame.
     this._resolveEntityCollisions()

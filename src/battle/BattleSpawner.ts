@@ -125,7 +125,8 @@ export class BattleSpawner {
     const specs: NpcSpawnSpec[] = []
 
     // ── 1. Infantry Formation (Center Frontline) ──
-    const infPerRow = 10
+    const footTotal = units.infantry.length + units.archer.length
+    const infPerRow = footTotal > 50 ? 20 : (units.infantry.length > 20 ? 15 : 10)
     const infSpacingX = 2.4
     const infRowSpacingZ = 2.2
     const infStartOffsetZ = 68.0
@@ -158,7 +159,7 @@ export class BattleSpawner {
     }
 
     // ── 2. Archer Formation (Center Backline) ──
-    const archPerRow = 10
+    const archPerRow = footTotal > 50 ? 20 : (units.archer.length > 20 ? 15 : 10)
     const archSpacingX = 2.6
     const archRowSpacingZ = 2.2
     const archBaseZ = units.infantry.length > 0
@@ -189,13 +190,20 @@ export class BattleSpawner {
     }
 
     // ── 3. Cavalry & Horse Archer Formation (Bounded Wings) ──
-    const maxColPerWing = 4
+    const mountedTotal = units.cavalry.length + units.horseArcher.length
+    const maxColPerWing = mountedTotal > 30 ? 8 : 4
     const wingSpacingX = 2.2
     const wingSpacingZ = 2.1
     const startZ = 68.0
 
-    const maxFootHalfWidth = units.archer.length > 0 ? 11.7 : units.infantry.length > 0 ? 10.8 : 4.0
-    const cavalryBaseX = Math.max(14.0, maxFootHalfWidth + 2.4)
+    const maxFootUnitsInRow = Math.max(
+      units.infantry.length > 0 ? Math.min(infPerRow, units.infantry.length) : 0,
+      units.archer.length > 0 ? Math.min(archPerRow, units.archer.length) : 0,
+    )
+    const maxFootHalfWidth = maxFootUnitsInRow > 0
+      ? ((maxFootUnitsInRow - 1) / 2) * Math.max(infSpacingX, archSpacingX)
+      : 4.0
+    const cavalryBaseX = Math.max(14.0, maxFootHalfWidth + 3.0)
     const hasCavalry = units.cavalry.length > 0
     const horseArcherBaseX = hasCavalry
       ? cavalryBaseX + maxColPerWing * wingSpacingX + 2.0
@@ -232,6 +240,45 @@ export class BattleSpawner {
 
     placeWingUnits(units.cavalry, cavalryBaseX, AIType.MELEE, 'Lancer')
     placeWingUnits(units.horseArcher, horseArcherBaseX, AIType.RANGED, 'Horse Archer')
+
+    // Relaxation to strictly guarantee >= 2.0m spacing between all friendly units and clearance from player
+    const MIN_FRIENDLY_SPAWN_SPACING = 2.05
+    for (let iter = 0; iter < 10; iter++) {
+      let moved = false
+      for (let i = 0; i < specs.length; i++) {
+        for (let j = i + 1; j < specs.length; j++) {
+          const u1 = specs[i]
+          const u2 = specs[j]
+          const dx = u1.x - u2.x
+          const dz = u1.z - u2.z
+          const dist = Math.hypot(dx, dz)
+          if (dist < MIN_FRIENDLY_SPAWN_SPACING && dist > 0.0001) {
+            const push = (MIN_FRIENDLY_SPAWN_SPACING - dist) * 0.5
+            const nx = dx / dist
+            const nz = dz / dist
+            u1.x = Math.round((u1.x + nx * push) * 100) / 100
+            u1.z = Math.round((u1.z + nz * push) * 100) / 100
+            u2.x = Math.round((u2.x - nx * push) * 100) / 100
+            u2.z = Math.round((u2.z - nz * push) * 100) / 100
+            moved = true
+          }
+        }
+        if (isViking) {
+          const s = specs[i]
+          const pDist = Math.hypot(s.x - VIKING_PLAYER_SPAWN.x, s.z - VIKING_PLAYER_SPAWN.z)
+          if (pDist < PLAYER_SAFE_CLEARANCE) {
+            const push = PLAYER_SAFE_CLEARANCE - pDist + 0.1
+            const nx = (s.x - VIKING_PLAYER_SPAWN.x) || (s.x >= 0 ? 1 : -1)
+            const nz = (s.z - VIKING_PLAYER_SPAWN.z) || 1
+            const len = Math.hypot(nx, nz)
+            s.x = Math.round((s.x + (nx / len) * push) * 100) / 100
+            s.z = Math.round((s.z + (nz / len) * push) * 100) / 100
+            moved = true
+          }
+        }
+      }
+      if (!moved) break
+    }
 
     return specs
   }

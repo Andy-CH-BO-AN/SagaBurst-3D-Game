@@ -5,6 +5,8 @@
 import { Faction, AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 
+export const MAX_ARMY_SIZE = 100
+
 export type UnitTier = 1 | 2 | 3
 export type BattleUnitType = 'infantry' | 'archer' | 'cavalry' | 'horseArcher'
 
@@ -113,8 +115,8 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
         const val = counts[tier]
         if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
           errors.push(`${sideName} ${cat} T${tier} must be a non-negative integer`)
-        } else if (val > 50) {
-          errors.push(`${sideName} ${cat} T${tier} exceeds maximum 50`)
+        } else if (val > MAX_ARMY_SIZE) {
+          errors.push(`${sideName} ${cat} T${tier} exceeds maximum ${MAX_ARMY_SIZE}`)
         } else {
           sideTotal += val
         }
@@ -128,14 +130,14 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 
   if (vikingTotal < 1) {
     errors.push('Viking army must have at least 1 unit')
-  } else if (vikingTotal > 50) {
-    errors.push(`Viking army total (${vikingTotal}) exceeds 50`)
+  } else if (vikingTotal > MAX_ARMY_SIZE) {
+    errors.push(`Viking army total (${vikingTotal}) exceeds ${MAX_ARMY_SIZE}`)
   }
 
   if (romanTotal < 1) {
     errors.push('Roman army must have at least 1 unit')
-  } else if (romanTotal > 50) {
-    errors.push(`Roman army total (${romanTotal}) exceeds 50`)
+  } else if (romanTotal > MAX_ARMY_SIZE) {
+    errors.push(`Roman army total (${romanTotal}) exceeds ${MAX_ARMY_SIZE}`)
   }
 
   return { valid: errors.length === 0, errors }
@@ -241,6 +243,76 @@ export const PRESET_50V50: BattleConfig = {
     horseArcher: { 1: 3, 2: 4, 3: 3 },
   },
   rules: { respawnEnabled: false, includeCamps: true },
+}
+
+export const PRESET_100V100: BattleConfig = {
+  viking: {
+    infantry: { 1: 10, 2: 10, 3: 10 },
+    archer: { 1: 10, 2: 10, 3: 10 },
+    cavalry: { 1: 5, 2: 10, 3: 5 },
+    horseArcher: { 1: 5, 2: 10, 3: 5 },
+  },
+  roman: {
+    infantry: { 1: 10, 2: 10, 3: 10 },
+    archer: { 1: 10, 2: 10, 3: 10 },
+    cavalry: { 1: 5, 2: 10, 3: 5 },
+    horseArcher: { 1: 5, 2: 10, 3: 5 },
+  },
+  rules: { respawnEnabled: false, includeCamps: true },
+}
+
+/** Developer performance scenario A: 50v50 Infantry */
+export const PRESET_SCENARIO_A: BattleConfig = {
+  viking: {
+    infantry: { 1: 20, 2: 20, 3: 10 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  roman: {
+    infantry: { 1: 20, 2: 20, 3: 10 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
+/** Developer performance scenario B: 100v100 Infantry */
+export const PRESET_SCENARIO_B: BattleConfig = {
+  viking: {
+    infantry: { 1: 40, 2: 40, 3: 20 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  roman: {
+    infantry: { 1: 40, 2: 40, 3: 20 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
+/** Developer performance scenario C: 100v100 Mixed */
+export const PRESET_SCENARIO_C: BattleConfig = PRESET_100V100
+
+/** Developer performance scenario D: 100v100 Cavalry / Horse Archer (50 Cavalry + 50 Horse Archer) */
+export const PRESET_SCENARIO_D: BattleConfig = {
+  viking: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 15, 2: 20, 3: 15 },
+    horseArcher: { 1: 15, 2: 20, 3: 15 },
+  },
+  roman: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 15, 2: 20, 3: 15 },
+    horseArcher: { 1: 15, 2: 20, 3: 15 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
 }
 
 /** Developer performance scenario (?devcombat): 50v50 cavalry, no camps. */
