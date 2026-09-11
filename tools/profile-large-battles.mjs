@@ -248,11 +248,13 @@ async function main() {
       const r = (rendererStr || '').toLowerCase()
       const v = (vendorStr || '').toLowerCase()
 
+      // Explicitly check for known software rasterizers
       const isSoftware = (
         r.includes('swiftshader') ||
         r.includes('llvmpipe') ||
-        r.includes('software') ||
-        r.includes('mesa') ||
+        r.includes('softpipe') ||
+        r.includes('software rasterizer') ||
+        r.includes('software renderer') ||
         r.includes('virtualbox') ||
         r.includes('vmware') ||
         r === 'unknown' ||
@@ -318,15 +320,60 @@ async function main() {
       results.push(res)
     }
 
+    function formatMarkdownTable(results) {
+      const lines = [
+        '| 情境 | 階段 | FPS | CPU Frame Work | Renderer Submit | NPC Update | Entity Collision | Other / Unaccounted | Draw Calls | Triangles |',
+        '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+      ]
+
+      for (const res of results) {
+        for (const phase of ['beforeContact', 'duringCombat']) {
+          const p = res[phase]
+          const snap = p.snapshot
+          if (!snap) continue
+
+          // Invariant validation: max >= avg
+          for (const key of ['cpuFrame', 'renderSubmit', 'npcUpdate', 'collision', 'other', 'npcGrid', 'arrow', 'impact']) {
+            const stat = snap[key]
+            if (stat && stat.avg > stat.max + 0.0001) {
+              throw new Error(`Invariant violation in ${res.scenario} ${phase}: ${key} avg (${stat.avg}) > max (${stat.max})`)
+            }
+          }
+
+          const phaseName = phase === 'beforeContact' ? '接戰前' : '接戰中'
+          const label = phase === 'beforeContact' ? `**${res.scenario}: ${res.scenarioName}**` : ''
+          const fps = snap.fps.toFixed(1)
+          const cpu = `${snap.cpuFrame.avg.toFixed(1)} / ${snap.cpuFrame.max.toFixed(1)}`
+          const render = `${snap.renderSubmit.avg.toFixed(1)} / ${snap.renderSubmit.max.toFixed(1)}`
+          const npc = `${snap.npcUpdate.avg.toFixed(1)} / ${snap.npcUpdate.max.toFixed(1)}`
+          const col = `${snap.collision.avg.toFixed(2)} / ${snap.collision.max.toFixed(2)}`
+          const other = `${snap.other.avg.toFixed(2)} / ${snap.other.max.toFixed(2)}`
+          const calls = p.drawCalls.toLocaleString()
+          const tris = p.triangles.toLocaleString()
+
+          lines.push(`| ${label} | ${phaseName} | ${fps} | ${cpu} | ${render} | ${npc} | ${col} | ${other} | ${calls} | ${tris} |`)
+        }
+      }
+
+      return lines.join('\n')
+    }
+
+    const markdownTable = formatMarkdownTable(results)
+    console.log('\n================ GENERATED BASELINE TABLE ================')
+    console.log(markdownTable)
+    console.log('==========================================================\n')
+
     const report = {
       envInfo,
+      markdownTable,
       results,
     }
 
     const outDir = path.resolve('output/profile')
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, 'benchmark-results.json'), JSON.stringify(report, null, 2))
-    console.log(`\nBenchmark completed. Results written to output/profile/benchmark-results.json`)
+    fs.writeFileSync(path.join(outDir, 'benchmark-table.md'), markdownTable)
+    console.log(`\nBenchmark completed. Results written to output/profile/benchmark-results.json and benchmark-table.md`)
 
   } catch (err) {
     console.error('Benchmark error:', err)
