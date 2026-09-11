@@ -15,6 +15,7 @@ export interface HorseRenderCensus {
   visibleMeshCount: number
   visibleSkinnedMeshCount: number
   shadowCasterCount: number
+  visibleShadowCasterCount: number
   receiveShadowCount: number
   uniqueGeometryCount: number
   uniqueMaterialCount: number
@@ -61,6 +62,7 @@ export function collectHorseRenderCensus(mounts: Mount[]): HorseRenderCensus {
   let visibleMeshCount = 0
   let visibleSkinnedMeshCount = 0
   let shadowCasterCount = 0
+  let visibleShadowCasterCount = 0
   let receiveShadowCount = 0
 
   const uniqueGeometries = new Set<string>()
@@ -121,6 +123,9 @@ export function collectHorseRenderCensus(mounts: Mount[]): HorseRenderCensus {
           if (obj instanceof THREE.SkinnedMesh) {
             visibleSkinnedMeshCount++
           }
+          if (obj.castShadow) {
+            visibleShadowCasterCount++
+          }
         }
 
         if (obj.castShadow) shadowCasterCount++
@@ -156,6 +161,7 @@ export function collectHorseRenderCensus(mounts: Mount[]): HorseRenderCensus {
     visibleMeshCount,
     visibleSkinnedMeshCount,
     shadowCasterCount,
+    visibleShadowCasterCount,
     receiveShadowCount,
     uniqueGeometryCount: uniqueGeometries.size,
     uniqueMaterialCount: uniqueMaterials.size,
@@ -165,4 +171,9 @@ export function collectHorseRenderCensus(mounts: Mount[]): HorseRenderCensus {
     meshCountPerLod,
     materialCountPerLod,
   }
+}
+
+if (import.meta.env?.DEV && typeof window !== 'undefined') {
+  ;(window as any).__collectHorseCensus = collectHorseRenderCensus
+  ;(window as any).__setHorseVisualsHidden = setHorseVisualsHidden
 }

@@ -12,7 +12,7 @@ import {
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import { collectHorseRenderCensus, setHorseVisualsHidden } from '../debug/HorseRenderCensus'
 
-if (typeof window !== 'undefined') {
+if (import.meta.env?.DEV && typeof window !== 'undefined') {
   ;(window as any).__collectHorseCensus = collectHorseRenderCensus
   ;(window as any).__setHorseVisualsHidden = setHorseVisualsHidden
 }

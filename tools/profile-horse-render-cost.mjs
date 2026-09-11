@@ -41,9 +41,117 @@ async function collectSample(page) {
       if (MELEE_SET.has(n.combatAnimationAction)) activeMeleeActions++
     }
 
+    function isEffectivelyVisible(obj) {
+      let cur = obj
+      while (cur) {
+        if (!cur.visible) return false
+        cur = cur.parent
+      }
+      return true
+    }
+
+    function computeCensus(mounts) {
+      const horseMounts = mounts.filter((m) => m.horseVisual)
+      const horseCount = horseMounts.length
+      let totalObject3DCount = 0
+      let meshCount = 0
+      let skinnedMeshCount = 0
+      let visibleMeshCount = 0
+      let visibleSkinnedMeshCount = 0
+      let shadowCasterCount = 0
+      let visibleShadowCasterCount = 0
+      let receiveShadowCount = 0
+
+      const uniqueGeometries = new Set()
+      const uniqueMaterials = new Set()
+      const lodDistribution = { lod0: 0, lod1: 0, lod2: 0 }
+      const meshCountPerLod = { lod0: 0, lod1: 0, lod2: 0 }
+      const materialCountPerLod = { lod0: 0, lod1: 0, lod2: 0 }
+
+      if (horseMounts.length > 0) {
+        const rep = horseMounts[0].horseVisual
+        if (rep.lod && rep.lod.levels) {
+          const keys = ['lod0', 'lod1', 'lod2']
+          for (let i = 0; i < 3 && i < rep.lod.levels.length; i++) {
+            const levelObj = rep.lod.levels[i]?.object
+            if (levelObj) {
+              let count = 0
+              const matSet = new Set()
+              levelObj.traverse((child) => {
+                if (child.isMesh) {
+                  count++
+                  if (child.material) {
+                    if (Array.isArray(child.material)) {
+                      child.material.forEach((mat) => matSet.add(mat.uuid))
+                    } else {
+                      matSet.add(child.material.uuid)
+                    }
+                  }
+                }
+              })
+              meshCountPerLod[keys[i]] = count
+              materialCountPerLod[keys[i]] = matSet.size
+            }
+          }
+        }
+      }
+
+      for (const mount of horseMounts) {
+        const visual = mount.horseVisual
+        const debug = visual.debugState ? visual.debugState() : null
+        const currentLod = debug ? debug.lod : visual.lod?.getCurrentLevel() ?? 0
+        if (currentLod === 0) lodDistribution.lod0++
+        else if (currentLod === 1) lodDistribution.lod1++
+        else if (currentLod === 2) lodDistribution.lod2++
+
+        visual.root.traverse((obj) => {
+          totalObject3DCount++
+          if (obj.isMesh) {
+            meshCount++
+            if (obj.isSkinnedMesh) skinnedMeshCount++
+            const visible = isEffectivelyVisible(obj)
+            if (visible) {
+              visibleMeshCount++
+              if (obj.isSkinnedMesh) visibleSkinnedMeshCount++
+              if (obj.castShadow) visibleShadowCasterCount++
+            }
+            if (obj.castShadow) shadowCasterCount++
+            if (obj.receiveShadow) receiveShadowCount++
+            if (obj.geometry) uniqueGeometries.add(obj.geometry.uuid)
+            if (obj.material) {
+              if (Array.isArray(obj.material)) {
+                obj.material.forEach((mat) => uniqueMaterials.add(mat.uuid))
+              } else {
+                uniqueMaterials.add(obj.material.uuid)
+              }
+            }
+          }
+        })
+      }
+
+      return {
+        horseCount,
+        totalObject3DCount,
+        meshCount,
+        skinnedMeshCount,
+        visibleMeshCount,
+        visibleSkinnedMeshCount,
+        shadowCasterCount,
+        visibleShadowCasterCount,
+        receiveShadowCount,
+        uniqueGeometryCount: uniqueGeometries.size,
+        uniqueMaterialCount: uniqueMaterials.size,
+        lodDistribution,
+        avgDrawableMeshesPerHorse: horseCount > 0 ? Number((visibleMeshCount / horseCount).toFixed(2)) : 0,
+        avgShadowCastersPerHorse: horseCount > 0 ? Number((shadowCasterCount / horseCount).toFixed(2)) : 0,
+        meshCountPerLod,
+        materialCountPerLod,
+      }
+    }
+
     const census = window.__collectHorseCensus
       ? window.__collectHorseCensus(g.mounts)
-      : null
+      : computeCensus(g.mounts)
 
     // Check rider visibility
     let ridersVisible = 0
@@ -94,7 +202,11 @@ async function runScenarioMode(page, scenarioLetter, scenarioName, hideHorseVisu
         window.__setHorseVisualsHidden(g.mounts, true)
       } else {
         for (const m of g.mounts) {
-          if (m.horseVisual) m.horseVisual.root.visible = false
+          if (m.setVisualHidden) {
+            m.setVisualHidden(true)
+          } else if (m.horseVisual) {
+            m.horseVisual.root.visible = false
+          }
         }
       }
     })

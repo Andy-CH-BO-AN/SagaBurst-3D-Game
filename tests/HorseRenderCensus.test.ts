@@ -157,7 +157,8 @@ describe('HorseRenderCensus', () => {
     expect(censusNormal.horseCount).toBe(2)
     expect(censusNormal.meshCount).toBe(6) // 3 meshes per horse (1 per LOD level)
     expect(censusNormal.skinnedMeshCount).toBe(6)
-    expect(censusNormal.shadowCasterCount).toBe(2) // Only LOD0 casts shadow
+    expect(censusNormal.shadowCasterCount).toBe(2) // Total LOD0 casters in hierarchy
+    expect(censusNormal.visibleShadowCasterCount).toBe(2) // Active in LOD0
     expect(censusNormal.receiveShadowCount).toBe(6)
     expect(censusNormal.uniqueGeometryCount).toBeGreaterThanOrEqual(1)
     expect(censusNormal.uniqueMaterialCount).toBe(2) // variant 0 and 1
