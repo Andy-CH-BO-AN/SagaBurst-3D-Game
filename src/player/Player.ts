@@ -25,6 +25,10 @@ import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCo
 import {
   CharacterBowVisual,
 } from '../world/CharacterBowVisual'
+import {
+  getDirectionalMovementFromKeyboard,
+  FORWARD_SPEED_MULTIPLIER,
+} from '../movement/DirectionalMovement'
 
 export { positionArrowCenterFromNock, sampleBowBodyLocal } from '../world/CharacterBowVisual'
 
@@ -582,24 +586,35 @@ export class Player {
     if (input.keys['KeyD']) moveDir.addScaledVector(right, 1)
 
     const isMoving = moveDir.lengthSq() > 0
+    if (isMoving) {
+      moveDir.normalize()
+    }
+
+    const directionalPolicy = getDirectionalMovementFromKeyboard(
+      Boolean(input.keys['KeyW']),
+      Boolean(input.keys['KeyS']),
+      Boolean(input.keys['KeyA']),
+      Boolean(input.keys['KeyD']),
+    )
 
     const wantSprint = input.keys['ShiftLeft'] || input.keys['ShiftRight']
+    const canSprint = Boolean(directionalPolicy?.canSprint)
 
-    if (wantSprint && isMoving && this.stamina >= STAMINA_SPRINT_MIN && !this.isSwinging && !this.aiming) {
+    if (wantSprint && canSprint && isMoving && this.stamina >= STAMINA_SPRINT_MIN && !this.isSwinging && !this.aiming) {
       this.isSprinting = true
     }
-    if (!wantSprint || !isMoving || this.stamina <= 0 || this.isSwinging || this.aiming) {
+    if (!wantSprint || !canSprint || !isMoving || this.stamina <= 0 || this.isSwinging || this.aiming) {
       this.isSprinting = false
     }
 
-    const visualSpeed = isMoving
-      ? this.isMounted && this.currentMount
-        ? this.currentMount.baseSpeed * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
-        : MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+    const speedMultiplier = directionalPolicy ? directionalPolicy.multiplier : FORWARD_SPEED_MULTIPLIER
+    const baseSpeed = this.isMounted && this.currentMount
+      ? this.currentMount.baseSpeed
+      : MOVE_SPEED
+    const effectiveSpeed = isMoving
+      ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       : 0
-    this.animator.setLocomotion(visualSpeed, this.isMounted)
-
-
+    this.animator.setLocomotion(effectiveSpeed, this.isMounted)
 
     if (this.isSprinting) {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
@@ -610,8 +625,7 @@ export class Player {
 
     if (this.isMounted && this.currentMount) {
       this.currentMount.beginControlledFrame()
-      const speed = this.currentMount.baseSpeed * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
-      this.currentMount.addControlledMovement(moveDir, speed, dt)
+      this.currentMount.addControlledMovement(moveDir, effectiveSpeed, dt)
       
       // Jump (Mount)
       if (input.keys['Space'] && this.currentMount.onGround) {
@@ -631,7 +645,6 @@ export class Player {
       
       // Rotation
       if (isMoving) {
-        moveDir.normalize()
         const mountAngle = Math.atan2(moveDir.x, moveDir.z)
         this.currentMount.group.rotation.y = mountAngle
         this.group.rotation.y = this._characterYaw(mountAngle)
@@ -649,8 +662,7 @@ export class Player {
       applyCharacterMountedPose(this.rig, false)
       this._alignExternalVisualToMount(false)
       const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
-      const speed = MOVE_SPEED * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
-      this.group.position.addScaledVector(moveDir, speed * dt)
+      this.group.position.addScaledVector(moveDir, effectiveSpeed * dt)
       
       if (this.aiming) {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
