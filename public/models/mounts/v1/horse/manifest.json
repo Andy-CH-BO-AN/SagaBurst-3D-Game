@@ -101,7 +101,7 @@
     "triangles": {
       "lod0": 64986,
       "lod1": 20279,
-      "lod2": 5916
+      "lod2": 4104
     },
     "eyeBaseColor": {
       "file": "textures/horse_eyes.baseColor.v10.ktx2",
@@ -112,7 +112,7 @@
       "levels": 10,
       "supercompressionScheme": 1
     },
-    "packageBytes": 6050753,
+    "packageBytes": 6145021,
     "textureCount": 48,
     "textureMaxSize": 2048
   },

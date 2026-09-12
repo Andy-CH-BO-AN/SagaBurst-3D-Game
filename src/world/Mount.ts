@@ -10,12 +10,6 @@ import {
   type HorseInstance,
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
-import { collectHorseRenderCensus, setHorseVisualsHidden } from '../debug/HorseRenderCensus'
-
-if (import.meta.env?.DEV && typeof window !== 'undefined') {
-  ;(window as any).__collectHorseCensus = collectHorseRenderCensus
-  ;(window as any).__setHorseVisualsHidden = setHorseVisualsHidden
-}
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()

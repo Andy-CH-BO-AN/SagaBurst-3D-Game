@@ -185,4 +185,24 @@ describe('HorseAssetRegistry instance isolation', () => {
 
     horse.dispose()
   })
+
+  it('preserves LOD2 SkinnedMesh binding and variant contract when lod changes', () => {
+    const template = testTemplate()
+    const horse = createHorseInstance(template, 2)
+    expect(horse.appearanceVariant).toBe(2)
+
+    const lod2Group = horse.lod.getObjectForDistance(38)
+    expect(lod2Group).toBeDefined()
+
+    const bodyLod2 = horse.root.getObjectByName('horse_body_lod2') as THREE.SkinnedMesh
+    expect(bodyLod2).toBeDefined()
+    expect(bodyLod2.material).toBe(template.bodyMaterials[2])
+
+    // Switch variant
+    horse.setAppearanceVariant(1)
+    expect(horse.appearanceVariant).toBe(1)
+    expect(bodyLod2.material).toBe(template.bodyMaterials[1])
+
+    horse.dispose()
+  })
 })
