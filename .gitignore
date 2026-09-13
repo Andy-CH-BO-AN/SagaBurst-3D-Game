@@ -23,6 +23,7 @@ output/playwright/
 # One-off hand / bow diagnosis captures and local geometry probes
 git-diff.txt
 tools/humanoid-diagnostics/
+tests/BowTwoHandContact.test.ts
 
 # Python cache files
 __pycache__/
