@@ -4,11 +4,11 @@
 
 **SagaBurst** 是一個使用 **Three.js**、**TypeScript** 與 **Vite** 製作、可直接在瀏覽器中遊玩的 3D 動作 RPG 原型。
 
-目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種與 Tier，之後以 Viking 陣營玩家角色加入戰場，兩邊 AI 軍隊則會在大型戰場上自動接戰。
+目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種與 Tier，之後以 Viking 陣營玩家角色加入戰場，兩邊 AI 軍隊則會自動接戰。
 
 ## ⚔️ Custom Battle 自訂戰役
 
-Viking 與 Roman 每方都可以配置 **1–100 名 AI 士兵**，雙方兵力不需要相同，也支援像 `1 vs 100`、`100 vs 1` 這種非對稱戰鬥。
+Viking 與 Roman 每方都可以配置 **1–50 名 AI 士兵**，雙方兵力不需要相同，也支援像 `1 vs 50` 這種非對稱戰鬥。
 
 每個陣營都可以獨立配置四種兵種與三個 Tier：
 
@@ -21,15 +21,15 @@ Viking 與 Roman 每方都可以配置 **1–100 名 AI 士兵**，雙方兵力�
 
 所有兵種都支援 **T1 / T2 / T3**，不同 Tier 會使用對應強度的裝備與傷害數值。
 
-Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50**、**100 vs 100** 快速配置，也可以完全手動建立自己的軍隊組合。
+Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50** 快速配置，也可以完全手動建立自己的軍隊組合。
 
-Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–100 名 AI 兵力，也不影響軍隊存活數判定**。
+Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–50 名 AI 兵力，也不影響軍隊存活數判定**。
 
 ### 戰鬥流程
 
 1. 開啟遊戲後，先在 Custom Battle Setup 配置 Viking 與 Roman 軍隊。
 2. 點擊 **START BATTLE**。
-3. 雙方 AI 軍隊會按照決定性的陣形出生在戰場兩側，並自動往敵軍接戰。
+3. 雙方 AI 軍隊會按照決定性的陣形出生，並自動往敵軍接戰。
 4. 玩家可加入 Viking 一方，使用近戰武器、弓、盾、長槍與戰馬參與戰鬥。
 5. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
 6. 使用 **REMATCH** 以相同配置重開，或選擇 **BACK TO SETUP** 返回首頁重新配兵。
@@ -38,7 +38,7 @@ Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–
 
 ## 🐎 Player 預設騎乘與裝備
 
-一般 Custom Battle 會讓 Player 以 **Viking 重裝騎兵** 身分開場，直接在 Viking 出生點騎上戰馬，不需要先徒步去找馬。
+一般 Custom Battle 現在會讓 Player 以 **Viking 重裝騎兵** 身分開場，直接在 Viking 出生點騎上戰馬，不需要先徒步去找馬。
 
 預設裝備：
 
@@ -49,7 +49,7 @@ Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–
 
 下馬後可以按 `Tab` 或 `I` 開啟 Equipment UI，將近戰武器從騎槍切換成 Runic Greatsword。裝備雙手大劍時，既有雙手武器邏輯會自動把目前裝備的盾牌移到背後。
 
-Player 的開場戰馬與 Viking 營地內的五匹備用戰馬是分開計算的。存檔 / 讀檔會保留騎乘狀態與坐騎實際世界座標；舊版本存檔則會保留原本的背包與裝備，不會被自動升級成新的 T3 預設裝備。
+Player 的開場戰馬與 Viking 營地內的五匹備用戰馬是分開計算的。存檔 / 讀檔會保留騎乘狀態與坐騎實際世界座標；舊版本存檔則會保留原本的背包與裝備，不會被自動升級成新的 T3 預設神裝。
 
 ## 🏕️ 雙方營地
 
@@ -117,26 +117,9 @@ npm run dev
 
 正常遊戲網址一律進入 Custom Battle Setup；只有明確指定開發者場景參數時才會繞過首頁。
 
-### 大型戰鬥 Profiling 場景
-
-`devcombat` 目前提供可重現的大型戰鬥效能測試場景：
-
-| Query | 場景 |
-| --- | --- |
-| `?devcombat=a` | 50 vs 50 純步兵控制組 |
-| `?devcombat=b` | 100 vs 100 純步兵 scaling 場景 |
-| `?devcombat=c` | 100 vs 100 混合兵種場景 |
-| `?devcombat=d` | 100 vs 100 騎兵 / 騎射手壓力場景 |
-| `?devcombat` | 舊版固定 50 vs 50 mounted 開發場景 |
-
-`devcombat` 會顯示 runtime profiling HUD，包含 wall-clock FPS、CPU Frame Work、NPC Update、Entity Collision、Projectile / Impact、Renderer Submit、Draw Calls、Triangles、Horse Count 與 LOD 統計。
-
-目前 profiling 顯示，大型戰鬥的主要效能壓力集中在 **render path / draw-call pressure**；Entity Collision 的實際耗時相對很小。Profiling instrumentation 只會在 developer combat mode 啟用，不會加入一般正式 gameplay hot path。
-
-其他 QA 模式：
-
 | Query | 用途 |
 | --- | --- |
+| `?devcombat` | 固定 50 vs 50 騎乘戰鬥 / 效能 QA 場景，使用同一套 BattleSpawner，不生成營地與額外備用馬 |
 | `?devmodels=humans` | Humanoid 模型 / 動畫驗收工作室 |
 | `?devmodels=mounts` | 戰馬、馬鞍、騎乘姿勢、步態、跳躍與下馬 QA 工作室 |
 | `?legacyhumanoids` | Legacy humanoid rendering modifier，可與正式 Battle 或 dev mode 搭配 |
@@ -145,26 +128,13 @@ npm run dev
 範例：
 
 ```text
-http://localhost:5173/?devcombat=b&nolock
-http://localhost:5173/?devcombat=c&nolock
-http://localhost:5173/?devcombat=d&nolock
+http://localhost:5173/?devcombat&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
+http://localhost:5173/?devcombat&legacyhumanoids&nolock
 ```
 
 專案已不再保留硬編碼的 **Standard 9v5 Battle**。正式 gameplay 全部由 Custom Battle configuration 驅動。
-
-## 📊 效能 Profiling
-
-大型戰鬥效能評估以真實 headed browser 為基準，不使用 software-rendered headless FPS 當作 gameplay baseline。
-
-Benchmark runner 會記錄 Browser / WebGL 環境，並檢查是否為硬體加速 renderer，再決定該次執行能否視為可信的 gameplay baseline。
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-Benchmark 會依序執行 A–D 場景，並記錄接戰前與接戰中的 FPS、CPU Work、Renderer Submit、NPC Update、Collision、Draw Calls 與 Triangles 等資訊。
 
 ## 🧰 開發指令
 
@@ -194,6 +164,4 @@ npm run preview
 
 SagaBurst 目前仍是一個持續開發中的 3D 動作 RPG 原型，核心方向包含大規模 AI 戰鬥、近戰與遠程戰鬥、騎乘系統、裝備成長，以及瀏覽器中的 3D 角色與動畫系統。
 
-目前已支援最高 **100 vs 100 AI** 的戰鬥，包含步兵、遠程單位、騎兵與騎射手，並提供三個裝備 Tier。
-
-目前開發重點會持續放在戰鬥行為、角色動畫、大型戰鬥 render performance，以及 Custom Battle 體驗。
+目前開發重點會持續放在戰鬥品質、AI 行為、角色動畫、效能，以及 Custom Battle 體驗。

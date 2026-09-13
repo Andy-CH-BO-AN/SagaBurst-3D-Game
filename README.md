@@ -4,11 +4,11 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types and tiers, then join the Viking side as the player while both AI armies automatically engage across a large battlefield.
+The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types and tiers, then join the Viking side as the player while both AI armies automatically engage on the battlefield.
 
 ## ⚔️ Custom Battle
 
-Each side can field **1–100 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 100` or `100 vs 1`.
+Each side can field **1–50 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 50`.
 
 Each faction can be configured independently across four unit roles and three tiers:
 
@@ -21,7 +21,7 @@ Each faction can be configured independently across four unit roles and three ti
 
 Every unit role supports **T1 / T2 / T3**. Higher tiers use stronger faction-appropriate equipment and damage values.
 
-Quick presets are available for **10 vs 10**, **25 vs 25**, **50 vs 50**, and **100 vs 100**, or you can build an army manually with the setup controls.
+Quick presets are available for **10 vs 10**, **25 vs 25**, and **50 vs 50**, or you can build an army manually with the setup controls.
 
 The player is an additional Viking participant and does **not** count toward the configured Viking AI army total or victory condition.
 
@@ -29,7 +29,7 @@ The player is an additional Viking participant and does **not** count toward the
 
 1. Open the game and configure both armies in the Custom Battle Setup screen.
 2. Click **START BATTLE**.
-3. The two AI armies spawn in deterministic formations on opposite sides of the battlefield and automatically move to engage each other.
+3. The two AI armies spawn in deterministic formations and automatically move to engage each other.
 4. Fight alongside the Viking army using melee weapons, bows, shields, lances, and horses.
 5. A battle ends when either configured AI army is eliminated.
 6. Use **REMATCH** to replay the same configuration or **BACK TO SETUP** to build another battle.
@@ -38,7 +38,7 @@ If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
 ## 🐎 Player Starting Loadout
 
-Normal Custom Battles start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse at the Viking spawn point.
+Normal Custom Battles now start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse at the Viking spawn point.
 
 Default equipment:
 
@@ -117,26 +117,9 @@ After clicking **START BATTLE**, the game attempts to capture the mouse for came
 
 The main gameplay URL always uses Custom Battle Setup unless a developer scene mode is explicitly requested.
 
-### Large-battle profiling scenarios
-
-The `devcombat` mode includes reproducible battle presets used for performance profiling:
-
-| Query | Scenario |
-| --- | --- |
-| `?devcombat=a` | 50 vs 50 infantry control scenario |
-| `?devcombat=b` | 100 vs 100 infantry scaling scenario |
-| `?devcombat=c` | 100 vs 100 mixed army scenario |
-| `?devcombat=d` | 100 vs 100 cavalry / horse-archer stress scenario |
-| `?devcombat` | Legacy fixed 50 vs 50 mounted developer scenario |
-
-`devcombat` exposes a runtime profiling HUD with wall-clock FPS, CPU frame work, NPC update time, collision time, projectile / impact work, renderer submit time, draw calls, triangle count, horse count, and LOD statistics.
-
-Current profiling shows that large-battle performance is primarily constrained by the **render path / draw-call pressure**, while entity collision cost is comparatively small. The profiling infrastructure is intentionally separated from normal gameplay and only runs in developer combat mode.
-
-Other QA modes:
-
 | Query | Purpose |
 | --- | --- |
+| `?devcombat` | Fixed 50 vs 50 mounted combat / performance scenario using the shared battle spawner; no camps or spare camp horses |
 | `?devmodels=humans` | Humanoid model / animation studio |
 | `?devmodels=mounts` | Horse, saddle, rider, gait, jump, and dismount QA studio |
 | `?legacyhumanoids` | Use the legacy humanoid rendering path as a modifier |
@@ -145,26 +128,13 @@ Other QA modes:
 Examples:
 
 ```text
-http://localhost:5173/?devcombat=b&nolock
-http://localhost:5173/?devcombat=c&nolock
-http://localhost:5173/?devcombat=d&nolock
+http://localhost:5173/?devcombat&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
+http://localhost:5173/?devcombat&legacyhumanoids&nolock
 ```
 
 There is no separate hardcoded **Standard** battle mode. Normal gameplay is fully driven by Custom Battle configuration.
-
-## 📊 Performance Profiling
-
-Large-battle profiling is designed around real headed-browser measurements rather than software-rendered headless FPS.
-
-The benchmark runner records the browser / WebGL environment and validates that a hardware renderer is being used before treating a run as a reliable gameplay baseline.
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-The benchmark runs the A–D scenarios and records before-contact and during-combat measurements including FPS, CPU work, renderer submit time, NPC update time, collision cost, draw calls, and triangles.
 
 ## 🧰 Development Commands
 
@@ -194,6 +164,4 @@ npm run preview
 
 SagaBurst is an actively evolving 3D action RPG prototype focused on large AI battles, melee and ranged combat, mounted gameplay, equipment progression, and browser-based 3D character systems.
 
-The game currently supports battles up to **100 vs 100 AI troops**, including infantry, ranged units, cavalry, and mounted ranged units across three equipment tiers.
-
-Current development is centered on improving combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
+Current development is centered on improving battle quality, combat behavior, animation fidelity, performance, and the Custom Battle experience.

@@ -31,9 +31,9 @@ skyrim 3D test/
     │   ├── Mount.ts           Mount gameplay plus legacy Black Cat/Corgi save-compatible visuals
     │   ├── HorseAssetRegistry.ts Licensed horse GLTF cache, KTX2/Meshopt, LOD, variants, sockets and animation
     │   ├── ProceduralMaterials.ts Shared cached PBR textures/materials for skin, cloth, metal, wood, leather and fur
-    │   ├── CharacterVisuals.ts Legacy test fixture plus shared CharacterRig/animation contracts
-    │   ├── HumanoidAssetRegistry.ts Manifest-gated GLTF cache, SkeletonUtils clones, LOD, mixers and bone/socket adapter
-    │   ├── CharacterCombatAnimator.ts Shared allocation-free FK combat timeline and pose sampler
+    │   ├── CharacterVisuals.ts Legacy test fixture plus typed CharacterRig/animation contracts
+    │   ├── HumanoidAssetRegistry.ts Manifest-gated GLTF cache, per-state imported/fallback clips, LOD, mixers and bone/socket adapter
+    │   ├── CharacterCombatAnimator.ts Shared gameplay timeline with imported-clip or procedural pose ownership
     │   ├── CharacterBowVisual.ts Shared Player/NPC bow mesh, socket aim, string, nock, and launch controller
     │   ├── WeaponPickup.ts    3D world item drop nodes with distinct 3D weapon models (floating animation)
     │   └── ArrowProjectile.ts Arrow entity with parabolic physics and multi-target hit detection
@@ -77,7 +77,7 @@ skyrim 3D test/
 ### Phase 20 FK Combat Rig
 - `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
 - Melee weapons attach to the right hand socket, bows to the left hand socket, and shields transition between the left hand socket and back.
-- `CharacterCombatAnimator` owns the data-driven dagger, sword, greatsword, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events.
+- `CharacterCombatAnimator` owns the data-driven dagger, sword, greatsword, bow release, pilum, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events; visual clips never emit gameplay effects directly.
 - `CharacterBowVisual` is the single implementation for Player and bow-equipped NPC bow geometry, vertical target alignment, string draw, nocked-arrow placement, and projectile launch origin/direction. Allied NPC tiers map to the same shortbow/longbow/runebow models used by the Player; Roman pilum remains separate.
 - Greatswords and foot lances use two-handed poses. Mounted lances remain couched under the right arm so the left arm can retain its shield.
 - `ThirdPersonCamera` keeps its optical axis and fixed reticle on one world ray. While aiming, `Game` raycasts that ray to a visible world hit (falling back to a distant point), and player arrows travel from the hand's nock socket toward that resolved point.
@@ -102,11 +102,19 @@ skyrim 3D test/
 - `ai_share/skills/combat-browser-validation/` is the canonical browser QA workflow for combat work. It documents release/debug URLs, GPT Chrome extension operation, trajectory-overlay semantics, console-log interpretation, visual acceptance checks, and extension-noise filtering; `.agents/skills` and `.codex/skills` expose the same skill through links instead of duplicated copies.
 
 ### Phase 22 External Humanoid Pipeline
+
+> Hand-pose integration is under regression review. The studio currently does not exercise the same equipment/animator path as gameplay. Confirmed overlay/seek ownership and weapon grip-landmark defects, plus the required correction order, are recorded in `artifacts/animation_sources/hand-pose-diagnosis.md`; current hand-axis constants are not an approved anatomical contract.
 - `main.ts` calls `Game.create()`, which waits for both faction manifests and all LOD GLBs before any Player or NPC is born. A blocked/missing manifest produces a readable overlay and prevents mixed external/procedural release characters.
 - `HumanoidAssetRegistry` loads one immutable GLTF template set per faction and uses `SkeletonUtils.clone` for independent skeletons. Geometry, PBR materials, textures and clips remain shared; each instance owns mixers, socket objects, bounds and lifecycle control.
-- The bone adapter preserves Phase-20 right/left arm, leg and hand-socket semantics while exposing pelvis, spine, head and foot sockets. `CharacterCombatAnimator` preserves action timing and one-shot gameplay events while requesting matching mixer clips and retaining procedural bone overlays for weapon alignment.
-- The registry refuses `blocked` assets and validates measured height, shoulder width and neck length before loading. LOD0/1/2 switch at 0/12/28m and far animation updates are capped near 12 Hz.
-- `?devmodels=humans&nolock` is the neutral-grid external-character studio with a Player-independent Orbit camera and toggleable `SkeletonHelper`. `?legacyhumanoids&nolock` remains a Vite-development-only regression fixture and is not a release fallback.
+- The eight canonical embedded states are `idle`, `walk`, `run`, `bowLoad`, `bowHold`, `bowRelease`, `swordSlash`, and `pilumThrow`. Exact typed lookup replaces substring matching; imported clips override only matching generated states, so unsupported actions retain procedural fallback.
+- The controller supports cross-fade, loop, playback rate, normalized start, deterministic seek and duration queries on every LOD mixer. Bow load is sampled from charge ratio, full draw loops hold, and combat timelines remain authoritative for hit/projectile/completion events.
+- Upper-arm/forearm/hand retargeting compensates bind-frame twist around bone-local +Y; it does not blindly copy source bone roll. `HumanoidBladeGrip` supplies an instance-local hand/forearm guard layer and shared optional finger-curl morph, with palm-space sword attachment. It preserves the imported shoulder pose and restores its previous overlay before each mixer tick.
+- Bow Load/Hold/Release use upper-body tracks with independent idle/walk/run leg actions. Bow-equipped Viking NPCs retain bow carry while chasing; they do not enter sword guard. The on-foot Player no longer resets animated leg bones after the mixer tick. Bow wrist alignment is separate from sword guard; finger/nock contact remains a visual-QA limitation because canonical assets lack finger bones.
+- Roman proximal arms and sleeves blend into the chest across the shoulder seam; chest armour remains rigid. `repair_roman_skin_weights.py` is the reproducible canonical-space post-process for these and the lower-body weights.
+- Player chooses its locomotion state before the frame's single mixer update and only restores Idle when movement input is actually zero. NPC performs exactly one animator update in patrol/chase as well as combat, preventing per-frame Idle resets from pinning Walk/Run at their first frame.
+- Roman `New_legs`, boots, undertunic, tunic and torso weights are segmented from canonical GLB +Y-up positions. The repair tool rewrites only `JOINTS_0`/`WEIGHTS_0`; it preserves geometry, materials, textures, skeleton and embedded animation tracks, and the asset contract test rejects a return to foot-weighted thighs.
+- The registry refuses `blocked` assets and validates measured proportions plus manifest/GLB clip names and durations before loading. LOD0/1/2 switch at 0/12/28m and far animation updates are capped near 12 Hz.
+- `?devmodels=humans&nolock` is the neutral-grid external-character studio with explicit Idle, side-view Run, Walk and combat displays, a Player-independent Orbit camera and toggleable `SkeletonHelper`. `?legacyhumanoids&nolock` remains a Vite-development-only regression fixture and is not a release fallback.
 - Canonical asset preparation instructions live at `ai_share/skills/humanoid-rig-skinning/`; both Viking and Roman manifests are ready and include source hashes, CC BY attribution, bone maps, LOD/image audits and deformation evidence.
 
 ### Phase 23 External Horse Pipeline

@@ -165,16 +165,6 @@ export class Mount {
     this.horseVisual.setAppearanceVariant(this.appearanceVariant)
   }
 
-  setVisualHidden(hidden: boolean): void {
-    if (this.horseVisual) {
-      this.horseVisual.root.visible = !hidden
-    }
-  }
-
-  isVisualHidden(): boolean {
-    return this.horseVisual ? !this.horseVisual.root.visible : false
-  }
-
   dispose(): void {
     this.horseVisual?.dispose()
     this.group.removeFromParent()

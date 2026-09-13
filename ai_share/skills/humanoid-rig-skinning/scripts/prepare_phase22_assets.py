@@ -295,7 +295,10 @@ def apply_scale_and_ground_roman(target_height: float) -> tuple[float, float]:
     for obj in mesh_objects():
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        # The source's disconnected meshes carry object-level axis rotations.
+        # Bake the complete transform before height-based skin segmentation so
+        # vertex.co.z is the canonical character height, not a source-local axis.
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
         obj.select_set(False)
     minimum, maximum = scene_bounds()
     source_height = maximum.z - minimum.z
@@ -393,17 +396,20 @@ def skin_roman_mesh(obj: bpy.types.Object, armature: bpy.types.Object) -> None:
             elif obj.name == "Dangles":
                 weights = (("hips", 0.85), (f"upper_leg_{side}", 0.15))
             elif obj.name in {"New_legs", "Boots"}:
-                if point.z > 0.55:
-                    weights = limb_pair(point.z, 0.56, 0.05, f"lower_leg_{side}", f"upper_leg_{side}")
-                elif point.z > 0.12:
-                    weights = limb_pair(point.z, 0.50, 0.05, f"foot_{side}", f"lower_leg_{side}")
+                if point.z > 0.466:
+                    weights = limb_pair(point.z, 0.516, 0.05, f"lower_leg_{side}", f"upper_leg_{side}")
+                elif point.z > 0.07:
+                    weights = limb_pair(point.z, 0.105, 0.035, f"foot_{side}", f"lower_leg_{side}")
                 else:
                     weights = ((f"foot_{side}", 1.0),)
             elif obj.name == "Tunic_1":
                 if abs(point.x) > 0.23 and point.z > 1.25:
                     weights = ((f"upper_arm_{side}", 1.0),)
-                elif point.z < 1.05:
+                elif point.z < 0.88:
                     weights = ((f"upper_leg_{side}", 0.75), ("hips", 0.25))
+                elif point.z < 1.05:
+                    leg_weight = 0.75 * (1.05 - point.z) / 0.17
+                    weights = ((f"upper_leg_{side}", leg_weight), ("hips", 1.0 - leg_weight))
                 elif point.z < 1.18:
                     weights = (("hips", 0.7), ("spine", 0.3))
                 else:

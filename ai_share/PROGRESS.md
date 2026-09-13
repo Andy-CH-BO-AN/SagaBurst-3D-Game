@@ -1,6 +1,6 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-05 (external rider knee bend corrected)_
+_Last updated: 2026-09-12 (bow thumb / wrist regression; FAILED, repair ongoing)_
 
 ---
 
@@ -9,6 +9,45 @@ _Last updated: 2026-09-05 (external rider knee bend corrected)_
 **Phases 0 ~ 23 — ✅ IMPLEMENTED**
 
 The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
+
+### 2026-09-12：拇指修正引發的手臂／手腕回歸（FAILED，修復中）
+
+- 使用者再次指出俯視的肩肘腕姿勢異常；禁止沿用前一輪的 Visual PASS。整體持弓仍 **FAILED**。
+- 撤下將雙臂位置重排的 IK。`CanonicalBowGripPose` 保留 imported shoulder 與解剖關節位置軌跡，只在匯入處理時校正 forearm 軸向旋轉；wrist 維持 bind orientation。避免把拇指朝上的約 90° 旋轉全塞進手腕。
+- 發現取樣 ownership bug：AnimationMixer 對 constant tracks 有快取，在同一骨架取樣後寫 correction，下一 sample 可能沿用已校正 pose。現在 source sampler 與輸出骨架分離。此差異不是新增 runtime layer。
+- Roman raw bone origin 偏離手臂表面中心。forearm pronation 使用 hand anatomical wrist center 定義的 shaft offset，保持原始 physical wrist trajectory。兩角色共用計算，無 faction-specific angle。
+- 拇指 morph 曾把虎口拉成薄片，已撤回該次指節／曲線實驗。現有候選修正包含 thumb island 的 hand skin weights 與連接網格邊長限制；仍需 close-up Visual QA，不能視為完成。
+- 目前 `BowHandNormalization` 六個真實 LOD case 驗證 source joint trajectory／neutral wrist／grip clearance；新增 finger-shape 與 arm-pose 獨立性檢查。數值不等於 Visual PASS。
+- 最新完整測試（後續中心線／取樣修正前）216 passed / 6 failed，失敗是 `BowTwoHandContact` 的 two-hand alignment。TS / build 曾通過，最終版本需重跑。復原 imported arm trajectory 後，arrow/rest 仍有約 5 cm 側向差，尚未處理完；不可刪除接觸失敗檢查以宣稱完成。
+- 新證據在 `output/playwright/bow_shared_20260912/`。原 `20260908`／`20260911` 的截圖只能當歷史 A/B，不能當本版全視角 QA。
+- 下一步：驗證 sampler 分離／實際軸線旋轉後的 Roman + Viking 俯視腕部與肘接縫；單獨完成拇指接觸與網格形狀；再做 Load/Hold/Release 五視角、Player/NPC/walk/run 全矩陣。不要重新啟用整套 legacy 系統。
+
+### 2026-09-06：握姿、肩部與持弓移動修正（程式／資產完成，手指接觸 QA 尚未完成）
+
+> **使用者回報後撤回外觀完成判定。** 後續人物工作室診斷確認 runtime 左腕額外 90°、seek/restore 更新順序、未校準手掌軸向，以及 Roman gladius 握點誤套 steel sword（5 cm 誤差）。本次診斷沒有再修改姿勢；詳見 `artifacts/animation_sources/hand-pose-diagnosis.md`。75 項測試通過不代表解剖握姿正確。
+
+- 根因確認：舊 retarget 直接複製來源 world bone frame，手腕 bind-roll 約差 90°，羅馬上臂接近 180°。現已在六個 LOD 的八段動畫補償上臂／前臂／手腕 local-Y twist，保持骨頭指向與 gameplay timing；GLB SHA 和 audit 已更新。
+- 持劍採掌心 offset、正手方向與選擇性握拳 morph；保留來源肩膀姿勢，不再用固定 world roll 扭轉維京肩部。射箭手腕另以解剖握姿處理，不啟用持劍手臂層。
+- 羅馬內側肩部／袖子權重連續混合至 chest，胸甲維持剛性，修正肩部旋轉時離開軀幹的情況。
+- 弓 Load/Hold/Release 上半身與 Walk/Run 腿部分層；Viking archer 追擊時保留持弓狀態。Player/NPC 的弓對齊移到骨骼更新之後；Player 步行幀不再於 mixer 後重設腿骨。
+- Playwright CLI fallback 已檢查中性近景及正式 `?nolock`：持劍站姿、羅馬跑步肩部、弓箭手 4.8 m/s 追擊（bowLoad + run、swordGrip=false）。只有 favicon 404，沒有 application error。截圖保留在 `output/playwright/`。
+- Vitest 75/75 通過，TypeScript/Vite build 通過。**尚未宣稱完整視覺驗收通過**：canonical rig 沒有手指骨，拉弦手／nock 仍有間距，握弓手指仍需精修；完整 mounted/death/LOD/連續射擊矩陣需重新驗證。
+
+### 2026-09-05：Walk／Run runtime 與羅馬髖腿蒙皮修正（✅ DONE）
+
+- Player 不再於移動中每幀先重設 Idle；移動狀態現在會於單一 mixer update 之前選定，Walk／Run 可連續前進而非卡在第一幀。
+- NPC 的巡邏／追擊幀現在也會精確更新 animator 一次，戰鬥分支不會重複 update；實際 `?nolock` 場景已逐幀驗證。
+- 舊羅馬蒙皮在來源 mesh 軸向尚未 bake 時用 local Z 分段，造成 `New_legs` 1,905 頂點全黏在 foot bones，且大部分 tunic 黏在大腿。現已以 GLB +Y-up 標準座標重建大腿／小腿／腳掌與髖部漸層權重，不改幾何、材質、貼圖、骨架或動畫軌。
+- 人物工作室新增 side-view Run 展示；Chrome 連續 frame 已確認羅馬 Walk／Run 手腳進展、髖部連續且無骨盆突出。
+- Vitest 71/71、TypeScript 與 production build 通過；新增三個 LOD 的解剖 bone 權重回歸測試，Roman GLB SHA 與 audit 已更新。
+
+### 2026-09-05：人物動畫素材核心垂直切片（✅ DONE）
+
+- Kevin Iglesias 男性 Idle／Walk／Run／Bow Load／Hold／Release 與 Quaternius Sword Regular A／Overhand Throw 已重定向至 `project-humanoid-v1`，內嵌於 Viking／Roman 六個 LOD GLB。
+- Blender 5.2 建置管線固定 30 FPS 取樣、原地位移、rotation-only deform tracks、精確 0.22／0.48／1.5 秒戰鬥 retime，並可重複執行而不重複膨脹。
+- Runtime 改為 typed exact-state controller 與逐狀態 imported-first fallback；弓蓄力 seek Load、滿蓄力 loop Hold，放箭／劍擊／Pilum 的 gameplay event 時點維持不變且單次觸發。
+- 原始 ZIP 保留在 ignored incoming 區，Kevin 只發佈內嵌的 retarget 軌道；兩份 SHA、clip 映射、排除項目與授權證據已寫入 animation source audit。
+- 六個 GLB 的原幾何、材質、貼圖、骨架與 socket 計數保持不變；動畫總增量約 1.2 MB，低於 3 MB 上限。Vitest 69/69 通過，Chrome 人物工作室確認軸向修正後站姿正常、無專案來源 console error。
 
 ### 2026-09-05：外部騎手膝蓋反折修正（✅ DONE）
 
