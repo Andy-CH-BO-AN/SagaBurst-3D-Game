@@ -101,6 +101,10 @@ export function resolveMountSpawnY(
 }
 import { damageNpc, damagePlayer } from './combat/DamageRouter'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
+import { createBowComparisonPanel } from './debug/BowComparisonPanel'
+import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
+import { HumanoidStudioPlayback } from './debug/HumanoidStudioPlayback'
+import { setLegacyBladeGripBypass, isLegacyBladeGripBypass } from './world/HumanoidAttachmentContract'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
 import type { HumanoidCharacterInstance } from './world/HumanoidAssetRegistry'
 import {
@@ -111,6 +115,7 @@ import {
   type HorseAppearanceVariant,
 } from './world/HorseAssetRegistry'
 import { applyCharacterMountedPose } from './world/CharacterVisuals'
+import type { HumanoidAnimationState } from './world/CharacterVisuals'
 
 const HUMANOID_STUDIO_FLOOR_Y = 8
 const HORSE_STUDIO_CLIPS: HorseAnimationState[] = [
@@ -126,7 +131,7 @@ const HORSE_STUDIO_CLIPS: HorseAnimationState[] = [
 ]
 
 export class Game {
-  static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game> {
+  static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(window.innerWidth, window.innerHeight)
@@ -139,6 +144,11 @@ export class Game {
 
     const legacyQa = import.meta.env.DEV && new URLSearchParams(window.location.search).has('legacyhumanoids')
     try {
+      if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('devbowqa')) {
+        await HumanoidAssetRegistry.preload()
+        const { GameplayBowQAPanel } = await import('./debug/GameplayBowQAPanel')
+        return new GameplayBowQAPanel(renderer)
+      }
       if (legacyQa) {
         await HorseAssetRegistry.preload(renderer)
         const game = new Game(renderer, battleConfig)
@@ -189,6 +199,9 @@ export class Game {
   private inventoryManager: InventoryManager
   private combatTrajectoryDebugger: CombatTrajectoryDebugger | null = null
   private humanoidShowcase: HumanoidCharacterInstance[] = []
+  private humanoidStudioPlayback = new Map<HumanoidCharacterInstance, HumanoidStudioPlayback>()
+  private humanoidStudioEquipped = true
+  private humanoidStudioPaused = false
   private humanoidSkeletonHelpers: THREE.SkeletonHelper[] = []
   private mountStudioHorse: Mount | null = null
   private mountStudioRider: HumanoidCharacterInstance | null = null
@@ -279,10 +292,26 @@ export class Game {
     // ── Player & Input ──
     this.input = new PlayerInput()
     this.player = new Player(this.scene)
+    // Release and diagnostic armies are ahead at -Z. Establish the actor's
+    // heading first; the camera derives its rear orbit from that heading.
+    this.player.faceDirection(0, -1)
+
+    const query = new URLSearchParams(window.location.search)
+    this.isDevCombat = query.has('devcombat')
+    const devModelsMode = query.get('devmodels')
+    if (query.has('legacy')) {
+      const legacyVal = query.get('legacy')
+      setLegacyBladeGripBypass(legacyVal === '0' || legacyVal === 'false' || legacyVal === 'off')
+    }
+    this.isHumanoidStudio = devModelsMode === 'humans'
+    this.isMountStudio = devModelsMode === 'mounts'
+    this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
-    if (!this.isModelStudio) {
+    if (this.isModelStudio) {
+      this._setupModelStudioCamera()
+    } else {
       const terrainY = getTerrainHeight(VIKING_PLAYER_SPAWN.x, VIKING_PLAYER_SPAWN.z)
       this.player.group.position.set(VIKING_PLAYER_SPAWN.x, terrainY + 0.95, VIKING_PLAYER_SPAWN.z)
       this.player.spawnX = VIKING_PLAYER_SPAWN.x
@@ -304,13 +333,6 @@ export class Game {
     this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Combat & Enemies ──
-    const query = new URLSearchParams(window.location.search)
-    this.isDevCombat = query.has('devcombat')
-    const devModelsMode = query.get('devmodels')
-    this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts'
-    this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
-    if (this.isModelStudio) this._setupModelStudioCamera()
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -404,20 +426,15 @@ export class Game {
     const grid = new THREE.GridHelper(22, 22, 0x837765, 0x413b33)
     grid.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.025
     this.scene.add(grid)
-    const displays = [
-      { faction: 'viking' as const, x: -6.8, z: -3.1, rotation: 0, state: 'idle' },
-      { faction: 'viking' as const, x: -4.5, z: -3.1, rotation: Math.PI / 2, state: 'idle' },
-      { faction: 'viking' as const, x: -2.2, z: -3.1, rotation: 0, state: 'walk' },
-      { faction: 'viking' as const, x: 0.1, z: -3.1, rotation: 0, state: 'swordSlash' },
-      { faction: 'viking' as const, x: 2.4, z: -3.1, rotation: 0, state: 'bowAim' },
-      { faction: 'viking' as const, x: 4.7, z: -3.1, rotation: 0, state: 'mounted' },
-      { faction: 'roman' as const, x: -6.8, z: 3.1, rotation: 0, state: 'idle' },
-      { faction: 'roman' as const, x: -4.5, z: 3.1, rotation: Math.PI / 2, state: 'idle' },
-      { faction: 'roman' as const, x: -2.2, z: 3.1, rotation: 0, state: 'walk' },
-      { faction: 'roman' as const, x: 0.1, z: 3.1, rotation: 0, state: 'swordSlash' },
-      { faction: 'roman' as const, x: 2.4, z: 3.1, rotation: 0, state: 'mounted' },
-      { faction: 'roman' as const, x: 4.7, z: 3.1, rotation: 0, state: 'death' },
-    ]
+    const displays: Array<{
+      faction: 'viking' | 'roman'
+      x: number
+      z: number
+      rotation: number
+      state: HumanoidAnimationState | 'bowAim'
+    }> = (['viking', 'roman'] as const).flatMap((faction) =>
+      (['idle', 'walk', 'run', 'swordSlash', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'mounted', 'death'] as HumanoidAnimationState[])
+        .map((state, index) => ({ faction, x: -10.35 + index * 2.3, z: faction === 'viking' ? -3.1 : 3.1, rotation: 0, state })))
     for (const display of displays) {
       const instance = HumanoidAssetRegistry.createCharacterInstance({
         faction: display.faction,
@@ -442,9 +459,17 @@ export class Game {
         }
         instance.root.rotation.x = mount.ridePitch
       }
-      instance.rig.animation?.play(display.state, 0, display.state === 'idle' || display.state === 'walk' || display.state === 'bowAim')
+      const studioState = display.state === 'bowAim' ? 'bowHold' : display.state
+      instance.rig.animation?.play(studioState, {
+        fadeSeconds: 0,
+        loop: studioState === 'idle' || studioState === 'walk' || studioState === 'run' || studioState === 'bowHold',
+      })
       this.scene.add(instance.root)
       this.humanoidShowcase.push(instance)
+      this.humanoidStudioPlayback.set(instance, new HumanoidStudioPlayback(instance, studioState, display.faction))
+      instance.root.userData.studioState = studioState
+      const label = this._createStudioLabel(`${display.faction}｜${studioState}`, display.x)
+      label.position.z = display.z
       const skeleton = new THREE.SkeletonHelper(instance.skeleton.bones[0])
       skeleton.name = `${display.faction}-${display.state}-skeleton`
       const material = skeleton.material as THREE.LineBasicMaterial
@@ -457,6 +482,20 @@ export class Game {
       this.humanoidSkeletonHelpers.push(skeleton)
     }
     this._createHumanoidStudioHelp()
+    createBowComparisonPanel(this.humanoidStudioPlayback, this.camera, this.scene, () => {
+      this.humanoidStudioPaused = true
+      for (const helper of this.humanoidSkeletonHelpers) helper.visible = false
+      for (const mount of this.mounts) mount.group.visible = false
+      return this.studioControls!
+    }, () => {
+      this.humanoidStudioPaused = false
+      for (const mount of this.mounts) mount.group.visible = true
+      this.camera.fov = 48
+      this.camera.updateProjectionMatrix()
+      this.studioControls!.target.set(-1.2, HUMANOID_STUDIO_FLOOR_Y + 1.15, 0)
+      this.camera.position.set(10.5, HUMANOID_STUDIO_FLOOR_Y + 5.2, 11.5)
+      this.studioControls!.update()
+    })
   }
 
   private _setupModelStudioCamera(): void {
@@ -479,7 +518,7 @@ export class Game {
     this.studioControls.update()
   }
 
-  private _createStudioLabel(text: string, x: number): void {
+  private _createStudioLabel(text: string, x: number): THREE.Sprite {
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 96
@@ -502,6 +541,7 @@ export class Game {
     sprite.scale.set(2.15, 0.40, 1)
     sprite.renderOrder = 50
     this.scene.add(sprite)
+    return sprite
   }
 
   private _spawnMountStudio(): void {
@@ -551,7 +591,7 @@ export class Game {
         isPlayer: false,
       })
       applyCharacterMountedPose(rider.rig, true, 'HORSE')
-      rider.rig.animation?.play('mounted', 0, true)
+      rider.rig.animation?.play('mounted', { fadeSeconds: 0, loop: true })
       const seat = mount.getSaddleSeatLocal()
       let pelvisHeight = 0
       if (rider.rig.pelvis) {
@@ -666,7 +706,24 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'humanoid-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.84);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    help.textContent = '人物模型工作室｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放・H 顯示/隱藏骨架'
+    const updateHelp = () => { help.textContent = `人物工作室｜${this.humanoidStudioEquipped ? '正式控制器＋裝備' : '純 GLB 動畫'}｜模式: ${isLegacyBladeGripBypass() ? '劍握持修正 OFF' : '劍握持修正 ON'} (L 切換)｜B 切換・Space 暫停・R 重播・H 骨架｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放` }
+    updateHelp()
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'KeyB') {
+        this.humanoidStudioEquipped = !this.humanoidStudioEquipped
+        for (const playback of this.humanoidStudioPlayback.values()) playback.setEquipped(this.humanoidStudioEquipped)
+        updateHelp()
+      } else if (event.code === 'KeyL') {
+        setLegacyBladeGripBypass(!isLegacyBladeGripBypass())
+        for (const playback of this.humanoidStudioPlayback.values()) playback.reset()
+        updateHelp()
+      } else if (event.code === 'Space') {
+        event.preventDefault()
+        this.humanoidStudioPaused = !this.humanoidStudioPaused
+      } else if (event.code === 'KeyR') {
+        for (const playback of this.humanoidStudioPlayback.values()) playback.reset()
+      }
+    })
     document.body.appendChild(help)
     window.addEventListener('keydown', (event) => {
       if (event.code !== 'KeyH') return
@@ -1271,7 +1328,10 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
     for (const instance of this.humanoidShowcase) {
-      instance.update(dt, instance.root.position.distanceTo(this.camera.position))
+      const playback = this.humanoidStudioPlayback.get(instance)
+      if (playback) {
+        if (!this.humanoidStudioPaused) playback.update(dt)
+      } else instance.update(dt, instance.root.position.distanceTo(this.camera.position))
     }
 
     // The humanoid studio owns a free orbit/pan camera and never follows Player.

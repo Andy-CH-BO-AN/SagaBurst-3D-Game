@@ -2,14 +2,32 @@
   "schemaVersion": 1,
   "status": "pass-provisional-mounted",
   "structural": {
-    "lod0": {"audit": "audit-lod0.json", "triangles": 59983, "joints": 31, "skins": 1, "animations": 0},
-    "lod1": {"audit": "audit-lod1.json", "triangles": 19985, "joints": 31, "skins": 1, "animations": 0},
-    "lod2": {"audit": "audit-lod2.json", "triangles": 5922, "joints": 31, "skins": 1, "animations": 0}
+    "lod0": {
+      "audit": "audit-lod0.json",
+      "triangles": 59983,
+      "joints": 31,
+      "skins": 1,
+      "animations": 8
+    },
+    "lod1": {
+      "audit": "audit-lod1.json",
+      "triangles": 19985,
+      "joints": 31,
+      "skins": 1,
+      "animations": 8
+    },
+    "lod2": {
+      "audit": "audit-lod2.json",
+      "triangles": 5922,
+      "joints": 31,
+      "skins": 1,
+      "animations": 8
+    }
   },
   "images": {
-    "lod0": {"audit": "images-lod0.json", "count": 21, "maxDimension": 2048},
-    "lod1": {"audit": "images-lod1.json", "count": 21, "maxDimension": 1024},
-    "lod2": {"audit": "images-lod2.json", "count": 21, "maxDimension": 512}
+    "lod0": { "audit": "images-lod0.json", "count": 21, "maxDimension": 2048 },
+    "lod1": { "audit": "images-lod1.json", "count": 21, "maxDimension": 1024 },
+    "lod2": { "audit": "images-lod2.json", "count": 21, "maxDimension": 512 }
   },
   "contract": {
     "requiredBonesAndSockets": "pass",
@@ -18,13 +36,21 @@
     "neckLength": "pass",
     "kneeHeight": "pass",
     "uniformRuntimeScale": "pass",
-    "finitePoseBounds": "pass"
+    "finitePoseBounds": "pass",
+    "anatomicalLegWeights": "pass",
+    "canonicalAnimationSet": "pass",
+    "rotationOnlyBoneTracks": "pass",
+    "lodClipDurationParity": "pass"
   },
   "deformation": {
+    "shoulderSeam": "weight-repair-and-browser-review-2026-09-06",
+    "handAndNockContact": "pending-finger-pose-refinement",
     "audit": "evidence/deformation-audit.json",
     "bindFrontSide": "pass",
     "armsForwardFrontSide": "pass",
     "mountedFrontSide": "provisional-pass-at-12:32",
+    "walkRuntime": "pass-in-browser-2026-09-05",
+    "hipAndThighSilhouette": "lower-skirt-thigh-weight-parity-repaired-2026-09-06",
     "requiredFollowUp": "Validate the thigh, undertunic, skirt, dangles, and saddle clearance together in the browser."
   },
   "sourceWarnings": [

@@ -19,12 +19,15 @@ const AIM_FOV    = 40
 const LEVEL_AIM_PITCH = 0.3
 
 export class ThirdPersonCamera {
-  private yaw = Math.PI            // start behind player
+  private yaw: number
   private pitch = 0.3
   private readonly aimDirection = new THREE.Vector3(0, 0, 1)
   private readonly cameraTarget = new THREE.Vector3()
 
-  constructor(private camera: THREE.PerspectiveCamera, private player: Player) {}
+  constructor(private camera: THREE.PerspectiveCamera, private player: Player) {
+    this.yaw = (player.facingYaw ?? 0) + Math.PI
+    this._updateAimDirection()
+  }
 
   setYaw(value: number): void {
     this.yaw = value

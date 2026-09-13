@@ -19,13 +19,15 @@
   "supplementaryPermission": "Andy Woodhead (Model author): Yes - you are free to use the whole model or parts of it in any way.",
   "rightsRisk": "CC BY grants only rights the licensor has authority to grant; preserve both Andy Woodhead and Photodjo credits.",
   "modifications": [
+    "Corrected upper-arm/forearm bind twist; retargeted hands using source index/pinky landmarks and target mesh thumb axes; removed runtime bow-wrist override",
     "Reconnected the supplied albedo, OpenGL normal, roughness, and metallic maps",
     "Applied uniform metre normalization to 1.86 m",
     "Rebuilt the UE4-compatible rig as project-humanoid-v1 and consolidated twist/finger weights into contract bones",
     "Added hand, back, head, pelvis, foot, and sole socket bones",
     "Removed 4,159 vertices belonging to the source shield and spear back-equipment islands",
     "Generated approximately 60k, 20k, and 6k triangle LODs",
-    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions"
+    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions",
+    "Retargeted eight selected male clips to project-humanoid-v1 at 30 FPS with in-place locomotion and gameplay-compatible event timing"
   ],
   "metrics": {
     "heightM": 1.86,
@@ -44,7 +46,47 @@
       "lod2": 512
     },
     "uniformScaleAppliedInBlender": 0.9122049575833375,
-    "runtimeScale": [1, 1, 1]
+    "runtimeScale": [
+      1,
+      1,
+      1
+    ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        -0.0133329214741,
+        0.1,
+        0.0105268421545
+      ],
+      "palmNormal": [
+        -0.92,
+        0,
+        -0.392
+      ],
+      "thumbDir": -1,
+      "thumbDirection": [
+        0.392,
+        0,
+        -0.92
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0.015,
+        0,
+        0
+      ],
+      "fingerBase": 0.13,
+      "thumbBaseCenter": [
+        0.01,
+        0.04,
+        -0.035
+      ]
+    }
   },
   "files": {
     "lod0": "lod0.glb",
@@ -52,17 +94,117 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "9077eb55ba958804bde3c010b57e0ab9bc20ee493524d3d3ddf64b544c0fa7f5",
-    "lod1": "a6c8cb863b1ca9616daa6b58c702c20e49164c4cbfc9c308cb6c69695954b4c9",
-    "lod2": "10080283be96e0a93dc39c596769e97185ad83a2aa2d2000c3d5dc00c5ebca69"
+    "lod0": "9dac9f1589b80536c50217055aa7a7d00c167cb0b67c5da62d7ad9a58a0157c9",
+    "lod1": "d4b94611f1205130919f14581ee408b852aa9f8edfd3c2a8f83169a48fe477b2",
+    "lod2": "1df412de78c08049cedb9d2dfc82c10342d215fc957a2157dc93e87cc2fd8e4e"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
   "audit": "audit.json",
   "animations": {
-    "embedded": [],
-    "runtimeGenerated": ["idle", "walk", "swordSlash", "stab", "bowAim", "mounted", "death"]
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Idle01",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Walk01_Forward",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Run01_Forward",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Load",
+        "loop": false,
+        "duration": 0.833333
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Hold",
+        "loop": true,
+        "duration": 1.333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Release",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "Sword_Regular_A",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "OverhandThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 1.5,
+          "actionComplete": 1.5
+        }
+      }
+    ],
+    "runtimeGenerated": [
+      "idle",
+      "walk",
+      "run",
+      "bowLoad",
+      "bowHold",
+      "bowRelease",
+      "swordSlash",
+      "pilumThrow",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance",
+      "mounted",
+      "death"
+    ]
   },
+  "animationSources": [
+    {
+      "author": "Kevin Iglesias",
+      "package": "Human Archer Animations FREE",
+      "license": "Unity Asset Store EULA",
+      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
+    },
+    {
+      "author": "Quaternius",
+      "package": "Universal Animation Library 2",
+      "license": "CC0 1.0",
+      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
+    }
+  ],
   "evidence": {
     "attribution": "attribution-evidence.json",
     "sourcePackage": "source-package-audit.json",
@@ -70,7 +212,7 @@
     "deformation": "evidence/deformation-audit.json"
   },
   "remainingUncertainties": [
-    "The source contains no animation actions; runtime deterministic clips must preserve combat event timing.",
+    "Imported clips preserve the existing gameplay event timing; unsupported combat states still use deterministic procedural poses.",
     "The source has no horns. Use socket_head for the separate runtime short-horn accessory with total span at most 0.44 m.",
     "Mounted clearance must still be checked against the actual cat and corgi saddles in the browser."
   ]

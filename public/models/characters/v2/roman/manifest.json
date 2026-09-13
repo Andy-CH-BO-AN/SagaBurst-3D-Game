@@ -17,15 +17,19 @@
   "attribution": "Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.",
   "rightsRisk": "CC BY grants only rights the licensor has authority to grant; no separate third-party texture claim was found in the supplied package or model page.",
   "modifications": [
+    "Corrected upper-arm/forearm bind twist; retargeted hands using source index/pinky landmarks and target mesh thumb axes; removed runtime bow-wrist override",
     "Excluded the source Sword2_1, Scutum_04_01, and Scabbard objects so runtime procedural equipment remains authoritative",
     "Applied uniform metre normalization to 1.78 m",
     "Reduced the armour shoulder outline to the 0.46 m contract limit",
     "Built project-humanoid-v1 from the unrigged T-pose source",
     "Applied deterministic segmented skin weights with rigid chest armour, upper-arm shoulder plates, limited skirt weights, and restrained dangle weights",
+    "Rebuilt leg, boot, undertunic, tunic, and torso weights in canonical GLB space after correcting the source object-axis segmentation error",
+    "Blended proximal arm and sleeve weights into the chest across the shoulder seam; kept chest armour rigid to prevent detached shoulder caps",
     "Added fitted dark-red undertunic thigh layers to avoid an exposed wedge silhouette in the mounted pose",
     "Added hand, back, head, pelvis, foot, and sole socket bones",
     "Generated approximately 60k, 20k, and 6k triangle LODs",
-    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions"
+    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions",
+    "Retargeted eight selected male clips to project-humanoid-v1 at 30 FPS with in-place locomotion and gameplay-compatible event timing"
   ],
   "metrics": {
     "heightM": 1.78,
@@ -44,7 +48,47 @@
       "lod2": 512
     },
     "uniformScaleAppliedInBlender": 0.9454079114491128,
-    "runtimeScale": [1, 1, 1]
+    "runtimeScale": [
+      1,
+      1,
+      1
+    ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        -0.008,
+        0.055,
+        -0.078
+      ],
+      "palmNormal": [
+        0,
+        0,
+        -1
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        1,
+        0,
+        0
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        -0.065
+      ],
+      "fingerBase": 0.055,
+      "thumbBaseCenter": [
+        0.035,
+        0.018,
+        -0.061
+      ]
+    }
   },
   "files": {
     "lod0": "lod0.glb",
@@ -52,17 +96,117 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "f3d3d4ae7ff8513971cd147d00dbc450965653447cd5d4b611ca2326b5d99087",
-    "lod1": "2d5444e27c4d259bc72268270294ecbf9f538117306ea9bfa09c847d45a5b2e9",
-    "lod2": "890dde65d932c1001ec7eb0a88fc72455dc993863d0527368351f6ec1b0ba1a8"
+    "lod0": "b16e9d966d009ead327129436521d80b429f819769af48e57b92a649fd5e763d",
+    "lod1": "9249f25b5288d5134a0656a78242cbc8e1dcc1c4d40bf86dd9bc9cf2e9ec20a2",
+    "lod2": "63005603241bb3512d6d0dc2b275f75a4d65891cc9209f1b65424a9e6568f5ce"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
   "audit": "audit.json",
   "animations": {
-    "embedded": [],
-    "runtimeGenerated": ["idle", "walk", "swordSlash", "stab", "bowAim", "mounted", "death"]
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Idle01",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Walk01_Forward",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Run01_Forward",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Load",
+        "loop": false,
+        "duration": 0.833333
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Hold",
+        "loop": true,
+        "duration": 1.333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Release",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "Sword_Regular_A",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "OverhandThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 1.5,
+          "actionComplete": 1.5
+        }
+      }
+    ],
+    "runtimeGenerated": [
+      "idle",
+      "walk",
+      "run",
+      "bowLoad",
+      "bowHold",
+      "bowRelease",
+      "swordSlash",
+      "pilumThrow",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance",
+      "mounted",
+      "death"
+    ]
   },
+  "animationSources": [
+    {
+      "author": "Kevin Iglesias",
+      "package": "Human Archer Animations FREE",
+      "license": "Unity Asset Store EULA",
+      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
+    },
+    {
+      "author": "Quaternius",
+      "package": "Universal Animation Library 2",
+      "license": "CC0 1.0",
+      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
+    }
+  ],
   "evidence": {
     "attribution": "attribution-evidence.json",
     "sourcePackage": "source-package-audit.json",

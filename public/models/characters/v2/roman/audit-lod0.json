@@ -1,9 +1,42 @@
 {
   "file": "lod0.glb",
-  "byteLength": 14816744,
+  "byteLength": 15014592,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
-    "version": "2.0"
+    "version": "2.0",
+    "extras": {
+      "humanoidAnimationBuild": {
+        "schemaVersion": 1,
+        "baseBufferByteLength": 14785260,
+        "baseBufferViewCount": 123,
+        "baseAccessorCount": 102,
+        "clips": [
+          "idle",
+          "walk",
+          "run",
+          "bowLoad",
+          "bowHold",
+          "bowRelease",
+          "swordSlash",
+          "pilumThrow"
+        ],
+        "fps": 30
+      },
+      "romanSkinWeightRepair": {
+        "schemaVersion": 2,
+        "coordinateSpace": "glTF +Y-up",
+        "meshes": {
+          "Armour_top": 4616,
+          "Boots": 3904,
+          "Full_figure_42_T_pose": 1914,
+          "New_arms": 3305,
+          "New_legs": 1905,
+          "RomanUndertunic_l": 38,
+          "RomanUndertunic_r": 38,
+          "Tunic_1": 4575
+        }
+      }
+    }
   },
   "counts": {
     "scenes": 1,
@@ -16,7 +49,7 @@
     "images": 21,
     "skins": 1,
     "joints": 31,
-    "animations": 0
+    "animations": 8
   },
   "jointNames": [
     "socket_pelvis",
@@ -51,7 +84,16 @@
     "upper_leg_r",
     "hips"
   ],
-  "animationNames": [],
+  "animationNames": [
+    "bowHold",
+    "bowLoad",
+    "bowRelease",
+    "idle",
+    "pilumThrow",
+    "run",
+    "swordSlash",
+    "walk"
+  ],
   "extensionsUsed": [],
   "extensionsRequired": []
 }

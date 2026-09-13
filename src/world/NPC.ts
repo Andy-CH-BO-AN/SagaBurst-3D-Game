@@ -16,6 +16,8 @@ const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
 const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
+import { applyAttachmentContract } from './HumanoidAttachmentContract'
+import { applyBowAttachment } from './BowAttachmentContract'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
@@ -114,6 +116,7 @@ export class NPC {
   private currentWaypointIdx = 0
 
   private arrows: number = 0
+  private bowArrowReleased = false
   private velY = 0
   private onGround = false
   private visualMovementSpeed = 0
@@ -236,13 +239,19 @@ export class NPC {
     this.swordPivot = new THREE.Group()
     this.swordGripPivot = new THREE.Group()
     this.swordPivot.add(this.swordGripPivot)
+    applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', this.faction === Faction.PLAYER ? 0.15 : 0.10)
     this.rig.right.handSocket.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
-    if (this.faction === Faction.ENEMY) this.rig.right.handSocket.add(this.bowPivot)
-    else this.rig.left.handSocket.add(this.bowPivot)
+    if (this.faction === Faction.ENEMY) {
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      this.rig.right.handSocket.add(this.bowPivot)
+    } else {
+      applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
+      this.rig.left.handSocket.add(this.bowPivot)
+    }
 
     this.shieldPivot = new THREE.Group()
     this.rig.left.handSocket.add(this.shieldPivot)
@@ -261,12 +270,8 @@ export class NPC {
         this.swordGripPivot,
       ),
     )
-    this.swordGripPivot.position.set(0, 0.05, 0)
-    if (this.isUsingLance) {
-      this.swordGripPivot.rotation.set(0, 0, 0)
-    } else {
-      this.swordGripPivot.rotation.set(0, 0, Math.PI)
-    }
+    this.swordGripPivot.position.set(0, 0, 0)
+    this.swordGripPivot.rotation.set(0, 0, 0)
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow')
@@ -386,7 +391,7 @@ export class NPC {
   }
 
   private _updateBowVisual(drawRatio: number, targetWorld: THREE.Vector3): void {
-    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.arrows > 0)
+    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.arrows > 0 && !this.bowArrowReleased)
   }
 
   private _createAlertSprite(): THREE.Sprite {
@@ -474,13 +479,12 @@ export class NPC {
   ): void {
     const previousPosition = this.group.position.clone()
     this.visualMovementSpeed = 0
+    let animationAdvanced = false
     if (this.mount) this.mount.beginControlledFrame()
-    const startsWithShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
+    const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+    const startsWithShieldOnBack = this.arrows > 0 || recoveringBow || (this.isUsingLance && !this.isMounted)
     this.animator.setShieldGuard(Boolean(this.shieldId) && !startsWithShieldOnBack)
-    if (!this.animator.busy) {
-      if (this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
-      else if (this.state !== AIState.ATTACK && this.state !== AIState.DEAD) this.animator.poseIdle()
-    }
+    if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
@@ -501,7 +505,18 @@ export class NPC {
 
     const targetInfo = this._findTarget(player, allNPCs)
 
-    switch (this.state) {
+    // Releasing the projectile does not end the imported release clip. Keep its
+    // recovery, even if this was the last arrow or the target disappears.
+    if (recoveringBow && this.state !== AIState.DEAD) {
+      const events = this.animator.update(dt)
+      animationAdvanced = true
+      if (targetInfo) this._updateBowVisual(0, targetInfo.position)
+      else this.bowVisual?.update(0, undefined, false)
+      if (events.actionCompleted) {
+        if (this.arrows === 0) this._switchToMelee()
+        this.state = AIState.CHASE
+      }
+    } else switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
         this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
@@ -651,19 +666,21 @@ export class NPC {
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
 
           if (this.faction === Faction.PLAYER) {
-            if (!this.animator.busy) this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
-            this._updateBowVisual(progress, targetInfo.position)
+            if (!this.animator.busy) {
+              this.bowArrowReleased = false
+              this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
+            }
             if (this.attackTimer >= RANGED_COOLDOWN && this.animator.currentAction === 'bowAim') {
               this.animator.start('bowRelease')
             }
           } else {
-            this.animator.posePilum(progress)
+            if (!this.animator.busy) this.animator.start('pilumThrow')
           }
 
           const rangedEvents = this.animator.update(dt)
-          const shouldFire = this.faction === Faction.PLAYER
-            ? rangedEvents.projectileRelease
-            : this.attackTimer >= RANGED_COOLDOWN
+          if (this.faction === Faction.PLAYER) this._updateBowVisual(progress, targetInfo.position)
+          animationAdvanced = true
+          const shouldFire = rangedEvents.projectileRelease
           if (shouldFire) {
             const origin = this._tmpRangedOrigin
             const dir = this._tmpRangedDirection
@@ -679,11 +696,14 @@ export class NPC {
             this.bowVisual?.hideArrow()
 
             this.arrows -= 1
-            if (this.arrows === 0) this._switchToMelee()
-
             this.attackTimer = 0
-            this.state = AIState.CHASE
-            this.animator.cancel()
+            if (this.faction === Faction.PLAYER && !rangedEvents.actionCompleted) {
+              this.bowArrowReleased = true
+            } else {
+              if (this.arrows === 0) this._switchToMelee()
+              this.state = AIState.CHASE
+              this.animator.cancel()
+            }
           }
         } else {
           if (!this.animator.busy && this.attackTimer <= 0) {
@@ -692,6 +712,7 @@ export class NPC {
           }
 
           const meleeEvents = this.animator.update(dt)
+          animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
             const currentDist = this.combatPosition.distanceTo(targetInfo.position)
             if (currentDist <= this.meleeAttackRadius + 0.4) {
@@ -713,7 +734,7 @@ export class NPC {
       }
 
       case AIState.DEAD: {
-        this.rig.animation?.play('death', 0.12, false)
+        this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
         this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
         if (this.respawnEnabled) {
           this.respawnTimer -= dt
@@ -725,8 +746,23 @@ export class NPC {
       }
     }
 
-    const needsShieldOnBack = this.arrows > 0 || (this.isUsingLance && !this.isMounted)
-    if (this.state !== AIState.DEAD) this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+    const needsShieldOnBack = this.arrows > 0 || this.animator.currentAction === 'bowRelease' || (this.isUsingLance && !this.isMounted)
+    if (this.state !== AIState.DEAD) {
+      if (!this.animator.busy && !animationAdvanced) {
+        if (this.bowPivot.visible && this.faction === Faction.PLAYER) this.animator.poseBow(0)
+        else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
+      }
+      this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+    }
+    // Patrol/chase previously selected walk/run after the only possible mixer
+    // update, while those states did not update the animator at all. Advance
+    // exactly once here for every non-combat frame (including death clips).
+    if (!animationAdvanced) this.animator.update(dt)
+    if (!animationAdvanced && this.state !== AIState.DEAD && this.bowPivot.visible && this.faction === Faction.PLAYER) {
+      this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
+      this._tmpRangedTarget.y += 1.4
+      this.bowVisual?.update(0, this._tmpRangedTarget, false)
+    }
     this._setShieldPlacement(needsShieldOnBack)
     this._updateShieldTransition(dt)
 

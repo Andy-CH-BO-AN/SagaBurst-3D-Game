@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "auditedAt": "2026-09-05",
+  "outputSkeleton": "project-humanoid-v1",
+  "outputFps": 30,
+  "sources": [
+    {
+      "author": "Kevin Iglesias",
+      "package": "Human Archer Animations FREE",
+      "url": "https://kevdev.itch.io/human-archer-animations-free",
+      "archive": "Human Archer Animations FREE.zip",
+      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904",
+      "license": "Unity Asset Store EULA",
+      "licenseEvidenceInArchive": "Human Archer Animations 2.0 FREE.pdf",
+      "distributionConstraint": "Only retargeted animation tracks are embedded in character GLBs; source FBX, Blend, meshes and props are excluded from public and Git."
+    },
+    {
+      "author": "Quaternius",
+      "package": "Universal Animation Library 2",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "archive": "Universal Animation Library 2[Standard].zip",
+      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68",
+      "license": "CC0 1.0 Universal",
+      "licenseEvidenceInArchive": "Universal Animation Library 2[Standard]/License.txt",
+      "distributionConstraint": "The source is isolated using the same policy as the Kevin package."
+    }
+  ],
+  "clips": [
+    {
+      "canonical": "idle",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@Idle01",
+      "duration": 2.7,
+      "loop": true
+    },
+    {
+      "canonical": "walk",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@Walk01_Forward",
+      "duration": 0.8,
+      "loop": true,
+      "rootMotionRemoved": true
+    },
+    {
+      "canonical": "run",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@Run01_Forward",
+      "duration": 0.6,
+      "loop": true,
+      "rootMotionRemoved": true
+    },
+    {
+      "canonical": "bowLoad",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@BowShot01 - Load",
+      "duration": 0.833333,
+      "loop": false
+    },
+    {
+      "canonical": "bowHold",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@BowShot01 - Hold",
+      "duration": 1.333333,
+      "loop": true
+    },
+    {
+      "canonical": "bowRelease",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@BowShot01 - Release",
+      "duration": 0.22,
+      "loop": false,
+      "projectileRelease": 0.04
+    },
+    {
+      "canonical": "swordSlash",
+      "source": "Quaternius",
+      "sourceClip": "Sword_Regular_A",
+      "duration": 0.48,
+      "loop": false,
+      "hit": 0.252
+    },
+    {
+      "canonical": "pilumThrow",
+      "source": "Quaternius",
+      "sourceClip": "OverhandThrow",
+      "duration": 1.5,
+      "loop": false,
+      "projectileRelease": 1.5
+    }
+  ],
+  "retarget": {
+    "translationTracks": "removed",
+    "scaleTracks": "removed",
+    "rotationTracks": "project deform bones plus clavicles and upper chest only; upper-arm/forearm bind-frame twist about local +Y; hands use source index-to-pinky anatomical landmarks mapped to target mesh thumb side, NOT rest-roll differences",
+    "handCalibration": { "sourceKevinThumbLocal": { "left": [-0.999997, 0, 0.002476], "right": [0.999997, 0, 0.002459] }, "targetThumbSide": { "vikingLeft": "-X", "vikingRight": "+X", "romanLeft": "+X", "romanRight": "-X" }, "runtimeBowWristOverride": false },
+    "root": "fixed at origin",
+    "up": "+Y",
+    "forward": "+Z (existing gameplay heading convention)",
+    "keyReduction": "Blender glTF animation-size optimization after 30 FPS resampling"
+  },
+  "romanSkinRepair": {
+    "reason": "The pre-existing Roman source meshes carried object-level axis rotations, so local-Z segmentation assigned legs and boots to foot bones and most of the tunic to thigh bones.",
+    "method": "Recomputed JOINTS_0 and WEIGHTS_0 from canonical GLB +Y-up positions without changing geometry, indices, materials, textures, skeleton, or animation tracks.",
+    "meshes": [
+      "New_legs",
+      "Boots",
+      "RomanUndertunic_l",
+      "RomanUndertunic_r",
+      "Tunic_1",
+      "Full_figure_42_T_pose",
+      "New_arms",
+      "Armour_top"
+    ]
+  },
+  "excluded": [
+    "source mannequin meshes",
+    "source character meshes",
+    "source weapons",
+    "source bows and arrows",
+    "source hats and quivers",
+    "root-motion variants",
+    "all unselected clips"
+  ]
+}

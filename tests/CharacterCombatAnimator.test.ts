@@ -24,6 +24,7 @@ import {
   createHumanoidRigAdapter,
   createProjectAnimationClips,
   createVikingHornAccessory,
+  MixerController,
   validateHumanoidManifest,
   type HumanoidAssetManifest,
 } from '../src/world/HumanoidAssetRegistry'
@@ -38,6 +39,140 @@ import {
 import { DEFAULT_MOUNT_TYPE, MountType, mountTypeFromSave } from '../src/world/Mount'
 import { DEFAULT_SAVE, SaveManager } from '../src/save/SaveManager'
 import horseRuntimeManifest from '../public/models/mounts/v1/horse/manifest.json'
+import { HumanoidBladeGrip } from '../src/world/HumanoidBladeGrip'
+
+describe('external humanoid sword grip', () => {
+  it('does not add a relaxed-left wrist roll or alter imported shoulders', () => {
+    const root = new THREE.Group()
+    const shoulder = new THREE.Bone(), elbow = new THREE.Bone(), hand = new THREE.Bone(), left = new THREE.Bone()
+    shoulder.name = 'upper_arm_r'; elbow.name = 'lower_arm_r'; hand.name = 'hand_r'; left.name = 'hand_l'
+    root.add(shoulder, left); shoulder.add(elbow); elbow.add(hand)
+    shoulder.rotation.set(0.2, -0.3, 0.4)
+    left.rotation.set(-0.4, 0.1, 0.6)
+    const shoulderBefore = shoulder.quaternion.clone(), leftBefore = left.quaternion.clone()
+    const layer = new HumanoidBladeGrip(root)
+    for (let i = 0; i < 10; i++) {
+      layer.restore()
+      layer.update(0.1, true, true)
+      expect(shoulder.quaternion.angleTo(shoulderBefore)).toBeLessThan(1e-6)
+      expect(left.quaternion.angleTo(leftBefore)).toBeLessThan(1e-6)
+    }
+    layer.reset()
+    expect(left.quaternion.angleTo(leftBefore)).toBeLessThan(1e-6)
+    expect(hand.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-6)
+  })
+
+  it('raw studio mode samples full bow legs and switching back restores the production mask', () => {
+    const root = new THREE.Group(), leg = new THREE.Bone()
+    leg.name = 'upper_leg_r'; root.add(leg)
+    const track = (end: number) => new THREE.NumberKeyframeTrack('upper_leg_r.rotation[x]', [0, 1], [0, end])
+    const controller = new MixerController([new THREE.AnimationMixer(root)], [[
+      new THREE.AnimationClip('idle', 1, [track(0)]),
+      new THREE.AnimationClip('bowLoad', 1, [track(1)]),
+    ]])
+    controller.setPoseLayersEnabled(false)
+    controller.play('bowLoad', { fadeSeconds: 0 })
+    controller.seek('bowLoad', 0.5)
+    controller.update(0.1)
+    expect(leg.rotation.x).toBeCloseTo(0.5)
+    controller.setPoseLayersEnabled(true)
+    controller.play('bowLoad', { fadeSeconds: 0 })
+    controller.seek('bowLoad', 0.5)
+    controller.update(0.2)
+    expect(leg.rotation.x).toBeCloseTo(0)
+  })
+
+  it('restores the overlay before repeated paused bow samples, including after fades finish', () => {
+    const root = new THREE.Group()
+    const shoulder = new THREE.Bone(), elbow = new THREE.Bone(), hand = new THREE.Bone()
+    shoulder.name = 'upper_arm_r'; elbow.name = 'lower_arm_r'; hand.name = 'hand_r'
+    root.add(shoulder); shoulder.add(elbow); elbow.add(hand)
+    const end = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 1)
+    const clip = new THREE.AnimationClip('bowLoad', 1, [
+      new THREE.QuaternionKeyframeTrack('upper_arm_r.quaternion', [0, 1], [0, 0, 0, 1, ...end.toArray()]),
+    ])
+    const controller = new MixerController([new THREE.AnimationMixer(root)], [[clip]])
+    controller.play('bowLoad', { fadeSeconds: 0 })
+    for (const ratio of [0.05, 0.95, 0.05, 0.95]) {
+      controller.seek('bowLoad', ratio)
+      controller.update(0.2)
+      const expected = new THREE.Quaternion().slerp(end, ratio)
+      expect(shoulder.quaternion.clone().normalize().angleTo(expected)).toBeLessThan(1e-5)
+    }
+  })
+
+  it('starts the camera behind the character facing the battle, not at a fixed world yaw', () => {
+    for (const facingYaw of [0, Math.PI, Math.PI / 2]) {
+      const camera = new THREE.PerspectiveCamera()
+      const player = { facingYaw, position: new THREE.Vector3(), isAiming: false, isMounted: false } as Player
+      const controller = new ThirdPersonCamera(camera, player)
+      controller.update({ consumeMouseDelta: () => ({ dx: 0, dy: 0 }) } as PlayerInput)
+      const forward = new THREE.Vector3(Math.sin(facingYaw), 0, Math.cos(facingYaw))
+      expect(camera.getWorldDirection(new THREE.Vector3()).dot(forward)).toBeCloseTo(1)
+      expect(camera.position.dot(forward)).toBeLessThan(0)
+    }
+  })
+  it('keeps bow upper-body sampling while walk legs advance independently', () => {
+    const root = new THREE.Group()
+    const legBone = new THREE.Bone(), armBone = new THREE.Bone()
+    legBone.name = 'upper_leg_r'
+    armBone.name = 'upper_arm_l'
+    root.add(legBone, armBone)
+    const track = (name: string, end: number) => new THREE.NumberKeyframeTrack(`${name}.rotation[x]`, [0, 1], [0, end])
+    const clips = [
+      new THREE.AnimationClip('idle', 1, [track('upper_leg_r', 0)]),
+      new THREE.AnimationClip('walk', 1, [track('upper_leg_r', 1)]),
+      new THREE.AnimationClip('bowLoad', 1, [track('upper_leg_r', -1), track('upper_arm_l', 1)]),
+    ]
+    const controller = new MixerController([new THREE.AnimationMixer(root)], [clips])
+    controller.seek('bowLoad', 0.5)
+    controller.setBowLocomotion('walk', 1)
+    controller.update(0.25)
+    expect(armBone.rotation.x).toBeCloseTo(0.5)
+    expect(legBone.rotation.x).toBeCloseTo(0.25)
+    controller.seek('bowLoad', 0.5)
+    controller.update(0.25)
+    expect(armBone.rotation.x).toBeCloseTo(0.5)
+    expect(legBone.rotation.x).toBeCloseTo(0.5)
+    controller.play('idle', { fadeSeconds: 0 })
+    controller.update(0.1)
+    expect(legBone.rotation.x).toBeCloseTo(0)
+  })
+  for (const center of [[-0.025, 0.10, -0.078], [-0.025, 0.065, -0.024]]) {
+    it(`centres the hilt in the palm and points the blade toward the thumb (${center[1]})`, () => {
+      const { rig, subject, grip } = rigAndAnimator()
+      const root = new THREE.Group()
+      root.add(rig.right.shoulder, rig.rightLeg.hip)
+      rig.right.shoulder.name = 'upper_arm_r'
+      rig.right.elbow.name = 'lower_arm_r'
+      rig.right.wrist.name = 'hand_r'
+      rig.right.wrist.userData.bladeGripCenter = center
+      const isRoman = center[1] === 0.065
+      const gripAxis = isRoman ? -1 : 1
+      WeaponMeshFactory.buildNpcMelee(isRoman ? Faction.ENEMY : Faction.PLAYER, 2, false, grip)
+      grip.rotation.z = Math.PI
+      rig.right.wrist.userData.bladeGripAxis = gripAxis
+      rig.right.handSocket.position.set(0, 0.07, 0)
+      rig.right.handSocket.quaternion.set(0.5, -0.5, -0.5, 0.5)
+      grip.position.y = 0.05
+      const layer = new HumanoidBladeGrip(root)
+      const legBefore = rig.rightLeg.hip.quaternion.clone()
+      layer.update(2, true, true)
+      subject.update(0)
+      root.updateMatrixWorld(true)
+      const hilt = grip.localToWorld(new THREE.Vector3(0, isRoman ? 0.1 : 0.15, 0))
+      const palm = rig.right.wrist.localToWorld(new THREE.Vector3(...center))
+      const tip = grip.localToWorld(new THREE.Vector3(0, 1, 0))
+      const thumb = new THREE.Vector3(gripAxis, 0, 0).applyQuaternion(rig.right.wrist.getWorldQuaternion(new THREE.Quaternion()))
+      expect(hilt.distanceTo(palm)).toBeLessThan(1e-6)
+      expect(tip.sub(hilt).normalize().dot(thumb)).toBeCloseTo(1)
+      expect(thumb.y).toBeGreaterThan(0.99)
+      expect(rig.rightLeg.hip.quaternion.equals(legBefore)).toBe(true)
+      layer.restore()
+      expect(rig.right.wrist.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-6)
+    })
+  }
+})
 
 function arm(side: -1 | 1): ArmRig {
   const shoulder = new THREE.Group()
@@ -447,7 +582,10 @@ describe('Phase 22 humanoid asset contract', () => {
       root.add(bone)
     }
     const animation: HumanoidAnimationController = {
-      play: vi.fn(),
+      play: vi.fn(() => true),
+      seek: vi.fn(() => true),
+      has: vi.fn(() => false),
+      getDuration: vi.fn(),
       update: vi.fn(),
       stop: vi.fn(),
     }
@@ -464,12 +602,19 @@ describe('Phase 22 humanoid asset contract', () => {
     const rig = characterRig()
     const play = vi.fn()
     const update = vi.fn()
-    rig.animation = { play, update, stop: vi.fn() }
+    rig.animation = {
+      play,
+      seek: vi.fn(() => true),
+      has: vi.fn((state) => state === 'swordSlash'),
+      getDuration: vi.fn(),
+      update,
+      stop: vi.fn(),
+    }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     subject.start('swordSlash')
     const profile = COMBAT_ANIMATION_PROFILES.swordSlash
     const events = subject.update(profile.windup + profile.active * 0.8 + 0.001)
-    expect(play).toHaveBeenCalledWith('swordSlash', 0.1, false)
+    expect(play).toHaveBeenCalledWith('swordSlash', { fadeSeconds: 0.1, loop: false })
     expect(update).toHaveBeenCalled()
     expect(events.hitActiveStarted).toBe(true)
   })
@@ -477,16 +622,63 @@ describe('Phase 22 humanoid asset contract', () => {
   it('selects walk, run and mounted mixer states without changing combat actions', () => {
     const rig = characterRig()
     const play = vi.fn()
-    rig.animation = { play, update: vi.fn(), stop: vi.fn() }
+    rig.animation = {
+      play,
+      seek: vi.fn(() => true),
+      has: vi.fn(() => false),
+      getDuration: vi.fn(),
+      update: vi.fn(),
+      stop: vi.fn(),
+    }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     play.mockClear()
-    subject.setLocomotion(4, false)
+    subject.setLocomotion(3, false)
     subject.setLocomotion(12, false)
     subject.setLocomotion(0, true)
-    expect(play).toHaveBeenNthCalledWith(1, 'walk', 0.14, true)
-    expect(play).toHaveBeenNthCalledWith(2, 'run', 0.14, true)
-    expect(play).toHaveBeenNthCalledWith(3, 'mounted', 0.14, true)
+    expect(play).toHaveBeenNthCalledWith(1, 'walk', { fadeSeconds: 0.14, loop: true, timeScale: 1.5 })
+    expect(play).toHaveBeenNthCalledWith(2, 'run', { fadeSeconds: 0.14, loop: true, timeScale: 2.2 })
+    expect(play).toHaveBeenNthCalledWith(3, 'mounted', { fadeSeconds: 0.14, loop: true, timeScale: 1 })
     expect(subject.currentAction).toBe('idle')
+  })
+
+  it('samples imported bow load, loops hold, and gives imported clips pose ownership', () => {
+    const rig = characterRig()
+    const play = vi.fn(() => true)
+    const seek = vi.fn(() => true)
+    rig.animation = {
+      play,
+      seek,
+      has: vi.fn((state) => ['idle', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash'].includes(state)),
+      getDuration: vi.fn(() => 1),
+      update: vi.fn(),
+      stop: vi.fn(),
+    }
+    const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+    subject.poseBow(0.5, 1)
+    expect(seek).toHaveBeenCalledWith('bowLoad', 0.5)
+    subject.poseBow(1, 1)
+    expect(play).toHaveBeenCalledWith('bowHold', { fadeSeconds: 0.08, loop: true })
+    subject.start('bowRelease')
+    expect(subject.currentOwnership).toBe('clip')
+    expect(play).toHaveBeenCalledWith('bowRelease', { fadeSeconds: 0.1, loop: false })
+  })
+
+  it('fires and completes an imported pilum throw exactly once across a large dt', () => {
+    const rig = characterRig()
+    rig.animation = {
+      play: vi.fn(() => true),
+      seek: vi.fn(() => true),
+      has: vi.fn((state) => state === 'pilumThrow'),
+      getDuration: vi.fn(() => 1.5),
+      update: vi.fn(),
+      stop: vi.fn(),
+    }
+    const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+    expect(subject.start('pilumThrow')).toBe(true)
+    const events = subject.update(2)
+    expect(events.projectileRelease).toBe(true)
+    expect(events.actionCompleted).toBe(true)
+    expect(subject.update(2).projectileRelease).toBe(false)
   })
 
   it('applies imported-bone pose deltas on top of the recorded bind rotation', () => {
@@ -497,6 +689,35 @@ describe('Phase 22 humanoid asset contract', () => {
     const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.4, 0, 0))
     setRigRotation(bone, 0.4, 0, 0)
     expect(bone.quaternion.angleTo(rest.clone().multiply(delta))).toBeLessThan(0.000001)
+  })
+
+  it('uses exact clip bindings for play, seek, duration and time scale across LODs', () => {
+    const roots = [new THREE.Group(), new THREE.Group()]
+    const mixers = roots.map((root) => new THREE.AnimationMixer(root))
+    const makeClips = () => [
+      new THREE.AnimationClip('idle', 1, []),
+      new THREE.AnimationClip('bowLoad', 0.8, []),
+    ]
+    const clips = [makeClips(), makeClips()]
+    const controller = new MixerController(mixers, clips)
+    expect(controller.has('idle')).toBe(true)
+    expect(controller.has('run')).toBe(false)
+    expect(controller.getDuration('bowLoad')).toBeCloseTo(0.8)
+
+    expect(controller.play('idle', { fadeSeconds: 0, loop: true, timeScale: 1.5, startNormalizedTime: 0.25 })).toBe(true)
+    for (let index = 0; index < mixers.length; index++) {
+      const action = mixers[index].existingAction(clips[index][0])!
+      expect(action.time).toBeCloseTo(0.25)
+      expect(action.timeScale).toBeCloseTo(1.5)
+    }
+
+    expect(controller.seek('bowLoad', 0.5)).toBe(true)
+    for (let index = 0; index < mixers.length; index++) {
+      const action = mixers[index].existingAction(clips[index][1])!
+      expect(action.time).toBeCloseTo(0.4)
+      expect(action.paused).toBe(true)
+    }
+    expect(controller.play('run')).toBe(false)
   })
 })
 
@@ -663,7 +884,7 @@ describe('Phase 23 horse asset contract', () => {
   })
 
   it('keeps the mounted mixer clip neutral so the riding pose is not applied twice', () => {
-    const mounted = createProjectAnimationClips().find((clip) => clip.name === 'Mounted')
+    const mounted = createProjectAnimationClips().find((clip) => clip.name === 'mounted')
     expect(mounted).toBeDefined()
     expect(mounted!.tracks).toHaveLength(0)
   })
@@ -672,16 +893,17 @@ describe('Phase 23 horse asset contract', () => {
 describe('combat presentation regressions', () => {
   it('builds readable player-sized bows without scaling the arrow socket', () => {
     for (const [weaponId, minimumSpan] of [
-      ['wooden_shortbow', 1.45],
-      ['recurve_longbow', 1.95],
-      ['elven_runebow', 2.35],
+      ['wooden_shortbow', 1.2],
+      ['recurve_longbow', 1.6],
+      ['elven_runebow', 2.0],
     ] as const) {
       const socket = new THREE.Group()
       const { topTip, botTip } = WeaponMeshFactory.buildRanged(weaponId, socket)
       const bowModel = socket.getObjectByName('bow-model')
       expect(topTip.y - botTip.y).toBeGreaterThan(minimumSpan)
-      expect(bowModel?.scale.x).toBeCloseTo(1.22)
-      expect(bowModel?.scale.z).toBeCloseTo(-1.22)
+      expect(bowModel?.scale.x).toBeCloseTo(1)
+      expect(bowModel?.scale.z).toBeCloseTo(1)
+      expect(topTip.y - botTip.y).toBeLessThan(minimumSpan + 0.2)
       expect(socket.scale.x).toBe(1)
     }
   })
@@ -738,7 +960,7 @@ describe('combat presentation regressions', () => {
     const top = player.getBowTopTipPosition(new THREE.Vector3())
     const bottom = player.getBowBottomTipPosition(new THREE.Vector3())
     const relativeTopY = top.y - player.position.y
-    expect(top.y - bottom.y).toBeGreaterThan(1.9)
+    expect(top.y - bottom.y).toBeGreaterThan(1.6)
     expect(relativeTopY).toBeGreaterThan(0.85)
     expect(relativeTopY).toBeLessThan(1.35)
   })
