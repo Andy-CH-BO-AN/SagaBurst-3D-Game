@@ -38,9 +38,9 @@ function getSharedProjectileVisuals(): SharedProjectileVisuals {
     ironMaterial: proceduralMaterial({ kind: 'iron', color: 0xa8adae, metalness: 0.9, roughness: 0.3 }),
     bronzeMaterial: proceduralMaterial({ kind: 'bronze', color: 0xa77d43, roughness: 0.42, metalness: 0.7 }),
     featherMaterial: new THREE.MeshBasicMaterial({ color: 0xe8e0d0 }),
-    arrowShaft: new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6),
-    arrowTip: new THREE.ConeGeometry(0.04, 0.15, 6),
-    arrowFin: new THREE.BoxGeometry(0.01, 0.12, 0.18),
+    arrowShaft: new THREE.CylinderGeometry(0.004, 0.004, 0.95, 6),
+    arrowTip: new THREE.ConeGeometry(0.014, 0.09, 6),
+    arrowFin: new THREE.BoxGeometry(0.003, 0.035, 0.09),
     pilumShaft: new THREE.CylinderGeometry(0.022, 0.026, 1.5, 10),
     pilumSocket: new THREE.CylinderGeometry(0.032, 0.025, 0.18, 10),
     pilumNeck: new THREE.CylinderGeometry(0.008, 0.015, 0.48, 8),
@@ -149,7 +149,7 @@ export class ArrowProjectile {
       wrap.position.z = 0.62
       this.mesh.add(wrap)
     } else {
-      this.tipLocalZ = -0.5
+      this.tipLocalZ = -0.52
       const shaft = new THREE.Mesh(shared.arrowShaft, shared.woodMaterial)
       shaft.rotation.x = Math.PI / 2
       shaft.castShadow = true

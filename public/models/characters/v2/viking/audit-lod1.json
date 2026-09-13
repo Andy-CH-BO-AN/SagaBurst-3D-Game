@@ -1,9 +1,28 @@
 {
   "file": "lod1.glb",
-  "byteLength": 6181116,
+  "byteLength": 6380400,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
-    "version": "2.0"
+    "version": "2.0",
+    "extras": {
+      "humanoidAnimationBuild": {
+        "schemaVersion": 1,
+        "baseBufferByteLength": 6162920,
+        "baseBufferViewCount": 59,
+        "baseAccessorCount": 47,
+        "clips": [
+          "idle",
+          "walk",
+          "run",
+          "bowLoad",
+          "bowHold",
+          "bowRelease",
+          "swordSlash",
+          "pilumThrow"
+        ],
+        "fps": 30
+      }
+    }
   },
   "counts": {
     "scenes": 1,
@@ -16,7 +35,7 @@
     "images": 12,
     "skins": 1,
     "joints": 31,
-    "animations": 0
+    "animations": 8
   },
   "jointNames": [
     "socket_pelvis",
@@ -51,7 +70,16 @@
     "upper_leg_r",
     "hips"
   ],
-  "animationNames": [],
+  "animationNames": [
+    "bowHold",
+    "bowLoad",
+    "bowRelease",
+    "idle",
+    "pilumThrow",
+    "run",
+    "swordSlash",
+    "walk"
+  ],
   "extensionsUsed": [],
   "extensionsRequired": []
 }

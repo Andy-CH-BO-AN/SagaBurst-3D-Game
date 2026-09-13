@@ -56,7 +56,7 @@ async function bootstrap(): Promise<void> {
 
   // 1. Highest priority: Developer scene modes (bypass setup UI)
   // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
-  if (isDevCombat || isDevModels) {
+  if (isDevCombat || isDevModels || (import.meta.env.DEV && query.has('devbowqa'))) {
     await launchGame()
     return
   }

@@ -22,6 +22,8 @@ import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials 
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCombatAnimator'
+import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
+import { applyBowAttachment } from '../world/BowAttachmentContract'
 import {
   CharacterBowVisual,
 } from '../world/CharacterBowVisual'
@@ -146,6 +148,11 @@ export class Player {
   }
 
   get hp(): number              { return this.currentHp }
+  get facingYaw(): number { return this.group.rotation.y - (this.usesExternalForwardAdapter ? 0 : Math.PI) }
+
+  faceDirection(x: number, z: number): void {
+    this.group.rotation.y = this._characterYaw(Math.atan2(x, z))
+  }
   get staminaValue(): number    { return this.stamina }
   get swinging(): boolean       { return this.isSwinging }
   get isAiming(): boolean       { return this.aiming }
@@ -271,6 +278,8 @@ export class Player {
       this.rig.pelvis.getWorldPosition(this._tmpPelvisWorld)
       this.externalPelvisHeight = this.characterVisualGroup.worldToLocal(this._tmpPelvisWorld).y
     }
+    applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', 0.15)
+    applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
     this.rig.right.handSocket.add(this.swordPivot)
     this.rig.left.handSocket.add(this.bowPivot)
     this.rig.left.handSocket.add(this.shieldPivot)
@@ -300,14 +309,8 @@ export class Player {
     const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordGripPivot)
     this.swordTipLocal.copy(tipLocal)
 
-    // Meshes use +Y as their long axis. The static grip correction is kept
-    // separate from the action pivot animated by CharacterCombatAnimator.
-    this.swordGripPivot.position.set(0, 0.05, 0)
-    if (weaponId === 'steel_lance') {
-      this.swordGripPivot.rotation.set(0, 0, 0)
-    } else {
-      this.swordGripPivot.rotation.set(0, 0, Math.PI)
-    }
+    this.swordGripPivot.position.set(0, 0, 0)
+    this.swordGripPivot.rotation.set(0, 0, 0)
 
     polishWeaponMaterials(this.swordGripPivot)
   }
@@ -557,35 +560,6 @@ export class Player {
       || (equippedMelee?.animationKind === 'lance' && !this.isMounted)
     this.animator.setShieldGuard(Boolean(equippedShield) && !showingBow && !needsTwoHands)
 
-    if (this.aiming) {
-      this.animator.poseBow(this.bowChargeTime / maxChargeTime, this.aimBlend)
-    } else if (!this.animator.busy) {
-      if (equippedMelee?.animationKind === 'lance') this.animator.poseLanceReady(this.isMounted)
-      else this.animator.poseIdle()
-    }
-
-    this._updateBowPose(maxChargeTime, cameraAimPoint)
-    const animationEvents = this.animator.update(dt)
-    if (animationEvents.hitActiveStarted) this.hitEventPending = true
-    if (animationEvents.projectileRelease) {
-      this._fireArrow(
-        this.pendingArrowTarget,
-        this.pendingArcheryMultiplier,
-        this.pendingRangedWeapon,
-        this.pendingBowChargeTime,
-      )
-      this.nockedArrowReleased = true
-      this.bowVisualDrawRatio = 0
-      soundManager.playBowRelease()
-    }
-    if (animationEvents.actionCompleted) {
-      this.isSwinging = false
-      this.hitEventPending = false
-    }
-
-    this._setShieldPlacement(showingBow || needsTwoHands)
-    this._updateShieldTransition(dt)
-
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
 
@@ -627,7 +601,39 @@ export class Player {
     const effectiveSpeed = isMoving
       ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       : 0
+    if (this.aiming) {
+      this.animator.poseBow(this.bowChargeTime / maxChargeTime, this.aimBlend)
+    } else if (!this.animator.busy) {
+      if (equippedMelee?.animationKind === 'lance') this.animator.poseLanceReady(this.isMounted)
+      else if (!isMoving || this.animator.currentAction === 'bowAim') this.animator.poseIdle()
+    }
+
     this.animator.setLocomotion(effectiveSpeed, this.isMounted)
+
+    // Select locomotion before advancing the mixer. poseIdle() above restores
+    // the neutral FK/weapon state, so updating before this point would give the
+    // newly selected walk/run action no time to advance on any frame.
+    const animationEvents = this.animator.update(dt)
+    this._updateBowPose(maxChargeTime, cameraAimPoint)
+    if (animationEvents.hitActiveStarted) this.hitEventPending = true
+    if (animationEvents.projectileRelease) {
+      this._fireArrow(
+        this.pendingArrowTarget,
+        this.pendingArcheryMultiplier,
+        this.pendingRangedWeapon,
+        this.pendingBowChargeTime,
+      )
+      this.nockedArrowReleased = true
+      this.bowVisualDrawRatio = 0
+      soundManager.playBowRelease()
+    }
+    if (animationEvents.actionCompleted) {
+      this.isSwinging = false
+      this.hitEventPending = false
+    }
+
+    this._setShieldPlacement(showingBow || needsTwoHands)
+    this._updateShieldTransition(dt)
 
     if (this.isSprinting) {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
@@ -666,7 +672,9 @@ export class Player {
     } else {
       // Normal Player Movement
       this.group.rotation.x = 0
-      applyCharacterMountedPose(this.rig, false)
+      // External clips own the legs on foot; resetting them here erased the
+      // walk/run pose after the mixer had already advanced this frame.
+      if (!this.rig.animation) applyCharacterMountedPose(this.rig, false)
       this._alignExternalVisualToMount(false)
       const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
       this.group.position.addScaledVector(moveDir, effectiveSpeed * dt)

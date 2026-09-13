@@ -12,9 +12,25 @@ yarn-debug.log*
 yarn-error.log*
 .chrome_temp/
 debug_images/
-*test*
-!tests/
-!tests/**/*.test.ts
 
 output/
 node_modules
+
+# Playwright artifacts and CLI logs
+.playwright-cli/
+output/playwright/
+
+# One-off hand / bow diagnosis captures and local geometry probes
+git-diff.txt
+tools/humanoid-diagnostics/
+
+# Python cache files
+__pycache__/
+**/*__pycache__/
+*.py[cod]
+
+# Experimental G0-G3 GLB variants
+public/models/characters/v2/*/lod0.g*.glb
+
+# Incoming raw archives
+artifacts/animation_sources/incoming/*.zip

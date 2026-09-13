@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { Faction } from './NPC'
 import { proceduralMaterial } from './ProceduralMaterials'
+import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -51,9 +52,9 @@ function addWrappedGrip(pivot: THREE.Group, length: number, radius: number, y: n
   }
 }
 
+
 function curvedLimb(points: THREE.Vector3[], radius: number, material: THREE.Material): THREE.Mesh {
-  const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, radius, 8, false)
-  return new THREE.Mesh(geometry, material)
+  return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, radius, 8, false), material)
 }
 
 function curvedShieldBoard(width: number, height: number, depth: number, curve: number): THREE.BoxGeometry {
@@ -100,9 +101,10 @@ export class WeaponMeshFactory {
    */
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
+    pivot.userData.gripCenterLocal = [0, weaponId === 'rusty_dagger' ? 0.09 : weaponId === 'runic_greatsword' ? 0.225 : 0.15, 0]
 
     if (weaponId === 'rusty_dagger') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x3a3028, flatShading: true })
+      const hiltMat = new THREE.MeshLambertMaterial({ color: 0x3a3028, flatShading: true })
       const guardMat = new THREE.MeshLambertMaterial({ color: 0x555555, flatShading: true })
       const bladeMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true })
 
@@ -125,11 +127,11 @@ export class WeaponMeshFactory {
       tipLocal.set(0, 0.87, 0)
 
     } else if (weaponId === 'runic_greatsword') {
-      const hiltMat  = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-      const ringMat  = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
+      const hiltMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+      const ringMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
       const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
       const bladeMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const gemMat   = new THREE.MeshBasicMaterial({ color: 0x00d2ff })
+      const gemMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff })
 
       const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.45, 8), hiltMat)
       hilt.position.y = 0.225
@@ -222,110 +224,70 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+    const profile = DEFAULT_BOW_GRIP_PROFILE
+    const halfSpan = weaponId === 'wooden_shortbow' ? 0.62 : weaponId === 'elven_runebow' ? 1.02 : 0.85
     const bowModel = new THREE.Group()
     bowModel.name = 'bow-model'
     pivot.add(bowModel)
-    const gripMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-
-    const topTip = new THREE.Vector3(0, 0.75, 0.12)
-    const botTip = new THREE.Vector3(0, -0.75, 0.12)
-    let stringLength = 0.78
-
-    if (weaponId === 'wooden_shortbow') {
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6e4e2e, flatShading: true })
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), gripMat)
-      bowModel.add(grip)
-
-      const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.04, 0.6, 6), woodMat)
-      upperArm.position.set(0, 0.38, 0.05)
-      upperArm.rotation.x = -0.2
-      bowModel.add(upperArm)
-
-      const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.02, 0.6, 6), woodMat)
-      lowerArm.position.set(0, -0.38, 0.05)
-      lowerArm.rotation.x = 0.2
-      bowModel.add(lowerArm)
-
-      topTip.set(0, 0.62, 0.05)
-      botTip.set(0, -0.62, 0.05)
-      stringLength = 0.62
-
-    } else if (weaponId === 'elven_runebow') {
-      const elvenMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
-      const runeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
-      
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.25, 8), gripMat)
-      bowModel.add(grip)
-
-      // Sleek long curved arms
-      for (let i = 1; i <= 3; i++) {
-        const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.03 - i*0.005, 0.035 - i*0.005, 0.3, 8), elvenMat)
-        seg.position.set(0, 0.1 + i*0.25, i*0.02)
-        seg.rotation.x = -0.15 * i
-        bowModel.add(seg)
-
-        const botSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.035 - i*0.005, 0.03 - i*0.005, 0.3, 8), elvenMat)
-        botSeg.position.set(0, -0.1 - i*0.25, i*0.02)
-        botSeg.rotation.x = 0.15 * i
-        bowModel.add(botSeg)
+    const wood = proceduralMaterial({ kind: 'wood', color: weaponId === 'elven_runebow' ? 0x8b846c : 0x795331, roughness: 0.7 })
+    const leather = proceduralMaterial({ kind: 'leather', color: 0x423025, roughness: 0.85 })
+    // One connected surface: the central rings form the straight leather grip,
+    // and the same rings continue into tapered wood. Separate open cylinders
+    // previously exposed jagged triangular overlaps at the grip/limb junction.
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, profile.gripLength / 2, 0),
+      new THREE.Vector3(0, profile.gripLength / 2 + 0.045, 0),
+      new THREE.Vector3(0, halfSpan * 0.3, -0.045),
+      new THREE.Vector3(0, halfSpan * 0.72, -0.13),
+      new THREE.Vector3(0, halfSpan, -0.035),
+    ])
+    const rings: Array<{ center: THREE.Vector3; tangent: THREE.Vector3; radius: number }> = []
+    for (const side of [-1, 1]) {
+      for (let step = 0; step <= 40; step++) {
+        const t = side < 0 ? 1 - step / 40 : step / 40
+        const center = curve.getPointAt(t)
+        const tangent = t === 0 ? new THREE.Vector3(0, 1, 0) : curve.getTangentAt(t)
+        center.y *= side
+        tangent.z *= side
+        rings.push({ center, tangent, radius: profile.gripRadius * THREE.MathUtils.lerp(1, 0.38, t) })
       }
-
-      // Glowing Runes
-      const rune1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.04), runeMat)
-      rune1.position.set(0, 0.5, 0.04)
-      bowModel.add(rune1)
-      const rune2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.04), runeMat)
-      rune2.position.set(0, -0.5, 0.04)
-      bowModel.add(rune2)
-
-      topTip.set(0, 1.0, -0.01)
-      botTip.set(0, -1.0, -0.01)
-      stringLength = 1.0
-
-    } else {
-      // Default: recurve longbow
-      const woodMat = proceduralMaterial({ kind: 'wood', color: 0x6a4227, roughness: 0.76, repeat: [2, 6] })
-      const laminateMat = proceduralMaterial({ kind: 'wood', color: 0xb48752, roughness: 0.7, repeat: [2, 7] })
-      const leatherMat = proceduralMaterial({ kind: 'leather', color: 0x302019, roughness: 0.84 })
-      const hornMat = proceduralMaterial({ kind: 'leather', color: 0xc6a674, roughness: 0.72 })
-
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.048, 0.27, 12), leatherMat)
-      bowModel.add(grip)
-      for (const side of [-1, 1]) {
-        const points = [
-          new THREE.Vector3(0, side * 0.12, 0),
-          new THREE.Vector3(0, side * 0.38, 0.075),
-          new THREE.Vector3(0, side * 0.67, 0.135),
-          new THREE.Vector3(0, side * 0.86, 0.02),
-        ]
-        const limb = curvedLimb(points, 0.032, woodMat)
-        limb.scale.x = 1.18
-        bowModel.add(limb)
-        const laminate = curvedLimb(points.map((point) => point.clone().add(new THREE.Vector3(0.019, 0, -0.002))), 0.009, laminateMat)
-        bowModel.add(laminate)
-        const nock = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.11, 8), hornMat)
-        nock.position.set(0, side * 0.9, -0.005)
-        nock.rotation.z = side === 1 ? 0 : Math.PI
-        bowModel.add(nock)
-      }
-      topTip.set(0, 0.9, -0.005)
-      botTip.set(0, -0.9, -0.005)
-      stringLength = 0.9
     }
-
-    // Scale only the bow limbs and grip. Strings and the arrow are siblings on
-    // the weapon socket so their thickness/length and release alignment stay exact.
-    const visualScale = 1.22
-    // Mirror only the solid bow body toward local -Z (the target). Strings and
-    // arrows are sibling objects and remain on the archer side of the limbs.
-    bowModel.scale.set(visualScale, visualScale, -visualScale)
-    topTip.multiplyScalar(visualScale)
-    botTip.multiplyScalar(visualScale)
-    topTip.z *= -1
-    botTip.z *= -1
-    stringLength *= visualScale
-
-    return { topTip, botTip, stringLength }
+    const vertices: number[] = [], uvs: number[] = [], indices: number[] = []
+    const sides = 16
+    for (const ring of rings) {
+      const across = new THREE.Vector3().crossVectors(new THREE.Vector3(1, 0, 0), ring.tangent).normalize()
+      for (let j = 0; j <= sides; j++) {
+        const angle = j / sides * Math.PI * 2
+        const point = ring.center.clone().addScaledVector(across, Math.cos(angle) * ring.radius)
+        point.x += Math.sin(angle) * ring.radius
+        vertices.push(...point.toArray())
+        uvs.push(j / sides, (ring.center.y + halfSpan) / (halfSpan * 2))
+      }
+    }
+    const geometry = new THREE.BufferGeometry()
+    for (let ring = 0; ring < rings.length - 1; ring++) {
+      const start = indices.length
+      for (let j = 0; j < sides; j++) {
+        const a = ring * (sides + 1) + j, b = a + sides + 1
+        indices.push(a, a + 1, b, b, a + 1, b + 1)
+      }
+      geometry.addGroup(start, indices.length - start, ring === 40 ? 1 : 0)
+    }
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    const stave = new THREE.Mesh(geometry, [wood, leather])
+    stave.name = 'bow-stave-and-grip'
+    bowModel.add(stave)
+    for (const side of [-1, 1]) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(profile.gripRadius * 0.38, 10, 8), wood)
+      cap.position.set(0, side * halfSpan, -0.035)
+      bowModel.add(cap)
+    }
+    const topTip = new THREE.Vector3(0, halfSpan, -0.035)
+    const botTip = new THREE.Vector3(0, -halfSpan, -0.035)
+    return { topTip, botTip, stringLength: halfSpan }
   }
 
   /**
@@ -382,6 +344,7 @@ export class WeaponMeshFactory {
       return this.buildMelee(weaponId, pivot).tipLocal
     } else {
       // Roman Gladius
+      pivot.userData.gripCenterLocal = [0, 0.1, 0]
       let bladeColor = 0x888888
       let bladeLength = 0.6
       let bladeWidth = 0.08
@@ -447,7 +410,7 @@ export class WeaponMeshFactory {
         const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.013, 0.4, 8), ironMat)
         neck.position.y = 1.4
         pivot.add(neck)
-        
+
         const head = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.13, 4), ironMat)
         head.position.y = 1.65
         pivot.add(head)
@@ -455,7 +418,7 @@ export class WeaponMeshFactory {
         const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.5, 8), ironMat)
         neck.position.y = 1.45
         pivot.add(neck)
-        
+
         const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), goldMat)
         wrap.position.y = 1.2
         pivot.add(wrap)

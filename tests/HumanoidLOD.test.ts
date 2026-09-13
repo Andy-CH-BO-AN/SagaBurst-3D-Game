@@ -96,6 +96,7 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
         { scene: lod1, animations: [] },
         { scene: lod2, animations: [] },
       ],
+      bowClips: [[], [], []],
     }
 
     const templatesMap = (HumanoidAssetRegistry as any).templates as Map<string, any>

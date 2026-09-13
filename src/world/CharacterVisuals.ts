@@ -27,8 +27,37 @@ export interface LegRig {
   forwardBendSign: -1 | 1
 }
 
+export type HumanoidAnimationState =
+  | 'idle'
+  | 'walk'
+  | 'run'
+  | 'bowLoad'
+  | 'bowHold'
+  | 'bowRelease'
+  | 'swordSlash'
+  | 'pilumThrow'
+  | 'daggerSlash'
+  | 'greatswordSlash'
+  | 'lanceThrust'
+  | 'mountedLance'
+  | 'mounted'
+  | 'death'
+
+export interface HumanoidAnimationPlayOptions {
+  fadeSeconds?: number
+  loop?: boolean
+  timeScale?: number
+  startNormalizedTime?: number
+}
+
 export interface HumanoidAnimationController {
-  play(state: string, fadeSeconds?: number, loop?: boolean): void
+  setBladeGrip?(enabled: boolean): void
+  setPoseLayersEnabled?(enabled: boolean): void
+  setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
+  play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
+  seek(state: HumanoidAnimationState, normalizedTime: number): boolean
+  has(state: HumanoidAnimationState): boolean
+  getDuration(state: HumanoidAnimationState): number | undefined
   update(dt: number, cameraDistance?: number): void
   stop(): void
 }
@@ -44,6 +73,10 @@ export interface CharacterRig {
   leftFootSocket?: THREE.Object3D
   rightFootSocket?: THREE.Object3D
   animation?: HumanoidAnimationController
+  handGripFrames?: {
+    left: import('./BowAttachmentContract').HandGripFrame
+    right?: import('./BowAttachmentContract').HandGripFrame
+  }
 }
 
 export interface CharacterVisualParts {

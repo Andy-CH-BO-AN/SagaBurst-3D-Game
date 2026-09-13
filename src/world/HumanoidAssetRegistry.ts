@@ -2,6 +2,10 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { createEquipmentSocketProxies } from './HumanoidEquipmentSockets'
+import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPose'
+import type { HandGripFrame } from './BowAttachmentContract'
+import { HumanoidBladeGrip, prepareBladeGrip } from './HumanoidBladeGrip'
 import type {
   ArmRig,
   CharacterFaction,
@@ -9,8 +13,20 @@ import type {
   CharacterVisualConfig,
   CharacterVisualParts,
   HumanoidAnimationController,
+  HumanoidAnimationPlayOptions,
+  HumanoidAnimationState,
   LegRig,
 } from './CharacterVisuals'
+
+export interface HumanoidAnimationBinding {
+  clip: HumanoidAnimationState
+  source: 'Kevin Iglesias' | 'Quaternius'
+  sourceClip: string
+  loop: boolean
+  duration: number
+  nominalSpeed?: number
+  events?: Record<string, number>
+}
 
 export const HUMANOID_LOD_DISTANCES = [0, 28, 60] as const
 export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
@@ -32,11 +48,43 @@ export interface HumanoidAssetManifest {
   } | null
   boneMap?: string
   audit?: string
+  handGripFrames?: {
+    left?: {
+      palmContactCenter: [number, number, number]
+      palmNormal: [number, number, number]
+      thumbDir: number
+      thumbDirection: [number, number, number]
+      fingerDirection: [number, number, number]
+      wristCenter: [number, number, number]
+      fingerBase: number
+      thumbBaseCenter: [number, number, number]
+    }
+  }
+  animations?: {
+    embedded: HumanoidAnimationBinding[]
+    runtimeGenerated: HumanoidAnimationState[]
+  }
+}
+
+function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefined {
+  const data = manifest.handGripFrames?.left
+  if (!data) return undefined
+  return {
+    palmContactCenter: new THREE.Vector3(...data.palmContactCenter),
+    palmNormal: new THREE.Vector3(...data.palmNormal),
+    thumbDir: data.thumbDir,
+    thumbDirection: new THREE.Vector3(...data.thumbDirection),
+    fingerDirection: new THREE.Vector3(...data.fingerDirection),
+    wristCenter: new THREE.Vector3(...data.wristCenter),
+    fingerBase: data.fingerBase,
+    thumbBaseCenter: new THREE.Vector3(...data.thumbBaseCenter),
+  }
 }
 
 interface HumanoidTemplate {
   manifest: HumanoidAssetManifest
   levels: GLTF[]
+  bowClips?: THREE.AnimationClip[][]
 }
 
 export interface HumanoidCharacterInstance {
@@ -103,11 +151,11 @@ const pose = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z)
 export function createProjectAnimationClips(): THREE.AnimationClip[] {
   const cycle = [0, 0.25, 0.5, 0.75, 1]
   return [
-    additiveClip('Idle', 2, [
+    additiveClip('idle', 2, [
       { bone: 'chest', times: [0, 1, 2], eulers: [zero(), pose(0.015, 0, 0), zero()] },
       { bone: 'head', times: [0, 1, 2], eulers: [zero(), pose(0, 0.018, 0), zero()] },
     ]),
-    additiveClip('Walking', 1, [
+    additiveClip('walk', 1, [
       { bone: 'upper_leg_l', times: cycle, eulers: [pose(0.5), zero(), pose(-0.5), zero(), pose(0.5)] },
       { bone: 'upper_leg_r', times: cycle, eulers: [pose(-0.5), zero(), pose(0.5), zero(), pose(-0.5)] },
       { bone: 'lower_leg_l', times: cycle, eulers: [pose(0.05), pose(0.5), pose(0.05), pose(0.12), pose(0.05)] },
@@ -115,28 +163,17 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
       { bone: 'upper_arm_l', times: cycle, eulers: [pose(-0.3), zero(), pose(0.3), zero(), pose(-0.3)] },
       { bone: 'upper_arm_r', times: cycle, eulers: [pose(0.3), zero(), pose(-0.3), zero(), pose(0.3)] },
     ]),
-    additiveClip('Running', 0.7, [
+    additiveClip('run', 0.7, [
       { bone: 'upper_leg_l', times: [0, 0.35, 0.7], eulers: [pose(0.72), pose(-0.72), pose(0.72)] },
       { bone: 'upper_leg_r', times: [0, 0.35, 0.7], eulers: [pose(-0.72), pose(0.72), pose(-0.72)] },
       { bone: 'upper_arm_l', times: [0, 0.35, 0.7], eulers: [pose(-0.55), pose(0.55), pose(-0.55)] },
       { bone: 'upper_arm_r', times: [0, 0.35, 0.7], eulers: [pose(0.55), pose(-0.55), pose(0.55)] },
     ]),
-    additiveClip('1H_Melee_Attack_Stab', 0.7, [
-      { bone: 'upper_arm_r', times: [0, 0.18, 0.38, 0.7], eulers: [zero(), pose(0.85, 0, -0.28), pose(1.25, 0, -0.12), zero()] },
-      { bone: 'lower_arm_r', times: [0, 0.18, 0.38, 0.7], eulers: [zero(), pose(0.65), pose(0.12), zero()] },
-      { bone: 'chest', times: [0, 0.18, 0.38, 0.7], eulers: [zero(), pose(0, -0.12, 0), pose(0, 0.1, 0), zero()] },
-    ]),
-    additiveClip('2H_Ranged_Aiming', 1.2, [
-      { bone: 'upper_arm_l', times: [0, 0.3, 1.2], eulers: [zero(), pose(1.2, -0.1, -0.1), pose(1.2, -0.1, -0.1)] },
-      { bone: 'lower_arm_l', times: [0, 0.3, 1.2], eulers: [zero(), pose(0.28, 0, 0.05), pose(0.28, 0, 0.05)] },
-      { bone: 'upper_arm_r', times: [0, 0.3, 1.2], eulers: [zero(), pose(1.35, 0, -1.1), pose(1.35, 0, -1.1)] },
-      { bone: 'lower_arm_r', times: [0, 0.3, 1.2], eulers: [zero(), pose(0.75, 0, 0.12), pose(0.75, 0, 0.12)] },
-    ]),
     // CharacterVisuals owns the mounted leg pose. Keep a named mixer action for
     // state/cross-fade compatibility without applying the same leg rotations a
     // second time on top of that pose.
-    additiveClip('Mounted', 1.5, []),
-    additiveClip('Death', 1, [
+    additiveClip('mounted', 1.5, []),
+    additiveClip('death', 1, [
       { bone: 'hips', times: [0, 0.25, 1], eulers: [zero(), pose(0, 0, 0.15), pose(0, 0, 1.35)] },
       { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1, 0, 0.1), pose(0.2, 0, 0.25)] },
     ]),
@@ -214,69 +251,159 @@ function firstSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh {
   return result
 }
 
-class MixerController implements HumanoidAnimationController {
-  private readonly actions = new Map<string, THREE.AnimationAction[]>()
-  private current = ''
+export class MixerController implements HumanoidAnimationController {
+  /** Asset-owned socket followers run after the single pose evaluation. */
+  onPoseEvaluated?: () => void
+  private poseLayersEnabled = true
+  private readonly bowLegActions = new Map<string, THREE.AnimationAction[]>()
+  private bowLegState: string | null = null
+  private bladeGripEnabled = false
+  private readonly bladeGrips: HumanoidBladeGrip[]
+  private readonly actions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
+  private readonly rawActions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
+  private readonly durations = new Map<HumanoidAnimationState, number>()
+  private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
+  private readonly bowMeshes: THREE.SkinnedMesh[] = []
 
-  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][]) {
-    const names = new Set(clipsPerLevel.flatMap((clips) => clips.map((clip) => clip.name)))
+  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel) {
+    this.bladeGrips = mixers.map((mixer) => mixer.getRoot())
+      .filter((root): root is THREE.Object3D => root instanceof THREE.Object3D && !!root.getObjectByName('hand_r'))
+      .map((root) => new HumanoidBladeGrip(root))
+    for (const mixer of mixers) (mixer.getRoot() as THREE.Object3D).traverse(object => {
+      if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.bowGrip !== undefined) this.bowMeshes.push(object)
+    })
+    const names = new Set(clipsPerLevel.flatMap((clips) => clips.map((clip) => clip.name as HumanoidAnimationState)))
     for (const name of names) {
+      this.rawActions.set(name, mixers.flatMap((mixer, index) => {
+        const clip = rawClipsPerLevel[index].find((candidate) => candidate.name === name)
+        return clip ? [mixer.clipAction(clip)] : []
+      }))
       const actions = mixers.flatMap((mixer, index) => {
         const clip = clipsPerLevel[index].find((candidate) => candidate.name === name)
-        return clip ? [mixer.clipAction(clip)] : []
+        if (!clip) return []
+        const isLeg = (track: THREE.KeyframeTrack) => /^(upper_leg_|lower_leg_|foot_|toe_)/.test(track.name)
+        if (name === 'idle' || name === 'walk' || name === 'run') {
+          const legs = new THREE.AnimationClip(`${name}:bowLegs`, clip.duration, clip.tracks.filter(isLeg))
+          const actions = this.bowLegActions.get(name) ?? []
+          actions.push(mixer.clipAction(legs))
+          this.bowLegActions.set(name, actions)
+        }
+        const upperBow = name === 'bowLoad' || name === 'bowHold' || name === 'bowRelease'
+        return [mixer.clipAction(upperBow && clip.tracks.some(isLeg)
+          ? new THREE.AnimationClip(clip.name, clip.duration, clip.tracks.filter((track) => !isLeg(track)))
+          : clip)]
       })
       this.actions.set(name, actions)
+      const duration = clipsPerLevel[0].find((clip) => clip.name === name)?.duration
+      if (duration !== undefined) this.durations.set(name, duration)
     }
   }
 
-  private findClip(state: string): string | undefined {
-    const candidates: Record<string, string[]> = {
-      idle: ['idle'],
-      walk: ['walk'],
-      run: ['run'],
-      daggerSlash: ['1h_melee_attack_stab', 'stab'],
-      swordSlash: ['1h_melee_attack_stab', 'stab'],
-      greatswordSlash: ['2h_melee_attack_stab', 'stab'],
-      bowAim: ['2h_ranged_aiming', '1h_ranged_aiming', 'aim'],
-      bowRelease: ['2h_ranged_shoot', '1h_ranged_shoot', 'shoot'],
-      lanceThrust: ['2h_melee_attack_stab', 'stab'],
-      mountedLance: ['2h_melee_attack_stab', 'stab'],
-      mounted: ['mounted'],
-      death: ['death'],
-    }
-    const wanted = candidates[state] ?? [state]
-    return [...this.actions.keys()].find((name) => wanted.some((needle) => normalizeName(name).includes(normalizeName(needle))))
+  has(state: HumanoidAnimationState): boolean {
+    return (this.actions.get(state)?.length ?? 0) === this.mixers.length
   }
 
-  play(state: string, fadeSeconds = 0.12, loop = true): void {
-    const clipName = this.findClip(state)
-    if (!clipName || clipName === this.current) return
-    const previous = this.actions.get(this.current) ?? []
-    const next = this.actions.get(clipName) ?? []
+  setBladeGrip(enabled: boolean): void { this.bladeGripEnabled = enabled }
+
+  setPoseLayersEnabled(enabled: boolean): void {
+    this.stop()
+    this.poseLayersEnabled = enabled
+    for (const grip of this.bladeGrips) grip.reset()
+  }
+
+  setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
+    if (this.bowLegState !== state) {
+      for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
+      for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
+      this.bowLegState = state
+    }
+    for (const action of this.bowLegActions.get(state) ?? []) action.timeScale = timeScale
+  }
+
+  getDuration(state: HumanoidAnimationState): number | undefined {
+    return this.durations.get(state)
+  }
+
+  play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
+    const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
+    const next = bindings.get(state) ?? []
+    if (next.length !== this.mixers.length) return false
+    if (this.poseLayersEnabled && (state === 'bowLoad' || state === 'bowHold' || state === 'bowRelease')) {
+      if (!this.bowLegState) this.setBowLocomotion('idle', 1)
+    } else if (this.bowLegState) {
+      for (const action of this.bowLegActions.get(this.bowLegState) ?? []) action.stop()
+      this.bowLegState = null
+    }
+    const fadeSeconds = options.fadeSeconds ?? 0.12
+    const loop = options.loop ?? true
+    const timeScale = options.timeScale ?? 1
+    if (state === this.current) {
+      for (const action of next) {
+        action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+        action.clampWhenFinished = !loop
+        action.paused = false
+        action.timeScale = timeScale
+        if (options.startNormalizedTime !== undefined) {
+          action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
+        }
+      }
+      return true
+    }
+    const previous = this.current ? bindings.get(this.current) ?? [] : []
     for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
       action.reset().setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
       action.clampWhenFinished = !loop
+      action.timeScale = timeScale
+      if (options.startNormalizedTime !== undefined) {
+        action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
+      }
       action.fadeIn(fadeSeconds).play()
     }
-    this.current = clipName
+    this.current = state
+    for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = this.poseLayersEnabled && state.startsWith('bow') ? 1 : 0
+    return true
+  }
+
+  seek(state: HumanoidAnimationState, normalizedTime: number): boolean {
+    // A paused action may skip an unchanged PropertyMixer write. Never restore
+    // last frame's overlay base AFTER evaluating the newly requested sample.
+    for (const grip of this.bladeGrips) grip.restore()
+    if (!this.play(state, { fadeSeconds: this.current === state ? 0 : 0.12, loop: false })) return false
+    const time = THREE.MathUtils.clamp(normalizedTime, 0, 1)
+    for (const action of (this.poseLayersEnabled ? this.actions : this.rawActions).get(state) ?? []) {
+      action.time = time * action.getClip().duration
+      action.paused = true
+    }
+    for (const mixer of this.mixers) mixer.update(0)
+    this.onPoseEvaluated?.()
+    return true
   }
 
   update(dt: number, cameraDistance = 0): void {
-    if (!Number.isFinite(dt) || dt <= 0) return
+    if (!Number.isFinite(dt) || dt < 0) return
+    if (dt === 0) { this.onPoseEvaluated?.(); return }
     if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE) {
       this.farAccumulator += dt
       if (this.farAccumulator < 1 / 12) return
       dt = this.farAccumulator
       this.farAccumulator = 0
     }
+    for (const grip of this.bladeGrips) grip.restore()
     for (const mixer of this.mixers) mixer.update(dt)
+    const guard = this.bladeGripEnabled && (this.current === 'idle' || this.current === 'walk' || this.current === 'run')
+    if (this.poseLayersEnabled) for (const grip of this.bladeGrips) grip.update(dt, this.bladeGripEnabled, guard)
+    this.onPoseEvaluated?.()
   }
 
   stop(): void {
+    for (const grip of this.bladeGrips) grip.reset()
     for (const mixer of this.mixers) mixer.stopAllAction()
-    this.current = ''
+    for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
+    this.current = null
+    this.bowLegState = null
+    this.onPoseEvaluated?.()
   }
 }
 
@@ -344,6 +471,27 @@ export function validateHumanoidManifest(faction: CharacterFaction, manifest: Hu
   if (Math.abs(manifest.metrics.heightM - targetHeight) > 0.02) throw new Error(`${faction} height is outside tolerance`)
   if (manifest.metrics.shoulderWidthM > targetShoulder + 0.01) throw new Error(`${faction} shoulder width is outside tolerance`)
   if (Math.abs(manifest.metrics.neckLengthM - 0.09) > 0.015) throw new Error(`${faction} neck length is outside tolerance`)
+  if (manifest.animations) {
+    const required: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
+    const embedded = new Set(manifest.animations.embedded.map((binding) => binding.clip))
+    if (required.some((clip) => !embedded.has(clip))) throw new Error(`${faction} manifest is missing a canonical animation binding`)
+  }
+}
+
+function validateEmbeddedAnimations(faction: CharacterFaction, manifest: HumanoidAssetManifest, levels: GLTF[]): void {
+  if (!manifest.animations) return
+  const expected = new Map(manifest.animations.embedded.map((binding) => [binding.clip, binding.duration]))
+  for (const [index, level] of levels.entries()) {
+    const actual = new Map(level.animations.map((clip) => [clip.name, clip.duration]))
+    if (actual.size !== expected.size || [...expected.keys()].some((name) => !actual.has(name))) {
+      throw new Error(`${faction} LOD${index} animation names do not match its manifest`)
+    }
+    for (const [name, duration] of expected) {
+      if (Math.abs((actual.get(name) ?? -1) - duration) > 0.001) {
+        throw new Error(`${faction} LOD${index} ${name} duration does not match its manifest`)
+      }
+    }
+  }
 }
 
 export class HumanoidAssetRegistry {
@@ -361,6 +509,8 @@ export class HumanoidAssetRegistry {
 
   private static async loadAll(): Promise<void> {
     const loader = new GLTFLoader()
+    const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+    const expGroup = query?.get('expGroup')?.toLowerCase()
     await Promise.all((['viking', 'roman'] as const).map(async (faction) => {
       const base = `/models/characters/v2/${faction}`
       const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
@@ -368,13 +518,24 @@ export class HumanoidAssetRegistry {
       const manifest = await response.json() as HumanoidAssetManifest
       validateHumanoidManifest(faction, manifest)
       const files = manifest.files!
+      const lod0File = (expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
+        ? `lod0.${expGroup}.glb`
+        : files.lod0
       const levels = await Promise.all([
-        loader.loadAsync(`${base}/${files.lod0}`),
+        loader.loadAsync(`${base}/${lod0File}`),
         loader.loadAsync(`${base}/${files.lod1}`),
         loader.loadAsync(`${base}/${files.lod2}`),
       ])
-      for (const level of levels) firstSkinnedMesh(level.scene)
-      this.templates.set(faction, { manifest, levels })
+      for (const level of levels) {
+        firstSkinnedMesh(level.scene)
+        prepareBladeGrip(level.scene, faction)
+        const handFrame = readHandFrame(manifest)
+        if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
+      }
+      validateEmbeddedAnimations(faction, manifest, levels)
+      const frame = readHandFrame(manifest)
+      const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
+      this.templates.set(faction, { manifest, levels, bowClips })
     }))
   }
 
@@ -443,6 +604,7 @@ export class HumanoidAssetRegistry {
     const lod = new THREE.LOD()
     const mixers: THREE.AnimationMixer[] = []
     const clipsPerLevel: THREE.AnimationClip[][] = []
+    const rawClipsPerLevel: THREE.AnimationClip[][] = []
     let primaryScene: THREE.Group | null = null
     let skeleton: THREE.Skeleton | null = null
     template.levels.forEach((gltf, index) => {
@@ -461,7 +623,11 @@ export class HumanoidAssetRegistry {
       }
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
-      clipsPerLevel.push(gltf.animations.length > 0 ? gltf.animations : PROJECT_ANIMATION_CLIPS)
+      const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
+      for (const clip of gltf.animations) clips.set(clip.name, clip)
+      rawClipsPerLevel.push([...clips.values()])
+      for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
+      clipsPerLevel.push([...clips.values()])
       if (index === 0) {
         primaryScene = level
         skeleton = firstSkinnedMesh(level).skeleton
@@ -469,8 +635,17 @@ export class HumanoidAssetRegistry {
     })
     root.add(lod)
     if (!primaryScene || !skeleton) throw new Error(`Failed to clone ${config.faction} humanoid`)
-    const animation = new MixerController(mixers, clipsPerLevel)
+    const animation = new MixerController(mixers, clipsPerLevel, rawClipsPerLevel)
     const rig = createHumanoidRigAdapter(primaryScene, animation)
+    if (template.manifest.handGripFrames?.left) {
+      const leftGrip = readHandFrame(template.manifest)!
+      rig.handGripFrames = { left: leftGrip }
+      if (rig.left?.handSocket) {
+        rig.left.handSocket.userData.handGripFrame = leftGrip
+      }
+    }
+    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
+    animation.onPoseEvaluated()
     animation.play('idle')
     const bounds = new THREE.Box3().setFromObject(root)
     return {
