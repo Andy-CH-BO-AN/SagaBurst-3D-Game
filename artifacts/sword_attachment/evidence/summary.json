@@ -1,0 +1,665 @@
+{
+  "date": "2026-09-14",
+  "tests": {
+    "files": 26,
+    "passed": 224,
+    "build": "pass"
+  },
+  "browser": {
+    "sword-restored": {
+      "errors": [],
+      "samples": 1098,
+      "maxGripErrorM": 3.7692613056443826e-07
+    },
+    "sword-attack": {
+      "errors": [],
+      "samples": 366,
+      "maxGripErrorM": 5.171863694269747e-07
+    },
+    "sword-attack-timeline": {
+      "errors": [],
+      "samples": 40,
+      "maxGripErrorM": 7.969953590786249e-10,
+      "timeline": [
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            -0.3518473838860934,
+            0.725403441906229,
+            0.5950898468857315
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.1,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            -0.9556268442783926,
+            0.8400343657637066,
+            -0.22382523716230418
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.2,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 1.9860273225978185e-15,
+          "tip": [
+            -1.0732456061914908,
+            0.8539236866874145,
+            -0.5458105880453599
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.252,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            0.16943045074447394,
+            1.3002688005033267,
+            1.364363452962532
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.32,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 6.280369834735101e-16,
+          "tip": [
+            0.2603162215165593,
+            2.4563124384077497,
+            0.29898965661949584
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.4,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 1.88411095042053e-15,
+          "tip": [
+            0.15870136047049543,
+            2.4671289511331906,
+            0.09842500681978761
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.48,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 0,
+          "tip": [
+            0.024178670027197757,
+            2.3997694740625697,
+            -0.13477947822051117
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.54,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 1.831026719408895e-15,
+          "tip": [
+            0.2835443758129208,
+            2.1470671580957,
+            0.38026151547496667
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.6,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 1.7763568394002505e-15,
+          "tip": [
+            -0.2597998267805943,
+            1.8419791991031342,
+            0.5261864615943952
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "full",
+          "time": 0.7,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 4.440892098500626e-16,
+          "tip": [
+            -0.5304100016512328,
+            1.01353939358631,
+            0.5330598474815784
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            -0.3518473838860934,
+            0.725403441906229,
+            0.5950898468857315
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.1,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            -0.9556268513242072,
+            0.8400345170162922,
+            -0.22382556062296644
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.2,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 1.9860273225978185e-15,
+          "tip": [
+            -1.0732456061914908,
+            0.8539236866874145,
+            -0.5458105880453599
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.252,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 0,
+          "tip": [
+            0.16943045074447394,
+            1.3002688005033267,
+            1.364363452962532
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.32,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 6.280369834735101e-16,
+          "tip": [
+            0.2603162215165593,
+            2.4563124384077497,
+            0.29898965661949584
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.4,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 1.88411095042053e-15,
+          "tip": [
+            0.15870136047049543,
+            2.4671289511331906,
+            0.09842500681978761
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.48,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 0,
+          "tip": [
+            0.024178670027197757,
+            2.3997694740625697,
+            -0.13477947822051117
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.54,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 6.280369834735101e-16,
+          "tip": [
+            0.2835439762154812,
+            2.147066875380114,
+            0.38026201501141665
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.6,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 1.88411095042053e-15,
+          "tip": [
+            -0.259800027156853,
+            1.8419791779606545,
+            0.5261862648191333
+          ]
+        },
+        {
+          "faction": "roman",
+          "view": "top",
+          "time": 0.7,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 4.440892098500626e-16,
+          "tip": [
+            -0.5304100016512328,
+            1.01353939358631,
+            0.5330598474815784
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969950622191784e-10,
+          "tip": [
+            -0.47522103367269164,
+            0.4874700375801879,
+            0.931068341913107
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.1,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969934614326943e-10,
+          "tip": [
+            -1.4917118953184385,
+            0.7793354145555469,
+            -0.31017093880118773
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.2,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969953590786249e-10,
+          "tip": [
+            -1.3366432616049613,
+            0.7655347256960692,
+            -0.986865138138239
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.252,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.96994967702262e-10,
+          "tip": [
+            0.062192981677343884,
+            1.1441248258284258,
+            1.8074614462309568
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.32,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969940379142718e-10,
+          "tip": [
+            0.31333129230520207,
+            2.85190979434503,
+            0.604859379070533
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.4,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969938712095995e-10,
+          "tip": [
+            0.23550072703390157,
+            2.9031249905590677,
+            0.3352774892944814
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.48,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969937535946723e-10,
+          "tip": [
+            0.040930054091487644,
+            2.880011596958667,
+            0.004019097217598411
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.54,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969947701071697e-10,
+          "tip": [
+            0.5230878773220153,
+            2.662717251648008,
+            0.4663230406418575
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.6,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969936646729159e-10,
+          "tip": [
+            -0.3275786597141628,
+            2.3328390384833533,
+            0.7013667780951862
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "full",
+          "time": 0.7,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969940056673608e-10,
+          "tip": [
+            -0.7830058201362062,
+            0.8947032472742293,
+            0.9191173669251822
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969950622191784e-10,
+          "tip": [
+            -0.47522103367269164,
+            0.4874700375801879,
+            0.931068341913107
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.1,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969947271410628e-10,
+          "tip": [
+            -1.4917119428649892,
+            0.779335714594632,
+            -0.31017128477668576
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.2,
+          "hits": 0,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969953590786249e-10,
+          "tip": [
+            -1.3366432616049613,
+            0.7655347256960692,
+            -0.986865138138239
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.252,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.96994967702262e-10,
+          "tip": [
+            0.062192981677343884,
+            1.1441248258284258,
+            1.8074614462309568
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.32,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969940379142718e-10,
+          "tip": [
+            0.31333129230520207,
+            2.85190979434503,
+            0.604859379070533
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.4,
+          "hits": 1,
+          "completed": 0,
+          "clip": "swordSlash",
+          "gripErrorM": 7.969938712095995e-10,
+          "tip": [
+            0.23550072703390157,
+            2.9031249905590677,
+            0.3352774892944814
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.48,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969937535946723e-10,
+          "tip": [
+            0.040930054091487644,
+            2.880011596958667,
+            0.004019097217598411
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.54,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969948478084954e-10,
+          "tip": [
+            0.5230874653991853,
+            2.662716920481671,
+            0.4663238964115428
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.6,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969936826878161e-10,
+          "tip": [
+            -0.3275788198627665,
+            2.3328391624872946,
+            0.7013663133271311
+          ]
+        },
+        {
+          "faction": "viking",
+          "view": "top",
+          "time": 0.7,
+          "hits": 1,
+          "completed": 1,
+          "clip": "run",
+          "gripErrorM": 7.969940056673608e-10,
+          "tip": [
+            -0.7830058201362062,
+            0.8947032472742293,
+            0.9191173669251822
+          ]
+        }
+      ]
+    },
+    "sword-npc": {
+      "errors": [],
+      "samples": 900,
+      "maxGripErrorM": 3.3371111019273906e-07,
+      "timing": [
+        {
+          "faction": "PLAYER",
+          "step": 0.008333333333333333,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "PLAYER",
+          "step": 0.016666666666666666,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "PLAYER",
+          "step": 0.252,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "PLAYER",
+          "step": 0.48,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "PLAYER",
+          "step": 0.8,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "ENEMY",
+          "step": 0.008333333333333333,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "ENEMY",
+          "step": 0.016666666666666666,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "ENEMY",
+          "step": 0.252,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "ENEMY",
+          "step": 0.48,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        },
+        {
+          "faction": "ENEMY",
+          "step": 0.8,
+          "hits": 1,
+          "completed": true,
+          "gap": 0.35
+        }
+      ]
+    }
+  },
+  "knownLimitation": "Existing Viking Bow LOD1/2 right-arm pose differs from LOD0; raw Bow clips and normalization preserved."
+}

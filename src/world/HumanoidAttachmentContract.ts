@@ -1,21 +1,5 @@
 import * as THREE from 'three'
 
-export let legacyBladeGripBypass = false
-
-export function setLegacyBladeGripBypass(bypass: boolean): void {
-  legacyBladeGripBypass = bypass
-  if (typeof window !== 'undefined') {
-    (window as any).__LEGACY_BLADEGRIP_BYPASS__ = bypass
-  }
-}
-
-export function isLegacyBladeGripBypass(): boolean {
-  if (typeof window !== 'undefined' && (window as any).__LEGACY_BLADEGRIP_BYPASS__ !== undefined) {
-    return !!(window as any).__LEGACY_BLADEGRIP_BYPASS__
-  }
-  return legacyBladeGripBypass
-}
-
 /**
  * Hand Grip Frame:
  * Defines the canonical anatomical grasp frame inside the palm cavity of a humanoid hand.

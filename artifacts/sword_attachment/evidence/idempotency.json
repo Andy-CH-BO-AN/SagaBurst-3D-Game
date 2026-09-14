@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "sha256": {
+    "public/models/characters/v2/roman/lod0.glb": "aa10f27f9b29d672cdb5acf757a7e828ab0ae6a9519914b219389a7dedc4bb11",
+    "public/models/characters/v2/roman/lod1.glb": "06526947fb43a22338648030a0eab9d84c3cc216e418ff066fc8f48d7e13fc70",
+    "public/models/characters/v2/roman/lod2.glb": "0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14",
+    "public/models/characters/v2/viking/lod0.glb": "3bb5c26745455260efc1398c7185ff3e5309285ae6c2e15c98f7fb7ff0ee6f7f",
+    "public/models/characters/v2/viking/lod1.glb": "bbed79831761fdc318633027cad1b33a2a92e4bfd5cfe731eb91efb7057fecd1",
+    "public/models/characters/v2/viking/lod2.glb": "1d2f5fcc45619ec4b83b95ad776337cf22ac4758d69e42e68f610de8cb57e499"
+  }
+}

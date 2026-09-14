@@ -51,7 +51,7 @@ export interface HumanoidAnimationPlayOptions {
 }
 
 export interface HumanoidAnimationController {
-  setBladeGrip?(enabled: boolean): void
+  setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
   play(state: HumanoidAnimationState, options?: HumanoidAnimationPlayOptions): boolean
@@ -63,6 +63,7 @@ export interface HumanoidAnimationController {
 }
 
 export interface CharacterRig {
+  swordGripFrame?: import('./SwordAttachmentContract').SwordGripFrame
   right: ArmRig
   left: ArmRig
   rightLeg: LegRig

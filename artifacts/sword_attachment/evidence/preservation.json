@@ -1,0 +1,56 @@
+[
+  {
+    "faction": "roman",
+    "lod": 0,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  },
+  {
+    "faction": "roman",
+    "lod": 1,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  },
+  {
+    "faction": "roman",
+    "lod": 2,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  },
+  {
+    "faction": "viking",
+    "lod": 0,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  },
+  {
+    "faction": "viking",
+    "lod": 1,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  },
+  {
+    "faction": "viking",
+    "lod": 2,
+    "sourceCommit": "7646f4c592e44a63ee7404c597d74761120a6c5e",
+    "skeleton": true,
+    "geometry": true,
+    "unselectedAnimations": true,
+    "manifestHash": true
+  }
+]

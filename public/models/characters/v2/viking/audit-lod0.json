@@ -1,15 +1,15 @@
 {
   "file": "lod0.glb",
-  "byteLength": 25431928,
+  "byteLength": 24387188,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
     "version": "2.0",
     "extras": {
       "humanoidAnimationBuild": {
         "schemaVersion": 1,
-        "baseBufferByteLength": 25213688,
-        "baseBufferViewCount": 59,
-        "baseAccessorCount": 47,
+        "baseBufferByteLength": 24222772,
+        "baseBufferViewCount": 45,
+        "baseAccessorCount": 33,
         "clips": [
           "idle",
           "walk",
@@ -21,6 +21,36 @@
           "pilumThrow"
         ],
         "fps": 30
+      },
+      "swordLocomotionRepair": {
+        "version": 3,
+        "sourceLod": 1,
+        "baselineSha256": "d4b94611f1205130919f14581ee408b852aa9f8edfd3c2a8f83169a48fe477b2",
+        "sourceSha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904",
+        "clips": [
+          "idle",
+          "walk",
+          "run"
+        ],
+        "fps": 30,
+        "method": "source anatomical arm axes; immutable existing locomotion body in target rest basis"
+      },
+      "swordAttackBuild": {
+        "version": 1,
+        "source": "UAL2_Standard.glb",
+        "clip": "Sword_Regular_A",
+        "sourceSha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68",
+        "sourceDuration": 0.43333333333333335,
+        "duration": 0.48,
+        "fps": 30,
+        "exactEndSample": true,
+        "timeMapping": {
+          "method": "u + amplitude * sin(pi * u)",
+          "amplitude": 0.05015460992414121,
+          "contactSeconds": 0.252,
+          "sourceContactNormalized": 0.575
+        },
+        "method": "immutable source world samples; anatomical upper body; target planted stance with source pelvis yaw; rotation-only in-place"
       }
     }
   },

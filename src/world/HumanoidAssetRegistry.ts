@@ -5,7 +5,9 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { createEquipmentSocketProxies } from './HumanoidEquipmentSockets'
 import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPose'
 import type { HandGripFrame } from './BowAttachmentContract'
-import { HumanoidBladeGrip, prepareBladeGrip } from './HumanoidBladeGrip'
+import { prepareBladeGrip } from './HumanoidBladeGrip'
+import { prepareSwordHandShape } from './SwordHandShape'
+import type { SwordGripFrame } from './SwordAttachmentContract'
 import type {
   ArmRig,
   CharacterFaction,
@@ -60,6 +62,7 @@ export interface HumanoidAssetManifest {
       thumbBaseCenter: [number, number, number]
     }
   }
+  swordGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
   animations?: {
     embedded: HumanoidAnimationBinding[]
     runtimeGenerated: HumanoidAnimationState[]
@@ -257,21 +260,21 @@ export class MixerController implements HumanoidAnimationController {
   private poseLayersEnabled = true
   private readonly bowLegActions = new Map<string, THREE.AnimationAction[]>()
   private bowLegState: string | null = null
-  private bladeGripEnabled = false
-  private readonly bladeGrips: HumanoidBladeGrip[]
   private readonly actions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
   private readonly rawActions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
   private readonly durations = new Map<HumanoidAnimationState, number>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
+  private readonly swordMeshes: THREE.SkinnedMesh[] = []
+  private swordHandEnabled = false
 
   constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel) {
-    this.bladeGrips = mixers.map((mixer) => mixer.getRoot())
-      .filter((root): root is THREE.Object3D => root instanceof THREE.Object3D && !!root.getObjectByName('hand_r'))
-      .map((root) => new HumanoidBladeGrip(root))
     for (const mixer of mixers) (mixer.getRoot() as THREE.Object3D).traverse(object => {
       if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.bowGrip !== undefined) this.bowMeshes.push(object)
+    })
+    for (const mixer of mixers) (mixer.getRoot() as THREE.Object3D).traverse(object => {
+      if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.swordHand !== undefined) this.swordMeshes.push(object)
     })
     const names = new Set(clipsPerLevel.flatMap((clips) => clips.map((clip) => clip.name as HumanoidAnimationState)))
     for (const name of names) {
@@ -304,12 +307,15 @@ export class MixerController implements HumanoidAnimationController {
     return (this.actions.get(state)?.length ?? 0) === this.mixers.length
   }
 
-  setBladeGrip(enabled: boolean): void { this.bladeGripEnabled = enabled }
+  setSwordHandShape(enabled: boolean): void {
+    if (this.swordHandEnabled === enabled) return
+    this.swordHandEnabled = enabled
+    for (const mesh of this.swordMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.swordHand] = enabled ? 1 : 0
+  }
 
   setPoseLayersEnabled(enabled: boolean): void {
     this.stop()
     this.poseLayersEnabled = enabled
-    for (const grip of this.bladeGrips) grip.reset()
   }
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
@@ -369,7 +375,6 @@ export class MixerController implements HumanoidAnimationController {
   seek(state: HumanoidAnimationState, normalizedTime: number): boolean {
     // A paused action may skip an unchanged PropertyMixer write. Never restore
     // last frame's overlay base AFTER evaluating the newly requested sample.
-    for (const grip of this.bladeGrips) grip.restore()
     if (!this.play(state, { fadeSeconds: this.current === state ? 0 : 0.12, loop: false })) return false
     const time = THREE.MathUtils.clamp(normalizedTime, 0, 1)
     for (const action of (this.poseLayersEnabled ? this.actions : this.rawActions).get(state) ?? []) {
@@ -390,15 +395,11 @@ export class MixerController implements HumanoidAnimationController {
       dt = this.farAccumulator
       this.farAccumulator = 0
     }
-    for (const grip of this.bladeGrips) grip.restore()
     for (const mixer of this.mixers) mixer.update(dt)
-    const guard = this.bladeGripEnabled && (this.current === 'idle' || this.current === 'walk' || this.current === 'run')
-    if (this.poseLayersEnabled) for (const grip of this.bladeGrips) grip.update(dt, this.bladeGripEnabled, guard)
     this.onPoseEvaluated?.()
   }
 
   stop(): void {
-    for (const grip of this.bladeGrips) grip.reset()
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
@@ -532,6 +533,10 @@ export class HumanoidAssetRegistry {
         const handFrame = readHandFrame(manifest)
         if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
       }
+      levels.forEach((level, index) => {
+        const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
+        if (swordFrame) prepareSwordHandShape(level.scene, swordFrame)
+      })
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
       const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
@@ -637,6 +642,7 @@ export class HumanoidAssetRegistry {
     if (!primaryScene || !skeleton) throw new Error(`Failed to clone ${config.faction} humanoid`)
     const animation = new MixerController(mixers, clipsPerLevel, rawClipsPerLevel)
     const rig = createHumanoidRigAdapter(primaryScene, animation)
+    rig.swordGripFrame = template.manifest.swordGripFrames?.lod0
     if (template.manifest.handGripFrames?.left) {
       const leftGrip = readHandFrame(template.manifest)!
       rig.handGripFrames = { left: leftGrip }

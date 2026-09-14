@@ -17,6 +17,7 @@ const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
+import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
@@ -151,7 +152,7 @@ export class NPC {
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.swordGripPivot.getWorldPosition(target)
+    return weaponGripWorld(this.swordGripPivot, target)
   }
 
   constructor(
@@ -240,6 +241,7 @@ export class NPC {
     this.swordGripPivot = new THREE.Group()
     this.swordPivot.add(this.swordGripPivot)
     applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', this.faction === Faction.PLAYER ? 0.15 : 0.10)
+    this.swordPivot.userData.swordAttachmentOwned = false
     this.rig.right.handSocket.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
@@ -272,6 +274,9 @@ export class NPC {
     )
     this.swordGripPivot.position.set(0, 0, 0)
     this.swordGripPivot.rotation.set(0, 0, 0)
+    if (this.rig.swordGripFrame && !this.isUsingLance) {
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+    }
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow')
@@ -337,8 +342,6 @@ export class NPC {
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
-    const meleeT = this.aiType === AIType.RANGED ? 1 : this.tier
-    if (meleeT === 1) return 'daggerSlash'
     return 'swordSlash'
   }
 
@@ -711,6 +714,7 @@ export class NPC {
             this.attackHitProcessed = false
           }
 
+          this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
           const meleeEvents = this.animator.update(dt)
           animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
@@ -723,7 +727,7 @@ export class NPC {
           }
           if (meleeEvents.actionCompleted) this.attackTimer = AI_ATTACK_GAP
 
-          if (!this.animator.busy && this.attackTimer > 0) {
+          if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
             if (this.attackTimer <= 0 && this.combatPosition.distanceTo(targetInfo.position) > this.meleeAttackRadius) {
               this.state = AIState.CHASE
@@ -746,6 +750,7 @@ export class NPC {
       }
     }
 
+    this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && this.swordPivot.userData.swordAttachmentOwned === true)
     const needsShieldOnBack = this.arrows > 0 || this.animator.currentAction === 'bowRelease' || (this.isUsingLance && !this.isMounted)
     if (this.state !== AIState.DEAD) {
       if (!this.animator.busy && !animationAdvanced) {

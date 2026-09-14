@@ -1,6 +1,6 @@
 {
   "file": "lod2.glb",
-  "byteLength": 878048,
+  "byteLength": 867356,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
     "version": "2.0",
@@ -35,6 +35,36 @@
           "RomanUndertunic_r": 3,
           "Tunic_1": 525
         }
+      },
+      "swordLocomotionRepair": {
+        "version": 3,
+        "sourceLod": 1,
+        "baselineSha256": "9249f25b5288d5134a0656a78242cbc8e1dcc1c4d40bf86dd9bc9cf2e9ec20a2",
+        "sourceSha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904",
+        "clips": [
+          "idle",
+          "walk",
+          "run"
+        ],
+        "fps": 30,
+        "method": "restore authored LOD1 motion; no anatomical arm retarget"
+      },
+      "swordAttackBuild": {
+        "version": 1,
+        "source": "UAL2_Standard.glb",
+        "clip": "Sword_Regular_A",
+        "sourceSha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68",
+        "sourceDuration": 0.43333333333333335,
+        "duration": 0.48,
+        "fps": 30,
+        "exactEndSample": true,
+        "timeMapping": {
+          "method": "u + amplitude * sin(pi * u)",
+          "amplitude": 0.05015460992414121,
+          "contactSeconds": 0.252,
+          "sourceContactNormalized": 0.575
+        },
+        "method": "immutable source world samples; anatomical upper body; target planted stance with source pelvis yaw; rotation-only in-place"
       }
     }
   },

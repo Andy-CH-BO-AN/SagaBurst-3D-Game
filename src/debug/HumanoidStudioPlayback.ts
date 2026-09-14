@@ -4,7 +4,7 @@ import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../world/Cha
 import { CharacterBowVisual } from '../world/CharacterBowVisual'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Faction } from '../world/NPC'
-import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
+import { applySwordAttachment } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import { applyCharacterMountedPose, type HumanoidAnimationState } from '../world/CharacterVisuals'
 
@@ -24,7 +24,7 @@ export class HumanoidStudioPlayback {
     const grip = new THREE.Group()
     this.sword.add(grip)
     WeaponMeshFactory.buildNpcMelee(faction === 'roman' ? Faction.ENEMY : Faction.PLAYER, 2, false, grip)
-    applyAttachmentContract(instance.rig.right.handSocket, 'r', this.sword, 'melee', faction === 'roman' ? 0.10 : 0.15)
+    applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
     WeaponMeshFactory.buildNpcRanged(Faction.ENEMY, 2, this.pilum)
     const bowGrip = new THREE.Group()
@@ -41,7 +41,7 @@ export class HumanoidStudioPlayback {
   sampleBowComparison(time: number, mode: 'current' | 'legacy' | 'raw' | 'gameplay', motion: 'idle' | 'walk' | 'run' = 'idle'): void {
     this.reset()
     const animation = this.instance.rig.animation!
-    animation.setBladeGrip?.(false)
+    animation.setSwordHandShape?.(false)
     animation.setPoseLayersEnabled?.(mode === 'current' || mode === 'gameplay')
     const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
     if (mode === 'gameplay') {
@@ -103,6 +103,7 @@ export class HumanoidStudioPlayback {
     this.sword.visible = this.equipped && !this.state.startsWith('bow') && this.state !== 'pilumThrow'
     this.bow.visible = this.equipped && this.state.startsWith('bow')
     this.pilum.visible = this.equipped && this.state === 'pilumThrow'
+    this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible)
   }
 
   update(dt: number): void {
@@ -114,7 +115,6 @@ export class HumanoidStudioPlayback {
     } else if (this.state === 'idle' || this.state === 'walk' || this.state === 'run') {
       this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0)
       this.animator.update(dt)
-      applyAttachmentContract(this.instance.rig.right.handSocket, 'r', this.sword, 'melee', this.faction === 'roman' ? 0.10 : 0.15)
     } else if (this.state === 'bowLoad' || this.state === 'bowHold') {
       const ratio = this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2
       this.animator.poseBow(ratio)
@@ -122,12 +122,9 @@ export class HumanoidStudioPlayback {
     } else if (this.state === 'swordSlash' || this.state === 'bowRelease' || this.state === 'pilumThrow') {
       if (!this.animator.busy) this.animator.start(this.state)
       this.animator.update(dt)
-      if (this.state === 'swordSlash') {
-        applyAttachmentContract(this.instance.rig.right.handSocket, 'r', this.sword, 'melee', this.faction === 'roman' ? 0.10 : 0.15)
-      }
     } else {
       if (!this.started) {
-        animation.setBladeGrip?.(false)
+        animation.setSwordHandShape?.(false)
         animation.play(this.state, { fadeSeconds: 0, loop: this.state === 'mounted' })
       }
       animation.update(dt)
