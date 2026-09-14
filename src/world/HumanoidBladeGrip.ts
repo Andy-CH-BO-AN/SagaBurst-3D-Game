@@ -1,14 +1,4 @@
 import * as THREE from 'three'
-import { isLegacyBladeGripBypass } from './HumanoidAttachmentContract'
-
-const THUMB_UP = new THREE.Vector3(0, -1, 0)
-const X = new THREE.Vector3(1, 0, 0)
-const matrix = new THREE.Matrix4()
-const direction = new THREE.Vector3()
-const axis = new THREE.Vector3()
-const normal = new THREE.Vector3()
-const parentRotation = new THREE.Quaternion()
-const rotation = new THREE.Quaternion()
 
 /** Author a shared, optional closed-hand shape in the hand's bind coordinates. */
 export function prepareBladeGrip(scene: THREE.Object3D, faction: 'viking' | 'roman'): void {
@@ -62,77 +52,4 @@ export function prepareBladeGrip(scene: THREE.Object3D, faction: 'viking' | 'rom
     geometry.morphAttributes.position = [morph]
     object.updateMorphTargets()
   })
-}
-
-/** A weapon-aware upper-body layer; the locomotion clip still owns the legs. */
-export class HumanoidBladeGrip {
-  private readonly shoulder: THREE.Object3D
-  private readonly elbow: THREE.Object3D
-  private readonly hand: THREE.Object3D
-  private readonly leftHand: THREE.Object3D | undefined
-  private readonly leftBase = new THREE.Quaternion()
-  private readonly meshes: THREE.SkinnedMesh[] = []
-  private readonly base = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
-  private applied = false
-  private weight = 0
-
-  constructor(private readonly root: THREE.Object3D) {
-    this.shoulder = root.getObjectByName('upper_arm_r')!
-    this.elbow = root.getObjectByName('lower_arm_r')!
-    this.hand = root.getObjectByName('hand_r')!
-    this.leftHand = root.getObjectByName('hand_l')
-    root.traverse((object) => {
-      if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.bladeGrip !== undefined) this.meshes.push(object)
-    })
-  }
-
-  restore(): void {
-    if (!this.applied) return
-    ;[this.shoulder, this.elbow, this.hand].forEach((bone, i) => bone.quaternion.copy(this.base[i]))
-    if (this.leftHand) this.leftHand.quaternion.copy(this.leftBase)
-    this.applied = false
-  }
-
-  reset(): void {
-    this.restore()
-    this.weight = 0
-    for (const mesh of this.meshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bladeGrip] = 0
-  }
-
-  update(dt: number, holding: boolean, guard: boolean): void {
-    if (isLegacyBladeGripBypass()) { this.reset(); return }
-    if (!holding) { this.reset(); return }
-    const blend = 1 - Math.exp(-dt / 0.08)
-    this.weight = THREE.MathUtils.lerp(this.weight, guard ? 1 : 0, blend)
-    for (const mesh of this.meshes) {
-      const index = mesh.morphTargetDictionary!.bladeGrip
-      mesh.morphTargetInfluences![index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences![index], holding ? 1 : 0, blend)
-    }
-    if (this.weight < 0.001) return
-    ;[this.shoulder, this.elbow, this.hand].forEach((bone, i) => this.base[i].copy(bone.quaternion))
-    if (this.leftHand) this.leftBase.copy(this.leftHand.quaternion)
-    this.root.updateWorldMatrix(true, true)
-    // Elbow beside the ribs, forearm forward, palm turned inward. The hand's
-    // local X runs across the fist and therefore along the upright sword hilt.
-    // Keep the imported shoulder pose and roll: imposing a world-axis roll here
-    // twists the shoulder skin and armour away from the chest.
-    this.orient(this.elbow, direction.set(-0.08, -0.15, 0.985), X)
-    const gripAxis = this.hand.userData.bladeGripAxis ?? -1
-    THUMB_UP.set(0, gripAxis, 0)
-    this.orient(this.hand, direction.set(0, -0.10, 0.995), THUMB_UP)
-    this.applied = true
-  }
-
-  private orient(bone: THREE.Object3D, along: THREE.Vector3, across: THREE.Vector3, weight = this.weight): void {
-    along.normalize()
-    normal.crossVectors(across, along).normalize()
-    axis.crossVectors(along, normal).normalize()
-    rotation.setFromRotationMatrix(matrix.makeBasis(axis, along, normal))
-    this.root.getWorldQuaternion(parentRotation)
-    rotation.premultiply(parentRotation)
-    bone.parent!.getWorldQuaternion(parentRotation)
-    rotation.premultiply(parentRotation.invert())
-    bone.quaternion.slerp(rotation, weight)
-    bone.updateWorldMatrix(false, true)
-  }
 }

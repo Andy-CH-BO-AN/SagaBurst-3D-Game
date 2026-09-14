@@ -60,9 +60,9 @@ describe('Default Mounted Loadout & Inventory', () => {
     expect(inventory.isEquipped('runic_greatsword')).toBe(true)
     expect(inventory.isEquipped('steel_lance')).toBe(false)
     expect(inventory.equippedMelee.damageMax).toBe(45)
-    expect(inventory.equippedMelee.animationKind).toBe('greatsword')
+    expect(inventory.equippedMelee.animationKind).toBe('sword')
 
-    // Shield remains equipped in inventory model; Two-handed rule handles back-placement
+    // Shield remains equipped and the unified one-handed sword keeps it in the guard hand.
     expect(inventory.equippedShield?.id).toBe('round_shield_t3')
   })
 })

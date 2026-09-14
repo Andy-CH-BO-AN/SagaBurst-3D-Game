@@ -30,15 +30,15 @@ export const WEAPONS: Record<string, WeaponData> = {
   // ── Melee Weapons ──
   rusty_dagger: {
     id: 'rusty_dagger',
-    name: '生鏽小刀 Rusty Dagger',
+    name: '風化長劍 Weathered Sword',
     type: 'melee',
     tier: 1,
     damageMin: 12,
     damageMax: 12,
-    speedOrCharge: 0.24, // Fast swing
-    animationKind: 'dagger',
-    range: 1.0,
-    description: '生鏽短小的舊小刀，攻擊範圍短但揮速極快。',
+    speedOrCharge: 0.35,
+    animationKind: 'sword',
+    range: 1.8,
+    description: '沿用制式長劍外形，以風化鐵紋區分的普通武器。',
   },
   steel_sword: {
     id: 'steel_sword',
@@ -67,15 +67,15 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   runic_greatsword: {
     id: 'runic_greatsword',
-    name: '精鋼戰刃 Runic Greatsword',
+    name: '符文長劍 Runic Sword',
     type: 'melee',
     tier: 3,
     damageMin: 45,
     damageMax: 45,
-    speedOrCharge: 0.45, // Slow heavy swing
-    animationKind: 'greatsword',
-    range: 2.2,
-    description: '附魔藍金紋路的重型精鋼戰刃，具備破甲高傷害。',
+    speedOrCharge: 0.35,
+    animationKind: 'sword',
+    range: 1.8,
+    description: '沿用制式長劍外形，以藍金符文區分的史詩武器。',
   },
 
   // ── Ranged Bows ──
@@ -127,9 +127,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     tier: 1,
     damageMin: 12,
     damageMax: 12,
-    speedOrCharge: 0.24,
-    animationKind: 'dagger',
-    description: '生鏽的羅馬兵短劍，傷害低但揮動極快。',
+    speedOrCharge: 0.35,
+    animationKind: 'sword',
+    range: 1.8,
+    description: '沿用制式短劍外形，以風化鐵紋區分的普通武器。',
   },
   gladius_standard: {
     id: 'gladius_standard',
@@ -140,6 +141,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMax: 25,
     speedOrCharge: 0.35,
     animationKind: 'sword',
+    range: 1.8,
     description: '制式羅馬軍團短劍，標準傷害。',
   },
   centurion_blade: {
@@ -149,9 +151,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     tier: 3,
     damageMin: 45,
     damageMax: 45,
-    speedOrCharge: 0.45,
+    speedOrCharge: 0.35,
     animationKind: 'sword',
-    description: '羅馬百夫長專屬的發光精鋼劍，破壞力強。',
+    range: 1.8,
+    description: '沿用制式短劍外形，以金色百夫長紋區分的史詩武器。',
   },
 
   // ── Roman Enemy Ranged (Pilum, NPC Only) ──

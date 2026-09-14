@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import type { CharacterRig } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
-import { isLegacyBladeGripBypass } from './HumanoidAttachmentContract'
 
 export type CombatAction =
   | 'idle'
@@ -51,10 +50,8 @@ export class CharacterCombatAnimator {
   private ownership: 'clip' | 'procedural' = 'procedural'
   private elapsed = 0
   private shieldGuardEnabled = false
-  private bladeReady = true
-  private readonly gripRotation = new THREE.Quaternion()
-  private readonly gripPosition = new THREE.Vector3()
-  private readonly gripOffset = new THREE.Vector3()
+  private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
+  private locomotionTimeScale = 1
   private readonly events: CombatAnimationEvents = {
     hitActiveStarted: false,
     projectileRelease: false,
@@ -78,16 +75,16 @@ export class CharacterCombatAnimator {
   }
 
   setLocomotion(speed: number, mounted = false): void {
-    if (this.busy && this.action !== 'bowRelease') return
-    this.rig.animation?.setBladeGrip?.(this.bladeReady && !mounted)
     const state = mounted ? 'mounted' : speed > 3 ? 'run' : speed > 0.1 ? 'walk' : 'idle'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
       : state === 'run'
         ? Math.min(2.2, Math.max(0.1, speed / 4))
         : 1
+    this.locomotion = state
+    this.locomotionTimeScale = timeScale
+    if (this.busy && this.action !== 'bowRelease') return
     if (this.action === 'bowAim' || this.action === 'bowRelease') {
-      this.rig.animation?.setBladeGrip?.(false)
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)
       return
     }
@@ -101,7 +98,6 @@ export class CharacterCombatAnimator {
       ? action
       : null
     this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
-    this.rig.animation?.setBladeGrip?.(action === 'swordSlash')
     this.elapsed = 0
     if (this.ownership === 'clip') this.rig.animation?.play(action, { fadeSeconds: 0.1, loop: false })
     return true
@@ -123,15 +119,13 @@ export class CharacterCombatAnimator {
     this.rig.animation?.update(dt)
 
     if (this.action === 'idle' || this.action === 'bowAim') {
-      if (this.action === 'idle' && this.bladeReady) this.alignBladeGrip()
       return this.events
     }
-    if (this.ownership === 'clip' && this.action === 'swordSlash') this.alignBladeGrip()
 
     const profile = COMBAT_ANIMATION_PROFILES[this.action]
     const previous = this.elapsed
     this.elapsed += dt
-    const total = profile.windup + profile.active + profile.recovery
+    const total = Math.round((profile.windup + profile.active + profile.recovery) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
       if (previous < profile.windup && this.elapsed >= profile.windup) {
@@ -143,32 +137,33 @@ export class CharacterCombatAnimator {
       }
     } else {
       const isLance = this.action === 'lanceThrust' || this.action === 'mountedLance'
-      const contactTime = profile.windup + profile.active * (isLance ? 0.9 : 0.8)
+      const contactTime = Math.round((profile.windup + profile.active * (isLance ? 0.9 : 0.8)) * 1e9) / 1e9
       if (previous < contactTime && this.elapsed >= contactTime) {
         this.events.hitActiveStarted = true
       }
       if (this.ownership === 'procedural') this.poseMelee(this.action, this.elapsed, profile)
     }
 
-    if (this.elapsed >= total) {
+    if (this.elapsed >= total - 1e-9) {
+      const returnToLocomotion = this.action === 'swordSlash' && this.ownership === 'clip'
       this.action = 'idle'
       this.ownership = 'procedural'
       this.elapsed = 0
       this.events.actionCompleted = true
-      this.poseIdle()
+      if (returnToLocomotion) {
+        this.resetWeaponPivots()
+        this.rig.animation?.play(this.locomotion, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
+      } else this.poseIdle()
     }
     return this.events
   }
 
   poseIdle(): void {
-    this.bladeReady = true
-    this.rig.animation?.setBladeGrip?.(true)
     this.action = 'idle'
     this.ownership = 'procedural'
     this.rig.animation?.play('idle', { fadeSeconds: 0.12, loop: true })
     if (this.rig.animation?.has('idle')) {
       this.resetWeaponPivots()
-      this.alignBladeGrip()
       return
     }
     const { right, left } = this.rig
@@ -188,7 +183,6 @@ export class CharacterCombatAnimator {
 
   poseBow(chargeRatio: number, aimBlend = 1): void {
     if (this.busy) return
-    this.rig.animation?.setBladeGrip?.(false)
     this.action = 'bowAim'
     const imported = this.rig.animation?.has('bowLoad') && this.rig.animation.has('bowHold')
     this.ownership = imported ? 'clip' : 'procedural'
@@ -229,8 +223,6 @@ export class CharacterCombatAnimator {
 
   poseLanceReady(mounted: boolean): void {
     if (this.busy) return
-    this.bladeReady = false
-    this.rig.animation?.setBladeGrip?.(false)
     const { right, left } = this.rig
     setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)
     setRigRotation(right.elbow, mounted ? 0.15 : 0.38, 0, 0.12)
@@ -274,29 +266,11 @@ export class CharacterCombatAnimator {
     this.applyBowPose(snap, 1)
   }
 
-  private alignBladeGrip(): void {
-    if (isLegacyBladeGripBypass()) return
-    const center = this.rig.right.wrist.userData.bladeGripCenter as number[] | undefined
-    if (!center) return
-    const socket = this.rig.right.handSocket
-    const model = this.meleePivot.children[0]
-    const modelGrip = model?.userData.gripCenterLocal as number[] | undefined
-    if (!modelGrip) return
-    // Model +Y is inverted by the static grip child. Map its -Y to hand -X,
-    // the axis across the closed fingers, and centre the handle in the fist.
-    const gripAxis = this.rig.right.wrist.userData.bladeGripAxis ?? -1
-    this.gripRotation.setFromAxisAngle(new THREE.Vector3(0, 0, 1), gripAxis * Math.PI / 2)
-    this.meleePivot.quaternion.copy(socket.quaternion).invert().multiply(this.gripRotation)
-    this.gripPosition.fromArray(center)
-    this.gripPosition.sub(socket.position).applyQuaternion(this.gripRotation.copy(socket.quaternion).invert())
-    model.updateMatrix()
-    this.gripOffset.fromArray(modelGrip).applyMatrix4(model.matrix).applyQuaternion(this.meleePivot.quaternion)
-    this.meleePivot.position.copy(this.gripPosition).sub(this.gripOffset)
-  }
-
   private resetWeaponPivots(): void {
-    this.meleePivot.position.set(0, 0, 0)
-    this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+    if (!this.meleePivot.userData.swordAttachmentOwned) {
+      this.meleePivot.position.set(0, 0, 0)
+      this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+    }
     // Modern equipment owns its authored attachment; animation never resets it.
     if (!this.rig.animation && !this.rig.handGripFrames?.left) {
       this.bowPivot.position.set(0, 0, 0)

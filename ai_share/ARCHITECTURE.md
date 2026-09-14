@@ -21,7 +21,7 @@ skyrim 3D test/
     ├── debug/
     │   └── CombatTrajectoryDebugger.ts Query-only weapon grip direction, tip trails, and console summaries
     ├── player/
-    │   ├── Player.ts          Segmented body (Torso & Limbs), 6 distinct 3D weapon builders, HP/damage/respawn state, heightmap ground collision
+    │   ├── Player.ts          Segmented body, shared tiered melee silhouettes, HP/damage/respawn state, heightmap ground collision
     │   └── PlayerInput.ts     Keyboard & mouse event aggregator (added E key detection)
     ├── world/
     │   ├── Sky.ts             Background, atmospheric fog, direction sun & ambient lighting
@@ -60,14 +60,13 @@ skyrim 3D test/
 
 ## 3D Weapon & Armor Geometries
 
-1. **生鏽小刀 (Rusty Dagger - Tier 1)**: `CylinderGeometry` handle (0.18m) + minimal `BoxGeometry` guard + short `BoxGeometry` blade (0.55m) + `ConeGeometry` tip.
-2. **鋼鐵長劍 (Steel Sword - Tier 2)**: Standard 1.1m double-edged blade + 0.35m crossguard.
-3. **精鋼戰刃 (Runic Greatsword - Tier 3)**: Extended 0.45m handle with 3 `TorusGeometry` grip rings + `OctahedronGeometry` rune gem pommel + 0.58m winged crossguard + 1.55m wide heavy blade + blue glowing fuller groove.
-4. **木製短弓 (Wooden Shortbow - Tier 1)**: 0.18m crude grip + 2 straight 0.45m limbs inclined at 0.2rad.
-5. **反曲長弓 (Recurve Longbow - Tier 2)**: 2-segment S-curve limbs (0.55m inner + 0.35m outer).
-6. **符文精靈弓 (Elven Runebow - Tier 3)**: 3-segment elven crescent limbs (0.65m + 0.45m + 0.35m) + 2 `OctahedronGeometry` cyan crystal gems + 2 `TorusGeometry` moon crescent spikes + glowing arrow.
-7. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
-8. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+1. **Viking T1–T3 單手劍**: All tiers use the default Steel Sword geometry, 1.18m profiled double-edged blade, wrapped 0.29m grip and curved crossguard. T1 uses weathered iron/leather, T2 standard steel, and T3 blue-gold runic surface patterns.
+2. **Roman T1–T3 Gladius**: All tiers use the default Gladius geometry, 0.68m profiled blade, wrapped 0.16m grip and oval guard. T1 uses weathered iron, T2 legion steel, and T3 centurion gold patterns.
+3. **木製短弓 (Wooden Shortbow - Tier 1)**: 0.18m crude grip + 2 straight 0.45m limbs inclined at 0.2rad.
+4. **反曲長弓 (Recurve Longbow - Tier 2)**: 2-segment S-curve limbs (0.55m inner + 0.35m outer).
+5. **符文精靈弓 (Elven Runebow - Tier 3)**: 3-segment elven crescent limbs (0.65m + 0.45m + 0.35m) + 2 `OctahedronGeometry` cyan crystal gems + 2 `TorusGeometry` moon crescent spikes + glowing arrow.
+6. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+7. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
 
 ### Dynamic Back-Shield System
 - `Player` and `NPC` use a generic `shieldPivot`.
@@ -77,16 +76,26 @@ skyrim 3D test/
 ### Phase 20 FK Combat Rig
 - `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
 - Melee weapons attach to the right hand socket, bows to the left hand socket, and shields transition between the left hand socket and back.
-- `CharacterCombatAnimator` owns the data-driven dagger, sword, greatsword, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events.
+- `CharacterCombatAnimator` owns the shared T1–T3 one-handed `swordSlash`, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events; legacy dagger/greatsword states remain available only for compatibility.
 - `CharacterBowVisual` is the single implementation for Player and bow-equipped NPC bow geometry, vertical target alignment, string draw, nocked-arrow placement, and projectile launch origin/direction. Allied NPC tiers map to the same shortbow/longbow/runebow models used by the Player; Roman pilum remains separate.
-- Greatswords and foot lances use two-handed poses. Mounted lances remain couched under the right arm so the left arm can retain its shield.
+- T1–T3 swords remain one-handed so the left hand can retain its shield. Foot lances use two-handed poses; mounted lances remain couched under the right arm.
 - `ThirdPersonCamera` keeps its optical axis and fixed reticle on one world ray. While aiming, `Game` raycasts that ray to a visible world hit (falling back to a distant point), and player arrows travel from the hand's nock socket toward that resolved point.
 - Entering aim mode changes FOV only; camera distance and lateral position remain fixed so the world point beneath the original reticle does not jump.
-- Melee meshes are authored along local `+Y`. Each hand now owns an animated action pivot with a static weapon-specific grip child, so idle alignment cannot be overwritten by slash/thrust deltas. Lance thrust translation follows its shaft axis.
+- Melee meshes are authored along local `+Y`. Modern one-handed swords use an equipment-owned fixed attachment; other melee families retain the procedural action pivot. Lance thrust translation follows its shaft axis.
 - Arrow geometry uses local `-Z` as visual forward for both nocked and flying arrows; projectile quaternions explicitly align that axis with physical velocity instead of relying on generic `Object3D.lookAt()`.
 - Arrow and pilum instances share immutable shaft, tip, fin/socket/neck/wrap geometries and materials. Removing a transient projectile therefore cannot leave one new GPU resource allocation per shot during the 50v50 stress scenario.
 - Hand-held shields are centred above the wrist and face character-forward; hand/back targets retain independent position and quaternion transitions.
 - Weapon and shield meshes retain `originalMat` for flash restoration, while shields are excluded from character damage-flash traversal.
+
+### 2026-09-14：單手劍 attachment 與動畫所有權
+
+- `SwordAttachmentContract` 使用 manifest 的 `swordGripFrames.lod0/lod1/lod2` 與 builder 的 `gripCenterLocal`。固定矩陣為 `inverse(socket) × handGripFrame × inverse(weaponGripFrame) × inverse(model)`；Player 換劍／重建角色、NPC 建立與工作室建立共用入口。
+- 裝備代理仍每次姿勢求值後跟隨 LOD0 的 `hand_r`；這是骨架同步，不是追劍 correction。`swordAttachmentOwned` 阻止 animator 的 idle／cancel／完成流程覆寫劍。模型 grip 子節點維持 identity。
+- `SwordHandShape` 只新增右手指 `swordHand` morph；`MixerController.setSwordHandShape` 在裝備狀態改變時寫 influence。`HumanoidBladeGrip` 的舊 morph 僅保留索引結構，influence 為零；逐幀扭腕／前臂 layer、alignBladeGrip 與工作室重套 attachment 已移除。HUD 固定 correction OFF。
+- Roman idle／walk／run 保留原有雙臂／手腕動作；LOD0 恢復既有 LOD1 動作。Viking 的 A/T rest basis 差異使用來源解剖座標離線處理，不能套用到 Roman。`artifacts/animation_sources/sword_baselines` 保存原始 LOD1 動作與來源 SHA，避免把修正後輸出當成下一次輸入。
+- `swordSlash` 以 Quaternius `Sword_Regular_A` 唯讀取樣、30 FPS 加精確命中／結束點，烘焙六份 GLB。rotation-only 版本採目標站姿下半身與來源 pelvis yaw，避免移除骨盆平移後蹲姿雙腳懸空；上身保留 A 的揮砍。時間映射使正前方掃擊落在 0.252 秒，0.48 秒完成，0.10 秒進入 blend，0.12 秒直接回最新 idle／walk／run。
+- Player 保留同幀「命中＋完成」的待消費命中；NPC 完成後保留完整 0.35 秒間隔。攻擊不寫武器／socket 動畫軌道，其他 melee 家族保持原程序路徑。
+- Bow 左手 frame、手形與 normalization 保留。`BowGripLOD` 複製右手網格時使用其 mesh bind 空間，避免把左手轉換套到右手。既有 Viking Bow LOD1／2 右臂與 LOD0 不一致仍列為未解的 Bow 資料問題。
 - `?devcombat` enables `CombatTrajectoryDebugger` and a fixed Tier-3 50v50 cavalry battle: each faction receives 25 ranged riders and 25 lancers, with front lines starting about 35m from the player. Viking ranged projectiles use arrow visuals while Roman ranged projectiles use full pilum visuals through the same collision pipeline. Grip-to-tip direction lines stay visible and melee actions retain world-space tip trails; completion logs local-space start/end/bounds for Player and NPCs. The debugger is not instantiated on normal URLs.
 - The normal release URL uses a deterministic beginner-friendly 10v5 battle: the Player plus nine allied Tier-2 infantry (five melee, four archers) face five Tier-2 Roman infantry (three melee, two pilum), with cavalry randomness disabled for those units.
 - NPC ranged units engage out to 22m. Their shared aim point adds distance-squared vertical compensation before both visual aiming and projectile launch, while NPC arrows/pilums use a 20m/s launch speed for readable longer arcs.

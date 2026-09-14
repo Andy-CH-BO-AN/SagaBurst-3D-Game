@@ -3,7 +3,7 @@ import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
  * Player.ts
  * The player character (capsule geometry).
  * Calibrated with getTerrainHeight(x, z) for procedural heightmap terrain.
- * Supports 6 distinct 3D weapon geometries for Tier 1~3 Melee and Ranged weapons.
+ * Supports shared melee silhouettes with tier patterns plus three ranged geometries.
  * Triggers SoundManager audio effects for sword swings and bow releases.
  */
 import * as THREE from 'three'
@@ -14,7 +14,7 @@ import type { HpBar } from '../ui/HpBar'
 import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
-import type { WeaponData } from '../rpg/WeaponDatabase'
+import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
@@ -23,6 +23,7 @@ import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCombatAnimator'
 import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
+import { applySwordAttachment, weaponGripWorld } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import {
   CharacterBowVisual,
@@ -162,7 +163,7 @@ export class Player {
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.swordGripPivot.getWorldPosition(target)
+    return weaponGripWorld(this.swordGripPivot, target)
   }
 
   getBowGripPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -279,6 +280,10 @@ export class Player {
       this.externalPelvisHeight = this.characterVisualGroup.worldToLocal(this._tmpPelvisWorld).y
     }
     applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', 0.15)
+    this.swordPivot.userData.swordAttachmentOwned = false
+    if (this.rig.swordGripFrame && WEAPONS[this.currentMeleeId]?.animationKind === 'sword') {
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+    }
     applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
     this.rig.right.handSocket.add(this.swordPivot)
     this.rig.left.handSocket.add(this.bowPivot)
@@ -312,6 +317,10 @@ export class Player {
     this.swordGripPivot.position.set(0, 0, 0)
     this.swordGripPivot.rotation.set(0, 0, 0)
 
+    this.swordPivot.userData.swordAttachmentOwned = false
+    if (this.rig.swordGripFrame && WEAPONS[weaponId]?.animationKind === 'sword') {
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+    }
     polishWeaponMaterials(this.swordGripPivot)
   }
 
@@ -554,6 +563,7 @@ export class Player {
 
     const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
     this.swordPivot.visible = !showingBow
+    this.rig.animation?.setSwordHandShape?.(!showingBow && this.swordPivot.userData.swordAttachmentOwned === true)
     this.bowPivot.visible = showingBow
 
     const needsTwoHands = equippedMelee?.animationKind === 'greatsword'
@@ -629,7 +639,6 @@ export class Player {
     }
     if (animationEvents.actionCompleted) {
       this.isSwinging = false
-      this.hitEventPending = false
     }
 
     this._setShieldPlacement(showingBow || needsTwoHands)

@@ -101,68 +101,9 @@ export class WeaponMeshFactory {
    */
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
-    pivot.userData.gripCenterLocal = [0, weaponId === 'rusty_dagger' ? 0.09 : weaponId === 'runic_greatsword' ? 0.225 : 0.15, 0]
+    pivot.userData.gripCenterLocal = [0, 0.15, 0]
 
-    if (weaponId === 'rusty_dagger') {
-      const hiltMat = new THREE.MeshLambertMaterial({ color: 0x3a3028, flatShading: true })
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0x555555, flatShading: true })
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true })
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.18, 6), hiltMat)
-      hilt.position.y = 0.09
-      pivot.add(hilt)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.04), guardMat)
-      guard.position.y = 0.18
-      pivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.55, 0.02), bladeMat)
-      blade.position.y = 0.48
-      blade.castShadow = true
-      pivot.add(blade)
-
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), bladeMat)
-      tip.position.y = 0.81
-      pivot.add(tip)
-      tipLocal.set(0, 0.87, 0)
-
-    } else if (weaponId === 'runic_greatsword') {
-      const hiltMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-      const ringMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-      const guardMat = new THREE.MeshLambertMaterial({ color: 0xd4af37, flatShading: true })
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-      const gemMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff })
-
-      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.45, 8), hiltMat)
-      hilt.position.y = 0.225
-      pivot.add(hilt)
-
-      for (let i = 0; i < 3; i++) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.012, 8, 16), ringMat)
-        ring.rotation.x = Math.PI / 2
-        ring.position.y = 0.1 + i * 0.12
-        pivot.add(ring)
-      }
-
-      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.085), gemMat)
-      gem.position.y = -0.04
-      pivot.add(gem)
-
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.09, 0.12), guardMat)
-      guard.position.y = 0.48
-      pivot.add(guard)
-
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.55, 0.048), bladeMat)
-      blade.position.y = 1.3
-      blade.castShadow = true
-      pivot.add(blade)
-
-      const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.065, 1.35, 0.058), gemMat)
-      fuller.position.y = 1.25
-      pivot.add(fuller)
-      tipLocal.set(0, 2.1, 0)
-
-    } else if (weaponId === 'steel_lance') {
+    if (weaponId === 'steel_lance') {
       const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
       const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
 
@@ -179,9 +120,22 @@ export class WeaponMeshFactory {
       tipLocal.set(0, 2.6, 0)
 
     } else {
-      const leather = proceduralMaterial({ kind: 'leather', color: 0x3f2b21, roughness: 0.82 })
-      const steel = proceduralMaterial({ kind: 'iron', color: 0xc2c7c9, roughness: 0.27, metalness: 0.92 })
-      const darkSteel = proceduralMaterial({ kind: 'iron', color: 0x555c60, roughness: 0.38, metalness: 0.82 })
+      const tier = weaponId === 'rusty_dagger' ? 1 : weaponId === 'runic_greatsword' ? 3 : 2
+      const leather = proceduralMaterial({
+        kind: 'leather', color: tier === 1 ? 0x4a3428 : tier === 3 ? 0x252038 : 0x3f2b21,
+        roughness: 0.82, repeat: [2, tier + 2],
+      })
+      const steel = proceduralMaterial({
+        kind: 'iron', color: tier === 1 ? 0x77716b : tier === 3 ? 0xd8d3bd : 0xc2c7c9,
+        roughness: tier === 1 ? 0.48 : 0.27, metalness: tier === 1 ? 0.72 : 0.92, repeat: [tier + 1, 5],
+      })
+      const darkSteel = proceduralMaterial({
+        kind: tier === 3 ? 'bronze' : 'iron', color: tier === 1 ? 0x47413d : tier === 3 ? 0xb78a42 : 0x555c60,
+        roughness: 0.38, metalness: 0.82, repeat: [2, tier + 3],
+      })
+      const fullerMaterial = tier === 3
+        ? proceduralMaterial({ kind: 'iron', color: 0x3e6d86, roughness: 0.24, metalness: 0.9, repeat: [2, 8] })
+        : darkSteel
       addWrappedGrip(pivot, 0.29, 0.037, 0.15, leather, darkSteel)
 
       const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.064, 1), darkSteel)
@@ -204,7 +158,7 @@ export class WeaponMeshFactory {
       blade.name = 'steel-sword-profiled-blade'
       blade.castShadow = true
       pivot.add(blade)
-      const fullerFront = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.78, 0.004, 1, 8, 1), darkSteel)
+      const fullerFront = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.78, 0.004, 1, 8, 1), fullerMaterial)
       fullerFront.position.set(0, 0.82, 0.021)
       pivot.add(fullerFront)
       const fullerBack = fullerFront.clone()
@@ -214,7 +168,6 @@ export class WeaponMeshFactory {
       tipLocal.set(0, 1.51, 0)
     }
 
-    // Orient sword to naturally rest along the hand forward
     pivot.rotation.set(0, 0, 0)
 
     return { tipLocal }
@@ -345,25 +298,21 @@ export class WeaponMeshFactory {
     } else {
       // Roman Gladius
       pivot.userData.gripCenterLocal = [0, 0.1, 0]
-      let bladeColor = 0x888888
-      let bladeLength = 0.6
-      let bladeWidth = 0.08
-      let metalness = 0.4
+      let bladeColor = 0x77716b
+      const bladeLength = 0.68
+      const bladeWidth = 0.105
+      let metalness = 0.72
 
       if (tier === 2) {
         bladeColor = 0xbfc3c3
-        bladeLength = 0.68
-        bladeWidth = 0.105
         metalness = 0.8
       } else if (tier === 3) {
         bladeColor = 0xd6d2b4
-        bladeLength = 0.75
-        bladeWidth = 0.1
         metalness = 1.0
       }
 
-      const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: 0.3 })
-      const handleMat = proceduralMaterial({ kind: 'leather', color: 0x3a2117, roughness: 0.82 })
+      const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: tier === 1 ? 0.48 : 0.3, repeat: [tier + 1, 5] })
+      const handleMat = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x4d241c : 0x3a2117, roughness: 0.82, repeat: [2, tier + 2] })
       const pommelMat = proceduralMaterial({ kind: tier === 3 ? 'bronze' : 'iron', color: tier === 3 ? 0xb38a4c : 0x575b5d, metalness: 0.8, roughness: 0.38 })
 
       const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), pommelMat)

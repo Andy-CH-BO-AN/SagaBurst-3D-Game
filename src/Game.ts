@@ -104,7 +104,6 @@ import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { createBowComparisonPanel } from './debug/BowComparisonPanel'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
 import { HumanoidStudioPlayback } from './debug/HumanoidStudioPlayback'
-import { setLegacyBladeGripBypass, isLegacyBladeGripBypass } from './world/HumanoidAttachmentContract'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
 import type { HumanoidCharacterInstance } from './world/HumanoidAssetRegistry'
 import {
@@ -299,10 +298,6 @@ export class Game {
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
     const devModelsMode = query.get('devmodels')
-    if (query.has('legacy')) {
-      const legacyVal = query.get('legacy')
-      setLegacyBladeGripBypass(legacyVal === '0' || legacyVal === 'false' || legacyVal === 'off')
-    }
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
@@ -706,16 +701,12 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'humanoid-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.84);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    const updateHelp = () => { help.textContent = `人物工作室｜${this.humanoidStudioEquipped ? '正式控制器＋裝備' : '純 GLB 動畫'}｜模式: ${isLegacyBladeGripBypass() ? '劍握持修正 OFF' : '劍握持修正 ON'} (L 切換)｜B 切換・Space 暫停・R 重播・H 骨架｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放` }
+    const updateHelp = () => { help.textContent = `人物工作室｜${this.humanoidStudioEquipped ? '正式控制器＋裝備' : '純 GLB 動畫'}｜模式: 劍握持修正 OFF｜B 切換・Space 暫停・R 重播・H 骨架｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放` }
     updateHelp()
     window.addEventListener('keydown', (event) => {
       if (event.code === 'KeyB') {
         this.humanoidStudioEquipped = !this.humanoidStudioEquipped
         for (const playback of this.humanoidStudioPlayback.values()) playback.setEquipped(this.humanoidStudioEquipped)
-        updateHelp()
-      } else if (event.code === 'KeyL') {
-        setLegacyBladeGripBypass(!isLegacyBladeGripBypass())
-        for (const playback of this.humanoidStudioPlayback.values()) playback.reset()
         updateHelp()
       } else if (event.code === 'Space') {
         event.preventDefault()

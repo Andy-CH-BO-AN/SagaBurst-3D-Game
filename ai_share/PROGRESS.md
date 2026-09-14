@@ -1,10 +1,21 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-05 (external rider knee bend corrected)_
+_Last updated: 2026-09-14 (T1–T3 one-handed sword parity)_
 
 ---
 
 ## Current Status
+
+### 2026-09-14：Roman／Viking 單手劍
+
+- Viking 與 Roman 的 T1／T2／T3 步戰近戰武器已各自統一成 default 單手劍幾何；tier 只改表面花紋與配色。既有武器 ID 保留以相容 inventory/save，傷害仍為 12／25／45，三者共同使用 0.35 基準速度、1.8m 範圍與 `swordSlash`。長槍維持原路徑。
+- 移除正式劍路徑的扭腕／前臂 correction、alignBladeGrip 與工作室每幀重套 attachment，HUD 固定 OFF。固定握點與 `swordHand` 手指 morph 已由 Player、NPC、工作室共用。
+- Roman 初版誤套 Viking 手臂重定向造成反轉，已撤回。新增原始動作比對測試保護雙臂／手腕；只恢復既有 idle／walk／run 的 LOD 動作資料。Viking 單獨處理其 rest basis 差異。
+- 六份 GLB 的 swordSlash 已由原始 `Sword_Regular_A` 重建，維持 0.252 秒單次命中、0.48 秒完成與 NPC 0.35 秒間隔。為遵守 rotation-only，採站姿下半身與來源 pelvis yaw，上身保留來源揮砍；未使用 A_Rec。
+- 修正攻擊結束先插入 idle 的過渡，以及 Player 大 dt 同幀命中／完成時清掉命中旗標的問題。
+- Phase B 證據見 `artifacts/sword_attachment/phase-b-acceptance.md`；重跑方式與最終驗收見同目錄 `README.md`。新增工具可重現來源取樣、校準、烘焙與 browser QA，網格／蒙皮／材質／貼圖及未選動畫保持原樣。
+- 工程驗證：26 個測試檔、224 項測試與 build 通過；六份 GLB 重建結果位元組一致。正式 Player／NPC 與工作室的近景、俯視、攻擊／收招證據保存於 `artifacts/sword_attachment/evidence/`；T1–T3 正式場景驗證輸出於 `output/playwright/melee-tier-parity/`。
+- 已知限制：既有 Viking Bow LOD1／2 右臂姿勢與 LOD0 不一致，未為劍修改其 Bow 軌道或 normalization。低 LOD 原有衣袖／裙甲簡化外觀仍保留。
 
 **Phases 0 ~ 23 — ✅ IMPLEMENTED**
 

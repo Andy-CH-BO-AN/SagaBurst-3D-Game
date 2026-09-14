@@ -94,9 +94,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "9dac9f1589b80536c50217055aa7a7d00c167cb0b67c5da62d7ad9a58a0157c9",
-    "lod1": "d4b94611f1205130919f14581ee408b852aa9f8edfd3c2a8f83169a48fe477b2",
-    "lod2": "1df412de78c08049cedb9d2dfc82c10342d215fc957a2157dc93e87cc2fd8e4e"
+    "lod0": "3bb5c26745455260efc1398c7185ff3e5309285ae6c2e15c98f7fb7ff0ee6f7f",
+    "lod1": "bbed79831761fdc318633027cad1b33a2a92e4bfd5cfe731eb91efb7057fecd1",
+    "lod2": "1d2f5fcc45619ec4b83b95ad776337cf22ac4758d69e42e68f610de8cb57e499"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -215,5 +215,174 @@
     "Imported clips preserve the existing gameplay event timing; unsupported combat states still use deterministic procedural poses.",
     "The source has no horns. Use socket_head for the separate runtime short-horn accessory with total span at most 0.44 m.",
     "Mounted clearance must still be checked against the actual cat and corgi saddles in the browser."
-  ]
+  ],
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0.035307040349122895,
+        0.10000000000000006,
+        0.001164125677330132
+      ],
+      "gripAxisLocal": [
+        -0.39198745660208,
+        -8.037757494161521e-17,
+        -0.9199705614130448
+      ],
+      "palmNormalLocal": [
+        0.9199705614130447,
+        -9.458797493129303e-17,
+        -0.3919874566020799
+      ],
+      "fingerDirection": [
+        2.7755575615628914e-17,
+        1,
+        2.7755575615628914e-17
+      ],
+      "wristCenter": [
+        -0.015,
+        5.634381849972669e-17,
+        -1.1018963519404679e-16
+      ],
+      "thumbBaseCenter": [
+        -0.009999999999999998,
+        0.04000000000000005,
+        -0.03500000000000011
+      ],
+      "fingerBase": 0.13000000000000006,
+      "gripRadius": 0.041440000000000005
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.0012670364460109081,
+        0.05759544044605765,
+        -0.08904564533223806
+      ],
+      "gripAxisLocal": [
+        -0.8892003305373548,
+        -0.4447014282393678,
+        -0.1075333059759871
+      ],
+      "palmNormalLocal": [
+        0.3731335530364335,
+        -0.5688721708436377,
+        -0.7329091381870295
+      ],
+      "fingerDirection": [
+        -0.2647532257153272,
+        0.6918273541346437,
+        -0.6717742489440834
+      ],
+      "wristCenter": [
+        -0.010377528084515208,
+        0.00523542766847952,
+        0.009481420089008563
+      ],
+      "thumbBaseCenter": [
+        -0.0410206342841968,
+        0.009039775699744661,
+        -0.03406772387690499
+      ],
+      "fingerBase": 0.1300001356409985,
+      "gripRadius": 0.041440000000000005
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.0012670364460109081,
+        0.05759544044605765,
+        -0.08904564533223806
+      ],
+      "gripAxisLocal": [
+        -0.8892003305373548,
+        -0.4447014282393678,
+        -0.1075333059759871
+      ],
+      "palmNormalLocal": [
+        0.3731335530364335,
+        -0.5688721708436377,
+        -0.7329091381870295
+      ],
+      "fingerDirection": [
+        -0.2647532257153272,
+        0.6918273541346437,
+        -0.6717742489440834
+      ],
+      "wristCenter": [
+        -0.010377528084515208,
+        0.00523542766847952,
+        0.009481420089008563
+      ],
+      "thumbBaseCenter": [
+        -0.0410206342841968,
+        0.009039775699744661,
+        -0.03406772387690499
+      ],
+      "fingerBase": 0.1300001356409985,
+      "gripRadius": 0.041440000000000005
+    }
+  },
+  "swordGripCalibration": {
+    "version": 1,
+    "hand": "hand_r",
+    "samples": [
+      [
+        0.00502320941620793,
+        0.08500000000000005,
+        0.03580749710718134
+      ],
+      [
+        -0.010434061014743423,
+        0.08500000000000016,
+        0.020653812345412303
+      ],
+      [
+        -0.016204548392717344,
+        0.08500000000000019,
+        0.0013727156741139002
+      ],
+      [
+        -0.00036018031684115215,
+        0.10000000000000023,
+        0.03810128925430656
+      ],
+      [
+        -0.012842094090250278,
+        0.10000000000000009,
+        0.021679843829758738
+      ],
+      [
+        -0.01801946128361076,
+        0.10000000000000023,
+        0.0021460263841467375
+      ],
+      [
+        -0.0065433606123692645,
+        0.11500000000000007,
+        0.040735861728053324
+      ],
+      [
+        -0.015544228349879563,
+        0.11500000000000016,
+        0.022831187992557234
+      ],
+      [
+        -0.020843964974194384,
+        0.11500000000000002,
+        0.003349510565352043
+      ]
+    ],
+    "method": "right palm rays; outer leather-wrap radius; per-LOD bind basis"
+  },
+  "swordAttackBuild": {
+    "sourceClip": "Sword_Regular_A",
+    "sourceSha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68",
+    "duration": 0.48,
+    "fps": 30,
+    "lowerBody": "target bind stance with source pelvis yaw (no pelvis translation)",
+    "timeMapping": {
+      "method": "u + amplitude * sin(pi * u)",
+      "amplitude": 0.05015460992414121,
+      "contactSeconds": 0.252,
+      "sourceContactNormalized": 0.575
+    }
+  }
 }

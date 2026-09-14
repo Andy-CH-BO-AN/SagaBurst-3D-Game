@@ -39,29 +39,8 @@ import {
 import { DEFAULT_MOUNT_TYPE, MountType, mountTypeFromSave } from '../src/world/Mount'
 import { DEFAULT_SAVE, SaveManager } from '../src/save/SaveManager'
 import horseRuntimeManifest from '../public/models/mounts/v1/horse/manifest.json'
-import { HumanoidBladeGrip } from '../src/world/HumanoidBladeGrip'
 
 describe('external humanoid sword grip', () => {
-  it('does not add a relaxed-left wrist roll or alter imported shoulders', () => {
-    const root = new THREE.Group()
-    const shoulder = new THREE.Bone(), elbow = new THREE.Bone(), hand = new THREE.Bone(), left = new THREE.Bone()
-    shoulder.name = 'upper_arm_r'; elbow.name = 'lower_arm_r'; hand.name = 'hand_r'; left.name = 'hand_l'
-    root.add(shoulder, left); shoulder.add(elbow); elbow.add(hand)
-    shoulder.rotation.set(0.2, -0.3, 0.4)
-    left.rotation.set(-0.4, 0.1, 0.6)
-    const shoulderBefore = shoulder.quaternion.clone(), leftBefore = left.quaternion.clone()
-    const layer = new HumanoidBladeGrip(root)
-    for (let i = 0; i < 10; i++) {
-      layer.restore()
-      layer.update(0.1, true, true)
-      expect(shoulder.quaternion.angleTo(shoulderBefore)).toBeLessThan(1e-6)
-      expect(left.quaternion.angleTo(leftBefore)).toBeLessThan(1e-6)
-    }
-    layer.reset()
-    expect(left.quaternion.angleTo(leftBefore)).toBeLessThan(1e-6)
-    expect(hand.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-6)
-  })
-
   it('raw studio mode samples full bow legs and switching back restores the production mask', () => {
     const root = new THREE.Group(), leg = new THREE.Bone()
     leg.name = 'upper_leg_r'; root.add(leg)
@@ -138,40 +117,7 @@ describe('external humanoid sword grip', () => {
     controller.update(0.1)
     expect(legBone.rotation.x).toBeCloseTo(0)
   })
-  for (const center of [[-0.025, 0.10, -0.078], [-0.025, 0.065, -0.024]]) {
-    it(`centres the hilt in the palm and points the blade toward the thumb (${center[1]})`, () => {
-      const { rig, subject, grip } = rigAndAnimator()
-      const root = new THREE.Group()
-      root.add(rig.right.shoulder, rig.rightLeg.hip)
-      rig.right.shoulder.name = 'upper_arm_r'
-      rig.right.elbow.name = 'lower_arm_r'
-      rig.right.wrist.name = 'hand_r'
-      rig.right.wrist.userData.bladeGripCenter = center
-      const isRoman = center[1] === 0.065
-      const gripAxis = isRoman ? -1 : 1
-      WeaponMeshFactory.buildNpcMelee(isRoman ? Faction.ENEMY : Faction.PLAYER, 2, false, grip)
-      grip.rotation.z = Math.PI
-      rig.right.wrist.userData.bladeGripAxis = gripAxis
-      rig.right.handSocket.position.set(0, 0.07, 0)
-      rig.right.handSocket.quaternion.set(0.5, -0.5, -0.5, 0.5)
-      grip.position.y = 0.05
-      const layer = new HumanoidBladeGrip(root)
-      const legBefore = rig.rightLeg.hip.quaternion.clone()
-      layer.update(2, true, true)
-      subject.update(0)
-      root.updateMatrixWorld(true)
-      const hilt = grip.localToWorld(new THREE.Vector3(0, isRoman ? 0.1 : 0.15, 0))
-      const palm = rig.right.wrist.localToWorld(new THREE.Vector3(...center))
-      const tip = grip.localToWorld(new THREE.Vector3(0, 1, 0))
-      const thumb = new THREE.Vector3(gripAxis, 0, 0).applyQuaternion(rig.right.wrist.getWorldQuaternion(new THREE.Quaternion()))
-      expect(hilt.distanceTo(palm)).toBeLessThan(1e-6)
-      expect(tip.sub(hilt).normalize().dot(thumb)).toBeCloseTo(1)
-      expect(thumb.y).toBeGreaterThan(0.99)
-      expect(rig.rightLeg.hip.quaternion.equals(legBefore)).toBe(true)
-      layer.restore()
-      expect(rig.right.wrist.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-6)
-    })
-  }
+
 })
 
 function arm(side: -1 | 1): ArmRig {

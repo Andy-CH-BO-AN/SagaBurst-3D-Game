@@ -42,6 +42,18 @@ export function preserveBowHandTopology(source: THREE.SkinnedMesh, target: THREE
   const transform = new THREE.Matrix4().multiplyMatrices(target.skeleton.boneInverses[targetBone], target.bindMatrix).invert()
     .multiply(source.skeleton.boneInverses[sourceBone]).multiply(source.bindMatrix)
   const linear = new THREE.Matrix3().setFromMatrix4(transform), normal = new THREE.Matrix3().getNormalMatrix(transform)
+  // The right hand does not share the left hand's changed bind basis (Viking
+  // LOD0). Copy its geometry in mesh bind space, then let its own skin matrix
+  // deform it. Applying the left-hand frame here displaced it by over a metre.
+  const rightTransform = target.bindMatrix.clone().invert().multiply(source.bindMatrix)
+  const rightLinear = new THREE.Matrix3().setFromMatrix4(rightTransform)
+  const rightNormal = new THREE.Matrix3().getNormalMatrix(rightTransform)
+  const rightVertex = (vertex: number): boolean => {
+    const a = source.geometry.attributes
+    let dominant = 0
+    for (let k = 1; k < 4; k++) if (a.skinWeight.getComponent(vertex, k) > a.skinWeight.getComponent(vertex, dominant)) dominant = k
+    return source.skeleton.bones[a.skinIndex.getComponent(vertex, dominant)].name.endsWith('_r')
+  }
   const geometry = new THREE.BufferGeometry(), vector = new THREE.Vector3()
   for (const [name, attribute] of Object.entries(target.geometry.attributes)) {
     const values = new Float32Array(entries.length * attribute.itemSize)
@@ -54,8 +66,8 @@ export function preserveBowHandTopology(source: THREE.SkinnedMesh, target: THREE
       }
       if (mesh === source && (name === 'position' || name === 'normal')) {
         vector.fromArray(values, i * 3)
-        if (name === 'position') vector.applyMatrix4(transform)
-        else vector.applyMatrix3(normal).normalize()
+        if (name === 'position') vector.applyMatrix4(rightVertex(vertex) ? rightTransform : transform)
+        else vector.applyMatrix3(rightVertex(vertex) ? rightNormal : normal).normalize()
         vector.toArray(values, i * 3)
       }
     })
@@ -71,7 +83,9 @@ export function preserveBowHandTopology(source: THREE.SkinnedMesh, target: THREE
         const index = mesh.morphTargetDictionary?.[name], from = index === undefined ? undefined : mesh.geometry.morphAttributes[kind]?.[index]
         if (!from) return
         vector.fromBufferAttribute(from, vertex)
-        if (mesh === source) vector.applyMatrix3(kind === 'position' ? linear : normal)
+        if (mesh === source) vector.applyMatrix3(rightVertex(vertex)
+          ? (kind === 'position' ? rightLinear : rightNormal)
+          : (kind === 'position' ? linear : normal))
         vector.toArray(values, i * 3)
       })
       const attribute = new THREE.Float32BufferAttribute(values, 3); attribute.name = name; return attribute
