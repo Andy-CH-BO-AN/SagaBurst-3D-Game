@@ -51,6 +51,7 @@ export interface HumanoidAnimationPlayOptions {
 }
 
 export interface HumanoidAnimationController {
+  setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void
   setBowLocomotion?(state: 'idle' | 'walk' | 'run', timeScale: number): void
@@ -63,6 +64,10 @@ export interface HumanoidAnimationController {
 }
 
 export interface CharacterRig {
+  equipmentGripFrames?: import('./EquipmentAttachmentContract').EquipmentGripFrames
+  upperChest?: THREE.Object3D
+  clavicleLeft?: THREE.Object3D
+  clavicleRight?: THREE.Object3D
   swordGripFrame?: import('./SwordAttachmentContract').SwordGripFrame
   right: ArmRig
   left: ArmRig

@@ -35,6 +35,7 @@ export interface BattleConfig {
 }
 
 export interface UnitCombatProfile {
+  shieldId: string | null
   faction: Faction
   aiType: AIType
   cavalry: boolean
@@ -189,6 +190,7 @@ export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType,
     rangedWeaponId,
     baseMeleeDamage,
     finalMeleeDamage,
+    shieldId: aiType === AIType.MELEE ? `${faction === Faction.PLAYER ? 'round_shield' : 'scutum'}_t${tier}` : null,
     rangedDamage,
     isUsingLance,
     lanceMultiplier,

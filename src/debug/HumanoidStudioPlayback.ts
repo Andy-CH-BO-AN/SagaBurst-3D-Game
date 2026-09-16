@@ -1,3 +1,4 @@
+import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import * as THREE from 'three'
 import type { HumanoidCharacterInstance } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../world/CharacterCombatAnimator'
@@ -13,6 +14,11 @@ export class HumanoidStudioPlayback {
   readonly sword = new THREE.Group()
   readonly bow = new THREE.Group()
   readonly pilum = new THREE.Group()
+  readonly lance = new THREE.Group()
+  readonly lanceModel = new THREE.Group()
+  readonly shield = new THREE.Group()
+  private equipmentLoadout: 'none' | 'sword' | 'lance' | null = null
+  private hasShield = false
   private readonly animator: CharacterCombatAnimator
   private readonly bowVisual: CharacterBowVisual
   private readonly target = new THREE.Vector3()
@@ -21,10 +27,21 @@ export class HumanoidStudioPlayback {
   private started = false
 
   constructor(readonly instance: HumanoidCharacterInstance, readonly state: HumanoidAnimationState, readonly faction: 'viking' | 'roman') {
+    this.lance.add(this.lanceModel)
+    WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
+    WeaponMeshFactory.buildShield(faction === 'roman' ? 'scutum_t2' : 'round_shield_t2', this.shield)
+    instance.rig.right.handSocket.add(this.lance)
+    instance.rig.left.handSocket.add(this.shield)
+    const frames = instance.rig.equipmentGripFrames
+    if (frames) {
+      applyEquipmentAttachment(instance.rig.right.handSocket, this.lance, this.lanceModel, frames.lanceRight, 'lance')
+      applyEquipmentAttachment(instance.rig.left.handSocket, this.shield, this.shield, frames.shieldLeft, 'shield')
+    }
+    this.lance.visible = this.shield.visible = false
     const grip = new THREE.Group()
     this.sword.add(grip)
     WeaponMeshFactory.buildNpcMelee(faction === 'roman' ? Faction.ENEMY : Faction.PLAYER, 2, false, grip)
-    applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!)
+    applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
     WeaponMeshFactory.buildNpcRanged(Faction.ENEMY, 2, this.pilum)
     const bowGrip = new THREE.Group()
@@ -92,6 +109,34 @@ export class HumanoidStudioPlayback {
     this.instance.root.updateMatrixWorld(true)
   }
 
+  setEquipmentLoadout(weapon: 'none' | 'sword' | 'lance', shield: boolean): void {
+    this.equipmentLoadout = weapon
+    this.hasShield = shield
+    this.reset()
+  }
+
+  attackEquipment(): void {
+    this.animator.start(this.equipmentLoadout === 'lance' ? this.state === 'mounted' || this.state === 'mountedLance' ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+  }
+
+  sampleEquipment(time: number, mounted: boolean, motion: 'idle' | 'walk' | 'run' = 'idle', attack = false): void {
+    this.reset()
+    const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
+    this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield)
+    this.animator.setLocomotion(speed, mounted)
+    this.animator.update(0.2)
+    if (attack) this.animator.start(this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+    const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
+    const end = time * duration
+    for (let elapsed = 0; elapsed < end - 1e-9;) {
+      const dt = Math.min(1 / 120, end - elapsed)
+      this.animator.setLocomotion(speed, mounted)
+      this.animator.update(dt)
+      elapsed += dt
+    }
+    this.instance.root.updateWorldMatrix(true, true)
+  }
+
   setEquipped(enabled: boolean): void { this.equipped = enabled; this.reset() }
 
   reset(): void {
@@ -103,13 +148,28 @@ export class HumanoidStudioPlayback {
     this.sword.visible = this.equipped && !this.state.startsWith('bow') && this.state !== 'pilumThrow'
     this.bow.visible = this.equipped && this.state.startsWith('bow')
     this.pilum.visible = this.equipped && this.state === 'pilumThrow'
-    this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible)
+    if (this.equipmentLoadout !== null) {
+      this.sword.visible = this.equipped && this.equipmentLoadout === 'sword'
+      this.lance.visible = this.equipped && this.equipmentLoadout === 'lance'
+      this.shield.visible = this.equipped && this.hasShield
+      this.bow.visible = this.pilum.visible = false
+      this.animator.setEquipment(this.lance.visible, this.shield.visible)
+    }
+    this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible || this.lance.visible)
   }
 
   update(dt: number): void {
     const animation = this.instance.rig.animation!
     this.elapsed += dt
-    if (!this.equipped) {
+    if (this.equipped && this.equipmentLoadout !== null) {
+      const mounted = this.state === 'mounted' || this.state === 'mountedLance'
+      this.animator.setEquipment(this.lance.visible, this.shield.visible)
+      this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted)
+      if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash') && !this.animator.busy) {
+        this.animator.start(this.lance.visible ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+      }
+      this.animator.update(dt)
+    } else if (!this.equipped) {
       if (!this.started) animation.play(this.state, { fadeSeconds: 0, loop: true })
       animation.update(dt)
     } else if (this.state === 'idle' || this.state === 'walk' || this.state === 'run') {
@@ -128,7 +188,10 @@ export class HumanoidStudioPlayback {
         animation.play(this.state, { fadeSeconds: 0, loop: this.state === 'mounted' })
       }
       animation.update(dt)
-      if (this.state === 'mounted') applyCharacterMountedPose(this.instance.rig, true, 'HORSE')
+      if (this.state === 'mounted') {
+        if (this.instance.rig.equipmentGripFrames) { animation.setEquipmentState?.({ mounted: true }); animation.update(0) }
+        else applyCharacterMountedPose(this.instance.rig, true, 'HORSE')
+      }
     }
     if (this.bow.visible) {
       this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)

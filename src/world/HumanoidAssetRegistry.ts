@@ -1,3 +1,6 @@
+import { CharacterEquipmentPose, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
+import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
+import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -185,6 +188,13 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
 
 const PROJECT_ANIMATION_CLIPS = createProjectAnimationClips()
 
+/** Reuse authored Idle above the pelvis; mounted legs remain procedural.
+ * An empty mounted clip otherwise blends the arms back to the bind T-pose. */
+export function createMountedIdleClip(idle: THREE.AnimationClip): THREE.AnimationClip {
+  return new THREE.AnimationClip('mounted', idle.duration, idle.tracks.filter(track =>
+    /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)))
+}
+
 const VIKING_HORN_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x8d7656,
   roughness: 0.72,
@@ -255,6 +265,18 @@ function firstSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh {
 }
 
 export class MixerController implements HumanoidAnimationController {
+  equipmentLayers: CharacterEquipmentPose[] = []
+  private readonly equipmentState = createEquipmentPoseState()
+  setEquipmentState(state: Partial<EquipmentPoseState>): void { Object.assign(this.equipmentState, state) }
+  private restoreEquipment(): void { for (const layer of this.equipmentLayers) layer.restore() }
+  private finishPose(): void {
+    const alive = this.equipmentState.alive
+    this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
+    for (const layer of this.equipmentLayers) layer.apply(this.equipmentState)
+    this.equipmentState.alive = alive
+    this.onPoseEvaluated?.()
+  }
+
   /** Asset-owned socket followers run after the single pose evaluation. */
   onPoseEvaluated?: () => void
   private poseLayersEnabled = true
@@ -356,6 +378,9 @@ export class MixerController implements HumanoidAnimationController {
       }
       return true
     }
+    // New bindings must capture the base. Re-selecting the active locomotion
+    // after an NPC update must not erase its completed equipment pose.
+    this.restoreEquipment()
     const previous = this.current ? bindings.get(this.current) ?? [] : []
     for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
@@ -381,25 +406,28 @@ export class MixerController implements HumanoidAnimationController {
       action.time = time * action.getClip().duration
       action.paused = true
     }
+    this.restoreEquipment()
     for (const mixer of this.mixers) mixer.update(0)
-    this.onPoseEvaluated?.()
+    this.finishPose()
     return true
   }
 
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt < 0) return
-    if (dt === 0) { this.onPoseEvaluated?.(); return }
+    if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
     if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE) {
       this.farAccumulator += dt
       if (this.farAccumulator < 1 / 12) return
       dt = this.farAccumulator
       this.farAccumulator = 0
     }
+    this.restoreEquipment()
     for (const mixer of this.mixers) mixer.update(dt)
-    this.onPoseEvaluated?.()
+    this.finishPose()
   }
 
   stop(): void {
+    for (const layer of this.equipmentLayers) layer.stop()
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
@@ -460,6 +488,10 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
     leftFootSocket: findSocket(root, ['socket_foot_l', 'sole_l'], leftFoot, 'socket_foot_l'),
     rightFootSocket: findSocket(root, ['socket_foot_r', 'sole_r'], rightFoot, 'socket_foot_r'),
     animation,
+    equipmentGripFrames: root.userData.equipmentGripFrames,
+    upperChest: root.getObjectByName('upper_chest'),
+    clavicleLeft: root.getObjectByName('clavicle_l'),
+    clavicleRight: root.getObjectByName('clavicle_r'),
   }
 }
 
@@ -537,6 +569,19 @@ export class HumanoidAssetRegistry {
         const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
         if (swordFrame) prepareSwordHandShape(level.scene, swordFrame)
       })
+      const left = readHandFrame(manifest)
+      if (left && manifest.swordGripFrames) {
+        levels[0].scene.updateMatrixWorld(true)
+        const sourceHand = levels[0].scene.getObjectByName('hand_l')!
+        levels.forEach((level, index) => {
+          level.scene.updateMatrixWorld(true)
+          const frames = calibrateEquipmentFrames(manifest.swordGripFrames![`lod${index}` as 'lod0'], left, sourceHand, level.scene.getObjectByName('hand_l')!)
+          level.scene.userData.equipmentGripFrames = frames
+          level.scene.userData.equipmentFaction = faction
+          calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
+          prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
+        })
+      }
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
       const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
@@ -630,6 +675,7 @@ export class HumanoidAssetRegistry {
       mixers.push(new THREE.AnimationMixer(level))
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) clips.set(clip.name, clip)
+      clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       rawClipsPerLevel.push([...clips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
@@ -649,6 +695,10 @@ export class HumanoidAssetRegistry {
       if (rig.left?.handSocket) {
         rig.left.handSocket.userData.handGripFrame = leftGrip
       }
+    }
+    for (const level of lod.levels) {
+      const frames = level.object.userData.equipmentGripFrames as EquipmentGripFrames | undefined
+      if (frames) animation.equipmentLayers.push(new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames))
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
     animation.onPoseEvaluated()

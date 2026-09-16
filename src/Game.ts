@@ -113,7 +113,6 @@ import {
   type HorseAnimationState,
   type HorseAppearanceVariant,
 } from './world/HorseAssetRegistry'
-import { applyCharacterMountedPose } from './world/CharacterVisuals'
 import type { HumanoidAnimationState } from './world/CharacterVisuals'
 
 const HUMANOID_STUDIO_FLOOR_Y = 8
@@ -428,7 +427,7 @@ export class Game {
       rotation: number
       state: HumanoidAnimationState | 'bowAim'
     }> = (['viking', 'roman'] as const).flatMap((faction) =>
-      (['idle', 'walk', 'run', 'swordSlash', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'mounted', 'death'] as HumanoidAnimationState[])
+      (['idle', 'walk', 'run', 'swordSlash', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'mounted', 'death', 'lanceThrust', 'mountedLance'] as HumanoidAnimationState[])
         .map((state, index) => ({ faction, x: -10.35 + index * 2.3, z: faction === 'viking' ? -3.1 : 3.1, rotation: 0, state })))
     for (const display of displays) {
       const instance = HumanoidAssetRegistry.createCharacterInstance({
@@ -438,7 +437,7 @@ export class Game {
       })
       instance.root.position.set(display.x, HUMANOID_STUDIO_FLOOR_Y, display.z)
       instance.root.rotation.y = display.rotation
-      if (display.state === 'mounted') {
+      if (display.state === 'mounted' || display.state === 'mountedLance') {
         const variant = horseVariantForStableKey(`humanoid-studio:${display.faction}:${display.x}:${display.z}`)
         const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, display.x, display.z, HUMANOID_STUDIO_FLOOR_Y, variant)
         mount.visualHold = true
@@ -462,6 +461,7 @@ export class Game {
       this.scene.add(instance.root)
       this.humanoidShowcase.push(instance)
       this.humanoidStudioPlayback.set(instance, new HumanoidStudioPlayback(instance, studioState, display.faction))
+      if (studioState === 'lanceThrust' || studioState === 'mountedLance') this.humanoidStudioPlayback.get(instance)!.setEquipmentLoadout('lance', true)
       instance.root.userData.studioState = studioState
       const label = this._createStudioLabel(`${display.faction}｜${studioState}`, display.x)
       label.position.z = display.z
@@ -585,8 +585,10 @@ export class Game {
         tier: 2,
         isPlayer: false,
       })
-      applyCharacterMountedPose(rider.rig, true, 'HORSE')
-      rider.rig.animation?.play('mounted', { fadeSeconds: 0, loop: true })
+      const playback = new HumanoidStudioPlayback(rider, 'mounted', 'viking')
+      playback.setEquipmentLoadout('lance', true)
+      playback.sampleEquipment(0, true)
+      this.humanoidStudioPlayback.set(rider, playback)
       const seat = mount.getSaddleSeatLocal()
       let pelvisHeight = 0
       if (rider.rig.pelvis) {
@@ -605,7 +607,7 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'mount-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    help.textContent = '戰馬工作室｜1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士｜左鍵旋轉・右鍵平移・滾輪縮放'
+    help.textContent = '戰馬工作室｜1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
     document.body.appendChild(help)
 
     const status = document.createElement('div')
@@ -633,6 +635,10 @@ export class Game {
         this.mountStudioSkeleton.visible = !this.mountStudioSkeleton.visible
       } else if (event.code === 'KeyV' && this.mountStudioRider) {
         this.mountStudioRider.root.visible = !this.mountStudioRider.root.visible
+      } else if (this.mountStudioRider && ['KeyL', 'KeyQ', 'KeyF'].includes(event.code)) {
+        const playback = this.humanoidStudioPlayback.get(this.mountStudioRider)!
+        if (event.code === 'KeyF') playback.attackEquipment()
+        else playback.setEquipmentLoadout(event.code === 'KeyL' ? playback.lance.visible ? 'sword' : 'lance' : playback.lance.visible ? 'lance' : 'sword', event.code === 'KeyQ' ? !playback.shield.visible : playback.shield.visible)
       }
     })
   }
@@ -701,10 +707,20 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'humanoid-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.84);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    const updateHelp = () => { help.textContent = `人物工作室｜${this.humanoidStudioEquipped ? '正式控制器＋裝備' : '純 GLB 動畫'}｜模式: 劍握持修正 OFF｜B 切換・Space 暫停・R 重播・H 骨架｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放` }
+    let equipmentLance = false
+    let equipmentShield = true
+    const updateHelp = () => { help.textContent = `人物工作室｜${this.humanoidStudioEquipped ? '正式控制器＋裝備' : '純 GLB 動畫'}｜模式: 劍握持修正 OFF｜B 切換・L 劍／槍・Q 盾牌・Space 暫停・R 重播・H 骨架｜左鍵旋轉・右鍵/方向鍵平移・滾輪縮放` }
     updateHelp()
     window.addEventListener('keydown', (event) => {
-      if (event.code === 'KeyB') {
+      if (event.code === 'KeyL' || event.code === 'KeyQ') {
+        if (event.code === 'KeyL') equipmentLance = !equipmentLance
+        else equipmentShield = !equipmentShield
+        for (const playback of this.humanoidStudioPlayback.values()) {
+          if (!playback.state.startsWith('bow') && playback.state !== 'pilumThrow' && playback.state !== 'death') {
+            playback.setEquipmentLoadout(equipmentLance || playback.state.includes('Lance') || playback.state === 'lanceThrust' ? 'lance' : 'sword', equipmentShield)
+          }
+        }
+      } else if (event.code === 'KeyB') {
         this.humanoidStudioEquipped = !this.humanoidStudioEquipped
         for (const playback of this.humanoidStudioPlayback.values()) playback.setEquipped(this.humanoidStudioEquipped)
         updateHelp()

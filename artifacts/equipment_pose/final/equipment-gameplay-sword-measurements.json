@@ -1,0 +1,1922 @@
+{
+  "errors": [],
+  "failures": [],
+  "rows": [
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480369080054666e-9,
+          "left": 0.5704578182029041
+        },
+        {
+          "lod": 1,
+          "right": 1.8480369080054666e-9,
+          "left": 0.5704578182029041
+        },
+        {
+          "lod": 2,
+          "right": 1.8480369080054666e-9,
+          "left": 0.5704578182029041
+        }
+      ],
+      "tip": [
+        -0.34749346255445673,
+        -0.915125190269285,
+        2.3910398304581966
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480371957528479e-9,
+          "left": 0.556886408344011
+        },
+        {
+          "lod": 1,
+          "right": 1.8480371957528479e-9,
+          "left": 0.556886408344011
+        },
+        {
+          "lod": 2,
+          "right": 1.8480371957528479e-9,
+          "left": 0.556886408344011
+        }
+      ],
+      "tip": [
+        -0.36109790838994227,
+        -0.9508429019512339,
+        2.3842914416061047
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480372384224053e-9,
+          "left": 0.7589793831590461
+        },
+        {
+          "lod": 1,
+          "right": 1.8480372384224053e-9,
+          "left": 0.7589793831590461
+        },
+        {
+          "lod": 2,
+          "right": 1.8480372384224053e-9,
+          "left": 0.7589793831590461
+        }
+      ],
+      "tip": [
+        -1.854475631780935,
+        -1.178233507886076,
+        1.637602580972775
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480367421226924e-9,
+          "left": 1.0006622094531483
+        },
+        {
+          "lod": 1,
+          "right": 1.8480367421226924e-9,
+          "left": 1.0006622094531483
+        },
+        {
+          "lod": 2,
+          "right": 1.8480367421226924e-9,
+          "left": 1.0006622094531483
+        }
+      ],
+      "tip": [
+        -1.8432219940397276,
+        -1.4978908672093558,
+        -1.9338421259211187
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480369972858809e-9,
+          "left": 0.8909816550558816
+        },
+        {
+          "lod": 1,
+          "right": 1.8480369972858809e-9,
+          "left": 0.8909816550558816
+        },
+        {
+          "lod": 2,
+          "right": 1.8480369972858809e-9,
+          "left": 0.8909816550558816
+        }
+      ],
+      "tip": [
+        0.8054574020632361,
+        -0.7488881766268167,
+        2.8439205210129224
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480365796261998e-9,
+          "left": 0.7381231597366726
+        },
+        {
+          "lod": 1,
+          "right": 1.8480365796261998e-9,
+          "left": 0.7381231597366726
+        },
+        {
+          "lod": 2,
+          "right": 1.8480365796261998e-9,
+          "left": 0.7381231597366726
+        }
+      ],
+      "tip": [
+        0.5428502494984859,
+        1.9600966359411123,
+        0.9081549052330031
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480371551595793e-9,
+          "left": 0.6202545997253898
+        },
+        {
+          "lod": 1,
+          "right": 1.8480371551595793e-9,
+          "left": 0.6202545997253898
+        },
+        {
+          "lod": 2,
+          "right": 1.8480371551595793e-9,
+          "left": 0.6202545997253898
+        }
+      ],
+      "tip": [
+        0.23661427859159126,
+        2.06878494201523,
+        0.27678241932417846
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480369080054666e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.8480369080054666e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.8480369080054666e-9,
+          "left": 4.460365043975677e-16
+        }
+      ],
+      "tip": [
+        -0.34749346255445673,
+        -0.915125190269285,
+        2.3910398304581966
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480371957528479e-9,
+          "left": 5.721958498152797e-17
+        },
+        {
+          "lod": 1,
+          "right": 1.8480371957528479e-9,
+          "left": 5.721958498152797e-17
+        },
+        {
+          "lod": 2,
+          "right": 1.8480371957528479e-9,
+          "left": 5.721958498152797e-17
+        }
+      ],
+      "tip": [
+        -0.36109790838994227,
+        -0.9508429019512339,
+        2.3842914416061047
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480371594806163e-9,
+          "left": 4.494775313252277e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.8480371594806163e-9,
+          "left": 4.494775313252277e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.8480371594806163e-9,
+          "left": 4.494775313252277e-16
+        }
+      ],
+      "tip": [
+        -1.854469121122201,
+        -1.1782327890424678,
+        1.6376095328471205
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480367421226924e-9,
+          "left": 4.454424009010536e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.8480367421226924e-9,
+          "left": 4.454424009010536e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.8480367421226924e-9,
+          "left": 4.454424009010536e-16
+        }
+      ],
+      "tip": [
+        -1.8432219940397276,
+        -1.4978908672093558,
+        -1.9338421259211187
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480369972858809e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.8480369972858809e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.8480369972858809e-9,
+          "left": 4.460365043975677e-16
+        }
+      ],
+      "tip": [
+        0.8054574020632361,
+        -0.7488881766268167,
+        2.8439205210129224
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480365796261998e-9,
+          "left": 1.3877787807814457e-17
+        },
+        {
+          "lod": 1,
+          "right": 1.8480365796261998e-9,
+          "left": 1.3877787807814457e-17
+        },
+        {
+          "lod": 2,
+          "right": 1.8480365796261998e-9,
+          "left": 1.3877787807814457e-17
+        }
+      ],
+      "tip": [
+        0.5428502494984859,
+        1.9600966359411123,
+        0.9081549052330031
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.8480371551595793e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.8480371551595793e-9,
+          "left": 4.460365043975677e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.8480371551595793e-9,
+          "left": 4.460365043975677e-16
+        }
+      ],
+      "tip": [
+        0.23661427859159126,
+        2.06878494201523,
+        0.27678241932417846
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.232024626089146e-9,
+          "left": 0.5809735900753084
+        },
+        {
+          "lod": 1,
+          "right": 1.232024626089146e-9,
+          "left": 0.5809735900753084
+        },
+        {
+          "lod": 2,
+          "right": 1.232024626089146e-9,
+          "left": 0.5809735900753084
+        }
+      ],
+      "tip": [
+        -0.34883545785315695,
+        0.03755457997505651,
+        2.440949922911311
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320251344440723e-9,
+          "left": 0.5676279038456675
+        },
+        {
+          "lod": 1,
+          "right": 1.2320251344440723e-9,
+          "left": 0.5676279038456675
+        },
+        {
+          "lod": 2,
+          "right": 1.2320251344440723e-9,
+          "left": 0.5676279038456675
+        }
+      ],
+      "tip": [
+        -0.36283173036426797,
+        0.0010776732258581667,
+        2.434224443457339
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320253174553988e-9,
+          "left": 0.7729449523940637
+        },
+        {
+          "lod": 1,
+          "right": 1.2320253174553988e-9,
+          "left": 0.7729449523940637
+        },
+        {
+          "lod": 2,
+          "right": 1.2320253174553988e-9,
+          "left": 0.7729449523940637
+        }
+      ],
+      "tip": [
+        -1.888084816435115,
+        -0.23057703605459245,
+        1.674547542408391
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320247597050811e-9,
+          "left": 1.0435148343504705
+        },
+        {
+          "lod": 1,
+          "right": 1.2320247597050811e-9,
+          "left": 1.0435148343504705
+        },
+        {
+          "lod": 2,
+          "right": 1.2320247597050811e-9,
+          "left": 1.0435148343504705
+        }
+      ],
+      "tip": [
+        -1.8679550129361768,
+        -0.5569016101587239,
+        -1.9763519335717217
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320245461133844e-9,
+          "left": 0.9334665263640333
+        },
+        {
+          "lod": 1,
+          "right": 1.2320245461133844e-9,
+          "left": 0.9334665263640333
+        },
+        {
+          "lod": 2,
+          "right": 1.2320245461133844e-9,
+          "left": 0.9334665263640333
+        }
+      ],
+      "tip": [
+        0.8129327333246863,
+        0.19202052554479998,
+        2.892515452994764
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320239901416822e-9,
+          "left": 0.7844438328697616
+        },
+        {
+          "lod": 1,
+          "right": 1.2320239901416822e-9,
+          "left": 0.7844438328697616
+        },
+        {
+          "lod": 2,
+          "right": 1.2320239901416822e-9,
+          "left": 0.7844438328697616
+        }
+      ],
+      "tip": [
+        0.5507714717092363,
+        2.953187475641217,
+        0.9322470966506633
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320245686401708e-9,
+          "left": 0.6663912866470024
+        },
+        {
+          "lod": 1,
+          "right": 1.2320245686401708e-9,
+          "left": 0.6663912866470024
+        },
+        {
+          "lod": 2,
+          "right": 1.2320245686401708e-9,
+          "left": 0.6663912866470024
+        }
+      ],
+      "tip": [
+        0.23950646593792316,
+        3.0668664793029414,
+        0.2901914010470783
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.232024626089146e-9,
+          "left": 4.47545209131181e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.232024626089146e-9,
+          "left": 4.47545209131181e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.232024626089146e-9,
+          "left": 4.47545209131181e-16
+        }
+      ],
+      "tip": [
+        -0.34883545785315695,
+        0.03755457997505651,
+        2.440949922911311
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320251344440723e-9,
+          "left": 4.965068306494546e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.2320251344440723e-9,
+          "left": 4.965068306494546e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.2320251344440723e-9,
+          "left": 4.965068306494546e-16
+        }
+      ],
+      "tip": [
+        -0.36283173036426797,
+        0.0010776732258581667,
+        2.434224443457339
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320249066886566e-9,
+          "left": 6.280369834735101e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.2320249066886566e-9,
+          "left": 6.280369834735101e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.2320249066886566e-9,
+          "left": 6.280369834735101e-16
+        }
+      ],
+      "tip": [
+        -1.8880781651556584,
+        -0.23057630211314883,
+        1.674554623163937
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320247597050811e-9,
+          "left": 5.551115123125783e-17
+        },
+        {
+          "lod": 1,
+          "right": 1.2320247597050811e-9,
+          "left": 5.551115123125783e-17
+        },
+        {
+          "lod": 2,
+          "right": 1.2320247597050811e-9,
+          "left": 5.551115123125783e-17
+        }
+      ],
+      "tip": [
+        -1.8679550129361768,
+        -0.5569016101587239,
+        -1.9763519335717217
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320245461133844e-9,
+          "left": 5.551115123125783e-17
+        },
+        {
+          "lod": 1,
+          "right": 1.2320245461133844e-9,
+          "left": 5.551115123125783e-17
+        },
+        {
+          "lod": 2,
+          "right": 1.2320245461133844e-9,
+          "left": 5.551115123125783e-17
+        }
+      ],
+      "tip": [
+        0.8129327333246863,
+        0.19202052554479998,
+        2.892515452994764
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320239901416822e-9,
+          "left": 0
+        },
+        {
+          "lod": 1,
+          "right": 1.2320239901416822e-9,
+          "left": 0
+        },
+        {
+          "lod": 2,
+          "right": 1.2320239901416822e-9,
+          "left": 0
+        }
+      ],
+      "tip": [
+        0.5507714717092363,
+        2.953187475641217,
+        0.9322470966506633
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "roman",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.2320245686401708e-9,
+          "left": 2.2887833992611187e-16
+        },
+        {
+          "lod": 1,
+          "right": 1.2320245686401708e-9,
+          "left": 2.2887833992611187e-16
+        },
+        {
+          "lod": 2,
+          "right": 1.2320245686401708e-9,
+          "left": 2.2887833992611187e-16
+        }
+      ],
+      "tip": [
+        0.23950646593792316,
+        3.0668664793029414,
+        0.2901914010470783
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337237971732e-9,
+          "left": 0.6888548025201116
+        },
+        {
+          "lod": 1,
+          "right": 7.240909234975158e-8,
+          "left": 0.677142237257454
+        },
+        {
+          "lod": 2,
+          "right": 7.240909234975158e-8,
+          "left": 0.677142237257454
+        }
+      ],
+      "tip": [
+        -0.4027057718636686,
+        -0.9108988392604624,
+        2.3369059799715224
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385333705346118e-9,
+          "left": 0.6705789780078002
+        },
+        {
+          "lod": 1,
+          "right": 7.001865650103059e-8,
+          "left": 0.6622407919454397
+        },
+        {
+          "lod": 2,
+          "right": 7.001865650103059e-8,
+          "left": 0.6622407919454397
+        }
+      ],
+      "tip": [
+        -0.41439236181584965,
+        -0.9480605904986099,
+        2.328363975970559
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385343187869445e-9,
+          "left": 1.0870576797670293
+        },
+        {
+          "lod": 1,
+          "right": 1.6470318923774898e-7,
+          "left": 1.025472342588436
+        },
+        {
+          "lod": 2,
+          "right": 1.6470318923774898e-7,
+          "left": 1.025472342588436
+        }
+      ],
+      "tip": [
+        -1.990453616549154,
+        -1.3120896249260627,
+        1.4442517689103616
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385340229627416e-9,
+          "left": 1.012261279952322
+        },
+        {
+          "lod": 1,
+          "right": 3.153359896884279e-7,
+          "left": 0.9471114524917884
+        },
+        {
+          "lod": 2,
+          "right": 3.153359896884279e-7,
+          "left": 0.9471114524917884
+        }
+      ],
+      "tip": [
+        -1.7661351552476205,
+        -1.3755774100921778,
+        -2.0305410387037237
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385333701126569e-9,
+          "left": 0.8519231398657915
+        },
+        {
+          "lod": 1,
+          "right": 4.4795104322071657e-7,
+          "left": 0.7940084415234823
+        },
+        {
+          "lod": 2,
+          "right": 4.4795104322071657e-7,
+          "left": 0.7940084415234823
+        }
+      ],
+      "tip": [
+        0.7028746833161723,
+        -0.8390108992831049,
+        2.8208291919325057
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385338011505523e-9,
+          "left": 0.7165424906654041
+        },
+        {
+          "lod": 1,
+          "right": 4.689526287120123e-7,
+          "left": 0.653321102588541
+        },
+        {
+          "lod": 2,
+          "right": 4.689526287120123e-7,
+          "left": 0.653321102588541
+        }
+      ],
+      "tip": [
+        0.6282443493106725,
+        1.934676315125495,
+        1.0413710997417946
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337543974231e-9,
+          "left": 0.5996019169661463
+        },
+        {
+          "lod": 1,
+          "right": 4.291561238003692e-7,
+          "left": 0.5538188683602803
+        },
+        {
+          "lod": 2,
+          "right": 4.291561238003692e-7,
+          "left": 0.5538188683602803
+        }
+      ],
+      "tip": [
+        0.34650711079235075,
+        2.0864715506383025,
+        0.4071784865634314
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337237971732e-9,
+          "left": 1.0905544228956545e-8
+        },
+        {
+          "lod": 1,
+          "right": 7.240909234975158e-8,
+          "left": 6.171699513496949e-8
+        },
+        {
+          "lod": 2,
+          "right": 7.240909234975158e-8,
+          "left": 6.171699513496949e-8
+        }
+      ],
+      "tip": [
+        -0.4027057718636686,
+        -0.9108988392604624,
+        2.3369059799715224
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385333705346118e-9,
+          "left": 1.0905544719664292e-8
+        },
+        {
+          "lod": 1,
+          "right": 7.001865650103059e-8,
+          "left": 4.876964722815952e-8
+        },
+        {
+          "lod": 2,
+          "right": 7.001865650103059e-8,
+          "left": 4.876964722815952e-8
+        }
+      ],
+      "tip": [
+        -0.41439236181584965,
+        -0.9480605904986099,
+        2.328363975970559
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385339919661044e-9,
+          "left": 1.0905543958977707e-8
+        },
+        {
+          "lod": 1,
+          "right": 1.6470254546394237e-7,
+          "left": 5.211960220245322e-8
+        },
+        {
+          "lod": 2,
+          "right": 1.6470254546394237e-7,
+          "left": 5.211960220245322e-8
+        }
+      ],
+      "tip": [
+        -1.9904477553195827,
+        -1.3120927544227055,
+        1.4442576111859318
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385340229627416e-9,
+          "left": 1.0905544823782072e-8
+        },
+        {
+          "lod": 1,
+          "right": 3.153359896884279e-7,
+          "left": 5.5695166549333004e-8
+        },
+        {
+          "lod": 2,
+          "right": 3.153359896884279e-7,
+          "left": 5.5695166549333004e-8
+        }
+      ],
+      "tip": [
+        -1.7661351552476205,
+        -1.3755774100921778,
+        -2.0305410387037237
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385333701126569e-9,
+          "left": 1.0905544687662344e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.4795104322071657e-7,
+          "left": 4.2008070019618743e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.4795104322071657e-7,
+          "left": 4.2008070019618743e-7
+        }
+      ],
+      "tip": [
+        0.7028746833161723,
+        -0.8390108992831049,
+        2.8208291919325057
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385338011505523e-9,
+          "left": 1.0905544973197382e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.689526287120123e-7,
+          "left": 3.3772856751476504e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.689526287120123e-7,
+          "left": 3.3772856751476504e-7
+        }
+      ],
+      "tip": [
+        0.6282443493106725,
+        1.934676315125495,
+        1.0413710997417946
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "player",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337543974231e-9,
+          "left": 1.0905544904922182e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.291561238003692e-7,
+          "left": 3.423577853658715e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.291561238003692e-7,
+          "left": 3.423577853658715e-7
+        }
+      ],
+      "tip": [
+        0.34650711079235075,
+        2.0864715506383025,
+        0.4071784865634314
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337237971732e-9,
+          "left": 0.6888548025201116
+        },
+        {
+          "lod": 1,
+          "right": 7.240909231649051e-8,
+          "left": 0.677142237257454
+        },
+        {
+          "lod": 2,
+          "right": 7.240909231649051e-8,
+          "left": 0.677142237257454
+        }
+      ],
+      "tip": [
+        -0.4027057718636686,
+        0.03910116073953773,
+        2.3369059799715224
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385334791249332e-9,
+          "left": 0.6705789780078003
+        },
+        {
+          "lod": 1,
+          "right": 7.001865652550364e-8,
+          "left": 0.6622407919454398
+        },
+        {
+          "lod": 2,
+          "right": 7.001865652550364e-8,
+          "left": 0.6622407919454398
+        }
+      ],
+      "tip": [
+        -0.4143923618158493,
+        0.0019394095013902657,
+        2.3283639759705603
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385340048244542e-9,
+          "left": 1.0870576797670295
+        },
+        {
+          "lod": 1,
+          "right": 1.6470318930195334e-7,
+          "left": 1.0254723425884358
+        },
+        {
+          "lod": 2,
+          "right": 1.6470318930195334e-7,
+          "left": 1.0254723425884358
+        }
+      ],
+      "tip": [
+        -1.9904536165491538,
+        -0.362089624926063,
+        1.4442517689103616
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385338413918303e-9,
+          "left": 1.0122612799523223
+        },
+        {
+          "lod": 1,
+          "right": 3.15335989780402e-7,
+          "left": 0.9471114524917885
+        },
+        {
+          "lod": 2,
+          "right": 3.15335989780402e-7,
+          "left": 0.9471114524917885
+        }
+      ],
+      "tip": [
+        -1.7661351552476203,
+        -0.4255774100921772,
+        -2.0305410387037246
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.63853341843324e-9,
+          "left": 0.8519231398657915
+        },
+        {
+          "lod": 1,
+          "right": 4.479510434183826e-7,
+          "left": 0.7940084415234823
+        },
+        {
+          "lod": 2,
+          "right": 4.479510434183826e-7,
+          "left": 0.7940084415234823
+        }
+      ],
+      "tip": [
+        0.702874683316172,
+        0.11098910071689527,
+        2.8208291919325057
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385334575204196e-9,
+          "left": 0.7165424906654048
+        },
+        {
+          "lod": 1,
+          "right": 4.689526281663183e-7,
+          "left": 0.6533211025885418
+        },
+        {
+          "lod": 2,
+          "right": 4.689526281663183e-7,
+          "left": 0.6533211025885418
+        }
+      ],
+      "tip": [
+        0.6282443493106726,
+        2.8846763151254953,
+        1.0413710997417955
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": false,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337133755993e-9,
+          "left": 0.5996019169661463
+        },
+        {
+          "lod": 1,
+          "right": 4.291561236855856e-7,
+          "left": 0.5538188683602802
+        },
+        {
+          "lod": 2,
+          "right": 4.291561236855856e-7,
+          "left": 0.5538188683602802
+        }
+      ],
+      "tip": [
+        0.34650711079235014,
+        3.0364715506383018,
+        0.40717848656343203
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": false,
+      "time": 0.25,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337237971732e-9,
+          "left": 1.0905544861647275e-8
+        },
+        {
+          "lod": 1,
+          "right": 7.240909231649051e-8,
+          "left": 6.171699543964444e-8
+        },
+        {
+          "lod": 2,
+          "right": 7.240909231649051e-8,
+          "left": 6.171699543964444e-8
+        }
+      ],
+      "tip": [
+        -0.4027057718636686,
+        0.03910116073953773,
+        2.3369059799715224
+      ],
+      "hits": 0,
+      "action": "idle",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385334791249332e-9,
+          "left": 1.0905544618920147e-8
+        },
+        {
+          "lod": 1,
+          "right": 7.001865652550364e-8,
+          "left": 4.8769647099589207e-8
+        },
+        {
+          "lod": 2,
+          "right": 7.001865652550364e-8,
+          "left": 4.8769647099589207e-8
+        }
+      ],
+      "tip": [
+        -0.4143923618158493,
+        0.0019394095013902657,
+        2.3283639759705603
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.15,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385339793093797e-9,
+          "left": 1.0905543941925038e-8
+        },
+        {
+          "lod": 1,
+          "right": 1.6470254554290217e-7,
+          "left": 5.211960213233781e-8
+        },
+        {
+          "lod": 2,
+          "right": 1.6470254554290217e-7,
+          "left": 5.211960213233781e-8
+        }
+      ],
+      "tip": [
+        -1.9904477553195825,
+        -0.3620927544227053,
+        1.4442576111859315
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.42,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385338413918303e-9,
+          "left": 1.090554488019363e-8
+        },
+        {
+          "lod": 1,
+          "right": 3.15335989780402e-7,
+          "left": 5.569516653998967e-8
+        },
+        {
+          "lod": 2,
+          "right": 3.15335989780402e-7,
+          "left": 5.569516653998967e-8
+        }
+      ],
+      "tip": [
+        -1.7661351552476203,
+        -0.4255774100921772,
+        -2.0305410387037246
+      ],
+      "hits": 0,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.5428571428571429,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.63853341843324e-9,
+          "left": 1.0905544661092963e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.479510434183826e-7,
+          "left": 4.2008070020438464e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.479510434183826e-7,
+          "left": 4.2008070020438464e-7
+        }
+      ],
+      "tip": [
+        0.702874683316172,
+        0.11098910071689527,
+        2.8208291919325057
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 0.8,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385334575204196e-9,
+          "left": 1.090554524263379e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.689526281663183e-7,
+          "left": 3.3772856741075e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.689526281663183e-7,
+          "left": 3.3772856741075e-7
+        }
+      ],
+      "tip": [
+        0.6282443493106726,
+        2.8846763151254953,
+        1.0413710997417955
+      ],
+      "hits": 1,
+      "action": "swordSlash",
+      "attachmentFixed": true
+    },
+    {
+      "faction": "viking",
+      "kind": "npc",
+      "mounted": true,
+      "shield": true,
+      "attack": true,
+      "time": 1,
+      "motion": "idle",
+      "hands": [
+        {
+          "lod": 0,
+          "right": 1.6385337133755993e-9,
+          "left": 1.0905544925667418e-8
+        },
+        {
+          "lod": 1,
+          "right": 4.291561236855856e-7,
+          "left": 3.4235778539191967e-7
+        },
+        {
+          "lod": 2,
+          "right": 4.291561236855856e-7,
+          "left": 3.4235778539191967e-7
+        }
+      ],
+      "tip": [
+        0.34650711079235014,
+        3.0364715506383018,
+        0.40717848656343203
+      ],
+      "hits": 1,
+      "action": "idle",
+      "attachmentFixed": true
+    }
+  ],
+  "bow": [
+    {
+      "faction": "roman",
+      "arrows": 29,
+      "mounted": true
+    },
+    {
+      "faction": "viking",
+      "arrows": 29,
+      "mounted": true
+    }
+  ]
+}

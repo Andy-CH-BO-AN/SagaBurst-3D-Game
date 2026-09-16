@@ -1,3 +1,4 @@
+import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
  * Generic NPC AI unit (Faction System, Melee/Ranged).
@@ -85,14 +86,8 @@ export class NPC {
   private bowGripPivot: THREE.Group
   private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
-  private shieldOnBack = false
-  private readonly shieldTargetPosition = new THREE.Vector3()
-  private readonly shieldTargetQuaternion = new THREE.Quaternion()
-  private readonly shieldTargetEuler = new THREE.Euler()
-  private readonly shieldStartPosition = new THREE.Vector3()
-  private readonly shieldStartQuaternion = new THREE.Quaternion()
-  private shieldTransitionElapsed = 0.15
   public shieldId: string | null = null
+  private builtShieldId: string | null | undefined = undefined
 
   private flashMat: THREE.MeshBasicMaterial
 
@@ -188,6 +183,7 @@ export class NPC {
     this.meleeDamage = combatProfile.finalMeleeDamage
     this.rangedDamage = combatProfile.rangedDamage ?? 0
     this.isUsingLance = combatProfile.isUsingLance
+    this.shieldId = combatProfile.shieldId
     if (this.isUsingLance) {
       this.meleeAttackRadius = 3.0
     }
@@ -259,8 +255,6 @@ export class NPC {
     this.rig.left.handSocket.add(this.shieldPivot)
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
-    this.shieldTargetPosition.copy(this.shieldPivot.position)
-    this.shieldTargetQuaternion.copy(this.shieldPivot.quaternion)
 
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
 
@@ -274,8 +268,9 @@ export class NPC {
     )
     this.swordGripPivot.position.set(0, 0, 0)
     this.swordGripPivot.rotation.set(0, 0, 0)
+    if (this.rig.equipmentGripFrames && this.isUsingLance) applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     if (this.rig.swordGripFrame && !this.isUsingLance) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
@@ -286,18 +281,14 @@ export class NPC {
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
 
-    if (this.arrows > 0) {
+    if (this.hasActiveRangedWeapon) {
       this.swordPivot.visible = false
       this.bowPivot.visible = true
-      this._setShieldPlacement(true, true)
     } else {
       this.swordPivot.visible = true
       this.bowPivot.visible = false
       if (this.isUsingLance) {
         this.animator.poseMountedLanceReady()
-      }
-      if (this.shieldId && this.aiType !== AIType.RANGED) {
-        this._setShieldPlacement(false, true)
       }
     }
 
@@ -325,58 +316,43 @@ export class NPC {
     const mountPosition = this.mount.group.position.clone()
     this.mount.releaseRider()
     this.mount = null
-    applyCharacterMountedPose(this.rig, false)
+    if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
+    this.rig.animation?.setEquipmentState?.({ mounted: false })
+    this.animator.setLocomotion(0, false)
+    this.rig.animation?.update(0)
     this._alignExternalVisualToMount(false)
     this.group.position.copy(mountPosition)
   }
 
   rebuildShield(): void {
+    if (this.builtShieldId === this.shieldId) return
+    this.builtShieldId = this.shieldId
+    this.animator?.cancel()
+    if (this.bowVisual) {
+      this.bowArrowReleased = false
+      this.attackTimer = 0
+      this.bowVisual.hideArrow()
+      this.bowPivot.visible = this.hasActiveRangedWeapon
+      this.swordPivot.visible = !this.hasActiveRangedWeapon
+    }
+
     while (this.shieldPivot.children.length > 0) {
       this.shieldPivot.remove(this.shieldPivot.children[0])
     }
     if (this.shieldId) {
       WeaponMeshFactory.buildShield(this.shieldId, this.shieldPivot)
       polishWeaponMaterials(this.shieldPivot)
+      if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
+  }
+
+  private get hasActiveRangedWeapon(): boolean {
+    return this.arrows > 0 && !(this.shieldId && this.bowVisual)
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
     return 'swordSlash'
-  }
-
-  private _setShieldPlacement(onBack: boolean, immediate = false): void {
-    const targetParent = onBack ? this.bodyMesh : this.rig.left.handSocket
-    if (this.shieldOnBack !== onBack || this.shieldPivot.parent !== targetParent) {
-      this.shieldOnBack = onBack
-      if (onBack) {
-        this.bodyMesh.attach(this.shieldPivot)
-        this.shieldTargetPosition.set(0, 0.3, 0.45)
-        this.shieldTargetEuler.set(0, Math.PI, Math.PI / 8)
-      } else {
-        this.rig.left.handSocket.attach(this.shieldPivot)
-        // The socket is the rear grip; the shared arm guard pose moves the
-        // hand and shield forward together.
-        this.shieldTargetPosition.set(0, 0.124, 0.019)
-        this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
-      }
-      this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
-      this.shieldStartPosition.copy(this.shieldPivot.position)
-      this.shieldStartQuaternion.copy(this.shieldPivot.quaternion)
-      this.shieldTransitionElapsed = 0
-    }
-    if (immediate) {
-      this.shieldPivot.position.copy(this.shieldTargetPosition)
-      this.shieldPivot.quaternion.copy(this.shieldTargetQuaternion)
-      this.shieldTransitionElapsed = 0.15
-    }
-  }
-
-  private _updateShieldTransition(dt: number): void {
-    this.shieldTransitionElapsed = Math.min(0.15, this.shieldTransitionElapsed + dt)
-    const blend = this.shieldTransitionElapsed / 0.15
-    this.shieldPivot.position.lerpVectors(this.shieldStartPosition, this.shieldTargetPosition, blend)
-    this.shieldPivot.quaternion.slerpQuaternions(this.shieldStartQuaternion, this.shieldTargetQuaternion, blend)
   }
 
   private _getElevatedRangedAimPoint(targetWorld: THREE.Vector3): THREE.Vector3 {
@@ -394,7 +370,7 @@ export class NPC {
   }
 
   private _updateBowVisual(drawRatio: number, targetWorld: THREE.Vector3): void {
-    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.arrows > 0 && !this.bowArrowReleased)
+    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.hasActiveRangedWeapon && !this.bowArrowReleased)
   }
 
   private _createAlertSprite(): THREE.Sprite {
@@ -485,8 +461,9 @@ export class NPC {
     let animationAdvanced = false
     if (this.mount) this.mount.beginControlledFrame()
     const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
-    const startsWithShieldOnBack = this.arrows > 0 || recoveringBow || (this.isUsingLance && !this.isMounted)
-    this.animator.setShieldGuard(Boolean(this.shieldId) && !startsWithShieldOnBack)
+    this.rebuildShield()
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, this.state !== AIState.DEAD)
+    this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
     if (this.flashTimer > 0) {
@@ -560,13 +537,13 @@ export class NPC {
         }
 
         // Ranged NPCs (both foot and mounted) switch to melee when enemy gets close (< 6m)
-        if (this.arrows > 0 && dist < RANGED_ATTACK_MIN) {
+        if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
         }
 
         const moveDir = this._tmpMoveDir
 
-        if (this.arrows > 0) {
+        if (this.hasActiveRangedWeapon) {
           // Ranged behavior (6 <= dist <= 22)
           if (dist <= RANGED_ATTACK_MAX && dist >= RANGED_ATTACK_MIN) {
             this.state = AIState.ATTACK
@@ -634,14 +611,14 @@ export class NPC {
         const dist = this.combatPosition.distanceTo(targetInfo.position)
 
         // Ranged NPCs (both foot and mounted) draw swords and commit to melee when enemy gets close (< 6m)
-        if (this.arrows > 0 && dist < RANGED_ATTACK_MIN) {
+        if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
           this.state = AIState.CHASE
           break
         }
 
         // Target retreated beyond max ranged attack distance (> 22m), approach in CHASE
-        if (this.arrows > 0 && dist > RANGED_ATTACK_MAX) {
+        if (this.hasActiveRangedWeapon && dist > RANGED_ATTACK_MAX) {
           this.animator.cancel()
           this.state = AIState.CHASE
           break
@@ -650,7 +627,7 @@ export class NPC {
         this._faceTarget(targetInfo.position)
         
         // Mounted Archers orbit target while attacking within 6m <= dist <= 22m
-        if (this.isMounted && this.arrows > 0) {
+        if (this.isMounted && this.hasActiveRangedWeapon) {
           const moveDir = this._tmpMoveDir
           // Orbit target
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
@@ -664,7 +641,7 @@ export class NPC {
           }
         }
 
-        if (this.arrows > 0) {
+        if (this.hasActiveRangedWeapon) {
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
 
@@ -750,8 +727,7 @@ export class NPC {
       }
     }
 
-    this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && this.swordPivot.userData.swordAttachmentOwned === true)
-    const needsShieldOnBack = this.arrows > 0 || this.animator.currentAction === 'bowRelease' || (this.isUsingLance && !this.isMounted)
+    this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     if (this.state !== AIState.DEAD) {
       if (!this.animator.busy && !animationAdvanced) {
         if (this.bowPivot.visible && this.faction === Faction.PLAYER) this.animator.poseBow(0)
@@ -768,8 +744,6 @@ export class NPC {
       this._tmpRangedTarget.y += 1.4
       this.bowVisual?.update(0, this._tmpRangedTarget, false)
     }
-    this._setShieldPlacement(needsShieldOnBack)
-    this._updateShieldTransition(dt)
 
     if (this.state !== AIState.DEAD && this.isMounted && this.mount) {
       this.mount.finishControlledFrame(dt, obstacles)
@@ -845,7 +819,8 @@ export class NPC {
 
   private _syncToMount(): void {
     if (!this.mount) return
-    applyCharacterMountedPose(this.rig, true, this.mount.type as MountedPoseKind)
+    if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.mount.type as MountedPoseKind)
+    this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.mount.type as MountedPoseKind })
     this._alignExternalVisualToMount(true)
     this.mount.getSaddleSeatWorld(this.group.position)
     this.group.rotation.x = this.mount.ridePitch
@@ -881,7 +856,6 @@ export class NPC {
     this.swordPivot.visible = true
     this.bowPivot.visible = false
     this.animator.cancel()
-    this._setShieldPlacement(this.isUsingLance && !this.isMounted)
   }
 
   respawn(): void {
@@ -889,14 +863,12 @@ export class NPC {
     this.currentHp = this.maxHp
     if (this.aiType === AIType.RANGED) {
       this.arrows = 1
-      this.swordPivot.visible = false
-      this.bowPivot.visible = true
-      this._setShieldPlacement(true, true)
+      this.swordPivot.visible = !this.hasActiveRangedWeapon
+      this.bowPivot.visible = this.hasActiveRangedWeapon
     } else {
       this.arrows = 0
       this.swordPivot.visible = true
       this.bowPivot.visible = false
-      this._setShieldPlacement(this.isUsingLance && !this.isMounted, true)
     }
 
     const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
