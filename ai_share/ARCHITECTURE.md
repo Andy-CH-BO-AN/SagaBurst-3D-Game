@@ -66,6 +66,7 @@ skyrim 3D test/
 4. **反曲長弓 (Recurve Longbow - Tier 2)**: 2-segment S-curve limbs (0.55m inner + 0.35m outer).
 5. **符文精靈弓 (Elven Runebow - Tier 3)**: 3-segment elven crescent limbs (0.65m + 0.45m + 0.35m) + 2 `OctahedronGeometry` cyan crystal gems + 2 `TorusGeometry` moon crescent spikes + glowing arrow.
 6. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+   - T1–T3 盾板、外框與正面裝飾共用寬度、曲率及盾面深度；外框中心貼住盾板正面，盾臍嵌入中央盾面，交叉飾條先旋轉再沿盾面彎曲，避免零件懸空。背面握點維持 `(0,0,.085)`；工作室／Player／NPC 共用 `WeaponMeshFactory.buildShield`。
 7. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
 
 ### 裝備盾牌與長槍姿勢

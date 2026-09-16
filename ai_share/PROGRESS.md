@@ -1,10 +1,18 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-16 (最小 Idle + 向前刺擊／騎馬持劍)_
+_Last updated: 2026-09-16 (羅馬盾牌外框與表面貼合修正)_
 
 ---
 
 ## Current Status
+
+### 2026-09-16：羅馬盾牌外框與表面貼合修正
+
+- 修正 `WeaponMeshFactory` 中盾板基準 Z=.02 與外框基準 Z=.15 不一致造成的分離；T1–T3 外框改由盾板正面深度推導，中央盾臍與交叉飾條一併貼合盾面。飾條沿盾板相同曲率彎曲，原背面握點／角色骨架與裝備掛點保持不變。
+- 新增三階級幾何回歸測試：取樣每個外框管環至實際盾板三角形的距離、盾臍與盾面重疊，以及飾條頂點至盾面的距離。
+- 29 檔、249 項測試與 production build 通過；建置仍有既有 Vite CJS／chunk 大小提示。
+- Chrome 已檢查 T1–T3 正面／斜面／側面 WebGL 對照與 `?devmodels=humans&nolock` 步戰／騎乘持盾展示，外框與正面零件不再懸空。一次性對照頁與截圖保留於忽略的 `output/playwright/scutum-fix/`。
+- 正式 `?nolock` 預設 10v10 戰鬥已啟動並運行；工作室及正式場景均無 application console error，擴充套件的 MetaMask liveness／listener 警告另行排除。
 
 ### 2026-09-16：清理 artifacts 一次性驗收產物
 
