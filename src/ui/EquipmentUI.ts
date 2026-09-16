@@ -94,13 +94,14 @@ export class EquipmentUI {
         </div>
         <div class="inv-item-stats">${dmgText}</div>
         <div class="inv-item-desc">${item.description}</div>
-        <button class="btn-equip ${isEquipped ? 'is-active' : ''}">${isEquipped ? '已裝備' : '【裝備】'}</button>
+        <button class="btn-equip ${isEquipped ? 'is-active' : ''}">${isEquipped ? item.type === 'shield' ? '卸下盾牌' : '已裝備' : '【裝備】'}</button>
       `
 
       const btn = card.querySelector('.btn-equip')!
-      if (!isEquipped) {
+      if (!isEquipped || item.type === 'shield') {
         btn.addEventListener('click', () => {
-          inventoryManager.equipWeapon(item.id)
+          if (isEquipped && item.type === 'shield') inventoryManager.unequipShield()
+          else inventoryManager.equipWeapon(item.id)
           this.updateModal(skillManager, inventoryManager, onEquipChanged)
           if (onEquipChanged) onEquipChanged()
         })

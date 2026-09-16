@@ -93,7 +93,7 @@ Expect messages such as:
 
 The following `console.table` reports `start`, `end`, `min`, and `max` bounds:
 
-- Melee action summaries use character-local coordinates. Character forward is normally local `-Z`; a thrust should therefore extend clearly toward more-negative Z without a large drop in Y or excessive sideways X travel.
+- Melee action summaries use character-local coordinates. Production humanoid and horse forward is local `+Z` (legacy procedural fixtures use `-Z`); a production thrust should extend clearly toward more-positive Z without a large drop in Y or excessive sideways X travel.
 - Bow draw summaries describe the moving nock path. Judge them with the lime bow body, cyan string, white hand-to-nock line, and actual pose; bounds alone cannot prove the bow faces correctly.
 - Arrow flight summaries use world-space positions. The beginning of the green path should match the arrow at the bow's centre and align with the red aim guide. Y may arc downward later because gravity is expected.
 - Repeated identical tables usually mean the action was repeated. They are not a leak by themselves.
@@ -107,7 +107,7 @@ For melee weapons:
 - Confirm the idle weapon does not point into or penetrate the ground.
 - Confirm a thrust travels from guard toward character-forward and returns cleanly.
 - Confirm the hand remains on the grip throughout the action.
-- Confirm a shield stays on the left hand for one-handed combat and mounted lance use, and moves to the back for bows, greatswords, and foot lances.
+- Confirm an equipped shield stays on the left hand on foot and mounted, including lance use. Bow and legacy two-handed greatsword actions require unequipping the shield.
 
 For bows:
 
@@ -124,7 +124,7 @@ For mounted combat:
 - Confirm the status HUD reports exactly one mixer and the selected LOD/clip; orbit close to and far from the horse to exercise LOD changes.
 - Check mane/tail attachment and card silhouettes in idle, gallop, jump, land, hit, and the final death frame.
 - Toggle the skeleton and rider; confirm pelvis-to-saddle, knees, stirrups, feet, shield, and tack do not visibly intersect.
-- Confirm a mounted lance is couched under the right arm and points forward, rather than running from the shoulder into the ground.
+- Confirm a mounted lance is held at the waist by the right hand and points along character +Z; a thrust moves the arm while its attachment remains fixed.
 - Confirm the left hand retains the shield.
 
 For grounding:

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
-import type { CharacterRig } from './CharacterVisuals'
+import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
+import { setSwordMountedAttachment } from './SwordAttachmentContract'
 
 export type CombatAction =
   | 'idle'
@@ -50,6 +51,7 @@ export class CharacterCombatAnimator {
   private ownership: 'clip' | 'procedural' = 'procedural'
   private elapsed = 0
   private shieldGuardEnabled = false
+  private lanceEquipped = false
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
   private locomotionTimeScale = 1
   private readonly events: CombatAnimationEvents = {
@@ -72,9 +74,17 @@ export class CharacterCombatAnimator {
 
   setShieldGuard(enabled: boolean): void {
     this.shieldGuardEnabled = enabled
+    this.rig.animation?.setEquipmentState?.({ shield: enabled })
+  }
+
+  setEquipment(lance: boolean, shield: boolean, mountKind: MountedPoseKind = 'HORSE', alive = true): void {
+    this.lanceEquipped = lance
+    this.setShieldGuard(shield)
+    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive })
   }
 
   setLocomotion(speed: number, mounted = false): void {
+    setSwordMountedAttachment(this.meleePivot, mounted)
     const state = mounted ? 'mounted' : speed > 3 ? 'run' : speed > 0.1 ? 'walk' : 'idle'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
@@ -83,7 +93,8 @@ export class CharacterCombatAnimator {
         : 1
     this.locomotion = state
     this.locomotionTimeScale = timeScale
-    if (this.busy && this.action !== 'bowRelease') return
+    this.rig.animation?.setEquipmentState?.({ mounted })
+    if (this.busy && this.action !== 'bowRelease' && this.action !== 'lanceThrust' && this.action !== 'mountedLance') return
     if (this.action === 'bowAim' || this.action === 'bowRelease') {
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)
       return
@@ -92,7 +103,7 @@ export class CharacterCombatAnimator {
   }
 
   start(action: Exclude<CombatAction, 'idle' | 'bowAim'>): boolean {
-    if (this.busy) return false
+    if (this.busy || (this.shieldGuardEnabled && (action === 'bowRelease' || action === 'greatswordSlash'))) return false
     this.action = action
     const importedState = action === 'bowRelease' || action === 'swordSlash' || action === 'pilumThrow'
       ? action
@@ -107,7 +118,8 @@ export class CharacterCombatAnimator {
     this.action = 'idle'
     this.ownership = 'procedural'
     this.elapsed = 0
-    this.rig.animation?.play('idle', { fadeSeconds: 0.12, loop: true })
+    this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
+    this.rig.animation?.play(this.locomotion, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
     this.poseIdle()
   }
 
@@ -116,6 +128,8 @@ export class CharacterCombatAnimator {
     this.events.projectileRelease = false
     this.events.actionCompleted = false
 
+    if (!Number.isFinite(dt) || dt < 0) return this.events
+    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.elapsed + dt, lance: this.lanceEquipped })
     this.rig.animation?.update(dt)
 
     if (this.action === 'idle' || this.action === 'bowAim') {
@@ -145,7 +159,7 @@ export class CharacterCombatAnimator {
     }
 
     if (this.elapsed >= total - 1e-9) {
-      const returnToLocomotion = this.action === 'swordSlash' && this.ownership === 'clip'
+      const returnToLocomotion = (this.action === 'swordSlash' && this.ownership === 'clip') || this.lanceEquipped
       this.action = 'idle'
       this.ownership = 'procedural'
       this.elapsed = 0
@@ -154,6 +168,8 @@ export class CharacterCombatAnimator {
         this.resetWeaponPivots()
         this.rig.animation?.play(this.locomotion, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
       } else this.poseIdle()
+      this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
+      this.rig.animation?.update(0)
     }
     return this.events
   }
@@ -161,7 +177,8 @@ export class CharacterCombatAnimator {
   poseIdle(): void {
     this.action = 'idle'
     this.ownership = 'procedural'
-    this.rig.animation?.play('idle', { fadeSeconds: 0.12, loop: true })
+    this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
+    this.rig.animation?.play(this.locomotion, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
     if (this.rig.animation?.has('idle')) {
       this.resetWeaponPivots()
       return
@@ -182,7 +199,8 @@ export class CharacterCombatAnimator {
   }
 
   poseBow(chargeRatio: number, aimBlend = 1): void {
-    if (this.busy) return
+    if (this.busy || this.shieldGuardEnabled) return
+    this.rig.animation?.setEquipmentState?.({ action: 'bowAim' })
     this.action = 'bowAim'
     const imported = this.rig.animation?.has('bowLoad') && this.rig.animation.has('bowHold')
     this.ownership = imported ? 'clip' : 'procedural'
@@ -222,7 +240,9 @@ export class CharacterCombatAnimator {
   }
 
   poseLanceReady(mounted: boolean): void {
-    if (this.busy) return
+    this.lanceEquipped = true
+    this.rig.animation?.setEquipmentState?.({ lance: true, mounted })
+    if (this.rig.equipmentGripFrames || this.busy) return
     const { right, left } = this.rig
     setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)
     setRigRotation(right.elbow, mounted ? 0.15 : 0.38, 0, 0.12)
@@ -267,7 +287,7 @@ export class CharacterCombatAnimator {
   }
 
   private resetWeaponPivots(): void {
-    if (!this.meleePivot.userData.swordAttachmentOwned) {
+    if (!this.meleePivot.userData.swordAttachmentOwned && !this.meleePivot.userData.equipmentAttachmentOwned) {
       this.meleePivot.position.set(0, 0, 0)
       this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
     }
@@ -295,7 +315,7 @@ export class CharacterCombatAnimator {
     }
 
     if (action === 'lanceThrust' || action === 'mountedLance') {
-      this.poseLance(action === 'mountedLance', phase, t)
+      if (!this.rig.equipmentGripFrames) this.poseLance(action === 'mountedLance', phase, t)
     } else {
       this.poseBladeThrust(action, phase, t)
     }

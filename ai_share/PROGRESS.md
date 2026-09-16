@@ -1,10 +1,48 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-14 (T1–T3 one-handed sword parity)_
+_Last updated: 2026-09-16 (最小 Idle + 向前刺擊／騎馬持劍)_
 
 ---
 
 ## Current Status
+
+### 2026-09-16：保留最小 Idle，補向前刺擊與騎馬持劍方向
+
+- 依使用者後續要求，只在 Lance 攻擊期間加入右臂小幅 FK 伸展、維持原手部方向；不恢复新 Ready、IK、掌心朝上、雙手支撐或 Lance morph。收招／取消回到相同 locomotion 基底，固定 weapon attachment 不動。
+- 實機 Roman／Viking、步戰／騎乘、有盾／無盾前伸 20.4–21.1cm，槍線與 +Z 夾角 < 8°；左盾、軀幹與腿部保持各自原姿勢。
+- 騎馬 Sword 選用 Lance 的固定模型方向，保留 Sword 掌內握點；下馬還原原 Sword attachment。Player／NPC／工作室共用同一入口，原 Sword 攻擊及 .252 秒命中不變。
+- 工程測試新增固定 attachment、三 LOD 握點、前伸、非右臂骨骼不變、取消／收招、攻擊途中上下馬時序，以及 mounted Sword 握點／方向與下馬還原。
+- 工作室 104 張分階段及持劍對照圖：`output/playwright/lance-thrust/`。正式 Player／NPC Lance 路徑 112 個取樣、336 張圖，零失敗／零應用錯誤；持盾禁弓、卸盾射箭正常。重跑 `tools/qa-lance-thrust.mjs`、`tools/qa-equipment-gameplay.mjs`。
+- 騎馬 Sword 正式 Player／NPC、有盾／無盾另驗 56 個取樣、168 張圖，零失敗／零應用錯誤；證據 `output/playwright/equipment-gameplay-sword/`，重跑同工具加 `--sword`。
+- 最終 28 檔、246 項測試與 production build 通過。戰馬工作室（含 idle／walk／gallop × Ready／Peak）、正式場景、100 人壓力場景零應用錯誤；Headless FPS 約 2.4–2.7／0.94–0.98／0.58–0.59，僅記錄為診斷，不宣稱效能通過。完整資源數／console 見 `output/playwright/equipment-scenes/measurements.json`；戰馬截圖有 GPU ReadPixels stall 警告。
+- 這是原 Sword Idle 上的最小前刺；未恢復原完整人体工學騎槍計畫。靜態基底已有的 Roman 肩部衣物破面與既有手指造型仍保留。
+
+### 2026-09-16：補驗最小版持盾／騎乘 Idle
+
+- 補上 Roman 步戰持盾、騎乘無盾、騎乘持盾的三 LOD 對照，Sword ↔ Lance 人體骨骼與手型完全相同。54 張近景／全身／俯視圖與量測保存於 `artifacts/equipment_pose/minimal-idle/combinations/`。
+- 發現 mounted 原空 clip 會讓上身回到 T-pose，已改為直接播放既有 idle 上身軌道；回歸測試確認 pelvis／mounted 腿姿不變，未新增肩臂／腕部修正。
+- Lance 固定掛點向外偏約 8°，清除騎乘 idle 的馬鬃接觸；槍桿中心及周邊 8 條線取樣未碰到可見馬匹 mesh。僅驗收此固定 idle，未宣稱覆蓋馬匹所有步態或攻擊。
+- 四種組合、三 LOD：握點誤差均 < 1mm、無瀏覽器應用錯誤；步戰槍線與前方約 7.7°，騎乘約 3.4°。原無盾步戰截圖也已更新。
+- 完整測試 28 檔、240 項通過，production build 通過。重跑：`rtk proxy node tools/qa-lance-idle-minimal.mjs --combinations`。
+
+### 2026-09-16：Roman 最小版 — 原 Sword Idle 只換 Lance
+
+- 依使用者最新指示縮小範圍，撤下先前長槍專用 Ready／前刺骨架、掌心朝上校正、雙手支撐及 Lance morph；不繼續調整人體工學。
+- Lance 只使用固定 attachment rotation／position 與 Sword 原有掌內握點；原 Sword 人體姿勢、手型、locomotion／mounted 基底保持一致。載入時取樣既有 idle 計算模型朝向，來源骨架立即還原。
+- 正式骨架測試逐骨比較 Roman／Viking、三個 LOD、idle／walk／run／mounted，換 Sword ↔ Lance 人體 transforms 完全相同。
+- Roman 無盾 Idle 瀏覽器驗收：三個 LOD 的所有骨骼與既有手型權重完全相同；握點誤差 < 1mm，槍線與 +Z 約 0.53°，無應用程式錯誤。已查看同角度近景、全身與俯視圖，人體外觀與 Sword baseline 一致。
+- `rtk npm test -- --run`：28 檔、238 項通過；production build 通過。舊前刺／掌心朝上測試已被本階段的人體不變契約取代，不能沿用舊測試數或舊 QA 結論。
+- 證據：`artifacts/equipment_pose/minimal-idle/`；重跑：`tools/qa-lance-idle-minimal.mjs`。**本輪只完成最小 Idle，前刺、雙手支撐及更進一步騎槍姿勢暫停。**
+
+### 2026-09-15：盾牌持握與骨架長槍前刺（歷史嘗試；已由上方最小版取代）
+
+- 已完成卸盾 API／UI、持盾禁弓、裝備切換取消動作、NPC 同階預設盾與既有減傷整合。
+- 新增全 LOD 裝備姿勢求值、固定 Lance／Shield attachment、独立手指 morph、雙臂 IK 與無盾左手鬆開／接回。mounted 姿勢與骨架基底還原納入共用 mixer 流程。
+- 右手腰際向 +Z 出槍，最大設定前伸 22cm，保留 .38／.228 秒命中與 .70／.42 秒總長。劍／弓資產、既有傷害、衝鋒倍率與耐力規則未重寫。
+- 人物／戰馬工作室加入裝備組合操作；`tools/qa-equipment-browser.mjs` 與 `tools/qa-equipment-gameplay.mjs` 可重現矩陣與六阶段截圖。
+- 最近完整工程檢查為 28 個測試檔、245 項通過，production build 通過；之後仍在校正近景肩肘／手腕。**尚未完成最終視覺、正式場景與壓力回歸，不可宣稱全部驗收通過。**
+- 詳情與未完成項目追蹤於 `artifacts/equipment_pose/README.md`。舊 Phase 20 背盾／腋下架槍段落為歷史紀錄，現行行為以上述裝備規則為準。
+
 
 ### 2026-09-14：Roman／Viking 單手劍
 
@@ -19,7 +57,7 @@ _Last updated: 2026-09-14 (T1–T3 one-handed sword parity)_
 
 **Phases 0 ~ 23 — ✅ IMPLEMENTED**
 
-The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, dynamic back shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
+The 3D Action RPG web game now features detailed character segmented models, realistic textures/factions aesthetics, equipment-driven hand-held shields, and comprehensive combat mechanics (Melee, Archery, Cavalry).
 
 ### 2026-09-05：外部騎手膝蓋反折修正（✅ DONE）
 

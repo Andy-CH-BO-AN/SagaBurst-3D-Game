@@ -109,6 +109,8 @@ export class InventoryManager {
     return false
   }
 
+  unequipShield(): void { this.equippedShieldId = null }
+
   isEquipped(id: string): boolean {
     return this.equippedMeleeId === id || this.equippedRangedId === id || this.equippedShieldId === id
   }

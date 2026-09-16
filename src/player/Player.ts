@@ -1,3 +1,4 @@
+import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 /**
  * Player.ts
@@ -88,13 +89,6 @@ export class Player {
 
   private shieldPivot!: THREE.Group
   private currentShieldId: string | null = null
-  private shieldOnBack = false
-  private readonly shieldTargetPosition = new THREE.Vector3()
-  private readonly shieldTargetQuaternion = new THREE.Quaternion()
-  private readonly shieldTargetEuler = new THREE.Euler()
-  private readonly shieldStartPosition = new THREE.Vector3()
-  private readonly shieldStartQuaternion = new THREE.Quaternion()
-  private shieldTransitionElapsed = 0.15
 
   private velY = 0
   private onGround = false
@@ -207,7 +201,7 @@ export class Player {
     this.arrows = count
   }
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking') {
     this.group = new THREE.Group()
     this.group.name = 'player'
 
@@ -253,7 +247,7 @@ export class Player {
       ? -PLAYER_HALF_HEIGHT
       : PLAYER_VISUAL_GROUND_OFFSET
     const config = {
-      faction: 'viking',
+      faction: this.visualFaction,
       tier,
       isPlayer: true,
     } as const
@@ -281,19 +275,18 @@ export class Player {
     }
     applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', 0.15)
     this.swordPivot.userData.swordAttachmentOwned = false
+    delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && WEAPONS[this.currentMeleeId]?.animationKind === 'sword') {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
     applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
+    if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     this.rig.right.handSocket.add(this.swordPivot)
     this.rig.left.handSocket.add(this.bowPivot)
     this.rig.left.handSocket.add(this.shieldPivot)
-    this.shieldOnBack = false
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
-    this.shieldTargetPosition.set(0, 0.124, 0.019)
-    this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
-    this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
+    if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
     this.isSwinging = false
     this.hitEventPending = false
@@ -304,6 +297,7 @@ export class Player {
 
   rebuildMeleeWeapon(weaponId: string): void {
     if (this.currentMeleeId === weaponId) return
+    this._cancelEquipmentAction()
     this.currentMeleeId = weaponId
 
     // Clear existing meshes
@@ -318,8 +312,12 @@ export class Player {
     this.swordGripPivot.rotation.set(0, 0, 0)
 
     this.swordPivot.userData.swordAttachmentOwned = false
+    delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && WEAPONS[weaponId]?.animationKind === 'sword') {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+    }
+    if (this.rig.equipmentGripFrames && WEAPONS[weaponId]?.animationKind === 'lance') {
+      applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     }
     polishWeaponMaterials(this.swordGripPivot)
   }
@@ -341,6 +339,7 @@ export class Player {
   // ── Dynamic 3D Shield Builder ──
   rebuildShield(shieldId: string | null): void {
     if (this.currentShieldId === shieldId) return
+    this._cancelEquipmentAction()
     this.currentShieldId = shieldId
 
     while (this.shieldPivot.children.length > 0) {
@@ -350,14 +349,27 @@ export class Player {
     if (shieldId) {
       WeaponMeshFactory.buildShield(shieldId, this.shieldPivot)
       polishWeaponMaterials(this.shieldPivot)
+      if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
+  }
+
+  private _cancelEquipmentAction(): void {
+    this.animator?.cancel()
+    this.isSwinging = false
+    this.hitEventPending = false
+    this.bowChargeTime = 0
+    this.bowVisualDrawRatio = 0
+    this.aiming = false
+    this.aimBlend = 0
+    this.bowVisual?.hideArrow()
   }
 
   syncMountTransform(): void {
     if (!this.isMounted || !this.currentMount) return
     this.currentMount.getSaddleSeatWorld(this.group.position)
     this.group.position.y += PLAYER_HALF_HEIGHT
-    applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
+    if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
+    this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.currentMount.type as MountedPoseKind })
     this._alignExternalVisualToMount(true)
     this.group.rotation.x = this.currentMount.ridePitch
   }
@@ -368,7 +380,10 @@ export class Player {
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
-    applyCharacterMountedPose(this.rig, false)
+    if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
+    this.rig.animation?.setEquipmentState?.({ mounted: false })
+    this.animator.setLocomotion(0, false)
+    this.rig.animation?.update(0)
     this._alignExternalVisualToMount(false)
     this.group.position.copy(mountPosition)
     this.velY = 0
@@ -430,40 +445,12 @@ export class Player {
     }
   }
 
-  private _setShieldPlacement(onBack: boolean): void {
-    const targetParent = onBack ? this.bodyMesh : this.rig.left.handSocket
-    if (this.shieldOnBack === onBack && this.shieldPivot.parent === targetParent) return
-    this.shieldOnBack = onBack
-    if (onBack) {
-      this.bodyMesh.attach(this.shieldPivot)
-      this.shieldTargetPosition.set(0, 0.3, 0.45)
-      this.shieldTargetEuler.set(0, Math.PI, Math.PI / 8)
-    } else {
-      this.rig.left.handSocket.attach(this.shieldPivot)
-      // Keep the hand at the shield's rear grip. The arm pose, not a large
-      // socket offset, carries both hand and shield in front of the torso.
-      this.shieldTargetPosition.set(0, 0.124, 0.019)
-      this.shieldTargetEuler.set(-1.42, Math.PI, -0.12)
-    }
-    this.shieldTargetQuaternion.setFromEuler(this.shieldTargetEuler)
-    this.shieldStartPosition.copy(this.shieldPivot.position)
-    this.shieldStartQuaternion.copy(this.shieldPivot.quaternion)
-    this.shieldTransitionElapsed = 0
-  }
-
-  private _updateShieldTransition(dt: number): void {
-    this.shieldTransitionElapsed = Math.min(0.15, this.shieldTransitionElapsed + dt)
-    const blend = this.shieldTransitionElapsed / 0.15
-    this.shieldPivot.position.lerpVectors(this.shieldStartPosition, this.shieldTargetPosition, blend)
-    this.shieldPivot.quaternion.slerpQuaternions(this.shieldStartQuaternion, this.shieldTargetQuaternion, blend)
-  }
-
   private _startBowRelease(
     cameraAimPoint: THREE.Vector3,
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -520,7 +507,10 @@ export class Player {
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
-    const wantAim = input.isRightMouseDown
+    this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
+    const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
+    quiverUI.setShieldBlocked?.(blockedAim)
+    const wantAim = input.isRightMouseDown && !equippedShield
     const bowReleasing = this.animator.currentAction === 'bowRelease'
     this.aiming = wantAim && !this.isSwinging && !bowReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
@@ -549,7 +539,7 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
+      if (input.consumeLeftClick() && !blockedAim && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
         const action = this._meleeAction(equippedMelee)
         if (this.animator.start(action)) {
           this.isSwinging = true
@@ -563,12 +553,8 @@ export class Player {
 
     const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
     this.swordPivot.visible = !showingBow
-    this.rig.animation?.setSwordHandShape?.(!showingBow && this.swordPivot.userData.swordAttachmentOwned === true)
+    this.rig.animation?.setSwordHandShape?.(!showingBow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     this.bowPivot.visible = showingBow
-
-    const needsTwoHands = equippedMelee?.animationKind === 'greatsword'
-      || (equippedMelee?.animationKind === 'lance' && !this.isMounted)
-    this.animator.setShieldGuard(Boolean(equippedShield) && !showingBow && !needsTwoHands)
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
@@ -641,8 +627,6 @@ export class Player {
       this.isSwinging = false
     }
 
-    this._setShieldPlacement(showingBow || needsTwoHands)
-    this._updateShieldTransition(dt)
 
     if (this.isSprinting) {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)

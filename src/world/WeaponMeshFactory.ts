@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { Faction } from './NPC'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
+import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -104,11 +105,14 @@ export class WeaponMeshFactory {
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
 
     if (weaponId === 'steel_lance') {
+      pivot.userData.supportPointLocal = [0, 0.33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.6, 0]
       const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
       const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
 
       // The lance is held near the back. The pole goes from y = -0.5 to y = 2.0
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 2.5, 12), poleMat)
       pole.position.y = 0.75 // Center of pole (2.5/2 = 1.25, minus offset to hold it lower)
       pivot.add(pole)
 
@@ -277,20 +281,7 @@ export class WeaponMeshFactory {
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
   static buildNpcMelee(faction: Faction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
-    if (isLance) {
-      const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
-      const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
-
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8), poleMat)
-      pole.position.y = 0.75
-      pivot.add(pole)
-
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat)
-      head.position.y = 2.3
-      head.castShadow = true
-      pivot.add(head)
-      return new THREE.Vector3(0, 2.6, 0)
-    }
+    if (isLance) return this.buildMelee('steel_lance', pivot).tipLocal
 
     if (faction === Faction.PLAYER) {
       const weaponId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
@@ -414,6 +405,7 @@ export class WeaponMeshFactory {
    * 建構盾牌的 3D mesh group，附加到指定 pivot
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
+    pivot.userData.gripCenterLocal = [0, 0, 0.085]
     const isRoman = shieldId.startsWith('scutum')
     const tier = parseInt(shieldId.split('_t')[1]) || 1
     const iron = proceduralMaterial({ kind: 'iron', color: tier === 3 ? 0xbfc2bd : 0x686d70, roughness: 0.4, metalness: 0.82 })
@@ -475,6 +467,11 @@ export class WeaponMeshFactory {
         rearStrap.name = 'shield-rear-strap'
         pivot.add(rearStrap)
       }
+      const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
+      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.rotation.z = Math.PI / 2
+      rearGrip.name = 'shield-rear-grip'
+      pivot.add(rearGrip)
       if (tier === 3) {
         for (let index = 0; index < 8; index++) {
           const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 7, 5), bronze)

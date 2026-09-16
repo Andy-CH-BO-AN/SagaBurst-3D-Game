@@ -68,23 +68,30 @@ skyrim 3D test/
 6. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
 7. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
 
-### Dynamic Back-Shield System
-- `Player` and `NPC` use a generic `shieldPivot`.
-- In one-handed Melee mode, the shield attaches to the left `handSocket`.
-- In Ranged mode (or while aiming), the shield attaches to the `bodyMesh` and rotates to rest on the character's back, avoiding visual clipping.
+### 裝備盾牌與長槍姿勢
+- 盾牌裝備狀態是唯一持盾來源，固定於左手，不再依彈藥、長槍或騎乘狀態背盾。`InventoryManager.unequipShield()` 與裝備 UI 支援卸盾，沿用 nullable 存檔。
+- 持盾按瞄準顯示「請先卸下盾牌才能使用弓箭」，不進入拉弓或 FOV 瞄準；拉弓途中裝盾取消蓄力。換盾／近戰武器取消未完成動作，不補發事件。
+- 兩陣營近戰步兵與長槍騎兵由 `getUnitCombatProfile` 配同階陣營盾；遠程兵無盾。配盾沿用既有被動減傷公式。
+- `EquipmentAttachmentContract` 共用 Player／NPC／工作室固定握點。長槍主握點 `(0,.15,0)`、支撐點 `(0,.33,0)`、尖端 `(0,2.6,0)`；Roman／Viking 盾背握把為 `(0,0,.085)`。
+- **2026-09-16 最小版：Lance 完全沿用 Sword Idle 人體姿勢。** `CharacterEquipmentPose` 在待機不對 Lance 旋轉軀幹、鎖骨、雙臂或手腕，也沒有左手支撐。Lance 不建立新 morph，沿用 Sword 已有手型。盾牌左臂與 mounted 腿姿仍維持原獨立流程。
+- `MixerController` 先還原程序覆蓋，再更新 mixer，各 LOD 套 mounted 腿姿與裝備上身姿勢，最後更新矩陣與 socket proxies。play／seek／update(0)／stop 都還原基底，死亡停用姿勢覆蓋。
+- `calibrateLanceIdleAttachment` 僅在載入時取樣既有 idle，計算右手局部的固定 Lance rotation，然後還原來源 transforms。主握點直接沿用 Sword 掌內握點，槍模型 +Y 朝向角色 +Z；逐幀只跟隨手部 socket。舊腰際 Ready／IK 前刺已撤下；最新前刺僅在攻擊時套用右臂小幅 FK 伸展與原手部方向補償，武器掛點固定，收招還原當下 Idle／locomotion。保持 .38／.228 秒命中與 .70／.42 秒總長，軀幹、左臂與腿部不歸前刺所有。
+- 騎乘 `mounted` 以既有 idle 的上身軌道取代空 clip，避免卸除 Lance 程序姿勢後回到 T-pose；不取 hips／pelvis／腿軌道，鞍座與 mounted 腿姿保持原值。Lance 固定模型掛點向外偏 0.14 rad，讓待機槍桿避開馬鬃；不旋轉手骨。
+- 騎馬 Sword 使用與 Lance 相同的固定模型方向及原掌內握點；`applySwordAttachment` 預先計算步戰／騎乘兩份掛點，`setLocomotion` 僅在上下馬 context 改變時選取，下馬還原步戰掛點。既有 Sword 動作與 .252 秒命中不變。
+- 人物工作室 L 切劍／槍、Q 切盾；新增 lanceThrust／mountedLance 展示。戰馬工作室另支援 F 攻擊。驗收工具與目前結果見 `artifacts/equipment_pose/README.md`。
 
 ### Phase 20 FK Combat Rig
 - `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
-- Melee weapons attach to the right hand socket, bows to the left hand socket, and shields transition between the left hand socket and back.
+- Melee weapons attach to the right hand socket, bows to the left hand socket, and equipped shields remain attached to the left hand socket.
 - `CharacterCombatAnimator` owns the shared T1–T3 one-handed `swordSlash`, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events; legacy dagger/greatsword states remain available only for compatibility.
 - `CharacterBowVisual` is the single implementation for Player and bow-equipped NPC bow geometry, vertical target alignment, string draw, nocked-arrow placement, and projectile launch origin/direction. Allied NPC tiers map to the same shortbow/longbow/runebow models used by the Player; Roman pilum remains separate.
-- T1–T3 swords remain one-handed so the left hand can retain its shield. Foot lances use two-handed poses; mounted lances remain couched under the right arm.
+- T1–T3 swords remain one-handed so the left hand can retain its shield. Lances currently reuse the existing Sword Idle body and hand pose with a fixed forward-facing model attachment; no lance-specific Ready or left-hand support is active. An attack-only FK extension moves the right hand forward while keeping the fixed weapon attachment and the base hand direction.
 - `ThirdPersonCamera` keeps its optical axis and fixed reticle on one world ray. While aiming, `Game` raycasts that ray to a visible world hit (falling back to a distant point), and player arrows travel from the hand's nock socket toward that resolved point.
 - Entering aim mode changes FOV only; camera distance and lateral position remain fixed so the world point beneath the original reticle does not jump.
-- Melee meshes are authored along local `+Y`. Modern one-handed swords use an equipment-owned fixed attachment; other melee families retain the procedural action pivot. Lance thrust translation follows its shaft axis.
+- Melee meshes are authored along local `+Y`. Modern one-handed swords use an equipment-owned fixed attachment; lances use an attachment calibrated against the existing Sword Idle, without an arm solver. Legacy dagger/greatsword fixtures retain the procedural action pivot.
 - Arrow geometry uses local `-Z` as visual forward for both nocked and flying arrows; projectile quaternions explicitly align that axis with physical velocity instead of relying on generic `Object3D.lookAt()`.
 - Arrow and pilum instances share immutable shaft, tip, fin/socket/neck/wrap geometries and materials. Removing a transient projectile therefore cannot leave one new GPU resource allocation per shot during the 50v50 stress scenario.
-- Hand-held shields are centred above the wrist and face character-forward; hand/back targets retain independent position and quaternion transitions.
+- Equipped shields face character-forward in a low ready pose and retain their fixed left-hand attachment, including during death.
 - Weapon and shield meshes retain `originalMat` for flash restoration, while shields are excluded from character damage-flash traversal.
 
 ### 2026-09-14：單手劍 attachment 與動畫所有權

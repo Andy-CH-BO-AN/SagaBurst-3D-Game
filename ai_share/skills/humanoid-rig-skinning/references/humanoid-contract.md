@@ -4,7 +4,7 @@
 
 - Units: metres; exported scene scale `(1, 1, 1)`.
 - Character root origin: ground projection below the pelvis.
-- Up: `+Y`; character forward: `-Z`; right: `+X`.
+- Up: `+Y`; production humanoid/horse forward: `+Z`; anatomical right: `-X`. Legacy procedural fixtures retain their own `-Z` convention.
 - Viking height: `1.86 m`; Roman height: `1.78 m`; tolerance `±0.02 m`.
 - Viking outer shoulder width: at most `0.54 m`; Roman: at most `0.46 m`.
 - Neck landmark length: `0.09 m`, tolerance `±0.015 m`.
