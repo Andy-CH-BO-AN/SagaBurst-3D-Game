@@ -58,8 +58,7 @@ function curvedLimb(points: THREE.Vector3[], radius: number, material: THREE.Mat
   return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, radius, 8, false), material)
 }
 
-function curvedShieldBoard(width: number, height: number, depth: number, curve: number): THREE.BoxGeometry {
-  const geometry = new THREE.BoxGeometry(width, height, depth, 12, 14, 1)
+function bendShieldGeometry(geometry: THREE.BoxGeometry, width: number, curve: number): THREE.BoxGeometry {
   const position = geometry.getAttribute('position') as THREE.BufferAttribute
   for (let index = 0; index < position.count; index++) {
     const x = position.getX(index)
@@ -71,7 +70,7 @@ function curvedShieldBoard(width: number, height: number, depth: number, curve: 
   return geometry
 }
 
-function curvedRectangleRim(width: number, height: number, curve: number, radius: number, material: THREE.Material): THREE.Mesh {
+function curvedRectangleRim(width: number, height: number, curve: number, frontZ: number, radius: number, material: THREE.Material): THREE.Mesh {
   const points: THREE.Vector3[] = []
   const steps = 8
   const addEdge = (from: THREE.Vector2, to: THREE.Vector2) => {
@@ -79,7 +78,7 @@ function curvedRectangleRim(width: number, height: number, curve: number, radius
       const t = step / steps
       const x = THREE.MathUtils.lerp(from.x, to.x, t)
       const y = THREE.MathUtils.lerp(from.y, to.y, t)
-      const z = 0.15 + curve * (1 - (x / (width / 2)) ** 2)
+      const z = frontZ + curve * (1 - (x / (width / 2)) ** 2)
       points.push(new THREE.Vector3(x, y, z))
     }
   }
@@ -413,25 +412,32 @@ export class WeaponMeshFactory {
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
     if (isRoman) {
+      const width = 0.58, height = 0.98, depth = 0.055, curve = 0.13, boardZ = 0.02
+      const frontZ = boardZ + depth / 2
       const boardMat = proceduralMaterial({ kind: 'leather', color: tier === 1 ? 0x68412b : 0x7f211d, roughness: 0.78, repeat: [4, 5] })
-      const board = new THREE.Mesh(curvedShieldBoard(0.58, 0.98, 0.055, 0.13), boardMat)
-      board.position.z = 0.02
+      const board = new THREE.Mesh(bendShieldGeometry(new THREE.BoxGeometry(width, height, depth, 12, 14, 1), width, curve), boardMat)
+      board.position.z = boardZ
       board.name = 'curved-scutum-board'
       board.castShadow = true
       board.receiveShadow = true
       pivot.add(board)
-      pivot.add(curvedRectangleRim(0.58, 0.98, 0.13, 0.022, tier >= 2 ? iron : leather))
+      const rim = curvedRectangleRim(width, height, curve, frontZ, 0.022, tier >= 2 ? iron : leather)
+      rim.name = 'scutum-rim'
+      pivot.add(rim)
 
       const boss = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron)
-      boss.position.set(0, 0, 0.285)
+      boss.position.set(0, 0, frontZ + curve + 0.025)
       boss.scale.z = 0.58
       boss.name = 'shield-boss'
       pivot.add(boss)
       const emblemMat = tier === 3 ? bronze : proceduralMaterial({ kind: 'bronze', color: 0x9a7445, roughness: 0.55, metalness: 0.5 })
       for (const rotation of [Math.PI / 4, -Math.PI / 4]) {
-        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.012, 1, 5, 1), emblemMat)
-        wing.position.set(0, 0.08, 0.285)
-        wing.rotation.z = rotation
+        // Bend in shield space after rotating so the whole ornament follows the face.
+        const geometry = new THREE.BoxGeometry(0.035, 0.34, 0.012, 1, 5, 1)
+        geometry.rotateZ(rotation)
+        geometry.translate(0, 0.08, frontZ + 0.003)
+        const wing = new THREE.Mesh(bendShieldGeometry(geometry, width, curve), emblemMat)
+        wing.name = 'scutum-emblem'
         pivot.add(wing)
       }
       const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
