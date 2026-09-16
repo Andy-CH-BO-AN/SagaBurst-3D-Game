@@ -6,24 +6,33 @@ _Last updated: 2026-09-16 (最小 Idle + 向前刺擊／騎馬持劍)_
 
 ## Current Status
 
+### 2026-09-16：清理 artifacts 一次性驗收產物
+
+- 移除整個受追蹤的 `artifacts/equipment_pose/`，包含截圖、量測 JSON 及一次性驗收報告；保留本文件的功能／測試摘要。
+- 移除該輪新增的 6 個 equipment／lance 瀏覽器探針與驗收腳本；正式遊戲程式、工作室功能與持續維護的測試保留。
+- 一次性檔案僅在已忽略的本機 `output/local-diagnostics/artifacts-cleanup/` 備存。補上舊路徑的 ignore 規則及 agent 規範，後續暫存產物直接放 `output/`。
+- 一併移除劍、弓與馬匹的一次性圖片、診斷／驗收報告及 Blender 畫面腳本；`artifacts/` 僅保留 8 份必要來源、授權、locomotion 基準與馬匹 manifest 引用資料，改為預設忽略並逐檔放行。
+- 共移除 133 個一次性檔案（105 PNG、14 JSON、7 Markdown、7 腳本），約 29.47 MiB；清理已刪除檔案的連結／命令，不改 Git 歷史。
+- 驗證：必要檔案與暫存路徑的 ignore 放行／排除檢查通過；28 檔、246 項測試與 production build 通過。
+
 ### 2026-09-16：保留最小 Idle，補向前刺擊與騎馬持劍方向
 
 - 依使用者後續要求，只在 Lance 攻擊期間加入右臂小幅 FK 伸展、維持原手部方向；不恢复新 Ready、IK、掌心朝上、雙手支撐或 Lance morph。收招／取消回到相同 locomotion 基底，固定 weapon attachment 不動。
 - 實機 Roman／Viking、步戰／騎乘、有盾／無盾前伸 20.4–21.1cm，槍線與 +Z 夾角 < 8°；左盾、軀幹與腿部保持各自原姿勢。
 - 騎馬 Sword 選用 Lance 的固定模型方向，保留 Sword 掌內握點；下馬還原原 Sword attachment。Player／NPC／工作室共用同一入口，原 Sword 攻擊及 .252 秒命中不變。
 - 工程測試新增固定 attachment、三 LOD 握點、前伸、非右臂骨骼不變、取消／收招、攻擊途中上下馬時序，以及 mounted Sword 握點／方向與下馬還原。
-- 工作室 104 張分階段及持劍對照圖：`output/playwright/lance-thrust/`。正式 Player／NPC Lance 路徑 112 個取樣、336 張圖，零失敗／零應用錯誤；持盾禁弓、卸盾射箭正常。重跑 `tools/qa-lance-thrust.mjs`、`tools/qa-equipment-gameplay.mjs`。
-- 騎馬 Sword 正式 Player／NPC、有盾／無盾另驗 56 個取樣、168 張圖，零失敗／零應用錯誤；證據 `output/playwright/equipment-gameplay-sword/`，重跑同工具加 `--sword`。
+- 工作室 104 張分階段及持劍對照圖：`output/playwright/lance-thrust/`。正式 Player／NPC Lance 路徑 112 個取樣、336 張圖，零失敗／零應用錯誤；持盾禁弓、卸盾射箭正常。一次性取樣腳本已移出版本控制。
+- 騎馬 Sword 正式 Player／NPC、有盾／無盾另驗 56 個取樣、168 張圖，零失敗／零應用錯誤；證據 `output/playwright/equipment-gameplay-sword/`；一次性腳本已移出版本控制。
 - 最終 28 檔、246 項測試與 production build 通過。戰馬工作室（含 idle／walk／gallop × Ready／Peak）、正式場景、100 人壓力場景零應用錯誤；Headless FPS 約 2.4–2.7／0.94–0.98／0.58–0.59，僅記錄為診斷，不宣稱效能通過。完整資源數／console 見 `output/playwright/equipment-scenes/measurements.json`；戰馬截圖有 GPU ReadPixels stall 警告。
 - 這是原 Sword Idle 上的最小前刺；未恢復原完整人体工學騎槍計畫。靜態基底已有的 Roman 肩部衣物破面與既有手指造型仍保留。
 
 ### 2026-09-16：補驗最小版持盾／騎乘 Idle
 
-- 補上 Roman 步戰持盾、騎乘無盾、騎乘持盾的三 LOD 對照，Sword ↔ Lance 人體骨骼與手型完全相同。54 張近景／全身／俯視圖與量測保存於 `artifacts/equipment_pose/minimal-idle/combinations/`。
+- 補上 Roman 步戰持盾、騎乘無盾、騎乘持盾的三 LOD 對照，Sword ↔ Lance 人體骨骼與手型完全相同。曾保存 54 張近景／全身／俯視圖與量測；一次性產物現僅保留在已忽略的本機 `output/`。
 - 發現 mounted 原空 clip 會讓上身回到 T-pose，已改為直接播放既有 idle 上身軌道；回歸測試確認 pelvis／mounted 腿姿不變，未新增肩臂／腕部修正。
 - Lance 固定掛點向外偏約 8°，清除騎乘 idle 的馬鬃接觸；槍桿中心及周邊 8 條線取樣未碰到可見馬匹 mesh。僅驗收此固定 idle，未宣稱覆蓋馬匹所有步態或攻擊。
 - 四種組合、三 LOD：握點誤差均 < 1mm、無瀏覽器應用錯誤；步戰槍線與前方約 7.7°，騎乘約 3.4°。原無盾步戰截圖也已更新。
-- 完整測試 28 檔、240 項通過，production build 通過。重跑：`rtk proxy node tools/qa-lance-idle-minimal.mjs --combinations`。
+- 完整測試 28 檔、240 項通過，production build 通過。一次性截圖腳本已移出版本控制。
 
 ### 2026-09-16：Roman 最小版 — 原 Sword Idle 只換 Lance
 
@@ -32,16 +41,16 @@ _Last updated: 2026-09-16 (最小 Idle + 向前刺擊／騎馬持劍)_
 - 正式骨架測試逐骨比較 Roman／Viking、三個 LOD、idle／walk／run／mounted，換 Sword ↔ Lance 人體 transforms 完全相同。
 - Roman 無盾 Idle 瀏覽器驗收：三個 LOD 的所有骨骼與既有手型權重完全相同；握點誤差 < 1mm，槍線與 +Z 約 0.53°，無應用程式錯誤。已查看同角度近景、全身與俯視圖，人體外觀與 Sword baseline 一致。
 - `rtk npm test -- --run`：28 檔、238 項通過；production build 通過。舊前刺／掌心朝上測試已被本階段的人體不變契約取代，不能沿用舊測試數或舊 QA 結論。
-- 證據：`artifacts/equipment_pose/minimal-idle/`；重跑：`tools/qa-lance-idle-minimal.mjs`。**本輪只完成最小 Idle，前刺、雙手支撐及更進一步騎槍姿勢暫停。**
+- 此階段圖片與一次性腳本已移至已忽略的本機 `output/`。**本輪只完成最小 Idle，前刺、雙手支撐及更進一步騎槍姿勢暫停。**
 
 ### 2026-09-15：盾牌持握與骨架長槍前刺（歷史嘗試；已由上方最小版取代）
 
 - 已完成卸盾 API／UI、持盾禁弓、裝備切換取消動作、NPC 同階預設盾與既有減傷整合。
 - 新增全 LOD 裝備姿勢求值、固定 Lance／Shield attachment、独立手指 morph、雙臂 IK 與無盾左手鬆開／接回。mounted 姿勢與骨架基底還原納入共用 mixer 流程。
 - 右手腰際向 +Z 出槍，最大設定前伸 22cm，保留 .38／.228 秒命中與 .70／.42 秒總長。劍／弓資產、既有傷害、衝鋒倍率與耐力規則未重寫。
-- 人物／戰馬工作室加入裝備組合操作；`tools/qa-equipment-browser.mjs` 與 `tools/qa-equipment-gameplay.mjs` 可重現矩陣與六阶段截圖。
+- 人物／戰馬工作室加入裝備組合操作；當時的一次性矩陣取樣與六階段截圖工具已移出版本控制。
 - 最近完整工程檢查為 28 個測試檔、245 項通過，production build 通過；之後仍在校正近景肩肘／手腕。**尚未完成最終視覺、正式場景與壓力回歸，不可宣稱全部驗收通過。**
-- 詳情與未完成項目追蹤於 `artifacts/equipment_pose/README.md`。舊 Phase 20 背盾／腋下架槍段落為歷史紀錄，現行行為以上述裝備規則為準。
+- 此段為歷史嘗試，現行結果以上方最新驗收摘要為準。舊 Phase 20 背盾／腋下架槍段落為歷史紀錄，現行行為以上述裝備規則為準。
 
 
 ### 2026-09-14：Roman／Viking 單手劍
@@ -51,8 +60,8 @@ _Last updated: 2026-09-16 (最小 Idle + 向前刺擊／騎馬持劍)_
 - Roman 初版誤套 Viking 手臂重定向造成反轉，已撤回。新增原始動作比對測試保護雙臂／手腕；只恢復既有 idle／walk／run 的 LOD 動作資料。Viking 單獨處理其 rest basis 差異。
 - 六份 GLB 的 swordSlash 已由原始 `Sword_Regular_A` 重建，維持 0.252 秒單次命中、0.48 秒完成與 NPC 0.35 秒間隔。為遵守 rotation-only，採站姿下半身與來源 pelvis yaw，上身保留來源揮砍；未使用 A_Rec。
 - 修正攻擊結束先插入 idle 的過渡，以及 Player 大 dt 同幀命中／完成時清掉命中旗標的問題。
-- Phase B 證據見 `artifacts/sword_attachment/phase-b-acceptance.md`；重跑方式與最終驗收見同目錄 `README.md`。新增工具可重現來源取樣、校準、烘焙與 browser QA，網格／蒙皮／材質／貼圖及未選動畫保持原樣。
-- 工程驗證：26 個測試檔、224 項測試與 build 通過；六份 GLB 重建結果位元組一致。正式 Player／NPC 與工作室的近景、俯視、攻擊／收招證據保存於 `artifacts/sword_attachment/evidence/`；T1–T3 正式場景驗證輸出於 `output/playwright/melee-tier-parity/`。
+- Phase B 與最終驗收結論保留於此摘要；一次性報告／截圖已移出版本控制。來源取樣、校準、烘焙工具及原始 locomotion 基準保留，網格／蒙皮／材質／貼圖及未選動畫保持原樣。
+- 工程驗證：26 個測試檔、224 項測試與 build 通過；六份 GLB 重建結果位元組一致。正式 Player／NPC 與工作室的近景、俯視、攻擊／收招截圖已移至忽略的本機 `output/`；T1–T3 正式場景驗證輸出於 `output/playwright/melee-tier-parity/`。
 - 已知限制：既有 Viking Bow LOD1／2 右臂姿勢與 LOD0 不一致，未為劍修改其 Bow 軌道或 normalization。低 LOD 原有衣袖／裙甲簡化外觀仍保留。
 
 **Phases 0 ~ 23 — ✅ IMPLEMENTED**
@@ -74,7 +83,7 @@ The 3D Action RPG web game now features detailed character segmented models, rea
 - 新遊戲、場景馬與 NPC 騎兵全部使用 `HORSE`；花色以穩定 FNV-1a key 分配。舊存檔的 `BLACK_CAT`／`CORGI` 仍會以上一個 commit 的程序外觀載入，本輪外部雕刻成果已清除。
 - `?devmodels=mounts&nolock` 已通過三色、1–9 動畫、LOD0／1／2、骨架、騎手與 socket 驗收；騎手膝蓋反折的重複 mounted pose 已移除。鬃髮 card 輪廓與睫毛依使用者決定列為可接受的非阻擋限制。
 - 正式 `?nolock` 10v5 及 `?devcombat&nolock` 50v50 都沒有崩潰或應用程式 console error。10v5 首次載入約 25 秒；50v50 約 23–31 FPS，geometry 暖機後穩定於 1,447，texture 在首次上傳時由 3,084 增至 3,085。遠方 NPC 隊形疑似浮空，列入後續 TODO，不阻擋 Phase 23。
-- 程式、套件測試共 62/62 通過，production build 通過；最終詳情見 `artifacts/mount_horse_pipeline/reports/phase23_final_acceptance.md`。
+- 程式、套件測試共 62/62 通過，production build 通過；一次性最終驗收報告已移至忽略的本機 `output/`，來源授權與 manifest 引用的套件紀錄保留。
 
 ### Phase 22：外部寫實人物、骨架與蒙皮重建
 - 新增 `HumanoidAssetRegistry`：非同步 manifest gate、GLTFLoader、共享 template、獨立 SkeletonUtils clone／AnimationMixer、LOD、bounds、dispose、遠距動畫降頻與骨架／socket adapter。

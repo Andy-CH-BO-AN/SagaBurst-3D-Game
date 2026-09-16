@@ -24,6 +24,11 @@ main-agent step after the ready-candidate tests pass.
 
 ## Evidence personally reviewed
 
+Archive note (2026-09-16): the one-off PNG captures listed below have been
+removed from version control and archived locally under ignored `output/`.
+This decision record is retained because the shipped horse manifest references
+it; the list describes the original review, not files shipped in the repository.
+
 The following images in `renders/final_package_candidate/` were opened and
 visually inspected from the actual Meshopt GLB plus KTX2 textures:
 

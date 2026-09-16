@@ -33,5 +33,33 @@ __pycache__/
 # Experimental G0-G3 GLB variants
 public/models/characters/v2/*/lod0.g*.glb
 
-# Incoming raw archives
-artifacts/animation_sources/incoming/*.zip
+# artifacts/ is for local scratch output; keep only required provenance/baselines.
+/artifacts/*
+!/artifacts/animation_sources/
+/artifacts/animation_sources/*
+!/artifacts/animation_sources/source-package-audit.json
+!/artifacts/animation_sources/sword_baselines/
+/artifacts/animation_sources/sword_baselines/*
+!/artifacts/animation_sources/sword_baselines/roman-locomotion.json
+!/artifacts/animation_sources/sword_baselines/viking-locomotion.json
+!/artifacts/mount_horse_pipeline/
+/artifacts/mount_horse_pipeline/*
+!/artifacts/mount_horse_pipeline/reports/
+/artifacts/mount_horse_pipeline/reports/*
+!/artifacts/mount_horse_pipeline/reports/source_audit.json
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/
+/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/*
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/
+/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/*
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/main_agent_visual_approval.md
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_audit.json
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_preflight.json
+!/artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_meshopt_geometry_probe.json
+
+# Retired one-off equipment diagnostics belong under ignored output/.
+/tools/equipment-browser-probe.js
+/tools/qa-equipment-browser.mjs
+/tools/qa-equipment-gameplay.mjs
+/tools/qa-equipment-scenes.mjs
+/tools/qa-lance-idle-minimal.mjs
+/tools/qa-lance-thrust.mjs
