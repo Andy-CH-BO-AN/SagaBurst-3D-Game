@@ -20,6 +20,7 @@ If you are an AI agent picking up this project, please read these guidelines car
 - **Maintain Naming Conventions**: Keep consistent naming for HTML DOM IDs (kebab-case) and TypeScript classes/variables (PascalCase/camelCase).
 - **Local +Z is Gameplay Forward**: Imported humanoids and the Phase-23 horse are normalized to local `+Z`; movement headings use `Math.atan2(dx, dz)`. Do not add per-model runtime flips to compensate for a wrongly exported asset.
 - **DOM Overlay over WebGL**: All UI (Health bars, Stamina bars, Inventory Grid) is purely HTML/CSS overlaid on top of the `<canvas>`. Do NOT try to build UI using `three-mesh-ui` or 3D text unless specifically requested. Update DOM elements inside `Game.ts` or dedicated UI classes.
+- **Temporary Validation Files**: 一次性的截圖、量測 JSON、探針及驗收腳本一律放在已忽略的 `output/`（例如 `output/playwright/`、`output/local-diagnostics/`）。不要複製到受版本控制的 `artifacts/` 或 `tools/`，也不要用 `git add -f` 提交；持續維護的程式測試與必要資產另依其用途管理。
 - **Document Changes**: 每次做完事，都必須檢查並更新 `ARCHITECTURE.md` 和 `PROGRESS.md` 來反映最新的系統架構改動。
 
 ## 4. How to Start a New Task

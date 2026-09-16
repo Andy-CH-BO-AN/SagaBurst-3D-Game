@@ -78,7 +78,7 @@ skyrim 3D test/
 - `calibrateLanceIdleAttachment` 僅在載入時取樣既有 idle，計算右手局部的固定 Lance rotation，然後還原來源 transforms。主握點直接沿用 Sword 掌內握點，槍模型 +Y 朝向角色 +Z；逐幀只跟隨手部 socket。舊腰際 Ready／IK 前刺已撤下；最新前刺僅在攻擊時套用右臂小幅 FK 伸展與原手部方向補償，武器掛點固定，收招還原當下 Idle／locomotion。保持 .38／.228 秒命中與 .70／.42 秒總長，軀幹、左臂與腿部不歸前刺所有。
 - 騎乘 `mounted` 以既有 idle 的上身軌道取代空 clip，避免卸除 Lance 程序姿勢後回到 T-pose；不取 hips／pelvis／腿軌道，鞍座與 mounted 腿姿保持原值。Lance 固定模型掛點向外偏 0.14 rad，讓待機槍桿避開馬鬃；不旋轉手骨。
 - 騎馬 Sword 使用與 Lance 相同的固定模型方向及原掌內握點；`applySwordAttachment` 預先計算步戰／騎乘兩份掛點，`setLocomotion` 僅在上下馬 context 改變時選取，下馬還原步戰掛點。既有 Sword 動作與 .252 秒命中不變。
-- 人物工作室 L 切劍／槍、Q 切盾；新增 lanceThrust／mountedLance 展示。戰馬工作室另支援 F 攻擊。驗收工具與目前結果見 `artifacts/equipment_pose/README.md`。
+- 人物工作室 L 切劍／槍、Q 切盾；新增 lanceThrust／mountedLance 展示。戰馬工作室另支援 F 攻擊。驗收摘要保留於 `PROGRESS.md`；一次性截圖、量測與診斷腳本只存放在已忽略的 `output/`。
 
 ### Phase 20 FK Combat Rig
 - `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
@@ -131,7 +131,7 @@ skyrim 3D test/
 - `Mount` remains authoritative for HP, movement, collision, jumping, impact and save timing. Horse animation chooses idle/walk/trot/canter/gallop from movement speed and plays jump/land/hit/death once without an extra group-level death roll.
 - New scene horses and NPC cavalry use `HORSE`. Stable FNV-1a keys assign the three coat variants; saves accept an optional `appearanceVariant` and default invalid/missing values to 0 without a schema bump.
 - `LegRig.forwardBendSign` declares the local-X forward-bend convention for each humanoid rig. The external project-humanoid adapter and legacy procedural fixture provide their own sign, and `applyCharacterMountedPose` applies that convention consistently to hip, knee and ankle rotations so Player, NPC and studio riders share an anatomically forward knee bend.
-- Public assets live in `public/models/mounts/v1/horse/`; source hashes and licensing are recorded in its manifest/CREDITS and the retained audit reports under `artifacts/mount_horse_pipeline/`.
+- Public assets live in `public/models/mounts/v1/horse/`; source hashes and licensing are recorded in its manifest/CREDITS and the retained source/package provenance reports under `artifacts/mount_horse_pipeline/`. One-off renders, probes and acceptance captures live only in ignored `output/`; `artifacts/` ignores new files by default and explicitly allows required provenance and locomotion baselines.
 
 ---
 
