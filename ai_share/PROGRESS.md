@@ -1,10 +1,31 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-16 (羅馬盾牌外框與表面貼合修正)_
+_Last updated: 2026-09-17 (Sword／Shield rigid renderable consolidation)_
 
 ---
 
 ## Current Status
+
+### 2026-09-17：第一支 FPS Optimization — Sword／Shield Mesh Consolidation
+
+- 基於 `cf04fd3`，僅修改四種劍盾的剛性視覺結構：Viking Sword 13→4、Gladius 11→3、Viking Shield T1／T2 13→5、T3 21→5、Scutum 6→5。保持 cached materials、child-transform baking、root／pivot／socket／metadata、shadow policy；不修改動畫、AI、碰撞或 LOD。
+- 新增原始幾何指紋、結構上限、附件 metadata、材質共用與 root 所有權測試；保留 Scutum 貼合測試並防止飾條空集合假通過。30 檔、274 項測試通過，production build（含 TypeScript）通過；只有既有 Vite CJS／chunk 提示。
+- 同台 M1 Pro／Chrome 153／ANGLE Metal、1280×720、DPR 1、production preview、Scenario B；交替跑 before／after 各三次。初始化後暖機 4 秒、reset＋2 秒取接戰前視窗，偵測接戰後 reset＋3.2 秒取最新完整視窗，再取三次 median。六輪相機完全一致、During Combat 均為 200 名 NPC 的 LOD2。原完整腳本已刪除，本輪流程與歷史數字分開標示。
+
+| Scenario B During Combat | 同場 Before | After | 差值 | 變化 |
+| --- | ---: | ---: | ---: | ---: |
+| Equipment Meshes（NPC） | 4,460 | 1,700 | −2,760 | −61.9% |
+| FPS | 9.16 | 12.29 | +3.13 | +34.1% |
+| CPU Frame Work | 107.09 ms | 78.54 ms | −28.55 ms | −26.7% |
+| Renderer Submit | 69.54 ms | 47.05 ms | −22.49 ms | −32.3% |
+| NPC Update | 35.80 ms | 29.93 ms | −5.87 ms | −16.4% |
+| Draw Calls | 13,893 | 8,396 | −5,497 | −39.6% |
+| Triangles | 5,863,850 | 5,863,850 | 0 | 0% |
+
+- Renderer Submit 三輪 Before：68.10／69.61／69.54 ms；After：47.05／47.38／46.86 ms，每組皆下降。NPC Update 也下降，不當作動畫優化成果：既有 `NPC.update` 會遍歷角色與裝備節點，縮小 scene graph 可能有連帶收益；固定實時間窗、dt clamp 與戰鬥差異亦可能影響（After 第一輪死亡 1 人，其餘 0 人）。未獨立量化各因素，不將全部 FPS／CPU 改善歸因於 renderer。
+- 視覺／附件：headed Chrome 工作室共 216 筆 Before／After 取樣（兩陣營、T1–T3、步戰／騎乘、LOD0–2、idle／contact／recovery），正式 Player／NPC 路徑各版本 72 筆，全部通過。最大握點誤差約 0.000434 mm；attachment 前後一致，工作室 precise bounds 前後一致。共 180＋216 對正面／側面／俯視圖未見新增視覺偏差；少量差異僅為 rasterization 像素。既有 Roman 衣物破面、馬匹外觀及 Player 武器路由保持原樣。
+- Chrome extension 另啟動 `?nolock` 的正式預設 10v10 戰鬥，畫面正常且零 application error；MetaMask extension listener／liveness warnings 分開排除。量測與自動化矩陣使用独立 headed Chrome，截圖未在 benchmark 取樣期間執行。
+- 結論：本輪實測證實 Sword／Shield consolidation 降低 Renderer Submit；triangles 未變，未繼續實作其他 optimization。原始 JSON／腳本／build 保存在忽略的 `output/local-diagnostics/sword-shield-consolidation/`，截圖及 QA 量測在 `output/playwright/sword-shield-consolidation/`，不提交一次性產物。
 
 ### 2026-09-16：羅馬盾牌外框與表面貼合修正
 

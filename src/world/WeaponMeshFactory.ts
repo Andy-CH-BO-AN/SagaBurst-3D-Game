@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { Faction } from './NPC'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
@@ -41,16 +42,60 @@ function profiledBladeGeometry(length: number, widths: number[], thickness: numb
   return geometry
 }
 
-function addWrappedGrip(pivot: THREE.Group, length: number, radius: number, y: number, leather: THREE.Material, metal: THREE.Material): void {
+/** Only builder-owned, rigid siblings with identical material/render state belong here. */
+function mergeRigidGeometryParts(parts: THREE.Mesh[], material: THREE.Material, name: string): THREE.Mesh {
+  const first = parts[0]
+  if (!first || parts.some(part => part.material !== material
+    || part.parent !== first.parent || part.children.length > 0
+    || part instanceof THREE.SkinnedMesh || Object.keys(part.geometry.morphAttributes).length > 0
+    || part.castShadow !== first.castShadow || part.receiveShadow !== first.receiveShadow
+    || part.visible !== first.visible || part.layers.mask !== first.layers.mask
+    || part.renderOrder !== first.renderOrder || part.frustumCulled !== first.frustumCulled)) {
+    throw new Error('Rigid equipment parts must share material, parent and render state')
+  }
+  const geometries = parts.map(part => {
+    part.updateMatrix()
+    const geometry = part.geometry.clone().applyMatrix4(part.matrix)
+    // OctahedronGeometry is non-indexed; keep every original vertex and triangle.
+    if (!geometry.index) geometry.setIndex(Array.from({ length: geometry.getAttribute('position').count }, (_, i) => i))
+    return geometry
+  })
+  let geometry: THREE.BufferGeometry | null
+  try {
+    geometry = mergeGeometries(geometries, false)
+  } finally {
+    for (const temporary of geometries) temporary.dispose()
+  }
+  if (!geometry) throw new Error('Incompatible rigid equipment geometry attributes')
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  const merged = new THREE.Mesh(geometry, material)
+  merged.name = name
+  merged.castShadow = first.castShadow
+  merged.receiveShadow = first.receiveShadow
+  merged.visible = first.visible
+  merged.layers.mask = first.layers.mask
+  merged.renderOrder = first.renderOrder
+  merged.frustumCulled = first.frustumCulled
+  // These explicitly supplied parts are discarded, never cached or runtime-moving.
+  for (const part of parts) part.removeFromParent()
+  for (const source of new Set(parts.map(part => part.geometry))) source.dispose()
+  return merged
+}
+
+function addWrappedGrip(pivot: THREE.Group, length: number, radius: number, y: number, leather: THREE.Material, metal: THREE.Material): THREE.Mesh[] {
   const handle = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.94, length, 12), leather)
   handle.position.y = y
   pivot.add(handle)
+  const wraps: THREE.Mesh[] = []
   for (let ring = 0; ring < 7; ring++) {
     const wrap = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.02, radius * 0.1, 6, 16), metal)
     wrap.rotation.x = Math.PI / 2
     wrap.position.y = y - length / 2 + (ring + 0.5) * length / 7
     pivot.add(wrap)
+    wraps.push(wrap)
   }
+  return wraps
 }
 
 
@@ -139,7 +184,7 @@ export class WeaponMeshFactory {
       const fullerMaterial = tier === 3
         ? proceduralMaterial({ kind: 'iron', color: 0x3e6d86, roughness: 0.24, metalness: 0.9, repeat: [2, 8] })
         : darkSteel
-      addWrappedGrip(pivot, 0.29, 0.037, 0.15, leather, darkSteel)
+      const wraps = addWrappedGrip(pivot, 0.29, 0.037, 0.15, leather, darkSteel)
 
       const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.064, 1), darkSteel)
       pommel.scale.set(0.92, 1.18, 0.72)
@@ -167,6 +212,8 @@ export class WeaponMeshFactory {
       const fullerBack = fullerFront.clone()
       fullerBack.position.z = -0.021
       pivot.add(fullerBack)
+      pivot.add(mergeRigidGeometryParts([...wraps, pommel, guard], darkSteel, 'sword-grip-metal'))
+      pivot.add(mergeRigidGeometryParts([fullerFront, fullerBack], fullerMaterial, 'sword-fullers'))
 
       tipLocal.set(0, 1.51, 0)
     }
@@ -308,7 +355,7 @@ export class WeaponMeshFactory {
       const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), pommelMat)
       pommel.scale.y = 0.78
       pivot.add(pommel)
-      addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
+      const wraps = addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
 
       const guard = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), pommelMat)
       guard.scale.set(1.3, 0.38, 0.65)
@@ -319,6 +366,7 @@ export class WeaponMeshFactory {
       blade.position.y = 0.2
       blade.name = 'roman-gladius-profiled-blade'
       pivot.add(blade)
+      pivot.add(mergeRigidGeometryParts([pommel, ...wraps, guard], pommelMat, 'gladius-grip-metal'))
       return new THREE.Vector3(0, 0.2 + bladeLength, 0)
     }
   }
@@ -431,6 +479,7 @@ export class WeaponMeshFactory {
       boss.name = 'shield-boss'
       pivot.add(boss)
       const emblemMat = tier === 3 ? bronze : proceduralMaterial({ kind: 'bronze', color: 0x9a7445, roughness: 0.55, metalness: 0.5 })
+      const emblems: THREE.Mesh[] = []
       for (const rotation of [Math.PI / 4, -Math.PI / 4]) {
         // Bend in shield space after rotating so the whole ornament follows the face.
         const geometry = new THREE.BoxGeometry(0.035, 0.34, 0.012, 1, 5, 1)
@@ -439,7 +488,9 @@ export class WeaponMeshFactory {
         const wing = new THREE.Mesh(bendShieldGeometry(geometry, width, curve), emblemMat)
         wing.name = 'scutum-emblem'
         pivot.add(wing)
+        emblems.push(wing)
       }
+      pivot.add(mergeRigidGeometryParts(emblems, emblemMat, 'scutum-emblem'))
       const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.rotation.z = Math.PI / 2
@@ -454,10 +505,12 @@ export class WeaponMeshFactory {
       board.name = 'round-shield-board'
       board.castShadow = true
       pivot.add(board)
+      const leatherDetails: THREE.Mesh[] = []
       for (let seam = -3; seam <= 3; seam++) {
         const line = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.72 - Math.abs(seam) * 0.055, 0.008), leather)
         line.position.set(seam * 0.1, 0, 0.18)
         pivot.add(line)
+        leatherDetails.push(line)
       }
       const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.023, 10, 32), tier >= 2 ? iron : leather)
       rim.position.z = 0.18
@@ -472,19 +525,24 @@ export class WeaponMeshFactory {
         rearStrap.position.set(0, y, 0.11)
         rearStrap.name = 'shield-rear-strap'
         pivot.add(rearStrap)
+        leatherDetails.push(rearStrap)
       }
+      pivot.add(mergeRigidGeometryParts(leatherDetails, leather, 'shield-rear-strap'))
       const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.rotation.z = Math.PI / 2
       rearGrip.name = 'shield-rear-grip'
       pivot.add(rearGrip)
       if (tier === 3) {
+        const bossDetails: THREE.Mesh[] = [boss]
         for (let index = 0; index < 8; index++) {
           const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 7, 5), bronze)
           const angle = index / 8 * Math.PI * 2
           rivet.position.set(Math.cos(angle) * 0.31, Math.sin(angle) * 0.31, 0.202)
           pivot.add(rivet)
+          bossDetails.push(rivet)
         }
+        pivot.add(mergeRigidGeometryParts(bossDetails, bronze, 'shield-boss'))
       }
     }
   }
