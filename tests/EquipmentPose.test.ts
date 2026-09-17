@@ -144,6 +144,37 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
       }
     }
   })
+  it('只求值 authority＋visible 時，跨 LOD 的攻擊／盾／槍／騎乘骨架與全更新一致', async () => {
+    const a = await createFixture(faction), b = await createFixture(faction)
+    for (const mounted of [false, true]) for (const lance of [false, true]) {
+      for (const f of [a, b]) {
+        f.reset(true, mounted)
+        f.animator.setEquipment(lance, true)
+      }
+      a.controller.setVisibleLOD(2)
+      for (let frame = 0; frame < 120; frame++) {
+        a.animator.update(1 / 60, 60); b.animator.update(1 / 60, 60)
+      }
+      for (const f of [a, b]) f.animator.start(lance ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+      let hits = 0, completed = 0
+      for (let frame = 0; frame < 90; frame++) {
+        const distance = frame % 11 < 5 ? 60 : 20
+        const events = { ...a.animator.update(1 / 60, distance) }
+        expect(events).toEqual({ ...b.animator.update(1 / 60, distance) })
+        hits += Number(events.hitActiveStarted); completed += Number(events.actionCompleted)
+        const visible = [0, 1, 2, 1][Math.floor(frame / 3) % 4]
+        a.controller.setVisibleLOD(visible)
+        const actual = bones(a), expected = bones(b)
+        for (const lod of new Set([0, visible])) for (const [name, values] of Object.entries(actual[lod])) {
+          values.forEach((v, i) => expect(v, `LOD${lod} ${name}`).toBeCloseTo(expected[lod][name][i], 6))
+        }
+        const measured = a.measure()
+        expect(measured.hands[visible].right.distanceTo(measured.grip)).toBeLessThan(.01)
+        expect(measured.hands[visible].shield.distanceTo(measured.shieldGrip)).toBeLessThan(.01)
+      }
+      expect(hits).toBe(1); expect(completed).toBe(1)
+    }
+  })
   it('前刺延伸至少 18cm、固定握點；有盾／無盾與騎乘均不改腿或軀幹', async () => {
     const f = fixtures[faction], baseline = await createFixture(faction)
     for (const mounted of [false, true]) for (const shield of [false, true]) {

@@ -267,14 +267,49 @@ function firstSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh {
 export class MixerController implements HumanoidAnimationController {
   equipmentLayers: CharacterEquipmentPose[] = []
   private readonly equipmentState = createEquipmentPoseState()
+  private readonly evaluatedEquipmentState = createEquipmentPoseState()
+  private visibleLOD: number | null = null
+  private transitionRemaining = 0
+  private readonly pendingMixerDt: number[]
   setEquipmentState(state: Partial<EquipmentPoseState>): void { Object.assign(this.equipmentState, state) }
-  private restoreEquipment(): void { for (const layer of this.equipmentLayers) layer.restore() }
-  private finishPose(): void {
+  private needsLevel(index: number): boolean {
+    return this.visibleLOD === null || index === 0 || index === this.visibleLOD || this.transitionRemaining > 0
+  }
+  private restoreEquipment(all = false): void {
+    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
+  }
+  private finishPose(all = false): void {
     const alive = this.equipmentState.alive
     this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
-    for (const layer of this.equipmentLayers) layer.apply(this.equipmentState)
+    Object.assign(this.evaluatedEquipmentState, this.equipmentState)
+    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
     this.equipmentState.alive = alive
     this.onPoseEvaluated?.()
+  }
+
+  // Advance retained actions, including their loop/fade state, using Three's
+  // own evaluator. Debt is settled before any action command changes semantics.
+  private catchUp(index: number): void {
+    const dt = this.pendingMixerDt[index]
+    if (dt === 0) return
+    this.equipmentLayers[index]?.restore()
+    this.mixers[index].update(dt)
+    this.pendingMixerDt[index] = 0
+  }
+  private catchUpInactive(): void {
+    for (let index = 1; index < this.mixers.length; index++) this.catchUp(index)
+  }
+
+  /** Called after Three selects its actual render LOD, before traversing meshes. */
+  setVisibleLOD(index: number): void {
+    if (index === this.visibleLOD) return
+    this.visibleLOD = index
+    this.catchUp(index)
+    const layer = this.equipmentLayers[index]
+    // Use the authority's last evaluated pose, not newer gameplay state from a
+    // skipped distance tick. Do not consume the shared far accumulator here.
+    layer?.restore()
+    layer?.apply(this.evaluatedEquipmentState)
   }
 
   /** Asset-owned socket followers run after the single pose evaluation. */
@@ -292,6 +327,7 @@ export class MixerController implements HumanoidAnimationController {
   private swordHandEnabled = false
 
   constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel) {
+    this.pendingMixerDt = mixers.map(() => 0)
     for (const mixer of mixers) (mixer.getRoot() as THREE.Object3D).traverse(object => {
       if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.bowGrip !== undefined) this.bowMeshes.push(object)
     })
@@ -341,6 +377,7 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
+    if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) this.catchUpInactive()
     if (this.bowLegState !== state) {
       for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
       for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
@@ -357,6 +394,11 @@ export class MixerController implements HumanoidAnimationController {
     const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
     const next = bindings.get(state) ?? []
     if (next.length !== this.mixers.length) return false
+    const loop = options.loop ?? true
+    const timeScale = options.timeScale ?? 1
+    const loopMode = loop ? THREE.LoopRepeat : THREE.LoopOnce
+    if (state !== this.current || options.startNormalizedTime !== undefined
+      || next.some(action => action.timeScale !== timeScale || action.loop !== loopMode || action.paused)) this.catchUpInactive()
     if (this.poseLayersEnabled && (state === 'bowLoad' || state === 'bowHold' || state === 'bowRelease')) {
       if (!this.bowLegState) this.setBowLocomotion('idle', 1)
     } else if (this.bowLegState) {
@@ -364,8 +406,6 @@ export class MixerController implements HumanoidAnimationController {
       this.bowLegState = null
     }
     const fadeSeconds = options.fadeSeconds ?? 0.12
-    const loop = options.loop ?? true
-    const timeScale = options.timeScale ?? 1
     if (state === this.current) {
       for (const action of next) {
         action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
@@ -380,7 +420,8 @@ export class MixerController implements HumanoidAnimationController {
     }
     // New bindings must capture the base. Re-selecting the active locomotion
     // after an NPC update must not erase its completed equipment pose.
-    this.restoreEquipment()
+    this.transitionRemaining = Math.max(this.transitionRemaining, fadeSeconds)
+    this.restoreEquipment(true)
     const previous = this.current ? bindings.get(this.current) ?? [] : []
     for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
@@ -396,7 +437,7 @@ export class MixerController implements HumanoidAnimationController {
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = this.poseLayersEnabled && state.startsWith('bow') ? 1 : 0
     // Binding a new clip restores the overlay base. Reapply it and its socket
     // followers now, since the next distance-throttled update may be skipped.
-    this.finishPose()
+    this.finishPose(true)
     return true
   }
 
@@ -404,14 +445,17 @@ export class MixerController implements HumanoidAnimationController {
     // A paused action may skip an unchanged PropertyMixer write. Never restore
     // last frame's overlay base AFTER evaluating the newly requested sample.
     if (!this.play(state, { fadeSeconds: this.current === state ? 0 : 0.12, loop: false })) return false
+    // Explicit seeks keep the existing all-level sampling contract (bow draw
+    // and studio scrubbing); settle locomotion time before overwriting actions.
+    this.catchUpInactive()
     const time = THREE.MathUtils.clamp(normalizedTime, 0, 1)
     for (const action of (this.poseLayersEnabled ? this.actions : this.rawActions).get(state) ?? []) {
       action.time = time * action.getClip().duration
       action.paused = true
     }
-    this.restoreEquipment()
+    this.restoreEquipment(true)
     for (const mixer of this.mixers) mixer.update(0)
-    this.finishPose()
+    this.finishPose(true)
     return true
   }
 
@@ -424,16 +468,24 @@ export class MixerController implements HumanoidAnimationController {
     dt = this.farAccumulator
     this.farAccumulator = 0
     this.restoreEquipment()
-    for (const mixer of this.mixers) mixer.update(dt)
+    for (let index = 0; index < this.mixers.length; index++) {
+      if (this.needsLevel(index)) {
+        this.mixers[index].update(this.pendingMixerDt[index] + dt)
+        this.pendingMixerDt[index] = 0
+      } else this.pendingMixerDt[index] += dt
+    }
     this.finishPose()
+    this.transitionRemaining = Math.max(0, this.transitionRemaining - dt)
   }
 
   stop(): void {
-    for (const layer of this.equipmentLayers) layer.stop()
+    this.catchUpInactive()
+    this.equipmentLayers.forEach(layer => layer.stop())
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
     this.bowLegState = null
+    this.transitionRemaining = 0
     this.onPoseEvaluated?.()
   }
 }
@@ -698,13 +750,20 @@ export class HumanoidAssetRegistry {
         rig.left.handSocket.userData.handGripFrame = leftGrip
       }
     }
-    for (const level of lod.levels) {
+    for (const [index, level] of lod.levels.entries()) {
       const frames = level.object.userData.equipmentGripFrames as EquipmentGripFrames | undefined
-      if (frames) animation.equipmentLayers.push(new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames))
+      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames)
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
     animation.onPoseEvaluated()
     animation.play('idle')
+    animation.setVisibleLOD(0)
+    // Renderer updates LOD after movement/world matrices. Sync the newly chosen
+    // level here so even a switch between throttled ticks renders the right pose.
+    lod.update = (camera) => {
+      THREE.LOD.prototype.update.call(lod, camera)
+      animation.setVisibleLOD(lod.getCurrentLevel())
+    }
     const bounds = new THREE.Box3().setFromObject(root)
     return {
       root,

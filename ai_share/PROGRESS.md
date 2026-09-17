@@ -1,10 +1,96 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-17 (Humanoid distance animation throttle)_
+_Last updated: 2026-09-17 (Humanoid inactive LOD animation work)_
 
 ---
 
 ## Current Status
+
+### 2026-09-17：第三支 FPS Optimization — 減少 inactive Humanoid LOD 求值
+
+- 從包含 PR #20 的 latest main `e85ad0437a5b96a5b57109b8e778e93623e9cdc4` 建立 `perf/reduce-humanoid-lod-animation-work`。核對 baseline 的 `MixerController.update()` 確實求值三套 mixer 與 EquipmentPose。runtime 改動只在 `HumanoidAssetRegistry.ts`，沒有修改 gameplay animator、距離門檻、12 Hz、renderer structure、GLB 或 Horse。
+- Socket proxies 依賴 LOD0 左右手及其完整祖先世界矩陣；mounted 腿姿、盾臂 IK、槍臂 FK 也參與。僅更新 hand bones 需要另建 track／dependency 系統，因此採保守方案：steady visible LOD0 更新 `[0]`，LOD1 更新 `[0,1]`，LOD2 更新 `[0,2]`，mixers 與 EquipmentPose 同步縮減，所有 actions／mixers 仍保留。
+- 隱藏 mixer 累積已求值的 visual dt；重新可見或 clip／loop／timeScale／seek 改變前，以 Three 自己的 evaluator 一次結算。clip change／fade grace 期間更新三套，seek 仍三套取樣，不複製骨架或私有 action state、不 reset clip 或重播 gameplay event。停用且 weight=0 的舊 action time 不要求逐值相等；重新使用前原有 `play()` 會 reset，enabled／paused／weight 等仍受測試約束。
+- Three 在 render traversal 決定當幀 LOD，故 instance 在原 `LOD.update(camera)` 之後讀 `getCurrentLevel()`、繪製之前 catch-up；沿用原門檻及 camera.zoom 語義，沒有逐幀 traverse。新可見 LOD 套用 LOD0「上一次實際求值」的 equipment state，包含世界矩陣更新，不消耗尚未到期的 far accumulator。切換同步成本落在 Renderer Submit，需連同 NPC Update 看待。
+- `npm test -- --run`：32 檔、312 項全部通過（新增 14 項）；`npm run build` 含 TypeScript 通過，只有既有 Vite CJS／chunk 提示。測試涵蓋每 LOD 求值次數、2 秒 inactive debt、LoopOnce／fade／clamp／paused／timeScale、seek、death、劍盾／槍盾／上下馬、逐幀攻擊事件、12 Hz＋60→20m 且 dt 不重複消耗。60 個 1/60 秒 tick 的 steady mixer／pose 次數：baseline `[60,60,60]`；visible0 `[60,0,0]`、visible1 `[60,60,0]`、visible2 `[60,0,60]`；far LOD2 mixer `[12,0,12]`。
+- 實際 NPC＋WebGL 對照：正面 60 組與側面 60 組，Roman／Viking、步戰／騎乘、idle／run／melee／lance／ranged，slow／rapid／每幀反覆跨 0↔1↔2；對照同一流程的全 mixer 求值。每組 240 幀，可見 LOD 與 authority 骨架差異 <1e-6；側面另比較當幀世界矩陣與 sword／shield／bow attachment，攻擊與 projectile 事件一致，零 application error。1/64 秒步長下 Roman frame 125／222、Viking frame 127／238 發射，兩版一致。正面 1/60 測試遇到既有 pilum completion epsilon 邊界（兩版均無發射），未將其當作事件通過證據或修改 gameplay。
+- 骨架 quaternion 來源略非單位長度；最初用 raw `angleTo` 對完全相同數值也得到 1.5e-5 的假誤差，改為比較正規化旋轉後通過，沒有放寬 1e-6 門檻。保存 780 張正側面截圖並抽查代表動作，未宣稱逐張人工驗收。
+- **既有視覺限制，使用者已明確排除本 PR blocker：** Viking bow 在 LOD1／2 的手臂與 LOD0 socket authority 不一致，側面 bow release/recovery 可見離手。已在本次 main production baseline 及全 mixer 對照重現；frame 135／LOD2 的左右版本畫面同樣離手，main 左手骨至 LOD0 左手骨距離約 0.774m。這是跨 LOD 人體資料差異，不能以候選／baseline pose parity 宣稱「弓箭 attachment 全面正確」。2026-09-17 使用者確認本支以無新增視覺回歸驗收，既有 Bow 問題日後獨立 PR 處理；本輪不修改該問題。
+- Chrome extension 實際啟動 release `http://127.0.0.1:5173/?nolock` 預設 10v10，畫面正常、零 application error，MetaMask warnings 另列。精確矩陣／時間對照使用獨立 headed Chrome；benchmark 不與 WebGL QA 或測試並行。
+
+
+- 效能 protocol：本次 main 現場 production build 對本分支 build，同台 Chrome 153／ANGLE Metal／Apple M1 Pro、1280×720、DPR=1；B／D／near-heavy 各依 A1→B1→A2→B2→A3→B3，每次 fresh context／page／battle。暖機 4s、reset＋2s、接戰判定後 reset＋3.2s，取最新完整 profiler window，三輪各指標取 median。計時中不加 wrappers、不截圖、不跑測試；計時取樣結束後才包裝 NPC mixer.update／EquipmentPose.apply，另計 30 個 rendered frames，表中列每 rendered frame 的總呼叫數（排除 Player／Horse）。因此 work census 與 profiler window 是相鄰而非相同時間窗，原始 counts／frames 另存 JSON。
+- Near-heavy 沿用 B 的 200 NPC 編制／出生點／gameplay，僅測試 harness 固定相機 `(0,8,12)` 看 `(0,1,0)`、fov=58、zoom=1，停用相機跟隨；不修改 production camera。B／D 使用原固定玩家鏡頭；各組均阻擋意外 mousemove，逐次核對 camera、near/far 與 LOD 分布。固定 wall-clock 取樣會因 FPS／既有 dt≤.05 clamp 改變戰鬥進度；不假設兩版 NPC、死亡／投射物狀態完全相同。
+
+#### B — 100v100 Infantry
+
+| 指標 | Before 三次 | After 三次 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 13.248 / 13.239 / 13.750 | 13.201 / 13.890 / 13.743 | 13.248 | 13.743 | 0.495 | +3.74% |
+| CPU Frame Work (ms) | 72.057 / 72.650 / 69.736 | 72.643 / 69.171 / 69.643 | 72.057 | 69.643 | -2.414 | -3.35% |
+| NPC Update (ms) | 24.129 / 23.329 / 22.400 | 22.479 / 21.586 / 21.693 | 23.329 | 21.693 | -1.636 | -7.01% |
+| Renderer Submit (ms) | 46.107 / 47.364 / 45.536 | 48.364 / 45.864 / 46.193 | 46.107 | 46.193 | 0.086 | +0.19% |
+| Draw Calls | 8,412 / 8,412 / 8,412 | 8,412 / 8,412 / 8,413 | 8,412 | 8,412 | 0 | +0.00% |
+| Triangles | 5,863,850 / 5,863,850 / 5,863,850 | 5,863,850 / 5,863,850 / 5,863,850 | 5,863,850 | 5,863,850 | 0 | +0.00% |
+
+- before: near/far 0/200 / 0/200 / 0/200；LOD0/1/2 [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；dead 2 / 1 / 1；projectiles 0 / 0 / 0。
+- after: near/far 0/200 / 0/200 / 0/200；LOD0/1/2 [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；dead 1 / 1 / 1；projectiles 0 / 0 / 0。
+- 六輪 camera：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+| NPC work / frame | Before 三次 [LOD0,1,2] | After 三次 [LOD0,1,2] | Total median before → after | 變化 |
+| --- | --- | --- | ---: | ---: |
+| mixers | [100.00, 100.00, 100.00] / [100.00, 100.00, 100.00] / [100.00, 100.00, 100.00] | [100.00, 47.03, 100.00] / [100.00, 47.27, 100.00] / [100.00, 48.73, 100.00] | 300.00 → 247.27 | -52.73 / -17.58% |
+| poses | [132.30, 132.30, 132.30] / [127.07, 127.07, 127.07] / [130.13, 130.13, 130.13] | [130.13, 60.53, 130.13] / [129.83, 60.73, 129.83] / [130.77, 62.53, 130.77] | 390.40 → 320.80 | -69.60 / -17.83% |
+
+#### D — 100v100 Cavalry
+
+| 指標 | Before 三次 | After 三次 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 9.394 / 9.225 / 8.887 | 8.798 / 9.081 / 9.284 | 9.225 | 9.081 | -0.144 | -1.56% |
+| CPU Frame Work (ms) | 104.620 / 105.870 / 109.550 | 110.578 / 106.840 / 104.980 | 105.870 | 106.840 | 0.970 | +0.92% |
+| NPC Update (ms) | 29.630 / 29.490 / 29.760 | 29.700 / 27.990 / 27.560 | 29.630 | 27.990 | -1.640 | -5.53% |
+| Renderer Submit (ms) | 73.270 / 74.290 / 77.390 | 78.500 / 76.590 / 75.440 | 74.290 | 76.590 | 2.300 | +3.10% |
+| Draw Calls | 18,200 / 18,126 / 18,332 | 18,389 / 18,332 / 18,147 | 18,200 | 18,332 | 132 | +0.73% |
+| Triangles | 6,724,066 / 6,720,650 / 6,727,638 | 6,730,186 / 6,727,638 / 6,721,626 | 6,724,066 | 6,727,638 | 3,572 | +0.05% |
+
+- before: near/far 0/200 / 0/200 / 0/200；LOD0/1/2 [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；dead 0 / 0 / 0；projectiles 70 / 58 / 78。
+- after: near/far 0/200 / 0/200 / 0/200；LOD0/1/2 [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；dead 0 / 0 / 0；projectiles 90 / 78 / 60。
+- 六輪 camera：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+| NPC work / frame | Before 三次 [LOD0,1,2] | After 三次 [LOD0,1,2] | Total median before → after | 變化 |
+| --- | --- | --- | ---: | ---: |
+| mixers | [146.37, 146.37, 146.37] / [146.43, 146.43, 146.43] / [145.93, 145.93, 145.93] | [145.23, 80.40, 145.23] / [145.93, 80.13, 145.93] / [146.57, 81.37, 146.57] | 439.10 → 372.00 | -67.10 / -15.28% |
+| poses | [164.27, 164.27, 164.27] / [164.67, 164.67, 164.67] / [163.80, 163.80, 163.80] | [164.13, 69.93, 164.13] / [163.80, 69.63, 163.80] / [165.73, 72.30, 165.73] | 492.80 → 398.20 | -94.60 / -19.20% |
+
+#### NEAR — 100v100 Infantry / fixed near-heavy camera
+
+| 指標 | Before 三次 | After 三次 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 13.432 / 13.335 / 13.994 | 15.195 / 14.987 / 15.131 | 13.432 | 15.131 | 1.700 | +12.65% |
+| CPU Frame Work (ms) | 71.650 / 71.907 / 68.221 | 62.081 / 62.873 / 61.806 | 71.650 | 62.081 | -9.569 | -13.35% |
+| NPC Update (ms) | 32.021 / 32.757 / 31.264 | 24.069 / 24.153 / 24.131 | 32.021 | 24.131 | -7.890 | -24.64% |
+| Renderer Submit (ms) | 37.864 / 37.264 / 35.207 | 36.244 / 37.000 / 35.894 | 37.264 | 36.244 | -1.021 | -2.74% |
+| Draw Calls | 2,687 / 2,726 / 2,714 | 2,675 / 2,722 / 2,724 | 2,714 | 2,722 | 8 | +0.29% |
+| Triangles | 7,559,494 / 7,684,111 / 7,602,886 | 7,513,678 / 7,583,065 / 7,674,923 | 7,602,886 | 7,583,065 | -19,821 | -0.26% |
+
+- before: near/far 195/5 / 194/6 / 195/5；LOD0/1/2 [195, 5, 0] / [194, 6, 0] / [195, 5, 0]；dead 0 / 1 / 1；projectiles 0 / 0 / 0。
+- after: near/far 195/5 / 194/6 / 195/5；LOD0/1/2 [195, 5, 0] / [194, 6, 0] / [195, 5, 0]；dead 1 / 1 / 2；projectiles 0 / 0 / 0。
+- 六輪 camera：`{'position': [0, 8, 12], 'quaternion': [-0.2609799792144663, 0, 0, 0.9653442134540491], 'fov': 58}`。
+
+| NPC work / frame | Before 三次 [LOD0,1,2] | After 三次 [LOD0,1,2] | Total median before → after | 變化 |
+| --- | --- | --- | ---: | ---: |
+| mixers | [197.10, 197.10, 197.10] / [196.97, 196.97, 196.97] / [197.07, 197.07, 197.07] | [197.63, 73.80, 72.47] / [197.10, 69.97, 68.30] / [197.30, 73.90, 72.20] | 591.20 → 343.40 | -247.80 / -41.91% |
+| poses | [225.30, 225.30, 225.30] / [226.90, 226.90, 226.90] / [226.90, 226.90, 226.90] | [230.77, 89.17, 87.63] / [228.27, 85.20, 83.20] / [230.30, 88.87, 86.77] | 680.70 → 405.93 | -274.77 / -40.37% |
+
+#### 結果判讀
+
+- B 三組 NPC Update 差值為 −1.650／−1.743／−0.707ms，median −7.01%；CPU median −3.35%、FPS +3.74%，但第一組 CPU 稍升且第一／三組 FPS 未提升，不能宣稱每組整體 FPS 都改善。B Renderer Submit median +0.19%，draw calls median 與 triangles 完全不變。
+- Near-heavy 三組 NPC Update、CPU Frame 均下降且 FPS 均上升；NPC Update −7.890ms／−24.64%、CPU −9.569ms／−13.35%、FPS +12.65%。六輪 near NPC 為 194–195，配對 LOD 分布一致。calls median +0.29%、triangles −0.26%，固定鏡頭下仍有戰鬥進度／角色位移與可見範圍差異，未將其宣稱為幾何或 renderable 優化。
+- D 的 NPC Update 差值 +0.070／−1.500／−2.200ms，median −5.53%，第一組無改善，分布仍有重疊；尚不足以宣稱騎兵場景每組可重現改善。CPU median +0.92%、FPS −1.56%、Renderer Submit +3.10%。投射物 70/58/78 → 90/78/60、calls +0.73%、triangles +0.05%，反映不同戰鬥狀態；無法將 submission 增加全部歸因於投射物，仍包含量測／系統負載變異。本次不以重跑挑選有利結果。
+- NPC work census 的總 mixer／pose median 呼叫數：B −17.58%／−17.83%；D −15.28%／−19.20%；near-heavy −41.91%／−40.37%。steady-state 理論下降 1/3 或 2/3，實戰 fade／clip change／seek 的保守 fallback 會縮小實際收益；快速反覆 crossing 甚至可增加 pose apply。Bow seek 的 mixer 節省有限。
+- **結論：在不新增 attachment／LOD transition 回歸、保留既有 Bow 資料問題另案處理的前提下，這個策略可重現降低步兵與 near-heavy 的 NPC Update；near-heavy 亦有清楚的 CPU／FPS 改善。D 雖減少求值工作，尚未證明一致的整體 CPU／FPS 收益。** 本輪未繼續其他 optimization。
+- 原始三輪 JSON、before／after production builds、完整 scripts/report 保存在忽略的 `output/local-diagnostics/humanoid-lod-work/`；正側面 WebGL 截圖、baseline Bow 重現與量測在 `output/playwright/humanoid-lod-work/`。只提交持續維護的 tests、runtime 及本摘要，不提交一次性產物。
+
 
 ### 2026-09-17：第二支 FPS Optimization — 接通 Humanoid 距離動畫降頻
 
