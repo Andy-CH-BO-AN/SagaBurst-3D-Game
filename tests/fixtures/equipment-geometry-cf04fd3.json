@@ -1,0 +1,346 @@
+{
+  "viking-1": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.15,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      1.51,
+      0
+    ],
+    "meshCount": 13,
+    "geometry": {
+      "[\"procedural-iron-47413d\",\"iron:47413d:2x4:albedo\",0.38,0.82,false,false,true,1,0,true]": {
+        "triangles": 1832,
+        "digest": "b018214211b75a1534dd3c2b8bbd5d114e370aa4744b241116df5e4139e628b5"
+      },
+      "[\"procedural-iron-77716b\",\"iron:77716b:2x5:albedo\",0.48,0.72,true,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "98a37557ff9a03a5c5628c33e4facdf6128358ffc0db7f444e5988842e280a47"
+      },
+      "[\"procedural-leather-4a3428\",\"leather:4a3428:2x3:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "128f71d3f6e6c79f864197d5282ae5e04caaa1ea45b9ade20ff18638be586fca"
+      }
+    }
+  },
+  "viking-2": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.15,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      1.51,
+      0
+    ],
+    "meshCount": 13,
+    "geometry": {
+      "[\"procedural-iron-555c60\",\"iron:555c60:2x5:albedo\",0.38,0.82,false,false,true,1,0,true]": {
+        "triangles": 1832,
+        "digest": "b018214211b75a1534dd3c2b8bbd5d114e370aa4744b241116df5e4139e628b5"
+      },
+      "[\"procedural-iron-c2c7c9\",\"iron:c2c7c9:3x5:albedo\",0.27,0.92,true,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "98a37557ff9a03a5c5628c33e4facdf6128358ffc0db7f444e5988842e280a47"
+      },
+      "[\"procedural-leather-3f2b21\",\"leather:3f2b21:2x4:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "128f71d3f6e6c79f864197d5282ae5e04caaa1ea45b9ade20ff18638be586fca"
+      }
+    }
+  },
+  "viking-3": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.15,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      1.51,
+      0
+    ],
+    "meshCount": 13,
+    "geometry": {
+      "[\"procedural-bronze-b78a42\",\"bronze:b78a42:2x6:albedo\",0.38,0.82,false,false,true,1,0,true]": {
+        "triangles": 1696,
+        "digest": "e3dee33b2bb504deefdadc68c1639a93cc823ef468d20992d2458a9f4f81b44c"
+      },
+      "[\"procedural-iron-3e6d86\",\"iron:3e6d86:2x8:albedo\",0.24,0.9,false,false,true,1,0,true]": {
+        "triangles": 136,
+        "digest": "87ec5c9b9bb80c20d041580d3272de00f8d86e264c5ef6f9af05dfde88a3f15f"
+      },
+      "[\"procedural-iron-d8d3bd\",\"iron:d8d3bd:4x5:albedo\",0.27,0.92,true,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "98a37557ff9a03a5c5628c33e4facdf6128358ffc0db7f444e5988842e280a47"
+      },
+      "[\"procedural-leather-252038\",\"leather:252038:2x5:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "128f71d3f6e6c79f864197d5282ae5e04caaa1ea45b9ade20ff18638be586fca"
+      }
+    }
+  },
+  "roman-1": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.1,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      0.8800000000000001,
+      0
+    ],
+    "meshCount": 11,
+    "geometry": {
+      "[\"procedural-iron-575b5d\",\"iron:575b5d:2x2:albedo\",0.38,0.8,false,false,true,1,0,true]": {
+        "triangles": 1680,
+        "digest": "8fb3ca53df43e597648c9bf1ae10628af1c64c7805fd9f502e7120d655a61c88"
+      },
+      "[\"procedural-iron-77716b\",\"iron:77716b:2x5:albedo\",0.48,0.72,false,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "a30feedf7e4b2ccb9ffe70a76375335a2093b684fe3de6a0a49a390d292c5036"
+      },
+      "[\"procedural-leather-3a2117\",\"leather:3a2117:2x3:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "587ac7c304df89f8b84268f93659977b6644384fd900ac7cba9fc3394b0f32ff"
+      }
+    }
+  },
+  "roman-2": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.1,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      0.8800000000000001,
+      0
+    ],
+    "meshCount": 11,
+    "geometry": {
+      "[\"procedural-iron-575b5d\",\"iron:575b5d:2x2:albedo\",0.38,0.8,false,false,true,1,0,true]": {
+        "triangles": 1680,
+        "digest": "8fb3ca53df43e597648c9bf1ae10628af1c64c7805fd9f502e7120d655a61c88"
+      },
+      "[\"procedural-iron-bfc3c3\",\"iron:bfc3c3:3x5:albedo\",0.3,0.8,false,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "a30feedf7e4b2ccb9ffe70a76375335a2093b684fe3de6a0a49a390d292c5036"
+      },
+      "[\"procedural-leather-3a2117\",\"leather:3a2117:2x4:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "587ac7c304df89f8b84268f93659977b6644384fd900ac7cba9fc3394b0f32ff"
+      }
+    }
+  },
+  "roman-3": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0.1,
+        0
+      ]
+    },
+    "tip": [
+      0,
+      0.8800000000000001,
+      0
+    ],
+    "meshCount": 11,
+    "geometry": {
+      "[\"procedural-bronze-b38a4c\",\"bronze:b38a4c:2x2:albedo\",0.38,0.8,false,false,true,1,0,true]": {
+        "triangles": 1680,
+        "digest": "8fb3ca53df43e597648c9bf1ae10628af1c64c7805fd9f502e7120d655a61c88"
+      },
+      "[\"procedural-iron-d6d2b4\",\"iron:d6d2b4:4x5:albedo\",0.3,1,false,false,true,1,0,true]": {
+        "triangles": 36,
+        "digest": "a30feedf7e4b2ccb9ffe70a76375335a2093b684fe3de6a0a49a390d292c5036"
+      },
+      "[\"procedural-leather-4d241c\",\"leather:4d241c:2x5:albedo\",0.82,0.02,false,false,true,1,0,true]": {
+        "triangles": 48,
+        "digest": "587ac7c304df89f8b84268f93659977b6644384fd900ac7cba9fc3394b0f32ff"
+      }
+    }
+  },
+  "round_shield-1": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 13,
+    "geometry": {
+      "[\"procedural-iron-686d70\",\"iron:686d70:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 288,
+        "digest": "2202893a261a417bc91480e244522d54b3ff09ffc993a3b7f50e478914a07cbe"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 1068,
+        "digest": "5b519631dab8af45a1a98e97b5676c63916a1781b411a449ce29c7303ffe4d94"
+      },
+      "[\"procedural-wood-65452d\",\"wood:65452d:5x3:albedo\",0.84,0.02,true,false,true,1,0,true]": {
+        "triangles": 128,
+        "digest": "5b52daa0af9612d4f7ae64087584e7b05e5cd140541cee74ca34940ed5af2743"
+      }
+    }
+  },
+  "round_shield-2": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 13,
+    "geometry": {
+      "[\"procedural-iron-686d70\",\"iron:686d70:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 928,
+        "digest": "59684c02de59f21f178fbfae5cb006abd281919859d7c49b625c7e2631ae2428"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 428,
+        "digest": "f4b9c5433497d54b56d1df00993d5a19cf3c26ec1f7317492f4ac84bf5309ad6"
+      },
+      "[\"procedural-wood-435443\",\"wood:435443:5x3:albedo\",0.82,0.02,true,false,true,1,0,true]": {
+        "triangles": 128,
+        "digest": "5b52daa0af9612d4f7ae64087584e7b05e5cd140541cee74ca34940ed5af2743"
+      }
+    }
+  },
+  "round_shield-3": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 21,
+    "geometry": {
+      "[\"procedural-bronze-a47b42\",\"bronze:a47b42:2x2:albedo\",0.43,0.72,false,false,true,1,0,true]": {
+        "triangles": 736,
+        "digest": "2c4743005c95dda075a371fd96fc1c0e9c3d25e2ac8d10872bdbdc0cfbe8fb1a"
+      },
+      "[\"procedural-iron-bfc2bd\",\"iron:bfc2bd:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 640,
+        "digest": "7525211755247bb0c525163d48858b55c05084619b04c0e820dfbeb027fdff4d"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 428,
+        "digest": "f4b9c5433497d54b56d1df00993d5a19cf3c26ec1f7317492f4ac84bf5309ad6"
+      },
+      "[\"procedural-wood-294d64\",\"wood:294d64:5x3:albedo\",0.82,0.02,true,false,true,1,0,true]": {
+        "triangles": 128,
+        "digest": "5b52daa0af9612d4f7ae64087584e7b05e5cd140541cee74ca34940ed5af2743"
+      }
+    }
+  },
+  "scutum-1": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 6,
+    "geometry": {
+      "[\"procedural-bronze-9a7445\",\"bronze:9a7445:2x2:albedo\",0.55,0.5,false,false,true,1,0,true]": {
+        "triangles": 88,
+        "digest": "5f8e5703fe3f26af0c5909c4bb8531176ffbce13125a70d381cf2751067bd08b"
+      },
+      "[\"procedural-iron-686d70\",\"iron:686d70:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 288,
+        "digest": "d649256212c5f342002bb420fab2cc925149ba9df3dd953c40cd5be236d8adff"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 1168,
+        "digest": "2cfc54737ef70a8f9db55a27ca4eacf66f95321105e9d84e7205dbb162433028"
+      },
+      "[\"procedural-leather-68412b\",\"leather:68412b:4x5:albedo\",0.78,0.02,true,true,true,1,0,true]": {
+        "triangles": 776,
+        "digest": "eefb906c7d07f9844c5a5b0dd9196a7bc527bddc4178eb1d657336e592d827e5"
+      }
+    }
+  },
+  "scutum-2": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 6,
+    "geometry": {
+      "[\"procedural-bronze-9a7445\",\"bronze:9a7445:2x2:albedo\",0.55,0.5,false,false,true,1,0,true]": {
+        "triangles": 88,
+        "digest": "5f8e5703fe3f26af0c5909c4bb8531176ffbce13125a70d381cf2751067bd08b"
+      },
+      "[\"procedural-iron-686d70\",\"iron:686d70:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 1184,
+        "digest": "43cb09f6bb7f8ca757460e59b4bfbbebe724b4ad75083d3c2b31ad06f4518694"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 272,
+        "digest": "dd38731525c7b2c9029935228141397f89bea0aabe3a4d27bcd7d0d8908a4b56"
+      },
+      "[\"procedural-leather-7f211d\",\"leather:7f211d:4x5:albedo\",0.78,0.02,true,true,true,1,0,true]": {
+        "triangles": 776,
+        "digest": "eefb906c7d07f9844c5a5b0dd9196a7bc527bddc4178eb1d657336e592d827e5"
+      }
+    }
+  },
+  "scutum-3": {
+    "userData": {
+      "gripCenterLocal": [
+        0,
+        0,
+        0.085
+      ]
+    },
+    "tip": null,
+    "meshCount": 6,
+    "geometry": {
+      "[\"procedural-bronze-a47b42\",\"bronze:a47b42:2x2:albedo\",0.43,0.72,false,false,true,1,0,true]": {
+        "triangles": 376,
+        "digest": "d22466bdca5eb275e29af506f6119d4ccf06dac0a143a81351066a788855f81c"
+      },
+      "[\"procedural-iron-bfc2bd\",\"iron:bfc2bd:2x2:albedo\",0.4,0.82,false,false,true,1,0,true]": {
+        "triangles": 896,
+        "digest": "650c1c816181f782d76e1ebca82f1b0d75ea30cf7b84859194c847ac499cef71"
+      },
+      "[\"procedural-leather-3d281d\",\"leather:3d281d:2x2:albedo\",0.86,0.02,false,false,true,1,0,true]": {
+        "triangles": 272,
+        "digest": "dd38731525c7b2c9029935228141397f89bea0aabe3a4d27bcd7d0d8908a4b56"
+      },
+      "[\"procedural-leather-7f211d\",\"leather:7f211d:4x5:albedo\",0.78,0.02,true,true,true,1,0,true]": {
+        "triangles": 776,
+        "digest": "eefb906c7d07f9844c5a5b0dd9196a7bc527bddc4178eb1d657336e592d827e5"
+      }
+    }
+  }
+}

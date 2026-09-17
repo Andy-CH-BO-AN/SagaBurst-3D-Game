@@ -69,6 +69,12 @@ skyrim 3D test/
    - T1–T3 盾板、外框與正面裝飾共用寬度、曲率及盾面深度；外框中心貼住盾板正面，盾臍嵌入中央盾面，交叉飾條先旋轉再沿盾面彎曲，避免零件懸空。背面握點維持 `(0,0,.085)`；工作室／Player／NPC 共用 `WeaponMeshFactory.buildShield`。
 7. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
 
+### 劍盾 rigid renderable consolidation
+- `WeaponMeshFactory` 只以 builder 明確列出的同材質、同 render flags 剛性零件合併；內部 `mergeRigidGeometryParts` 複製 geometry、烘焙 child local matrix、補齊順序 index，再以 `mergeGeometries(..., false)` 建立 identity-transform Mesh。保留 normal／UV／原三角形，不置中、不焊接頂點；清理暫存及已移除零件的 geometry。
+- Viking Sword 固定 4 Mesh（握柄、金屬握柄零件、劍身、雙面 fuller）；Gladius 固定 3 Mesh。Viking Shield 固定 5 Mesh（seams＋後 straps 合併、T3 rivets 併入盾臍）；Scutum 只合併左右飾條，固定 5 Mesh，保留獨立外框與盾臍供貼合驗證。
+- root／pivot／socket、grip／tip metadata、材質快取與既有 `polishWeaponMaterials` 陰影行為保持不變。helper 不掃描 root，不處理弓弦、搭箭或其他動態零件；未新增裝備 LOD、陰影優化或動畫 runtime 變更。
+- `EquipmentConsolidation` 測試以 `cf04fd3` 的逐材質／渲染旗標三角形指紋鎖定 position、normal、UV、winding 與 attachment，並驗證 Mesh 上限及材質共用。
+
 ### 裝備盾牌與長槍姿勢
 - 盾牌裝備狀態是唯一持盾來源，固定於左手，不再依彈藥、長槍或騎乘狀態背盾。`InventoryManager.unequipShield()` 與裝備 UI 支援卸盾，沿用 nullable 存檔。
 - 持盾按瞄準顯示「請先卸下盾牌才能使用弓箭」，不進入拉弓或 FOV 瞄準；拉弓途中裝盾取消蓄力。換盾／近戰武器取消未完成動作，不補發事件。

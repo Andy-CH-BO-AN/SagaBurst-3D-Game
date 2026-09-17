@@ -37,7 +37,9 @@ describe('羅馬盾牌零件貼合', () => {
     expect(bossBounds.min.z).toBeLessThan(faceZ)
     expect(bossBounds.max.z).toBeGreaterThan(faceZ)
 
-    for (const emblem of shield.children.filter(child => child.name === 'scutum-emblem') as THREE.Mesh[]) {
+    const emblems = shield.children.filter(child => child.name === 'scutum-emblem') as THREE.Mesh[]
+    expect(emblems).toHaveLength(1)
+    for (const emblem of emblems) {
       const positions = emblem.geometry.getAttribute('position')
       for (let i = 0; i < positions.count; i++) {
         const point = new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(emblem.matrixWorld)
