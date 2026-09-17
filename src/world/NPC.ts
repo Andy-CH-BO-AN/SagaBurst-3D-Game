@@ -454,7 +454,8 @@ export class NPC {
     _playerHpBar: HpBar,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
-    skipBoidsAndObstacles: boolean = false
+    skipBoidsAndObstacles: boolean = false,
+    cameraDistance: number = 0
   ): void {
     const previousPosition = this.group.position.clone()
     this.visualMovementSpeed = 0
@@ -488,7 +489,7 @@ export class NPC {
     // Releasing the projectile does not end the imported release clip. Keep its
     // recovery, even if this was the last arrow or the target disappears.
     if (recoveringBow && this.state !== AIState.DEAD) {
-      const events = this.animator.update(dt)
+      const events = this.animator.update(dt, cameraDistance)
       animationAdvanced = true
       if (targetInfo) this._updateBowVisual(0, targetInfo.position)
       else this.bowVisual?.update(0, undefined, false)
@@ -657,7 +658,7 @@ export class NPC {
             if (!this.animator.busy) this.animator.start('pilumThrow')
           }
 
-          const rangedEvents = this.animator.update(dt)
+          const rangedEvents = this.animator.update(dt, cameraDistance)
           if (this.faction === Faction.PLAYER) this._updateBowVisual(progress, targetInfo.position)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
@@ -692,7 +693,7 @@ export class NPC {
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
-          const meleeEvents = this.animator.update(dt)
+          const meleeEvents = this.animator.update(dt, cameraDistance)
           animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
             const currentDist = this.combatPosition.distanceTo(targetInfo.position)
@@ -738,7 +739,7 @@ export class NPC {
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
-    if (!animationAdvanced) this.animator.update(dt)
+    if (!animationAdvanced) this.animator.update(dt, cameraDistance)
     if (!animationAdvanced && this.state !== AIState.DEAD && this.bowPivot.visible && this.faction === Faction.PLAYER) {
       this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
       this._tmpRangedTarget.y += 1.4

@@ -110,6 +110,40 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
     expect({ ...f.animator.update(1) }).toMatchObject({ hitActiveStarted: true, actionCompleted: true })
     expect(f.animator.update(.1).hitActiveStarted).toBe(false)
   })
+  it('遠距降頻與 27/29m 往返保留步戰／騎乘三 LOD 的槍盾握點與單次命中', () => {
+    const f = fixtures[faction]
+    for (const mounted of [false, true]) for (const crossing of [false, true]) {
+      f.reset(true, mounted)
+      const attachment = f.lance.matrix.clone()
+      f.animator.start(mounted ? 'mountedLance' : 'lanceThrust')
+      let hits = 0, completed = 0
+      for (let frame = 0; frame < 60; frame++) {
+        const distance = crossing ? (frame % 2 ? 27 : 29) : 60
+        const events = f.animator.update(1 / 60, distance)
+        hits += Number(events.hitActiveStarted); completed += Number(events.actionCompleted)
+        const measured = f.measure()
+        expect(f.lance.matrix.equals(attachment)).toBe(true)
+        for (const hand of measured.hands) {
+          expect(hand.right.distanceTo(measured.grip)).toBeLessThan(.01)
+          expect(hand.shield.distanceTo(measured.shieldGrip)).toBeLessThan(.01)
+        }
+      }
+      expect(hits).toBe(1); expect(completed).toBe(1)
+    }
+  })
+  it('遠距切換 Sword clip 的跳幀仍保留盾牌與主骨架掛點一致', async () => {
+    const f = await createFixture(faction)
+    for (const mounted of [false, true]) {
+      f.reset(true, mounted)
+      f.animator.setEquipment(false, true)
+      f.animator.start('swordSlash')
+      for (let frame = 0; frame < 35; frame++) {
+        f.animator.update(1 / 60, 60)
+        const measured = f.measure()
+        for (const hand of measured.hands) expect(hand.shield.distanceTo(measured.shieldGrip)).toBeLessThan(.01)
+      }
+    }
+  })
   it('前刺延伸至少 18cm、固定握點；有盾／無盾與騎乘均不改腿或軀幹', async () => {
     const f = fixtures[faction], baseline = await createFixture(faction)
     for (const mounted of [false, true]) for (const shield of [false, true]) {

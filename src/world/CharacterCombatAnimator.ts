@@ -123,14 +123,15 @@ export class CharacterCombatAnimator {
     this.poseIdle()
   }
 
-  update(dt: number): CombatAnimationEvents {
+  update(dt: number, cameraDistance = 0): CombatAnimationEvents {
     this.events.hitActiveStarted = false
     this.events.projectileRelease = false
     this.events.actionCompleted = false
 
     if (!Number.isFinite(dt) || dt < 0) return this.events
     this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.elapsed + dt, lance: this.lanceEquipped })
-    this.rig.animation?.update(dt)
+    // Only visual evaluation is distance-throttled; action timers run every frame.
+    this.rig.animation?.update(dt, cameraDistance)
 
     if (this.action === 'idle' || this.action === 'bowAim') {
       return this.events
@@ -169,7 +170,7 @@ export class CharacterCombatAnimator {
         this.rig.animation?.play(this.locomotion, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
       } else this.poseIdle()
       this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
-      this.rig.animation?.update(0)
+      this.rig.animation?.update(0, cameraDistance)
     }
     return this.events
   }
