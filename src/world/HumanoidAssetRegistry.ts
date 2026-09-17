@@ -394,6 +394,9 @@ export class MixerController implements HumanoidAnimationController {
     }
     this.current = state
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = this.poseLayersEnabled && state.startsWith('bow') ? 1 : 0
+    // Binding a new clip restores the overlay base. Reapply it and its socket
+    // followers now, since the next distance-throttled update may be skipped.
+    this.finishPose()
     return true
   }
 
@@ -415,12 +418,11 @@ export class MixerController implements HumanoidAnimationController {
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt < 0) return
     if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
-    if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE) {
-      this.farAccumulator += dt
-      if (this.farAccumulator < 1 / 12) return
-      dt = this.farAccumulator
-      this.farAccumulator = 0
-    }
+    this.farAccumulator += dt
+    if (cameraDistance > HUMANOID_ANIMATION_THROTTLE_DISTANCE && this.farAccumulator < 1 / 12) return
+    // Returning near must consume the pending far time once, too.
+    dt = this.farAccumulator
+    this.farAccumulator = 0
     this.restoreEquipment()
     for (const mixer of this.mixers) mixer.update(dt)
     this.finishPose()

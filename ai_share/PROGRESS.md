@@ -1,10 +1,53 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-17 (Sword／Shield rigid renderable consolidation)_
+_Last updated: 2026-09-17 (Humanoid distance animation throttle)_
 
 ---
 
 ## Current Status
+
+### 2026-09-17：第二支 FPS Optimization — 接通 Humanoid 距離動畫降頻
+
+- 基於 PR #19 已合併的最新 main `4133f09`。根因是 NPC → CharacterCombatAnimator 未傳入 cameraDistance，controller 一直使用預設 0。現在由 Game 每幀每 NPC 計算一次 camera 到 NPC root 的世界距離，活著／死亡 NPC 與四條 animator 路徑均轉交；保留嚴格 `>28m`、12 Hz、三 mixer 與三 EquipmentPose layers。Gameplay、攻擊／發射事件、AI、移動及計時器仍逐幀執行。
+- 修正回近距時未結算的 far dt；新 clip 綁定後立即重套原裝備 overlay 與同步 socket，不推進 mixer。後者是啟用降頻的必要 correctness guard：缺少它時，新增真實骨架測試可重現約 30cm 盾手分離，修正後通過。
+- 31 檔、298 項測試通過；production build（含 TypeScript）通過。無獨立 lint／typecheck script，僅既有 Vite CJS／chunk 提示。新增 24 項涵蓋距離 forwarding、near／far、27／28／29m、反覆跨門檻、累積 dt、逐幀事件／movement parity、三 LOD 步戰／騎乘槍盾與 sword clip 切換。
+- 正式 NPC 路徑 600 筆劍盾／槍盾 WebGL 取樣（兩陣營、T2、三 LOD、idle／run／attack 起手／中段／收招、步戰／騎乘、五種距離配置）零失敗；另 20 組弓／投槍、hit／death 檢查通過。保存截圖並抽查代表畫面，未逐張人工驗收。Chrome extension 正式 `?nolock` 10v10 戰鬥零 application error，MetaMask extension warnings 另列。
+- 同台 M1 Pro／Chrome 153／ANGLE Metal，1280×720／DPR 1／production preview；B、D 各三組 A1→B1→A2→B2→A3→B3，每次 fresh page／battle，使用 PR #19 同一流程：暖機 4s、reset＋2s、偵測接戰後 reset＋3.2s，取最新完整 profiler 視窗與三輪 median。B 第三組原 baseline 相機偏移，作廢整組並重跑兩版；下列最終各六輪相機完全一致。未混用探索數字或 PR #19 歷史值。
+
+#### Scenario B — 100v100 Infantry During Combat
+
+| 指標 | Before 三次 | After 三次 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 12.464 / 12.427 / 12.248 | 13.660 / 13.337 / 13.619 | 12.427 | 13.619 | 1.192 | +9.59% |
+| CPU Frame Work（ms） | 77.415 / 77.731 / 78.654 | 70.164 / 72.229 / 69.914 | 77.731 | 70.164 | -7.566 | -9.73% |
+| NPC Update（ms） | 29.708 / 29.469 / 30.823 | 23.029 / 22.936 / 22.950 | 29.708 | 22.950 | -6.758 | -22.75% |
+| Renderer Submit（ms） | 46.000 / 46.554 / 46.015 | 45.350 / 47.557 / 45.236 | 46.015 | 45.350 | -0.665 | -1.45% |
+| Draw Calls | 8,395 / 8,396 / 8,412 | 8,412 / 8,397 / 8,413 | 8,396 | 8,412 | 16 | +0.19% |
+| Triangles | 5,863,850 / 5,863,850 / 5,863,850 | 5,863,850 / 5,863,850 / 5,863,850 | 5,863,850 | 5,863,850 | 0 | +0.00% |
+
+- before: 死亡數 0 / 0 / 1；near/far 0/200 / 0/200 / 0/200；LOD [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；投射物 0 / 0 / 0；受傷 NPC 45 / 45 / 45。
+- after: 死亡數 1 / 1 / 3；near/far 0/200 / 0/200 / 0/200；LOD [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；投射物 0 / 0 / 0；受傷 NPC 45 / 45 / 44。
+- 六輪相機完全一致：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### Scenario D — 100v100 Cavalry During Combat
+
+| 指標 | Before 三次 | After 三次 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 8.870 / 8.796 / 8.651 | 9.258 / 8.918 / 8.943 | 8.796 | 8.943 | 0.147 | +1.67% |
+| CPU Frame Work（ms） | 110.733 / 111.344 / 113.200 | 105.190 / 109.478 / 108.900 | 111.344 | 108.900 | -2.444 | -2.20% |
+| NPC Update（ms） | 36.322 / 36.267 / 37.233 | 28.980 / 31.233 / 30.733 | 36.322 | 30.733 | -5.589 | -15.39% |
+| Renderer Submit（ms） | 72.644 / 72.911 / 73.822 | 73.940 / 75.822 / 75.900 | 72.911 | 75.822 | 2.911 | +3.99% |
+| Draw Calls | 17,972 / 17,995 / 17,995 | 18,332 / 17,995 / 18,200 | 17,995 | 18,200 | 205 | +1.14% |
+| Triangles | 6,713,710 / 6,714,686 / 6,714,686 | 6,727,638 / 6,714,686 / 6,724,066 | 6,714,686 | 6,724,066 | 9,380 | +0.14% |
+
+- before: 死亡數 0 / 0 / 0；near/far 0/200 / 0/200 / 0/200；LOD [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；投射物 15 / 32 / 32；受傷 NPC 0 / 0 / 0。
+- after: 死亡數 0 / 0 / 0；near/far 0/200 / 0/200 / 0/200；LOD [0, 0, 200] / [0, 0, 200] / [0, 0, 200]；投射物 78 / 32 / 70；受傷 NPC 2 / 0 / 1。
+- 六輪相機完全一致：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+- 結論：B 的 NPC Update −6.758ms／−22.75%、CPU −7.566ms／−9.73%、FPS +9.59%；D 的 NPC Update −5.589ms／−15.39%、CPU −2.444ms／−2.20%、FPS +1.67%。三組方向均一致且 NPC Update 的 Before／After 分布無重疊。D FPS 變化相較三輪波動較小，整體收益有限。
+- B Renderer Submit −1.45%、calls +0.19%、triangles 不變；D submit +3.99%、calls +1.14%、triangles +0.14%。D 投射物與戰鬥進度有差異，第二組 calls／triangles 相同但 submit 仍增加，不能只歸因投射物，仍含量測／系統負載變異；未將這些差異宣稱為 renderable 優化。
+- 12 Hz 是 simulation dt 的取樣間隔；保留既有 dt≤.05 clamp、seek 與零 dt refresh，所以低 FPS 時不是 wall-clock 12 次／秒，亦非所有 visual work 都下降 80%。沒有改 renderer structure、GLB、Horse、Shadow、AI、collision 或停止任何 LOD mixer／EquipmentPose layer。
+- 完整報告、原始 JSON、腳本、production builds 與作廢證據保存在忽略的 `output/local-diagnostics/humanoid-distance-throttle/`；視覺證據在 `output/playwright/humanoid-distance-throttle/`。下一支僅列候選 `perf/reduce-humanoid-lod-animation-work`，本輪未實作。
 
 ### 2026-09-17：第一支 FPS Optimization — Sword／Shield Mesh Consolidation
 

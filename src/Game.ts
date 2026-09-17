@@ -1379,12 +1379,15 @@ export class Game {
     // 2. NPC Update
     if (profile) t0 = performance.now()
     for (const npc of this.npcs) {
+      // These root positions are world-space here, matching the mount LOD distance.
+      const cameraDistance = npc.group.position.distanceTo(this.camera.position)
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
         npc.update(dt, this.player, this.npcs, [], this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
           () => {}, // dead npc can't shoot
-          true // skipBoidsAndObstacles
+          true, // skipBoidsAndObstacles
+          cameraDistance
         )
         continue
       }
@@ -1440,7 +1443,8 @@ export class Game {
           this.arrows.push(arrow)
           this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
         },
-        skipBoidsAndObstacles
+        skipBoidsAndObstacles,
+        cameraDistance
       )
     }
     const npcUpdateMs = profile ? performance.now() - t0 : 0
