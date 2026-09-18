@@ -68,6 +68,16 @@ export function damageNpc(npc: NPC, damage: number): DamageResult {
  * Calls player.dismountFromMount() automatically if the mount dies.
  */
 export function damagePlayer(player: Player, damage: number, hpBar: HpBar, equippedShieldId: string | null): DamageResult {
+  if (player.spectatorOnly || player.dead) {
+    return {
+      hitSuccess: false,
+      targetName: 'Player',
+      hpRatio: player.hpRatio,
+      isMountHit: false,
+      mountDied: false,
+    }
+  }
+
   const finalDamage = applyShieldReduction(damage, equippedShieldId)
 
   if (player.isMounted && player.currentMount) {

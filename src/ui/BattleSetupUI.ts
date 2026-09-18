@@ -31,6 +31,9 @@ export class BattleSetupUI {
     if (!this.config.mode) {
       this.config.mode = 'formation'
     }
+    if (this.config.spectator === undefined) {
+      this.config.spectator = false
+    }
   }
 
   mount(parent: HTMLElement = document.body, onStart: (config: BattleConfig) => void): void {
@@ -149,6 +152,10 @@ export class BattleSetupUI {
       </div>
 
       <div class="setup-actions">
+        <label class="spectator-toggle-label" for="spectator-checkbox">
+          <input type="checkbox" id="spectator-checkbox" />
+          <span>觀戰模式 Spectator</span>
+        </label>
         <button class="start-btn" id="btn-start-battle">START BATTLE</button>
       </div>
     `
@@ -208,11 +215,13 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
-    // Presets (Army composition only, strictly preserves selected Battle Mode)
+    // Presets (Army composition only, strictly preserves selected Battle Mode and Spectator mode)
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentSpectator = this.config.spectator ?? false
       this.config = JSON.parse(JSON.stringify(preset))
       this.config.mode = currentMode
+      this.config.spectator = currentSpectator
       this._refreshView()
     }
 
@@ -222,9 +231,17 @@ export class BattleSetupUI {
     document.getElementById('preset-100')?.addEventListener('click', () => applyPreset(PRESET_100V100))
     document.getElementById('preset-reset')?.addEventListener('click', () => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentSpectator = this.config.spectator ?? false
       this.config = createEmptyBattleConfig()
       this.config.mode = currentMode
+      this.config.spectator = currentSpectator
       this._refreshView()
+    })
+
+    // Spectator checkbox
+    const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
+    spectatorCheckbox?.addEventListener('change', (e) => {
+      this.config.spectator = (e.target as HTMLInputElement).checked
     })
 
     // Start battle button
@@ -341,6 +358,11 @@ export class BattleSetupUI {
 
     if (startBtn) {
       startBtn.disabled = !validation.valid
+    }
+
+    const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
+    if (spectatorCheckbox) {
+      spectatorCheckbox.checked = Boolean(this.config.spectator)
     }
   }
 }

@@ -315,7 +315,34 @@
 
 .setup-actions {
   margin-top: 24px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.spectator-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: #dfd5c4;
+  cursor: pointer;
+  user-select: none;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+
+.spectator-toggle-label:hover {
+  color: #f7ede0;
+}
+
+.spectator-toggle-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #d4af37;
+  cursor: pointer;
 }
 
 .start-btn {
