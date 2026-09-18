@@ -578,9 +578,11 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     expect(h.player.swinging).toBe(false)
   })
 
-  it('RMB Aim intent cancels buffered lance attack: no second thrust, smoothly enters Bow Aim & Camera Zoom', () => {
+  it('RMB Aim intent cancels buffered lance attack even when shield is already unequipped', () => {
     const h = createPlayerHarness()
+    h.inventory.unequipShield()
     h.update(input())
+    expect(h.inventory.equippedShield).toBeNull()
 
     // 1. Initial lance attack
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
@@ -615,6 +617,24 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
     expect(h.camera.fov).toBeLessThan(30)
     expect(h.camera.fov).toBeGreaterThanOrEqual(28)
+  })
+
+  it('Idle lance click rejected for low stamina is not buffered and does not auto-fire after stamina recovers', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    ;(h.player as any).stamina = 0
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(0)
+    expect(h.player.swinging).toBe(false)
+
+    ;(h.player as any).stamina = 100
+    for (let i = 0; i < 20; i++) {
+      h.update(input(), 1 / 60)
+    }
+
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(0)
+    expect(h.player.swinging).toBe(false)
   })
 
   it('Buffer is strictly scoped to Lance: sword clicks during recovery do not buffer follow-up attack', () => {

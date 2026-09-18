@@ -485,6 +485,7 @@ export class Player {
     this.animator.cancel()
     this.isSwinging = false
     this.hitEventPending = false
+    this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.nockedArrowReleased = false
@@ -620,8 +621,10 @@ export class Player {
       const isLance = equippedMelee?.animationKind === 'lance'
       if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
         if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
-          if (isLance) {
+          if (isLance && this.animator.busy) {
             this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
+          } else {
+            this.meleeAttackBufferTimer = 0
           }
         }
       } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
