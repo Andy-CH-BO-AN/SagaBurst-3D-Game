@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import type { PlayerInput } from '../player/PlayerInput'
-import { getTerrainHeight } from '../world/Terrain'
+import { getTerrainHeight, clampToPlayableWorld, PLAYABLE_WORLD_BOUND } from '../world/Terrain'
 
 export const SPECTATOR_MOVE_SPEED = 35 // Base units/sec (~4.4x normal player walk)
 export const SPECTATOR_FAST_MULTIPLIER = 3 // Shift multiplier (~105 units/sec)
@@ -14,6 +14,7 @@ export const SPECTATOR_MIN_PITCH = -Math.PI / 2 + 0.05 // ~-87 deg (prevent upsi
 export const SPECTATOR_MAX_PITCH = Math.PI / 2 - 0.05 // ~+87 deg
 export const SPECTATOR_NORMAL_FOV = 58
 export const SPECTATOR_MIN_GROUND_CLEARANCE = 1.5 // Minimum height clearance above terrain
+export const SPECTATOR_WORLD_BOUND = PLAYABLE_WORLD_BOUND // 180m bound matching 400x400 terrain
 
 export class SpectatorCameraController {
   private yaw = 0
@@ -30,6 +31,7 @@ export class SpectatorCameraController {
     public mouseSensitivity = SPECTATOR_MOUSE_SENSITIVITY,
     public minGroundClearance = SPECTATOR_MIN_GROUND_CLEARANCE,
     public terrainHeightProvider: (x: number, z: number) => number = getTerrainHeight,
+    public worldBound: number = SPECTATOR_WORLD_BOUND,
   ) {}
 
   get cameraYaw(): number {
@@ -130,7 +132,24 @@ export class SpectatorCameraController {
     this.camera.position.z += moveZ * speed * dt
     this.camera.position.y += moveY * speed * dt
 
+    // 4b. Clamp horizontal position to rendered / playable world bounds
+    if (this.worldBound === PLAYABLE_WORLD_BOUND) {
+      clampToPlayableWorld(this.camera.position)
+    } else if (this.worldBound > 0) {
+      this.camera.position.x = THREE.MathUtils.clamp(
+        this.camera.position.x,
+        -this.worldBound,
+        this.worldBound,
+      )
+      this.camera.position.z = THREE.MathUtils.clamp(
+        this.camera.position.z,
+        -this.worldBound,
+        this.worldBound,
+      )
+    }
+
     // Prevent camera from going underground (both descending and moving into hills)
+    // Terrain height provider receives the final clamped X/Z
     const groundY = this.terrainHeightProvider(this.camera.position.x, this.camera.position.z)
     const minAllowedY = groundY + this.minGroundClearance
     if (this.camera.position.y < minAllowedY) {

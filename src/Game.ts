@@ -255,6 +255,7 @@ export class Game {
   private spectatorBadge: HTMLElement | null = null
   private hintTimer: number | null = null
   private notifyTimer: number | null = null
+  private deathBannerTimer: number | null = null
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpCameraDir = new THREE.Vector3()
@@ -815,13 +816,31 @@ export class Game {
   // ── Pointer Lock ──
   private _updateLockOverlayPrompt(isResume: boolean = true): void {
     const promptEl = document.getElementById('lock-overlay-prompt')
+    const subEl = document.getElementById('lock-overlay-sub')
     if (promptEl) {
       if (this.controlMode === 'spectator') {
-        promptEl.textContent = '點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+        promptEl.textContent = '💀 你已陣亡 — 點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+        if (subEl) {
+          subEl.textContent = '(按 ESC 暫停 / 釋放游標 ｜ 自由觀戰模式)'
+        }
       } else {
         promptEl.textContent = isResume ? '點擊繼續戰鬥 ｜ CLICK TO RESUME' : '點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE'
+        if (subEl) {
+          subEl.textContent = '(按 ESC 暫停 / 釋放游標)'
+        }
       }
     }
+  }
+
+  private _showDeathBanner(): void {
+    if (!this.deathBanner) return
+    this.deathBanner.textContent = '💀 你已陣亡 — 自由觀戰模式'
+    this.deathBanner.classList.add('visible')
+    if (this.deathBannerTimer !== null) clearTimeout(this.deathBannerTimer)
+    this.deathBannerTimer = window.setTimeout(() => {
+      this.deathBanner?.classList.remove('visible')
+      this.deathBannerTimer = null
+    }, 4500)
   }
 
   private _setupPointerLock(): void {
@@ -852,11 +871,17 @@ export class Game {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this.input.requestPointerLock(this.renderer.domElement)
+        if (this.controlMode === 'spectator') {
+          this._showDeathBanner()
+        }
       }
     })
     this.renderer.domElement.addEventListener('click', () => {
       if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio && !isNoLock) {
         this.input.requestPointerLock(this.renderer.domElement)
+        if (this.controlMode === 'spectator') {
+          this._showDeathBanner()
+        }
       }
     })
     document.addEventListener('pointerlockchange', () => {
@@ -864,6 +889,9 @@ export class Game {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this._scheduleHintHide()
+        if (this.controlMode === 'spectator') {
+          this._showDeathBanner()
+        }
       } else {
         if (!this.equipmentUI?.visible) {
           this._updateLockOverlayPrompt(true)
@@ -1109,13 +1137,7 @@ export class Game {
     }
 
     // 1. Show prominent death banner and fade after 4.5 seconds
-    if (this.deathBanner) {
-      this.deathBanner.textContent = '💀 你已陣亡 — 自由觀戰模式'
-      this.deathBanner.classList.add('visible')
-      window.setTimeout(() => {
-        this.deathBanner?.classList.remove('visible')
-      }, 4500)
-    }
+    this._showDeathBanner()
 
     // 2. Show persistent spectator badge
     if (this.spectatorBadge) {

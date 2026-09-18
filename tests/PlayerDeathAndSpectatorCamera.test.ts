@@ -7,6 +7,7 @@ import {
   SPECTATOR_FAST_MULTIPLIER,
 } from '../src/camera/SpectatorCameraController'
 import { Mount, MountType } from '../src/world/Mount'
+import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../src/world/Terrain'
 
 function createMockInput() {
   let dx = 0
@@ -309,6 +310,41 @@ describe('Permanent Player Death & Spectator Camera', () => {
       // Camera must be automatically lifted to at least 25.0 + 1.5 = 26.5
       expect(camera.position.z).toBeLessThan(-10)
       expect(camera.position.y).toBeGreaterThanOrEqual(26.5)
+    })
+
+    it('clamps horizontal X/Z position to playable world bound under repeated fast flight', () => {
+      const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1000)
+      const controller = new SpectatorCameraController(camera)
+      const input = createMockInput() as any
+
+      controller.setYaw(0) // Forward is -Z
+      camera.position.set(0, 20, 0)
+
+      // Fly forward with Shift (fast) for 10 seconds (total displacement would be 1050 units)
+      input.keys['KeyW'] = true
+      input.keys['ShiftLeft'] = true
+      for (let i = 0; i < 100; i++) {
+        controller.update(input, 0.1)
+      }
+
+      // Must be clamped to -PLAYABLE_WORLD_BOUND (-180)
+      expect(camera.position.z).toBe(-PLAYABLE_WORLD_BOUND)
+      expect(camera.position.x).toBe(0)
+
+      // Fly right (+X) with Shift for 10 seconds
+      delete input.keys['KeyW']
+      input.keys['KeyD'] = true
+      for (let i = 0; i < 100; i++) {
+        controller.update(input, 0.1)
+      }
+
+      // Must be clamped to +PLAYABLE_WORLD_BOUND (180) in X, and still -180 in Z
+      expect(camera.position.x).toBe(PLAYABLE_WORLD_BOUND)
+      expect(camera.position.z).toBe(-PLAYABLE_WORLD_BOUND)
+
+      // Y-clamp must be calculated using final clamped coordinates
+      const expectedMinY = getTerrainHeight(PLAYABLE_WORLD_BOUND, -PLAYABLE_WORLD_BOUND) + 1.5
+      expect(camera.position.y).toBeGreaterThanOrEqual(expectedMinY)
     })
   })
 
