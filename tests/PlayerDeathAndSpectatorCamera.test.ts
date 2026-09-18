@@ -8,6 +8,11 @@ import {
 } from '../src/camera/SpectatorCameraController'
 import { Mount, MountType } from '../src/world/Mount'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../src/world/Terrain'
+import {
+  onSpectatorModeEntered,
+  consumeSpectatorDeathBannerPending,
+  type PlayerControlMode,
+} from '../src/Game'
 
 function createMockInput() {
   let dx = 0
@@ -388,6 +393,44 @@ describe('Permanent Player Death & Spectator Camera', () => {
       // Sound and attack must not be triggered
       expect(soundManager.playSwing).not.toHaveBeenCalled()
       expect(player.isSwinging).toBe(false)
+    })
+  })
+
+  describe('5. One-shot Spectator Death Banner on Lock Acquisition', () => {
+    it('defers death banner when overlay covers HUD on death and consumes flag exactly once on lock', () => {
+      // 1. Death occurs while overlay covers HUD (e.g. inventory open / unlocked)
+      const transition = onSpectatorModeEntered(true)
+      expect(transition.showBannerNow).toBe(false)
+      expect(transition.pendingOnNextLock).toBe(true)
+
+      const state = {
+        controlMode: 'spectator' as PlayerControlMode,
+        pendingOnNextLock: transition.pendingOnNextLock,
+      }
+
+      // 2. First pointer lock acquisition consumes flag and triggers banner
+      const firstLock = consumeSpectatorDeathBannerPending(state)
+      expect(firstLock).toBe(true)
+      expect(state.pendingOnNextLock).toBe(false)
+
+      // 3. Subsequent ESC -> resume lock does NOT re-trigger banner
+      const secondLock = consumeSpectatorDeathBannerPending(state)
+      expect(secondLock).toBe(false)
+
+      const thirdLock = consumeSpectatorDeathBannerPending(state)
+      expect(thirdLock).toBe(false)
+    })
+
+    it('shows death banner immediately if overlay is not covering HUD on death', () => {
+      const transition = onSpectatorModeEntered(false)
+      expect(transition.showBannerNow).toBe(true)
+      expect(transition.pendingOnNextLock).toBe(false)
+
+      const state = {
+        controlMode: 'spectator' as PlayerControlMode,
+        pendingOnNextLock: transition.pendingOnNextLock,
+      }
+      expect(consumeSpectatorDeathBannerPending(state)).toBe(false)
     })
   })
 })

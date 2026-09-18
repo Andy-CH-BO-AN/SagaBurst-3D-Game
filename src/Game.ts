@@ -13,6 +13,33 @@ import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 
 export type PlayerControlMode = 'player' | 'spectator'
+
+/**
+ * State helper determining whether death banner should show now or wait until next spectator lock acquisition.
+ */
+export function onSpectatorModeEntered(isOverlayCovering: boolean): {
+  showBannerNow: boolean
+  pendingOnNextLock: boolean
+} {
+  if (isOverlayCovering) {
+    return { showBannerNow: false, pendingOnNextLock: true }
+  }
+  return { showBannerNow: true, pendingOnNextLock: false }
+}
+
+/**
+ * Consumes the one-shot pending death banner flag when pointer lock is acquired in spectator mode.
+ */
+export function consumeSpectatorDeathBannerPending(state: {
+  controlMode: PlayerControlMode
+  pendingOnNextLock: boolean
+}): boolean {
+  if (state.controlMode === 'spectator' && state.pendingOnNextLock) {
+    state.pendingOnNextLock = false
+    return true
+  }
+  return false
+}
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
@@ -256,6 +283,7 @@ export class Game {
   private hintTimer: number | null = null
   private notifyTimer: number | null = null
   private deathBannerTimer: number | null = null
+  private showDeathBannerOnNextSpectatorLock = false
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpCameraDir = new THREE.Vector3()
@@ -843,6 +871,18 @@ export class Game {
     }, 4500)
   }
 
+  private _consumePendingDeathBanner(): boolean {
+    if (consumeSpectatorDeathBannerPending({
+      controlMode: this.controlMode,
+      pendingOnNextLock: this.showDeathBannerOnNextSpectatorLock,
+    })) {
+      this.showDeathBannerOnNextSpectatorLock = false
+      this._showDeathBanner()
+      return true
+    }
+    return false
+  }
+
   private _setupPointerLock(): void {
     const isNoLock = window.location.search.includes('nolock')
 
@@ -871,17 +911,11 @@ export class Game {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this.input.requestPointerLock(this.renderer.domElement)
-        if (this.controlMode === 'spectator') {
-          this._showDeathBanner()
-        }
       }
     })
     this.renderer.domElement.addEventListener('click', () => {
       if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio && !isNoLock) {
         this.input.requestPointerLock(this.renderer.domElement)
-        if (this.controlMode === 'spectator') {
-          this._showDeathBanner()
-        }
       }
     })
     document.addEventListener('pointerlockchange', () => {
@@ -889,9 +923,7 @@ export class Game {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this._scheduleHintHide()
-        if (this.controlMode === 'spectator') {
-          this._showDeathBanner()
-        }
+        this._consumePendingDeathBanner()
       } else {
         if (!this.equipmentUI?.visible) {
           this._updateLockOverlayPrompt(true)
@@ -1125,10 +1157,13 @@ export class Game {
       this.equipmentUI.close()
     }
 
-    // Ensure pointer-lock prompt and state remain recoverable in spectator mode
+    // If pointer lock is not active (e.g. was released for equipment modal), show lock overlay with spectator wording
+    // and defer death banner until pointer lock is next acquired so it isn't hidden behind the full-screen overlay.
     const isNoLock = typeof window !== 'undefined' && window.location?.search?.includes('nolock')
     const hasPointerLock = typeof document !== 'undefined' && !!document.pointerLockElement
-    if (!hasPointerLock && !this.isModelStudio && !isNoLock && this.lockOverlay) {
+    const overlayCovering = !hasPointerLock && !this.isModelStudio && !isNoLock && !!this.lockOverlay
+
+    if (overlayCovering) {
       this._updateLockOverlayPrompt(true)
       this.lockOverlay.style.display = 'flex'
       this.lockOverlay.classList.remove('hidden')
@@ -1136,8 +1171,11 @@ export class Game {
       this._updateLockOverlayPrompt(true)
     }
 
-    // 1. Show prominent death banner and fade after 4.5 seconds
-    this._showDeathBanner()
+    const { showBannerNow, pendingOnNextLock } = onSpectatorModeEntered(overlayCovering)
+    this.showDeathBannerOnNextSpectatorLock = pendingOnNextLock
+    if (showBannerNow) {
+      this._showDeathBanner()
+    }
 
     // 2. Show persistent spectator badge
     if (this.spectatorBadge) {
