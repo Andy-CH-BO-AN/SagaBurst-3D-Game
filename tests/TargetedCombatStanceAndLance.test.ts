@@ -577,4 +577,73 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
     expect(h.player.swinging).toBe(false)
   })
+
+  it('RMB Aim intent cancels buffered lance attack: no second thrust, smoothly enters Bow Aim & Camera Zoom', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // 1. Initial lance attack
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.player.swinging).toBe(true)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // Advance to recovery (t = 0.35s)
+    for (let t = 1 / 60; t < 0.35; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+
+    // 2. Early click during recovery to queue a buffered attack
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 3. While first attack is still in recovery (before action completes), player presses RMB to aim bow
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+
+    // 4. Advance through action completion (t = 0.42s) holding RMB
+    for (let t = 0.37; t <= 0.45; t += 1 / 60) {
+      h.update(input({ isRightMouseDown: true }), 1 / 60)
+    }
+
+    // Second thrust must NOT have been triggered!
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(false)
+
+    // Player should now be aiming bow, and camera zooms toward 28°
+    expect(h.player.isAiming).toBe(true)
+    for (let i = 0; i < 40; i++) {
+      h.update(input({ isRightMouseDown: true }), 1 / 60)
+    }
+    expect(h.camera.fov).toBeLessThan(30)
+    expect(h.camera.fov).toBeGreaterThanOrEqual(28)
+  })
+
+  it('Buffer is strictly scoped to Lance: sword clicks during recovery do not buffer follow-up attack', () => {
+    const h = createPlayerHarness()
+    h.inventory.addWeapon('steel_sword')
+    h.inventory.equipWeapon('steel_sword')
+    h.update(input())
+
+    // 1. Start sword slash (0.48s total)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.player.swinging).toBe(true)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 2. Advance to sword recovery (0.40s)
+    for (let t = 1 / 60; t < 0.40; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+
+    // 3. Click during recovery (sword should NOT buffer)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 4. Advance past action completion (0.50s > 0.48s)
+    for (let t = 0.41; t <= 0.55; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+
+    // Sword has no buffer: stays at 1 swing, enters idle cleanly
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(false)
+  })
 })

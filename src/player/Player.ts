@@ -386,10 +386,12 @@ export class Player {
 
   private _tryTriggerMeleeAttack(
     equippedMelee: WeaponData | null | undefined,
-    soundManager: any,
+    soundManager: SoundManager,
     blockedAim: boolean,
+    wantsBowAim = false,
   ): boolean {
     if (
+      wantsBowAim ||
       blockedAim ||
       this.aiming ||
       this.animator.busy ||
@@ -583,6 +585,10 @@ export class Player {
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
+    const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
+    if (wantsBowAim) {
+      this.meleeAttackBufferTimer = 0
+    }
     const bowReleasing = this.animator.currentAction === 'bowRelease'
     this.aiming = wantAim && !this.isSwinging && !bowReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
@@ -611,14 +617,17 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !blockedAim) {
-        if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)) {
-          this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
+      const isLance = equippedMelee?.animationKind === 'lance'
+      if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
+          if (isLance) {
+            this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
+          }
         }
-      } else if (this.meleeAttackBufferTimer > 0) {
+      } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
         this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
         if (this.meleeAttackBufferTimer > 0) {
-          this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)
+          this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
         }
       }
     }
@@ -707,8 +716,8 @@ export class Player {
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
-      if (this.meleeAttackBufferTimer > 0) {
-        this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)
+      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.animationKind === 'lance') {
+        this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
       }
     }
 
