@@ -21,7 +21,11 @@ If you are an AI agent picking up this project, please read these guidelines car
 - **Local +Z is Gameplay Forward**: Imported humanoids and the Phase-23 horse are normalized to local `+Z`; movement headings use `Math.atan2(dx, dz)`. Do not add per-model runtime flips to compensate for a wrongly exported asset.
 - **DOM Overlay over WebGL**: All UI (Health bars, Stamina bars, Inventory Grid) is purely HTML/CSS overlaid on top of the `<canvas>`. Do NOT try to build UI using `three-mesh-ui` or 3D text unless specifically requested. Update DOM elements inside `Game.ts` or dedicated UI classes.
 - **Temporary Validation Files**: 一次性的截圖、量測 JSON、探針及驗收腳本一律放在已忽略的 `output/`（例如 `output/playwright/`、`output/local-diagnostics/`）。不要複製到受版本控制的 `artifacts/` 或 `tools/`，也不要用 `git add -f` 提交；持續維護的程式測試與必要資產另依其用途管理。
-- **Document Changes**: 每次做完事，都必須檢查並更新 `ARCHITECTURE.md` 和 `PROGRESS.md` 來反映最新的系統架構改動。
+- **Document Only Durable Changes**: 不要機械式地在每個任務結束後同時擴寫 `ARCHITECTURE.md` 與 `PROGRESS.md`。
+  - 只有 durable architecture / contract 改變時才更新 `ARCHITECTURE.md`；一次性驗證流程、raw benchmark、截圖清單與 PR 細節不要放進去。
+  - 只有新的 merged/current milestone 會實質影響後續 handoff、已知限制或下一步方向時才更新 `PROGRESS.md`。
+  - `PROGRESS.md` 必須保持精簡：以 current status、最近成果、已知限制與 next investigation 為主；新內容若取代舊結論，應壓縮或替換舊段落，而不是永久追加完整歷史。
+  - 不要把完整 PR description、逐輪 benchmark table、逐幀比對、截圖數量/清單、暫存路徑或一次性 diagnostic report 複製進 `PROGRESS.md`。詳細證據留在 merged PR / Git history；本機一次性產物留在 ignored `output/`。
 
 ## 4. How to Start a New Task
 1. Read `PLAN.md` to see the roadmap context.
