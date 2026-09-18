@@ -4,7 +4,7 @@
 
 **SagaBurst** 是一個使用 **Three.js**、**TypeScript** 與 **Vite** 製作、可直接在瀏覽器中遊玩的 3D 動作 RPG 原型。
 
-目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種與 Tier，之後以 Viking 陣營玩家角色加入戰場，兩邊 AI 軍隊則會在大型戰場上自動接戰。
+目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種、Tier 與戰鬥部署模式，之後以 Viking 陣營玩家角色加入戰場，兩邊 AI 軍隊則會在大型戰場上自動接戰。
 
 ## ⚔️ Custom Battle 自訂戰役
 
@@ -23,22 +23,29 @@ Viking 與 Roman 每方都可以配置 **1–100 名 AI 士兵**，雙方兵力�
 
 Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50**、**100 vs 100** 快速配置，也可以完全手動建立自己的軍隊組合。
 
+戰鬥部署模式與兵力 Preset 分開設定：
+
+- **Formation Battle 列陣戰** — Viking 與 Roman 以確定性的陣形出生在戰場兩側。
+- **Scattered Battle 散兵大亂戰** — Player、Viking NPC 與 Roman NPC 會以確定性的散布方式分散在整個戰場，但 Viking vs Roman 的敵我關係、友軍傷害規則與勝負條件完全不變。
+
+切換 10 vs 10～100 vs 100 等兵力 Preset 只會修改軍隊配置，**不會偷偷切換目前選擇的 Battle Mode**。
+
 Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–100 名 AI 兵力，也不影響軍隊存活數判定**。
 
 ### 戰鬥流程
 
-1. 開啟遊戲後，先在 Custom Battle Setup 配置 Viking 與 Roman 軍隊。
+1. 開啟遊戲後，在 Custom Battle Setup 配置 Viking / Roman 軍隊，並選擇 **Formation Battle** 或 **Scattered Battle**。
 2. 點擊 **START BATTLE**。
-3. 雙方 AI 軍隊會按照決定性的陣形出生在戰場兩側，並自動往敵軍接戰。
+3. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
 4. 玩家可加入 Viking 一方，使用近戰武器、弓、盾、長槍與戰馬參與戰鬥。
 5. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
-6. 使用 **REMATCH** 以相同配置重開，或選擇 **BACK TO SETUP** 返回首頁重新配兵。
+6. 使用 **REMATCH** 以相同兵力與 Battle Mode 重開，或選擇 **BACK TO SETUP** 返回首頁重新配兵。
 
 如果雙方 AI 軍隊在同一時間全滅，結果會判定為 **DRAW 平局**。
 
 ## 🐎 Player 預設騎乘與裝備
 
-一般 Custom Battle 會讓 Player 以 **Viking 重裝騎兵** 身分開場，直接在 Viking 出生點騎上戰馬，不需要先徒步去找馬。
+一般 Custom Battle 會讓 Player 以 **Viking 重裝騎兵** 身分開場並直接騎上戰馬。Formation Battle 會從 Viking 固定出生點開始；Scattered Battle 則會讓 Player 與開場戰馬一起出生在該場戰鬥的確定性散布位置。
 
 預設裝備：
 
@@ -49,7 +56,7 @@ Player 是額外加入 Viking 陣營的可操作角色，**不計入 Viking 1–
 
 下馬後可以按 `Tab` 或 `I` 開啟 Equipment UI，將近戰武器從騎槍切換成 Runic Greatsword。裝備雙手大劍時，既有雙手武器邏輯會自動把目前裝備的盾牌移到背後。
 
-Player 的開場戰馬與 Viking 營地內的五匹備用戰馬是分開計算的。存檔 / 讀檔會保留騎乘狀態與坐騎實際世界座標；舊版本存檔則會保留原本的背包與裝備，不會被自動升級成新的 T3 預設裝備。
+Player 的開場戰馬與 Viking 營地內的五匹備用戰馬是分開計算的。在 Scattered Battle 中，Player 死亡後會回到該場戰鬥最初分配的散布出生點；相同設定的 REMATCH 也會重現相同的確定性部署。存檔 / 讀檔會保留騎乘狀態與坐騎實際世界座標；舊版本存檔則會保留原本的背包與裝備，不會被自動升級成新的 T3 預設裝備。
 
 ## 🏕️ 雙方營地
 
