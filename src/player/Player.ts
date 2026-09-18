@@ -51,6 +51,7 @@ const STAMINA_DRAIN     = 30   // per second while sprinting
 const STAMINA_REGEN     = 15   // per second when not sprinting
 const STAMINA_SPRINT_MIN = 10  // must have at least this much to start sprint
 const SWING_STAMINA_COST = 15  // stamina consumed per sword swing
+const MELEE_ATTACK_BUFFER_WINDOW = 0.15 // 150ms input buffer window for early attack clicks
 
 const PLAYER_RADIUS = 0.38
 const MAX_BOW_CHARGE_TIME = 1.2
@@ -100,6 +101,7 @@ export class Player {
   private isSwinging = false
   private attackHitProcessed = false
   private hitEventPending = false
+  private meleeAttackBufferTimer = 0
 
   public readonly prevLanceTipPos = new THREE.Vector3()
   public hasPrevLanceTip = false
@@ -374,11 +376,39 @@ export class Player {
     this.hitEventPending = false
     this.attackHitProcessed = false
     this.hasPrevLanceTip = false
+    this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
+  }
+
+  private _tryTriggerMeleeAttack(
+    equippedMelee: WeaponData | null | undefined,
+    soundManager: any,
+    blockedAim: boolean,
+  ): boolean {
+    if (
+      blockedAim ||
+      this.aiming ||
+      this.animator.busy ||
+      !equippedMelee ||
+      this.stamina < SWING_STAMINA_COST
+    ) {
+      return false
+    }
+    const action = this._meleeAction(equippedMelee)
+    if (this.animator.start(action)) {
+      this.isSwinging = true
+      this.attackHitProcessed = false
+      this.hitEventPending = false
+      this.stamina -= SWING_STAMINA_COST
+      soundManager.playSwing()
+      this.meleeAttackBufferTimer = 0
+      return true
+    }
+    return false
   }
 
   setMountedHeading(heading: number): void {
@@ -581,14 +611,14 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !blockedAim && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
-        const action = this._meleeAction(equippedMelee)
-        if (this.animator.start(action)) {
-          this.isSwinging = true
-          this.attackHitProcessed = false
-          this.hitEventPending = false
-          this.stamina -= SWING_STAMINA_COST
-          soundManager.playSwing()
+      if (input.consumeLeftClick() && !blockedAim) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)) {
+          this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
+        }
+      } else if (this.meleeAttackBufferTimer > 0) {
+        this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
+        if (this.meleeAttackBufferTimer > 0) {
+          this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)
         }
       }
     }
@@ -677,6 +707,9 @@ export class Player {
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
+      if (this.meleeAttackBufferTimer > 0) {
+        this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim)
+      }
     }
 
 

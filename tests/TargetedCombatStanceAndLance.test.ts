@@ -216,16 +216,26 @@ describe('Targeted Verification: Lance Reach, Attack Speed & Hit Mechanics', () 
     expect(tipLocal.y).toBeCloseTo(2.6, 2)
   })
 
-  it('Attack cadence is +20% faster (mounted 0.35s, unmounted 0.584s)', () => {
+  it('Attack cadence: unmounted lance is 0.42s (faster than sword 0.48s), mounted lance is 0.28s', () => {
     const mounted = COMBAT_ANIMATION_PROFILES['mountedLance']
     const mountedTotal = mounted.windup + mounted.active + mounted.recovery
-    expect(mountedTotal).toBeCloseTo(0.35, 2)
+    expect(mountedTotal).toBeCloseTo(0.28, 2)
 
     const unmounted = COMBAT_ANIMATION_PROFILES['lanceThrust']
     const unmountedTotal = unmounted.windup + unmounted.active + unmounted.recovery
-    expect(unmountedTotal).toBeCloseTo(0.584, 3)
+    expect(unmountedTotal).toBeCloseTo(0.42, 2)
 
-    // UI text display only
+    // Swords remain 0.48s
+    const sword = COMBAT_ANIMATION_PROFILES['swordSlash']
+    const swordTotal = sword.windup + sword.active + sword.recovery
+    expect(swordTotal).toBeCloseTo(0.48, 2)
+
+    // Unmounted lance (0.42s) is faster than sword (0.48s)
+    expect(unmountedTotal).toBeLessThan(swordTotal)
+    // Mounted lance (0.28s) has rapid thrust cadence
+    expect(mountedTotal).toBeLessThan(unmountedTotal)
+
+    // UI text display
     expect(WEAPONS['steel_lance'].speedOrCharge).toBe(0.42)
     expect(WEAPONS['steel_lance'].range).toBe(3.9)
   })
@@ -372,7 +382,7 @@ describe('Targeted Verification: Lance Visual Reach in CharacterEquipmentPose', 
         // Action profile
         const action = mounted ? 'mountedLance' : 'lanceThrust'
         const profile = COMBAT_ANIMATION_PROFILES[action]
-        const hitTime = mounted ? 0.228 : 0.38
+        const hitTime = profile.windup + profile.active * 0.9
         const halfThrustTime = profile.windup + (hitTime - profile.windup) * 0.5
 
         fixture.animator.start(action)
@@ -430,8 +440,9 @@ describe('Targeted Verification: Lance Gameplay Reach & Swept Hit Mechanics', ()
     const playerForward = new THREE.Vector3(0, 0, 1)
 
     // At full thrust:
+    const thrustProfile = COMBAT_ANIMATION_PROFILES['lanceThrust']
     fixture.animator.start('lanceThrust')
-    fixture.animator.update(0.38)
+    fixture.animator.update(thrustProfile.windup + thrustProfile.active * 0.9)
     const fullThrust = fixture.measure()
     const currTipPos = fullThrust.tip
     const currGripPos = fullThrust.grip
@@ -474,5 +485,96 @@ describe('Targeted Verification: Lance Gameplay Reach & Swept Hit Mechanics', ()
     // d1Sq is 0 because aiCenter is exactly on the swept line segment [prevTipPos, currTipPos]
     const hitResult = checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, sweptEnemy, false)
     expect(hitResult).toBe(true)
+  })
+})
+
+describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', () => {
+  it('Early click during recovery queues and immediately triggers next attack upon busy end', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // 1. Initial attack (lanceThrust total = 0.42s)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.player.swinging).toBe(true)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // Advance 0.35s into the 0.42s attack (during recovery, 0.07s before completion)
+    for (let t = 1 / 60; t < 0.35; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+    expect(h.player.swinging).toBe(true)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 2. Early click during recovery (within 150ms buffer window)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    // First attack is still running, sound should NOT have been called again yet
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 3. Advance to completion (0.42s)
+    for (let t = 0.35 + 1 / 60; t <= 0.42 + 1e-4; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+    // Buffer should have immediately triggered the second attack!
+    expect(h.player.swinging).toBe(true)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(2)
+  })
+
+  it('Single click never triggers two attacks', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // Single click
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // Run through the entire attack and into idle (0.6s > 0.42s) without clicking again
+    for (let t = 0; t < 0.6; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+
+    // Must remain exactly 1 swing, not 2
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(false)
+  })
+
+  it('Holding LMB does NOT auto-repeat attacks', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // Frame 0: mouse down (click happens)
+    h.update(input({ isLeftMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // Next 60 frames: LMB is held down (isLeftMouseDown = true, but consumeLeftClick = false)
+    for (let i = 0; i < 60; i++) {
+      h.update(input({ isLeftMouseDown: true, consumeLeftClick: () => false }), 1 / 60)
+    }
+
+    // Must not auto-repeat
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(false)
+  })
+
+  it('Click too early (>150ms before completion, e.g. during windup) expires and does not trigger next attack', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // 1. Initial attack
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 2. Click immediately during early windup (t = 0.03s, which is 0.39s > 0.15s before 0.42s completion)
+    h.update(input(), 1 / 60)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+
+    // 3. Advance to completion (0.42s) without clicking again
+    for (let t = 0.05; t <= 0.50; t += 1 / 60) {
+      h.update(input(), 1 / 60)
+    }
+
+    // Buffer expired, so it should cleanly return to idle without triggering a second attack
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(false)
   })
 })

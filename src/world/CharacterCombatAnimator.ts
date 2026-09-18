@@ -34,8 +34,8 @@ export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnim
   bowAim: { windup: 0.18, active: 0, recovery: 0 },
   bowRelease: { windup: 0.04, active: 0, recovery: 0.18 },
   pilumThrow: { windup: 1.5, active: 0, recovery: 0 },
-  lanceThrust: { windup: 0.167, active: 0.167, recovery: 0.250 },
-  mountedLance: { windup: 0.10, active: 0.10, recovery: 0.15 },
+  lanceThrust: { windup: 0.12, active: 0.14, recovery: 0.16 },
+  mountedLance: { windup: 0.08, active: 0.08, recovery: 0.12 },
 }
 
 const clamp01 = (value: number): number => THREE.MathUtils.clamp(value, 0, 1)
