@@ -5,6 +5,15 @@
  */
 import * as THREE from 'three'
 
+export const TERRAIN_SIZE = 400
+export const PLAYABLE_WORLD_BOUND = 180
+
+/** Keeps actors on the rendered terrain while leaving a 20m safety margin at each edge. */
+export function clampToPlayableWorld(position: THREE.Vector3): void {
+  position.x = THREE.MathUtils.clamp(position.x, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
+  position.z = THREE.MathUtils.clamp(position.z, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
+}
+
 /**
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
@@ -207,7 +216,7 @@ export function resolveObstacleCollision(
 
 export function createTerrain(scene: THREE.Scene): TerrainResult {
   // 400x400 Plane with 128x128 subdivisions for smooth hill curves
-  const geometry = new THREE.PlaneGeometry(400, 400, 128, 128)
+  const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 128, 128)
   geometry.rotateX(-Math.PI / 2)
 
   // Apply procedural height function to PlaneGeometry vertices

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import type { Faction, NPC } from './NPC'
 import {
   HorseAssetRegistry,
@@ -244,8 +244,7 @@ export class Mount {
     )
     this.velY = collision.velocityY
     this.onGround = collision.onGround
-    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
-    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+    clampToPlayableWorld(this.group.position)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.horseVisual) {
       if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.horseVisual.playOnce('land')
@@ -376,8 +375,7 @@ export class Mount {
       0,
       this.group.position.z + Math.sin(angle) * distance,
     )
-    this.wanderTarget.x = THREE.MathUtils.clamp(this.wanderTarget.x, -95, 95)
-    this.wanderTarget.z = THREE.MathUtils.clamp(this.wanderTarget.z, -95, 95)
+    clampToPlayableWorld(this.wanderTarget)
   }
 
   update(dt: number, obstacles: ObstacleData[]): void {

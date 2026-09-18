@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Faction, AIType } from '../src/world/NPC'
-import { BattleSpawner, BattleSpawnPlan, VIKING_PLAYER_SPAWN, PLAYER_SAFE_CLEARANCE } from '../src/battle/BattleSpawner'
+import { BattleSpawner, BattleSpawnPlan, BATTLE_FRONTLINE_Z, CAMP_HORSE_Z, CAMP_PICKUP_Z, VIKING_PLAYER_SPAWN, PLAYER_SAFE_CLEARANCE } from '../src/battle/BattleSpawner'
 import {
   BattleConfig,
   createEmptyArmyConfig,
@@ -12,12 +12,12 @@ import {
 } from '../src/battle/BattleConfig'
 
 function verifyPlanInvariants(plan: BattleSpawnPlan): void {
-  // 1. Dual-axis bounds validation (within 400x400 terrain, X: -200..200, Z: -200..200)
+  // 1. Staging-band validation: armies start near the outer map region but stay in front of camps.
   for (const spec of plan.npcSpecs) {
     expect(Math.abs(spec.x)).toBeLessThanOrEqual(190)
     const absZ = Math.abs(spec.z)
-    expect(absZ).toBeGreaterThanOrEqual(67.5)
-    expect(absZ).toBeLessThan(84)
+    expect(absZ).toBeGreaterThanOrEqual(BATTLE_FRONTLINE_Z - 1)
+    expect(absZ).toBeLessThan(CAMP_PICKUP_Z)
 
     // Directional sign check
     if (spec.faction === Faction.PLAYER) {
@@ -51,6 +51,13 @@ function verifyPlanInvariants(plan: BattleSpawnPlan): void {
 let minObservedDist = Infinity
 
 describe('BattleSpawner Deterministic Formation', () => {
+  it('places the player and camps behind the outer army staging band', () => {
+    expect(VIKING_PLAYER_SPAWN.z).toBeGreaterThan(BATTLE_FRONTLINE_Z)
+    expect(CAMP_PICKUP_Z).toBeGreaterThan(VIKING_PLAYER_SPAWN.z)
+    expect(CAMP_HORSE_Z).toBeGreaterThan(CAMP_PICKUP_Z)
+    expect(CAMP_HORSE_Z).toBeLessThan(180)
+  })
+
   it('generates non-overlapping coordinates in bounds for PRESET_10V10', () => {
     const plan = BattleSpawner.createSpawnPlan(PRESET_10V10)
     expect(plan.npcSpecs.length).toBe(20)
@@ -141,15 +148,15 @@ describe('BattleSpawner Deterministic Formation', () => {
 
     const vikingPickups = plan.pickupSpecs.filter(p => p.z > 0)
     const romanPickups = plan.pickupSpecs.filter(p => p.z < 0)
-    expect(vikingPickups.every(p => p.z === 84)).toBe(true)
-    expect(romanPickups.every(p => p.z === -84)).toBe(true)
+    expect(vikingPickups.every(p => p.z === CAMP_PICKUP_Z)).toBe(true)
+    expect(romanPickups.every(p => p.z === -CAMP_PICKUP_Z)).toBe(true)
 
     const vikingHorses = plan.horseSpecs.filter(h => h.z > 0)
     const romanHorses = plan.horseSpecs.filter(h => h.z < 0)
     expect(vikingHorses.length).toBe(5)
     expect(romanHorses.length).toBe(5)
-    expect(vikingHorses.every(h => h.z === 88)).toBe(true)
-    expect(romanHorses.every(h => h.z === -88)).toBe(true)
+    expect(vikingHorses.every(h => h.z === CAMP_HORSE_Z)).toBe(true)
+    expect(romanHorses.every(h => h.z === -CAMP_HORSE_Z)).toBe(true)
   })
 
   it('ensures all Viking NPC spawn positions maintain safe clearance from Player spawn in 100v100 and 100 Infantry', () => {

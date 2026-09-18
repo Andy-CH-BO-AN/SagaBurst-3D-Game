@@ -36,7 +36,10 @@ export interface CampHorseSpec {
   stableKey: string
 }
 
-export const VIKING_PLAYER_SPAWN = { x: 0, z: 80.8 }
+export const BATTLE_FRONTLINE_Z = 125.0
+export const VIKING_PLAYER_SPAWN = { x: 0, z: 145.0 }
+export const CAMP_PICKUP_Z = 151.0
+export const CAMP_HORSE_Z = 158.0
 export const PLAYER_SAFE_CLEARANCE = 2.0
 
 export interface BattleSpawnPlan {
@@ -107,11 +110,9 @@ export class BattleSpawner {
   }
 
   /**
-   * Calculates deterministic coordinates in bounded staging area.
-   * Safe bounds:
-   *   |X| <= 35
-   *   68 <= |Z| <= 82
-   *   Camp starts at |Z| >= 84
+   * Calculates deterministic coordinates in the outer staging band.
+   * Front lines start at |Z| = BATTLE_FRONTLINE_Z and formations extend
+   * toward their faction's map edge. Camps remain behind the armies.
    */
   private static _generateArmySpecs(
     army: ArmyConfig,
@@ -129,7 +130,7 @@ export class BattleSpawner {
     const infPerRow = footTotal > 50 ? 20 : (units.infantry.length > 20 ? 15 : 10)
     const infSpacingX = 2.4
     const infRowSpacingZ = 2.2
-    const infStartOffsetZ = 68.0
+    const infStartOffsetZ = BATTLE_FRONTLINE_Z
 
     let infRowCount = 0
     if (units.infantry.length > 0) {
@@ -164,7 +165,7 @@ export class BattleSpawner {
     const archRowSpacingZ = 2.2
     const archBaseZ = units.infantry.length > 0
       ? infStartOffsetZ + infRowCount * infRowSpacingZ + 1.2
-      : 68.0
+      : BATTLE_FRONTLINE_Z
 
     for (let i = 0; i < units.archer.length; i++) {
       const u = units.archer[i]
@@ -194,7 +195,7 @@ export class BattleSpawner {
     const maxColPerWing = mountedTotal > 30 ? 8 : 4
     const wingSpacingX = 2.2
     const wingSpacingZ = 2.1
-    const startZ = 68.0
+    const startZ = BATTLE_FRONTLINE_Z
 
     const maxFootUnitsInRow = Math.max(
       units.infantry.length > 0 ? Math.min(infPerRow, units.infantry.length) : 0,
@@ -285,7 +286,7 @@ export class BattleSpawner {
 
   private static _generateCampPickups(faction: Faction): CampPickupSpec[] {
     const isViking = faction === Faction.PLAYER
-    const z = (isViking ? 84.0 : -84.0)
+    const z = (isViking ? CAMP_PICKUP_Z : -CAMP_PICKUP_Z)
     const pickups: CampPickupSpec[] = []
 
     if (isViking) {
@@ -346,7 +347,7 @@ export class BattleSpawner {
 
   private static _generateCampHorses(faction: Faction): CampHorseSpec[] {
     const isViking = faction === Faction.PLAYER
-    const z = (isViking ? 88.0 : -88.0)
+    const z = (isViking ? CAMP_HORSE_Z : -CAMP_HORSE_Z)
     const prefix = isViking ? 'viking' : 'roman'
     const horses: CampHorseSpec[] = []
     const spacing = 3.2

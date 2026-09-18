@@ -7,7 +7,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 import * as THREE from 'three'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
-import { getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
@@ -606,9 +606,8 @@ export class NPC {
         // Move towards target / charge + separation
         this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
         
-        // Map boundary clamp
-        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
-        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+        // Keep chase movement inside the shared playable world boundary.
+        clampToPlayableWorld(this.group.position)
         break
       }
 
@@ -785,9 +784,8 @@ export class NPC {
       this.velY = collision.velocityY
       this.onGround = collision.onGround
       
-      // Global Map boundary clamp for foot NPCs
-      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
-      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+      // Re-apply after terrain / obstacle resolution for foot NPCs.
+      clampToPlayableWorld(this.group.position)
     }
   }
 
