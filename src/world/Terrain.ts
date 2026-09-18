@@ -8,6 +8,11 @@ import * as THREE from 'three'
 export const TERRAIN_SIZE = 400
 export const PLAYABLE_WORLD_BOUND = 180
 
+/** Hardcoded pine tree positions calibrated with getTerrainHeight. */
+export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
+  [18, -22], [-28, 18], [40, -5], [-12, 35], [25, 15],
+]
+
 /** Keeps actors on the rendered terrain while leaving a 20m safety margin at each edge. */
 export function clampToPlayableWorld(position: THREE.Vector3): void {
   position.x = THREE.MathUtils.clamp(position.x, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
@@ -247,11 +252,8 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
   // ── Pine trees (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
   const treeTrunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
   const treeLeafMat  = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
-  const treePositions: [number, number][] = [
-    [18, -22], [-28, 18], [40, -5], [-12, 35], [25, 15],
-  ]
 
-  treePositions.forEach(([tx, tz]) => {
+  TERRAIN_TREE_POSITIONS.forEach(([tx, tz]) => {
     const terrainY = getTerrainHeight(tx, tz)
 
     const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)

@@ -10,6 +10,7 @@ import {
   UnitTier,
   ArmyConfig,
 } from './BattleConfig'
+import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
 
 export interface NpcSpawnSpec {
   x: number
@@ -46,15 +47,8 @@ export const SCATTER_BOUND_MIN = -140.0
 export const SCATTER_BOUND_MAX = 140.0
 export const SCATTER_BASE_SEED = 0x5a6ab7
 export const PLAYER_SCATTERED_CLEARANCE = 5.0
-
-const TREE_OBSTACLES = [
-  { x: 18, z: -22 },
-  { x: -28, z: 18 },
-  { x: 40, z: -5 },
-  { x: -12, z: 35 },
-  { x: 25, z: 15 },
-]
-const TREE_EXCLUSION_RADIUS = 3.0
+export const SCATTER_CLEARANCE_BUFFER = 0.5
+export const SCATTER_TREE_EXCLUSION_RADIUS = 3.0
 
 function createMulberry32(seed: number = SCATTER_BASE_SEED) {
   let s = seed >>> 0
@@ -184,12 +178,13 @@ export class BattleSpawner {
     const actorCount = totalNpcCount + 1 // + 1 for Player
 
     let gridSize = Math.max(6, Math.ceil(Math.sqrt(actorCount)) + 1)
-    while (gridSize * gridSize - TREE_OBSTACLES.length * 2 < actorCount) {
+    while (gridSize * gridSize - TERRAIN_TREE_POSITIONS.length * 2 < actorCount) {
       gridSize++
     }
 
     const cellSize = (SCATTER_BOUND_MAX - SCATTER_BOUND_MIN) / gridSize
-    const maxJitter = Math.min(5.0, Math.max(1.0, (cellSize - 5.5) / 2))
+    const minRequiredSpacing = PLAYER_SCATTERED_CLEARANCE + SCATTER_CLEARANCE_BUFFER
+    const maxJitter = Math.min(5.0, Math.max(1.0, (cellSize - minRequiredSpacing) / 2))
 
     const prng = createMulberry32(SCATTER_BASE_SEED)
     const candidates: Array<{ x: number; z: number }> = []
@@ -204,8 +199,8 @@ export class BattleSpawner {
         const z = Math.round((cz + jz) * 100) / 100
 
         let nearObstacle = false
-        for (const tree of TREE_OBSTACLES) {
-          if (Math.hypot(x - tree.x, z - tree.z) < TREE_EXCLUSION_RADIUS) {
+        for (const [tx, tz] of TERRAIN_TREE_POSITIONS) {
+          if (Math.hypot(x - tx, z - tz) < SCATTER_TREE_EXCLUSION_RADIUS) {
             nearObstacle = true
             break
           }

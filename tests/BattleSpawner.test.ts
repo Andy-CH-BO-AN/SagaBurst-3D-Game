@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { Faction, AIType } from '../src/world/NPC'
-import { BattleSpawner, BattleSpawnPlan, BATTLE_FRONTLINE_Z, CAMP_HORSE_Z, CAMP_PICKUP_Z, VIKING_PLAYER_SPAWN, PLAYER_SAFE_CLEARANCE } from '../src/battle/BattleSpawner'
+import {
+  BattleSpawner,
+  BattleSpawnPlan,
+  BATTLE_FRONTLINE_Z,
+  CAMP_HORSE_Z,
+  CAMP_PICKUP_Z,
+  VIKING_PLAYER_SPAWN,
+  PLAYER_SAFE_CLEARANCE,
+  SCATTER_TREE_EXCLUSION_RADIUS,
+} from '../src/battle/BattleSpawner'
+import { TERRAIN_TREE_POSITIONS } from '../src/world/Terrain'
 import {
   BattleConfig,
   createEmptyArmyConfig,
@@ -192,14 +202,6 @@ describe('BattleSpawner Deterministic Formation', () => {
 })
 
 describe('BattleSpawner Deterministic Scattered Battle', () => {
-  const TREES = [
-    { x: 18, z: -22 },
-    { x: -28, z: 18 },
-    { x: 40, z: -5 },
-    { x: -12, z: 35 },
-    { x: 25, z: 15 },
-  ]
-
   it('generates exact actor counts: 10v10 (20 NPCs + 1 player) and 100v100 (200 NPCs + 1 player)', () => {
     const scattered10: BattleConfig = { ...PRESET_10V10, mode: 'scattered' }
     const plan10 = BattleSpawner.createSpawnPlan(scattered10)
@@ -254,9 +256,9 @@ describe('BattleSpawner Deterministic Scattered Battle', () => {
     const allActors = [{ x: plan.playerSpawn.x, z: plan.playerSpawn.z }, ...plan.npcSpecs]
 
     for (const actor of allActors) {
-      for (const tree of TREES) {
-        const dist = Math.hypot(actor.x - tree.x, actor.z - tree.z)
-        expect(dist).toBeGreaterThanOrEqual(2.8)
+      for (const [tx, tz] of TERRAIN_TREE_POSITIONS) {
+        const dist = Math.hypot(actor.x - tx, actor.z - tz)
+        expect(dist).toBeGreaterThanOrEqual(SCATTER_TREE_EXCLUSION_RADIUS)
       }
     }
   })
