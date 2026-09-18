@@ -503,7 +503,7 @@ export class Player {
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.isShieldActive || this.bowChargeTime <= 0.01 || this.arrows <= 0 || this.animator.busy) return
+    if (this.isShieldActive || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -588,23 +588,27 @@ export class Player {
     if (this.aiming) {
       this.nockedArrowReleased = false
 
-      if (this.arrows > 0) {
+      if (input.isLeftMouseDown && this.arrows > 0) {
         this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
         quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
       }
       this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
 
-      if (input.consumeLeftClickRelease() || input.consumeLeftClick()) {
-        if (this.bowChargeTime <= 0.05 && this.arrows > 0) {
-          this.bowChargeTime = 0.05
+      input.consumeLeftClick()
+
+      if (input.consumeLeftClickRelease()) {
+        if (this.bowChargeTime > 0.1 && this.arrows > 0) {
+          this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
         }
-        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
+        this.bowChargeTime = 0
         quiverUI.setChargeRatio(0)
       }
     } else {
       input.consumeLeftClickRelease()
-      if (this.bowChargeTime > 0.02 && this.arrows > 0) {
+      if (this.bowChargeTime > 0.1 && this.arrows > 0) {
         this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
+      } else {
+        this.bowVisualDrawRatio = 0
       }
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)

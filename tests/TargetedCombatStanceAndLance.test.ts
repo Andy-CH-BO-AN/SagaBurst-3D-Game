@@ -63,12 +63,12 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isShieldActive).toBe(false)
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3') // Loadout shield remains intact!
 
-    // Camera zooms smoothly toward 40°
-    for (let i = 0; i < 30; i++) {
+    // Camera zooms smoothly toward 28° (AIM_FOV)
+    for (let i = 0; i < 60; i++) {
       h.update(input({ isRightMouseDown: true }), 1 / 60)
     }
-    expect(h.camera.fov).toBeLessThan(42)
-    expect(h.camera.fov).toBeGreaterThanOrEqual(40)
+    expect(h.camera.fov).toBeLessThan(30)
+    expect(h.camera.fov).toBeGreaterThanOrEqual(28)
 
     // 3. RMB release -> isAiming = false, stays in ranged stance with bow in hand, shield remains stowed
     h.update(input({ isRightMouseDown: false }))
@@ -78,7 +78,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
 
     // Camera zooms smoothly back toward 58°
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       h.update(input({ isRightMouseDown: false }), 1 / 60)
     }
     expect(h.camera.fov).toBeGreaterThan(56)
@@ -90,6 +90,81 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isShieldActive).toBe(true)
   })
 
+  // Test 1: RMB only -> isAiming === true, but bowDrawRatio === 0
+  it('RMB only -> isAiming true, bowDrawRatio stays 0 (no auto-charge)', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // Hold RMB only (no LMB) for 30 frames
+    for (let i = 0; i < 30; i++) {
+      h.update(input({ isRightMouseDown: true }), 1 / 60)
+    }
+    expect(h.player.isAiming).toBe(true)
+    expect(h.player.isShieldActive).toBe(false)
+    // bowDrawRatio must remain 0 — RMB alone does NOT draw the bow
+    expect(h.player.bowDrawRatio).toBe(0)
+  })
+
+  // Test 2: RMB + hold LMB -> bowDrawRatio increases smoothly over time
+  it('RMB + hold LMB -> bowDrawRatio increases smoothly; release LMB -> shoots arrow', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // Enter aim
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+    expect(h.player.isAiming).toBe(true)
+    expect(h.player.bowDrawRatio).toBe(0)
+
+    // Hold LMB for 10 frames -> bow should start drawing
+    for (let i = 0; i < 10; i++) {
+      h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 1 / 60)
+    }
+    const ratio1 = h.player.bowDrawRatio
+    expect(ratio1).toBeGreaterThan(0)
+
+    // Hold LMB for 20 more frames -> ratio increases further
+    for (let i = 0; i < 20; i++) {
+      h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 1 / 60)
+    }
+    expect(h.player.bowDrawRatio).toBeGreaterThan(ratio1)
+
+    // Release LMB -> fires arrow
+    const initialArrows = h.player.arrowCount
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: false, consumeLeftClickRelease: () => true }), 1 / 60)
+    expect(h.player.combatAnimationAction).toBe('bowRelease')
+
+    // Advance through projectileRelease
+    h.update(input({ isRightMouseDown: true }), 0.1)
+    expect(h.player.arrowCount).toBe(initialArrows - 1)
+    expect(h.sounds.playBowRelease).toHaveBeenCalled()
+  })
+
+  // Test 3: release RMB without LMB charge -> does not shoot, only exits aim
+  it('release RMB without LMB charge -> exits aim without shooting', () => {
+    const h = createPlayerHarness()
+    h.update(input())
+
+    // Enter aim with RMB, but do NOT hold LMB
+    for (let i = 0; i < 10; i++) {
+      h.update(input({ isRightMouseDown: true }), 1 / 60)
+    }
+    expect(h.player.isAiming).toBe(true)
+    expect(h.player.bowDrawRatio).toBe(0)
+
+    const initialArrows = h.player.arrowCount
+
+    // Release RMB (no LMB was held) -> should only exit aim, not fire
+    h.update(input({ isRightMouseDown: false }), 1 / 60)
+    expect(h.player.isAiming).toBe(false)
+    // bowRelease animation must NOT have been triggered
+    expect(h.player.combatAnimationAction).not.toBe('bowRelease')
+    // Arrow count unchanged
+    h.update(input(), 0.1)
+    expect(h.player.arrowCount).toBe(initialArrows)
+    expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
+  })
+
+  // Test 4: shield loadout retained, switching to melee restores shield active
   it('持盾時按 RMB 進入 Aim，釋放 LMB 正常射出箭矢', () => {
     const h = createPlayerHarness()
     h.update(input())
@@ -113,62 +188,26 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).toHaveBeenCalled()
   })
 
-  it('僅按住 RMB 瞄準即有慢慢拉弓的動畫（bowDrawRatio 隨幀平滑遞增），釋放 RMB 射出箭矢', () => {
-    const h = createPlayerHarness()
-    h.update(input())
-    expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
-
-    // Hold RMB only (no LMB)
-    h.update(input({ isRightMouseDown: true }), 1 / 60)
-    expect(h.player.isAiming).toBe(true)
-    expect(h.player.isShieldActive).toBe(false)
-    const ratio1 = h.player.bowDrawRatio
-    expect(ratio1).toBeGreaterThan(0)
-
-    // Advance 10 frames with RMB only
-    for (let i = 0; i < 10; i++) {
-      h.update(input({ isRightMouseDown: true }), 1 / 60)
-    }
-    const ratio2 = h.player.bowDrawRatio
-    expect(ratio2).toBeGreaterThan(ratio1)
-
-    // Advance 20 more frames
-    for (let i = 0; i < 20; i++) {
-      h.update(input({ isRightMouseDown: true }), 1 / 60)
-    }
-    const ratio3 = h.player.bowDrawRatio
-    expect(ratio3).toBeGreaterThan(ratio2)
-
-    // Release RMB -> shoots
-    const initialArrows = h.player.arrowCount
-    h.update(input({ isRightMouseDown: false }), 1 / 60)
-    expect(h.player.combatAnimationAction).toBe('bowRelease')
-
-    // Advance past projectileRelease
-    h.update(input(), 0.1)
-    expect(h.player.arrowCount).toBe(initialArrows - 1)
-    expect(h.sounds.playBowRelease).toHaveBeenCalled()
-  })
-
+  // Test 5: LMB when not aiming -> auto-switch to melee, restore shield, attack
   it('使用完弓箭後，按左鍵自動切回近戰姿態、恢復盾牌並揮擊近戰武器', () => {
     const h = createPlayerHarness()
     h.update(input())
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
     expect(h.player.isShieldActive).toBe(true)
 
-    // 1. 按住 RMB 瞄準拉弓
+    // 1. 按住 RMB + LMB 瞄準拉弓
     h.update(input({ isRightMouseDown: true }), 1 / 60)
     expect(h.player.isAiming).toBe(true)
     expect(h.player.isShieldActive).toBe(false)
     expect(h.player.currentCombatStance).toBe('ranged')
 
     for (let i = 0; i < 20; i++) {
-      h.update(input({ isRightMouseDown: true }), 1 / 60)
+      h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 1 / 60)
     }
     expect(h.player.bowDrawRatio).toBeGreaterThan(0.1)
 
-    // 2. 釋放 RMB 射箭
-    h.update(input({ isRightMouseDown: false }), 1 / 60)
+    // 2. 釋放 LMB 射箭（仍持 RMB）
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: false, consumeLeftClickRelease: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('bowRelease')
 
     // 完成放箭動作 (0.25s)

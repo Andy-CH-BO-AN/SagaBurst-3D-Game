@@ -1117,8 +1117,9 @@ export class Game {
           toTarget.y = 0
           const forwardDist = toTarget.dot(playerForward)
           const hitTolerance = npc.isMounted ? 0.85 : 0.60
+          const lanceReach = equippedMelee.range || 3.9
 
-          if (forwardDist <= 0 || forwardDist > 3.9 + hitTolerance) continue
+          if (forwardDist <= 0 || forwardDist > lanceReach + hitTolerance) continue
 
           const d1Sq = distToSegmentSq(aiCenter, prevTipPos, currTipPos)
           const d2Sq = distToSegmentSq(aiCenter, currGripPos, currTipPos)
