@@ -7,6 +7,8 @@ import { Game } from './Game'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
 
+if (import.meta.env.DEV) void import('./debug/EquipmentRenderCensus')
+
 window.addEventListener('error', (e) => {
   const errDiv = document.createElement('div')
   errDiv.style.position = 'absolute'

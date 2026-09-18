@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Faction } from './NPC'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
+import { equipmentDetail } from './EquipmentVisualLODController'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
@@ -213,7 +214,7 @@ export class WeaponMeshFactory {
       fullerBack.position.z = -0.021
       pivot.add(fullerBack)
       pivot.add(mergeRigidGeometryParts([...wraps, pommel, guard], darkSteel, 'sword-grip-metal'))
-      pivot.add(mergeRigidGeometryParts([fullerFront, fullerBack], fullerMaterial, 'sword-fullers'))
+      pivot.add(equipmentDetail(mergeRigidGeometryParts([fullerFront, fullerBack], fullerMaterial, 'sword-fullers'), 0))
 
       tipLocal.set(0, 1.51, 0)
     }
@@ -286,7 +287,7 @@ export class WeaponMeshFactory {
     for (const side of [-1, 1]) {
       const cap = new THREE.Mesh(new THREE.SphereGeometry(profile.gripRadius * 0.38, 10, 8), wood)
       cap.position.set(0, side * halfSpan, -0.035)
-      bowModel.add(cap)
+      bowModel.add(equipmentDetail(cap, 0))
     }
     const topTip = new THREE.Vector3(0, halfSpan, -0.035)
     const botTip = new THREE.Vector3(0, -halfSpan, -0.035)
@@ -387,7 +388,7 @@ export class WeaponMeshFactory {
 
       const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.023, 0.16, 10), ironMat)
       socket.position.y = 1.24
-      pivot.add(socket)
+      pivot.add(equipmentDetail(socket, 1))
 
       if (tier === 1) {
         const head = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.15, 4), ironMat)
@@ -408,7 +409,7 @@ export class WeaponMeshFactory {
 
         const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), goldMat)
         wrap.position.y = 1.2
-        pivot.add(wrap)
+        pivot.add(equipmentDetail(wrap, 0))
 
         const head = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), ironMat)
         head.position.y = 1.775
@@ -490,12 +491,12 @@ export class WeaponMeshFactory {
         pivot.add(wing)
         emblems.push(wing)
       }
-      pivot.add(mergeRigidGeometryParts(emblems, emblemMat, 'scutum-emblem'))
+      pivot.add(equipmentDetail(mergeRigidGeometryParts(emblems, emblemMat, 'scutum-emblem'), 1))
       const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.rotation.z = Math.PI / 2
       rearGrip.name = 'shield-rear-grip'
-      pivot.add(rearGrip)
+      pivot.add(equipmentDetail(rearGrip, 0))
     } else {
       const wood = proceduralMaterial({ kind: 'wood', color: 0x65452d, roughness: 0.84, repeat: [5, 3] })
       const paint = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x294d64 : 0x435443, roughness: 0.82, repeat: [5, 3] })
@@ -514,7 +515,7 @@ export class WeaponMeshFactory {
       }
       const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.023, 10, 32), tier >= 2 ? iron : leather)
       rim.position.z = 0.18
-      pivot.add(rim)
+      pivot.add(equipmentDetail(rim, 1))
       const boss = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron)
       boss.position.set(0, 0, 0.205)
       boss.scale.z = 0.58
@@ -527,12 +528,12 @@ export class WeaponMeshFactory {
         pivot.add(rearStrap)
         leatherDetails.push(rearStrap)
       }
-      pivot.add(mergeRigidGeometryParts(leatherDetails, leather, 'shield-rear-strap'))
+      pivot.add(equipmentDetail(mergeRigidGeometryParts(leatherDetails, leather, 'shield-rear-strap'), 0))
       const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.rotation.z = Math.PI / 2
       rearGrip.name = 'shield-rear-grip'
-      pivot.add(rearGrip)
+      pivot.add(equipmentDetail(rearGrip, 0))
       if (tier === 3) {
         const bossDetails: THREE.Mesh[] = [boss]
         for (let index = 0; index < 8; index++) {

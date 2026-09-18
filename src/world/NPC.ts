@@ -22,6 +22,7 @@ import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract
 import { applyBowAttachment } from './BowAttachmentContract'
 import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
 import { horseVariantForStableKey } from './HorseAssetRegistry'
+import { EquipmentVisualLODController } from './EquipmentVisualLODController'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
 import { getDirectionalMovementFromVector, getEffectiveSpeedMultiplier } from '../movement/DirectionalMovement'
@@ -87,6 +88,7 @@ export class NPC {
   private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
   public shieldId: string | null = null
+  readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
 
   private flashMat: THREE.MeshBasicMaterial
@@ -293,6 +295,12 @@ export class NPC {
     }
 
     this.rebuildShield()
+    this.equipmentVisualLOD.register(this.isUsingLance ? 'lance' : 'sword', this.swordGripPivot)
+    this.equipmentVisualLOD.register(this.bowVisual ? 'bow' : 'pilum', this.bowGripPivot)
+    // Equipment proxies are siblings of this LOD, so its render-time selection
+    // reaches the detail children before the renderer submits those proxies.
+    const humanoidLOD = this.bodyMesh.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)
+    if (humanoidLOD) this.equipmentVisualLOD.followHumanoid(humanoidLOD)
 
     this.alertSprite = this._createAlertSprite()
     this.alertSprite.position.set(0, 2.3, 0)
@@ -344,6 +352,7 @@ export class NPC {
       polishWeaponMaterials(this.shieldPivot)
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
+    this.equipmentVisualLOD.register('shield', this.shieldPivot)
   }
 
   private get hasActiveRangedWeapon(): boolean {

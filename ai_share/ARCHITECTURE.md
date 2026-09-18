@@ -72,8 +72,15 @@ skyrim 3D test/
 ### 劍盾 rigid renderable consolidation
 - `WeaponMeshFactory` 只以 builder 明確列出的同材質、同 render flags 剛性零件合併；內部 `mergeRigidGeometryParts` 複製 geometry、烘焙 child local matrix、補齊順序 index，再以 `mergeGeometries(..., false)` 建立 identity-transform Mesh。保留 normal／UV／原三角形，不置中、不焊接頂點；清理暫存及已移除零件的 geometry。
 - Viking Sword 固定 4 Mesh（握柄、金屬握柄零件、劍身、雙面 fuller）；Gladius 固定 3 Mesh。Viking Shield 固定 5 Mesh（seams＋後 straps 合併、T3 rivets 併入盾臍）；Scutum 只合併左右飾條，固定 5 Mesh，保留獨立外框與盾臍供貼合驗證。
-- root／pivot／socket、grip／tip metadata、材質快取與既有 `polishWeaponMaterials` 陰影行為保持不變。helper 不掃描 root，不處理弓弦、搭箭或其他動態零件；未新增裝備 LOD、陰影優化或動畫 runtime 變更。
+- root／pivot／socket、grip／tip metadata、材質快取與既有 `polishWeaponMaterials` 陰影行為保持不變。helper 不掃描 root，不處理弓弦、搭箭或其他動態零件；該次合併未涉及裝備 LOD、陰影優化或動畫 runtime 變更。
 - `EquipmentConsolidation` 測試以 `cf04fd3` 的逐材質／渲染旗標三角形指紋鎖定 position、normal、UV、winding 與 attachment，並驗證 Mesh 上限及材質共用。
+
+### NPC Equipment Visual LOD
+- `NPC.equipmentVisualLOD` 只持有單一裝備 hierarchy。builder 以 `equipmentLastVisibleLOD` 標記靜態細節；標記本身不改 visibility，因此共用 builder 的 Player、掉落物、投射物維持完整外觀。
+- 建構時註冊 sword/lance、bow/pilum 與 shield roots；換盾時替換快取並立即套用當前 LOD。gameplay roots、sockets、transforms、grip/tip/support metadata、弓弦與搭箭 visibility 仍由原系統管理。
+- NPC 接續原有 `LOD.update(camera)` 與 animation hook，讀取 Three 當幀 `getCurrentLevel()`。裝備 proxies 是位於 body LOD 之後的兄弟節點，因此主 render traversal 與 shadow pass 都使用當幀 detail visibility。`HUMANOID_LOD_DISTANCES` 仍為唯一門檻來源（0/28/60m），沿用 Three zoom 語義；不另算距離、不新增 hysteresis。沒有 Three.LOD 的舊程序測試模型保持 full detail。
+- LOD 改變才寫入已快取的細節 visibility；不逐幀 traverse、不換 geometry、不複製 hierarchy、不改 attachment 或 castShadow policy。Viking sword 4/3/3、Gladius 3/3/3、圓盾 5/3/2、Scutum 5/4/3、含搭箭的 bow 8/6/6、lance 2/2/2；Pilum T1 3/3/2、T2 4/4/3、T3 5/4/3。已合併的護手／金屬握柄、盾臍／鉚釘保持完整以保留剪影。
+- DEV-only `window.__collectEquipmentCensus(window.game.npcs)` 供手動低頻 snapshot：NPC 數、裝備 LOD 分布、五種裝備可見 mesh 數、總數及可見 shadow caster 數。考慮所有祖先 visibility，未做 frustum filter，也不等於 submission 數；多材質 geometry 可能有多個 draw calls。沒有 frame-loop 採樣；production benchmark 另由 harness 在計時窗後單次收集。
 
 ### 裝備盾牌與長槍姿勢
 - 盾牌裝備狀態是唯一持盾來源，固定於左手，不再依彈藥、長槍或騎乘狀態背盾。`InventoryManager.unequipShield()` 與裝備 UI 支援卸盾，沿用 nullable 存檔。

@@ -1,10 +1,175 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-17 (Humanoid inactive LOD animation work)_
+_Last updated: 2026-09-18 (NPC Equipment Visual LOD)_
 
 ---
 
 ## Current Status
+
+### 2026-09-18：第四支 FPS Optimization — NPC Equipment Visual LOD
+
+
+分支：`perf/add-equipment-visual-lod`。基準為本輪 fetch 後的 latest main `78d8e9722cc208567a01401e6ed78b551bc6b6a0`，包含 PR #21。
+
+#### 架構與邊界
+
+`HumanoidEquipmentSockets` 的左右手 proxies 是 body root 下、Three.LOD 之外的兄弟節點，跟隨 LOD0 的已求值手骨；Humanoid 切 LOD 不會切到這些裝備。NPC 建構時建立 `EquipmentVisualLODController`，註冊現有裝備 root，並接續該 NPC 既有 `LOD.update(camera)`。Three 與原 animation hook 完成後，controller 讀 `getCurrentLevel()`，在 renderer 遍歷 equipment proxies 前切換細節。
+
+距離完全沿用 `HUMANOID_LOD_DISTANCES` 與 Three 的 camera.zoom 語義；没有第二組 28／60 常數，也不新增 hysteresis。裝備 root、socket、grip/tip/support metadata、transform、gameplay equipped state 都不變。LOD 相同直接返回；只有建構／換盾時搜尋一次 detail children，切換時寫入快取，不逐幀 traverse。
+
+所有 builder 仍共用，但只標記靜態 detail，不主動隱藏；只有 NPC runtime 掛 controller。Player、掉落物、飛行標槍不受影響。弓弦、弓曲面、搭箭、攻擊事件及箭數仍由原系統管理。未建立額外裝備 hierarchy、沒有 geometry swap，也未變更 Horse、Humanoid animation、AI、collision 或 castShadow policy。
+
+#### 裝備 visible mesh 數
+
+| 裝備 | LOD0 | LOD1 | LOD2 | 精簡內容 |
+| --- | ---: | ---: | ---: | --- |
+| Viking Sword T1–T3 | 4 | 3 | 3 | LOD1 起移除雙面 fuller；保留已合併護手／金屬握柄以維持剪影 |
+| Roman Gladius T1–T3 | 3 | 3 | 3 | 本身已精簡，保留護手、握柄、劍身 |
+| Viking Round Shield T1–T3 | 5 | 3 | 2 | LOD1 移除 seams／背帶與背面握把；LOD2 移除 rim，保留盾板及 boss（T3 鉚釘已併入 boss） |
+| Roman Scutum T1–T3 | 5 | 4 | 3 | LOD1 移除背面握把；LOD2 移除 emblem，保留 board／rim／boss |
+| Bow T1–T3，含搭箭 | 8 | 6 | 6 | 只移除兩個極小 bow tip caps；不動 string、arrow、stave 或 morph |
+| Lance | 2 | 2 | 2 | shaft／tip 全保留，沒有可安全移除的小件 |
+| Pilum T1 | 3 | 3 | 2 | LOD2 移除小 socket connector，保留 shaft／head |
+| Pilum T2 | 4 | 4 | 3 | 同上，neck 也保留 |
+| Pilum T3 | 5 | 4 | 3 | LOD1 移除金色小 wrap，LOD2 移除 socket connector |
+
+Bow 未搭箭時為 5／3／3；gameplay root 隱藏時該件總可見數為 0。以上是 mesh 數，不是 draw calls；現有 bow 主曲面的 material groups 仍維持原樣。
+
+#### 可重現證據與量測範圍
+
+- 一次性原始資料與 harness 位於已忽略的 `output/local-diagnostics/equipment-visual-lod/`，截圖位於 `output/playwright/equipment-visual-lod/`；依專案規範不提交一次性量測檔。
+- `build-manifest.json` 保存 main commit、兩版 production bundle SHA-256 與候選 runtime source hashes。
+- DEV 可手動呼叫 `window.__collectEquipmentCensus(window.game.npcs)`；production bundle 不提供這個 DEV global，也不含自動 census traversal。
+- 場景 B／C／D／Near-heavy 的三輪 raw values、median、絕對差、百分比，以及每輪 LOD 分布、裝備分類、near/far、shadow casters、死亡／投射物列於下方。
+
+#### 正確性驗證方式
+
+使用兩個實際 production build 分別執行相同的 NPC 動作與 1/64 秒步長，而非只把候選 controller 關掉當 baseline。矩陣、tip、nock、弓弦、root visibility、ammo、攻擊／projectile events 逐幀比對；裝備 root／parent／metadata 與 hierarchy 在單元測試及 runtime probe 中驗證不變。
+
+固定距離的 front／side／top-down 畫面使用保持角色可辨識大小的 inspection FOV；另保存固定 58° FOV 的原生距離正面圖。Inspection FOV 只用於視覺檢查，不用於效能量測，也不改 camera.zoom 或 LOD 門檻。
+
+既有 Viking Bow LOD1／2 attachment 不一致列為 baseline 限制；要求候選與 main 的世界矩陣、弓弦／搭箭狀態及離手量一致，不將這個 PR 宣稱為 bow attachment 修正。
+
+- `npm test -- --run`：33 檔、337 項通過（新增 25 項 Equipment LOD 測試）；`npm run build` 通過，只有既有 Vite CJS／chunk-size 提示。
+- 60 組實際 production main/candidate 對照：Roman／Viking × T1–T3 × 步战／騎乘 × idle／run／melee／lance／ranged，每組 240 幀、合計 14,400 對幀。逐幀 root 世界矩陣、tip、nock、弓弦矩陣、root visibility、ammo、攻擊與 projectile events 的最大差異為 0；零 application error。
+- 每幀距離循環 10、27、28、29、50、59、60、61、80、61、59、29、27m，三個 LOD 皆實際啟用，無整件裝備消失、root／parent／metadata 改變或 controller／Humanoid level 不一致。單元測試另驗證精確邊界、camera.zoom、相同 level 零 visibility 寫入、換盾立即套用遠距、切近戰／respawn 不洩漏狀態，以及 Player full detail。
+- Roman T1–T3 步戰／騎乘皆於 frame 125／222 發射 pilum；Viking 於 frame 127／238 發射 arrow；两版 frame、origin、direction 完全一致。劍與槍的攻擊事件序列亦一致。
+- 保存 3,084 張 main／candidate 截圖，包含指定 10／27／29／50／59／61／80m 的 front／side／top-down，以及 draw／hold／release／recovery 動作截圖；人工檢視代表性劍盾、三階弓／標槍、騎乘長槍與俯視畫面，不宣稱逐張人工驗收。主劍身、盾板、弓弧與弦、槍桿／槍尖皆保留；細節移除符合所列 policy。
+- 312 組近距 LOD0 畫面：177 組逐像素完全相同，其餘每張最多 21／648,000 像素差異（0.00325%）；geometry／材質／UV 指紋測試保持不變。另以同一份 main 對 main 的 Roman idle 控制重跑，9 組中 5 組也有 1–11 像素差異，因此不把整張 GPU 截圖的逐位元相同列為保證；未見近距外觀回歸。
+- 已知 Viking Bow LOD1／2 離手在 main 與候選完全一致，本輪最大左手 LOD 差異約 0.877269m；並非本 PR 新增或修復的問題。驗收結論是沒有新增 attachment 回歸。
+- Chrome extension 的 `http://127.0.0.1:5173/?nolock` 正式 10v10 場景正常、零 application error；MetaMask 擴充警告另列。精確配對與效能量測使用獨立 Chrome context；所有暫時瀏覽器／preview 已由 harness 清理。
+
+#### 效果與限制
+
+B／C／D 九組配對的 Draw Calls 與 Renderer Submit 全部下降；各場景 Submit median 降幅分別 6.36%／5.65%／4.78%。Near-heavy 有 194–196／200 名 NPC 在 LOD0，裝備 mesh 只減少 4 個 median，Submit −0.03%，符合距離型裝備 LOD 的歸因。
+
+B 的 FPS median −0.06%，且 NPC Update +8.30%，因此不宣稱普遍 FPS 提升，也不把該變動解讀為 animation 改善；C／D FPS 分別 +4.04%／+3.18%，NPC Update 分別 +0.12%／−0.73%。C／D 的搭箭／飛行投射物數不同會影響總 draw calls 和 triangles；三輪量測證明本次環境下可重現的 submission 下降，並不構成跨硬體或長期統計保證。
+
+結論：在保持同一裝備 root／attachment／gameplay、主武器可辨識，且不加重既有 Bow attachment 問題的前提下，distance-based NPC Equipment Visual LOD 能可重現降低 Draw Calls 與 Renderer Submit。
+
+#### 現場量測
+
+基準：latest main `78d8e97`（包含 PR #21），本輪重新 production build；候選分支 `perf/add-equipment-visual-lod`。
+
+同台 Apple M1 Pro／Chrome 153／ANGLE Metal，1280×720、DPR 1，production preview。每個場景依 A1→B1→A2→B2→A3→B3；每輪 fresh browser context／page／battle。暖機 4 秒、reset＋2 秒，確認接戰後 reset＋3.2 秒，取最新完整 profiler window；三次取 median。計時期間不截圖、不裝計時 wrapper、不跑其他測試。
+
+CPU Frame Work 為同步 JS 工作，Renderer Submit 包含 renderer.render CPU 執行時間，不是 GPU execution time。Draw Calls／Triangles 是 snapshot 當幀 renderer.info，包含既有 shadow pass；equipment census 在計時窗後單次採集，包含所有祖先 visibility，排除 Player／掉落物／飛行投射物，未做 frustum filter。mesh 數不等於 draw calls，尤其弓曲面原本有多個 material groups。
+
+B／C／D 保持原固定玩家相機；Near-heavy 沿用 B 的 200 NPC／出生點／gameplay，僅測試 harness 將鏡頭固定於 (0,8,12)、看 (0,1,0)，fov=58、zoom=1。不同 FPS 及既有 dt clamp 會改變 wall-clock 下的戰鬥進度，因此另記死亡與投射物，不假設所有動態狀態相同。
+
+#### B — 100v100 Infantry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 13.411 / 13.683 / 13.372 | 14.395 / 13.233 / 13.404 | 13.411 | 13.404 | -0.008 | -0.06% |
+| CPU Frame Work (ms) | 71.136 / 70.393 / 71.857 | 66.173 / 71.429 / 70.064 | 71.136 | 70.064 | -1.071 | -1.51% |
+| Renderer Submit (ms) | 47.407 / 47.400 / 48.243 | 42.227 / 45.650 / 44.393 | 47.407 | 44.393 | -3.014 | -6.36% |
+| NPC Update (ms) | 21.971 / 21.357 / 21.871 | 22.113 / 23.736 / 23.686 | 21.871 | 23.686 | +1.814 | +8.30% |
+| Draw Calls | 8,412 / 8,411 / 8,412 | 7,213 / 7,212 / 7,214 | 8,412 | 7,213 | -1,199.000 | -14.25% |
+| Triangles | 5,863,850 / 5,863,850 / 5,863,850 | 5,551,050 / 5,551,050 / 5,551,050 | 5,863,850 | 5,551,050 | -312,800.000 | -5.33% |
+| Equipment visible meshes | 1,700 / 1,700 / 1,700 | 1,100 / 1,100 / 1,100 | 1,700 | 1,100 | -600.000 | -35.29% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| before1 | 200 | 0/0/200 | 200/0/0 | 0/200 | 700/1000/0/0/0 | 1700 | 2/0 |
+| after1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 1/0 |
+| before2 | 200 | 0/0/200 | 200/0/0 | 0/200 | 700/1000/0/0/0 | 1700 | 1/0 |
+| after2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 2/0 |
+| before3 | 200 | 0/0/200 | 200/0/0 | 0/200 | 700/1000/0/0/0 | 1700 | 1/0 |
+| after3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 3/0 |
+
+原始資料：`output/local-diagnostics/equipment-visual-lod/benchmark-b.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### C — 100v100 Mixed
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 10.977 / 11.246 / 11.314 | 11.495 / 11.700 / 11.774 | 11.246 | 11.700 | +0.454 | +4.04% |
+| CPU Frame Work (ms) | 89.075 / 87.050 / 86.467 | 84.783 / 83.558 / 83.075 | 87.050 | 83.558 | -3.492 | -4.01% |
+| Renderer Submit (ms) | 64.708 / 63.092 / 62.375 | 60.683 / 59.525 / 59.033 | 63.092 | 59.525 | -3.567 | -5.65% |
+| NPC Update (ms) | 22.025 / 21.675 / 21.675 | 21.700 / 21.675 / 21.767 | 21.675 | 21.700 | +0.025 | +0.12% |
+| Draw Calls | 17,357 / 17,330 / 17,240 | 16,396 / 16,384 / 16,397 | 17,330 | 16,396 | -934.000 | -5.39% |
+| Triangles | 7,920,390 / 7,893,098 / 7,633,158 | 7,513,490 / 7,575,552 / 7,615,572 | 7,893,098 | 7,575,552 | -317,546.000 | -4.02% |
+| Equipment visible meshes | 1,291 / 1,294 / 1,297 | 882 / 885 / 885 | 1,294 | 885 | -409.000 | -31.61% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| before1 | 200 | 0/60/140 | 200/0/0 | 0/200 | 210/500/301/80/200 | 1291 | 0/34 |
+| after1 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/207/80/135 | 882 | 0/25 |
+| before2 | 200 | 0/60/140 | 200/0/0 | 0/200 | 210/500/304/80/200 | 1294 | 0/30 |
+| after2 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/210/80/135 | 885 | 0/20 |
+| before3 | 200 | 0/60/140 | 200/0/0 | 0/200 | 210/500/307/80/200 | 1297 | 0/27 |
+| after3 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/210/80/135 | 885 | 0/20 |
+
+原始資料：`output/local-diagnostics/equipment-visual-lod/benchmark-c.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### D — 100v100 Cavalry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 9.521 / 9.260 / 9.260 | 9.555 / 9.637 / 9.506 | 9.260 | 9.555 | +0.295 | +3.18% |
+| CPU Frame Work (ms) | 102.700 / 105.360 / 105.360 | 101.840 / 100.870 / 102.040 | 105.360 | 101.840 | -3.520 | -3.34% |
+| Renderer Submit (ms) | 73.340 / 75.680 / 75.690 | 72.060 / 71.460 / 72.520 | 75.680 | 72.060 | -3.620 | -4.78% |
+| NPC Update (ms) | 27.470 / 27.590 / 27.570 | 27.740 / 27.210 / 27.370 | 27.570 | 27.370 | -0.200 | -0.73% |
+| Draw Calls | 17,995 / 18,147 / 18,147 | 17,370 / 17,502 / 17,370 | 18,147 | 17,370 | -777.000 | -4.28% |
+| Triangles | 6,714,686 / 6,721,626 / 6,721,626 | 6,548,546 / 6,552,118 / 6,548,546 | 6,721,626 | 6,548,546 | -173,080.000 | -2.57% |
+| Equipment visible meshes | 1,240 / 1,201 / 1,201 | 771 / 804 / 771 | 1,201 | 771 | -430.000 | -35.80% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| before1 | 200 | 0/0/200 | 200/0/0 | 0/200 | 0/500/340/200/200 | 1240 | 0/32 |
+| after1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/186/200/135 | 771 | 0/70 |
+| before2 | 200 | 0/0/200 | 200/0/0 | 0/200 | 0/500/301/200/200 | 1201 | 0/60 |
+| after2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/219/200/135 | 804 | 0/78 |
+| before3 | 200 | 0/0/200 | 200/0/0 | 0/200 | 0/500/301/200/200 | 1201 | 0/60 |
+| after3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/186/200/135 | 771 | 0/70 |
+
+原始資料：`output/local-diagnostics/equipment-visual-lod/benchmark-d.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### Near-heavy — 100v100 Infantry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 15.224 / 15.495 / 14.960 | 15.395 / 15.361 / 15.301 | 15.224 | 15.361 | +0.137 | +0.90% |
+| CPU Frame Work (ms) | 61.406 / 61.287 / 62.140 | 61.294 / 61.769 / 61.825 | 61.406 | 61.769 | +0.362 | +0.59% |
+| Renderer Submit (ms) | 36.056 / 36.506 / 36.573 | 35.875 / 36.756 / 36.494 | 36.506 | 36.494 | -0.012 | -0.03% |
+| NPC Update (ms) | 23.650 / 23.113 / 23.813 | 23.638 / 23.338 / 23.544 | 23.650 | 23.544 | -0.106 | -0.45% |
+| Draw Calls | 2,734 / 2,715 / 2,720 | 2,707 / 2,706 / 2,715 | 2,720 | 2,707 | -13.000 | -0.48% |
+| Triangles | 7,690,700 / 7,613,797 / 7,665,914 | 7,607,766 / 7,594,255 / 7,575,844 | 7,665,914 | 7,594,255 | -71,659.000 | -0.93% |
+| Equipment visible meshes | 1,700 / 1,700 / 1,700 | 1,696 / 1,696 / 1,695 | 1,700 | 1,696 | -4.000 | -0.24% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| before1 | 200 | 194/6/0 | 200/0/0 | 194/6 | 700/1000/0/0/0 | 1700 | 2/0 |
+| after1 | 200 | 196/4/0 | 196/4/0 | 196/4 | 700/996/0/0/0 | 1696 | 1/0 |
+| before2 | 200 | 195/5/0 | 200/0/0 | 195/5 | 700/1000/0/0/0 | 1700 | 0/0 |
+| after2 | 200 | 196/4/0 | 196/4/0 | 196/4 | 700/996/0/0/0 | 1696 | 0/0 |
+| before3 | 200 | 194/6/0 | 200/0/0 | 194/6 | 700/1000/0/0/0 | 1700 | 1/0 |
+| after3 | 200 | 195/5/0 | 195/5/0 | 195/5 | 700/995/0/0/0 | 1695 | 1/0 |
+
+原始資料：`output/local-diagnostics/equipment-visual-lod/benchmark-near.json`；相機：`{'position': [0, 8, 12], 'quaternion': [-0.2609799792144663, 0, 0, 0.9653442134540491], 'fov': 58}`。
+
+---
 
 ### 2026-09-17：第三支 FPS Optimization — 減少 inactive Humanoid LOD 求值
 
