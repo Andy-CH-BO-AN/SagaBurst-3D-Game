@@ -10,6 +10,9 @@ import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, res
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
+import { SpectatorCameraController } from './camera/SpectatorCameraController'
+
+export type PlayerControlMode = 'player' | 'spectator'
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
@@ -185,7 +188,13 @@ export class Game {
   private input: PlayerInput
   private player: Player
   private thirdPersonCamera: ThirdPersonCamera
+  private spectatorController: SpectatorCameraController
+  private controlMode: PlayerControlMode = 'player'
   private studioControls: OrbitControls | null = null
+
+  get playerControlMode(): PlayerControlMode {
+    return this.controlMode
+  }
   private isHumanoidStudio = false
   private isMountStudio = false
   private isModelStudio = false
@@ -340,6 +349,7 @@ export class Game {
 
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
+    this.spectatorController = new SpectatorCameraController(this.camera)
     if (this.isModelStudio) {
       this._setupModelStudioCamera()
     } else {
@@ -423,9 +433,10 @@ export class Game {
       this.quiverUI.setArrowCount(this.player.arrowCount)
     }
 
-    // Player Death notify
+    // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
-      this._showNotify('💀 你陣亡了！正在原點重置...')
+      this._showNotify('💀 你已陣亡 — 自由觀戰模式\nWASD 移動 · 滑鼠旋轉 · Space/Ctrl 升降 · Shift 加速', 4500)
+      this._enterSpectatorMode()
     }
 
     this._setupPointerLock()
@@ -933,6 +944,7 @@ export class Game {
       }
 
       if (e.code === 'Tab' || e.code === 'KeyI') {
+        if (this.player.dead) return
         e.preventDefault()
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
           this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
@@ -1052,13 +1064,23 @@ export class Game {
     this.mountHud.classList.add('visible')
   }
 
-  private _showNotify(msg: string): void {
+  private _showNotify(msg: string, durationMs = 2000): void {
     this.saveNotify.textContent = msg
     this.saveNotify.classList.add('visible')
     if (this.notifyTimer !== null) clearTimeout(this.notifyTimer)
     this.notifyTimer = window.setTimeout(() => {
       this.saveNotify.classList.remove('visible')
-    }, 2000)
+    }, durationMs)
+  }
+
+  private _enterSpectatorMode(): void {
+    if (this.controlMode === 'spectator') return
+    this.controlMode = 'spectator'
+    this.spectatorController.initFromCamera(this.camera)
+    this.pickupPromptEl.classList.remove('visible')
+    this.mountHud.classList.remove('visible')
+    this.quiverUI.setAiming(false)
+    this.quiverUI.setChargeRatio(0)
   }
 
   // ── Enemy HUD UI update ──
@@ -1088,6 +1110,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
   private _checkPlayerMeleeHits(): void {
+    if (this.player.dead) return
     const equippedMelee = this.inventoryManager.equippedMelee
     if (!this.player.isHitFrame(equippedMelee)) {
       if (this.player.isLanceThrustActive) {
@@ -1168,6 +1191,11 @@ export class Game {
     for (const mount of this.mounts) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
       mount.update(dt, this.obstacles)
+    }
+
+    if (this.player.dead) {
+      this.pickupPromptEl.classList.remove('visible')
+      return
     }
 
     const isEPressed = this.input.consumeKeyE()
@@ -1403,22 +1431,32 @@ export class Game {
       } else instance.update(dt, instance.root.position.distanceTo(this.camera.position))
     }
 
-    // The humanoid studio owns a free orbit/pan camera and never follows Player.
-    if (this.studioControls) this.studioControls.update()
-    else this.thirdPersonCamera.update(this.input, dt)
+    // Camera update based on controlMode / studio
+    if (this.studioControls) {
+      this.studioControls.update()
+    } else if (this.controlMode === 'spectator') {
+      this.spectatorController.update(this.input, dt)
+    } else {
+      this.thirdPersonCamera.update(this.input, dt)
+    }
+
+    const currentYaw = this.controlMode === 'spectator'
+      ? this.spectatorController.cameraYaw
+      : this.thirdPersonCamera.cameraYaw
+
     const cameraAimPoint = this.isModelStudio
       ? this.camera.getWorldDirection(this._tmpCameraDir).multiplyScalar(100).add(this.camera.position)
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
     // Update Compass direction bar
-    this.compassUI.update(this.thirdPersonCamera.cameraYaw)
+    this.compassUI.update(currentYaw)
 
-    // Update Player logic
+    // Update Player logic (Player handles dead state internally without processing inputs)
     if (!this.isModelStudio) this.player.update(
       dt,
       this.input,
-      this.thirdPersonCamera.cameraYaw,
+      currentYaw,
       cameraAimPoint,
       this.obstacles,
       this.staminaBar,
