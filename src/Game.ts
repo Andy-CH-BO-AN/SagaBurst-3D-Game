@@ -251,6 +251,8 @@ export class Game {
   private lockOverlay: HTMLElement
   private controlsHint: HTMLElement
   private saveNotify: HTMLElement
+  private deathBanner: HTMLElement | null = null
+  private spectatorBadge: HTMLElement | null = null
   private hintTimer: number | null = null
   private notifyTimer: number | null = null
 
@@ -364,6 +366,8 @@ export class Game {
     this.lockOverlay    = document.getElementById('lock-overlay')!
     this.controlsHint   = document.getElementById('controls-hint')!
     this.saveNotify     = document.getElementById('save-notify')!
+    this.deathBanner    = document.getElementById('death-banner')
+    this.spectatorBadge = document.getElementById('spectator-badge')
     this.pickupPromptEl = document.getElementById('pickup-prompt')!
 
     this.enemyHud    = document.getElementById('enemy-hud')!
@@ -435,7 +439,6 @@ export class Game {
 
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
-      this._showNotify('💀 你已陣亡 — 自由觀戰模式\nWASD 移動 · 滑鼠旋轉 · Space/Ctrl 升降 · Shift 加速', 4500)
       this._enterSpectatorMode()
     }
 
@@ -870,6 +873,7 @@ export class Game {
   }
 
   private _scheduleHintHide(): void {
+    if (this.controlMode === 'spectator') return
     if (this.hintTimer !== null) clearTimeout(this.hintTimer)
     this.hintTimer = window.setTimeout(() => {
       this.controlsHint.classList.add('hidden')
@@ -912,6 +916,7 @@ export class Game {
       menuSave.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this._saveGame()
       })
     }
@@ -920,6 +925,7 @@ export class Game {
       menuLoad.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this._loadGame()
       })
     }
@@ -928,12 +934,14 @@ export class Game {
       menuInv.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager)
       })
     }
 
     window.addEventListener('keydown', (e) => {
       if (!this.isMountStudio && (e.code === 'Digit0' || e.code === 'Numpad0')) {
+        if (this.player.dead || this.controlMode === 'spectator') return
         e.preventDefault()
         if (gameMenu) {
           gameMenu.classList.toggle('open')
@@ -969,6 +977,7 @@ export class Game {
   }
 
   private _saveGame(): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
     const inv = this.inventoryManager.saveState
@@ -1000,6 +1009,7 @@ export class Game {
   }
 
   private _loadGame(): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
       return
@@ -1077,10 +1087,48 @@ export class Game {
     if (this.controlMode === 'spectator') return
     this.controlMode = 'spectator'
     this.spectatorController.initFromCamera(this.camera)
-    this.pickupPromptEl.classList.remove('visible')
-    this.mountHud.classList.remove('visible')
-    this.quiverUI.setAiming(false)
-    this.quiverUI.setChargeRatio(0)
+
+    // 1. Show prominent death banner and fade after 4.5 seconds
+    if (this.deathBanner) {
+      this.deathBanner.textContent = '💀 你已陣亡 — 自由觀戰模式'
+      this.deathBanner.classList.add('visible')
+      window.setTimeout(() => {
+        this.deathBanner?.classList.remove('visible')
+      }, 4500)
+    }
+
+    // 2. Show persistent spectator badge
+    if (this.spectatorBadge) {
+      this.spectatorBadge.classList.remove('hidden')
+    }
+
+    // 3. Replace bottom gameplay controls hint with spectator controls, keep visible
+    if (this.controlsHint) {
+      this.controlsHint.innerHTML = 'WASD 移動 ｜ Space 上升 ｜ Ctrl 下降 ｜ Shift 加速 ｜ 滑鼠控制視角'
+      this.controlsHint.classList.remove('hidden')
+      if (this.hintTimer !== null) {
+        clearTimeout(this.hintTimer)
+        this.hintTimer = null
+      }
+    }
+
+    // 4. Hide player-only combat & interaction HUD
+    this.pickupPromptEl?.classList.remove('visible')
+    this.mountHud?.classList.remove('visible')
+    this.quiverUI?.setAiming(false)
+    this.quiverUI?.setChargeRatio(0)
+    if (typeof document !== 'undefined') {
+      document.getElementById('vital-bars')?.classList.add('hidden')
+      document.getElementById('quiver-hud')?.classList.add('hidden')
+      document.getElementById('crosshair')?.classList.add('hidden')
+      document.getElementById('aim-reticle')?.classList.add('hidden')
+
+      // Disable menu actions in spectator mode
+      document.getElementById('menu-save')?.classList.add('disabled')
+      document.getElementById('menu-load')?.classList.add('disabled')
+      document.getElementById('menu-inventory')?.classList.add('disabled')
+      document.getElementById('game-menu')?.classList.remove('open')
+    }
   }
 
   // ── Enemy HUD UI update ──

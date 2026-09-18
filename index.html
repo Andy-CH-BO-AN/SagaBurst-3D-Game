@@ -119,11 +119,11 @@
       /* Save / load notification */
       #save-notify {
         position: absolute;
-        top: 18px;
+        top: 74px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(0,0,0,0.65);
-        border: 1px solid rgba(255,255,255,0.25);
+        background: rgba(0,0,0,0.75);
+        border: 1px solid rgba(255,255,255,0.3);
         border-radius: 6px;
         padding: 6px 18px;
         font-size: 13px;
@@ -135,8 +135,72 @@
         opacity: 0;
         transition: opacity 0.3s;
         pointer-events: none;
+        z-index: 950;
       }
       #save-notify.visible { opacity: 1; }
+
+      /* Death banner notification */
+      #death-banner {
+        position: absolute;
+        top: 74px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(36, 8, 8, 0.92);
+        border: 1px solid rgba(231, 76, 60, 0.85);
+        border-radius: 6px;
+        padding: 10px 28px;
+        font-family: 'Cinzel', 'Trajan Pro', Georgia, serif;
+        font-size: 16px;
+        letter-spacing: 0.12em;
+        color: #ffddaa;
+        box-shadow: 0 0 25px rgba(231, 76, 60, 0.5), 0 4px 16px rgba(0, 0, 0, 0.8);
+        text-align: center;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.5s;
+        pointer-events: none;
+      }
+      #death-banner.visible { opacity: 1; }
+
+      /* Persistent spectator badge */
+      #spectator-badge {
+        position: absolute;
+        top: 74px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(14, 12, 10, 0.85);
+        border: 1px solid rgba(212, 175, 55, 0.5);
+        border-radius: 4px;
+        padding: 4px 16px;
+        font-family: 'Cinzel', 'Trajan Pro', Georgia, serif;
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        color: #e5d8c3;
+        z-index: 900;
+        pointer-events: none;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+        transition: opacity 0.4s;
+      }
+      #spectator-badge.hidden {
+        display: none;
+        opacity: 0;
+      }
+
+      /* Hide player-only combat HUD in spectator mode */
+      #vital-bars.hidden,
+      #quiver-hud.hidden,
+      #crosshair.hidden,
+      #aim-reticle.hidden {
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+
+      .menu-item.disabled {
+        opacity: 0.35;
+        pointer-events: none !important;
+        cursor: not-allowed;
+      }
 
       /* ── Enemy HUD (top-center) ── */
       #enemy-hud {
@@ -634,6 +698,12 @@
 
       <!-- Save / load toast -->
       <div id="save-notify"></div>
+
+      <!-- Death Banner Toast (Prominent centered below battle HUD) -->
+      <div id="death-banner">💀 你已陣亡 — 自由觀戰模式</div>
+
+      <!-- Persistent Spectator Mode Badge -->
+      <div id="spectator-badge" class="hidden">👁️ 自由觀戰模式</div>
 
       <!-- Norse Rune Compass Bar (Top) -->
       <div id="compass-container">

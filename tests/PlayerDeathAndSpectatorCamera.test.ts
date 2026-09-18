@@ -194,21 +194,21 @@ describe('Permanent Player Death & Spectator Camera', () => {
       const input1 = createMockInput() as any
       controller1.setYaw(0)
       controller1.setPitch(0)
-      camera1.position.set(0, 0, 0)
+      camera1.position.set(0, 50, 0)
       input1.keys['KeyW'] = true
       controller1.update(input1, 1.0)
-      const distW = camera1.position.length()
+      const distW = Math.hypot(camera1.position.x, camera1.position.z)
 
       const camera2 = new THREE.PerspectiveCamera(58, 1, 0.1, 1000)
       const controller2 = new SpectatorCameraController(camera2, 10, 2)
       const input2 = createMockInput() as any
       controller2.setYaw(0)
       controller2.setPitch(0)
-      camera2.position.set(0, 0, 0)
+      camera2.position.set(0, 50, 0)
       input2.keys['KeyW'] = true
       input2.keys['KeyD'] = true
       controller2.update(input2, 1.0)
-      const distWD = camera2.position.length()
+      const distWD = Math.hypot(camera2.position.x, camera2.position.z)
 
       expect(distWD).toBeCloseTo(distW, 4)
     })
@@ -219,14 +219,15 @@ describe('Permanent Player Death & Spectator Camera', () => {
       const input = createMockInput() as any
       controller.setYaw(0)
       controller.setPitch(0)
-      camera.position.set(0, 0, 0)
+      camera.position.set(0, 50, 0)
 
       input.keys['KeyW'] = true
       input.keys['ShiftLeft'] = true
       controller.update(input, 1.0)
 
       const expectedSpeed = SPECTATOR_MOVE_SPEED * SPECTATOR_FAST_MULTIPLIER
-      expect(camera.position.length()).toBeCloseTo(expectedSpeed, 2)
+      const horizontalDist = Math.hypot(camera.position.x, camera.position.z)
+      expect(horizontalDist).toBeCloseTo(expectedSpeed, 2)
     })
 
     it('moves Space up (+Y) and Ctrl down (-Y) independent of camera pitch', () => {
@@ -257,16 +258,57 @@ describe('Permanent Player Death & Spectator Camera', () => {
       controller.setYaw(0)
       controller.setPitch(0)
 
-      camera.position.set(0, 0, 0)
+      camera.position.set(0, 50, 0)
       input.keys['KeyW'] = true
       controller.update(input, 0.5)
-      const distHalfSec = camera.position.length()
+      const distHalfSec = Math.hypot(camera.position.x, camera.position.z)
 
-      camera.position.set(0, 0, 0)
+      camera.position.set(0, 50, 0)
       controller.update(input, 1.0)
-      const distOneSec = camera.position.length()
+      const distOneSec = Math.hypot(camera.position.x, camera.position.z)
 
       expect(distOneSec).toBeCloseTo(distHalfSec * 2, 3)
+    })
+
+    it('clamps downward Ctrl movement to terrain height + minimumClearance', () => {
+      const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1000)
+      const terrainHeightMock = vi.fn((_x: number, _z: number) => 8.0)
+      const clearance = 1.5
+      const controller = new SpectatorCameraController(camera, 20, 1, 0.002, clearance, terrainHeightMock)
+      const input = createMockInput() as any
+
+      camera.position.set(0, 20, 0)
+      input.keys['ControlLeft'] = true
+
+      // Repeatedly press Ctrl to descend
+      for (let i = 0; i < 50; i++) {
+        controller.update(input, 0.1)
+      }
+
+      // Camera must not penetrate terrain: Y clamped to 8.0 + 1.5 = 9.5
+      expect(camera.position.y).toBeCloseTo(9.5, 3)
+    })
+
+    it('lifts camera above rising terrain when flying forward onto a hill', () => {
+      const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1000)
+      // Uneven terrain: rises with -Z
+      const unevenTerrain = (_x: number, z: number) => (z < -10 ? 25.0 : 5.0)
+      const clearance = 1.5
+      const controller = new SpectatorCameraController(camera, 20, 1, 0.002, clearance, unevenTerrain)
+      const input = createMockInput() as any
+
+      controller.setYaw(0) // Forward is -Z
+      camera.position.set(0, 10, 0) // At z=0, ground is 5.0, camera is at Y=10
+
+      input.keys['KeyW'] = true
+      // Move into hill region (z < -10)
+      for (let i = 0; i < 15; i++) {
+        controller.update(input, 0.1)
+      }
+
+      // Camera must be automatically lifted to at least 25.0 + 1.5 = 26.5
+      expect(camera.position.z).toBeLessThan(-10)
+      expect(camera.position.y).toBeGreaterThanOrEqual(26.5)
     })
   })
 

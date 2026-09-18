@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three'
 import type { PlayerInput } from '../player/PlayerInput'
+import { getTerrainHeight } from '../world/Terrain'
 
 export const SPECTATOR_MOVE_SPEED = 35 // Base units/sec (~4.4x normal player walk)
 export const SPECTATOR_FAST_MULTIPLIER = 3 // Shift multiplier (~105 units/sec)
@@ -12,6 +13,7 @@ export const SPECTATOR_MOUSE_SENSITIVITY = 0.002 // Radians per pixel
 export const SPECTATOR_MIN_PITCH = -Math.PI / 2 + 0.05 // ~-87 deg (prevent upside-down)
 export const SPECTATOR_MAX_PITCH = Math.PI / 2 - 0.05 // ~+87 deg
 export const SPECTATOR_NORMAL_FOV = 58
+export const SPECTATOR_MIN_GROUND_CLEARANCE = 1.5 // Minimum height clearance above terrain
 
 export class SpectatorCameraController {
   private yaw = 0
@@ -26,6 +28,8 @@ export class SpectatorCameraController {
     public moveSpeed = SPECTATOR_MOVE_SPEED,
     public fastMultiplier = SPECTATOR_FAST_MULTIPLIER,
     public mouseSensitivity = SPECTATOR_MOUSE_SENSITIVITY,
+    public minGroundClearance = SPECTATOR_MIN_GROUND_CLEARANCE,
+    public terrainHeightProvider: (x: number, z: number) => number = getTerrainHeight,
   ) {}
 
   get cameraYaw(): number {
@@ -125,6 +129,13 @@ export class SpectatorCameraController {
     this.camera.position.x += moveX * speed * dt
     this.camera.position.z += moveZ * speed * dt
     this.camera.position.y += moveY * speed * dt
+
+    // Prevent camera from going underground (both descending and moving into hills)
+    const groundY = this.terrainHeightProvider(this.camera.position.x, this.camera.position.z)
+    const minAllowedY = groundY + this.minGroundClearance
+    if (this.camera.position.y < minAllowedY) {
+      this.camera.position.y = minAllowedY
+    }
 
     // 5. Update camera lookAt based on yaw and pitch
     const cosPitch = Math.cos(this.pitch)
