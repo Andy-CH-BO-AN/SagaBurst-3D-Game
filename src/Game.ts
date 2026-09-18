@@ -813,15 +813,19 @@ export class Game {
   }
 
   // ── Pointer Lock ──
-  private _setupPointerLock(): void {
-    const isNoLock = window.location.search.includes('nolock')
+  private _updateLockOverlayPrompt(isResume: boolean = true): void {
     const promptEl = document.getElementById('lock-overlay-prompt')
-
-    const updateOverlay = (isResume: boolean) => {
-      if (promptEl) {
+    if (promptEl) {
+      if (this.controlMode === 'spectator') {
+        promptEl.textContent = '點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+      } else {
         promptEl.textContent = isResume ? '點擊繼續戰鬥 ｜ CLICK TO RESUME' : '點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE'
       }
     }
+  }
+
+  private _setupPointerLock(): void {
+    const isNoLock = window.location.search.includes('nolock')
 
     const unlockAudio = (): void => {
       this.soundManager.unlockAudio()
@@ -838,7 +842,7 @@ export class Game {
       this.lockOverlay.style.display = 'none'
       this.lockOverlay.classList.add('hidden')
     } else {
-      updateOverlay(false)
+      this._updateLockOverlayPrompt(false)
       this.lockOverlay.style.display = 'flex'
       this.lockOverlay.classList.remove('hidden')
     }
@@ -862,7 +866,7 @@ export class Game {
         this._scheduleHintHide()
       } else {
         if (!this.equipmentUI?.visible) {
-          updateOverlay(true)
+          this._updateLockOverlayPrompt(true)
           this.lockOverlay.style.display = 'flex'
           this.lockOverlay.classList.remove('hidden')
         }
@@ -952,8 +956,8 @@ export class Game {
       }
 
       if (e.code === 'Tab' || e.code === 'KeyI') {
-        if (this.player.dead) return
         e.preventDefault()
+        if (this.player.dead || this.controlMode === 'spectator') return
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
           this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
         })
@@ -1087,6 +1091,22 @@ export class Game {
     if (this.controlMode === 'spectator') return
     this.controlMode = 'spectator'
     this.spectatorController.initFromCamera(this.camera)
+
+    // Close equipment modal if open when player died so it doesn't block spectator view
+    if (this.equipmentUI?.visible) {
+      this.equipmentUI.close()
+    }
+
+    // Ensure pointer-lock prompt and state remain recoverable in spectator mode
+    const isNoLock = typeof window !== 'undefined' && window.location?.search?.includes('nolock')
+    const hasPointerLock = typeof document !== 'undefined' && !!document.pointerLockElement
+    if (!hasPointerLock && !this.isModelStudio && !isNoLock && this.lockOverlay) {
+      this._updateLockOverlayPrompt(true)
+      this.lockOverlay.style.display = 'flex'
+      this.lockOverlay.classList.remove('hidden')
+    } else {
+      this._updateLockOverlayPrompt(true)
+    }
 
     // 1. Show prominent death banner and fade after 4.5 seconds
     if (this.deathBanner) {
