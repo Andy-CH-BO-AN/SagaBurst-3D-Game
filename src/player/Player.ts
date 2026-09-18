@@ -395,8 +395,7 @@ export class Player {
       blockedAim ||
       this.aiming ||
       this.animator.busy ||
-      !equippedMelee ||
-      (equippedMelee.animationKind !== 'lance' && this.stamina < SWING_STAMINA_COST)
+      !equippedMelee
     ) {
       return false
     }
@@ -405,9 +404,6 @@ export class Player {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false
-      if (equippedMelee.animationKind !== 'lance') {
-        this.stamina -= SWING_STAMINA_COST
-      }
       soundManager.playSwing()
       this.meleeAttackBufferTimer = 0
       return true
