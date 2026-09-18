@@ -4,7 +4,7 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types and tiers, then join the Viking side as the player while both AI armies automatically engage across a large battlefield.
+The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types, tiers, and battle deployment mode, then join the Viking side as the player while both AI armies automatically engage across a large battlefield.
 
 ## ⚔️ Custom Battle
 
@@ -23,22 +23,29 @@ Every unit role supports **T1 / T2 / T3**. Higher tiers use stronger faction-app
 
 Quick presets are available for **10 vs 10**, **25 vs 25**, **50 vs 50**, and **100 vs 100**, or you can build an army manually with the setup controls.
 
+Battle deployment is selected independently from army size:
+
+- **Formation Battle** — Viking and Roman armies spawn in deterministic formations on opposite sides of the battlefield.
+- **Scattered Battle** — the Player, Viking NPCs, and Roman NPCs are deterministically scattered across the battlefield while normal Viking-vs-Roman faction, friendly-fire, and victory rules remain unchanged.
+
+Changing an army preset only changes the army composition; it does **not** switch the selected battle mode.
+
 The player is an additional Viking participant and does **not** count toward the configured Viking AI army total or victory condition.
 
 ### Battle flow
 
-1. Open the game and configure both armies in the Custom Battle Setup screen.
+1. Open the game, configure both armies, and select **Formation Battle** or **Scattered Battle** in the Custom Battle Setup screen.
 2. Click **START BATTLE**.
-3. The two AI armies spawn in deterministic formations on opposite sides of the battlefield and automatically move to engage each other.
+3. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
 4. Fight alongside the Viking army using melee weapons, bows, shields, lances, and horses.
 5. A battle ends when either configured AI army is eliminated.
-6. Use **REMATCH** to replay the same configuration or **BACK TO SETUP** to build another battle.
+6. Use **REMATCH** to replay the same army and battle-mode configuration or **BACK TO SETUP** to build another battle.
 
 If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
 ## 🐎 Player Starting Loadout
 
-Normal Custom Battles start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse at the Viking spawn point.
+Normal Custom Battles start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse. In Formation Battle the player starts at the Viking spawn point; in Scattered Battle the player and starting horse spawn together at the battle's deterministic scattered player position.
 
 Default equipment:
 
@@ -49,7 +56,7 @@ Default equipment:
 
 After dismounting, open the Equipment UI with `Tab` or `I` to switch from the lance to the Runic Greatsword. The existing two-handed weapon behavior automatically moves the equipped shield to the player's back while the greatsword is in use.
 
-The player's starting horse is separate from the five spare horses in the Viking camp. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
+The player's starting horse is separate from the five spare horses in the Viking camp. In Scattered Battle, player deaths respawn at that battle's original scattered starting position, and REMATCH reproduces the same deterministic deployment for the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
 
 ## 🏕️ Battle Camps
 
