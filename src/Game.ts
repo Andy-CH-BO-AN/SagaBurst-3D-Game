@@ -1572,8 +1572,6 @@ export class Game {
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this._tmpHitPos.copy(this.player.position)
-              this._tmpHitPos.y += 1.0
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -1688,8 +1686,6 @@ export class Game {
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              const hitPos = this.player.position.clone()
-              hitPos.y += 1.2
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -1700,8 +1696,6 @@ export class Game {
             const result = damageNpc(targetNpc, damage)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              const hitPos = targetNpc.combatPosition.clone()
-              hitPos.y += 1.2
             }
           }
         },
