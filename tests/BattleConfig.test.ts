@@ -248,4 +248,42 @@ describe('BattleConfig Domain & Validation', () => {
     expect(badCampsRes.valid).toBe(false)
     expect(badCampsRes.errors.some(e => e.includes('includeCamps must be a boolean'))).toBe(true)
   })
+
+  it('validates battle mode correctly and maintains backward compatibility', () => {
+    const baseConfig: BattleConfig = {
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      rules: { respawnEnabled: false, includeCamps: true },
+    }
+
+    // Explicit formation mode is valid
+    expect(validateBattleConfig({ ...baseConfig, mode: 'formation' }).valid).toBe(true)
+
+    // Explicit scattered mode is valid
+    expect(validateBattleConfig({ ...baseConfig, mode: 'scattered' }).valid).toBe(true)
+
+    // Missing / undefined mode is valid (backward compatibility for old configs / sessionStorage)
+    const withoutMode = { ...baseConfig }
+    delete withoutMode.mode
+    expect(validateBattleConfig(withoutMode).valid).toBe(true)
+
+    // Invalid string mode is rejected
+    const invalidMode = { ...baseConfig, mode: 'free-for-all' }
+    const resInvalid = validateBattleConfig(invalidMode)
+    expect(resInvalid.valid).toBe(false)
+    expect(resInvalid.errors.some(e => e.includes('Invalid battle mode'))).toBe(true)
+
+    // Invalid non-string mode is rejected
+    const numberMode = { ...baseConfig, mode: 123 }
+    const resNumber = validateBattleConfig(numberMode)
+    expect(resNumber.valid).toBe(false)
+    expect(resNumber.errors.some(e => e.includes('Invalid battle mode'))).toBe(true)
+
+    // Default configs and presets default to formation mode
+    expect(createEmptyBattleConfig().mode).toBe('formation')
+    expect(PRESET_10V10.mode).toBe('formation')
+    expect(PRESET_25V25.mode).toBe('formation')
+    expect(PRESET_50V50.mode).toBe('formation')
+    expect(PRESET_100V100.mode).toBe('formation')
+  })
 })

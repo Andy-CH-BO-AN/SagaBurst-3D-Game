@@ -301,15 +301,36 @@ export class Game {
     this.isMountStudio = devModelsMode === 'mounts'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
+    // Resolve BattleSpawnPlan if applicable
+    let battlePlan: BattleSpawnPlan | null = null
+    if (this.isDevCombat) {
+      this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
+      const devVal = query.get('devcombat')?.toLowerCase()
+      let scenarioConfig = PRESET_DEVCOMBAT
+      if (devVal === 'a' || devVal === 'scenarioa') {
+        scenarioConfig = PRESET_SCENARIO_A
+      } else if (devVal === 'b' || devVal === 'scenariob') {
+        scenarioConfig = PRESET_SCENARIO_B
+      } else if (devVal === 'c' || devVal === 'scenarioc') {
+        scenarioConfig = PRESET_SCENARIO_C
+      } else if (devVal === 'd' || devVal === 'scenariod') {
+        scenarioConfig = PRESET_SCENARIO_D
+      }
+      battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
+    } else if (battleConfig) {
+      battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
+    }
+
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
     if (this.isModelStudio) {
       this._setupModelStudioCamera()
     } else {
-      const terrainY = getTerrainHeight(VIKING_PLAYER_SPAWN.x, VIKING_PLAYER_SPAWN.z)
-      this.player.group.position.set(VIKING_PLAYER_SPAWN.x, terrainY + 0.95, VIKING_PLAYER_SPAWN.z)
-      this.player.spawnX = VIKING_PLAYER_SPAWN.x
-      this.player.spawnZ = VIKING_PLAYER_SPAWN.z
+      const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
+      const terrainY = getTerrainHeight(playerSpawn.x, playerSpawn.z)
+      this.player.group.position.set(playerSpawn.x, terrainY + 0.95, playerSpawn.z)
+      this.player.spawnX = playerSpawn.x
+      this.player.spawnZ = playerSpawn.z
       this.thirdPersonCamera.setYaw(0)
     }
 
@@ -327,38 +348,25 @@ export class Game {
     this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Combat & Enemies ──
-    if (this.isDevCombat) {
-      this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
-      const devVal = query.get('devcombat')?.toLowerCase()
-      let scenarioConfig = PRESET_DEVCOMBAT
-      if (devVal === 'a' || devVal === 'scenarioa') {
-        scenarioConfig = PRESET_SCENARIO_A
-      } else if (devVal === 'b' || devVal === 'scenariob') {
-        scenarioConfig = PRESET_SCENARIO_B
-      } else if (devVal === 'c' || devVal === 'scenarioc') {
-        scenarioConfig = PRESET_SCENARIO_C
-      } else if (devVal === 'd' || devVal === 'scenariod') {
-        scenarioConfig = PRESET_SCENARIO_D
-      }
-      const plan = BattleSpawner.createSpawnPlan(scenarioConfig)
-      this._executeBattleSpawnPlan(plan)
+    if (this.isDevCombat && battlePlan) {
+      this._executeBattleSpawnPlan(battlePlan)
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()
     } else if (devModelsMode === 'mounts') {
       this._spawnMountStudio()
-    } else if (battleConfig) {
-      const plan = BattleSpawner.createSpawnPlan(battleConfig)
-      this._executeBattleSpawnPlan(plan)
+    } else if (battleConfig && battlePlan) {
+      this._executeBattleSpawnPlan(battlePlan)
       this.battleController = new BattleController(battleConfig)
       this.battleController.initCounts(this.npcs)
     }
 
     if (!this.isModelStudio) {
+      const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
       const startingHorse = new Mount(
         this.scene,
         DEFAULT_MOUNT_TYPE,
-        VIKING_PLAYER_SPAWN.x,
-        VIKING_PLAYER_SPAWN.z
+        playerSpawn.x,
+        playerSpawn.z
       )
       this.startingHorse = startingHorse
       this.mounts.push(startingHorse)

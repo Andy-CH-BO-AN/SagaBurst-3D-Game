@@ -42,7 +42,32 @@ export const CAMP_PICKUP_Z = 151.0
 export const CAMP_HORSE_Z = 158.0
 export const PLAYER_SAFE_CLEARANCE = 2.0
 
+export const SCATTER_BOUND_MIN = -140.0
+export const SCATTER_BOUND_MAX = 140.0
+export const SCATTER_BASE_SEED = 0x5a6ab7
+export const PLAYER_SCATTERED_CLEARANCE = 5.0
+
+const TREE_OBSTACLES = [
+  { x: 18, z: -22 },
+  { x: -28, z: 18 },
+  { x: 40, z: -5 },
+  { x: -12, z: 35 },
+  { x: 25, z: 15 },
+]
+const TREE_EXCLUSION_RADIUS = 3.0
+
+function createMulberry32(seed: number = SCATTER_BASE_SEED) {
+  let s = seed >>> 0
+  return function next(): number {
+    s = (s + 0x6d2b79f5) >>> 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 export interface BattleSpawnPlan {
+  playerSpawn: { x: number; z: number }
   npcSpecs: NpcSpawnSpec[]
   pickupSpecs: CampPickupSpec[]
   horseSpecs: CampHorseSpec[]
@@ -54,11 +79,28 @@ interface UnitInstance {
   index: number
 }
 
+interface PendingNpc {
+  faction: Faction
+  aiType: AIType
+  name: string
+  tier: UnitTier
+  cavalry: boolean
+  respawnEnabled: boolean
+}
+
 export class BattleSpawner {
   /**
    * Generates a complete deterministic spawn plan from BattleConfig.
    */
   static createSpawnPlan(config: BattleConfig): BattleSpawnPlan {
+    const mode = config.mode ?? 'formation'
+    if (mode === 'scattered') {
+      return this._generateScatteredPlan(config)
+    }
+    return this._generateFormationPlan(config)
+  }
+
+  private static _generateFormationPlan(config: BattleConfig): BattleSpawnPlan {
     const respawn = config.rules.respawnEnabled ?? false
     const npcSpecs: NpcSpawnSpec[] = [
       ...this._generateArmySpecs(config.viking, Faction.PLAYER, respawn),
@@ -76,6 +118,156 @@ export class BattleSpawner {
     }
 
     return {
+      playerSpawn: { x: VIKING_PLAYER_SPAWN.x, z: VIKING_PLAYER_SPAWN.z },
+      npcSpecs,
+      pickupSpecs,
+      horseSpecs,
+    }
+  }
+
+  private static _generateScatteredPlan(config: BattleConfig): BattleSpawnPlan {
+    const respawn = config.rules.respawnEnabled ?? false
+    const vikingExpanded = this._expandArmy(config.viking)
+    const romanExpanded = this._expandArmy(config.roman)
+
+    const buildPending = (expanded: ReturnType<typeof BattleSpawner._expandArmy>, faction: Faction): PendingNpc[] => {
+      const isViking = faction === Faction.PLAYER
+      const prefix = isViking ? 'Viking' : 'Roman'
+      const list: PendingNpc[] = []
+
+      for (const u of expanded.infantry) {
+        list.push({
+          faction,
+          aiType: AIType.MELEE,
+          name: `${prefix} T${u.tier} Infantry ${u.index}`,
+          tier: u.tier,
+          cavalry: false,
+          respawnEnabled: respawn,
+        })
+      }
+      for (const u of expanded.archer) {
+        list.push({
+          faction,
+          aiType: AIType.RANGED,
+          name: `${prefix} T${u.tier} Archer ${u.index}`,
+          tier: u.tier,
+          cavalry: false,
+          respawnEnabled: respawn,
+        })
+      }
+      for (const u of expanded.cavalry) {
+        list.push({
+          faction,
+          aiType: AIType.MELEE,
+          name: `${prefix} T${u.tier} Lancer ${u.index}`,
+          tier: u.tier,
+          cavalry: true,
+          respawnEnabled: respawn,
+        })
+      }
+      for (const u of expanded.horseArcher) {
+        list.push({
+          faction,
+          aiType: AIType.RANGED,
+          name: `${prefix} T${u.tier} Horse Archer ${u.index}`,
+          tier: u.tier,
+          cavalry: true,
+          respawnEnabled: respawn,
+        })
+      }
+      return list
+    }
+
+    const vikingList = buildPending(vikingExpanded, Faction.PLAYER)
+    const romanList = buildPending(romanExpanded, Faction.ENEMY)
+    const totalNpcCount = vikingList.length + romanList.length
+    const actorCount = totalNpcCount + 1 // + 1 for Player
+
+    let gridSize = Math.max(6, Math.ceil(Math.sqrt(actorCount)) + 1)
+    while (gridSize * gridSize - TREE_OBSTACLES.length * 2 < actorCount) {
+      gridSize++
+    }
+
+    const cellSize = (SCATTER_BOUND_MAX - SCATTER_BOUND_MIN) / gridSize
+    const maxJitter = Math.min(5.0, Math.max(1.0, (cellSize - 5.5) / 2))
+
+    const prng = createMulberry32(SCATTER_BASE_SEED)
+    const candidates: Array<{ x: number; z: number }> = []
+
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        const cx = SCATTER_BOUND_MIN + (c + 0.5) * cellSize
+        const cz = SCATTER_BOUND_MIN + (r + 0.5) * cellSize
+        const jx = (prng() * 2 - 1) * maxJitter
+        const jz = (prng() * 2 - 1) * maxJitter
+        const x = Math.round((cx + jx) * 100) / 100
+        const z = Math.round((cz + jz) * 100) / 100
+
+        let nearObstacle = false
+        for (const tree of TREE_OBSTACLES) {
+          if (Math.hypot(x - tree.x, z - tree.z) < TREE_EXCLUSION_RADIUS) {
+            nearObstacle = true
+            break
+          }
+        }
+        if (!nearObstacle) {
+          candidates.push({ x, z })
+        }
+      }
+    }
+
+    if (candidates.length < actorCount) {
+      throw new Error(`Insufficient scattered spawn slots: needed ${actorCount}, found ${candidates.length}`)
+    }
+
+    // Deterministic Fisher-Yates shuffle of candidate slots
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(prng() * (i + 1))
+      const tmp = candidates[i]
+      candidates[i] = candidates[j]
+      candidates[j] = tmp
+    }
+
+    // Player takes candidate slot 0
+    const playerSpawn = candidates[0]
+
+    // Interleave Viking and Roman NPCs to guarantee true mixed distribution across the field
+    const mixedNpcs: PendingNpc[] = []
+    let vIdx = 0
+    let rIdx = 0
+    while (vIdx < vikingList.length || rIdx < romanList.length) {
+      if (vIdx < vikingList.length) mixedNpcs.push(vikingList[vIdx++])
+      if (rIdx < romanList.length) mixedNpcs.push(romanList[rIdx++])
+    }
+
+    const npcSpecs: NpcSpawnSpec[] = []
+    for (let i = 0; i < mixedNpcs.length; i++) {
+      const pos = candidates[i + 1]
+      const pending = mixedNpcs[i]
+      npcSpecs.push({
+        x: pos.x,
+        z: pos.z,
+        faction: pending.faction,
+        aiType: pending.aiType,
+        name: pending.name,
+        tier: pending.tier,
+        cavalry: pending.cavalry,
+        respawnEnabled: pending.respawnEnabled,
+      })
+    }
+
+    const pickupSpecs: CampPickupSpec[] = []
+    const horseSpecs: CampHorseSpec[] = []
+
+    if (config.rules.includeCamps) {
+      pickupSpecs.push(...this._generateCampPickups(Faction.PLAYER))
+      pickupSpecs.push(...this._generateCampPickups(Faction.ENEMY))
+      horseSpecs.push(...this._generateCampHorses(Faction.PLAYER))
+      horseSpecs.push(...this._generateCampHorses(Faction.ENEMY))
+    }
+
+    return {
+      playerSpawn,
       npcSpecs,
       pickupSpecs,
       horseSpecs,
