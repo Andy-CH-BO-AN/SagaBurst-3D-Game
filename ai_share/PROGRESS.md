@@ -35,6 +35,8 @@ The recent optimization sequence shows two distinct costs:
 - PR #27 只在 NPC 建弓時合併相鄰同材質 groups（81→3），保留幾何、材質、動畫、attachment 與 Player 路徑。同幀畫面完全一致；Cavalry main-pass calls 16,654→8,854，弓 submissions 8,300→500。動態 Cavalry Renderer Submit 中位數僅 −2.6%，三輪配對結果不一致，因此只確認 submission 結構大幅改善，**不宣稱穩定 FPS／Renderer Submit 時間收益**；Infantry control 的 calls 不變。
 - 下一個合理 target 是 Humanoid renderables／material structure，以及 transmission prepass 放大的 opaque workload。先做 attribution，再選單一低風險改動；不回頭優化 shadow／collision，也不直接進行 crowd instancing。Viking Bow LOD1/2 離手舊問題仍另案處理。
 
+---
+
 ## Performance Measurement Notes
 
 - `Renderer Submit` means CPU-side time inside `renderer.render()` and may include driver overhead / GPU back-pressure. It is **not** pure GPU execution time.
