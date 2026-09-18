@@ -631,23 +631,18 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     expect(h.player.staminaValue).toBe(0)
   })
 
-  it('Non-lance melee attacks keep the existing stamina cost and low-stamina gate', () => {
+  it('Sword attacks require no stamina and do not consume stamina', () => {
     const h = createPlayerHarness()
     h.inventory.addWeapon('steel_sword')
     h.inventory.equipWeapon('steel_sword')
     h.update(input())
 
-    h.player.setStamina(100)
-    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
-    expect(h.player.staminaValue).toBe(85)
-
-    for (let i = 0; i < 40; i++) h.update(input(), 1 / 60)
     h.player.setStamina(0)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
 
     expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
-    expect(h.player.swinging).toBe(false)
+    expect(h.player.swinging).toBe(true)
+    expect(h.player.staminaValue).toBe(0)
   })
 
   it('Buffer is strictly scoped to Lance: sword clicks during recovery do not buffer follow-up attack', () => {
