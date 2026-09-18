@@ -123,7 +123,7 @@ skyrim 3D test/
 - The normal release URL uses a deterministic beginner-friendly 10v5 battle: the Player plus nine allied Tier-2 infantry (five melee, four archers) face five Tier-2 Roman infantry (three melee, two pilum), with cavalry randomness disabled for those units.
 - NPC ranged units engage out to 22m. Their shared aim point adds distance-squared vertical compensation before both visual aiming and projectile launch, while NPC arrows/pilums use a 20m/s launch speed for readable longer arcs.
 - Player physics keeps its 0.95m capsule half-height, while the procedural render rig has a fixed -0.15m visual offset so its -0.8m boot soles meet the terrain exactly like NPC soles without altering collision, jump, or camera roots.
-- The procedural terrain is 400×400m. Player, NPC, controlled mounts, and wandering mount targets share `PLAYABLE_WORLD_BOUND = 180`, leaving a 20m safety margin inside the rendered terrain instead of duplicating per-class boundary constants.
+- The procedural terrain is 400×400m. Player, NPC, controlled mounts, and wandering mount targets share `PLAYABLE_WORLD_BOUND = 180`, leaving a 20m safety margin inside the rendered terrain instead of duplicating per-class boundary constants. Battle front lines start around `|Z| = 125`, the Viking Player starts at `Z = 145`, camp pickups at `|Z| = 151`, and camp horses at `|Z| = 158`, keeping the opening formation in the outer map band while preserving edge clearance.
 
 ### Phase 21 Procedural Realism Pass
 - `ProceduralMaterials` creates deterministic cached albedo, roughness and bump textures with a browser `CanvasTexture` path and a headless `DataTexture` fallback for tests.
