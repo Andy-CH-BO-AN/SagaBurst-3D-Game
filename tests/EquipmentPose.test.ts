@@ -195,7 +195,7 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
         for (const hand of measured.hands) expect(hand.right.distanceTo(measured.grip)).toBeLessThan(.01)
         expect(measured.tip.clone().sub(measured.grip).normalize().z).toBeGreaterThan(.96)
         if (target === hitTime) {
-          expect(measured.grip.z - start.z).toBeGreaterThan(.18)
+          expect(measured.grip.z - start.z).toBeGreaterThan(.40)
           expect(Math.abs(measured.grip.x - start.x)).toBeLessThan(.05)
         }
         elapsed = target
