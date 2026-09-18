@@ -16,7 +16,7 @@ import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
-import { getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
+import { clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
@@ -682,9 +682,8 @@ export class Player {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 
-      // Map boundary clamp
-      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -95, 95)
-      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -95, 95)
+      // Keep movement inside the rendered terrain with the shared world boundary.
+      clampToPlayableWorld(this.group.position)
 
       // Jump
       if (input.keys['Space'] && this.onGround) {
@@ -719,10 +718,8 @@ export class Player {
       this.velY = playerCollision.velocityY
       this.onGround = playerCollision.onGround
 
-      // World Boundary Clamp
-      const BOUND = 95
-      this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -BOUND, BOUND)
-      this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -BOUND, BOUND)
+      // Re-apply after collision resolution in case the push-out moved us past the edge.
+      clampToPlayableWorld(this.group.position)
     }
   }
 
