@@ -33,36 +33,23 @@ describe('盾牌裝備規則', () => {
       }
     }
   })
-  it('持盾按 RMB 自動切弓進入 Aim，盾牌 stowed 且 Loadout 中保留', () => {
+  it('持盾按 RMB 自動卸下盾牌並進入 Aim，釋放 RMB 離開 Aim', () => {
     const f = fixture()
     f.update(input())
     expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
-    expect(f.player.currentCombatStance).toBe('melee')
-    expect(f.player.isShieldActive).toBe(true)
+    expect(f.player.isAiming).toBe(false)
 
-    // RMB down with equipped bow switches to ranged stance, stows shield, enters aim
-    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }))
+    // RMB down with equipped bow automatically unequips shield and enters aim in the same frame
+    f.update(input({ isRightMouseDown: true }))
+    expect(f.inventory.equippedShield).toBeNull()
     expect(f.player.isAiming).toBe(true)
-    expect(f.player.currentCombatStance).toBe('ranged')
-    expect(f.player.isShieldActive).toBe(false)
-    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
 
-    // RMB release leaves aim, stays in ranged stance with bow in hand and shield stowed
+    // RMB release leaves aim
     f.update(input({ isRightMouseDown: false }))
     expect(f.player.isAiming).toBe(false)
-    expect(f.player.currentCombatStance).toBe('ranged')
-    expect(f.player.isShieldActive).toBe(false)
-    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
-
-    // Explicit switch back to melee restores equipped shield
-    f.player.setCombatStance('melee')
-    f.update(input())
-    expect(f.player.currentCombatStance).toBe('melee')
-    expect(f.player.isShieldActive).toBe(true)
   })
   it('近戰攻擊中切換裝備取消尚未發生的命中', () => {
     const f = fixture()
-    f.player.setCombatStance('melee')
     f.update(input())
     f.update(input({ consumeLeftClick: () => true }))
     expect((f.player as any).animator.busy).toBe(true)

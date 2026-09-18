@@ -46,22 +46,19 @@ function createPlayerHarness() {
 }
 
 describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
-  it('Melee + Shield -> RMB -> shield stowed, bow active, isAiming = true, loadout shield intact', () => {
+  it('Melee + Shield -> RMB -> shield auto-unequipped, isAiming = true, camera zooms', () => {
     const h = createPlayerHarness()
     h.update(input())
 
-    // 1. Initial melee stance
-    expect(h.player.currentCombatStance).toBe('melee')
-    expect(h.player.isShieldActive).toBe(true)
+    // 1. Initial state: shield equipped
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
+    expect(h.player.isAiming).toBe(false)
     expect(h.camera.fov).toBeCloseTo(58, 0)
 
-    // 2. RMB pressed with equipped bow -> switches to ranged stance, shield stowed, isAiming true
+    // 2. RMB pressed with equipped bow -> shield automatically unequipped, enters aim in the same frame
     h.update(input({ isRightMouseDown: true }))
-    expect(h.player.currentCombatStance).toBe('ranged')
+    expect(h.inventory.equippedShield).toBeNull()
     expect(h.player.isAiming).toBe(true)
-    expect(h.player.isShieldActive).toBe(false)
-    expect(h.inventory.equippedShield?.id).toBe('round_shield_t3') // Loadout shield remains intact!
 
     // Camera zooms smoothly toward 28° (AIM_FOV)
     for (let i = 0; i < 60; i++) {
@@ -70,24 +67,15 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.camera.fov).toBeLessThan(30)
     expect(h.camera.fov).toBeGreaterThanOrEqual(28)
 
-    // 3. RMB release -> isAiming = false, stays in ranged stance with bow in hand, shield remains stowed
+    // 3. RMB release -> isAiming = false
     h.update(input({ isRightMouseDown: false }))
     expect(h.player.isAiming).toBe(false)
-    expect(h.player.currentCombatStance).toBe('ranged')
-    expect(h.player.isShieldActive).toBe(false)
-    expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
 
     // Camera zooms smoothly back toward 58°
     for (let i = 0; i < 60; i++) {
       h.update(input({ isRightMouseDown: false }), 1 / 60)
     }
     expect(h.camera.fov).toBeGreaterThan(56)
-
-    // 4. Switch back to melee (e.g. Digit1 or setCombatStance) -> shield restored
-    h.player.setCombatStance('melee')
-    h.update(input())
-    expect(h.player.currentCombatStance).toBe('melee')
-    expect(h.player.isShieldActive).toBe(true)
   })
 
   // Test 1: RMB only -> isAiming === true, but bowDrawRatio === 0
@@ -100,7 +88,6 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
       h.update(input({ isRightMouseDown: true }), 1 / 60)
     }
     expect(h.player.isAiming).toBe(true)
-    expect(h.player.isShieldActive).toBe(false)
     // bowDrawRatio must remain 0 — RMB alone does NOT draw the bow
     expect(h.player.bowDrawRatio).toBe(0)
   })
@@ -164,14 +151,15 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
-  // Test 4: shield loadout retained, switching to melee restores shield active
-  it('持盾時按 RMB 進入 Aim，釋放 LMB 正常射出箭矢', () => {
+  // Test 4: shield auto-unequipped on RMB, shoots arrow on release LMB
+  it('持盾時按 RMB 自動卸盾進入 Aim，蓄力釋放 LMB 正常射出箭矢', () => {
     const h = createPlayerHarness()
     h.update(input())
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
 
     // Enter aim and charge with LMB
     h.update(input({ isRightMouseDown: true }))
+    expect(h.inventory.equippedShield).toBeNull()
     expect(h.player.isAiming).toBe(true)
     for (let i = 0; i < 15; i++) {
       h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 1 / 60)
@@ -188,42 +176,33 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).toHaveBeenCalled()
   })
 
-  // Test 5: LMB when not aiming -> auto-switch to melee, restore shield, attack
-  it('使用完弓箭後，按左鍵自動切回近戰姿態、恢復盾牌並揮擊近戰武器', () => {
+  // Test 5: LMB when not aiming -> attack with melee
+  it('使用完弓箭後（未按 RMB 瞄準時），按左鍵揮擊近戰武器', () => {
     const h = createPlayerHarness()
     h.update(input())
-    expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
-    expect(h.player.isShieldActive).toBe(true)
 
     // 1. 按住 RMB + LMB 瞄準拉弓
     h.update(input({ isRightMouseDown: true }), 1 / 60)
     expect(h.player.isAiming).toBe(true)
-    expect(h.player.isShieldActive).toBe(false)
-    expect(h.player.currentCombatStance).toBe('ranged')
 
     for (let i = 0; i < 20; i++) {
       h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 1 / 60)
     }
     expect(h.player.bowDrawRatio).toBeGreaterThan(0.1)
 
-    // 2. 釋放 LMB 射箭（仍持 RMB）
+    // 2. 釋放 LMB 射箭
     h.update(input({ isRightMouseDown: true, isLeftMouseDown: false, consumeLeftClickRelease: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('bowRelease')
 
-    // 完成放箭動作 (0.25s)
+    // 放開 RMB，完成放箭動作 (0.25s)
     for (let i = 0; i < 20; i++) {
-      h.update(input(), 1 / 60)
+      h.update(input({ isRightMouseDown: false }), 1 / 60)
     }
     expect(h.player.combatAnimationAction).toBe('idle')
-    expect(h.player.currentCombatStance).toBe('ranged')
-    expect(h.player.isShieldActive).toBe(false)
+    expect(h.player.isAiming).toBe(false)
 
-    // 3. 使用完弓箭後，按左鍵攻擊
+    // 3. 未瞄準時按左鍵攻擊近戰
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-
-    // 應自動切換回近戰姿態、恢復盾牌、並揮擊近戰武器
-    expect(h.player.currentCombatStance).toBe('melee')
-    expect(h.player.isShieldActive).toBe(true)
     expect(h.player.swinging).toBe(true)
     expect(h.player.combatAnimationAction).toBe('lanceThrust')
     expect(h.sounds.playSwing).toHaveBeenCalled()

@@ -101,7 +101,6 @@ export class Player {
   private attackHitProcessed = false
   private hitEventPending = false
 
-  public combatStance: 'melee' | 'ranged' = 'melee'
   public readonly prevLanceTipPos = new THREE.Vector3()
   public hasPrevLanceTip = false
 
@@ -163,20 +162,7 @@ export class Player {
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
-  get currentCombatStance(): 'melee' | 'ranged' { return this.combatStance }
-  get isShieldActive(): boolean { return this.combatStance === 'melee' && Boolean(this.currentShieldId) }
   get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
-
-  setCombatStance(stance: 'melee' | 'ranged'): void {
-    if (this.combatStance === stance) return
-    this.combatStance = stance
-    if (stance === 'melee') {
-      this.aiming = false
-      this.bowChargeTime = 0
-      this.bowVisualDrawRatio = 0
-      this.bowVisual?.hideArrow()
-    }
-  }
 
   updatePrevLanceTip(): void {
     if (this.animator.isLanceThrustActive) {
@@ -327,7 +313,6 @@ export class Player {
   rebuildMeleeWeapon(weaponId: string): void {
     if (this.currentMeleeId === weaponId) return
     this._cancelEquipmentAction()
-    this.combatStance = 'melee'
     this.currentMeleeId = weaponId
 
     // Clear existing meshes
@@ -503,7 +488,7 @@ export class Player {
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.isShieldActive || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -555,30 +540,19 @@ export class Player {
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
+
+    if (input.isRightMouseDown && equippedRanged && inventoryManager?.equippedShield) {
+      inventoryManager.unequipShield()
+    }
     
     const equippedShield = inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
-    if (input.keys['Digit1']) {
-      this.setCombatStance('melee')
-    } else if (input.keys['Digit2'] && equippedRanged) {
-      this.setCombatStance('ranged')
-    }
-
-    if (input.isRightMouseDown && equippedRanged && this.combatStance !== 'ranged') {
-      this.setCombatStance('ranged')
-    }
-
-    const inRangedStance = this.combatStance === 'ranged'
-    const isShieldActive = this.isShieldActive
-    const isLance = equippedMelee?.animationKind === 'lance' && !inRangedStance
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
-
-    this.animator.setEquipment(isLance, isShieldActive, this.currentMount?.type as MountedPoseKind | undefined)
-    const blockedAim = isShieldActive && input.isRightMouseDown && !equippedRanged
+    this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
+    const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
-
-    const wantAim = Boolean(equippedRanged) && inRangedStance && input.isRightMouseDown
+    const wantAim = input.isRightMouseDown && !equippedShield
     const bowReleasing = this.animator.currentAction === 'bowRelease'
     this.aiming = wantAim && !this.isSwinging && !bowReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
@@ -586,6 +560,8 @@ export class Player {
     quiverUI.setAiming(this.aiming)
 
     if (this.aiming) {
+      this.swordPivot.visible = false
+      this.bowPivot.visible = true
       this.nockedArrowReleased = false
 
       if (input.isLeftMouseDown && this.arrows > 0) {
@@ -594,29 +570,18 @@ export class Player {
       }
       this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
 
-      input.consumeLeftClick()
-
       if (input.consumeLeftClickRelease()) {
-        if (this.bowChargeTime > 0.1 && this.arrows > 0) {
-          this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
-        }
-        this.bowChargeTime = 0
+        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
         quiverUI.setChargeRatio(0)
       }
     } else {
-      input.consumeLeftClickRelease()
       if (this.bowChargeTime > 0.1 && this.arrows > 0) {
         this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
-      } else {
-        this.bowVisualDrawRatio = 0
       }
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
-        if (this.combatStance !== 'melee') {
-          this.setCombatStance('melee')
-        }
+      if (input.consumeLeftClick() && !blockedAim && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
         const action = this._meleeAction(equippedMelee)
         if (this.animator.start(action)) {
           this.isSwinging = true
@@ -628,16 +593,10 @@ export class Player {
       }
     }
 
-    const currentStance = this.combatStance
-    const inRanged = currentStance === 'ranged'
-    const isShieldNow = this.isShieldActive
-    const isLanceNow = equippedMelee?.animationKind === 'lance' && !inRanged
-    this.animator.setEquipment(isLanceNow, isShieldNow, this.currentMount?.type as MountedPoseKind | undefined)
-
-    this.swordPivot.visible = !inRanged
-    this.bowPivot.visible = inRanged
-    this.shieldPivot.visible = isShieldNow
-    this.rig.animation?.setSwordHandShape?.(!inRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
+    const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
+    this.swordPivot.visible = !showingBow
+    this.rig.animation?.setSwordHandShape?.(!showingBow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
+    this.bowPivot.visible = showingBow
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))

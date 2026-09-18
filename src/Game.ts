@@ -935,7 +935,6 @@ export class Game {
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
-          this.player.setCombatStance('melee')
           this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
         })
         if (this.equipmentUI.visible) {
