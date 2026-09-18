@@ -9,13 +9,23 @@ Validate the actual WebGL result, not only TypeScript state. Reuse the user's ru
 
 ## Choose the URL
 
-- Use `http://localhost:5173/` for the release scenario: Player plus nine Tier-2 allies versus five Tier-2 Romans.
-- Use `http://localhost:5173/?nolock` for the same scenario without pointer lock. Prefer this URL when browser automation must click or inspect the page.
-- Use `http://localhost:5173/?devcombat&nolock` for visual combat diagnostics. The current debug scenario is a Tier-3 50v50 cavalry battle, with each side containing 25 ranged riders and 25 lancers.
-- Use `http://localhost:5173/?devcombat=all&nolock` only when NPC trajectory logs are necessary. This enables Player and NPC console output and can be very noisy.
-- Use `http://localhost:5173/?devmodels=mounts&nolock` for the isolated Phase-23 horse studio. It shows one realistic horse on a metre grid with a Player-independent Orbit camera. Press `0` to cycle the three stable coat variants, `1`–`9` for idle/walk/trot/canter/gallop/jump/land/hit/death, `Space` to pause, `R` to replay, `H` for the skeleton, and `V` for the rider. The status HUD must report variant, clip, LOD, one mixer, draw calls, geometry, and textures.
+The normal release entry now uses the Custom Battle Setup UI. Do not assume that opening `/` immediately creates a fixed battle.
 
-Treat query parameters as independent switches: `devcombat` enables trajectory rendering and `nolock` disables pointer lock. Normally validate the release URL after the diagnostic URL because their spawn scenarios differ. A phase may explicitly classify release and stress scenarios as non-blocking diagnostics, but their screenshots, console results, FPS, LOD, and resource counts still belong in the report.
+- Use `http://localhost:5173/` for the normal release entry. With no saved battle config, it shows Custom Battle Setup first; the default preset is 10v10.
+- Use `http://localhost:5173/?nolock` for the same release flow without pointer lock after the battle starts. Prefer this URL for browser automation.
+- A valid `sessionStorage.sagaburst_battle_config` skips the setup UI and launches that saved config directly. For deterministic release QA, use a fresh browser context or clear that key before choosing the intended preset and pressing `START BATTLE`.
+- Use `http://localhost:5173/?devcombat&nolock` for the default combat diagnostic: Tier-3 50v50 cavalry, each side with 25 lancers and 25 horse archers.
+- Use `http://localhost:5173/?devcombat=a&nolock` for Scenario A: 50v50 Infantry.
+- Use `http://localhost:5173/?devcombat=b&nolock` for Scenario B: 100v100 Infantry.
+- Use `http://localhost:5173/?devcombat=c&nolock` for Scenario C: 100v100 Mixed.
+- Use `http://localhost:5173/?devcombat=d&nolock` for Scenario D: 100v100 Cavalry / Horse Archer.
+- Use `http://localhost:5173/?devcombat=all&nolock` only when NPC trajectory logs are necessary. It uses the default 50v50 diagnostic scenario but prints Player and NPC trajectory summaries and can be very noisy.
+- Use `http://localhost:5173/?devmodels=humans&nolock` for the isolated humanoid studio. It is the preferred place to inspect character LODs, skeletons, sword/lance attachments, shields, and authored combat poses without a crowded battle. Current controls include `B` (controller/raw GLB mode), `L` (sword/lance), `Q` (shield), `Space` (pause), `R` (replay), and `H` (skeleton).
+- Use `http://localhost:5173/?devmodels=mounts&nolock` for the isolated Phase-23 horse studio. It shows one realistic horse on a metre grid with a Player-independent Orbit camera. Press `0` to cycle the three stable coat variants, `1`–`9` for idle/walk/trot/canter/gallop/jump/land/hit/death, `Space` to pause, `R` to replay, `H` for the skeleton, `V` for the rider, `L` for sword/lance, `Q` for shield, and `F` to trigger the rider attack. The status HUD must report variant, clip, LOD, one mixer, draw calls, geometry, and textures.
+
+Treat query parameters as independent switches: `devcombat` selects a diagnostic scenario / trajectory mode and `nolock` disables pointer lock. For visual combat changes, prove the smallest isolated hypothesis first, then repeat the relevant release or battle scenario. For performance work, use the explicit A/B/C/D scenarios instead of relying on the release preset.
+
+Raw screenshots, console dumps, benchmark JSON, and per-frame diagnostics belong in ignored `output/`. The task/PR report should summarize only evidence needed for the acceptance criteria. `PROGRESS.md` should receive only a durable conclusion, known limitation, or changed handoff state—not a copied validation report.
 
 ## Run the Validation Workflow
 
@@ -28,8 +38,8 @@ For a newly exported or post-processed horse GLB, browser validation is not the 
 5. Hard-reload after constructor, spawn, scenario, rig, or equipment changes. Vite HMR may preserve old `Game`, `Player`, or `NPC` instances.
 6. Capture before, active, and recovery frames when animation timing matters.
 7. Inspect relevant Console entries and compare them with the rendered trajectory.
-8. Repeat the check on the release URL.
-9. Report the tested URL, action, visual result, relevant logs, and any remaining uncertainty.
+8. Repeat the check on the relevant release/battle URL when the isolated diagnostic alone is insufficient.
+9. Report the tested URL/config, action, visual result, relevant logs, and any remaining uncertainty. Keep raw evidence in ignored `output/`; do not copy the full validation transcript into `PROGRESS.md`.
 
 If the user explicitly says not to open or test the browser, do not use browser control. Ask for or inspect the screenshot and copied log they provide, then run only non-browser checks.
 
@@ -124,8 +134,10 @@ For mounted combat:
 - Confirm the status HUD reports exactly one mixer and the selected LOD/clip; orbit close to and far from the horse to exercise LOD changes.
 - Check mane/tail attachment and card silhouettes in idle, gallop, jump, land, hit, and the final death frame.
 - Toggle the skeleton and rider; confirm pelvis-to-saddle, knees, stirrups, feet, shield, and tack do not visibly intersect.
-- Confirm a mounted lance is held at the waist by the right hand and points along character +Z; a thrust moves the arm while its attachment remains fixed.
-- Confirm the left hand retains the shield.
+- For lance idle, preserve the current Sword-Idle-derived body/hand pose plus the fixed lance attachment. Do **not** reintroduce the retired lance Ready pose, palm-up correction, two-hand support, lance IK, or lance-specific finger morph in unrelated work.
+- During lance attack, confirm only the intended right-arm FK extension advances the weapon while the fixed attachment and existing event timing remain intact.
+- Confirm the lance points generally along character +Z and the left hand retains the shield when a shield is equipped.
+- Use the horse studio `L` / `Q` / `F` controls to compare mounted sword, mounted lance, shielded/unshielded states, and attack/recovery without changing scenarios.
 
 For grounding:
 
