@@ -562,9 +562,7 @@ export class Game {
     // Stable browser-QA setup: start as a horse knight so saddle fit,
     // rider legs, gait, jump and dismount can be inspected
     // without depending on repeated single-frame keypresses.
-    this.player.isMounted = true
-    this.player.currentMount = mount
-    mount.state = MountState.CONTROLLED
+    this.player.mountVehicle(mount, mount.group.rotation.y)
     this.mountNameEl.textContent = `坐騎：${mount.displayName}`
     this.mountHpFill.style.width = '100%'
     this.mountHud.classList.add('visible')
@@ -1028,12 +1026,9 @@ export class Game {
     this._showNotify('📂 讀檔成功（還原背包與裝備）')
   }
 
-  private _mountPlayer(mount: Mount): void {
+  private _mountPlayer(mount: Mount, initialHeading?: number): void {
     this._aimTargetRegistry.unregisterMount(mount)
-    this.player.isMounted = true
-    this.player.currentMount = mount
-    mount.state = MountState.CONTROLLED
-    this.player.syncMountTransform()
+    this.player.mountVehicle(mount, initialHeading)
 
     this.mountNameEl.textContent = `坐騎：${mount.displayName}`
     this.mountHpFill.style.width = `${Math.max(0, (mount.currentHp / mount.maxHp) * 100)}%`
