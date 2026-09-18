@@ -18,7 +18,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { Mount } from '../world/Mount'
+import { Mount, MountState } from '../world/Mount'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
@@ -146,7 +146,11 @@ export class Player {
   get facingYaw(): number { return this.group.rotation.y - (this.usesExternalForwardAdapter ? 0 : Math.PI) }
 
   faceDirection(x: number, z: number): void {
-    this.group.rotation.y = this._characterYaw(Math.atan2(x, z))
+    const yaw = Math.atan2(x, z)
+    this.group.rotation.y = this._characterYaw(yaw)
+    if (this.isMounted && this.currentMount) {
+      this.currentMount.group.rotation.y = yaw
+    }
   }
   get staminaValue(): number    { return this.stamina }
   get swinging(): boolean       { return this.isSwinging }
@@ -364,6 +368,21 @@ export class Player {
     this.bowVisual?.hideArrow()
   }
 
+  setMountedHeading(heading: number): void {
+    if (!this.currentMount) return
+    this.currentMount.group.rotation.y = heading
+    this.group.rotation.y = this._characterYaw(heading)
+  }
+
+  mountVehicle(mount: Mount, heading?: number): void {
+    this.isMounted = true
+    this.currentMount = mount
+    mount.state = MountState.CONTROLLED
+    const targetHeading = heading !== undefined ? heading : this.facingYaw
+    this.setMountedHeading(targetHeading)
+    this.syncMountTransform()
+  }
+
   syncMountTransform(): void {
     if (!this.isMounted || !this.currentMount) return
     this.currentMount.getSaddleSeatWorld(this.group.position)
@@ -372,6 +391,7 @@ export class Player {
     this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.currentMount.type as MountedPoseKind })
     this._alignExternalVisualToMount(true)
     this.group.rotation.x = this.currentMount.ridePitch
+    this.group.rotation.y = this._characterYaw(this.currentMount.group.rotation.y)
   }
 
   dismountFromMount(): void {
@@ -386,6 +406,7 @@ export class Player {
     this.rig.animation?.update(0)
     this._alignExternalVisualToMount(false)
     this.group.position.copy(mountPosition)
+    this.group.rotation.x = 0
     this.velY = 0
   }
 
@@ -646,18 +667,16 @@ export class Player {
 
       this.currentMount.finishControlledFrame(dt, obstacles)
 
-      // Sync player to mount
-      this.syncMountTransform()
-      
-      // Rotation
+      // Rotation: resolve final heading before syncing mount transform
       if (isMoving) {
         const mountAngle = Math.atan2(moveDir.x, moveDir.z)
-        this.currentMount.group.rotation.y = mountAngle
-        this.group.rotation.y = this._characterYaw(mountAngle)
+        this.setMountedHeading(mountAngle)
       } else if (this.aiming || this.isSwinging) {
-        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
-        this.currentMount.group.rotation.y = cameraYaw + Math.PI
+        this.setMountedHeading(cameraYaw + Math.PI)
       }
+
+      // Sync player to mount (runs after rotation so saddle seat world matrix reflects current frame heading)
+      this.syncMountTransform()
 
       // Reset player velY so when dismounting they don't fall fast
       this.velY = 0
