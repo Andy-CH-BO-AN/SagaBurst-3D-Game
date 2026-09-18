@@ -35,6 +35,10 @@ The recent optimization sequence shows two distinct costs:
 - PR #27 只在 NPC 建弓時合併相鄰同材質 groups（81→3），保留幾何、材質、動畫、attachment 與 Player 路徑。同幀畫面完全一致；Cavalry main-pass calls 16,654→8,854，弓 submissions 8,300→500。動態 Cavalry Renderer Submit 中位數僅 −2.6%，三輪配對結果不一致，因此只確認 submission 結構大幅改善，**不宣稱穩定 FPS／Renderer Submit 時間收益**；Infantry control 的 calls 不變。
 - 下一個合理 target 是 Humanoid renderables／material structure，以及 transmission prepass 放大的 opaque workload。先做 attribution，再選單一低風險改動；不回頭優化 shadow／collision，也不直接進行 crowd instancing。Viking Bow LOD1/2 離手舊問題仍另案處理。
 
+### Worktree conclusion — Horse cornea transmission attribution
+
+- 工作分支 `perf/remove-horse-cornea-transmission-prepass` 的 frozen runtime attribution 確認：只要可見的 Horse cornea 保持 transmission，Three.js 會建立 main-camera offscreen pass，重複提交不相關的 opaque scene；單一近距 LOD0 Horse 足以觸發，離開 frustum 則不觸發。候選策略只把已命名 cornea 的 `MeshPhysicalMaterial.transmission` 設為 0，保留透明、clearcoat、IOR 與原有 Horse gameplay/LOD/geometry contracts。
+
 ---
 
 ## Performance Measurement Notes

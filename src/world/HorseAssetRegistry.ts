@@ -4,6 +4,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
 
 export type HorseAnimationState =
   | 'idle'
@@ -481,6 +482,11 @@ export class HorseAssetRegistry {
 
     try {
       const gltf = await loader.loadAsync(textureUrl(base, manifest.file!))
+      // The authored transparent cornea remains a physical, clear-coated surface,
+      // but it must not make the whole main scene render into a transmission target.
+      if (setHorseCorneaTransmission(gltf.scene, false) === 0) {
+        throw new Error('Horse GLB contains no identifiable cornea material')
+      }
       firstSkinnedMesh(gltf.scene)
       normalizedClips(gltf)
       for (const socket of REQUIRED_SOCKETS) requireObject(gltf.scene, socket)
