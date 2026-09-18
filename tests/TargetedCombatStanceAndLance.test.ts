@@ -619,22 +619,30 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     expect(h.camera.fov).toBeGreaterThanOrEqual(28)
   })
 
-  it('Idle lance click rejected for low stamina is not buffered and does not auto-fire after stamina recovers', () => {
+  it('Lance attacks require no stamina and do not consume stamina', () => {
     const h = createPlayerHarness()
     h.update(input())
 
-    ;(h.player as any).stamina = 0
+    h.player.setStamina(0)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(0)
-    expect(h.player.swinging).toBe(false)
 
-    ;(h.player as any).stamina = 100
-    for (let i = 0; i < 20; i++) {
-      h.update(input(), 1 / 60)
-    }
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(true)
+    expect(h.player.staminaValue).toBe(0)
+  })
 
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(0)
-    expect(h.player.swinging).toBe(false)
+  it('Sword attacks require no stamina and do not consume stamina', () => {
+    const h = createPlayerHarness()
+    h.inventory.addWeapon('steel_sword')
+    h.inventory.equipWeapon('steel_sword')
+    h.update(input())
+
+    h.player.setStamina(0)
+    h.update(input({ consumeLeftClick: () => true }), 1 / 60)
+
+    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.player.swinging).toBe(true)
+    expect(h.player.staminaValue).toBe(0)
   })
 
   it('Buffer is strictly scoped to Lance: sword clicks during recovery do not buffer follow-up attack', () => {

@@ -50,7 +50,6 @@ const MAX_STAMINA       = 100
 const STAMINA_DRAIN     = 30   // per second while sprinting
 const STAMINA_REGEN     = 15   // per second when not sprinting
 const STAMINA_SPRINT_MIN = 10  // must have at least this much to start sprint
-const SWING_STAMINA_COST = 15  // stamina consumed per sword swing
 const MELEE_ATTACK_BUFFER_WINDOW = 0.15 // 150ms input buffer window for early attack clicks
 
 const PLAYER_RADIUS = 0.38
@@ -395,8 +394,7 @@ export class Player {
       blockedAim ||
       this.aiming ||
       this.animator.busy ||
-      !equippedMelee ||
-      this.stamina < SWING_STAMINA_COST
+      !equippedMelee
     ) {
       return false
     }
@@ -405,7 +403,6 @@ export class Player {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false
-      this.stamina -= SWING_STAMINA_COST
       soundManager.playSwing()
       this.meleeAttackBufferTimer = 0
       return true
