@@ -1600,15 +1600,12 @@ export class Game {
             })
           }
         }
-      } else if (mount.riderFaction === Faction.ENEMY && !this.player.dead) {
+      } else if (mount.riderFaction === Faction.ENEMY && this.player.targetable) {
         if (checkImpact(mount, this.player.position, 0.38)) {
           applyImpactDamage(mount, this.player, this.player.position, (damage) => {
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this._tmpHitPos.copy(this.player.position)
-              this._tmpHitPos.y += 1.0
-              this.damageNumbers.spawn(damage, this._tmpHitPos)
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -1724,9 +1721,6 @@ export class Game {
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              const hitPos = this.player.position.clone()
-              hitPos.y += 1.2
-              this.damageNumbers.spawn(damage, hitPos)
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -1737,9 +1731,6 @@ export class Game {
             const result = damageNpc(targetNpc, damage)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              const hitPos = targetNpc.combatPosition.clone()
-              hitPos.y += 1.2
-              this.damageNumbers.spawn(damage, hitPos)
             }
           }
         },
@@ -1788,7 +1779,9 @@ export class Game {
       const arrow = this.arrows[i]
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
         this.soundManager.playHit()
-        this.damageNumbers.spawn(damage, hitPos)
+        if (arrow.isPlayerFired && !isPlayer) {
+          this.damageNumbers.spawn(damage, hitPos)
+        }
         handleProjectileHitEffects(
           isPlayer,
           arrow.isPlayerFired,

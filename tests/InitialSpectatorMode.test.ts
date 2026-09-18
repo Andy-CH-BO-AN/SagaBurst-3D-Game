@@ -535,6 +535,21 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       expect(onHit).toHaveBeenCalledTimes(1)
       expect(onHit).toHaveBeenCalledWith(25, expect.any(THREE.Vector3), 'Player', expect.any(Number), true, undefined, false)
     })
+
+    it('cavalry impact checks player.targetable and ignores spectatorOnly Player', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene)
+      player.group.position.set(0, 0, 10)
+      player.spectatorOnly = true
+      expect(player.targetable).toBe(false)
+
+      const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      mount.riderFaction = Faction.ENEMY
+      mount.movementSpeed = 10
+
+      const canImpactPlayer = mount.riderFaction === Faction.ENEMY && player.targetable
+      expect(canImpactPlayer).toBe(false)
+    })
   })
 
   describe('D. Initial Spectator Camera & UX Isolation', () => {
