@@ -276,7 +276,7 @@ export class NPC {
     }
     if (this.faction === Faction.PLAYER) {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-      this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow')
+      this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow', true)
     } else {
       WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowGripPivot)
     }

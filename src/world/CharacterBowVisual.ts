@@ -54,9 +54,9 @@ export class CharacterBowVisual {
     private readonly gripPivot: THREE.Group,
   ) {}
 
-  rebuild(weaponId: string): void {
+  rebuild(weaponId: string, consolidateMaterialGroups = false): void {
     this.gripPivot.clear()
-    const parts = WeaponMeshFactory.buildRanged(weaponId, this.gripPivot)
+    const parts = WeaponMeshFactory.buildRanged(weaponId, this.gripPivot, consolidateMaterialGroups)
     this.topTip.copy(parts.topTip)
     this.bottomTip.copy(parts.botTip)
     this.stringLength = parts.stringLength

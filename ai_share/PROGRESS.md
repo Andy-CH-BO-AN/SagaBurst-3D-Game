@@ -1,6 +1,6 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-18 (after PR #23)_
+_Last updated: 2026-09-18（最新 main #26；NPC 弓 submission 優化候選分支）_
 
 > This file is a concise handoff, not a changelog or validation archive. Keep only current state, durable decisions, recent milestone outcomes, known limitations, and the next useful investigation. Detailed benchmark runs, screenshot inventories, per-frame evidence, and historical implementation narratives belong in merged PRs / Git history and ignored `output/` diagnostics.
 
@@ -8,10 +8,10 @@ _Last updated: 2026-09-18 (after PR #23)_
 
 ## Current Status
 
-- Main head after the latest performance work: `92a4b51` (`perf: disable distant NPC equipment shadows`, PR #23).
+- 本輪 baseline：`9c10299`（PR #26，擴大 playable world boundary 與 battle spawn staging）。下列 #19–#23 數字僅為歷史背景，不可直接當作新場景的 Before。
 - Phases 0–23 are implemented. Current work is focused on making large 100v100 battles cheaper without changing gameplay semantics or broadly degrading visual quality.
-- On Apple M1 Pro / Chrome 153 / ANGLE Metal, 100v100 cavalry is still roughly a ~10 FPS class workload. Renderer submission remains the dominant unresolved cost.
-- Latest full check on PR #23: 34 Vitest files / 361 tests passed and the production build passed.
+- Apple M1 Pro / Chrome 153 / ANGLE Metal 的最新場景中，100v100 cavalry 仍約 12 FPS；render submission 仍是主要未解成本。
+- 目前候選分支檢查：37 Vitest files / 375 tests 與 production build 通過。
 
 ### Current performance conclusion
 
@@ -28,12 +28,11 @@ The recent optimization sequence shows two distinct costs:
 | #22 | NPC Equipment Visual LOD | B/C/D Renderer Submit medians −6.36% / −5.65% / −4.78%; Near-heavy −0.03%, providing a useful negative control. |
 | #23 | NPC Equipment Shadow LOD | B/C/D Renderer Submit medians −6.26% / −4.06% / −4.35%; B shadow casters 1,100→0 while visible meshes stayed 1,100. Near-heavy shadow workload was unchanged. |
 
-### Next performance target
+### 本輪持久結論與下一個調查目標
 
-- Do not return to collision micro-optimization unless profiling changes: collision has not been the dominant 100v100 cost.
-- Shadow work has now been reduced substantially for distant equipment. The next survey should explain why the **cavalry main pass still needs roughly 17.6k draw calls and ~66–67 ms Renderer Submit** in the current M1 Pro benchmark.
-- Prioritize attribution before implementation: break main-pass submissions down by horse, rider/humanoid, equipment, material groups, projectiles, terrain/environment, and other repeated renderables.
-- Prefer low-risk reductions in submitted renderables/material groups before considering invasive instancing/batching or gameplay changes.
+- DEV 單次實際提交 census 證明 Cavalry 最大來源是 NPC 弓的材質分段：81 個環段 groups 只使用木／皮革兩種材質。近處馬眼角膜的 transmission prepass 又使 opaque 提交重複一次；main-pass 計數包含這個非 shadow 子 pass。
+- 候選分支只在 NPC 建弓時合併相鄰同材質 groups（81→3），保留幾何、材質、動畫、attachment 與 Player 路徑。同幀畫面完全一致；最新 baseline 的 Cavalry calls 16,654→8,854，弓 8,300→500。Cavalry Submit 中位數僅 −2.6%，配對結果不一致，尚未證明穩定時間收益；Infantry control 的 calls 不變。
+- 下一個合理 target 是 Humanoid renderables／material structure，以及 transmission prepass 放大的 opaque workload。先做 attribution，再選單一低風險改動；不回頭優化 shadow／collision，也不直接進行 crowd instancing。Viking Bow LOD1/2 離手舊問題仍另案處理。
 
 ---
 
