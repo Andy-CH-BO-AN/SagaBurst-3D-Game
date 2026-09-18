@@ -40,6 +40,19 @@ import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
 import { WeaponPickup } from './world/WeaponPickup'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 
+function distToSegmentSq(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
+  const abX = b.x - a.x, abY = b.y - a.y, abZ = b.z - a.z
+  const apX = p.x - a.x, apY = p.y - a.y, apZ = p.z - a.z
+  const abLenSq = abX * abX + abY * abY + abZ * abZ
+  if (abLenSq < 1e-6) {
+    return apX * apX + apY * apY + apZ * apZ
+  }
+  const t = Math.max(0, Math.min(1, (apX * abX + apY * abY + apZ * abZ) / abLenSq))
+  const qX = a.x + t * abX, qY = a.y + t * abY, qZ = a.z + t * abZ
+  const dx = p.x - qX, dy = p.y - qY, dz = p.z - qZ
+  return dx * dx + dy * dy + dz * dz
+}
+
 export function reconcileLoadedMounts(
   mounts: Mount[],
   startingHorse: Mount | null,
@@ -240,6 +253,10 @@ export class Game {
 
   private readonly _tmpHitPos = new THREE.Vector3()
   private readonly _debugAimPoint = new THREE.Vector3()
+  private readonly _tmpGripPos = new THREE.Vector3()
+  private readonly _tmpPlayerForward = new THREE.Vector3()
+  private readonly _tmpToTarget = new THREE.Vector3()
+  private readonly _tmpAiCenter = new THREE.Vector3()
 
   private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
     this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
@@ -1072,32 +1089,74 @@ export class Game {
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
   private _checkPlayerMeleeHits(): void {
     const equippedMelee = this.inventoryManager.equippedMelee
-    if (!this.player.isHitFrame(equippedMelee)) return
+    if (!this.player.isHitFrame(equippedMelee)) {
+      if (this.player.isLanceThrustActive) {
+        this.player.updatePrevLanceTip()
+      }
+      return
+    }
 
-    const swordTipPos = this.player.getSwordTipPosition()
-    const MELEE_HIT_THRESHOLD = equippedMelee.range || 1.85
     let baseDamage = equippedMelee.damageMax
-    
-    // Lance Charge Bonus
     baseDamage = this._applyLanceChargeBonus(equippedMelee.isLance === true, baseDamage)
-
     const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
 
-    // Check NPCs (Only hit Faction.ENEMY)
-    for (const npc of this.npcs) {
-      if (!npc.dead && npc.faction === Faction.ENEMY) {
-        const aiCenter = npc.combatPosition.clone()
-        aiCenter.y += 1.0
-        if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
-          this.player.markHitProcessed()
-          const result = damageNpc(npc, damage)
-          if (result.hitSuccess) {
-            this.soundManager.playHit()
-            this.damageNumbers.spawn(damage, aiCenter)
-            this._showEnemyHud(result.targetName, result.hpRatio)
-            this.skillManager.addXp('oneHanded', 45, this.soundManager)
+    if (equippedMelee.isLance) {
+      const currTipPos = this.player.getSwordTipPosition()
+      const prevTipPos = this.player.hasPrevLanceTip ? this.player.prevLanceTipPos : currTipPos
+      const currGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
+      const playerPos = this.player.combatPosition
+      const playerForward = this._tmpPlayerForward.set(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))
+
+      for (const npc of this.npcs) {
+        if (!npc.dead && npc.faction === Faction.ENEMY) {
+          const aiCenter = this._tmpAiCenter.copy(npc.combatPosition)
+          aiCenter.y += 1.0
+
+          const toTarget = this._tmpToTarget.copy(npc.combatPosition).sub(playerPos)
+          toTarget.y = 0
+          const forwardDist = toTarget.dot(playerForward)
+          const hitTolerance = npc.isMounted ? 0.85 : 0.60
+          const lanceReach = equippedMelee.range || 3.9
+
+          if (forwardDist <= 0 || forwardDist > lanceReach + hitTolerance) continue
+
+          const d1Sq = distToSegmentSq(aiCenter, prevTipPos, currTipPos)
+          const d2Sq = distToSegmentSq(aiCenter, currGripPos, currTipPos)
+          const minDSq = Math.min(d1Sq, d2Sq)
+
+          if (minDSq <= hitTolerance * hitTolerance) {
+            this.player.markHitProcessed()
+            const result = damageNpc(npc, damage)
+            if (result.hitSuccess) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, aiCenter.clone())
+              this._showEnemyHud(result.targetName, result.hpRatio)
+              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+            }
+            break
           }
-          return
+        }
+      }
+      this.player.updatePrevLanceTip()
+    } else {
+      const swordTipPos = this.player.getSwordTipPosition()
+      const MELEE_HIT_THRESHOLD = equippedMelee.range || 1.85
+
+      for (const npc of this.npcs) {
+        if (!npc.dead && npc.faction === Faction.ENEMY) {
+          const aiCenter = npc.combatPosition.clone()
+          aiCenter.y += 1.0
+          if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
+            this.player.markHitProcessed()
+            const result = damageNpc(npc, damage)
+            if (result.hitSuccess) {
+              this.soundManager.playHit()
+              this.damageNumbers.spawn(damage, aiCenter)
+              this._showEnemyHud(result.targetName, result.hpRatio)
+              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+            }
+            return
+          }
         }
       }
     }

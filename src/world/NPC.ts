@@ -129,6 +129,7 @@ export class NPC {
   private readonly _tmpWeaponTip = new THREE.Vector3()
   private readonly _tmpPelvisWorld = new THREE.Vector3()
   private readonly _tmpFacing = new THREE.Vector3()
+  private readonly _tmpToTarget = new THREE.Vector3()
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -187,7 +188,7 @@ export class NPC {
     this.isUsingLance = combatProfile.isUsingLance
     this.shieldId = combatProfile.shieldId
     if (this.isUsingLance) {
-      this.meleeAttackRadius = 3.0
+      this.meleeAttackRadius = 3.9
     }
 
     // Calibrate waypoints to terrain height
@@ -565,7 +566,7 @@ export class NPC {
           }
         } else {
           // Melee behavior
-          if (dist <= this.meleeAttackRadius) {
+          if (this._isTargetInMeleeRange(targetInfo.position)) {
             this.state = AIState.ATTACK
             this.attackTimer = 0
             this.attackHitProcessed = false
@@ -704,8 +705,7 @@ export class NPC {
           const meleeEvents = this.animator.update(dt, cameraDistance)
           animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
-            const currentDist = this.combatPosition.distanceTo(targetInfo.position)
-            if (currentDist <= this.meleeAttackRadius + 0.4) {
+            if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
               this.attackHitProcessed = true
               const finalDamage = this._calcLanceDamage(this.meleeDamage)
               onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
@@ -715,7 +715,7 @@ export class NPC {
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
-            if (this.attackTimer <= 0 && this.combatPosition.distanceTo(targetInfo.position) > this.meleeAttackRadius) {
+            if (this.attackTimer <= 0 && !this._isTargetInMeleeRange(targetInfo.position)) {
               this.state = AIState.CHASE
             }
           }
@@ -857,6 +857,19 @@ export class NPC {
       return baseDamage * 3.0
     }
     return baseDamage
+  }
+
+  private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
+    if (this.isUsingLance) {
+      const facingYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+      const forward = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
+      const toTarget = this._tmpToTarget.copy(targetPos).sub(this.combatPosition)
+      toTarget.y = 0
+      const forwardDist = toTarget.dot(forward)
+      const lateralDist = Math.sqrt(Math.max(0, toTarget.lengthSq() - forwardDist * forwardDist))
+      return forwardDist > 0 && forwardDist <= this.meleeAttackRadius + extraReach && lateralDist <= 1.4
+    }
+    return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
   }
 
   private _switchToMelee(): void {

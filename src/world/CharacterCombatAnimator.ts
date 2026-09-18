@@ -34,8 +34,8 @@ export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnim
   bowAim: { windup: 0.18, active: 0, recovery: 0 },
   bowRelease: { windup: 0.04, active: 0, recovery: 0.18 },
   pilumThrow: { windup: 1.5, active: 0, recovery: 0 },
-  lanceThrust: { windup: 0.20, active: 0.20, recovery: 0.30 },
-  mountedLance: { windup: 0.12, active: 0.12, recovery: 0.18 },
+  lanceThrust: { windup: 0.12, active: 0.14, recovery: 0.16 },
+  mountedLance: { windup: 0.08, active: 0.08, recovery: 0.12 },
 }
 
 const clamp01 = (value: number): number => THREE.MathUtils.clamp(value, 0, 1)
@@ -71,6 +71,11 @@ export class CharacterCombatAnimator {
   get currentAction(): CombatAction { return this.action }
   get currentOwnership(): 'clip' | 'procedural' { return this.ownership }
   get busy(): boolean { return this.action !== 'idle' && this.action !== 'bowAim' }
+  get isLanceThrustActive(): boolean {
+    if (this.action !== 'lanceThrust' && this.action !== 'mountedLance') return false
+    const profile = COMBAT_ANIMATION_PROFILES[this.action]
+    return this.elapsed >= profile.windup && this.elapsed <= (profile.windup + profile.active)
+  }
 
   setShieldGuard(enabled: boolean): void {
     this.shieldGuardEnabled = enabled
@@ -431,7 +436,7 @@ export class CharacterCombatAnimator {
     this.meleePivot.rotation.set(0, 0, 0)
     // The lance grip maps mesh +Y onto action-local -Y. Move along that same
     // axis so the attack is a true forward thrust instead of a sideways slide.
-    this.meleePivot.position.set(0, -0.08 - thrust * 0.38 + drawBack * 0.18, 0)
+    this.meleePivot.position.set(0, -0.08 - thrust * 0.48 + drawBack * 0.22, 0)
   }
 
   /** Raises the shield hand to the torso and extends it along character-forward (-Z). */

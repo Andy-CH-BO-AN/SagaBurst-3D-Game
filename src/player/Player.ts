@@ -51,6 +51,7 @@ const STAMINA_DRAIN     = 30   // per second while sprinting
 const STAMINA_REGEN     = 15   // per second when not sprinting
 const STAMINA_SPRINT_MIN = 10  // must have at least this much to start sprint
 const SWING_STAMINA_COST = 15  // stamina consumed per sword swing
+const MELEE_ATTACK_BUFFER_WINDOW = 0.15 // 150ms input buffer window for early attack clicks
 
 const PLAYER_RADIUS = 0.38
 const MAX_BOW_CHARGE_TIME = 1.2
@@ -100,6 +101,10 @@ export class Player {
   private isSwinging = false
   private attackHitProcessed = false
   private hitEventPending = false
+  private meleeAttackBufferTimer = 0
+
+  public readonly prevLanceTipPos = new THREE.Vector3()
+  public hasPrevLanceTip = false
 
   private aiming = false
   private bowChargeTime = 0
@@ -159,6 +164,14 @@ export class Player {
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+  get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
+
+  updatePrevLanceTip(): void {
+    if (this.animator.isLanceThrustActive) {
+      this.prevLanceTipPos.copy(this.getSwordTipPosition())
+      this.hasPrevLanceTip = true
+    }
+  }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
     return weaponGripWorld(this.swordGripPivot, target)
@@ -361,11 +374,43 @@ export class Player {
     this.animator?.cancel()
     this.isSwinging = false
     this.hitEventPending = false
+    this.attackHitProcessed = false
+    this.hasPrevLanceTip = false
+    this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
+  }
+
+  private _tryTriggerMeleeAttack(
+    equippedMelee: WeaponData | null | undefined,
+    soundManager: SoundManager,
+    blockedAim: boolean,
+    wantsBowAim = false,
+  ): boolean {
+    if (
+      wantsBowAim ||
+      blockedAim ||
+      this.aiming ||
+      this.animator.busy ||
+      !equippedMelee ||
+      this.stamina < SWING_STAMINA_COST
+    ) {
+      return false
+    }
+    const action = this._meleeAction(equippedMelee)
+    if (this.animator.start(action)) {
+      this.isSwinging = true
+      this.attackHitProcessed = false
+      this.hitEventPending = false
+      this.stamina -= SWING_STAMINA_COST
+      soundManager.playSwing()
+      this.meleeAttackBufferTimer = 0
+      return true
+    }
+    return false
   }
 
   setMountedHeading(heading: number): void {
@@ -440,6 +485,7 @@ export class Player {
     this.animator.cancel()
     this.isSwinging = false
     this.hitEventPending = false
+    this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.nockedArrowReleased = false
@@ -448,8 +494,12 @@ export class Player {
     hpBar.setFill(1)
   }
 
-  isHitFrame(_equippedMelee?: WeaponData): boolean {
-    return this.hitEventPending && !this.attackHitProcessed
+  isHitFrame(equippedMelee?: WeaponData): boolean {
+    if (this.attackHitProcessed) return false
+    if (equippedMelee?.animationKind === 'lance') {
+      return this.animator.isLanceThrustActive
+    }
+    return this.hitEventPending
   }
 
   markHitProcessed(): void {
@@ -523,6 +573,10 @@ export class Player {
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
+
+    if (input.isRightMouseDown && equippedRanged && inventoryManager?.equippedShield) {
+      inventoryManager.unequipShield()
+    }
     
     const equippedShield = inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
@@ -532,6 +586,10 @@ export class Player {
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
+    const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
+    if (wantsBowAim) {
+      this.meleeAttackBufferTimer = 0
+    }
     const bowReleasing = this.animator.currentAction === 'bowRelease'
     this.aiming = wantAim && !this.isSwinging && !bowReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
@@ -560,14 +618,19 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !blockedAim && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
-        const action = this._meleeAction(equippedMelee)
-        if (this.animator.start(action)) {
-          this.isSwinging = true
-          this.attackHitProcessed = false
-          this.hitEventPending = false
-          this.stamina -= SWING_STAMINA_COST
-          soundManager.playSwing()
+      const isLance = equippedMelee?.animationKind === 'lance'
+      if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
+          if (isLance && this.animator.busy) {
+            this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
+          } else {
+            this.meleeAttackBufferTimer = 0
+          }
+        }
+      } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
+        this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
+        if (this.meleeAttackBufferTimer > 0) {
+          this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
         }
       }
     }
@@ -633,6 +696,14 @@ export class Player {
     const animationEvents = this.animator.update(dt)
     this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
+    if (this.animator.isLanceThrustActive) {
+      if (!this.hasPrevLanceTip) {
+        this.prevLanceTipPos.copy(this.getSwordTipPosition())
+        this.hasPrevLanceTip = true
+      }
+    } else {
+      this.hasPrevLanceTip = false
+    }
     if (animationEvents.projectileRelease) {
       this._fireArrow(
         this.pendingArrowTarget,
@@ -646,6 +717,11 @@ export class Player {
     }
     if (animationEvents.actionCompleted) {
       this.isSwinging = false
+      this.attackHitProcessed = false
+      this.hasPrevLanceTip = false
+      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.animationKind === 'lance') {
+        this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
+      }
     }
 
 

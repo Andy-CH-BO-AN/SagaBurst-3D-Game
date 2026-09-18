@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { readGlb, loadRig } from '../tools/lib/humanoid-glb.mjs'
 import { createHumanoidRigAdapter, createMountedIdleClip, MixerController } from '../src/world/HumanoidAssetRegistry'
 import { CharacterEquipmentPose } from '../src/world/CharacterEquipmentPose'
-import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../src/world/CharacterCombatAnimator'
 import { applyEquipmentAttachment, calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../src/world/EquipmentAttachmentContract'
 import { createEquipmentSocketProxies } from '../src/world/HumanoidEquipmentSockets'
 import { applySwordAttachment, setSwordMountedAttachment } from '../src/world/SwordAttachmentContract'
@@ -180,7 +180,8 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
     for (const mounted of [false, true]) for (const shield of [false, true]) {
       f.reset(shield, mounted); baseline.reset(shield, mounted)
       const start = f.measure().grip.clone(), matrix = f.lance.matrix.clone()
-      const duration = mounted ? .42 : .7, hitTime = mounted ? .228 : .38
+      const profile = COMBAT_ANIMATION_PROFILES[mounted ? 'mountedLance' : 'lanceThrust']
+      const duration = profile.windup + profile.active + profile.recovery, hitTime = profile.windup + profile.active * .9
       f.animator.start(mounted ? 'mountedLance' : 'lanceThrust')
       let elapsed = 0, hits = 0, completed = 0
       for (const target of [duration * .15, hitTime, duration * .8, duration]) {
@@ -195,14 +196,16 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
         for (const hand of measured.hands) expect(hand.right.distanceTo(measured.grip)).toBeLessThan(.01)
         expect(measured.tip.clone().sub(measured.grip).normalize().z).toBeGreaterThan(.96)
         if (target === hitTime) {
-          expect(measured.grip.z - start.z).toBeGreaterThan(.18)
+          expect(measured.grip.z - start.z).toBeGreaterThan(.40)
           expect(Math.abs(measured.grip.x - start.x)).toBeLessThan(.05)
         }
         elapsed = target
       }
       expect(hits).toBe(1); expect(completed).toBe(1)
       expect(bones(f)).toEqual(bones(baseline))
-      f.animator.start('lanceThrust'); f.animator.update(.38); baseline.animator.update(.38)
+      const unmountedProfile = COMBAT_ANIMATION_PROFILES['lanceThrust']
+      const unmountedHit = unmountedProfile.windup + unmountedProfile.active * .9
+      f.animator.start('lanceThrust'); f.animator.update(unmountedHit); baseline.animator.update(unmountedHit)
       f.animator.cancel(); f.animator.update(0)
       expect(bones(f)).toEqual(bones(baseline))
     }
@@ -210,7 +213,8 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
   it('前刺中上下馬保留原攻擊時序，切裝取消不補發命中', () => {
     const f = fixtures[faction]
     for (const mounted of [false, true]) {
-      const hitTime = mounted ? .228 : .38, duration = mounted ? .42 : .7
+      const profile = COMBAT_ANIMATION_PROFILES[mounted ? 'mountedLance' : 'lanceThrust']
+      const hitTime = profile.windup + profile.active * .9, duration = profile.windup + profile.active + profile.recovery
       f.reset(true, mounted)
       f.animator.start(mounted ? 'mountedLance' : 'lanceThrust')
       expect(f.animator.update(.1).hitActiveStarted).toBe(false)

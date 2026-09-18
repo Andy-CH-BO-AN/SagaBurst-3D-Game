@@ -33,24 +33,24 @@ describe('盾牌裝備規則', () => {
       }
     }
   })
-  it('持盾按瞄準不拉弓、不花箭、不意外出近戰；卸盾後可拉弓', () => {
-    const f = fixture(); const arrows = f.player.arrows
-    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true, consumeLeftClick: () => true }))
+  it('持盾按 RMB 自動卸下盾牌並進入 Aim，釋放 RMB 離開 Aim', () => {
+    const f = fixture()
+    f.update(input())
+    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
     expect(f.player.isAiming).toBe(false)
-    expect(f.player.arrows).toBe(arrows)
-    expect((f.player as any).animator.busy).toBe(false)
-    expect(f.ui.setShieldBlocked).toHaveBeenLastCalledWith(true)
-    f.inventory.unequipShield(); f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), .2)
+
+    // RMB down with equipped bow automatically unequips shield and enters aim in the same frame
+    f.update(input({ isRightMouseDown: true }))
+    expect(f.inventory.equippedShield).toBeNull()
     expect(f.player.isAiming).toBe(true)
-    expect((f.player as any).bowChargeTime).toBeGreaterThan(0)
+
+    // RMB release leaves aim
+    f.update(input({ isRightMouseDown: false }))
+    expect(f.player.isAiming).toBe(false)
   })
-  it('拉弓途中裝盾取消蓄力，切裝取消尚未發生的命中', () => {
-    const f = fixture(); f.inventory.unequipShield()
-    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), .3)
-    f.inventory.equipWeapon('round_shield_t3')
-    f.update(input({ consumeLeftClickRelease: () => true }), .3)
-    expect((f.player as any).bowChargeTime).toBe(0)
-    expect(f.player.arrows).toBe(30)
+  it('近戰攻擊中切換裝備取消尚未發生的命中', () => {
+    const f = fixture()
+    f.update(input())
     f.update(input({ consumeLeftClick: () => true }))
     expect((f.player as any).animator.busy).toBe(true)
     f.inventory.equipWeapon('runic_greatsword'); f.update(input(), .5)

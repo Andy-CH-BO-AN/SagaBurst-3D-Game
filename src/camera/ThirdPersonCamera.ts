@@ -15,7 +15,7 @@ const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centr
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 
 const NORMAL_FOV = 58
-const AIM_FOV    = 40
+const AIM_FOV    = 28
 const LEVEL_AIM_PITCH = 0.3
 
 export class ThirdPersonCamera {
