@@ -9,6 +9,7 @@ import { BattleSetupUI } from './ui/BattleSetupUI'
 
 if (import.meta.env.DEV) void import('./debug/EquipmentRenderCensus')
 if (import.meta.env.DEV) void import('./debug/MainPassCensus')
+if (import.meta.env.DEV) void import('./debug/HorseCorneaTransmissionControl')
 
 window.addEventListener('error', (e) => {
   const errDiv = document.createElement('div')
