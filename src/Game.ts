@@ -10,6 +10,79 @@ import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, res
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
+import { SpectatorCameraController } from './camera/SpectatorCameraController'
+
+export type PlayerControlMode = 'player' | 'spectator'
+
+/**
+ * State helper determining whether death banner should show now or wait until next spectator lock acquisition.
+ */
+export function onSpectatorModeEntered(isOverlayCovering: boolean): {
+  showBannerNow: boolean
+  pendingOnNextLock: boolean
+} {
+  if (isOverlayCovering) {
+    return { showBannerNow: false, pendingOnNextLock: true }
+  }
+  return { showBannerNow: true, pendingOnNextLock: false }
+}
+
+/**
+ * Consumes the one-shot pending death banner flag when pointer lock is acquired in spectator mode.
+ */
+export function consumeSpectatorDeathBannerPending(state: {
+  controlMode: PlayerControlMode
+  pendingOnNextLock: boolean
+}): boolean {
+  if (state.controlMode === 'spectator' && state.pendingOnNextLock) {
+    state.pendingOnNextLock = false
+    return true
+  }
+  return false
+}
+
+/**
+ * Handles side effects (enemy HUD, Archery XP, Mount HUD) when a projectile hits a target.
+ * Gated so player-only side effects never trigger when the player is dead or in spectator mode.
+ */
+export function handleProjectileHitEffects(
+  isPlayerTarget: boolean,
+  isPlayerFired: boolean,
+  targetName: string,
+  hpRatio: number,
+  isMountHit: boolean,
+  playerStatus: { dead: boolean; controlMode: PlayerControlMode; isMounted: boolean; hasMount: boolean },
+  actions: {
+    showEnemyHud: (targetName: string, hpRatio: number) => void
+    addArcheryXp: (amount: number) => void
+    updateMountHp: (hpRatio: number) => void
+    hideMountHud: () => void
+  },
+): { enemyHudShown: boolean; xpGranted: boolean } {
+  const isPlayerActive = !playerStatus.dead && playerStatus.controlMode === 'player'
+
+  let enemyHudShown = false
+  let xpGranted = false
+
+  if (!isPlayerTarget && isPlayerFired) {
+    if (isPlayerActive) {
+      actions.showEnemyHud(targetName, hpRatio)
+      actions.addArcheryXp(35)
+      enemyHudShown = true
+      xpGranted = true
+    }
+  }
+
+  if (isPlayerTarget && isMountHit) {
+    if (isPlayerActive && playerStatus.isMounted && playerStatus.hasMount) {
+      actions.updateMountHp(hpRatio)
+    } else {
+      actions.hideMountHud()
+    }
+  }
+
+  return { enemyHudShown, xpGranted }
+}
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
@@ -185,7 +258,13 @@ export class Game {
   private input: PlayerInput
   private player: Player
   private thirdPersonCamera: ThirdPersonCamera
+  private spectatorController: SpectatorCameraController
+  private controlMode: PlayerControlMode = 'player'
   private studioControls: OrbitControls | null = null
+
+  get playerControlMode(): PlayerControlMode {
+    return this.controlMode
+  }
   private isHumanoidStudio = false
   private isMountStudio = false
   private isModelStudio = false
@@ -242,8 +321,12 @@ export class Game {
   private lockOverlay: HTMLElement
   private controlsHint: HTMLElement
   private saveNotify: HTMLElement
+  private deathBanner: HTMLElement | null = null
+  private spectatorBadge: HTMLElement | null = null
   private hintTimer: number | null = null
   private notifyTimer: number | null = null
+  private deathBannerTimer: number | null = null
+  private showDeathBannerOnNextSpectatorLock = false
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpCameraDir = new THREE.Vector3()
@@ -340,6 +423,7 @@ export class Game {
 
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
+    this.spectatorController = new SpectatorCameraController(this.camera)
     if (this.isModelStudio) {
       this._setupModelStudioCamera()
     } else {
@@ -354,6 +438,8 @@ export class Game {
     this.lockOverlay    = document.getElementById('lock-overlay')!
     this.controlsHint   = document.getElementById('controls-hint')!
     this.saveNotify     = document.getElementById('save-notify')!
+    this.deathBanner    = document.getElementById('death-banner')
+    this.spectatorBadge = document.getElementById('spectator-badge')
     this.pickupPromptEl = document.getElementById('pickup-prompt')!
 
     this.enemyHud    = document.getElementById('enemy-hud')!
@@ -423,9 +509,9 @@ export class Game {
       this.quiverUI.setArrowCount(this.player.arrowCount)
     }
 
-    // Player Death notify
+    // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
-      this._showNotify('💀 你陣亡了！正在原點重置...')
+      this._enterSpectatorMode()
     }
 
     this._setupPointerLock()
@@ -799,15 +885,49 @@ export class Game {
   }
 
   // ── Pointer Lock ──
-  private _setupPointerLock(): void {
-    const isNoLock = window.location.search.includes('nolock')
+  private _updateLockOverlayPrompt(isResume: boolean = true): void {
     const promptEl = document.getElementById('lock-overlay-prompt')
-
-    const updateOverlay = (isResume: boolean) => {
-      if (promptEl) {
+    const subEl = document.getElementById('lock-overlay-sub')
+    if (promptEl) {
+      if (this.controlMode === 'spectator') {
+        promptEl.textContent = '💀 你已陣亡 — 點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+        if (subEl) {
+          subEl.textContent = '(按 ESC 暫停 / 釋放游標 ｜ 自由觀戰模式)'
+        }
+      } else {
         promptEl.textContent = isResume ? '點擊繼續戰鬥 ｜ CLICK TO RESUME' : '點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE'
+        if (subEl) {
+          subEl.textContent = '(按 ESC 暫停 / 釋放游標)'
+        }
       }
     }
+  }
+
+  private _showDeathBanner(): void {
+    if (!this.deathBanner) return
+    this.deathBanner.textContent = '💀 你已陣亡 — 自由觀戰模式'
+    this.deathBanner.classList.add('visible')
+    if (this.deathBannerTimer !== null) clearTimeout(this.deathBannerTimer)
+    this.deathBannerTimer = window.setTimeout(() => {
+      this.deathBanner?.classList.remove('visible')
+      this.deathBannerTimer = null
+    }, 4500)
+  }
+
+  private _consumePendingDeathBanner(): boolean {
+    if (consumeSpectatorDeathBannerPending({
+      controlMode: this.controlMode,
+      pendingOnNextLock: this.showDeathBannerOnNextSpectatorLock,
+    })) {
+      this.showDeathBannerOnNextSpectatorLock = false
+      this._showDeathBanner()
+      return true
+    }
+    return false
+  }
+
+  private _setupPointerLock(): void {
+    const isNoLock = window.location.search.includes('nolock')
 
     const unlockAudio = (): void => {
       this.soundManager.unlockAudio()
@@ -824,7 +944,7 @@ export class Game {
       this.lockOverlay.style.display = 'none'
       this.lockOverlay.classList.add('hidden')
     } else {
-      updateOverlay(false)
+      this._updateLockOverlayPrompt(false)
       this.lockOverlay.style.display = 'flex'
       this.lockOverlay.classList.remove('hidden')
     }
@@ -846,9 +966,10 @@ export class Game {
         this.lockOverlay.style.display = 'none'
         this.lockOverlay.classList.add('hidden')
         this._scheduleHintHide()
+        this._consumePendingDeathBanner()
       } else {
         if (!this.equipmentUI?.visible) {
-          updateOverlay(true)
+          this._updateLockOverlayPrompt(true)
           this.lockOverlay.style.display = 'flex'
           this.lockOverlay.classList.remove('hidden')
         }
@@ -859,6 +980,7 @@ export class Game {
   }
 
   private _scheduleHintHide(): void {
+    if (this.controlMode === 'spectator') return
     if (this.hintTimer !== null) clearTimeout(this.hintTimer)
     this.hintTimer = window.setTimeout(() => {
       this.controlsHint.classList.add('hidden')
@@ -901,6 +1023,7 @@ export class Game {
       menuSave.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this._saveGame()
       })
     }
@@ -909,6 +1032,7 @@ export class Game {
       menuLoad.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this._loadGame()
       })
     }
@@ -917,12 +1041,14 @@ export class Game {
       menuInv.addEventListener('click', (e) => {
         e.stopPropagation()
         if (gameMenu) gameMenu.classList.remove('open')
+        if (this.player.dead || this.controlMode === 'spectator') return
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager)
       })
     }
 
     window.addEventListener('keydown', (e) => {
       if (!this.isMountStudio && (e.code === 'Digit0' || e.code === 'Numpad0')) {
+        if (this.player.dead || this.controlMode === 'spectator') return
         e.preventDefault()
         if (gameMenu) {
           gameMenu.classList.toggle('open')
@@ -934,6 +1060,7 @@ export class Game {
 
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
+        if (this.player.dead || this.controlMode === 'spectator') return
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
           this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
         })
@@ -957,6 +1084,7 @@ export class Game {
   }
 
   private _saveGame(): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
     const inv = this.inventoryManager.saveState
@@ -988,6 +1116,7 @@ export class Game {
   }
 
   private _loadGame(): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
       return
@@ -1052,17 +1181,89 @@ export class Game {
     this.mountHud.classList.add('visible')
   }
 
-  private _showNotify(msg: string): void {
+  private _showNotify(msg: string, durationMs = 2000): void {
     this.saveNotify.textContent = msg
     this.saveNotify.classList.add('visible')
     if (this.notifyTimer !== null) clearTimeout(this.notifyTimer)
     this.notifyTimer = window.setTimeout(() => {
       this.saveNotify.classList.remove('visible')
-    }, 2000)
+    }, durationMs)
+  }
+
+  private _enterSpectatorMode(): void {
+    if (this.controlMode === 'spectator') return
+    this.controlMode = 'spectator'
+    this.spectatorController.initFromCamera(this.camera)
+
+    // Close equipment modal if open when player died so it doesn't block spectator view
+    if (this.equipmentUI?.visible) {
+      this.equipmentUI.close()
+    }
+
+    // If pointer lock is not active (e.g. was released for equipment modal), show lock overlay with spectator wording
+    // and defer death banner until pointer lock is next acquired so it isn't hidden behind the full-screen overlay.
+    const isNoLock = typeof window !== 'undefined' && window.location?.search?.includes('nolock')
+    const hasPointerLock = typeof document !== 'undefined' && !!document.pointerLockElement
+    const overlayCovering = !hasPointerLock && !this.isModelStudio && !isNoLock && !!this.lockOverlay
+
+    if (overlayCovering) {
+      this._updateLockOverlayPrompt(true)
+      this.lockOverlay.style.display = 'flex'
+      this.lockOverlay.classList.remove('hidden')
+    } else {
+      this._updateLockOverlayPrompt(true)
+    }
+
+    const { showBannerNow, pendingOnNextLock } = onSpectatorModeEntered(overlayCovering)
+    this.showDeathBannerOnNextSpectatorLock = pendingOnNextLock
+    if (showBannerNow) {
+      this._showDeathBanner()
+    }
+
+    // 2. Show persistent spectator badge
+    if (this.spectatorBadge) {
+      this.spectatorBadge.classList.remove('hidden')
+    }
+
+    // 3. Replace bottom gameplay controls hint with spectator controls, keep visible
+    if (this.controlsHint) {
+      this.controlsHint.innerHTML = 'WASD 移動 ｜ Space 上升 ｜ Ctrl 下降 ｜ Shift 加速 ｜ 滑鼠控制視角'
+      this.controlsHint.classList.remove('hidden')
+      if (this.hintTimer !== null) {
+        clearTimeout(this.hintTimer)
+        this.hintTimer = null
+      }
+    }
+
+    // 4. Hide player-only combat & interaction HUD
+    this.pickupPromptEl?.classList.remove('visible')
+    this.mountHud?.classList.remove('visible')
+    if (this.enemyHud) {
+      this.enemyHud.classList.remove('visible')
+      if (this.enemyHudTimer !== null) {
+        clearTimeout(this.enemyHudTimer)
+        this.enemyHudTimer = null
+      }
+    }
+    this.quiverUI?.setAiming(false)
+    this.quiverUI?.setChargeRatio(0)
+    if (typeof document !== 'undefined') {
+      document.getElementById('vital-bars')?.classList.add('hidden')
+      document.getElementById('quiver-hud')?.classList.add('hidden')
+      document.getElementById('crosshair')?.classList.add('hidden')
+      document.getElementById('aim-reticle')?.classList.add('hidden')
+
+      // Disable menu actions in spectator mode
+      document.getElementById('menu-save')?.classList.add('disabled')
+      document.getElementById('menu-load')?.classList.add('disabled')
+      document.getElementById('menu-inventory')?.classList.add('disabled')
+      document.getElementById('game-menu')?.classList.remove('open')
+    }
   }
 
   // ── Enemy HUD UI update ──
   private _showEnemyHud(name: string, ratio: number): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     this.enemyNameEl.textContent = name
     this.enemyHpFill.style.width = `${Math.max(0, ratio * 100)}%`
 
@@ -1070,6 +1271,7 @@ export class Game {
     if (this.enemyHudTimer !== null) clearTimeout(this.enemyHudTimer)
     this.enemyHudTimer = window.setTimeout(() => {
       this.enemyHud.classList.remove('visible')
+      this.enemyHudTimer = null
     }, 4000)
   }
 
@@ -1088,6 +1290,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
   private _checkPlayerMeleeHits(): void {
+    if (this.player.dead) return
     const equippedMelee = this.inventoryManager.equippedMelee
     if (!this.player.isHitFrame(equippedMelee)) {
       if (this.player.isLanceThrustActive) {
@@ -1168,6 +1371,11 @@ export class Game {
     for (const mount of this.mounts) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
       mount.update(dt, this.obstacles)
+    }
+
+    if (this.player.dead) {
+      this.pickupPromptEl.classList.remove('visible')
+      return
     }
 
     const isEPressed = this.input.consumeKeyE()
@@ -1403,22 +1611,32 @@ export class Game {
       } else instance.update(dt, instance.root.position.distanceTo(this.camera.position))
     }
 
-    // The humanoid studio owns a free orbit/pan camera and never follows Player.
-    if (this.studioControls) this.studioControls.update()
-    else this.thirdPersonCamera.update(this.input, dt)
+    // Camera update based on controlMode / studio
+    if (this.studioControls) {
+      this.studioControls.update()
+    } else if (this.controlMode === 'spectator') {
+      this.spectatorController.update(this.input, dt)
+    } else {
+      this.thirdPersonCamera.update(this.input, dt)
+    }
+
+    const currentYaw = this.controlMode === 'spectator'
+      ? this.spectatorController.cameraYaw
+      : this.thirdPersonCamera.cameraYaw
+
     const cameraAimPoint = this.isModelStudio
       ? this.camera.getWorldDirection(this._tmpCameraDir).multiplyScalar(100).add(this.camera.position)
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
     // Update Compass direction bar
-    this.compassUI.update(this.thirdPersonCamera.cameraYaw)
+    this.compassUI.update(currentYaw)
 
-    // Update Player logic
+    // Update Player logic (Player handles dead state internally without processing inputs)
     if (!this.isModelStudio) this.player.update(
       dt,
       this.input,
-      this.thirdPersonCamera.cameraYaw,
+      currentYaw,
       cameraAimPoint,
       this.obstacles,
       this.staminaBar,
@@ -1536,17 +1754,29 @@ export class Game {
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
-        if (!isPlayer && arrow.isPlayerFired) {
-          this._showEnemyHud(targetName, hpRatio)
-          this.skillManager.addXp('archery', 35, this.soundManager)
-        }
-        if (isPlayer && isMountHit) {
-          if (this.player.isMounted && this.player.currentMount) {
-            this.mountHpFill.style.width = `${Math.max(0, hpRatio * 100)}%`
-          } else {
-            this.mountHud.classList.remove('visible')
-          }
-        }
+        handleProjectileHitEffects(
+          isPlayer,
+          arrow.isPlayerFired,
+          targetName,
+          hpRatio,
+          Boolean(isMountHit),
+          {
+            dead: this.player.dead,
+            controlMode: this.controlMode,
+            isMounted: this.player.isMounted,
+            hasMount: Boolean(this.player.currentMount),
+          },
+          {
+            showEnemyHud: (name, ratio) => this._showEnemyHud(name, ratio),
+            addArcheryXp: (amt) => this.skillManager.addXp('archery', amt, this.soundManager),
+            updateMountHp: (ratio) => {
+              this.mountHpFill.style.width = `${Math.max(0, ratio * 100)}%`
+            },
+            hideMountHud: () => {
+              this.mountHud.classList.remove('visible')
+            },
+          },
+        )
       })
 
       if (!arrow.isAlive) {

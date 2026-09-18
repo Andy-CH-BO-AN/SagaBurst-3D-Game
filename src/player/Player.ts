@@ -452,6 +452,22 @@ export class Player {
     this.velY = 0
   }
 
+  /**
+   * Dedicated detach flow on player death.
+   * Releases mount reference without overwriting the player's world transform,
+   * avoiding visual teleporting or ground resets.
+   */
+  detachFromMountOnDeath(): void {
+    if (!this.isMounted || !this.currentMount) return
+    this.currentMount.releaseRider()
+    this.currentMount = null
+    this.isMounted = false
+    if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
+    this.rig.animation?.setEquipmentState?.({ mounted: false })
+    this._alignExternalVisualToMount(false)
+    this.velY = 0
+  }
+
   takeDamage(amount: number, hpBar: HpBar): boolean {
     if (this.isDead) return false
 
@@ -469,26 +485,15 @@ export class Player {
 
     if (this.currentHp <= 0) {
       this.isDead = true
+      if (this.isMounted) {
+        this.detachFromMountOnDeath()
+      }
+      this._cancelEquipmentAction()
+      this.animator?.cancel()
+      this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
       if (this.onPlayerDeath) this.onPlayerDeath()
-      this.respawn(hpBar)
     }
     return true
-  }
-
-  respawn(hpBar: HpBar): void {
-    this.currentHp = MAX_HP
-    this.stamina = MAX_STAMINA
-    this.isDead = false
-    this.animator.cancel()
-    this.isSwinging = false
-    this.hitEventPending = false
-    this.meleeAttackBufferTimer = 0
-    this.bowChargeTime = 0
-    this.bowVisualDrawRatio = 0
-    this.nockedArrowReleased = false
-    const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
-    this.group.position.set(this.spawnX, terrainY + PLAYER_HALF_HEIGHT, this.spawnZ)
-    hpBar.setFill(1)
   }
 
   isHitFrame(equippedMelee?: WeaponData): boolean {
@@ -559,7 +564,11 @@ export class Player {
       this.headMesh.material = this.headMat
     }
 
-    if (this.isDead) return
+    if (this.isDead) {
+      this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
+      this.animator?.update(dt)
+      return
+    }
     this.hitEventPending = false
 
     const equippedMelee = inventoryManager?.equippedMelee
