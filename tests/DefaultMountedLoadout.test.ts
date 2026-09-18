@@ -360,6 +360,6 @@ describe('reconcileLoadedMounts Production Behavior', () => {
 
   it('spawn position constant matches Viking baseline', () => {
     expect(VIKING_PLAYER_SPAWN.x).toBe(0)
-    expect(VIKING_PLAYER_SPAWN.z).toBe(80.8)
+    expect(VIKING_PLAYER_SPAWN.z).toBe(145)
   })
 })

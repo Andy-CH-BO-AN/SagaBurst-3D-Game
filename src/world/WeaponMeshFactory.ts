@@ -227,7 +227,7 @@ export class WeaponMeshFactory {
   /**
    * 建構遠程武器的 3D mesh group
    */
-  static buildRanged(weaponId: string, pivot: THREE.Group): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+  static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
     const profile = DEFAULT_BOW_GRIP_PROFILE
     const halfSpan = weaponId === 'wooden_shortbow' ? 0.62 : weaponId === 'elven_runebow' ? 1.02 : 0.85
     const bowModel = new THREE.Group()
@@ -275,7 +275,15 @@ export class WeaponMeshFactory {
         const a = ring * (sides + 1) + j, b = a + sides + 1
         indices.push(a, a + 1, b, b, a + 1, b + 1)
       }
-      geometry.addGroup(start, indices.length - start, ring === 40 ? 1 : 0)
+      const materialIndex = ring === 40 ? 1 : 0
+      const previous = geometry.groups[geometry.groups.length - 1]
+      // NPC bows: contiguous wood rings share one draw range. Preserve index
+      // order and the leather boundary; Player/pickup builders keep their path.
+      if (consolidateMaterialGroups && previous?.materialIndex === materialIndex) {
+        previous.count += indices.length - start
+      } else {
+        geometry.addGroup(start, indices.length - start, materialIndex)
+      }
     }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
