@@ -28,7 +28,10 @@ export interface BattleRules {
   includeCamps: boolean
 }
 
+export type BattleMode = 'formation' | 'scattered'
+
 export interface BattleConfig {
+  mode?: BattleMode
   viking: ArmyConfig
   roman: ArmyConfig
   rules: BattleRules
@@ -59,6 +62,7 @@ export function createEmptyArmyConfig(): ArmyConfig {
 
 export function createEmptyBattleConfig(): BattleConfig {
   return {
+    mode: 'formation',
     viking: createEmptyArmyConfig(),
     roman: createEmptyArmyConfig(),
     rules: {
@@ -88,6 +92,11 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
   }
 
   const c = config as BattleConfig
+
+  if (c.mode !== undefined && c.mode !== 'formation' && c.mode !== 'scattered') {
+    errors.push(`Invalid battle mode: ${String(c.mode)}`)
+  }
+
   if (!c.viking || !c.roman) {
     return { valid: false, errors: ['Missing viking or roman army configuration'] }
   }
@@ -200,6 +209,7 @@ export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType,
 // ── Presets ──
 
 export const PRESET_10V10: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 4, 2: 0, 3: 0 },
     archer: { 1: 0, 2: 2, 3: 0 },
@@ -216,6 +226,7 @@ export const PRESET_10V10: BattleConfig = {
 }
 
 export const PRESET_25V25: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 4, 2: 4, 3: 0 },
     archer: { 1: 3, 2: 3, 3: 0 },
@@ -232,6 +243,7 @@ export const PRESET_25V25: BattleConfig = {
 }
 
 export const PRESET_50V50: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 5, 2: 5, 3: 5 },
     archer: { 1: 5, 2: 5, 3: 5 },
@@ -248,6 +260,7 @@ export const PRESET_50V50: BattleConfig = {
 }
 
 export const PRESET_100V100: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 10, 2: 10, 3: 10 },
     archer: { 1: 10, 2: 10, 3: 10 },
@@ -265,6 +278,7 @@ export const PRESET_100V100: BattleConfig = {
 
 /** Developer performance scenario A: 50v50 Infantry */
 export const PRESET_SCENARIO_A: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 20, 2: 20, 3: 10 },
     archer: { 1: 0, 2: 0, 3: 0 },
@@ -282,6 +296,7 @@ export const PRESET_SCENARIO_A: BattleConfig = {
 
 /** Developer performance scenario B: 100v100 Infantry */
 export const PRESET_SCENARIO_B: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 40, 2: 40, 3: 20 },
     archer: { 1: 0, 2: 0, 3: 0 },
@@ -302,6 +317,7 @@ export const PRESET_SCENARIO_C: BattleConfig = PRESET_100V100
 
 /** Developer performance scenario D: 100v100 Cavalry / Horse Archer (50 Cavalry + 50 Horse Archer) */
 export const PRESET_SCENARIO_D: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 0, 2: 0, 3: 0 },
     archer: { 1: 0, 2: 0, 3: 0 },
@@ -319,6 +335,7 @@ export const PRESET_SCENARIO_D: BattleConfig = {
 
 /** Developer performance scenario (?devcombat): 50v50 cavalry, no camps. */
 export const PRESET_DEVCOMBAT: BattleConfig = {
+  mode: 'formation',
   viking: {
     infantry: { 1: 0, 2: 0, 3: 0 },
     archer: { 1: 0, 2: 0, 3: 0 },

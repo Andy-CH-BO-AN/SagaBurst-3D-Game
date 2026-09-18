@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { Faction, AIType } from '../src/world/NPC'
-import { BattleSpawner, BattleSpawnPlan, BATTLE_FRONTLINE_Z, CAMP_HORSE_Z, CAMP_PICKUP_Z, VIKING_PLAYER_SPAWN, PLAYER_SAFE_CLEARANCE } from '../src/battle/BattleSpawner'
+import {
+  BattleSpawner,
+  BattleSpawnPlan,
+  BATTLE_FRONTLINE_Z,
+  CAMP_HORSE_Z,
+  CAMP_PICKUP_Z,
+  VIKING_PLAYER_SPAWN,
+  PLAYER_SAFE_CLEARANCE,
+  SCATTER_TREE_EXCLUSION_RADIUS,
+} from '../src/battle/BattleSpawner'
+import { TERRAIN_TREE_POSITIONS } from '../src/world/Terrain'
 import {
   BattleConfig,
   createEmptyArmyConfig,
@@ -183,5 +193,166 @@ describe('BattleSpawner Deterministic Formation', () => {
   it('reports minimum observed friendly spawn distance', () => {
     console.log(`[SPAWN METRICS] Global minimum friendly spawn distance: ${minObservedDist.toFixed(4)}m`)
     expect(minObservedDist).toBeGreaterThanOrEqual(2.0)
+  })
+
+  it('assigns playerSpawn to VIKING_PLAYER_SPAWN in formation mode', () => {
+    const plan = BattleSpawner.createSpawnPlan(PRESET_10V10)
+    expect(plan.playerSpawn).toEqual({ x: VIKING_PLAYER_SPAWN.x, z: VIKING_PLAYER_SPAWN.z })
+  })
+})
+
+describe('BattleSpawner Deterministic Scattered Battle', () => {
+  it('generates exact actor counts: 10v10 (20 NPCs + 1 player) and 100v100 (200 NPCs + 1 player)', () => {
+    const scattered10: BattleConfig = { ...PRESET_10V10, mode: 'scattered' }
+    const plan10 = BattleSpawner.createSpawnPlan(scattered10)
+    expect(plan10.npcSpecs.length).toBe(20)
+    expect(plan10.npcSpecs.filter(n => n.faction === Faction.PLAYER).length).toBe(10)
+    expect(plan10.npcSpecs.filter(n => n.faction === Faction.ENEMY).length).toBe(10)
+    expect(plan10.playerSpawn).toBeDefined()
+
+    const scattered100: BattleConfig = { ...PRESET_100V100, mode: 'scattered' }
+    const plan100 = BattleSpawner.createSpawnPlan(scattered100)
+    expect(plan100.npcSpecs.length).toBe(200)
+    expect(plan100.npcSpecs.filter(n => n.faction === Faction.PLAYER).length).toBe(100)
+    expect(plan100.npcSpecs.filter(n => n.faction === Faction.ENEMY).length).toBe(100)
+    expect(plan100.playerSpawn).toBeDefined()
+
+    // Composition match
+    const vInfantry = plan100.npcSpecs.filter(n => n.faction === Faction.PLAYER && n.aiType === AIType.MELEE && !n.cavalry)
+    expect(vInfantry.length).toBe(30) // T1:10 + T2:10 + T3:10
+    const vArcher = plan100.npcSpecs.filter(n => n.faction === Faction.PLAYER && n.aiType === AIType.RANGED && !n.cavalry)
+    expect(vArcher.length).toBe(30)
+    const vCavalry = plan100.npcSpecs.filter(n => n.faction === Faction.PLAYER && n.aiType === AIType.MELEE && n.cavalry)
+    expect(vCavalry.length).toBe(20)
+    const vHorseArcher = plan100.npcSpecs.filter(n => n.faction === Faction.PLAYER && n.aiType === AIType.RANGED && n.cavalry)
+    expect(vHorseArcher.length).toBe(20)
+  })
+
+  it('keeps all Scattered NPC and Player spawns strictly within bounds [-140, 140]', () => {
+    const scatteredConfigs = [
+      { ...PRESET_10V10, mode: 'scattered' as const },
+      { ...PRESET_50V50, mode: 'scattered' as const },
+      { ...PRESET_100V100, mode: 'scattered' as const },
+    ]
+
+    for (const config of scatteredConfigs) {
+      const plan = BattleSpawner.createSpawnPlan(config)
+      expect(plan.playerSpawn.x).toBeGreaterThanOrEqual(-140)
+      expect(plan.playerSpawn.x).toBeLessThanOrEqual(140)
+      expect(plan.playerSpawn.z).toBeGreaterThanOrEqual(-140)
+      expect(plan.playerSpawn.z).toBeLessThanOrEqual(140)
+
+      for (const npc of plan.npcSpecs) {
+        expect(npc.x).toBeGreaterThanOrEqual(-140)
+        expect(npc.x).toBeLessThanOrEqual(140)
+        expect(npc.z).toBeGreaterThanOrEqual(-140)
+        expect(npc.z).toBeLessThanOrEqual(140)
+      }
+    }
+  })
+
+  it('ensures no actor spawns inside tree obstacles', () => {
+    const plan = BattleSpawner.createSpawnPlan({ ...PRESET_100V100, mode: 'scattered' })
+    const allActors = [{ x: plan.playerSpawn.x, z: plan.playerSpawn.z }, ...plan.npcSpecs]
+
+    for (const actor of allActors) {
+      for (const [tx, tz] of TERRAIN_TREE_POSITIONS) {
+        const dist = Math.hypot(actor.x - tx, actor.z - tz)
+        expect(dist).toBeGreaterThanOrEqual(SCATTER_TREE_EXCLUSION_RADIUS)
+      }
+    }
+  })
+
+  it('guarantees global NPC spacing >= 2.0m across all NPC pairs (including cross-faction)', () => {
+    const plan = BattleSpawner.createSpawnPlan({ ...PRESET_100V100, mode: 'scattered' })
+    const npcs = plan.npcSpecs
+
+    for (let i = 0; i < npcs.length; i++) {
+      for (let j = i + 1; j < npcs.length; j++) {
+        const dist = Math.hypot(npcs[i].x - npcs[j].x, npcs[i].z - npcs[j].z)
+        expect(dist).toBeGreaterThanOrEqual(2.0)
+      }
+    }
+  })
+
+  it('guarantees Player clearance >= 5.0m from every NPC', () => {
+    const configs = [
+      { ...PRESET_10V10, mode: 'scattered' as const },
+      { ...PRESET_50V50, mode: 'scattered' as const },
+      { ...PRESET_100V100, mode: 'scattered' as const },
+    ]
+
+    for (const config of configs) {
+      const plan = BattleSpawner.createSpawnPlan(config)
+      const p = plan.playerSpawn
+
+      for (const npc of plan.npcSpecs) {
+        const dist = Math.hypot(p.x - npc.x, p.z - npc.z)
+        expect(dist).toBeGreaterThanOrEqual(5.0)
+      }
+    }
+  })
+
+  it('places Player at a scattered location distinct from formation VIKING_PLAYER_SPAWN', () => {
+    const plan = BattleSpawner.createSpawnPlan({ ...PRESET_10V10, mode: 'scattered' })
+    const isFormationSpawn = plan.playerSpawn.x === VIKING_PLAYER_SPAWN.x && plan.playerSpawn.z === VIKING_PLAYER_SPAWN.z
+    expect(isFormationSpawn).toBe(false)
+  })
+
+  it('is strictly deterministic: identical configs yield identical plans including playerSpawn and npcSpecs', () => {
+    const config: BattleConfig = { ...PRESET_100V100, mode: 'scattered' }
+    const planA = BattleSpawner.createSpawnPlan(config)
+    const planB = BattleSpawner.createSpawnPlan(config)
+
+    expect(planA).toEqual(planB)
+    expect(planA.playerSpawn).toEqual(planB.playerSpawn)
+    expect(planA.npcSpecs).toEqual(planB.npcSpecs)
+  })
+
+  it('produces true mixed distribution without faction clustering', () => {
+    const plan = BattleSpawner.createSpawnPlan({ ...PRESET_50V50, mode: 'scattered' })
+
+    const viking = plan.npcSpecs.filter(n => n.faction === Faction.PLAYER)
+    const roman = plan.npcSpecs.filter(n => n.faction === Faction.ENEMY)
+
+    // Both factions must have units in +Z and -Z
+    const vikingZPos = viking.filter(v => v.z > 0).length
+    const vikingZNeg = viking.filter(v => v.z < 0).length
+    const romanZPos = roman.filter(r => r.z > 0).length
+    const romanZNeg = roman.filter(r => r.z < 0).length
+
+    expect(vikingZPos).toBeGreaterThan(5)
+    expect(vikingZNeg).toBeGreaterThan(5)
+    expect(romanZPos).toBeGreaterThan(5)
+    expect(romanZNeg).toBeGreaterThan(5)
+
+    // Both factions must cross multiple quadrants
+    const countQuadrants = (units: typeof viking) => {
+      const q = [0, 0, 0, 0] // ++, -+, --, +-
+      for (const u of units) {
+        if (u.x >= 0 && u.z >= 0) q[0]++
+        else if (u.x < 0 && u.z >= 0) q[1]++
+        else if (u.x < 0 && u.z < 0) q[2]++
+        else q[3]++
+      }
+      return q
+    }
+
+    const vQ = countQuadrants(viking)
+    const rQ = countQuadrants(roman)
+
+    // All 4 quadrants must have units of each faction in a 50v50
+    for (let i = 0; i < 4; i++) {
+      expect(vQ[i]).toBeGreaterThan(0)
+      expect(rQ[i]).toBeGreaterThan(0)
+    }
+  })
+
+  it('retains camps and spare horses when includeCamps is true in scattered mode', () => {
+    const plan = BattleSpawner.createSpawnPlan({ ...PRESET_10V10, mode: 'scattered' })
+    expect(plan.pickupSpecs.length).toBeGreaterThanOrEqual(20)
+    expect(plan.horseSpecs.length).toBe(10)
+    expect(plan.pickupSpecs.some(p => p.z === CAMP_PICKUP_Z)).toBe(true)
+    expect(plan.pickupSpecs.some(p => p.z === -CAMP_PICKUP_Z)).toBe(true)
   })
 })

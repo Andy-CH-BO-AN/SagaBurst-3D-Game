@@ -28,6 +28,9 @@ export class BattleSetupUI {
     this.config = initialConfig
       ? JSON.parse(JSON.stringify(initialConfig))
       : getDefaultBattleConfig()
+    if (!this.config.mode) {
+      this.config.mode = 'formation'
+    }
   }
 
   mount(parent: HTMLElement = document.body, onStart: (config: BattleConfig) => void): void {
@@ -95,6 +98,20 @@ export class BattleSetupUI {
       <div class="setup-header">
         <h1 class="setup-title">SAGABURST</h1>
         <div class="setup-subtitle">CUSTOM BATTLE CONFIGURATION</div>
+      </div>
+
+      <div class="setup-mode-section">
+        <div class="mode-section-label">BATTLE MODE</div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn" id="mode-btn-formation" data-mode="formation">
+            <span class="mode-btn-title">FORMATION BATTLE</span>
+            <span class="mode-btn-desc">兩軍於戰場兩側列陣</span>
+          </button>
+          <button type="button" class="mode-btn" id="mode-btn-scattered" data-mode="scattered">
+            <span class="mode-btn-title">SCATTERED BATTLE</span>
+            <span class="mode-btn-desc">玩家與雙方單位散布於整個戰場</span>
+          </button>
+        </div>
       </div>
 
       <div class="setup-main">
@@ -181,25 +198,32 @@ export class BattleSetupUI {
       })
     })
 
-    // Presets
-    document.getElementById('preset-10')?.addEventListener('click', () => {
-      this.config = JSON.parse(JSON.stringify(PRESET_10V10))
+    // Mode buttons
+    document.getElementById('mode-btn-formation')?.addEventListener('click', () => {
+      this.config.mode = 'formation'
       this._refreshView()
     })
-    document.getElementById('preset-25')?.addEventListener('click', () => {
-      this.config = JSON.parse(JSON.stringify(PRESET_25V25))
+    document.getElementById('mode-btn-scattered')?.addEventListener('click', () => {
+      this.config.mode = 'scattered'
       this._refreshView()
     })
-    document.getElementById('preset-50')?.addEventListener('click', () => {
-      this.config = JSON.parse(JSON.stringify(PRESET_50V50))
+
+    // Presets (Army composition only, strictly preserves selected Battle Mode)
+    const applyPreset = (preset: BattleConfig) => {
+      const currentMode = this.config.mode ?? 'formation'
+      this.config = JSON.parse(JSON.stringify(preset))
+      this.config.mode = currentMode
       this._refreshView()
-    })
-    document.getElementById('preset-100')?.addEventListener('click', () => {
-      this.config = JSON.parse(JSON.stringify(PRESET_100V100))
-      this._refreshView()
-    })
+    }
+
+    document.getElementById('preset-10')?.addEventListener('click', () => applyPreset(PRESET_10V10))
+    document.getElementById('preset-25')?.addEventListener('click', () => applyPreset(PRESET_25V25))
+    document.getElementById('preset-50')?.addEventListener('click', () => applyPreset(PRESET_50V50))
+    document.getElementById('preset-100')?.addEventListener('click', () => applyPreset(PRESET_100V100))
     document.getElementById('preset-reset')?.addEventListener('click', () => {
+      const currentMode = this.config.mode ?? 'formation'
       this.config = createEmptyBattleConfig()
+      this.config.mode = currentMode
       this._refreshView()
     })
 
@@ -295,6 +319,17 @@ export class BattleSetupUI {
     const validation = validateBattleConfig(this.config)
     const msgEl = document.getElementById('validation-msg')
     const startBtn = document.getElementById('btn-start-battle') as HTMLButtonElement | null
+
+    // Update Battle Mode buttons active state
+    const currentMode = this.config.mode ?? 'formation'
+    const formationBtn = document.getElementById('mode-btn-formation')
+    const scatteredBtn = document.getElementById('mode-btn-scattered')
+    if (formationBtn) {
+      formationBtn.classList.toggle('active', currentMode === 'formation')
+    }
+    if (scatteredBtn) {
+      scatteredBtn.classList.toggle('active', currentMode === 'scattered')
+    }
 
     if (msgEl) {
       if (!validation.valid) {

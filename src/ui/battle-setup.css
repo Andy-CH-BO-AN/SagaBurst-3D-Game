@@ -38,6 +38,81 @@
   text-transform: uppercase;
 }
 
+/* ── Battle Mode Selector ── */
+.setup-mode-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.mode-section-label {
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  color: #8c7b65;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.mode-btn-group {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 17, 13, 0.85);
+  border: 1px solid #4a3e31;
+  border-radius: 6px;
+  padding: 10px 24px;
+  min-width: 220px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.mode-btn:hover {
+  background: rgba(38, 29, 22, 0.95);
+  border-color: #a4875e;
+}
+
+.mode-btn.active {
+  background: radial-gradient(circle at center, #2e2419 0%, #17120d 100%);
+  border: 1.5px solid #d4af37;
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.35), 0 4px 20px rgba(0, 0, 0, 0.8);
+}
+
+.mode-btn-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: #a89a84;
+  transition: color 0.2s;
+}
+
+.mode-btn.active .mode-btn-title {
+  color: #f1c40f;
+  text-shadow: 0 0 10px rgba(241, 196, 15, 0.4);
+}
+
+.mode-btn-desc {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #706354;
+  margin-top: 3px;
+  transition: color 0.2s;
+}
+
+.mode-btn.active .mode-btn-desc {
+  color: #ded2be;
+}
+
 .setup-main {
   display: flex;
   gap: 32px;
