@@ -33,4 +33,26 @@ describe('HorseCorneaMaterial', () => {
     expect(setHorseCorneaTransmission(root, true)).toBe(1)
     expect(cornea.transmission).toBe(1)
   })
+
+  it('fails open when no cornea material matches and leaves other materials unchanged', () => {
+    const root = new THREE.Group()
+    const eye = new THREE.MeshPhysicalMaterial({
+      transparent: true,
+      opacity: 0.2,
+      roughness: 0.43,
+      transmission: 0.75,
+    })
+    eye.name = 'runtime_horse_eyes'
+    root.add(new THREE.Mesh(new THREE.SphereGeometry(), eye))
+
+    expect(() => setHorseCorneaTransmission(root, false)).not.toThrow()
+    expect(setHorseCorneaTransmission(root, false)).toBe(0)
+    expect(eye).toMatchObject({
+      transparent: true,
+      opacity: 0.2,
+      roughness: 0.43,
+      transmission: 0.75,
+    })
+    expect(inspectHorseCorneaMaterials(root)).toEqual([])
+  })
 })

@@ -484,8 +484,9 @@ export class HorseAssetRegistry {
       const gltf = await loader.loadAsync(textureUrl(base, manifest.file!))
       // The authored transparent cornea remains a physical, clear-coated surface,
       // but it must not make the whole main scene render into a transmission target.
-      if (setHorseCorneaTransmission(gltf.scene, false) === 0) {
-        throw new Error('Horse GLB contains no identifiable cornea material')
+      const corneaCount = setHorseCorneaTransmission(gltf.scene, false)
+      if (corneaCount === 0) {
+        console.warn('Horse GLB contains no identifiable cornea material; transmission optimization skipped')
       }
       firstSkinnedMesh(gltf.scene)
       normalizedClips(gltf)
