@@ -158,15 +158,15 @@ export class CharacterEquipmentPose {
     if (live && state.lance && (state.action === 'lanceThrust' || state.action === 'mountedLance')) {
       const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES[state.action]
       const peak = windup + active * .9, end = windup + active
-      const extension = state.elapsed < windup ? -.04 * smooth(state.elapsed / windup)
-        : state.elapsed < peak ? -.04 + 1.04 * smooth((state.elapsed - windup) / (peak - windup))
+      const extension = state.elapsed < windup ? -.08 * smooth(state.elapsed / windup)
+        : state.elapsed < peak ? -.08 + 1.08 * smooth((state.elapsed - windup) / (peak - windup))
           : state.elapsed < end ? 1 : 1 - smooth((state.elapsed - end) / recovery)
       this.root.updateWorldMatrix(true, true)
       this.rig.right.wrist.getWorldQuaternion(this.handWorld)
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
-      this.rotateArm(this.rig.right.shoulder, -.45 * extension)
-      this.rotateArm(this.rig.right.elbow, .10 * extension)
+      this.rotateArm(this.rig.right.shoulder, -.58 * extension)
+      this.rotateArm(this.rig.right.elbow, .15 * extension)
       // Keep the original hand direction: the lance translates forward instead
       // of pitching upward with the arm. No roll/supination or IK is added.
       this.rig.right.wrist.parent!.getWorldQuaternion(this.parentInverse).invert()

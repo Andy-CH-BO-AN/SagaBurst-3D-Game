@@ -101,6 +101,10 @@ export class Player {
   private attackHitProcessed = false
   private hitEventPending = false
 
+  public combatStance: 'melee' | 'ranged' = 'melee'
+  public readonly prevLanceTipPos = new THREE.Vector3()
+  public hasPrevLanceTip = false
+
   private aiming = false
   private bowChargeTime = 0
   private bowVisualDrawRatio = 0
@@ -159,6 +163,27 @@ export class Player {
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+  get currentCombatStance(): 'melee' | 'ranged' { return this.combatStance }
+  get isShieldActive(): boolean { return this.combatStance === 'melee' && Boolean(this.currentShieldId) }
+  get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
+
+  setCombatStance(stance: 'melee' | 'ranged'): void {
+    if (this.combatStance === stance) return
+    this.combatStance = stance
+    if (stance === 'melee') {
+      this.aiming = false
+      this.bowChargeTime = 0
+      this.bowVisualDrawRatio = 0
+      this.bowVisual?.hideArrow()
+    }
+  }
+
+  updatePrevLanceTip(): void {
+    if (this.animator.isLanceThrustActive) {
+      this.prevLanceTipPos.copy(this.getSwordTipPosition())
+      this.hasPrevLanceTip = true
+    }
+  }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
     return weaponGripWorld(this.swordGripPivot, target)
@@ -302,6 +327,7 @@ export class Player {
   rebuildMeleeWeapon(weaponId: string): void {
     if (this.currentMeleeId === weaponId) return
     this._cancelEquipmentAction()
+    this.combatStance = 'melee'
     this.currentMeleeId = weaponId
 
     // Clear existing meshes
@@ -361,6 +387,8 @@ export class Player {
     this.animator?.cancel()
     this.isSwinging = false
     this.hitEventPending = false
+    this.attackHitProcessed = false
+    this.hasPrevLanceTip = false
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.aiming = false
@@ -448,8 +476,12 @@ export class Player {
     hpBar.setFill(1)
   }
 
-  isHitFrame(_equippedMelee?: WeaponData): boolean {
-    return this.hitEventPending && !this.attackHitProcessed
+  isHitFrame(equippedMelee?: WeaponData): boolean {
+    if (this.attackHitProcessed) return false
+    if (equippedMelee?.animationKind === 'lance') {
+      return this.animator.isLanceThrustActive
+    }
+    return this.hitEventPending
   }
 
   markHitProcessed(): void {
@@ -471,7 +503,7 @@ export class Player {
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    if (this.isShieldActive || this.bowChargeTime <= 0.01 || this.arrows <= 0 || this.animator.busy) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -527,11 +559,26 @@ export class Player {
     const equippedShield = inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
+    if (input.keys['Digit1']) {
+      this.setCombatStance('melee')
+    } else if (input.keys['Digit2'] && equippedRanged) {
+      this.setCombatStance('ranged')
+    }
+
+    if (input.isRightMouseDown && equippedRanged && this.combatStance !== 'ranged') {
+      this.setCombatStance('ranged')
+    }
+
+    const inRangedStance = this.combatStance === 'ranged'
+    const isShieldActive = this.isShieldActive
+    const isLance = equippedMelee?.animationKind === 'lance' && !inRangedStance
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
-    this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
-    const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
+
+    this.animator.setEquipment(isLance, isShieldActive, this.currentMount?.type as MountedPoseKind | undefined)
+    const blockedAim = isShieldActive && input.isRightMouseDown && !equippedRanged
     quiverUI.setShieldBlocked?.(blockedAim)
-    const wantAim = input.isRightMouseDown && !equippedShield
+
+    const wantAim = Boolean(equippedRanged) && inRangedStance && input.isRightMouseDown
     const bowReleasing = this.animator.currentAction === 'bowRelease'
     this.aiming = wantAim && !this.isSwinging && !bowReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
@@ -539,28 +586,33 @@ export class Player {
     quiverUI.setAiming(this.aiming)
 
     if (this.aiming) {
-      this.swordPivot.visible = false
-      this.bowPivot.visible = true
       this.nockedArrowReleased = false
 
-      if (input.isLeftMouseDown && this.arrows > 0) {
+      if (this.arrows > 0) {
         this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
         quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
       }
       this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
 
-      if (input.consumeLeftClickRelease()) {
+      if (input.consumeLeftClickRelease() || input.consumeLeftClick()) {
+        if (this.bowChargeTime <= 0.05 && this.arrows > 0) {
+          this.bowChargeTime = 0.05
+        }
         this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
         quiverUI.setChargeRatio(0)
       }
     } else {
-      if (this.bowChargeTime > 0.1 && this.arrows > 0) {
+      input.consumeLeftClickRelease()
+      if (this.bowChargeTime > 0.02 && this.arrows > 0) {
         this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
       }
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      if (input.consumeLeftClick() && !blockedAim && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
+      if (input.consumeLeftClick() && !this.animator.busy && equippedMelee && this.stamina >= SWING_STAMINA_COST) {
+        if (this.combatStance !== 'melee') {
+          this.setCombatStance('melee')
+        }
         const action = this._meleeAction(equippedMelee)
         if (this.animator.start(action)) {
           this.isSwinging = true
@@ -572,10 +624,16 @@ export class Player {
       }
     }
 
-    const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
-    this.swordPivot.visible = !showingBow
-    this.rig.animation?.setSwordHandShape?.(!showingBow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
-    this.bowPivot.visible = showingBow
+    const currentStance = this.combatStance
+    const inRanged = currentStance === 'ranged'
+    const isShieldNow = this.isShieldActive
+    const isLanceNow = equippedMelee?.animationKind === 'lance' && !inRanged
+    this.animator.setEquipment(isLanceNow, isShieldNow, this.currentMount?.type as MountedPoseKind | undefined)
+
+    this.swordPivot.visible = !inRanged
+    this.bowPivot.visible = inRanged
+    this.shieldPivot.visible = isShieldNow
+    this.rig.animation?.setSwordHandShape?.(!inRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
@@ -633,6 +691,14 @@ export class Player {
     const animationEvents = this.animator.update(dt)
     this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
+    if (this.animator.isLanceThrustActive) {
+      if (!this.hasPrevLanceTip) {
+        this.prevLanceTipPos.copy(this.getSwordTipPosition())
+        this.hasPrevLanceTip = true
+      }
+    } else {
+      this.hasPrevLanceTip = false
+    }
     if (animationEvents.projectileRelease) {
       this._fireArrow(
         this.pendingArrowTarget,
@@ -646,6 +712,8 @@ export class Player {
     }
     if (animationEvents.actionCompleted) {
       this.isSwinging = false
+      this.attackHitProcessed = false
+      this.hasPrevLanceTip = false
     }
 
 

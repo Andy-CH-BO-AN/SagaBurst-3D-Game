@@ -33,24 +33,37 @@ describe('盾牌裝備規則', () => {
       }
     }
   })
-  it('持盾按瞄準不拉弓、不花箭、不意外出近戰；卸盾後可拉弓', () => {
-    const f = fixture(); const arrows = f.player.arrows
-    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true, consumeLeftClick: () => true }))
-    expect(f.player.isAiming).toBe(false)
-    expect(f.player.arrows).toBe(arrows)
-    expect((f.player as any).animator.busy).toBe(false)
-    expect(f.ui.setShieldBlocked).toHaveBeenLastCalledWith(true)
-    f.inventory.unequipShield(); f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), .2)
+  it('持盾按 RMB 自動切弓進入 Aim，盾牌 stowed 且 Loadout 中保留', () => {
+    const f = fixture()
+    f.update(input())
+    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
+    expect(f.player.currentCombatStance).toBe('melee')
+    expect(f.player.isShieldActive).toBe(true)
+
+    // RMB down with equipped bow switches to ranged stance, stows shield, enters aim
+    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }))
     expect(f.player.isAiming).toBe(true)
-    expect((f.player as any).bowChargeTime).toBeGreaterThan(0)
+    expect(f.player.currentCombatStance).toBe('ranged')
+    expect(f.player.isShieldActive).toBe(false)
+    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
+
+    // RMB release leaves aim, stays in ranged stance with bow in hand and shield stowed
+    f.update(input({ isRightMouseDown: false }))
+    expect(f.player.isAiming).toBe(false)
+    expect(f.player.currentCombatStance).toBe('ranged')
+    expect(f.player.isShieldActive).toBe(false)
+    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
+
+    // Explicit switch back to melee restores equipped shield
+    f.player.setCombatStance('melee')
+    f.update(input())
+    expect(f.player.currentCombatStance).toBe('melee')
+    expect(f.player.isShieldActive).toBe(true)
   })
-  it('拉弓途中裝盾取消蓄力，切裝取消尚未發生的命中', () => {
-    const f = fixture(); f.inventory.unequipShield()
-    f.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), .3)
-    f.inventory.equipWeapon('round_shield_t3')
-    f.update(input({ consumeLeftClickRelease: () => true }), .3)
-    expect((f.player as any).bowChargeTime).toBe(0)
-    expect(f.player.arrows).toBe(30)
+  it('近戰攻擊中切換裝備取消尚未發生的命中', () => {
+    const f = fixture()
+    f.player.setCombatStance('melee')
+    f.update(input())
     f.update(input({ consumeLeftClick: () => true }))
     expect((f.player as any).animator.busy).toBe(true)
     f.inventory.equipWeapon('runic_greatsword'); f.update(input(), .5)
