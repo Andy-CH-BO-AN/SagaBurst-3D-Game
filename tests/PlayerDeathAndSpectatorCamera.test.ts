@@ -11,6 +11,7 @@ import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../src/world/Terrain'
 import {
   onSpectatorModeEntered,
   consumeSpectatorDeathBannerPending,
+  handleProjectileHitEffects,
   type PlayerControlMode,
 } from '../src/Game'
 
@@ -431,6 +432,73 @@ describe('Permanent Player Death & Spectator Camera', () => {
         pendingOnNextLock: transition.pendingOnNextLock,
       }
       expect(consumeSpectatorDeathBannerPending(state)).toBe(false)
+    })
+  })
+
+  describe('6. Projectile Hit Gating After Player Death', () => {
+    it('gates player-only side effects (enemy HUD and archery XP) when pre-death projectile lands after death', () => {
+      const showEnemyHud = vi.fn()
+      const addArcheryXp = vi.fn()
+      const updateMountHp = vi.fn()
+      const hideMountHud = vi.fn()
+
+      const result = handleProjectileHitEffects(
+        false, // target is enemy NPC, not player
+        true,  // arrow was fired by player before dying
+        'Orc Warrior',
+        0.4,
+        false,
+        {
+          dead: true,
+          controlMode: 'spectator',
+          isMounted: false,
+          hasMount: false,
+        },
+        {
+          showEnemyHud,
+          addArcheryXp,
+          updateMountHp,
+          hideMountHud,
+        },
+      )
+
+      // Damage was already dealt by the projectile itself, but UI/XP side effects must be gated
+      expect(result.enemyHudShown).toBe(false)
+      expect(result.xpGranted).toBe(false)
+      expect(showEnemyHud).not.toHaveBeenCalled()
+      expect(addArcheryXp).not.toHaveBeenCalled()
+    })
+
+    it('allows player-only side effects when arrow lands while player is alive in player control mode', () => {
+      const showEnemyHud = vi.fn()
+      const addArcheryXp = vi.fn()
+      const updateMountHp = vi.fn()
+      const hideMountHud = vi.fn()
+
+      const result = handleProjectileHitEffects(
+        false,
+        true,
+        'Orc Warrior',
+        0.4,
+        false,
+        {
+          dead: false,
+          controlMode: 'player',
+          isMounted: false,
+          hasMount: false,
+        },
+        {
+          showEnemyHud,
+          addArcheryXp,
+          updateMountHp,
+          hideMountHud,
+        },
+      )
+
+      expect(result.enemyHudShown).toBe(true)
+      expect(result.xpGranted).toBe(true)
+      expect(showEnemyHud).toHaveBeenCalledWith('Orc Warrior', 0.4)
+      expect(addArcheryXp).toHaveBeenCalledWith(35)
     })
   })
 })

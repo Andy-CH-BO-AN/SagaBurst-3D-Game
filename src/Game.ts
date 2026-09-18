@@ -40,6 +40,49 @@ export function consumeSpectatorDeathBannerPending(state: {
   }
   return false
 }
+
+/**
+ * Handles side effects (enemy HUD, Archery XP, Mount HUD) when a projectile hits a target.
+ * Gated so player-only side effects never trigger when the player is dead or in spectator mode.
+ */
+export function handleProjectileHitEffects(
+  isPlayerTarget: boolean,
+  isPlayerFired: boolean,
+  targetName: string,
+  hpRatio: number,
+  isMountHit: boolean,
+  playerStatus: { dead: boolean; controlMode: PlayerControlMode; isMounted: boolean; hasMount: boolean },
+  actions: {
+    showEnemyHud: (targetName: string, hpRatio: number) => void
+    addArcheryXp: (amount: number) => void
+    updateMountHp: (hpRatio: number) => void
+    hideMountHud: () => void
+  },
+): { enemyHudShown: boolean; xpGranted: boolean } {
+  const isPlayerActive = !playerStatus.dead && playerStatus.controlMode === 'player'
+
+  let enemyHudShown = false
+  let xpGranted = false
+
+  if (!isPlayerTarget && isPlayerFired) {
+    if (isPlayerActive) {
+      actions.showEnemyHud(targetName, hpRatio)
+      actions.addArcheryXp(35)
+      enemyHudShown = true
+      xpGranted = true
+    }
+  }
+
+  if (isPlayerTarget && isMountHit) {
+    if (isPlayerActive && playerStatus.isMounted && playerStatus.hasMount) {
+      actions.updateMountHp(hpRatio)
+    } else {
+      actions.hideMountHud()
+    }
+  }
+
+  return { enemyHudShown, xpGranted }
+}
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
@@ -1195,6 +1238,13 @@ export class Game {
     // 4. Hide player-only combat & interaction HUD
     this.pickupPromptEl?.classList.remove('visible')
     this.mountHud?.classList.remove('visible')
+    if (this.enemyHud) {
+      this.enemyHud.classList.remove('visible')
+      if (this.enemyHudTimer !== null) {
+        clearTimeout(this.enemyHudTimer)
+        this.enemyHudTimer = null
+      }
+    }
     this.quiverUI?.setAiming(false)
     this.quiverUI?.setChargeRatio(0)
     if (typeof document !== 'undefined') {
@@ -1213,6 +1263,7 @@ export class Game {
 
   // ── Enemy HUD UI update ──
   private _showEnemyHud(name: string, ratio: number): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
     this.enemyNameEl.textContent = name
     this.enemyHpFill.style.width = `${Math.max(0, ratio * 100)}%`
 
@@ -1220,6 +1271,7 @@ export class Game {
     if (this.enemyHudTimer !== null) clearTimeout(this.enemyHudTimer)
     this.enemyHudTimer = window.setTimeout(() => {
       this.enemyHud.classList.remove('visible')
+      this.enemyHudTimer = null
     }, 4000)
   }
 
@@ -1702,17 +1754,29 @@ export class Game {
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
         this.soundManager.playHit()
         this.damageNumbers.spawn(damage, hitPos)
-        if (!isPlayer && arrow.isPlayerFired) {
-          this._showEnemyHud(targetName, hpRatio)
-          this.skillManager.addXp('archery', 35, this.soundManager)
-        }
-        if (isPlayer && isMountHit) {
-          if (this.player.isMounted && this.player.currentMount) {
-            this.mountHpFill.style.width = `${Math.max(0, hpRatio * 100)}%`
-          } else {
-            this.mountHud.classList.remove('visible')
-          }
-        }
+        handleProjectileHitEffects(
+          isPlayer,
+          arrow.isPlayerFired,
+          targetName,
+          hpRatio,
+          Boolean(isMountHit),
+          {
+            dead: this.player.dead,
+            controlMode: this.controlMode,
+            isMounted: this.player.isMounted,
+            hasMount: Boolean(this.player.currentMount),
+          },
+          {
+            showEnemyHud: (name, ratio) => this._showEnemyHud(name, ratio),
+            addArcheryXp: (amt) => this.skillManager.addXp('archery', amt, this.soundManager),
+            updateMountHp: (ratio) => {
+              this.mountHpFill.style.width = `${Math.max(0, ratio * 100)}%`
+            },
+            hideMountHud: () => {
+              this.mountHud.classList.remove('visible')
+            },
+          },
+        )
       })
 
       if (!arrow.isAlive) {
