@@ -116,6 +116,7 @@ export class Player {
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
+  public spectatorOnly = false
 
   onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
   onPlayerDeath: (() => void) | null = null
@@ -162,6 +163,7 @@ export class Player {
   get bowDrawRatio(): number    { return this.bowVisualDrawRatio }
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
+  get targetable(): boolean     { return !this.isDead && !this.spectatorOnly }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
 
@@ -417,6 +419,7 @@ export class Player {
   }
 
   mountVehicle(mount: Mount, heading?: number): void {
+    if (this.spectatorOnly) return
     this.isMounted = true
     this.currentMount = mount
     mount.state = MountState.CONTROLLED
@@ -469,7 +472,7 @@ export class Player {
   }
 
   takeDamage(amount: number, hpBar: HpBar): boolean {
-    if (this.isDead) return false
+    if (this.isDead || this.spectatorOnly) return false
 
     if (this.isMounted && this.currentMount) {
       const hitSuccess = this.currentMount.takeDamage(amount)
@@ -547,6 +550,8 @@ export class Player {
     inventoryManager?: InventoryManager,
     archeryMultiplier = 1.0,
   ): void {
+    if (this.spectatorOnly) return
+
     if (this.flashTimer > 0) {
       this.flashTimer -= dt
       this.bodyMesh.traverse((child) => {

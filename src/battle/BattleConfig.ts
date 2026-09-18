@@ -32,6 +32,7 @@ export type BattleMode = 'formation' | 'scattered'
 
 export interface BattleConfig {
   mode?: BattleMode
+  spectator?: boolean
   viking: ArmyConfig
   roman: ArmyConfig
   rules: BattleRules
@@ -63,6 +64,7 @@ export function createEmptyArmyConfig(): ArmyConfig {
 export function createEmptyBattleConfig(): BattleConfig {
   return {
     mode: 'formation',
+    spectator: false,
     viking: createEmptyArmyConfig(),
     roman: createEmptyArmyConfig(),
     rules: {
@@ -95,6 +97,10 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 
   if (c.mode !== undefined && c.mode !== 'formation' && c.mode !== 'scattered') {
     errors.push(`Invalid battle mode: ${String(c.mode)}`)
+  }
+
+  if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
+    errors.push('spectator must be a boolean')
   }
 
   if (!c.viking || !c.roman) {

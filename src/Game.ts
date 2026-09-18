@@ -51,7 +51,7 @@ export function handleProjectileHitEffects(
   targetName: string,
   hpRatio: number,
   isMountHit: boolean,
-  playerStatus: { dead: boolean; controlMode: PlayerControlMode; isMounted: boolean; hasMount: boolean },
+  playerStatus: { dead: boolean; controlMode: PlayerControlMode; isMounted: boolean; hasMount: boolean; spectatorOnly?: boolean },
   actions: {
     showEnemyHud: (targetName: string, hpRatio: number) => void
     addArcheryXp: (amount: number) => void
@@ -59,7 +59,7 @@ export function handleProjectileHitEffects(
     hideMountHud: () => void
   },
 ): { enemyHudShown: boolean; xpGranted: boolean } {
-  const isPlayerActive = !playerStatus.dead && playerStatus.controlMode === 'player'
+  const isPlayerActive = !playerStatus.dead && !playerStatus.spectatorOnly && playerStatus.controlMode === 'player'
 
   let enemyHudShown = false
   let xpGranted = false
@@ -260,10 +260,14 @@ export class Game {
   private thirdPersonCamera: ThirdPersonCamera
   private spectatorController: SpectatorCameraController
   private controlMode: PlayerControlMode = 'player'
+  private _spectatorReason: 'death' | 'initial' = 'death'
   private studioControls: OrbitControls | null = null
 
   get playerControlMode(): PlayerControlMode {
     return this.controlMode
+  }
+  get spectatorReason(): 'death' | 'initial' {
+    return this._spectatorReason
   }
   private isHumanoidStudio = false
   private isMountStudio = false
@@ -394,6 +398,12 @@ export class Game {
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, -1)
 
+    const isInitialSpectator = Boolean(battleConfig?.spectator)
+    if (isInitialSpectator) {
+      this.player.spectatorOnly = true
+      this.player.group.visible = false
+    }
+
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
     const devModelsMode = query.get('devmodels')
@@ -426,6 +436,11 @@ export class Game {
     this.spectatorController = new SpectatorCameraController(this.camera)
     if (this.isModelStudio) {
       this._setupModelStudioCamera()
+    } else if (isInitialSpectator) {
+      const initY = getTerrainHeight(0, 0) + 5
+      this.camera.position.set(0, initY, 0)
+      this.camera.lookAt(0, initY, -1)
+      this.spectatorController.initFromCamera(this.camera)
     } else {
       const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
       const terrainY = getTerrainHeight(playerSpawn.x, playerSpawn.z)
@@ -463,7 +478,7 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio) {
+    if (!this.isModelStudio && !isInitialSpectator) {
       const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
       const startingHorse = new Mount(
         this.scene,
@@ -511,7 +526,11 @@ export class Game {
 
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
-      this._enterSpectatorMode()
+      this._enterSpectatorMode('death')
+    }
+
+    if (isInitialSpectator) {
+      this._enterSpectatorMode('initial')
     }
 
     this._setupPointerLock()
@@ -519,9 +538,11 @@ export class Game {
     this._setupShortcuts()
 
     // Initialise bars
-    this.hpBar.setFill(this.player.hpRatio)
-    this.staminaBar.setFill(1)
-    this.quiverUI.setArrowCount(this.player.arrowCount)
+    if (!isInitialSpectator) {
+      this.hpBar.setFill(this.player.hpRatio)
+      this.staminaBar.setFill(1)
+      this.quiverUI.setArrowCount(this.player.arrowCount)
+    }
 
     this._loop()
   }
@@ -890,7 +911,13 @@ export class Game {
     const subEl = document.getElementById('lock-overlay-sub')
     if (promptEl) {
       if (this.controlMode === 'spectator') {
-        promptEl.textContent = '💀 你已陣亡 — 點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+        if (this._spectatorReason === 'initial') {
+          promptEl.textContent = isResume
+            ? '點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+            : '點擊進入觀戰 ｜ CLICK TO START SPECTATING'
+        } else {
+          promptEl.textContent = '💀 你已陣亡 — 點擊繼續觀戰 ｜ CLICK TO RESUME SPECTATING'
+        }
         if (subEl) {
           subEl.textContent = '(按 ESC 暫停 / 釋放游標 ｜ 自由觀戰模式)'
         }
@@ -1190,9 +1217,10 @@ export class Game {
     }, durationMs)
   }
 
-  private _enterSpectatorMode(): void {
+  private _enterSpectatorMode(reason: 'death' | 'initial' = 'death'): void {
     if (this.controlMode === 'spectator') return
     this.controlMode = 'spectator'
+    this._spectatorReason = reason
     this.spectatorController.initFromCamera(this.camera)
 
     // Close equipment modal if open when player died so it doesn't block spectator view
@@ -1200,24 +1228,28 @@ export class Game {
       this.equipmentUI.close()
     }
 
-    // If pointer lock is not active (e.g. was released for equipment modal), show lock overlay with spectator wording
-    // and defer death banner until pointer lock is next acquired so it isn't hidden behind the full-screen overlay.
-    const isNoLock = typeof window !== 'undefined' && window.location?.search?.includes('nolock')
-    const hasPointerLock = typeof document !== 'undefined' && !!document.pointerLockElement
-    const overlayCovering = !hasPointerLock && !this.isModelStudio && !isNoLock && !!this.lockOverlay
+    if (reason === 'death') {
+      // If pointer lock is not active (e.g. was released for equipment modal), show lock overlay with spectator wording
+      // and defer death banner until pointer lock is next acquired so it isn't hidden behind the full-screen overlay.
+      const isNoLock = typeof window !== 'undefined' && window.location?.search?.includes('nolock')
+      const hasPointerLock = typeof document !== 'undefined' && !!document.pointerLockElement
+      const overlayCovering = !hasPointerLock && !this.isModelStudio && !isNoLock && !!this.lockOverlay
 
-    if (overlayCovering) {
-      this._updateLockOverlayPrompt(true)
-      this.lockOverlay.style.display = 'flex'
-      this.lockOverlay.classList.remove('hidden')
+      if (overlayCovering) {
+        this._updateLockOverlayPrompt(true)
+        this.lockOverlay.style.display = 'flex'
+        this.lockOverlay.classList.remove('hidden')
+      } else {
+        this._updateLockOverlayPrompt(true)
+      }
+
+      const { showBannerNow, pendingOnNextLock } = onSpectatorModeEntered(overlayCovering)
+      this.showDeathBannerOnNextSpectatorLock = pendingOnNextLock
+      if (showBannerNow) {
+        this._showDeathBanner()
+      }
     } else {
-      this._updateLockOverlayPrompt(true)
-    }
-
-    const { showBannerNow, pendingOnNextLock } = onSpectatorModeEntered(overlayCovering)
-    this.showDeathBannerOnNextSpectatorLock = pendingOnNextLock
-    if (showBannerNow) {
-      this._showDeathBanner()
+      this.showDeathBannerOnNextSpectatorLock = false
     }
 
     // 2. Show persistent spectator badge
@@ -1290,7 +1322,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
   private _checkPlayerMeleeHits(): void {
-    if (this.player.dead) return
+    if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) return
     const equippedMelee = this.inventoryManager.equippedMelee
     if (!this.player.isHitFrame(equippedMelee)) {
       if (this.player.isLanceThrustActive) {
@@ -1373,7 +1405,7 @@ export class Game {
       mount.update(dt, this.obstacles)
     }
 
-    if (this.player.dead) {
+    if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
       this.pickupPromptEl.classList.remove('visible')
       return
     }
@@ -1462,7 +1494,9 @@ export class Game {
     const bodies: EntityCollisionBody[] = []
     const controlledMount = this.player.isMounted ? this.player.currentMount : null
 
-    if (controlledMount) {
+    if (this.player.spectatorOnly) {
+      // Exclude non-participant spectator player from physical collision
+    } else if (controlledMount) {
       bodies.push({
         position: controlledMount.group.position,
         radius: 1.0,
@@ -1566,7 +1600,7 @@ export class Game {
             })
           }
         }
-      } else if (mount.riderFaction === Faction.ENEMY && !this.player.dead) {
+      } else if (mount.riderFaction === Faction.ENEMY && this.player.targetable) {
         if (checkImpact(mount, this.player.position, 0.38)) {
           applyImpactDamage(mount, this.player, this.player.position, (damage) => {
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
@@ -1683,6 +1717,7 @@ export class Game {
         (damage, isPlayer, targetNpc) => {
           // Melee Hit Callback
           if (isPlayer) {
+            if (!this.player.targetable) return
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
               this.soundManager.playHit()
@@ -1758,6 +1793,7 @@ export class Game {
             controlMode: this.controlMode,
             isMounted: this.player.isMounted,
             hasMount: Boolean(this.player.currentMount),
+            spectatorOnly: this.player.spectatorOnly,
           },
           {
             showEnemyHud: (name, ratio) => this._showEnemyHud(name, ratio),

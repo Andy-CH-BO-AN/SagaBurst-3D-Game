@@ -226,7 +226,7 @@ export class ArrowProjectile {
     }
 
     // ── Hit Detection 4: Player (If shooter is ENEMY) ──
-    if (this.shooterFaction === Faction.ENEMY && !player.dead) {
+    if (this.shooterFaction === Faction.ENEMY && player.targetable) {
       const playerCenter = player.combatPosition.clone()
       playerCenter.y += 1.0 // Torso height
       const dist = this.mesh.position.distanceTo(playerCenter)

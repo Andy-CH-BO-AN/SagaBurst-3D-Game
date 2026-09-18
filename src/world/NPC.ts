@@ -432,7 +432,7 @@ export class NPC {
     let closestDistSq = Infinity
 
     // Check Player
-    if (this.faction === Faction.ENEMY && !player.dead) {
+    if (this.faction === Faction.ENEMY && player.targetable) {
       const dSq = this.combatPosition.distanceToSquared(player.combatPosition)
       if (dSq < closestDistSq) {
         closestDistSq = dSq
