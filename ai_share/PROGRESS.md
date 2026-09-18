@@ -1,6 +1,6 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-18（最新 main #26；NPC 弓 submission 優化候選分支）_
+_Last updated: 2026-09-18（PR #27 merged）_
 
 > This file is a concise handoff, not a changelog or validation archive. Keep only current state, durable decisions, recent milestone outcomes, known limitations, and the next useful investigation. Detailed benchmark runs, screenshot inventories, per-frame evidence, and historical implementation narratives belong in merged PRs / Git history and ignored `output/` diagnostics.
 
@@ -8,10 +8,10 @@ _Last updated: 2026-09-18（最新 main #26；NPC 弓 submission 優化候選分
 
 ## Current Status
 
-- 本輪 baseline：`9c10299`（PR #26，擴大 playable world boundary 與 battle spawn staging）。下列 #19–#23 數字僅為歷史背景，不可直接當作新場景的 Before。
+- Current main 已包含 PR #27 的 NPC 弓 material-group consolidation；其正式 Before baseline 為 `9c10299`（PR #26）。下列 #19–#23 數字僅為歷史背景，不可直接當作目前場景的 Before。
 - Phases 0–23 are implemented. Current work is focused on making large 100v100 battles cheaper without changing gameplay semantics or broadly degrading visual quality.
 - Apple M1 Pro / Chrome 153 / ANGLE Metal 的最新場景中，100v100 cavalry 仍約 12 FPS；render submission 仍是主要未解成本。
-- 目前候選分支檢查：37 Vitest files / 375 tests 與 production build 通過。
+- PR #27 merge 前完整檢查：37 Vitest files / 375 tests 與 production build 通過。
 
 ### Current performance conclusion
 
@@ -27,11 +27,12 @@ The recent optimization sequence shows two distinct costs:
 | #21 | Skip inactive humanoid LOD mixer / pose evaluation | Reduced mixer/pose work; clear NPC Update benefit in infantry / near-heavy cases. Cavalry overall CPU/FPS improvement was not consistently proven. |
 | #22 | NPC Equipment Visual LOD | B/C/D Renderer Submit medians −6.36% / −5.65% / −4.78%; Near-heavy −0.03%, providing a useful negative control. |
 | #23 | NPC Equipment Shadow LOD | B/C/D Renderer Submit medians −6.26% / −4.06% / −4.35%; B shadow casters 1,100→0 while visible meshes stayed 1,100. Near-heavy shadow workload was unchanged. |
+| #27 | NPC Bow Material Group Consolidation | Cavalry main-pass calls 16,654→8,854 and bow submissions 8,300→500 with unchanged triangles; dynamic Cavalry Renderer Submit timing was not consistently improved, so the durable win is submission structure rather than claimed FPS gain. |
 
-### 本輪持久結論與下一個調查目標
+### PR #27 持久結論與下一個調查目標
 
 - DEV 單次實際提交 census 證明 Cavalry 最大來源是 NPC 弓的材質分段：81 個環段 groups 只使用木／皮革兩種材質。近處馬眼角膜的 transmission prepass 又使 opaque 提交重複一次；main-pass 計數包含這個非 shadow 子 pass。
-- 候選分支只在 NPC 建弓時合併相鄰同材質 groups（81→3），保留幾何、材質、動畫、attachment 與 Player 路徑。同幀畫面完全一致；最新 baseline 的 Cavalry calls 16,654→8,854，弓 8,300→500。Cavalry Submit 中位數僅 −2.6%，配對結果不一致，尚未證明穩定時間收益；Infantry control 的 calls 不變。
+- PR #27 只在 NPC 建弓時合併相鄰同材質 groups（81→3），保留幾何、材質、動畫、attachment 與 Player 路徑。同幀畫面完全一致；Cavalry main-pass calls 16,654→8,854，弓 submissions 8,300→500。動態 Cavalry Renderer Submit 中位數僅 −2.6%，三輪配對結果不一致，因此只確認 submission 結構大幅改善，**不宣稱穩定 FPS／Renderer Submit 時間收益**；Infantry control 的 calls 不變。
 - 下一個合理 target 是 Humanoid renderables／material structure，以及 transmission prepass 放大的 opaque workload。先做 attribution，再選單一低風險改動；不回頭優化 shadow／collision，也不直接進行 crowd instancing。Viking Bow LOD1/2 離手舊問題仍另案處理。
 
 ---
