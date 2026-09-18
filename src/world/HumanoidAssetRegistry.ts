@@ -10,6 +10,7 @@ import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPo
 import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
+import { consolidateRomanLod2 } from './HumanoidLod2Consolidation'
 import type { SwordGripFrame } from './SwordAttachmentContract'
 import type {
   ArmRig,
@@ -721,6 +722,12 @@ export class HumanoidAssetRegistry {
           object.userData.originalMat = object.material
         }
       })
+      const preserveOriginalLod2 = import.meta.env.DEV && typeof window !== 'undefined'
+        && new URLSearchParams(window.location.search).has('humanoidLod2Original')
+      if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2) {
+        const representationControl = consolidateRomanLod2(level)
+        if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
+      }
       if (config.faction === 'viking') {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory())

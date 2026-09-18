@@ -273,6 +273,8 @@ export class Game {
   private isMountStudio = false
   private isModelStudio = false
   private isDevCombat = false
+  private isBenchmarkMode = false
+  private frozenHumanoidLod2Diagnostic = false
 
   private battleController: BattleController | null = null
   private npcs: NPC[] = []
@@ -406,6 +408,7 @@ export class Game {
 
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
+    this.isBenchmarkMode = this.isDevCombat && query.has('benchmark')
     const devModelsMode = query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
@@ -414,7 +417,7 @@ export class Game {
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
     if (this.isDevCombat) {
-      this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
+      if (!this.isBenchmarkMode) this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
       let scenarioConfig = PRESET_DEVCOMBAT
       if (devVal === 'a' || devVal === 'scenarioa') {
@@ -507,7 +510,15 @@ export class Game {
     this.saveManager = new SaveManager()
 
     // ── Spawn World Pickups & Mounts ──
-    if (this.isDevCombat) this._createDevCombatStatus()
+    if (this.isDevCombat && !this.isBenchmarkMode) this._createDevCombatStatus()
+
+    if (import.meta.env.DEV && query.has('humanoidLod2Control')) {
+      ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
+      ;(window as any).__freezeHumanoidLod2Scene = (frozen = true) => {
+        this.frozenHumanoidLod2Diagnostic = Boolean(frozen)
+        return { frozen: this.frozenHumanoidLod2Diagnostic }
+      }
+    }
 
     // Listen for arrow fire from Player
     this.player.onFireArrow = (evt) => {
@@ -807,6 +818,23 @@ export class Game {
     status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:30;min-width:290px;padding:10px 14px;border:1px solid #8b7962;background:rgba(20,17,14,.92);color:#eadfce;font:12px/1.42 ui-monospace,monospace;white-space:pre;pointer-events:none'
     document.body.appendChild(status)
     this.devCombatStatus = status
+  }
+
+  /** DEV-only frozen A/B hook. Production keeps only the optimized LOD2 representation. */
+  private _setHumanoidLod2Representation(optimized: boolean): { optimized: boolean, controlledRomanLod2: number } {
+    let controlledRomanLod2 = 0
+    for (const npc of this.npcs) {
+      npc.characterVisualGroup.traverse(object => {
+        if (!(object instanceof THREE.LOD)) return
+        const control = object.levels[2]?.object.userData.humanoidLod2RepresentationControl as
+          | { setOptimized(enabled: boolean): void }
+          | undefined
+        if (!control) return
+        control.setOptimized(optimized)
+        controlledRomanLod2++
+      })
+    }
+    return { optimized, controlledRomanLod2 }
   }
 
   private _updateDevCombatStatus(): void {
@@ -1630,6 +1658,10 @@ export class Game {
   // ── Main loop ──
   private _loop = (): void => {
     requestAnimationFrame(this._loop)
+    if (this.frozenHumanoidLod2Diagnostic) {
+      this.renderer.render(this.scene, this.camera)
+      return
+    }
     const profile = this.isDevCombat
     const frameStart = profile ? performance.now() : 0
     let t0 = 0
