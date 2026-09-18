@@ -6,6 +6,7 @@ import { isEffectivelyVisible } from './HorseRenderCensus'
 export function collectEquipmentRenderCensus(npcs: readonly NPC[]) {
   const lodCounts = [0, 0, 0]
   const visibleMeshes = { sword: 0, shield: 0, bow: 0, lance: 0, pilum: 0 }
+  const visibleShadowCastersByKind = { sword: 0, shield: 0, bow: 0, lance: 0, pilum: 0 }
   let visibleShadowCasters = 0
   for (const npc of npcs) {
     lodCounts[npc.equipmentVisualLOD.currentLevel]++
@@ -13,14 +14,17 @@ export function collectEquipmentRenderCensus(npcs: readonly NPC[]) {
       root.traverse(object => {
         if (!(object as Mesh).isMesh || !isEffectivelyVisible(object)) return
         visibleMeshes[kind]++
-        if (object.castShadow) visibleShadowCasters++
+        if (object.castShadow) {
+          visibleShadowCasters++
+          visibleShadowCastersByKind[kind]++
+        }
       })
     })
   }
   return {
     npcCount: npcs.length, lodCounts, visibleMeshes,
     totalVisibleMeshes: Object.values(visibleMeshes).reduce((sum, count) => sum + count, 0),
-    visibleShadowCasters,
+    visibleShadowCasters, visibleShadowCastersByKind,
   }
 }
 

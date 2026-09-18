@@ -1,10 +1,192 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-18 (NPC Equipment Visual LOD)_
+_Last updated: 2026-09-18 (NPC Equipment Shadow LOD)_
 
 ---
 
 ## Current Status
+
+### 2026-09-18：第五支 FPS Optimization — NPC Equipment Shadow LOD
+
+#### 架構與陰影策略
+
+基準為本輪 fetch 的 latest main `2c8d7d49ffbb5029c3c3919521f9b67f9c0c679a`（PR #22 已合併），分支 `perf/add-equipment-shadow-lod`。
+
+沿用 `EquipmentVisualLODController`、原 NPC 註冊點及既有 Humanoid `LOD.update(camera)`；controller 直接採用當幀 Three LOD level，沒有第二組距離門檻或距離計算，`HUMANOID_LOD_DISTANCES` 未變。
+
+| 裝備 LOD | 可見細節 | castShadow |
+| --- | --- | --- |
+| LOD0 | 既有完整細節 | originalCastShadow |
+| LOD1 | 既有中距細節 | originalCastShadow |
+| LOD2 | 既有遠距細節 | false |
+
+在建構／換盾的既有 traversal 同時快取所有裝備 Mesh 與原始 castShadow（包含原本 false）；WeakMap 記住第一次註冊值，避免在 LOD2 重新註冊時把暫時 false 誤認為原值，也不強留被換掉的 shield mesh。切 LOD 只寫快取；同一 level 直接 return，沒有 hierarchy search、traverse、array rebuild 或 castShadow writes。
+
+範圍僅 NPC sword／shield／bow（含手上搭箭）／lance／pilum。保留原 receiveShadow、root visibility、detail policy、attachment、transform、metadata、弓弦、搭箭動態 visibility 與 gameplay。Player、飛行箭／標槍、掉落物、Humanoid、Horse、terrain、lighting、shadowMap 設定未修改。
+
+DEV on-demand census 新增 `visibleShadowCastersByKind`，可同時看五種裝備的 visible meshes 與 shadow casters；所有祖先 visibility 均納入，沒有自動採樣或 production frame-loop overhead。census 不做 frustum filter，mesh 數不等於實際 draw calls。
+
+#### 正確性與畫面驗證
+
+- `npm test -- --run`：34 個測試檔、361 項全部通過；新增 24 項 Shadow LOD 測試。涵蓋兩陣營 T1–T3 劍盾／弓／標槍、真實 lance builder、LOD0／1 原值、LOD2 零陰影、original false、重複 register、實際 Three 27／28／29／59／60／61m 與 zoom、same-level 零寫入／遍歷、LOD2 換盾及返回、切近戰／respawn、Player 不變。單元環境不預載馬匹 GLB；騎乘改由下述 production 真實素材驗證。
+- `npm run build`：TypeScript 與 Vite production build 通過，僅既有 CJS／chunk-size 警告；量測前後 bundle SHA-256 保存於本機 `build-manifest.json`。
+- 兩份獨立 production build，Chrome 真實 WebGL／素材，以 1/64 秒固定步長比對 60 組（Viking／Roman × T1–T3 × 步行／騎乘 × idle／run／melee／lance／ranged），每組每版 240 幀，共 14,400 組配對 frame。
+- root matrixWorld、root visibility、tip／nock／弓弦、裝備 visible mesh 數、ammo、action 與完整事件逐幀相同，最大數值差 0，無非有限數；90 個 melee hit 的時機、12 個 arrow 與 12 個 pilum events 的時機及 origin／direction 一致。Player 全 Mesh 的 visible／castShadow／receiveShadow 在每 case 前後與兩版間一致。60 組均遍歷 LOD0／1／2，零 application pageerror。
+- 每幀 LOD0／1 的可見裝備 caster 數與 baseline 一致；LOD2 的 baseline 為 2–6 個／角色、candidate 全為 0。原 visible mesh 數仍完全一致。
+- 保存 84 張代表截圖（42 組配對）：兩陣營 T2 劍盾、遠程、騎乘長槍，10／27／29／59／61／80m 側面檢視，另含 61m 固定 58° FOV 的原生距離圖。放大檢視只改 QA camera FOV、不改 zoom 或選 LOD 距離；隔離 QA 場景加入共同接影平面與 directional light，production 燈光未改。
+- 逐組目視：LOD0／1 保留地面陰影；LOD2 裝備剪影仍可辨識，裝備陰影移除，沒有新增裝備消失或 attachment 變動。放大後看得到地面陰影與局部自陰影差異，故不宣稱完全看不出差異。
+- LOD0／1 共 24 組 PNG 比對：15 組逐像素相同，其餘 9 組各有 1–7／648,000 pixels 差異；旗標與逐幀狀態一致，目視未見陰影形態回歸，但不宣稱所有截圖逐像素完全相同。
+- 一般入口 `http://127.0.0.1:5230/?nolock`／`5231/?nolock` 經 Battle Setup 的 `START BATTLE` 進入最新版預設 10v10；兩版均為 20 NPC／19 mounts，零 application error／console warning／failed request。另保存兩張 release 截圖，正常顯示 Player、裝備與戰場；production `__collectEquipmentCensus` 均為 undefined。入口已是自訂戰鬥設定，未沿用舊 skill 中 9 allies／5 Romans 的歷史描述。
+- 既有 Viking bow 的 LOD1／2 離手問題兩版完全相同，最大 hand-gap 約 0.877m；未在本 PR 修正。隔離 QA 的接影平面不代表實際 terrain grounding。
+
+一次性腳本／JSON／build：`output/local-diagnostics/equipment-shadow-lod/`；截圖／montage：`output/playwright/equipment-shadow-lod/`。依專案規範均不提交，必要驗證結果記錄於本文及 `ai_share/PROGRESS.md`。
+
+本次查核 Three `WebGLRenderer` 發現 `shadowMap.render()` 後才 `info.reset()`，因此預設 `renderer.info.render.calls/triangles` 只含主 pass。報告明確分開主畫面與完整 pass 計數，並更正前次文件的描述。B 初次三輪只含舊式主 pass 計數，原資料保留於 `benchmark-b-pre-pass-audit.json`；增加計時窗外的完整 pass 診斷後，重跑全部 B 三輪作為正式表格，沒有挑選單一有利樣本。
+
+
+## 完整逐輪量測
+
+基準：latest main `2c8d7d4`（包含 PR #22），本輪重新 production build；候選分支 `perf/add-equipment-shadow-lod`。
+
+同台 Apple M1 Pro／Chrome 153／ANGLE Metal，1280×720、DPR 1，production preview。每個場景依 A1→B1→A2→B2→A3→B3；每輪 fresh browser context／page／battle。暖機 4 秒、reset＋2 秒，確認接戰後 reset＋3.2 秒，取最新完整 profiler window；三次取 median。計時期間不截圖、不裝計時 wrapper、不跑其他測試。
+
+CPU Frame Work 為同步 JS 工作，Renderer Submit 包含 renderer.render CPU 執行時間，不是 GPU execution time。本版 Three 在 shadow pass 後才 autoReset，因此預設 renderer.info 數值不包含 shadow。本表主畫面／完整 pass／shadow 的 Draw Calls 與 Triangles 均由計時窗後同一次同步診斷取得：先原設定 render 記錄 main，再暫設 info.autoReset=false、info.reset()、render 記錄 total，最後恢復；shadow=total−main，不改 shadowMap 設定，不混入計時窗。equipment census 在計時窗後單次採集，包含所有祖先 visibility，排除 Player／掉落物／飛行投射物，未做 frustum filter。mesh 數不等於 draw calls，尤其弓曲面原本有多個 material groups。
+
+B／C／D 保持原固定玩家相機；Near-heavy 沿用 B 的 200 NPC／出生點／gameplay，僅測試 harness 將鏡頭固定於 (0,8,12)、看 (0,1,0)，fov=58、zoom=1。不同 FPS 及既有 dt clamp 會改變 wall-clock 下的戰鬥進度，因此另記死亡與投射物，不假設所有動態狀態相同。
+
+#### B — 100v100 Infantry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 14.713 / 14.213 / 14.215 | 14.951 / 15.023 / 15.087 | 14.215 | 15.023 | +0.808 | +5.69% |
+| CPU Frame Work (ms) | 65.000 / 66.293 / 66.173 | 62.967 / 62.150 / 61.944 | 66.173 | 62.150 | -4.023 | -6.08% |
+| Renderer Submit (ms) | 41.293 / 42.313 / 42.593 | 39.793 / 39.662 / 38.669 | 42.313 | 39.662 | -2.651 | -6.26% |
+| NPC Update (ms) | 22.000 / 22.193 / 21.893 | 21.413 / 20.687 / 21.531 | 22.000 | 21.413 | -0.587 | -2.67% |
+| 主畫面 Draw Calls | 7,212 / 7,213 / 7,213 | 7,213 / 7,215 / 7,215 | 7,213 | 7,215 | +2.000 | +0.03% |
+| 完整 pass Draw Calls | 8,553 / 8,554 / 8,554 | 7,454 / 7,456 / 7,456 | 8,554 | 7,456 | -1,098.000 | -12.84% |
+| Shadow pass Draw Calls | 1,341 / 1,341 / 1,341 | 241 / 241 / 241 | 1,341 | 241 | -1,100.000 | -82.03% |
+| 主畫面 Triangles | 5,551,050 / 5,551,050 / 5,551,050 | 5,551,050 / 5,551,050 / 5,551,050 | 5,551,050 | 5,551,050 | +0.000 | +0.00% |
+| 完整 pass Triangles | 6,337,452 / 6,337,452 / 6,337,452 | 5,736,492 / 5,736,492 / 5,736,492 | 6,337,452 | 5,736,492 | -600,960.000 | -9.48% |
+| Equipment visible meshes | 1,100 / 1,100 / 1,100 | 1,100 / 1,100 / 1,100 | 1,100 | 1,100 | +0.000 | +0.00% |
+| Equipment shadow casters | 1,100 / 1,100 / 1,100 | 0 / 0 / 0 | 1,100 | 0 | -1,100.000 | -100.00% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 陰影劍／盾／弓／槍／標槍 | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- | --- |
+| before1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 600/500/0/0/0 | 1/0 |
+| after1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 0 | 0/0/0/0/0 | 3/0 |
+| before2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 600/500/0/0/0 | 3/0 |
+| after2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 0 | 0/0/0/0/0 | 4/0 |
+| before3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 1100 | 600/500/0/0/0 | 3/0 |
+| after3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 600/500/0/0/0 | 0 | 0/0/0/0/0 | 4/0 |
+
+原始資料：`output/local-diagnostics/equipment-shadow-lod/benchmark-b.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### C — 100v100 Mixed
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 11.746 / 11.858 / 11.984 | 12.163 / 12.212 / 12.280 | 11.858 | 12.212 | +0.355 | +2.99% |
+| CPU Frame Work (ms) | 83.117 / 82.200 / 81.608 | 80.400 / 80.015 / 79.615 | 82.200 | 80.015 | -2.185 | -2.66% |
+| Renderer Submit (ms) | 59.375 / 58.825 / 58.783 | 56.808 / 56.438 / 56.015 | 58.825 | 56.438 | -2.387 | -4.06% |
+| NPC Update (ms) | 21.300 / 21.100 / 20.558 | 21.262 / 21.200 / 21.377 | 21.100 | 21.262 | +0.162 | +0.77% |
+| 主畫面 Draw Calls | 16,393 / 16,319 / 16,399 | 16,464 / 16,429 / 16,433 | 16,393 | 16,433 | +40.000 | +0.24% |
+| 完整 pass Draw Calls | 21,880 / 21,786 / 21,871 | 19,744 / 19,702 / 19,695 | 21,871 | 19,702 | -2,169.000 | -9.92% |
+| Shadow pass Draw Calls | 5,487 / 5,467 / 5,472 | 3,280 / 3,273 / 3,262 | 5,472 | 3,273 | -2,199.000 | -40.19% |
+| 主畫面 Triangles | 7,699,830 / 7,484,410 / 7,641,780 | 7,746,246 / 7,616,764 / 7,667,548 | 7,641,780 | 7,667,548 | +25,768.000 | +0.34% |
+| 完整 pass Triangles | 9,900,834 / 9,620,364 / 9,777,902 | 9,725,866 / 9,576,129 / 9,582,182 | 9,777,902 | 9,582,182 | -195,720.000 | -2.00% |
+| Equipment visible meshes | 882 / 885 / 882 | 879 / 879 / 879 | 882 | 879 | -3.000 | -0.34% |
+| Equipment shadow casters | 882 / 885 / 882 | 270 / 270 / 270 | 882 | 270 | -612.000 | -69.39% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 陰影劍／盾／弓／槍／標槍 | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- | --- |
+| before1 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/207/80/135 | 882 | 180/280/207/80/135 | 0/25 |
+| after1 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/204/80/135 | 270 | 90/90/90/0/0 | 0/30 |
+| before2 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/210/80/135 | 885 | 180/280/210/80/135 | 0/20 |
+| after2 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/204/80/135 | 270 | 90/90/90/0/0 | 0/30 |
+| before3 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/207/80/135 | 882 | 180/280/207/80/135 | 0/27 |
+| after3 | 200 | 0/60/140 | 0/60/140 | 0/200 | 180/280/204/80/135 | 270 | 90/90/90/0/0 | 0/30 |
+
+原始資料：`output/local-diagnostics/equipment-shadow-lod/benchmark-c.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### D — 100v100 Cavalry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 9.825 / 9.906 / 9.678 | 9.998 / 9.990 / 9.997 | 9.825 | 9.997 | +0.172 | +1.75% |
+| CPU Frame Work (ms) | 98.980 / 98.150 / 100.500 | 97.230 / 97.050 / 97.230 | 98.980 | 97.230 | -1.750 | -1.77% |
+| Renderer Submit (ms) | 69.720 / 69.100 / 70.910 | 66.690 / 66.650 / 66.760 | 69.720 | 66.690 | -3.030 | -4.35% |
+| NPC Update (ms) | 26.990 / 26.870 / 27.390 | 28.190 / 28.020 / 28.160 | 26.990 | 28.160 | +1.170 | +4.33% |
+| 主畫面 Draw Calls | 17,559 / 17,639 / 17,639 | 17,629 / 17,614 / 17,629 | 17,639 | 17,629 | -10.000 | -0.06% |
+| 完整 pass Draw Calls | 22,676 / 22,797 / 22,797 | 17,953 / 17,934 / 17,953 | 22,797 | 17,953 | -4,844.000 | -21.25% |
+| Shadow pass Draw Calls | 5,117 / 5,158 / 5,158 | 324 / 320 / 324 | 5,158 | 324 | -4,834.000 | -93.72% |
+| 主畫面 Triangles | 6,554,666 / 6,556,070 / 6,556,070 | 6,555,202 / 6,553,682 / 6,555,202 | 6,556,070 | 6,555,202 | -868.000 | -0.01% |
+| 完整 pass Triangles | 7,011,546 / 7,013,682 / 7,013,682 | 6,743,324 / 6,741,644 / 6,743,324 | 7,013,682 | 6,743,324 | -270,358.000 | -3.85% |
+| Equipment visible meshes | 771 / 786 / 786 | 828 / 840 / 828 | 786 | 828 | +42.000 | +5.34% |
+| Equipment shadow casters | 771 / 786 / 786 | 0 / 0 / 0 | 786 | 0 | -786.000 | -100.00% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 陰影劍／盾／弓／槍／標槍 | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- | --- |
+| before1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/186/200/135 | 771 | 0/250/186/200/135 | 0/70 |
+| after1 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/243/200/135 | 0 | 0/0/0/0/0 | 0/89 |
+| before2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/201/200/135 | 786 | 0/250/201/200/135 | 0/90 |
+| after2 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/255/200/135 | 0 | 0/0/0/0/0 | 0/87 |
+| before3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/201/200/135 | 786 | 0/250/201/200/135 | 0/90 |
+| after3 | 200 | 0/0/200 | 0/0/200 | 0/200 | 0/250/243/200/135 | 0 | 0/0/0/0/0 | 0/89 |
+
+原始資料：`output/local-diagnostics/equipment-shadow-lod/benchmark-d.json`；相機：`{'position': [0, 3.4591007339870017, 86.6199999806634], 'quaternion': [0, 0, 0, 1], 'fov': 58}`。
+
+#### Near-heavy — 100v100 Infantry
+
+| 指標 | Before 三輪 | After 三輪 | Before median | After median | 絕對差 | 百分比 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| FPS | 15.457 / 15.466 / 15.459 | 15.457 / 15.694 / 15.510 | 15.459 | 15.510 | +0.051 | +0.33% |
+| CPU Frame Work (ms) | 62.163 / 61.244 / 61.356 | 61.281 / 60.369 / 60.781 | 61.356 | 60.781 | -0.575 | -0.94% |
+| Renderer Submit (ms) | 36.150 / 36.306 / 35.850 | 36.356 / 35.631 / 35.369 | 36.150 | 35.631 | -0.519 | -1.43% |
+| NPC Update (ms) | 24.419 / 23.244 / 23.762 | 23.225 / 22.988 / 23.700 | 23.762 | 23.225 | -0.537 | -2.26% |
+| 主畫面 Draw Calls | 2,695 / 2,702 / 2,724 | 2,730 / 2,703 / 2,725 | 2,702 | 2,725 | +23.000 | +0.85% |
+| 完整 pass Draw Calls | 6,710 / 6,715 / 6,738 | 6,744 / 6,718 / 6,739 | 6,715 | 6,739 | +24.000 | +0.36% |
+| Shadow pass Draw Calls | 4,015 / 4,013 / 4,014 | 4,014 / 4,015 / 4,014 | 4,014 | 4,014 | +0.000 | +0.00% |
+| 主畫面 Triangles | 7,600,104 / 7,577,579 / 7,623,196 | 7,640,256 / 7,577,948 / 7,638,464 | 7,600,104 | 7,638,464 | +38,360.000 | +0.50% |
+| 完整 pass Triangles | 20,270,864 / 20,175,859 / 20,257,716 | 20,274,776 / 20,248,708 / 20,272,984 | 20,257,716 | 20,272,984 | +15,268.000 | +0.08% |
+| Equipment visible meshes | 1,696 / 1,694 / 1,695 | 1,695 / 1,696 / 1,695 | 1,695 | 1,695 | +0.000 | +0.00% |
+| Equipment shadow casters | 1,696 / 1,694 / 1,695 | 1,695 / 1,696 / 1,695 | 1,695 | 1,695 | +0.000 | +0.00% |
+
+| 輪次 | NPC | Humanoid LOD0/1/2 | Equipment LOD0/1/2 | near/far | 劍／盾／弓／槍／標槍 | 可見陰影 mesh | 陰影劍／盾／弓／槍／標槍 | 死亡／投射物 |
+| --- | ---: | --- | --- | --- | --- | ---: | --- | --- |
+| before1 | 200 | 196/4/0 | 196/4/0 | 196/4 | 700/996/0/0/0 | 1696 | 700/996/0/0/0 | 1/0 |
+| after1 | 200 | 195/5/0 | 195/5/0 | 195/5 | 700/995/0/0/0 | 1695 | 700/995/0/0/0 | 0/0 |
+| before2 | 200 | 194/6/0 | 194/6/0 | 194/6 | 700/994/0/0/0 | 1694 | 700/994/0/0/0 | 0/0 |
+| after2 | 200 | 196/4/0 | 196/4/0 | 196/4 | 700/996/0/0/0 | 1696 | 700/996/0/0/0 | 0/0 |
+| before3 | 200 | 195/5/0 | 195/5/0 | 195/5 | 700/995/0/0/0 | 1695 | 700/995/0/0/0 | 1/0 |
+| after3 | 200 | 195/5/0 | 195/5/0 | 195/5 | 700/995/0/0/0 | 1695 | 700/995/0/0/0 | 1/0 |
+
+原始資料：`output/local-diagnostics/equipment-shadow-lod/benchmark-near.json`；相機：`{'position': [0, 8, 12], 'quaternion': [-0.2609799792144663, 0, 0, 0.9653442134540491], 'fov': 58}`。
+
+
+## 同幀陰影歸因對照
+
+此為額外機制驗證，不取代以上真實 main／candidate 三輪基準。使用 candidate production 的 B／C／D 場景暖機後停止更新；Near-heavy 等待接戰到沒有 LOD2 才停止。保持同一 frame，先量候選策略，再只把持有裝備 castShadow 恢復快取的原始值，最後恢復候選值。所有主畫面 calls／triangles／visible meshes 完全一致，恢復後完整結果也完全一致。
+
+| 場景 | LOD0/1/2 | 可見 meshes（兩模式相同） | 原始→候選 caster | 原始→候選裝備 shadow 提交 | 完整 pass 減少 |
+| --- | --- | ---: | --- | --- | ---: |
+| B | 6/94/100 | 1218 | 1218→618 | 1218→618 | 600 |
+| C | 4/56/140 | 833 | 833→278 | 4833→2678 | 2155 |
+| D | 0/52/148 | 783 | 783→252 | 4783→572 | 4211 |
+| NEAR | 189/11/0 | 1689 | 1689→1689 | 1689→1689 | 0 |
+
+裝備 shadow 提交由 Mesh 的 `onBeforeShadow` 按實際 material group 計數，與完整 pass 的差值逐場景相等。Near-heavy 同幀全數值不變，排除把一般計時波動當作陰影收益。這些 snapshots 在不同戰鬥時刻取得，LOD 分布與正式三輪表格不同；不把它們混入 FPS／CPU median。
+
+
+## 結果解讀與限制
+
+- B／C／D 的九組配對 Renderer Submit 均下降；三輪 median 分別 −6.26%／−4.06%／−4.35%。完整 pass Draw Calls 分別 −12.84%／−9.92%／−21.25%。實際 shadow pass 下降由 renderer.info 完整計數取得，不是把 caster 數直接當作 draw calls。
+- 本機 FPS median 分別 +5.69%／+2.99%／+1.75%，是有限幅度改善。騎兵仍約 10 FPS，並非已解決大型戰場效能。NPC Update 在 C／D 分別 +0.77%／+4.33%，不宣稱動畫或 AI 執行變快。
+- Near-heavy 每輪 194–196／200 名 NPC 在 LOD0，其餘 LOD1，沒有 LOD2；可見裝備／caster median 同為 1,695，shadow calls median 同為 4,014。主畫面 calls +0.85%、完整 calls +0.36%、Submit −1.43%、FPS +0.33% 屬於未觸發本策略時的戰況／量測波動，不算作此優化收益。
+- B 的裝備可見數固定 1,100，caster 1,100→0；C 可見數 882→879，caster 882→270；D 可見數 786→828，caster 786→0。C／D 可見數差異來自 wall-clock 採樣時的搭箭階段：D 的 bow median 增加 42 個 Mesh（14 組三 Mesh 搭箭），並非 LOD policy 增加裝備。逐幀固定步長 runtime 比對的可見數完全一致；另以停止更新後的同幀陰影開關對照排除這項歸因混淆。
+- Renderer Submit 是 `renderer.render()` 的 CPU-side submission 時間，可能包含 driver／GPU back-pressure，不是 pure GPU execution time；本次未直接量測 GPU execution time。
+- 三輪 median 只代表此 Apple M1 Pro／Chrome／Metal 環境，不是跨硬體統計保證。不同 FPS、dt clamp、投射物與死亡數會影響動態取樣；各輪完整數據保留，不挑除較差結果。
+- 本 PR 不處理 Humanoid／Horse／全域 shadow 優化、不改 lighting／shadow map resolution。保留已知 Viking bow LOD1／2 離手問題；放大檢視能看到遠距地面及局部自陰影改變，不宣稱視覺完全無差。
+
 
 ### 2026-09-18：第四支 FPS Optimization — NPC Equipment Visual LOD
 
@@ -73,7 +255,7 @@ B 的 FPS median −0.06%，且 NPC Update +8.30%，因此不宣稱普遍 FPS �
 
 同台 Apple M1 Pro／Chrome 153／ANGLE Metal，1280×720、DPR 1，production preview。每個場景依 A1→B1→A2→B2→A3→B3；每輪 fresh browser context／page／battle。暖機 4 秒、reset＋2 秒，確認接戰後 reset＋3.2 秒，取最新完整 profiler window；三次取 median。計時期間不截圖、不裝計時 wrapper、不跑其他測試。
 
-CPU Frame Work 為同步 JS 工作，Renderer Submit 包含 renderer.render CPU 執行時間，不是 GPU execution time。Draw Calls／Triangles 是 snapshot 當幀 renderer.info，包含既有 shadow pass；equipment census 在計時窗後單次採集，包含所有祖先 visibility，排除 Player／掉落物／飛行投射物，未做 frustum filter。mesh 數不等於 draw calls，尤其弓曲面原本有多個 material groups。
+CPU Frame Work 為同步 JS 工作，Renderer Submit 包含 renderer.render CPU 執行時間，不是 GPU execution time。Draw Calls／Triangles 是 snapshot 當幀 renderer.info（2026-09-18 Shadow LOD 量測更正：本版 Three 在 shadow pass 後 autoReset，這些舊表數值僅含主 pass，原始數字未更改）；equipment census 在計時窗後單次採集，包含所有祖先 visibility，排除 Player／掉落物／飛行投射物，未做 frustum filter。mesh 數不等於 draw calls，尤其弓曲面原本有多個 material groups。
 
 B／C／D 保持原固定玩家相機；Near-heavy 沿用 B 的 200 NPC／出生點／gameplay，僅測試 harness 將鏡頭固定於 (0,8,12)、看 (0,1,0)，fov=58、zoom=1。不同 FPS 及既有 dt clamp 會改變 wall-clock 下的戰鬥進度，因此另記死亡與投射物，不假設所有動態狀態相同。
 

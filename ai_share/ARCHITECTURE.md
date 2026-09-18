@@ -75,12 +75,14 @@ skyrim 3D test/
 - root／pivot／socket、grip／tip metadata、材質快取與既有 `polishWeaponMaterials` 陰影行為保持不變。helper 不掃描 root，不處理弓弦、搭箭或其他動態零件；該次合併未涉及裝備 LOD、陰影優化或動畫 runtime 變更。
 - `EquipmentConsolidation` 測試以 `cf04fd3` 的逐材質／渲染旗標三角形指紋鎖定 position、normal、UV、winding 與 attachment，並驗證 Mesh 上限及材質共用。
 
-### NPC Equipment Visual LOD
+### NPC Equipment Visual / Shadow LOD
 - `NPC.equipmentVisualLOD` 只持有單一裝備 hierarchy。builder 以 `equipmentLastVisibleLOD` 標記靜態細節；標記本身不改 visibility，因此共用 builder 的 Player、掉落物、投射物維持完整外觀。
 - 建構時註冊 sword/lance、bow/pilum 與 shield roots；換盾時替換快取並立即套用當前 LOD。gameplay roots、sockets、transforms、grip/tip/support metadata、弓弦與搭箭 visibility 仍由原系統管理。
 - NPC 接續原有 `LOD.update(camera)` 與 animation hook，讀取 Three 當幀 `getCurrentLevel()`。裝備 proxies 是位於 body LOD 之後的兄弟節點，因此主 render traversal 與 shadow pass 都使用當幀 detail visibility。`HUMANOID_LOD_DISTANCES` 仍為唯一門檻來源（0/28/60m），沿用 Three zoom 語義；不另算距離、不新增 hysteresis。沒有 Three.LOD 的舊程序測試模型保持 full detail。
-- LOD 改變才寫入已快取的細節 visibility；不逐幀 traverse、不換 geometry、不複製 hierarchy、不改 attachment 或 castShadow policy。Viking sword 4/3/3、Gladius 3/3/3、圓盾 5/3/2、Scutum 5/4/3、含搭箭的 bow 8/6/6、lance 2/2/2；Pilum T1 3/3/2、T2 4/4/3、T3 5/4/3。已合併的護手／金屬握柄、盾臍／鉚釘保持完整以保留剪影。
-- DEV-only `window.__collectEquipmentCensus(window.game.npcs)` 供手動低頻 snapshot：NPC 數、裝備 LOD 分布、五種裝備可見 mesh 數、總數及可見 shadow caster 數。考慮所有祖先 visibility，未做 frustum filter，也不等於 submission 數；多材質 geometry 可能有多個 draw calls。沒有 frame-loop 採樣；production benchmark 另由 harness 在計時窗後單次收集。
+- LOD 改變才寫入已快取的細節 visibility；不逐幀 traverse、不換 geometry、不複製 hierarchy、不改 attachment。Viking sword 4/3/3、Gladius 3/3/3、圓盾 5/3/2、Scutum 5/4/3、含搭箭的 bow 8/6/6、lance 2/2/2；Pilum T1 3/3/2、T2 4/4/3、T3 5/4/3。已合併的護手／金屬握柄、盾臍／鉚釘保持完整以保留剪影。
+- Shadow policy 共用同一 controller level：LOD0／LOD1 恢復各 Mesh 的 `originalCastShadow`，LOD2 設為 false；visual detail policy 與 `receiveShadow` 均不變。建構／重建的既有 traversal 同時快取 Mesh；切換只遍歷快取，same-level 直接 return、零 shadow writes。`WeakMap` 保留第一次註冊的原值，避免 LOD2 重複註冊把暫時 false 當原值，也不強留已替換的 shield meshes。
+- Shadow 範圍僅 NPC 持有的 sword／shield／bow（含搭箭）／lance／pilum。Player、飛行箭與標槍、掉落物、Humanoid、Horse、全域 lighting／shadowMap config 不變；nocked arrow 的動態 visibility 仍由弓系統管理。換盾先沿用原 polish，再註冊立即套用目前 visual／shadow LOD，返回 LOD0／1 恢復新盾原始陰影。
+- DEV-only `window.__collectEquipmentCensus(window.game.npcs)` 供手動低頻 snapshot：NPC 數、裝備 LOD 分布、五種裝備可見 mesh 數、總數及可見 shadow caster 總數／按種類的 `visibleShadowCastersByKind`。考慮所有祖先 visibility，未做 frustum filter，也不等於 submission 數；多材質 geometry 可能有多個 draw calls。沒有 frame-loop 採樣；production benchmark 另由 harness 在計時窗後單次收集。目前 Three.WebGLRenderer 在 shadowMap.render 後才重設 `renderer.info`，預設 calls／triangles 僅含主 pass；若需完整提交數，須在計時窗外暫停自動 reset、手動 reset 後 render，再恢復，不能把原預設數值當作含陰影。
 
 ### 裝備盾牌與長槍姿勢
 - 盾牌裝備狀態是唯一持盾來源，固定於左手，不再依彈藥、長槍或騎乘狀態背盾。`InventoryManager.unequipShield()` 與裝備 UI 支援卸盾，沿用 nullable 存檔。
