@@ -9,6 +9,12 @@ interface ConsolidationPair {
   secondMaterial: string
 }
 
+export const AUDITED_ROMAN_LOD2_SHA256 = '0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14'
+
+export function isRomanLod2ConsolidationAssetAudited(actualSha256: string | undefined): boolean {
+  return actualSha256 === AUDITED_ROMAN_LOD2_SHA256
+}
+
 const ROMAN_LOD2_PAIRS: readonly ConsolidationPair[] = [
   { first: 'Armour_top_1', second: 'Armour_top_2', firstMaterial: 'Armour_top0', secondMaterial: 'Armour_top1' },
   { first: 'Helmet3_1', second: 'Helmet3_2', firstMaterial: 'Helmet30', secondMaterial: 'Helmet31' },
