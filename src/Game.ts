@@ -86,7 +86,7 @@ export function handleProjectileHitEffects(
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { NPC, Faction } from './world/NPC'
+import { NPC, Faction, AIState, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
 import {
   BattleConfig,
   PRESET_DEVCOMBAT,
@@ -373,7 +373,13 @@ export class Game {
   }
 
   // LOD & Spatial Partitioning
+  private static readonly _EMPTY_NPC_LIST: NPC[] = []
+  private readonly _nearbyNpcBuffer: NPC[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
+  public readonly devGridStats = {
+    queriesPerFrame: 0,
+    returnedNeighborsAvg: 0,
+  }
 
   constructor(renderer: THREE.WebGLRenderer, battleConfig?: BattleConfig) {
     this.renderer = renderer
@@ -1735,12 +1741,14 @@ export class Game {
 
     // 2. NPC Update
     if (profile) t0 = performance.now()
+    let devQueriesCount = 0
+    let devReturnedNeighborsCount = 0
     for (const npc of this.npcs) {
       // These root positions are world-space here, matching the mount LOD distance.
       const cameraDistance = npc.group.position.distanceTo(this.camera.position)
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
-        npc.update(dt, this.player, this.npcs, [], this.obstacles, this.hpBar, 
+        npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
           () => {}, // dead npc can't shoot
           true, // skipBoidsAndObstacles
@@ -1751,7 +1759,13 @@ export class Game {
 
       // No LOD tiers. Full update for everyone.
       const skipBoidsAndObstacles = false
-      const nearbyNPCs = this.npcGrid.getNearby(npc.combatPosition, 40)
+      let nearbyNPCs = Game._EMPTY_NPC_LIST
+      if (npc.currentState === AIState.CHASE) {
+        this.npcGrid.getNearbyInto(npc.combatPosition, NPC_NEIGHBOR_QUERY_RADIUS, this._nearbyNpcBuffer)
+        nearbyNPCs = this._nearbyNpcBuffer
+        devQueriesCount++
+        devReturnedNeighborsCount += this._nearbyNpcBuffer.length
+      }
 
       npc.update(
         dt, 
@@ -1800,6 +1814,8 @@ export class Game {
       )
     }
     const npcUpdateMs = profile ? performance.now() - t0 : 0
+    this.devGridStats.queriesPerFrame = devQueriesCount
+    this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
 
     // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()
