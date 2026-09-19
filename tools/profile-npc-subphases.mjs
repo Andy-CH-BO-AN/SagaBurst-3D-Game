@@ -5,7 +5,8 @@
  * 使用 Vite DEV server（import.meta.env.DEV = true，才能啟用 subphase collector）。
  *
  * 執行方式：
- *   node tools/profile-npc-subphases.mjs
+ *   node tools/profile-npc-subphases.mjs       # Scenario D/E
+ *   node tools/profile-npc-subphases.mjs b     # Scenario B only
  *
  * 輸出：
  *   output/profile/npc-subphase-results.json
@@ -17,6 +18,7 @@
  *     Pass B：?devcombat=X&nolock&npcsubphase=1 → subphase ON
  *   兩次的 NPC Update 差值 = instrumentation overhead 估算。
  *
+ * Scenario B = ?devcombat=b  (100v100 Infantry)
  * Scenario D = ?devcombat=d  (100v100 騎兵 + 馬弓)
  * Scenario E = ?devcombat=e  (100v100 All-Melee Cavalry, Scattered, Initial Spectator)
  */
@@ -29,6 +31,11 @@ import fs from 'fs'
 const PORT = 5177   // 用不常用的 port 避免衝突
 const BASE_URL = `http://localhost:${PORT}`
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const SCENARIOS = [
+  { letter: 'b', label: 'Scenario B (100v100 Infantry)', short: 'B' },
+  { letter: 'd', label: 'Scenario D (100v100 Cavalry + Horse Archer)', short: 'D' },
+  { letter: 'e', label: 'Scenario E (100v100 All-Melee Cavalry, Scattered)', short: 'E' },
+]
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
@@ -65,7 +72,7 @@ async function waitForGame(page, timeoutMs = 40000) {
 }
 
 // ─── 等待接戰 ────────────────────────────────────────────────
-// Scenario D/E 以騎兵為主，用 arrows（馬弓） + damaged + activeMelee
+// Scenario B/D/E: use arrows, damage, or active melee as engagement evidence.
 async function waitForCombat(page, timeoutMs = 45000) {
   console.log(`    Waiting up to ${timeoutMs / 1000}s for combat engagement...`)
   const start = Date.now()
@@ -156,12 +163,14 @@ async function assertScenarioSanity(page, scenarioLetter) {
     let viking = 0
     let roman = 0
     let allMeleeCavalry = true
+    let allMeleeInfantry = true
 
     for (const npc of npcs) {
       if (npc.dead || npc.hp <= 0) dead++; else alive++
       if (npc.characterFaction === 'viking') viking++
       if (npc.characterFaction === 'roman') roman++
       if (npc.aiType !== 'MELEE' || !npc.generatedAsCavalry) allMeleeCavalry = false
+      if (npc.aiType !== 'MELEE' || npc.generatedAsCavalry) allMeleeInfantry = false
     }
 
     return {
@@ -171,13 +180,14 @@ async function assertScenarioSanity(page, scenarioLetter) {
       viking,
       roman,
       allMeleeCavalry,
+      allMeleeInfantry,
       spectator: g.player?.spectatorOnly === true,
     }
   })
 
   const { actualNpcCount } = sanity
-  if (scenarioLetter === 'd' && actualNpcCount !== 200) {
-    throw new Error(`Scenario D expected 200 NPCs, got ${actualNpcCount}`)
+  if ((scenarioLetter === 'b' || scenarioLetter === 'd') && actualNpcCount !== 200) {
+    throw new Error(`Scenario ${scenarioLetter.toUpperCase()} expected 200 NPCs, got ${actualNpcCount}`)
   }
   if (scenarioLetter === 'e' && actualNpcCount !== 200) {
     throw new Error(`Scenario E expected 200 NPCs (100v100), got ${actualNpcCount}`)
@@ -191,19 +201,25 @@ async function assertScenarioSanity(page, scenarioLetter) {
       throw new Error('Scenario E expected every NPC to be melee cavalry')
     }
   }
+  if (scenarioLetter === 'b') {
+    if (sanity.viking !== 100 || sanity.roman !== 100) {
+      throw new Error(`Scenario B expected 100 Viking + 100 Roman, got ${sanity.viking} + ${sanity.roman}`)
+    }
+    if (!sanity.allMeleeInfantry) {
+      throw new Error('Scenario B expected every NPC to be melee infantry')
+    }
+  }
 
   console.log(`    Sanity: NPC total=${actualNpcCount}, Alive=${sanity.alive}, Dead=${sanity.dead}`)
 }
 
 function assertSnapshotPopulation(scenarioLetter, label, snapshot, requireBeforeContact = false) {
   if (!snapshot) throw new Error(`${label}: missing profiler snapshot`)
-  if (scenarioLetter !== 'e') return
-
   if (snapshot.npcCount !== 200 || snapshot.alive + snapshot.dead !== 200) {
-    throw new Error(`${label}: Scenario E expected NPC total = Alive + Dead = 200, got ${snapshot.npcCount} = ${snapshot.alive} + ${snapshot.dead}`)
+    throw new Error(`${label}: Scenario ${scenarioLetter.toUpperCase()} expected NPC total = Alive + Dead = 200, got ${snapshot.npcCount} = ${snapshot.alive} + ${snapshot.dead}`)
   }
   if (requireBeforeContact && (snapshot.alive !== 200 || snapshot.dead !== 0)) {
-    throw new Error(`${label}: Scenario E Before Contact expected Alive = 200, Dead = 0; got Alive = ${snapshot.alive}, Dead = ${snapshot.dead}`)
+    throw new Error(`${label}: Scenario ${scenarioLetter.toUpperCase()} Before Contact expected Alive = 200, Dead = 0; got Alive = ${snapshot.alive}, Dead = ${snapshot.dead}`)
   }
 }
 
@@ -237,7 +253,7 @@ async function runPass(page, scenarioLetter, withSubphase) {
   await waitForGame(page, 40000)
   await assertScenarioSanity(page, scenarioLetter)
 
-  // Avoid Scenario E entering melee during shader/JIT warmup.
+  // Avoid the scenario entering melee during shader/JIT warmup.
   await setSimulationFrozen(page, true)
 
   // Warmup：讓 shader、JIT compile、冷啟動穩定
@@ -502,12 +518,16 @@ async function main() {
     console.log('=============================================\n')
 
     // ── Scenario 清單 ──
-    // Scenario D = ?devcombat=d (100v100 騎兵 + 馬弓，formation mode)
-    // Scenario E = ?devcombat=e (100v100 All-Melee Cavalry, Scattered, Initial Spectator)
-    const scenarios = [
-      { letter: 'd', label: 'Scenario D (100v100 Cavalry + Horse Archer)', short: 'D' },
-      { letter: 'e', label: 'Scenario E (100v100 All-Melee Cavalry, Scattered)', short: 'E' },
-    ]
+    // Default keeps the original D/E suite; optional CLI letters run a
+    // targeted supplement such as `node tools/profile-npc-subphases.mjs b`.
+    const requestedLetters = process.argv.slice(2).map((letter) => letter.toLowerCase())
+    const scenarios = requestedLetters.length === 0
+      ? SCENARIOS.filter(({ letter }) => letter === 'd' || letter === 'e')
+      : requestedLetters.map((letter) => {
+          const scenario = SCENARIOS.find((candidate) => candidate.letter === letter)
+          if (!scenario) throw new Error(`Unknown scenario '${letter}'; use b, d, or e`)
+          return scenario
+        })
 
     const results = {}
 
