@@ -11,7 +11,7 @@ description: 用固定的 browser lifecycle、warm-up、20 秒取樣與 JSON 輸
 
 - 每個 benchmark 使用一個 browser process 與一個 page，run 之間只重新導向 URL。
 - 預設 warm-up 3 秒，之後連續觀察 20 秒；不要用單筆 HUD snapshot 當結果。
-- Before Contact 使用 3 runs，取 median；只保留 `Alive=200`、`Dead=0` 且尚未出現 combat evidence 的 profiler windows。
+- Before Contact 使用 3 runs，取 median；優先只保留 battle HUD 證明的 `Alive=200`、`Dead=0` windows。舊版沒有 Alive/Dead HUD 時，只有在 `NPC Count=200` 且尚未出現第一次 combat evidence 前，才可標記為 provisional spawn-plan window；第一次 evidence 之後的窗口全部排除。
 - During Combat 預設做 candidate 或 baseline 的 hotspot observation。Scenario E 一開始就是 melee scrum，不等待「接戰前」狀態；它是有效的 combat scenario。
 - Scenario D 以 Active Attack、Arrow Count 或 Dead 作為 combat evidence；timeout 必須輸出 failed run，不得把 timeout 當成數據。
 - 每個 run 都輸出完整 Mount subphase、Alive/Dead、Active Attack、sample count、console/page errors 與 raw samples。
@@ -46,7 +46,7 @@ node .codex/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs
 
 ## 判讀限制
 
-- Before Contact 是正式 A/B performance comparison；如果有效 samples 不足，報告不足，不要補值。
+- Before Contact 是正式 A/B performance comparison；如果沒有可靠 Alive/Dead，或 provisional window 不足，報告不足，不要把 `NPC Count` 當成戰場存活數，也不要補值。
 - E 的 combat 數據不是無效數據；它應該用來回答亂戰中的 Mount hotspot。若兩邊 Alive/Dead 進度不同，只把它當 hotspot context，不能宣稱是嚴格的 FPS 因果 A/B。
 - exact main 若沒有內部 Mount profiler，必須明確標記 subphase baseline 來自 profiling-only checkpoint，不要假裝 exact main 有該數據。
 - benchmark script 的 `performance.now()` 只存在於 DEV browser recorder；不要把這套 recorder 複製進 production runtime。

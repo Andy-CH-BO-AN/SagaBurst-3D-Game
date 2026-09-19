@@ -117,20 +117,13 @@ function hasProfilerSnapshot(text) {
   )
 }
 
-function addKnownAliveDead(metrics, hudText, battleText) {
-  if (metrics.alive === undefined && /NPC Count:\s+200\b/m.test(hudText)) {
-    metrics.alive = 200
-    metrics.dead = 0
-    metrics.aliveDeadSource = 'spawn-plan-known'
-  }
-  if (metrics.alive === undefined) {
-    const viking = battleText.match(/VIKING:\s+(\d+)\s+\/\s+100/m)?.[1]
-    const roman = battleText.match(/ROMAN:\s+(\d+)\s+\/\s+100/m)?.[1]
-    if (viking !== undefined && roman !== undefined) {
-      metrics.alive = Number(viking) + Number(roman)
-      metrics.dead = 200 - metrics.alive
-      metrics.aliveDeadSource = 'battle-hud'
-    }
+function addBattleHudAliveDead(metrics, battleText) {
+  const viking = battleText.match(/VIKING:\s+(\d+)\s+\/\s+100/m)?.[1]
+  const roman = battleText.match(/ROMAN:\s+(\d+)\s+\/\s+100/m)?.[1]
+  if (viking !== undefined && roman !== undefined) {
+    metrics.alive = Number(viking) + Number(roman)
+    metrics.dead = 200 - metrics.alive
+    metrics.aliveDeadSource = 'battle-hud'
   }
   return metrics
 }
@@ -234,17 +227,34 @@ async function runOne(scenario, run) {
       .filter((sample) => hasProfilerSnapshot(sample.hudText))
       .map((sample) => ({
         atMs: sample.atMs,
-        metrics: addKnownAliveDead(parseHud(sample.hudText), sample.hudText, sample.battleText),
+        metrics: addBattleHudAliveDead(parseHud(sample.hudText), sample.battleText),
+        spawnPlanCountKnown: /NPC Count:\s+200\b/m.test(sample.hudText),
         hudText: sample.hudText,
         battleText: sample.battleText,
       }))
-    const samples = parsed.filter((sample) => {
-      if (phase === 'during-combat') return true
-      return sample.metrics.alive === 200 && sample.metrics.dead === 0 && !isCombatEvidence(sample.metrics)
-    }).map((sample) => ({
-      atMs: sample.atMs,
-      metrics: sample.metrics,
-    }))
+    let combatEvidenceStarted = false
+    const samples = []
+    for (const sample of parsed) {
+      if (phase === 'during-combat') {
+        samples.push({ atMs: sample.atMs, metrics: sample.metrics })
+        continue
+      }
+      if (isCombatEvidence(sample.metrics)) {
+        combatEvidenceStarted = true
+        continue
+      }
+      if (combatEvidenceStarted) continue
+      const reliableAliveDead = sample.metrics.alive === 200 && sample.metrics.dead === 0
+      const provisionalBeforeEvidence = sample.metrics.alive === undefined && sample.spawnPlanCountKnown
+      if (!reliableAliveDead && !provisionalBeforeEvidence) continue
+      const metrics = { ...sample.metrics }
+      if (provisionalBeforeEvidence) {
+        metrics.alive = 200
+        metrics.dead = 0
+        metrics.aliveDeadSource = 'spawn-plan-before-first-combat-evidence'
+      }
+      samples.push({ atMs: sample.atMs, metrics })
+    }
     if (samples.length === 0) throw new Error(`沒有有效 profiler windows；recorded=${recorded.length}`)
     const last = parsed.at(-1)
     return {
