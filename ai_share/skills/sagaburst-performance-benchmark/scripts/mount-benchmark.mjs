@@ -50,6 +50,10 @@ const observationMs = Number(valueOf('observation-ms', '20000'))
 const timeoutMs = Number(valueOf('timeout-ms', '25000'))
 const tag = valueOf('tag', `${scenarioArg.toLowerCase()}-${phase}`)
 const requireSubphase = !args.has('--no-subphase')
+const chromePath = process.env.SAGABURST_CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+if (!fs.existsSync(chromePath)) {
+  throw new Error(`Local Google Chrome executable not found at ${chromePath}; set SAGABURST_CHROME_PATH instead of falling back to bundled Chromium`)
+}
 
 const metricPatterns = {
   fps: /^FPS:\s+([\d.]+)/m,
@@ -146,7 +150,7 @@ function aggregate(samples) {
   return metrics
 }
 
-const browser = await chromium.launch({ headless: false })
+const browser = await chromium.launch({ headless: false, executablePath: chromePath })
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 } })
 const page = await context.newPage()
 await page.addInitScript(({ combatTimeoutMs }) => {
@@ -317,6 +321,7 @@ const report = {
   warmupMs,
   observationMs,
   timeoutMs,
+  chromePath,
   requireSubphase,
   browserReuse: 'one browser process and one page for all runs',
   headed: true,

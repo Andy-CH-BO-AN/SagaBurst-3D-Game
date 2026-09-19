@@ -37,6 +37,12 @@ If you are an AI agent picking up this project, please read these guidelines car
 7. Apply surgical edits to existing files using the provided tools.
 8. If the logic gets too complex, add debug logging (`console.log`) or use visual debug meshes (e.g., drawing a sphere at the collision point) to verify math.
 
+### Local GitHub and browser workflows
+
+- GitHub PR, issue, review, push, and other authenticated repository operations must use the local terminal's `gh` / `git` credential context. Do not ask the user to re-authenticate inside a Codex sandbox or rely on a sandbox-scoped GitHub token.
+- If `gh auth status` fails inside the sandbox, rerun the authenticated GitHub operation in the local environment. A successful `git push` does not imply that sandbox `gh` authentication is available.
+- Performance benchmarks that depend on WebGL, GPU timing, headed UI, or local credentials must run in the local environment with the user's installed browser and display. Do not substitute a sandbox browser, in-app browser, headless browser, or software-rendered environment unless the task explicitly requests a non-production diagnostic.
+
 ## 5. Think Before Coding
 
 Don't assume. Don't hide confusion. Surface tradeoffs.
