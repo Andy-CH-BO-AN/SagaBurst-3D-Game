@@ -273,7 +273,6 @@ export class Game {
   private isMountStudio = false
   private isModelStudio = false
   private isDevCombat = false
-  private isBenchmarkMode = false
   private frozenHumanoidLod2Diagnostic = false
 
   private battleController: BattleController | null = null
@@ -408,7 +407,6 @@ export class Game {
 
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
-    this.isBenchmarkMode = this.isDevCombat && query.has('benchmark')
     const devModelsMode = query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
@@ -417,7 +415,7 @@ export class Game {
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
     if (this.isDevCombat) {
-      if (!this.isBenchmarkMode) this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
+      this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
       let scenarioConfig = PRESET_DEVCOMBAT
       if (devVal === 'a' || devVal === 'scenarioa') {
@@ -510,7 +508,7 @@ export class Game {
     this.saveManager = new SaveManager()
 
     // ── Spawn World Pickups & Mounts ──
-    if (this.isDevCombat && !this.isBenchmarkMode) this._createDevCombatStatus()
+    if (this.isDevCombat) this._createDevCombatStatus()
 
     if (import.meta.env.DEV && query.has('humanoidLod2Control')) {
       ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
@@ -1658,7 +1656,7 @@ export class Game {
   // ── Main loop ──
   private _loop = (): void => {
     requestAnimationFrame(this._loop)
-    if (this.frozenHumanoidLod2Diagnostic) {
+    if (import.meta.env.DEV && this.frozenHumanoidLod2Diagnostic) {
       this.renderer.render(this.scene, this.camera)
       return
     }

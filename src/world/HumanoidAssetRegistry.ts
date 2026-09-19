@@ -10,7 +10,11 @@ import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPo
 import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
-import { consolidateRomanLod2 } from './HumanoidLod2Consolidation'
+import {
+  consolidateRomanLod2,
+  createRomanLod2ConsolidationTemplate,
+  type RomanLod2ConsolidationTemplate,
+} from './HumanoidLod2Consolidation'
 import type { SwordGripFrame } from './SwordAttachmentContract'
 import type {
   ArmRig,
@@ -92,6 +96,7 @@ interface HumanoidTemplate {
   manifest: HumanoidAssetManifest
   levels: GLTF[]
   bowClips?: THREE.AnimationClip[][]
+  romanLod2Consolidation?: RomanLod2ConsolidationTemplate
 }
 
 export interface HumanoidCharacterInstance {
@@ -640,7 +645,10 @@ export class HumanoidAssetRegistry {
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
       const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
-      this.templates.set(faction, { manifest, levels, bowClips })
+      const romanLod2Consolidation = faction === 'roman'
+        ? createRomanLod2ConsolidationTemplate(levels[2].scene)
+        : undefined
+      this.templates.set(faction, { manifest, levels, bowClips, romanLod2Consolidation })
     }))
   }
 
@@ -662,6 +670,10 @@ export class HumanoidAssetRegistry {
             obj.receiveShadow = true
           }
         })
+        if (faction === 'roman' && index === 2) {
+          if (!template.romanLod2Consolidation) throw new Error('Roman LOD2 consolidation template is missing')
+          consolidateRomanLod2(levelClone, template.romanLod2Consolidation, { allowDevControl: false })
+        }
         warmupGroup.add(levelClone)
       })
     }
@@ -725,7 +737,8 @@ export class HumanoidAssetRegistry {
       const preserveOriginalLod2 = import.meta.env.DEV && typeof window !== 'undefined'
         && new URLSearchParams(window.location.search).has('humanoidLod2Original')
       if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2) {
-        const representationControl = consolidateRomanLod2(level)
+        if (!template.romanLod2Consolidation) throw new Error('Roman LOD2 consolidation template is missing')
+        const representationControl = consolidateRomanLod2(level, template.romanLod2Consolidation)
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
       }
       if (config.faction === 'viking') {

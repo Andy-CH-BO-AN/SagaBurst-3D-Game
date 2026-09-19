@@ -21,6 +21,22 @@ interface ConsolidationRecord {
   merged: THREE.SkinnedMesh
 }
 
+interface ConsolidationTemplateRecord {
+  pair: ConsolidationPair
+  firstGeometry: THREE.BufferGeometry
+  secondGeometry: THREE.BufferGeometry
+  mergedGeometry: THREE.BufferGeometry
+}
+
+/**
+ * Immutable geometry cache prepared from the canonical Roman LOD2 template.
+ * Every character instance receives fresh SkinnedMesh objects and skeletons,
+ * but uses these four shared merged BufferGeometry objects.
+ */
+export interface RomanLod2ConsolidationTemplate {
+  readonly records: readonly ConsolidationTemplateRecord[]
+}
+
 export interface HumanoidLod2RepresentationControl {
   setOptimized(enabled: boolean): void
   getOptimized(): boolean
@@ -124,19 +140,43 @@ function copyRenderableState(source: THREE.SkinnedMesh, target: THREE.SkinnedMes
   target.userData = { ...source.userData, humanoidLod2Consolidated: true, sourceParts: [...names] }
 }
 
-function mergePair(root: THREE.Object3D, expected: ConsolidationPair): ConsolidationRecord {
-  const first = findSkinnedMesh(root, expected.first)
-  const second = findSkinnedMesh(root, expected.second)
-  assertMergeCompatible(first, second, expected)
-  const geometry = mergeGeometries([first.geometry, second.geometry], false)
-  assert(geometry, `failed to merge ${expected.first}/${expected.second}`)
-  geometry.computeBoundingBox()
-  geometry.computeBoundingSphere()
-  const merged = new THREE.SkinnedMesh(geometry, first.material)
+function createTemplateRecord(root: THREE.Object3D, pair: ConsolidationPair): ConsolidationTemplateRecord {
+  const first = findSkinnedMesh(root, pair.first)
+  const second = findSkinnedMesh(root, pair.second)
+  assertMergeCompatible(first, second, pair)
+  const mergedGeometry = mergeGeometries([first.geometry, second.geometry], false)
+  assert(mergedGeometry, `failed to merge ${pair.first}/${pair.second}`)
+  mergedGeometry.computeBoundingBox()
+  mergedGeometry.computeBoundingSphere()
+  return { pair, firstGeometry: first.geometry, secondGeometry: second.geometry, mergedGeometry }
+}
+
+function mergeInstancePair(root: THREE.Object3D, template: ConsolidationTemplateRecord): ConsolidationRecord {
+  const { pair } = template
+  const first = findSkinnedMesh(root, pair.first)
+  const second = findSkinnedMesh(root, pair.second)
+  assert(first.parent && first.parent === second.parent, `${pair.first}/${pair.second} do not share a parent`)
+  assert(first.geometry === template.firstGeometry && second.geometry === template.secondGeometry,
+    `${pair.first}/${pair.second} instance geometry does not match the canonical template`)
+  assert(first.skeleton.bones.length === second.skeleton.bones.length
+    && first.skeleton.bones.every((bone, index) => bone === second.skeleton.bones[index])
+    && first.skeleton.boneInverses.length === second.skeleton.boneInverses.length
+    && first.skeleton.boneInverses.every((inverse, index) => inverse.equals(second.skeleton.boneInverses[index])),
+  `${pair.first}/${pair.second} instance skeleton bones or inverses differ`)
+  assert(first.bindMode === second.bindMode && first.bindMatrix.equals(second.bindMatrix)
+    && first.bindMatrixInverse.equals(second.bindMatrixInverse),
+  `${pair.first}/${pair.second} instance bind matrices differ`)
+  assert(!Array.isArray(first.material), `${pair.first} unexpectedly has material groups`)
+  const merged = new THREE.SkinnedMesh(template.mergedGeometry, first.material)
   merged.bind(first.skeleton, first.bindMatrix)
-  copyRenderableState(first, merged, [expected.first, expected.second])
-  first.parent!.add(merged)
+  copyRenderableState(first, merged, [pair.first, pair.second])
+  first.parent.add(merged)
   return { first, second, merged }
+}
+
+/** Validates and merges the four candidate pairs once for the canonical loaded GLB. */
+export function createRomanLod2ConsolidationTemplate(root: THREE.Object3D): RomanLod2ConsolidationTemplate {
+  return { records: ROMAN_LOD2_PAIRS.map(pair => createTemplateRecord(root, pair)) }
 }
 
 function devControlEnabled(): boolean {
@@ -149,9 +189,13 @@ function devControlEnabled(): boolean {
  * It preserves every vertex attribute, index, skeleton, bind matrix and triangle;
  * only equivalent material records are made into one skinned renderable.
  */
-export function consolidateRomanLod2(root: THREE.Object3D): HumanoidLod2RepresentationControl | undefined {
-  const records = ROMAN_LOD2_PAIRS.map(pair => mergePair(root, pair))
-  const allowControl = devControlEnabled()
+export function consolidateRomanLod2(
+  root: THREE.Object3D,
+  template: RomanLod2ConsolidationTemplate,
+  options: { allowDevControl?: boolean } = {},
+): HumanoidLod2RepresentationControl | undefined {
+  const records = template.records.map(record => mergeInstancePair(root, record))
+  const allowControl = options.allowDevControl !== false && devControlEnabled()
   let optimized = true
   const setOptimized = (enabled: boolean) => {
     optimized = enabled

@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { consolidateRomanLod2 } from '../src/world/HumanoidLod2Consolidation'
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import {
+  consolidateRomanLod2,
+  createRomanLod2ConsolidationTemplate,
+} from '../src/world/HumanoidLod2Consolidation'
 
 const PAIRS = [
   ['Armour_top_1', 'Armour_top_2', 'Armour_top0', 'Armour_top1'],
@@ -104,7 +108,7 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
       attributes: sourceValues(mesh), index: Array.from(mesh.geometry.index!.array), bind: mesh.bindMatrix.clone(),
     }]))
     expect(sources[0].skeleton).not.toBe(sources[1].skeleton) // GLTFLoader-like wrapper split; bones/inverses remain shared.
-    consolidateRomanLod2(root)
+    consolidateRomanLod2(root, createRomanLod2ConsolidationTemplate(root))
 
     const merged = root.children.filter((object): object is THREE.SkinnedMesh => object instanceof THREE.SkinnedMesh)
     expect(merged).toHaveLength(4)
@@ -143,11 +147,33 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
     const { root: lod2 } = makeLod2()
     const lod = new THREE.LOD()
     lod.addLevel(lod0, 0); lod.addLevel(lod1, 28); lod.addLevel(lod2, 60)
-    consolidateRomanLod2(lod2)
+    consolidateRomanLod2(lod2, createRomanLod2ConsolidationTemplate(lod2))
     expect(lod.levels[0].object).toBe(lod0)
     expect(lod.levels[1].object).toBe(lod1)
     expect(lod0.children).toHaveLength(0)
     expect(lod1.children).toHaveLength(0)
+  })
+
+  it('shares each cached merged geometry across instances while preserving a distinct skeleton per instance', () => {
+    const { root: canonical } = makeLod2()
+    const consolidation = createRomanLod2ConsolidationTemplate(canonical)
+    const firstInstance = cloneSkeleton(canonical) as THREE.Group
+    const secondInstance = cloneSkeleton(canonical) as THREE.Group
+    consolidateRomanLod2(firstInstance, consolidation)
+    consolidateRomanLod2(secondInstance, consolidation)
+
+    const firstMerged = firstInstance.children.filter((object): object is THREE.SkinnedMesh =>
+      object instanceof THREE.SkinnedMesh && object.userData.humanoidLod2Consolidated)
+    const secondMerged = secondInstance.children.filter((object): object is THREE.SkinnedMesh =>
+      object instanceof THREE.SkinnedMesh && object.userData.humanoidLod2Consolidated)
+    expect(firstMerged).toHaveLength(4)
+    expect(secondMerged).toHaveLength(4)
+    for (let index = 0; index < firstMerged.length; index++) {
+      expect(firstMerged[index]).not.toBe(secondMerged[index])
+      expect(firstMerged[index].geometry).toBe(secondMerged[index].geometry)
+      expect(firstMerged[index].skeleton).not.toBe(secondMerged[index].skeleton)
+      expect(firstMerged[index].skeleton.bones[0]).not.toBe(secondMerged[index].skeleton.bones[0])
+    }
   })
 
   it('verifies the shipped LOD2 pairs have the same skeleton, no morph targets, matching vertex formats and byte-identical texture material signatures', () => {
