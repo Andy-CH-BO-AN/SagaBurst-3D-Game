@@ -41,11 +41,12 @@ Player 是額外加入所選陣營的可操作角色，**不計入該陣營配�
 
 1. 開啟遊戲後，在 **軍隊配置 ARMY SETUP** 設定 Viking / Roman 軍隊、Player Faction，以及 **Formation Battle** 或 **Scattered Battle**。
 2. 切到 **玩家裝備 PLAYER LOADOUT**，選擇近戰武器、遠程武器、盾牌（或無盾），以及 **騎馬 MOUNTED** / **徒步 ON FOOT**。
-3. 點擊 **開始戰鬥 START BATTLE**。
-4. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
-5. 玩家加入所選陣營一方，可使用 Viking / Roman 的劍、Gladius、長槍、弓、Pilum、盾牌與戰馬參與戰鬥。
-6. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
-7. 使用 **REMATCH** 以相同設定重開，或選擇 **BACK TO SETUP** 返回首頁重新配置。
+3. 若只想看 AI 對戰，可開啟 **Spectator 觀戰模式**；進入戰鬥後會直接使用自由觀戰鏡頭，不生成 Player 與開場戰馬。
+4. 點擊 **開始戰鬥 START BATTLE**。
+5. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
+6. 玩家加入所選陣營一方，可使用 Viking / Roman 的劍、Gladius、長槍、弓、Pilum、盾牌與戰馬參與戰鬥。
+7. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
+8. 使用 **REMATCH** 以相同設定重開，或選擇 **BACK TO SETUP** 返回首頁重新配置。
 
 如果雙方 AI 軍隊在同一時間全滅，結果會判定為 **DRAW 平局**。
 
@@ -173,17 +174,6 @@ http://localhost:5173/?devmodels=mounts&nolock
 
 專案已不再保留硬編碼的 **Standard 9v5 Battle**。正式 gameplay 全部由 Custom Battle configuration 驅動。
 
-## 📊 效能 Profiling
-
-大型戰鬥效能評估以真實 headed browser 為基準，不使用 software-rendered headless FPS 當作 gameplay baseline。
-
-Benchmark runner 會記錄 Browser / WebGL 環境，並檢查是否為硬體加速 renderer，再決定該次執行能否視為可信的 gameplay baseline。
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-Benchmark 會依序執行 A–D 場景，並記錄接戰前與接戰中的 FPS、CPU Work、Renderer Submit、NPC Update、Collision、Draw Calls 與 Triangles 等資訊。
 
 ## 🧰 開發指令
 

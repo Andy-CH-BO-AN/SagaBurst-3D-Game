@@ -41,11 +41,12 @@ The player is an additional participant on the selected side and does **not** co
 
 1. Open the game and use **Army Setup** to configure both armies, Player Faction, and **Formation Battle** or **Scattered Battle**.
 2. Open **Player Loadout** and choose a melee weapon, ranged weapon, shield (or no shield), and whether to start **Mounted** or **On Foot**.
-3. Click **START BATTLE**.
-4. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
-5. Fight alongside the selected allied army using swords, gladii, lances, bows, pila, shields, and horses.
-6. A battle ends when either configured AI army is eliminated.
-7. Use **REMATCH** to replay the same battle configuration or **BACK TO SETUP** to build another battle.
+3. Optional: enable **Spectator** to enter the battle directly with a free-flying camera instead of spawning a player character or starting horse.
+4. Click **START BATTLE**.
+5. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
+6. Fight alongside the selected allied army using swords, gladii, lances, bows, pila, shields, and horses.
+7. A battle ends when either configured AI army is eliminated.
+8. Use **REMATCH** to replay the same battle configuration or **BACK TO SETUP** to build another battle.
 
 If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
@@ -173,17 +174,6 @@ http://localhost:5173/?devmodels=mounts&nolock
 
 There is no separate hardcoded **Standard** battle mode. Normal gameplay is fully driven by Custom Battle configuration.
 
-## 📊 Performance Profiling
-
-Large-battle profiling is designed around real headed-browser measurements rather than software-rendered headless FPS.
-
-The benchmark runner records the browser / WebGL environment and validates that a hardware renderer is being used before treating a run as a reliable gameplay baseline.
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-The benchmark runs the A–D scenarios and records before-contact and during-combat measurements including FPS, CPU work, renderer submit time, NPC update time, collision cost, draw calls, and triangles.
 
 ## 🧰 Development Commands
 
