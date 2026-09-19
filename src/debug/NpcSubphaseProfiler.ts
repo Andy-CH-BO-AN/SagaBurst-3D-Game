@@ -120,8 +120,6 @@ export interface NpcSubphaseSnapshot {
   mountUpdate: NpcSubphaseStat
   footPhysics: NpcSubphaseStat
   deadUpdate: NpcSubphaseStat
-  /** Avg total NPC count observed (alive + dead) per 8-frame window. */
-  totalNpcsAvg: number
   /** Avg sample count per 8-frame window. */
   sampleCountAvg: number
 }
@@ -153,7 +151,10 @@ export class NpcSubphaseAggregator {
     this._windowCount++
     this._sampleCountSum += frame.sampleCount
     for (const p of PHASES) {
-      const v = frame[p]
+      // A full cohort contains one sampled eighth of the NPCs from each of
+      // eight frames. Normalize its total to the same per-frame scale as the
+      // RuntimeProfiler NPC Update raw metric before reporting it.
+      const v = frame[p] / SUBPHASE_COHORT
       this._acc[p].sum += v
       if (v > this._acc[p].max) this._acc[p].max = v
     }
@@ -173,7 +174,6 @@ export class NpcSubphaseAggregator {
       mountUpdate: this._stat('mountUpdate', n),
       footPhysics: this._stat('footPhysics', n),
       deadUpdate: this._stat('deadUpdate', n),
-      totalNpcsAvg: 0,
       sampleCountAvg: n > 0 ? this._sampleCountSum / n : 0,
     }
     this._resetAcc()

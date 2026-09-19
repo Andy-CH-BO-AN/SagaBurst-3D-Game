@@ -141,9 +141,11 @@ describe('NpcSubphaseProfiler', () => {
 
       const snap = agg.flush(1)
       expect(snap).not.toBeNull()
-      expect(snap!.humanoidAnim.avg).toBeCloseTo(4.5, 3)
-      expect(snap!.mountUpdate.avg).toBeCloseTo(5.0, 3)
-      expect(snap!.separation.avg).toBeCloseTo(2.1, 3)
+      // A full cohort covers eight frames, so snapshot timing is normalized
+      // to the per-frame scale used by NPC Update raw.
+      expect(snap!.humanoidAnim.avg).toBeCloseTo(4.5 / SUBPHASE_COHORT, 3)
+      expect(snap!.mountUpdate.avg).toBeCloseTo(5.0 / SUBPHASE_COHORT, 3)
+      expect(snap!.separation.avg).toBeCloseTo(2.1 / SUBPHASE_COHORT, 3)
       expect(snap!.sampleCountAvg).toBeCloseTo(25, 3)
     })
 
@@ -166,8 +168,8 @@ describe('NpcSubphaseProfiler', () => {
       const snap2 = agg.flush(1)
       expect(snap2).not.toBeNull()
       // Must not carry over values from the first window
-      expect(snap2!.humanoidAnim.avg).toBeCloseTo(0.7, 3)
-      expect(snap2!.mountUpdate.avg).toBeCloseTo(0.8, 3)
+      expect(snap2!.humanoidAnim.avg).toBeCloseTo(0.7 / SUBPHASE_COHORT, 3)
+      expect(snap2!.mountUpdate.avg).toBeCloseTo(0.8 / SUBPHASE_COHORT, 3)
     })
 
     it('returns null when no windows have been recorded', () => {
