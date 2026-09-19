@@ -18,10 +18,10 @@ const input = (values = {}) => ({
   ...values,
 })
 
-function createPlayerHarness() {
+function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWeaponId: string; shieldId: string | null }) {
   const scene = new THREE.Scene()
   const player = new Player(scene)
-  const inventory = new InventoryManager()
+  const inventory = new InventoryManager(initialLoadout)
   const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 500)
   const tpCamera = new ThirdPersonCamera(camera, player)
   const ui = { setAiming: vi.fn(), setChargeRatio: vi.fn(), setShieldBlocked: vi.fn() }
@@ -90,6 +90,42 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isAiming).toBe(true)
     // bowDrawRatio must remain 0 — RMB alone does NOT draw the bow
     expect(h.player.bowDrawRatio).toBe(0)
+  })
+
+  it('RMB 瞄準時按 LMB 立即投出標槍，放開 RMB 不會延後或重複投擲', () => {
+    const h = createPlayerHarness({
+      meleeWeaponId: 'steel_sword',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+    })
+    h.update(input())
+
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+    expect(h.player.isAiming).toBe(true)
+    const initialPila = h.player.arrowCount
+
+    // LMB is the commit point: the pilum launches immediately and the held
+    // mesh disappears so there is never a held pilum plus a flying pilum.
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    expect((h.player as any).bowPivot.visible).toBe(false)
+    expect((h.player as any).swordPivot.visible).toBe(false)
+
+    // Keep RMB held through the visual follow-through. No duplicate projectile
+    // fires, and a fresh held pilum appears when the next aim state begins.
+    h.update(input({ isRightMouseDown: true }), 1.5)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+    expect(h.player.isAiming).toBe(true)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+
+    // RMB-up only exits aim; it cannot be a delayed or duplicate launch trigger.
+    h.update(input({ isRightMouseDown: false }), 1 / 60)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
   })
 
   // Test 2: RMB + hold LMB -> bowDrawRatio increases smoothly over time

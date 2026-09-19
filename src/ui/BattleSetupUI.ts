@@ -6,6 +6,9 @@
 import './battle-setup.css'
 import {
   BattleConfig,
+  PlayerMeleeWeaponId,
+  PlayerRangedWeaponId,
+  PlayerShieldId,
   BattleUnitType,
   UnitTier,
   MAX_ARMY_SIZE,
@@ -17,10 +20,12 @@ import {
   validateBattleConfig,
   getDefaultBattleConfig,
   createEmptyBattleConfig,
+  createDefaultPlayerLoadout,
 } from '../battle/BattleConfig'
 
 export class BattleSetupUI {
   private config: BattleConfig
+  private activeTab: 'army' | 'loadout' = 'army'
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
 
@@ -36,6 +41,9 @@ export class BattleSetupUI {
     }
     if (!this.config.playerFaction) {
       this.config.playerFaction = 'viking'
+    }
+    if (!this.config.playerLoadout) {
+      this.config.playerLoadout = createDefaultPlayerLoadout()
     }
   }
 
@@ -100,6 +108,82 @@ export class BattleSetupUI {
       `
     }
 
+    const renderEquipmentGroup = (
+      title: string,
+      subtitle: string,
+      cards: Array<{ id: string | null; tier?: string; zh: string; en: string }>,
+      kind: 'melee' | 'ranged' | 'shield',
+    ) => `
+      <section class="equipment-group">
+        <div class="equipment-group-heading"><span>${title}</span><small>${subtitle}</small></div>
+        <div class="equipment-card-grid">
+          ${cards.map(card => `
+            <button type="button" class="loadout-card" role="radio" aria-checked="false"
+              data-loadout-kind="${kind}" data-loadout-id="${card.id ?? ''}">
+              <span class="loadout-card-top">${card.tier ? `<b>${card.tier}</b>` : '<b>—</b>'}</span>
+              <span class="loadout-card-name">${card.zh}</span>
+              <span class="loadout-card-en">${card.en}</span>
+              <span class="loadout-card-check">✓</span>
+            </button>
+          `).join('')}
+        </div>
+      </section>
+    `
+
+    const renderLoadoutPanel = () => `
+      <div id="setup-loadout-panel" class="setup-tab-panel loadout-page">
+        <div class="loadout-panel-heading">
+          <h2>玩家裝備</h2><span>PLAYER LOADOUT</span>
+        </div>
+        <div class="loadout-columns">
+          <section class="loadout-category"><div class="loadout-category-heading"><h3>近戰武器</h3><span>MELEE</span></div>
+            ${renderEquipmentGroup('維京', 'VIKING', [
+              { id: 'rusty_dagger', tier: 'T1', zh: '風化長劍', en: 'WEATHERED SWORD' },
+              { id: 'steel_sword', tier: 'T2', zh: '鋼製長劍', en: 'STEEL SWORD' },
+              { id: 'runic_greatsword', tier: 'T3', zh: '符文長劍', en: 'RUNIC SWORD' },
+            ], 'melee')}
+            ${renderEquipmentGroup('羅馬', 'ROMAN', [
+              { id: 'gladius_rusty', tier: 'T1', zh: '生鏽羅馬短劍', en: 'RUSTY GLADIUS' },
+              { id: 'gladius_standard', tier: 'T2', zh: '制式羅馬短劍', en: 'STANDARD GLADIUS' },
+              { id: 'centurion_blade', tier: 'T3', zh: '百夫長短劍', en: 'CENTURION BLADE' },
+            ], 'melee')}
+            ${renderEquipmentGroup('騎兵', 'CAVALRY', [{ id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' }], 'melee')}
+          </section>
+          <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
+            ${renderEquipmentGroup('維京', 'VIKING', [
+              { id: 'wooden_shortbow', tier: 'T1', zh: '木製短弓', en: 'WOODEN SHORTBOW' },
+              { id: 'recurve_longbow', tier: 'T2', zh: '反曲長弓', en: 'RECURVE LONGBOW' },
+              { id: 'elven_runebow', tier: 'T3', zh: '精靈符文弓', en: 'ELVEN RUNE BOW' },
+            ], 'ranged')}
+            ${renderEquipmentGroup('羅馬', 'ROMAN', [
+              { id: 'pilum_basic', tier: 'T1', zh: '簡易標槍', en: 'BASIC PILUM' },
+              { id: 'pilum_standard', tier: 'T2', zh: '制式標槍', en: 'STANDARD PILUM' },
+              { id: 'legionary_pilum', tier: 'T3', zh: '軍團標槍', en: 'LEGIONARY PILUM' },
+            ], 'ranged')}
+          </section>
+        </div>
+        <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
+          ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
+          ${renderEquipmentGroup('維京', 'VIKING', [
+            { id: 'round_shield_t1', tier: 'T1', zh: '圓盾', en: 'ROUND SHIELD' },
+            { id: 'round_shield_t2', tier: 'T2', zh: '鐵框圓盾', en: 'IRON-RIMMED SHIELD' },
+            { id: 'round_shield_t3', tier: 'T3', zh: '狂戰士圓盾', en: 'BERSERKER SHIELD' },
+          ], 'shield')}
+          ${renderEquipmentGroup('羅馬', 'ROMAN', [
+            { id: 'scutum_t1', tier: 'T1', zh: '基礎方盾', en: 'BASIC SCUTUM' },
+            { id: 'scutum_t2', tier: 'T2', zh: '軍團方盾', en: 'LEGION SCUTUM' },
+            { id: 'scutum_t3', tier: 'T3', zh: '百夫長方盾', en: 'CENTURION SCUTUM' },
+          ], 'shield')}
+        </section>
+        <section class="starting-state"><div class="loadout-category-heading"><h3>出戰方式</h3><span>STARTING STATE</span></div>
+          <div class="starting-state-options" role="radiogroup" aria-label="Starting state">
+            <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="false"><b>徒步</b><small>ON FOOT</small></button>
+            <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="true"><b>騎馬</b><small>MOUNTED</small><i>✓</i></button>
+          </div>
+        </section>
+      </div>
+    `
+
     return `
       <div class="setup-header">
         <h1 class="setup-title">SAGABURST</h1>
@@ -110,29 +194,35 @@ export class BattleSetupUI {
         <div class="mode-section-label">BATTLE MODE</div>
         <div class="mode-btn-group">
           <button type="button" class="mode-btn" id="mode-btn-formation" data-mode="formation">
-            <span class="mode-btn-title">FORMATION BATTLE</span>
-            <span class="mode-btn-desc">兩軍於戰場兩側列陣</span>
+            <span class="mode-btn-title">陣型戰</span>
+            <span class="mode-btn-desc">FORMATION BATTLE</span>
           </button>
           <button type="button" class="mode-btn" id="mode-btn-scattered" data-mode="scattered">
-            <span class="mode-btn-title">SCATTERED BATTLE</span>
-            <span class="mode-btn-desc">玩家與雙方單位散布於整個戰場</span>
+            <span class="mode-btn-title">散兵戰</span>
+            <span class="mode-btn-desc">SCATTERED BATTLE</span>
           </button>
         </div>
       </div>
 
       <div class="setup-mode-section">
-        <div class="mode-section-label">PLAYER FACTION</div>
+        <div class="mode-section-label">玩家陣營 <small>PLAYER FACTION</small></div>
         <div class="mode-btn-group">
           <button type="button" class="mode-btn" id="faction-btn-viking" data-player-faction="viking">
-            <span class="mode-btn-title">VIKING</span>
-            <span class="mode-btn-desc">諾德陣營 ｜ 維京外觀與盟友</span>
+            <span class="mode-btn-title">維京</span>
+            <span class="mode-btn-desc">VIKING</span>
           </button>
           <button type="button" class="mode-btn" id="faction-btn-roman" data-player-faction="roman">
-            <span class="mode-btn-title">ROMAN</span>
-            <span class="mode-btn-desc">羅馬軍團 ｜ 羅馬外觀與盟友</span>
+            <span class="mode-btn-title">羅馬</span>
+            <span class="mode-btn-desc">ROMAN</span>
           </button>
         </div>
       </div>
+
+      <div class="setup-tabs" role="tablist" aria-label="Battle setup sections">
+        <button type="button" id="setup-tab-army" class="setup-tab" role="tab"><b>軍隊配置</b><small>ARMY SETUP</small></button>
+        <button type="button" id="setup-tab-loadout" class="setup-tab" role="tab"><b>玩家裝備</b><small>PLAYER LOADOUT</small></button>
+      </div>
+      <div id="setup-army-panel" class="setup-tab-panel">
 
       <div class="setup-main">
         <!-- VIKING COLUMN -->
@@ -158,22 +248,25 @@ export class BattleSetupUI {
         </div>
       </div>
 
-      <div id="validation-msg" class="setup-validation-msg"></div>
+        <div class="setup-presets">
+          <button class="preset-btn" id="preset-10">10 VS 10</button>
+          <button class="preset-btn" id="preset-25">25 VS 25</button>
+          <button class="preset-btn" id="preset-50">50 VS 50</button>
+          <button class="preset-btn" id="preset-100">100 VS 100</button>
+          <button class="preset-btn" id="preset-reset">RESET</button>
+        </div>
 
-      <div class="setup-presets">
-        <button class="preset-btn" id="preset-10">10 VS 10</button>
-        <button class="preset-btn" id="preset-25">25 VS 25</button>
-        <button class="preset-btn" id="preset-50">50 VS 50</button>
-        <button class="preset-btn" id="preset-100">100 VS 100</button>
-        <button class="preset-btn" id="preset-reset">RESET</button>
       </div>
+      ${renderLoadoutPanel()}
+
+      <div id="validation-msg" class="setup-validation-msg"></div>
 
       <div class="setup-actions">
         <label class="spectator-toggle-label" for="spectator-checkbox">
           <input type="checkbox" id="spectator-checkbox" />
           <span>觀戰模式 Spectator</span>
         </label>
-        <button class="start-btn" id="btn-start-battle">START BATTLE</button>
+        <button class="start-btn" id="btn-start-battle"><span>開始戰鬥</span><small>START BATTLE</small></button>
       </div>
     `
   }
@@ -242,15 +335,45 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
+    document.getElementById('setup-tab-army')?.addEventListener('click', () => {
+      this.activeTab = 'army'
+      this._refreshView()
+    })
+    document.getElementById('setup-tab-loadout')?.addEventListener('click', () => {
+      this.activeTab = 'loadout'
+      this._refreshView()
+    })
+
+    this.container.querySelectorAll('.loadout-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const target = card as HTMLElement
+        const id = target.dataset.loadoutId || null
+        switch (target.dataset.loadoutKind) {
+          case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
+          case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
+          case 'shield': this.config.playerLoadout!.shieldId = id as PlayerShieldId | null; break
+        }
+        this._refreshView()
+      })
+    })
+    this.container.querySelectorAll('.starting-state-card').forEach(card => {
+      card.addEventListener('click', () => {
+        this.config.playerLoadout!.startMounted = (card as HTMLElement).dataset.startMounted === 'true'
+        this._refreshView()
+      })
+    })
+
     // Presets (Army composition only, strictly preserves selected Battle Mode, Spectator mode, and Player Faction)
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
+      const currentLoadout = this.config.playerLoadout
       this.config = JSON.parse(JSON.stringify(preset))
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
+      this.config.playerLoadout = currentLoadout
       this._refreshView()
     }
 
@@ -262,10 +385,12 @@ export class BattleSetupUI {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
+      const currentLoadout = this.config.playerLoadout
       this.config = createEmptyBattleConfig()
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
+      this.config.playerLoadout = currentLoadout
       this._refreshView()
     })
 
@@ -405,6 +530,32 @@ export class BattleSetupUI {
     const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
     if (spectatorCheckbox) {
       spectatorCheckbox.checked = Boolean(this.config.spectator)
+    }
+
+    const loadout = this.config.playerLoadout
+    const armyPanel = document.getElementById('setup-army-panel')
+    const loadoutPanel = document.getElementById('setup-loadout-panel')
+    const armyTab = document.getElementById('setup-tab-army')
+    const loadoutTab = document.getElementById('setup-tab-loadout')
+    armyPanel?.classList.toggle('active', this.activeTab === 'army')
+    loadoutPanel?.classList.toggle('active', this.activeTab === 'loadout')
+    armyTab?.classList.toggle('active', this.activeTab === 'army')
+    loadoutTab?.classList.toggle('active', this.activeTab === 'loadout')
+    if (loadout) {
+      this.container.querySelectorAll('.loadout-card').forEach(card => {
+        const el = card as HTMLElement
+        const selected = (el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
+          || (el.dataset.loadoutKind === 'ranged' && el.dataset.loadoutId === loadout.rangedWeaponId)
+          || (el.dataset.loadoutKind === 'shield' && el.dataset.loadoutId === (loadout.shieldId ?? ''))
+        el.classList.toggle('selected', selected)
+        el.setAttribute?.('aria-checked', String(selected))
+      })
+      this.container.querySelectorAll('.starting-state-card').forEach(card => {
+        const el = card as HTMLElement
+        const selected = (el.dataset.startMounted === 'true') === loadout.startMounted
+        el.classList.toggle('selected', selected)
+        el.setAttribute?.('aria-checked', String(selected))
+      })
     }
   }
 }

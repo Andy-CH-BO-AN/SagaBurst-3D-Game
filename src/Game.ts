@@ -156,6 +156,10 @@ export function reconcileLoadedMounts(
   }
 }
 
+export function shouldCreateStartingHorse(battleConfig?: BattleConfig): boolean {
+  return !battleConfig?.spectator && (battleConfig?.playerLoadout?.startMounted ?? true)
+}
+
 /**
  * Resolves the ground spawn position for a mount being restored from save data.
  * Prefers mountData.position (ground position of mount).
@@ -487,7 +491,7 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && !isInitialSpectator) {
+    if (!this.isModelStudio && shouldCreateStartingHorse(battleConfig)) {
       const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
@@ -510,7 +514,7 @@ export class Game {
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = new InventoryManager()
+    this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
 
 
     // ── Save Manager ──
@@ -536,7 +540,8 @@ export class Game {
         evt.speed,
         evt.damage,
         Faction.PLAYER,
-        true
+        true,
+        evt.visualKind,
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)

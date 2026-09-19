@@ -609,7 +609,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(play).toHaveBeenCalledWith('bowRelease', { fadeSeconds: 0.1, loop: false })
   })
 
-  it('fires and completes an imported pilum throw exactly once across a large dt', () => {
+  it('fires and completes an imported pilum throw at its shared windup timing', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true),
@@ -621,7 +621,12 @@ describe('Phase 22 humanoid asset contract', () => {
     }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     expect(subject.start('pilumThrow')).toBe(true)
-    const events = subject.update(2)
+    const beforeRelease = subject.update(1)
+    expect(beforeRelease.projectileRelease).toBe(false)
+    expect(beforeRelease.actionCompleted).toBe(false)
+    expect(subject.currentAction).toBe('pilumThrow')
+
+    const events = subject.update(0.5)
     expect(events.projectileRelease).toBe(true)
     expect(events.actionCompleted).toBe(true)
     expect(subject.update(2).projectileRelease).toBe(false)

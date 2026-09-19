@@ -31,10 +31,49 @@ export interface BattleRules {
 
 export type BattleMode = 'formation' | 'scattered'
 
+export type PlayerMeleeWeaponId =
+  | 'rusty_dagger' | 'steel_sword' | 'runic_greatsword'
+  | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
+  | 'steel_lance'
+export type PlayerRangedWeaponId =
+  | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
+  | 'pilum_basic' | 'pilum_standard' | 'legionary_pilum'
+export type PlayerShieldId =
+  | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
+  | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
+
+export interface PlayerLoadoutConfig {
+  meleeWeaponId: PlayerMeleeWeaponId
+  rangedWeaponId: PlayerRangedWeaponId
+  shieldId: PlayerShieldId | null
+  startMounted: boolean
+}
+
+export const DEFAULT_PLAYER_LOADOUT: PlayerLoadoutConfig = {
+  meleeWeaponId: 'steel_lance',
+  rangedWeaponId: 'elven_runebow',
+  shieldId: 'round_shield_t3',
+  startMounted: true,
+}
+
+export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
+  'rusty_dagger', 'steel_sword', 'runic_greatsword',
+  'gladius_rusty', 'gladius_standard', 'centurion_blade', 'steel_lance',
+]
+export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
+  'wooden_shortbow', 'recurve_longbow', 'elven_runebow',
+  'pilum_basic', 'pilum_standard', 'legionary_pilum',
+]
+export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
+  'round_shield_t1', 'round_shield_t2', 'round_shield_t3',
+  'scutum_t1', 'scutum_t2', 'scutum_t3',
+]
+
 export interface BattleConfig {
   mode?: BattleMode
   spectator?: boolean
   playerFaction?: CharacterFaction
+  playerLoadout?: PlayerLoadoutConfig
   viking: ArmyConfig
   roman: ArmyConfig
   rules: BattleRules
@@ -77,6 +116,10 @@ export function createEmptyBattleConfig(): BattleConfig {
   }
 }
 
+export function createDefaultPlayerLoadout(): PlayerLoadoutConfig {
+  return { ...DEFAULT_PLAYER_LOADOUT }
+}
+
 export function calculateArmyTotal(army: ArmyConfig): number {
   if (!army) return 0
   let total = 0
@@ -108,6 +151,18 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 
   if (c.playerFaction !== undefined && c.playerFaction !== 'viking' && c.playerFaction !== 'roman') {
     errors.push(`Invalid player faction: ${String(c.playerFaction)}`)
+  }
+
+  if (c.playerLoadout !== undefined) {
+    const loadout = c.playerLoadout
+    if (!loadout || typeof loadout !== 'object') {
+      errors.push('playerLoadout must be an object')
+    } else {
+      if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
+      if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
+      if (loadout.shieldId !== null && !(PLAYER_SHIELD_IDS as readonly string[]).includes(loadout.shieldId)) errors.push(`Invalid player shield: ${String(loadout.shieldId)}`)
+      if (typeof loadout.startMounted !== 'boolean') errors.push('playerLoadout.startMounted must be a boolean')
+    }
   }
 
   if (!c.viking || !c.roman) {
@@ -371,5 +426,6 @@ export const PRESET_DEVCOMBAT: BattleConfig = {
 export function getDefaultBattleConfig(): BattleConfig {
   const config: BattleConfig = JSON.parse(JSON.stringify(PRESET_10V10))
   config.playerFaction = 'viking'
+  config.playerLoadout = createDefaultPlayerLoadout()
   return config
 }
