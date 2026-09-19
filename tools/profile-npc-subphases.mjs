@@ -704,8 +704,11 @@ async function main() {
 
     const actualSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     const requestedSourceSha = process.env.PROFILE_SOURCE_SHA
-    if (requestedSourceSha && requestedSourceSha !== actualSourceSha) {
-      throw new Error(`PROFILE_SOURCE_SHA mismatch: requested ${requestedSourceSha}, current HEAD is ${actualSourceSha}`)
+    if (requestedSourceSha) {
+      const resolvedRequestedSha = execFileSync('git', ['rev-parse', `${requestedSourceSha}^{commit}`], { encoding: 'utf8' }).trim()
+      if (resolvedRequestedSha !== actualSourceSha) {
+        throw new Error(`PROFILE_SOURCE_SHA mismatch: requested ${requestedSourceSha} resolves to ${resolvedRequestedSha}, current HEAD is ${actualSourceSha}`)
+      }
     }
     const sourceSha = actualSourceSha
     const gitLog5 = execFileSync('git', ['log', '-5', '--oneline'], { encoding: 'utf8' }).trim()
