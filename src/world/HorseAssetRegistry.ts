@@ -5,6 +5,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { setHorseCorneaTransmission } from './HorseCorneaMaterial'
+import { shouldHorseCastShadow } from './HorseShadowPolicy'
 
 export type HorseAnimationState =
   | 'idle'
@@ -407,11 +408,13 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
   }
   root.add(lod)
   cullHorseLod2TinyDetails(levels[2])
-  root.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
-      object.castShadow = lod.getObjectForDistance(0)?.getObjectById(object.id) !== undefined
-      object.receiveShadow = true
-    }
+  levels.forEach((level, lodIndex) => {
+    level.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.castShadow = shouldHorseCastShadow(object.name, lodIndex)
+        object.receiveShadow = true
+      }
+    })
   })
 
   const mixer = new THREE.AnimationMixer(root)
