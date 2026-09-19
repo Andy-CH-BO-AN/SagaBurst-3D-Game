@@ -111,6 +111,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
     expect((h.player as any).bowPivot.visible).toBe(false)
+    expect((h.player as any).swordPivot.visible).toBe(false)
 
     // Keep RMB held through the visual follow-through. No duplicate projectile
     // fires, and a fresh held pilum appears when the next aim state begins.

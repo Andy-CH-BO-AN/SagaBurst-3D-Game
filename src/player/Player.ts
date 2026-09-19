@@ -696,13 +696,15 @@ export class Player {
       }
     }
 
+    const rangedActionActive = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
     const showingHeldPilum = this.animator.currentAction === 'pilumThrow' && !this.pilumReleasedOnCommit
     const showingRanged =
       (this.aiming && !(isPilum && this.pilumReleasedOnCommit))
       || this.animator.currentAction === 'bowRelease'
       || showingHeldPilum
-    this.swordPivot.visible = !showingRanged
-    this.rig.animation?.setSwordHandShape?.(!showingRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
+    const hidingMeleeForRanged = this.aiming || rangedActionActive
+    this.swordPivot.visible = !hidingMeleeForRanged
+    this.rig.animation?.setSwordHandShape?.(!hidingMeleeForRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     this.bowPivot.visible = showingRanged
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
