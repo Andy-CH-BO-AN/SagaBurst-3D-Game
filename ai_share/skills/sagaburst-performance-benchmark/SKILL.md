@@ -32,6 +32,9 @@ description: 用固定的 browser lifecycle、warm-up、20 秒取樣與 JSON 輸
   - 50 melee cavalry
   - 50 horse archers
   全場包含多材質、多骨架、弓箭發射與飛行軌跡，是理想的複合騎兵與渲染壓力場景。
+- **Scenario G**：200v200 Infantry（Formation, 400 NPC, 0 horses）。
+- **Scenario H**：200v200 Mixed（Formation, Initial Spectator, No respawn, No camps, 400 NPC, 160 horses）。每方 60 Infantry、60 Archer、40 Cavalry、40 Horse Archer。
+- **Scenario I**：200v200 Cavalry Stress（Scattered, Initial Spectator, No respawn, No camps, 400 NPC, 400 horses）。每方 100 Cavalry、100 Horse Archer。
 
 ## Renderer Cost Isolation 模式
 

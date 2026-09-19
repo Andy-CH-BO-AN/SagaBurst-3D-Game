@@ -14,7 +14,7 @@ if (args.has('--help')) {
 SagaBurst 標準效能量測
 
 選項：
-  --scenario=D|E|all       預設 all
+  --scenario=D|E|F|G|H|I|all       預設 all
   --phase=before-contact|during-combat
   --runs=N                 Before Contact 預設 3，Combat 預設 1
   --tag=NAME               輸出檔名 tag
@@ -35,9 +35,12 @@ if (!['before-contact', 'during-combat'].includes(phase)) {
 
 const scenarioArg = valueOf('scenario', 'all').toUpperCase()
 const allScenarios = [
-  { id: 'D', query: 'devcombat=d' },
-  { id: 'E', query: 'devcombat=e' },
-  { id: 'F', query: 'devcombat=f' },
+  { id: 'D', query: 'devcombat=d', sideCount: 100, horseCount: 200 },
+  { id: 'E', query: 'devcombat=e', sideCount: 100, horseCount: 200 },
+  { id: 'F', query: 'devcombat=f', sideCount: 100, horseCount: 200 },
+  { id: 'G', query: 'devcombat=g', sideCount: 200, horseCount: 0 },
+  { id: 'H', query: 'devcombat=h', sideCount: 200, horseCount: 160 },
+  { id: 'I', query: 'devcombat=i', sideCount: 200, horseCount: 400 },
 ]
 const scenarios = scenarioArg === 'ALL'
   ? allScenarios
@@ -60,6 +63,7 @@ const host = valueOf('host', '127.0.0.1:5173')
 const warmupMs = Number(valueOf('warmup-ms', '3000'))
 const observationMs = Number(valueOf('observation-ms', '20000'))
 const timeoutMs = Number(valueOf('timeout-ms', '25000'))
+const initialBattleStateTimeoutMs = 15_000
 const tag = valueOf('tag', `${scenarioArg.toLowerCase()}-${phase}`)
 const requireSubphase = !args.has('--no-subphase')
 const chromePath = process.env.SAGABURST_CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -133,15 +137,60 @@ function hasProfilerSnapshot(text) {
   )
 }
 
-function addBattleHudAliveDead(metrics, battleText) {
-  const viking = battleText.match(/VIKING:\s+(\d+)\s+\/\s+100/m)?.[1]
-  const roman = battleText.match(/ROMAN:\s+(\d+)\s+\/\s+100/m)?.[1]
+function addBattleHudAliveDead(metrics, battleText, sideCount) {
+  const viking = battleText.match(new RegExp(`VIKING:\\s+(\\d+)\\s+\\/\\s+${sideCount}`, 'm'))?.[1]
+  const roman = battleText.match(new RegExp(`ROMAN:\\s+(\\d+)\\s+\\/\\s+${sideCount}`, 'm'))?.[1]
   if (viking !== undefined && roman !== undefined) {
     metrics.alive = Number(viking) + Number(roman)
-    metrics.dead = 200 - metrics.alive
+    metrics.dead = sideCount * 2 - metrics.alive
     metrics.aliveDeadSource = 'battle-hud'
   }
   return metrics
+}
+
+function readInitialBattleState(devHudText, battleText, scenario) {
+  const metrics = addBattleHudAliveDead(parseHud(devHudText), battleText, scenario.sideCount)
+  const expectedNpcCount = scenario.sideCount * 2
+  const npcCount = metricsFromText(devHudText, /^NPC Count:\s+(\d+)/m)
+  const horseCount = metricsFromText(devHudText, /^Horse Count:\s+(\d+)/m)
+  return {
+    npcCount,
+    horseCount,
+    alive: metrics.alive ?? null,
+    dead: metrics.dead ?? null,
+    expectedNpcCount,
+    expectedHorseCount: scenario.horseCount,
+    valid: npcCount === expectedNpcCount && horseCount === scenario.horseCount &&
+      metrics.alive === expectedNpcCount && metrics.dead === 0,
+  }
+}
+
+function metricsFromText(text, pattern) {
+  const match = text.match(pattern)
+  return match ? Number(match[1]) : null
+}
+
+async function waitForInitialBattleState(page, scenario) {
+  const deadline = Date.now() + initialBattleStateTimeoutMs
+  let latestState = null
+
+  while (Date.now() < deadline) {
+    const hud = await page.evaluate(() => ({
+      devHudText: document.querySelector('#dev-combat-status')?.textContent ?? '',
+      battleText: document.querySelector('#battle-status-hud')?.textContent ?? '',
+    }))
+    latestState = readInitialBattleState(hud.devHudText, hud.battleText, scenario)
+    if (latestState.valid) return latestState
+    await page.waitForTimeout(100)
+  }
+
+  const expectedNpcCount = scenario.sideCount * 2
+  throw new Error(
+    `Initial battle state timeout after ${initialBattleStateTimeoutMs}ms: ` +
+    `actual NPC Count=${latestState?.npcCount ?? '--'}, Horse Count=${latestState?.horseCount ?? '--'}, ` +
+    `Alive=${latestState?.alive ?? '--'}, Dead=${latestState?.dead ?? '--'}; ` +
+    `expected NPC Count=${expectedNpcCount}, Horse Count=${scenario.horseCount}, Alive=${expectedNpcCount}, Dead=0`
+  )
 }
 
 function aggregate(samples) {
@@ -232,6 +281,7 @@ async function runOne(scenario, run) {
   try {
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
     await page.waitForSelector('#dev-combat-status', { timeout: 60_000 })
+    const initialBattleState = await waitForInitialBattleState(page, scenario)
     await page.waitForTimeout(warmupMs)
     const combatEvidenceMode = phase !== 'during-combat'
       ? 'not-applicable'
@@ -246,8 +296,8 @@ async function runOne(scenario, run) {
       .filter((sample) => hasProfilerSnapshot(sample.hudText))
       .map((sample) => ({
         atMs: sample.atMs,
-        metrics: addBattleHudAliveDead(parseHud(sample.hudText), sample.battleText),
-        spawnPlanCountKnown: /NPC Count:\s+200\b/m.test(sample.hudText),
+        metrics: addBattleHudAliveDead(parseHud(sample.hudText), sample.battleText, scenario.sideCount),
+        spawnPlanCountKnown: new RegExp(`NPC Count:\\s+${scenario.sideCount * 2}\\b`, 'm').test(sample.hudText),
         hudText: sample.hudText,
         battleText: sample.battleText,
       }))
@@ -265,12 +315,12 @@ async function runOne(scenario, run) {
         continue
       }
       if (combatEvidenceStarted) continue
-      const reliableAliveDead = sample.metrics.alive === 200 && sample.metrics.dead === 0
+      const reliableAliveDead = sample.metrics.alive === scenario.sideCount * 2 && sample.metrics.dead === 0
       const provisionalBeforeEvidence = sample.metrics.alive === undefined && sample.spawnPlanCountKnown
       if (!reliableAliveDead && !provisionalBeforeEvidence) continue
       const metrics = { ...sample.metrics }
       if (provisionalBeforeEvidence) {
-        metrics.alive = 200
+        metrics.alive = scenario.sideCount * 2
         metrics.dead = 0
         metrics.aliveDeadSource = 'spawn-plan-before-first-combat-evidence'
       }
@@ -291,6 +341,7 @@ async function runOne(scenario, run) {
       observationMs,
       observationDurationMs: observationMs,
       combatEvidenceMode,
+      initialBattleState,
       sampleCount: samples.length,
       recordedSnapshotCount: parsed.length,
       contactEvidenceSeen: parsed.some((sample) => isCombatEvidence(sample.metrics)),
