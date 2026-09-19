@@ -43,6 +43,9 @@ export interface RuntimeProfileSnapshot {
 
 export interface ExtraHUDMetrics {
   npcCount: number
+  aliveCount?: number
+  deadCount?: number
+  activeAttackCount?: number
   horseCount: number
   arrowCount: number
   drawCalls: number
@@ -230,6 +233,9 @@ export class RuntimeProfiler {
       fmtStat('Other / Unaccounted', s?.other, 20),
       '',
       `NPC Count: ${extra.npcCount}`,
+      ...(extra.aliveCount !== undefined ? [`Alive: ${extra.aliveCount}`] : []),
+      ...(extra.deadCount !== undefined ? [`Dead: ${extra.deadCount}`] : []),
+      ...(extra.activeAttackCount !== undefined ? [`Active Attack NPCs: ${extra.activeAttackCount}`] : []),
       `Horse Count: ${extra.horseCount}`,
       `Arrow Count: ${extra.arrowCount}`,
       `Main-pass Draw Calls: ${extra.drawCalls}`,
@@ -263,6 +269,18 @@ export class RuntimeProfiler {
         sp.deadUpdate.avg
       const otherEst = Math.max(0, npcUpdateAvg - classifiedSum)
       const otherPct = npcUpdateAvg > 0 ? (otherEst / npcUpdateAvg * 100).toFixed(0) : '--'
+      const mountUpdateAvg = sp.mountUpdate.avg
+      const mountInternalSum =
+        sp.mountPhysics.avg + sp.mountObstacleCollision.avg +
+        sp.mountHorseAnimation.avg + sp.mountRiderEquipment.avg +
+        sp.mountSaddleTransform.avg + sp.mountRiderTransform.avg
+      const mountOtherEst = Math.max(0, mountUpdateAvg - mountInternalSum)
+      const mountOtherPct = mountUpdateAvg > 0 ? (mountOtherEst / mountUpdateAvg * 100).toFixed(0) : '--'
+      const fmtMountPhase = (label: string, stat: MetricStat): string => {
+        const avgStr = stat.avg.toFixed(2)
+        const pct = mountUpdateAvg > 0 ? (stat.avg / mountUpdateAvg * 100).toFixed(0) : '--'
+        return `  ${label.padEnd(22)}: ${avgStr.padStart(6)} ms  ${pct.padStart(3)}%`
+      }
 
       lines.push(
         '',
@@ -275,6 +293,14 @@ export class RuntimeProfiler {
         fmtPhase('Combat Logic', sp.combatLogic),
         fmtPhase('Humanoid Animation', sp.humanoidAnim),
         fmtPhase('Mount Update', sp.mountUpdate),
+        '  ├─ Mount internal breakdown',
+        fmtMountPhase('Physics / Gravity', sp.mountPhysics),
+        fmtMountPhase('Obstacle Collision', sp.mountObstacleCollision),
+        fmtMountPhase('Horse Animation', sp.mountHorseAnimation),
+        fmtMountPhase('Rider Equipment', sp.mountRiderEquipment),
+        fmtMountPhase('Saddle World Transform', sp.mountSaddleTransform),
+        fmtMountPhase('Rider Transform', sp.mountRiderTransform),
+        `  ${'Mount Other (est.)'.padEnd(22)}: ${mountOtherEst.toFixed(2).padStart(6)} ms  ${mountOtherPct.padStart(3)}%`,
         fmtPhase('Foot Physics', sp.footPhysics),
         fmtPhase('Dead Update', sp.deadUpdate),
         `  ${'Other (est.)'.padEnd(22)}: ${otherEst.toFixed(2).padStart(6)} ms  ${otherPct.padStart(3)}%`,

@@ -23,12 +23,20 @@ export type NpcSubphasePhase =
   | 'combatLogic'   // melee range, attack timer, hit window, ranged state logic
   | 'humanoidAnim'  // animator.update(), poseIdle, poseBow, setLocomotion
   | 'mountUpdate'   // mount.finishControlledFrame(), _syncToMount()
+  | 'mountPhysics'  // terrain/gravity, ground state, clamp, movement speed
+  | 'mountObstacleCollision' // resolveObstacleCollision()
+  | 'mountHorseAnimation' // horse locomotion selection and mixer update
+  | 'mountRiderEquipment' // mounted pose/equipment state sync
+  | 'mountSaddleTransform' // saddle seat world transform lookup
+  | 'mountRiderTransform' // rider position/rotation write
   | 'footPhysics'   // gravity, getTerrainHeight(), resolveObstacleCollision()
   | 'deadUpdate'    // dead NPC path: flash, death anim, respawn
 
 const PHASES: NpcSubphasePhase[] = [
   'gridQuery', 'targetAI', 'separation', 'obstacleAvoid', 'moveFace',
-  'combatLogic', 'humanoidAnim', 'mountUpdate', 'footPhysics', 'deadUpdate',
+  'combatLogic', 'humanoidAnim', 'mountUpdate', 'mountPhysics',
+  'mountObstacleCollision', 'mountHorseAnimation', 'mountRiderEquipment',
+  'mountSaddleTransform', 'mountRiderTransform', 'footPhysics', 'deadUpdate',
 ]
 
 /** Accumulated ms for each phase across one 8-frame cohort window. */
@@ -41,6 +49,12 @@ export interface NpcSubphaseFrame {
   combatLogic: number
   humanoidAnim: number
   mountUpdate: number
+  mountPhysics: number
+  mountObstacleCollision: number
+  mountHorseAnimation: number
+  mountRiderEquipment: number
+  mountSaddleTransform: number
+  mountRiderTransform: number
   footPhysics: number
   deadUpdate: number
   /** Number of NPC samples collected in this window (alive + dead). */
@@ -50,7 +64,9 @@ export interface NpcSubphaseFrame {
 function emptyFrame(): NpcSubphaseFrame {
   return {
     gridQuery: 0, targetAI: 0, separation: 0, obstacleAvoid: 0, moveFace: 0,
-    combatLogic: 0, humanoidAnim: 0, mountUpdate: 0, footPhysics: 0, deadUpdate: 0,
+    combatLogic: 0, humanoidAnim: 0, mountUpdate: 0, mountPhysics: 0,
+    mountObstacleCollision: 0, mountHorseAnimation: 0, mountRiderEquipment: 0,
+    mountSaddleTransform: 0, mountRiderTransform: 0, footPhysics: 0, deadUpdate: 0,
     sampleCount: 0,
   }
 }
@@ -118,6 +134,12 @@ export interface NpcSubphaseSnapshot {
   combatLogic: NpcSubphaseStat
   humanoidAnim: NpcSubphaseStat
   mountUpdate: NpcSubphaseStat
+  mountPhysics: NpcSubphaseStat
+  mountObstacleCollision: NpcSubphaseStat
+  mountHorseAnimation: NpcSubphaseStat
+  mountRiderEquipment: NpcSubphaseStat
+  mountSaddleTransform: NpcSubphaseStat
+  mountRiderTransform: NpcSubphaseStat
   footPhysics: NpcSubphaseStat
   deadUpdate: NpcSubphaseStat
   /** Avg sample count per 8-frame window. */
@@ -173,6 +195,12 @@ export class NpcSubphaseAggregator {
       combatLogic: this._stat('combatLogic', n),
       humanoidAnim: this._stat('humanoidAnim', n),
       mountUpdate: this._stat('mountUpdate', n),
+      mountPhysics: this._stat('mountPhysics', n),
+      mountObstacleCollision: this._stat('mountObstacleCollision', n),
+      mountHorseAnimation: this._stat('mountHorseAnimation', n),
+      mountRiderEquipment: this._stat('mountRiderEquipment', n),
+      mountSaddleTransform: this._stat('mountSaddleTransform', n),
+      mountRiderTransform: this._stat('mountRiderTransform', n),
       footPhysics: this._stat('footPhysics', n),
       deadUpdate: this._stat('deadUpdate', n),
       sampleCountAvg: n > 0 ? this._sampleCountSum / n : 0,

@@ -936,8 +936,8 @@ export class NPC {
 
     if (this.isMounted && this.mount) {
       if (import.meta.env.DEV && _collector) { var _tMount = performance.now() }
-      this.mount.finishControlledFrame(dt, obstacles)
-      this._syncToMount()
+      this.mount.finishControlledFrame(dt, obstacles, _collector)
+      this._syncToMount(_collector)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('mountUpdate', _tMount!) }
     } else {
       if (import.meta.env.DEV && _collector) { var _tFoot = performance.now() }
@@ -1009,14 +1009,22 @@ export class NPC {
     }
   }
 
-  private _syncToMount(): void {
+  private _syncToMount(collector: NpcSubphaseCollector | null = null): void {
     if (!this.mount) return
+    if (import.meta.env.DEV && collector) { var _tRiderEquipment = performance.now() }
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.mount.type as MountedPoseKind)
     this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.mount.type as MountedPoseKind })
     this._alignExternalVisualToMount(true)
+    if (import.meta.env.DEV && collector) { collector.endPhase('mountRiderEquipment', _tRiderEquipment!) }
+
+    if (import.meta.env.DEV && collector) { var _tSaddle = performance.now() }
     this.mount.getSaddleSeatWorld(this.group.position)
+    if (import.meta.env.DEV && collector) { collector.endPhase('mountSaddleTransform', _tSaddle!) }
+
+    if (import.meta.env.DEV && collector) { var _tRiderTransform = performance.now() }
     this.group.rotation.x = this.mount.ridePitch
     this.group.rotation.y = this.mount.group.rotation.y
+    if (import.meta.env.DEV && collector) { collector.endPhase('mountRiderTransform', _tRiderTransform!) }
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {
