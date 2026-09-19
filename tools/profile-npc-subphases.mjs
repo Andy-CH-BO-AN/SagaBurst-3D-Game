@@ -33,6 +33,7 @@ const BASE_URL = `http://localhost:${PORT}`
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const BASELINE_GAMEPLAY_SHA = '524c52e051ff28159e4f09102100443dd62718da'
 const BASELINE_PROFILING_SHA = 'eb85ed95a399afa3782e973c3df0fd7e5c4dcc59'
+const DEFAULT_REPETITIONS = 3
 const SCENARIOS = [
   { letter: 'b', label: 'Scenario B (100v100 Infantry)', short: 'B' },
   { letter: 'd', label: 'Scenario D (100v100 Cavalry + Horse Archer)', short: 'D' },
@@ -41,6 +42,42 @@ const SCENARIOS = [
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+function median(values) {
+  const sorted = values.filter((value) => typeof value === 'number' && Number.isFinite(value)).sort((a, b) => a - b)
+  if (sorted.length === 0) return null
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+function medianObject(objects) {
+  const first = objects.find((value) => value !== null && value !== undefined)
+  if (first === undefined) return null
+  if (typeof first === 'number') return median(objects)
+  if (Array.isArray(first)) return first
+  if (typeof first !== 'object') return first
+
+  const result = {}
+  for (const key of Object.keys(first)) {
+    const values = objects.map((value) => value?.[key])
+    const numeric = values.every((value) => typeof value === 'number' && Number.isFinite(value))
+    const nested = values.every((value) => value !== null && typeof value === 'object' && !Array.isArray(value))
+    if (numeric) result[key] = median(values)
+    else if (nested) result[key] = medianObject(values)
+    else result[key] = first[key]
+  }
+  return result
+}
+
+function medianPasses(passes) {
+  return {
+    beforeContact: medianObject(passes.map((pass) => pass.beforeContact)),
+    duringCombat: medianObject(passes.map((pass) => pass.duringCombat)),
+    runs: passes,
+  }
 }
 
 // ─── DEV server ──────────────────────────────────────────────
@@ -241,7 +278,7 @@ async function setSimulationFrozen(page, frozen) {
 }
 
 // ─── 單次 pass ────────────────────────────────────────────────
-async function runPass(page, scenarioLetter, withSubphase) {
+async function runPass(page, scenarioLetter, withSubphase, repetition) {
   const subParam = withSubphase ? '&npcsubphase=1' : ''
   const url = `${BASE_URL}/?devcombat=${scenarioLetter}&nolock${subParam}`
 
@@ -294,7 +331,7 @@ async function runPass(page, scenarioLetter, withSubphase) {
   const outDir = path.resolve('output/profile')
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
   const tag = withSubphase ? 'on' : 'off'
-  const scPath = path.join(outDir, `npc-subphase-${scenarioLetter}-${tag}.png`)
+  const scPath = path.join(outDir, `npc-subphase-${scenarioLetter}-${tag}-r${repetition}.png`)
   await page.screenshot({ path: scPath })
   console.log(`    Screenshot → ${scPath}`)
 
@@ -327,7 +364,6 @@ function printSubphase(subSnap, npcUpdateAvg, label) {
   const other = Math.max(0, ref - classified)
   console.log(`    ${'Other (est.)'.padEnd(22)}: ${other.toFixed(2).padStart(6)} ms  ${((other / ref) * 100).toFixed(0).padStart(3)}%`)
 
-  const humanoidRef = subSnap.humanoidAnim?.avg ?? 1
   const humanoidPhases = [
     ['Mixer / clip update', subSnap.humanoidBreakdown?.mixerUpdate],
     ['Locomotion state', subSnap.humanoidBreakdown?.locomotionState],
@@ -336,10 +372,11 @@ function printSubphase(subSnap, npcUpdateAvg, label) {
     ['Bow / lance pose', subSnap.humanoidBreakdown?.bowLancePose],
     ['Rig / bone application', subSnap.humanoidBreakdown?.rigBoneApplication],
   ]
-  console.log(`    Humanoid internal (ref ${humanoidRef.toFixed(2)} ms):`)
+  const internalRef = humanoidPhases.reduce((sum, [, stat]) => sum + (stat?.avg ?? 0), 0)
+  console.log(`    Animation-related internal work (sum ${internalRef.toFixed(2)} ms):`)
   for (const [lbl, stat] of humanoidPhases) {
     const avg = stat?.avg ?? 0
-    console.log(`      ${lbl.padEnd(24)}: ${avg.toFixed(2).padStart(6)} ms  ${((avg / humanoidRef) * 100).toFixed(0).padStart(3)}%`)
+    console.log(`      ${lbl.padEnd(24)}: ${avg.toFixed(2).padStart(6)} ms  ${internalRef > 0 ? ((avg / internalRef) * 100).toFixed(0).padStart(3) : '--'}%`)
   }
 }
 
@@ -356,6 +393,7 @@ function buildReport(scenarios, results, metadata) {
   lines.push('- Gameplay baseline SHA (#45): `' + metadata.baselineGameplaySha + '`')
   lines.push('- Profiling baseline SHA (#46): `' + metadata.baselineProfilingSha + '`')
   lines.push('- Source SHA measured: `' + metadata.sourceSha + '`')
+  lines.push(`- Repetitions: ${metadata.repetitions}; aggregate: median (all values are script-generated).`)
   lines.push('- Cohort: deterministic 8-frame / 8-NPC slices; values are not divided by 8.')
   lines.push('- Reporting window: RuntimeProfiler-aligned ~1 second.')
   lines.push('- Before Contact: live simulation after warmup; Scenario E: 200 NPCs.')
@@ -386,7 +424,7 @@ function buildReport(scenarios, results, metadata) {
   // ── Raw Metrics ──
   lines.push('## Raw Profiler Metrics (subphase ON)')
   lines.push('')
-  lines.push('| Scenario | Phase | Alive/Dead | FPS | CPU Frame avg/max | NPC Update avg/max | Humanoid Animation avg/max | Renderer Submit avg/max | Draw Calls |')
+  lines.push('| Scenario | Phase | Alive/Dead | FPS | CPU Frame avg/max | NPC Update avg/max | Animator.update span avg/max | Renderer Submit avg/max | Draw Calls |')
   lines.push('| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |')
   for (const sc of scenarios) {
     const r = results[sc.letter]
@@ -410,7 +448,7 @@ function buildReport(scenarios, results, metadata) {
     ['Obstacle Avoidance', 'obstacleAvoid'],
     ['Movement / Facing',  'moveFace'],
     ['Combat Logic',       'combatLogic'],
-    ['Humanoid Animation', 'humanoidAnim'],
+    ['Animator.update span', 'humanoidAnim'],
     ['Mount Update',       'mountUpdate'],
     ['Foot Physics',       'footPhysics'],
     ['Dead Update',        'deadUpdate'],
@@ -456,18 +494,19 @@ function buildReport(scenarios, results, metadata) {
       ['Bow / lance pose', 'bowLancePose'],
       ['Rig / bone application', 'rigBoneApplication'],
     ]
-    const bcHumRef = bcSnap?.humanoidAnim?.avg ?? 1
-    const dcHumRef = dcSnap?.humanoidAnim?.avg ?? 1
-    lines.push('#### Humanoid Animation internal breakdown')
+    const internalSum = (snap) => humanoidPhaseKeys.reduce((sum, [, key]) => sum + (snap?.humanoidBreakdown?.[key]?.avg ?? 0), 0)
+    const bcHumRef = internalSum(bcSnap)
+    const dcHumRef = internalSum(dcSnap)
+    lines.push('#### Animation-related internal work')
     lines.push('')
-    lines.push('| Internal phase | Before Contact ms | BC % of Humanoid | During Combat ms | DC % of Humanoid |')
+    lines.push('| Internal phase | Before Contact ms | BC % of measured animation-related work | During Combat ms | DC % of measured animation-related work |')
     lines.push('| :--- | ---: | ---: | ---: | ---: |')
     for (const [lbl, key] of humanoidPhaseKeys) {
       const bcv = bcSnap?.humanoidBreakdown?.[key]?.avg ?? 0
       const dcv = dcSnap?.humanoidBreakdown?.[key]?.avg ?? 0
-      lines.push(`| ${lbl} | ${bcv.toFixed(2)} | ${((bcv / bcHumRef) * 100).toFixed(0)}% | ${dcv.toFixed(2)} | ${((dcv / dcHumRef) * 100).toFixed(0)}% |`)
+      lines.push(`| ${lbl} | ${bcv.toFixed(2)} | ${bcHumRef > 0 ? ((bcv / bcHumRef) * 100).toFixed(0) : '--'}% | ${dcv.toFixed(2)} | ${dcHumRef > 0 ? ((dcv / dcHumRef) * 100).toFixed(0) : '--'}% |`)
     }
-    lines.push(`| **Humanoid Animation total** | **${bcHumRef.toFixed(2)}** | 100% | **${dcHumRef.toFixed(2)}** | 100% |`)
+    lines.push(`| **Measured animation-related work (internal sum)** | **${bcHumRef.toFixed(2)}** | 100% | **${dcHumRef.toFixed(2)}** | 100% |`)
     lines.push('')
   }
 
@@ -554,7 +593,7 @@ function buildReport(scenarios, results, metadata) {
       lines.push(`| ${i + 1} | **${lbl}** | ${vals.map((v) => v.toFixed(2)).join(' | ')} | **${maxVal.toFixed(2)}** |`)
     }
     lines.push('')
-    lines.push('> Internal rows are DEV-only timings collected from the same deterministic 8-NPC cohort and ~1s RuntimeProfiler window; the script performs all percentages and ranking calculations.')
+    lines.push('> Internal rows are DEV-only timings collected from the same deterministic 8-NPC cohort and ~1s RuntimeProfiler window. Percentages use the sum of these measured internal spans; the separate Animator.update span is not used as their denominator.')
   }
 
   return lines.join('\n')
@@ -616,6 +655,10 @@ async function main() {
     // Default keeps the original D/E suite; optional CLI letters run a
     // targeted supplement such as `node tools/profile-npc-subphases.mjs b`.
     const requestedLetters = process.argv.slice(2).map((letter) => letter.toLowerCase())
+    const repetitions = Number.parseInt(process.env.PROFILE_REPETITIONS || String(DEFAULT_REPETITIONS), 10)
+    if (!Number.isInteger(repetitions) || repetitions < 3) {
+      throw new Error(`PROFILE_REPETITIONS must be an integer >= 3, got '${process.env.PROFILE_REPETITIONS}'`)
+    }
     const scenarios = requestedLetters.length === 0
       ? SCENARIOS.filter(({ letter }) => letter === 'd' || letter === 'e')
       : requestedLetters.map((letter) => {
@@ -631,17 +674,26 @@ async function main() {
       console.log(`${sc.label}`)
       console.log('='.repeat(60))
 
-      console.log('\n[Pass A] subphase OFF')
-      const offResult = await runPass(page, sc.letter, false)
+      const offRuns = []
+      const onRuns = []
+      for (let repetition = 1; repetition <= repetitions; repetition++) {
+        console.log(`\n[Repeat ${repetition}/${repetitions}] Pass A: subphase OFF`)
+        offRuns.push(await runPass(page, sc.letter, false, repetition))
 
-      console.log('\n[Pass B] subphase ON')
-      const onResult = await runPass(page, sc.letter, true)
+        console.log(`\n[Repeat ${repetition}/${repetitions}] Pass B: subphase ON`)
+        onRuns.push(await runPass(page, sc.letter, true, repetition))
+      }
 
-      results[sc.letter] = { off: offResult, on: onResult }
+      results[sc.letter] = {
+        off: medianPasses(offRuns),
+        on: medianPasses(onRuns),
+        repetitions,
+        aggregation: 'median',
+      }
 
       // console 子階段摘要
       for (const [pk, pLabel] of [['beforeContact', 'Before Contact'], ['duringCombat', 'During Combat']]) {
-        const d = onResult[pk]
+        const d = results[sc.letter].on[pk]
         printSubphase(d?.subphaseSnapshot, d?.npcUpdateAvg, `${sc.short} ${pLabel}`)
       }
     }
@@ -650,14 +702,20 @@ async function main() {
     const outDir = path.resolve('output/profile')
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
 
-    const sourceSha = process.env.PROFILE_SOURCE_SHA
-      || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const actualSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const requestedSourceSha = process.env.PROFILE_SOURCE_SHA
+    if (requestedSourceSha && requestedSourceSha !== actualSourceSha) {
+      throw new Error(`PROFILE_SOURCE_SHA mismatch: requested ${requestedSourceSha}, current HEAD is ${actualSourceSha}`)
+    }
+    const sourceSha = actualSourceSha
     const gitLog5 = execFileSync('git', ['log', '-5', '--oneline'], { encoding: 'utf8' }).trim()
     const metadata = {
       baselineGameplaySha: BASELINE_GAMEPLAY_SHA,
       baselineProfilingSha: BASELINE_PROFILING_SHA,
       sourceSha,
       gitLog5,
+      repetitions,
+      aggregation: 'median',
       cohort: 8,
       reportingWindowMs: 1000,
       beforeContactIsLiveSimulation: true,

@@ -16,6 +16,7 @@ const OUT_DIR = path.resolve('output/profile')
 
 const BASELINE_GAMEPLAY_SHA = '524c52e051ff28159e4f09102100443dd62718da'
 const BASELINE_PROFILING_SHA = 'eb85ed95a399afa3782e973c3df0fd7e5c4dcc59'
+const BASELINE_INSTRUMENTATION_SHA = '8f5b53a1f5b74df3d89df973263dc95a95cc18bd'
 const INTERNAL_PHASES = [
   ['Mixer / clip update', 'mixerUpdate'],
   ['Locomotion state', 'locomotionState'],
@@ -76,9 +77,28 @@ function fmtDelta(result) {
   return `${direction}${result.delta.toFixed(2)} (${pct})`
 }
 
+function validateBenchmarkMetadata(data, label) {
+  const metadata = data?.metadata ?? {}
+  if (!/^[0-9a-f]{40}$/.test(metadata.sourceSha ?? '')) {
+    throw new Error(`${label} metadata.sourceSha must be a full 40-character commit SHA`)
+  }
+  if (metadata.repetitions < 3 || metadata.aggregation !== 'median') {
+    throw new Error(`${label} must contain at least 3 repetitions aggregated by median`)
+  }
+  return metadata
+}
+
 function main() {
   const baseline = readJson(BASELINE_FILE)
   const candidate = readJson(CANDIDATE_FILE)
+  const baselineMetadata = validateBenchmarkMetadata(baseline, 'Baseline')
+  const candidateMetadata = validateBenchmarkMetadata(candidate, 'Candidate')
+  if (baselineMetadata.sourceSha !== BASELINE_INSTRUMENTATION_SHA) {
+    throw new Error(`Baseline source SHA must be the instrumentation-only commit ${BASELINE_INSTRUMENTATION_SHA}, got ${baselineMetadata.sourceSha}`)
+  }
+  if (candidateMetadata.sourceSha === baselineMetadata.sourceSha) {
+    throw new Error('Baseline and candidate source SHA must differ')
+  }
   const scenarios = ['b', 'd', 'e']
   const phases = [
     ['Before Contact', 'beforeContact'],
@@ -88,7 +108,7 @@ function main() {
     ['FPS', 'fps'],
     ['CPU Frame avg (ms)', 'cpuFrame'],
     ['NPC Update avg (ms)', 'npcUpdate'],
-    ['Humanoid Animation avg (ms)', 'humanoidAnim'],
+    ['Animator.update span avg (ms)', 'humanoidAnim'],
     ...INTERNAL_PHASES.map(([label, key]) => [`Humanoid: ${label} (ms)`, key]),
     ['Renderer Submit avg (ms)', 'rendererSubmit'],
     ['Draw Calls', 'drawCalls'],
@@ -122,10 +142,13 @@ function main() {
   const metadata = {
     baselineGameplaySha: BASELINE_GAMEPLAY_SHA,
     baselineProfilingSha: BASELINE_PROFILING_SHA,
+    baselineInstrumentationSha: baselineMetadata.sourceSha,
     baselineSourceFile: path.resolve(BASELINE_FILE),
-    candidateSourceSha: candidate.metadata?.sourceSha ?? 'unknown',
+    candidateSourceSha: candidateMetadata.sourceSha,
     candidateSourceFile: path.resolve(CANDIDATE_FILE),
-    baselineGitLog5: execFileSync('git', ['log', '-5', '--oneline', BASELINE_PROFILING_SHA], { encoding: 'utf8' }).trim(),
+    baselineGitLog5: execFileSync('git', ['log', '-5', '--oneline', baselineMetadata.sourceSha], { encoding: 'utf8' }).trim(),
+    repetitions: Math.min(baselineMetadata.repetitions, candidateMetadata.repetitions),
+    aggregation: 'median',
     comparisonRule: 'exact alive/dead population match; otherwise not directly comparable',
     cohort: 8,
     reportingWindowMs: 1000,
@@ -137,7 +160,9 @@ function main() {
   lines.push('')
   lines.push(`- Gameplay baseline SHA (#45): \`${metadata.baselineGameplaySha}\``)
   lines.push(`- Profiling baseline SHA (#46): \`${metadata.baselineProfilingSha}\``)
+  lines.push(`- Instrumentation A/B baseline SHA: \`${metadata.baselineInstrumentationSha}\``)
   lines.push(`- Candidate source SHA: \`${metadata.candidateSourceSha}\``)
+  lines.push(`- Repetitions: ${metadata.repetitions}; aggregation: median.`)
   lines.push('- Cohort: deterministic 8-frame / 8-NPC slices; no manual /8.')
   lines.push('- Windows: RuntimeProfiler-aligned ~1 second; Before Contact uses live simulation.')
   lines.push('- Comparison rule: exact alive/dead match only; mismatches are reported without a delta.')
