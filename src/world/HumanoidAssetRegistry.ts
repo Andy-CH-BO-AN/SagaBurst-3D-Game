@@ -11,7 +11,9 @@ import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
 import {
+  AUDITED_ROMAN_LOD2_SHA256,
   consolidateRomanLod2,
+  isRomanLod2ConsolidationAssetAudited,
   tryCreateRomanLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
@@ -74,6 +76,32 @@ export interface HumanoidAssetManifest {
   animations?: {
     embedded: HumanoidAnimationBinding[]
     runtimeGenerated: HumanoidAnimationState[]
+  }
+}
+
+interface LoadedGltfWithSha256 {
+  gltf: GLTF
+  sha256?: string
+}
+
+async function loadGltfWithSha256(loader: GLTFLoader, url: string, resourcePath: string): Promise<LoadedGltfWithSha256> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Cannot load humanoid asset ${url} (${response.status})`)
+  const bytes = await response.arrayBuffer()
+  const gltf = await loader.parseAsync(bytes, resourcePath)
+
+  try {
+    const subtle = globalThis.crypto?.subtle
+    if (!subtle) {
+      console.warn('Roman LOD2 consolidation disabled: SHA-256 is unavailable in this runtime')
+      return { gltf }
+    }
+    const digest = await subtle.digest('SHA-256', bytes)
+    const sha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+    return { gltf, sha256 }
+  } catch (error) {
+    console.warn('Roman LOD2 consolidation disabled: failed to hash asset bytes', error)
+    return { gltf }
   }
 }
 
@@ -614,11 +642,16 @@ export class HumanoidAssetRegistry {
       const lod0File = (expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
         ? `lod0.${expGroup}.glb`
         : files.lod0
-      const levels = await Promise.all([
+      const lod2Url = `${base}/${files.lod2}`
+      const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman'
+        ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
+        : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
+      const [lod0, lod1, lod2Loaded] = await Promise.all([
         loader.loadAsync(`${base}/${lod0File}`),
         loader.loadAsync(`${base}/${files.lod1}`),
-        loader.loadAsync(`${base}/${files.lod2}`),
+        lod2Promise,
       ])
+      const levels = [lod0, lod1, lod2Loaded.gltf]
       for (const level of levels) {
         firstSkinnedMesh(level.scene)
         prepareBladeGrip(level.scene, faction)
@@ -645,9 +678,16 @@ export class HumanoidAssetRegistry {
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
       const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
-      const romanLod2Consolidation = faction === 'roman'
-        ? tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
-        : undefined
+      let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
+      if (faction === 'roman') {
+        if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
+          romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
+        } else {
+          console.warn(
+            `Roman LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} does not match audited ${AUDITED_ROMAN_LOD2_SHA256}`,
+          )
+        }
+      }
       this.templates.set(faction, { manifest, levels, bowClips, romanLod2Consolidation })
     }))
   }
