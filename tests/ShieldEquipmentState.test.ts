@@ -26,10 +26,10 @@ describe('盾牌裝備規則', () => {
     expect(b.equippedShield?.id).toBe('round_shield_t3')
   })
   it('兩陣營 T1–T3 近戰兵有盾，遠程兵無盾', () => {
-    for (const faction of [Faction.PLAYER, Faction.ENEMY]) for (const tier of [1, 2, 3] as const) {
+    for (const characterFaction of ['viking', 'roman'] as const) for (const tier of [1, 2, 3] as const) {
       for (const kind of ['infantry', 'cavalry', 'archer', 'horseArcher'] as const) {
-        const p = getUnitCombatProfile(faction, kind, tier)
-        expect(p.shieldId).toBe(kind === 'infantry' || kind === 'cavalry' ? `${faction === Faction.PLAYER ? 'round_shield' : 'scutum'}_t${tier}` : null)
+        const p = getUnitCombatProfile(characterFaction, kind, tier)
+        expect(p.shieldId).toBe(kind === 'infantry' || kind === 'cavalry' ? `${characterFaction === 'viking' ? 'round_shield' : 'scutum'}_t${tier}` : null)
       }
     }
   })
@@ -60,7 +60,7 @@ describe('盾牌裝備規則', () => {
   it('Player／NPC 槍模型共享握點、支撐點與尖端，兩盾型都有實體握把', () => {
     const a = new THREE.Group(), b = new THREE.Group()
     const tip = WeaponMeshFactory.buildMelee('steel_lance', a).tipLocal
-    expect(WeaponMeshFactory.buildNpcMelee(Faction.ENEMY, 3, true, b).equals(tip)).toBe(true)
+    expect(WeaponMeshFactory.buildNpcMelee('roman', 3, true, b).equals(tip)).toBe(true)
     expect(b.userData).toEqual(a.userData)
     for (const id of ['scutum_t2', 'round_shield_t2']) {
       const shield = new THREE.Group(); WeaponMeshFactory.buildShield(id, shield)
@@ -69,13 +69,16 @@ describe('盾牌裝備規則', () => {
     }
   })
   it('弓兵臨時裝盾保留箭數，卸盾恢復遠程；投槍持盾仍可投擲', () => {
-    for (const faction of [Faction.PLAYER, Faction.ENEMY]) {
-      const npc = new NPC(new THREE.Scene(), 0, 0, faction, AIType.RANGED, 'shield-test', 2, false)
+    for (const config of [
+      { faction: Faction.PLAYER, characterFaction: 'viking' as const, shieldId: 'round_shield_t2', hasActiveRanged: false },
+      { faction: Faction.ENEMY, characterFaction: 'roman' as const, shieldId: 'scutum_t2', hasActiveRanged: true },
+    ]) {
+      const npc = new NPC(new THREE.Scene(), 0, 0, config.faction, config.characterFaction, AIType.RANGED, 'shield-test', 2, false)
       const arrows = npc.arrows
-      npc.shieldId = faction === Faction.PLAYER ? 'round_shield_t2' : 'scutum_t2'
+      npc.shieldId = config.shieldId
       npc.rebuildShield()
       expect(npc.arrows).toBe(arrows)
-      expect((npc as any).hasActiveRangedWeapon).toBe(faction === Faction.ENEMY)
+      expect((npc as any).hasActiveRangedWeapon).toBe(config.hasActiveRanged)
       npc.shieldId = null; npc.rebuildShield()
       expect((npc as any).hasActiveRangedWeapon).toBe(true)
       expect(npc.arrows).toBe(arrows)

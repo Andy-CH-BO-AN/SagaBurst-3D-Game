@@ -89,7 +89,7 @@ type Fixture = {
 }
 
 function npcFixture(type = AIType.MELEE) {
-  const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, type, 'distance-test', 2, false)
+  const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', type, 'distance-test', 2, false)
   const fixture = npc as unknown as Fixture
   const { controller, mixers } = animation()
   fixture.rig.animation = controller

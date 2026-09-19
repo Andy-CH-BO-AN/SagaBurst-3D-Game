@@ -2,8 +2,9 @@
  * BattleConfig.ts
  * Core domain types, validation, presets, and combat mapping rules for Custom Battle.
  */
-import { Faction, AIType } from '../world/NPC'
+import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export const MAX_ARMY_SIZE = 100
 
@@ -33,6 +34,7 @@ export type BattleMode = 'formation' | 'scattered'
 export interface BattleConfig {
   mode?: BattleMode
   spectator?: boolean
+  playerFaction?: CharacterFaction
   viking: ArmyConfig
   roman: ArmyConfig
   rules: BattleRules
@@ -40,7 +42,7 @@ export interface BattleConfig {
 
 export interface UnitCombatProfile {
   shieldId: string | null
-  faction: Faction
+  characterFaction: CharacterFaction
   aiType: AIType
   cavalry: boolean
   meleeWeaponId: string
@@ -65,6 +67,7 @@ export function createEmptyBattleConfig(): BattleConfig {
   return {
     mode: 'formation',
     spectator: false,
+    playerFaction: 'viking',
     viking: createEmptyArmyConfig(),
     roman: createEmptyArmyConfig(),
     rules: {
@@ -101,6 +104,10 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 
   if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
     errors.push('spectator must be a boolean')
+  }
+
+  if (c.playerFaction !== undefined && c.playerFaction !== 'viking' && c.playerFaction !== 'roman') {
+    errors.push(`Invalid player faction: ${String(c.playerFaction)}`)
   }
 
   if (!c.viking || !c.roman) {
@@ -162,7 +169,11 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 /**
  * Returns combat profile and authoritative damage calculation for a given unit.
  */
-export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType, tier: UnitTier): UnitCombatProfile {
+export function getUnitCombatProfile(
+  characterFaction: CharacterFaction,
+  unitType: BattleUnitType,
+  tier: UnitTier
+): UnitCombatProfile {
   const aiType = (unitType === 'archer' || unitType === 'horseArcher') ? AIType.RANGED : AIType.MELEE
   const cavalry = (unitType === 'cavalry' || unitType === 'horseArcher')
   const isUsingLance = cavalry && aiType === AIType.MELEE
@@ -173,7 +184,7 @@ export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType,
 
   if (isUsingLance) {
     meleeWeaponId = 'steel_lance'
-  } else if (faction === Faction.PLAYER) {
+  } else if (characterFaction === 'viking') {
     // Viking
     const meleeT = aiType === AIType.RANGED ? 1 : tier
     meleeWeaponId = meleeT === 1 ? 'rusty_dagger' : meleeT === 2 ? 'steel_sword' : 'runic_greatsword'
@@ -184,7 +195,7 @@ export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType,
   }
 
   if (aiType === AIType.RANGED) {
-    if (faction === Faction.PLAYER) {
+    if (characterFaction === 'viking') {
       rangedWeaponId = tier === 1 ? 'wooden_shortbow' : tier === 2 ? 'recurve_longbow' : 'elven_runebow'
     } else {
       rangedWeaponId = tier === 1 ? 'pilum_basic' : tier === 2 ? 'pilum_standard' : 'legionary_pilum'
@@ -198,14 +209,14 @@ export function getUnitCombatProfile(faction: Faction, unitType: BattleUnitType,
   const rangedDamage = rangedWeaponId ? (WEAPONS[rangedWeaponId]?.damageMax ?? 22) : undefined
 
   return {
-    faction,
+    characterFaction,
     aiType,
     cavalry,
     meleeWeaponId,
     rangedWeaponId,
     baseMeleeDamage,
     finalMeleeDamage,
-    shieldId: aiType === AIType.MELEE ? `${faction === Faction.PLAYER ? 'round_shield' : 'scutum'}_t${tier}` : null,
+    shieldId: aiType === AIType.MELEE ? `${characterFaction === 'viking' ? 'round_shield' : 'scutum'}_t${tier}` : null,
     rangedDamage,
     isUsingLance,
     lanceMultiplier,
@@ -358,5 +369,7 @@ export const PRESET_DEVCOMBAT: BattleConfig = {
 }
 
 export function getDefaultBattleConfig(): BattleConfig {
-  return JSON.parse(JSON.stringify(PRESET_10V10))
+  const config: BattleConfig = JSON.parse(JSON.stringify(PRESET_10V10))
+  config.playerFaction = 'viking'
+  return config
 }

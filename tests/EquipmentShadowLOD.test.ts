@@ -26,7 +26,8 @@ describe('NPC equipment shadow LOD', () => {
   for (const faction of [Faction.PLAYER, Faction.ENEMY]) for (const tier of [1, 2, 3] as const) {
     for (const aiType of [AIType.MELEE, AIType.RANGED]) {
       it(`${faction} T${tier} ${aiType}: only LOD2 shadows change`, () => {
-        const npc = new NPC(new THREE.Scene(), 0, 0, faction, aiType, 'shadow-test', tier, false)
+        const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
+        const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, aiType, 'shadow-test', tier, false)
         const equipment: THREE.Mesh[] = []
         npc.equipmentVisualLOD.forEachRoot((_, root) => equipment.push(...meshes(root)))
         const originals = equipment.map(mesh => mesh.castShadow)
@@ -52,7 +53,8 @@ describe('NPC equipment shadow LOD', () => {
   for (const faction of [Faction.PLAYER, Faction.ENEMY]) for (const tier of [1, 2, 3]) {
     it(`${faction} T${tier} lance: keeps both meshes visible and restores shadows`, () => {
       const root = new THREE.Group(), controller = new EquipmentVisualLODController()
-      WeaponMeshFactory.buildNpcMelee(faction, tier, true, root)
+      const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
+      WeaponMeshFactory.buildNpcMelee(characterFaction, tier, true, root)
       const equipment = meshes(root)
       equipment.forEach(mesh => { mesh.castShadow = true })
       controller.register('lance', root)
@@ -112,7 +114,7 @@ describe('NPC equipment shadow LOD', () => {
   })
 
   it('applies LOD2 to replacement shields immediately and restores originals on return', () => {
-    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, AIType.MELEE, 'rebuild', 3, false)
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'rebuild', 3, false)
     const root = (npc as any).shieldPivot as THREE.Group
     npc.equipmentVisualLOD.setLOD(2)
     const oldMeshes = meshes(root)
@@ -129,7 +131,8 @@ describe('NPC equipment shadow LOD', () => {
 
   it('keeps LOD2 shadows disabled through ranged/melee switching and respawn', () => {
     for (const faction of [Faction.PLAYER, Faction.ENEMY]) {
-      const npc = new NPC(new THREE.Scene(), 0, 0, faction, AIType.RANGED, 'lifecycle', 3, false)
+      const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
+      const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, AIType.RANGED, 'lifecycle', 3, false)
       npc.equipmentVisualLOD.setLOD(2)
       const expectFar = () => {
         const census = collectEquipmentRenderCensus([npc])
@@ -153,7 +156,7 @@ describe('NPC equipment shadow LOD', () => {
     const originals = meshes(player.group).map(mesh => ({ mesh, visible: mesh.visible, cast: mesh.castShadow, receive: mesh.receiveShadow }))
     const other = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); other.castShadow = true
     scene.add(other)
-    const npc = new NPC(scene, 0, 0, Faction.PLAYER, AIType.RANGED, 'player-control', 3, false)
+    const npc = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'player-control', 3, false)
     for (const level of [2, 1, 0, 2] as const) {
       npc.equipmentVisualLOD.setLOD(level)
       for (const { mesh, visible, cast, receive } of originals) {

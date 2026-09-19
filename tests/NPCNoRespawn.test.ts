@@ -7,7 +7,7 @@ describe("NPC Deterministic Respawn Rules", () => {
   it("never respawns when respawnEnabled is false, even after advancing past the 10.0s window", () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)
-    const npc = new NPC(scene, 0, 80, Faction.ENEMY, AIType.MELEE, "TestRoman", 1, false)
+    const npc = new NPC(scene, 0, 80, Faction.ENEMY, 'roman', AIType.MELEE, "TestRoman", 1, false)
 
     // Explicitly configure rules: respawn disabled
     npc.respawnEnabled = false
@@ -46,7 +46,7 @@ describe("NPC Deterministic Respawn Rules", () => {
   it("respawns when respawnEnabled is true after the 10.0s window", () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)
-    const npc = new NPC(scene, 0, 80, Faction.ENEMY, AIType.MELEE, "TestRoman", 1, false)
+    const npc = new NPC(scene, 0, 80, Faction.ENEMY, 'roman', AIType.MELEE, "TestRoman", 1, false)
 
     // Explicitly configure rules: respawn enabled
     npc.respawnEnabled = true

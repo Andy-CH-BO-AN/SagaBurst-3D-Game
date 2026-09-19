@@ -12,8 +12,8 @@ const count = (root: THREE.Object3D) => { let n = 0; root.traverseVisible(o => {
 function build(kind: string, tier: number) {
   const root = new THREE.Group()
   let tip: THREE.Vector3 | undefined
-  if (kind === 'viking' || kind === 'roman' || kind === 'lance') tip = WeaponMeshFactory.buildNpcMelee(kind === 'roman' ? Faction.ENEMY : Faction.PLAYER, tier, kind === 'lance', root)
-  else if (kind === 'pilum') WeaponMeshFactory.buildNpcRanged(Faction.ENEMY, tier, root)
+  if (kind === 'viking' || kind === 'roman' || kind === 'lance') tip = WeaponMeshFactory.buildNpcMelee(kind === 'roman' ? 'roman' : 'viking', tier, kind === 'lance', root)
+  else if (kind === 'pilum') WeaponMeshFactory.buildNpcRanged('roman', tier, root)
   else if (kind === 'bow') {
     const action = new THREE.Group(); action.add(root)
     const bow = new CharacterBowVisual(action, root)
@@ -91,7 +91,8 @@ describe('equipment visual LOD', () => {
 
   it('keeps far detail policy through ranged-to-melee and respawn root visibility changes', () => {
     for (const faction of [Faction.PLAYER, Faction.ENEMY]) {
-      const npc = new NPC(new THREE.Scene(), 0, 0, faction, AIType.RANGED, 'lifecycle', 3, false)
+      const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
+      const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, AIType.RANGED, 'lifecycle', 3, false)
       const fixture = npc as any
       npc.equipmentVisualLOD.setLOD(2)
       const counts = collectEquipmentRenderCensus([npc])
@@ -108,7 +109,7 @@ describe('equipment visual LOD', () => {
   })
 
   it('replaces rebuilt shield registration immediately, counts ancestors and leaves Player full detail', () => {
-    const scene = new THREE.Scene(), npc = new NPC(scene, 0, 0, Faction.PLAYER, AIType.MELEE, 'LOD', 3, false)
+    const scene = new THREE.Scene(), npc = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'LOD', 3, false)
     const player = new Player(scene), fixture = npc as any
     const playerDetails: THREE.Object3D[] = []
     player.group.traverse(o => { if (o.userData.equipmentLastVisibleLOD !== undefined) playerDetails.push(o) })

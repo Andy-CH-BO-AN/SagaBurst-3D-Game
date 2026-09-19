@@ -248,7 +248,7 @@ describe('Targeted Verification: Lance Reach, Attack Speed & Hit Mechanics', () 
 
   it('NPC Lance: forward reach within 3.9m corridor hits, behind does not hit', () => {
     const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 0, Faction.ENEMY, AIType.MELEE, 'LanceFighter', 2, false)
+    const npc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'LanceFighter', 2, false)
     npc.isUsingLance = true
     npc.meleeAttackRadius = 3.9
 

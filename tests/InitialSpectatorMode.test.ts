@@ -432,10 +432,10 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       expect(player.targetable).toBe(false)
 
       // Allied Viking NPC at (0, 0, 20)
-      const vikingNpc = new NPC(scene, 0, 20, Faction.PLAYER, AIType.MELEE, 'Viking', 1, false)
+      const vikingNpc = new NPC(scene, 0, 20, Faction.PLAYER, 'viking', AIType.MELEE, 'Viking', 1, false)
 
       // Enemy Roman NPC at (0, 0, 0)
-      const enemyNpc = new NPC(scene, 0, 0, Faction.ENEMY, AIType.MELEE, 'Roman', 1, false)
+      const enemyNpc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Roman', 1, false)
 
       // Call internal target finding via update or inspect target selection
       // Even though Player is closer (dist 5) than Viking NPC (dist 20), enemy must target Viking NPC

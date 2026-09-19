@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
-import { Faction } from '../src/world/NPC'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 
 function shapeSignature(root: THREE.Object3D): unknown[] {
@@ -57,7 +56,7 @@ describe('T1–T3 melee parity', () => {
   it('uses the default Roman gladius shape for all tiers with distinct surface patterns', () => {
     const groups = [1, 2, 3].map(tier => {
       const group = new THREE.Group()
-      const tip = WeaponMeshFactory.buildNpcMelee(Faction.ENEMY, tier, false, group)
+      const tip = WeaponMeshFactory.buildNpcMelee('roman', tier, false, group)
       return { group, tip }
     })
     expect(groups.map(({ group }) => shapeSignature(group))).toEqual(Array(3).fill(shapeSignature(groups[1].group)))

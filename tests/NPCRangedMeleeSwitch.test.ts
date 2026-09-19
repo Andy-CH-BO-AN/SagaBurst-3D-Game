@@ -43,7 +43,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     name: string,
   ): { npc: NPC; mount: Mount } {
     const mount = new Mount(scene, MountType.CORGI, x, z)
-    const npc = new NPC(scene, x, z, faction, aiType, name, 1, false)
+    const npc = new NPC(scene, x, z, faction, faction === Faction.ENEMY ? 'roman' : 'viking', aiType, name, 1, false)
     npc.mount = mount
     mount.setNpcRider(npc, faction)
     return { npc, mount }
@@ -51,7 +51,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
 
   describe('Distance Boundaries for Foot Archer', () => {
     it('switches to melee commit at 5.9m (dist < 6m)', () => {
-      const npc = new NPC(scene, 0, 5.9, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 5.9, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
       expect((npc as any).bowPivot.visible).toBe(true)
@@ -67,7 +67,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('stays ranged at 6.0m (6m <= dist <= 22m)', () => {
-      const npc = new NPC(scene, 0, 6.0, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 6.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -80,7 +80,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('stays ranged at 22.0m (6m <= dist <= 22m)', () => {
-      const npc = new NPC(scene, 0, 22.0, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 22.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -92,7 +92,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('approaches target at 22.1m (dist > 22m)', () => {
-      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -104,7 +104,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('transitions from ATTACK to CHASE if target retreats past 22m (22.1m)', () => {
-      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.ATTACK
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -159,7 +159,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
   describe('Melee Commit Irreversibility', () => {
     it('does NOT re-equip bow when enemy retreats to 10m or 25m after <6m melee commit', () => {
       // Step 1: Trigger melee switch at 5.0m
-      const npc = new NPC(scene, 0, 5.0, Faction.ENEMY, AIType.RANGED, 'FootArcher', 1, false)
+      const npc = new NPC(scene, 0, 5.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
       npc.state = AIState.CHASE
       updateNpc(npc)
 
@@ -224,7 +224,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('updates foot NPC position at 30% speed when moving backward', () => {
-      const npc = new NPC(scene, 0, 10, Faction.PLAYER, AIType.MELEE, 'TestNPC', 1, false)
+      const npc = new NPC(scene, 0, 10, Faction.PLAYER, 'viking', AIType.MELEE, 'TestNPC', 1, false)
       npc.group.rotation.y = 0 // facing +Z
       const startPos = npc.group.position.clone()
 
@@ -271,7 +271,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('updates foot NPC position at 100% speed when moving lateral', () => {
-      const npc = new NPC(scene, 0, 10, Faction.PLAYER, AIType.MELEE, 'FootNPC', 1, false)
+      const npc = new NPC(scene, 0, 10, Faction.PLAYER, 'viking', AIType.MELEE, 'FootNPC', 1, false)
       npc.group.rotation.y = 0 // facing +Z
       const startPos = npc.group.position.clone()
 
@@ -286,7 +286,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     })
 
     it('early returns on zero vector movement without altering position or visualMovementSpeed', () => {
-      const npc = new NPC(scene, 0, 10, Faction.PLAYER, AIType.MELEE, 'TestNPC', 1, false)
+      const npc = new NPC(scene, 0, 10, Faction.PLAYER, 'viking', AIType.MELEE, 'TestNPC', 1, false)
       ;(npc as any).visualMovementSpeed = 0
       const startPos = npc.group.position.clone()
 

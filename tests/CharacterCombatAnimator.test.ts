@@ -461,7 +461,7 @@ describe('Phase 21 procedural presentation', () => {
     expect(swordTip.y).toBeGreaterThan(1.45)
 
     const gladius = new THREE.Group()
-    const gladiusTip = WeaponMeshFactory.buildNpcMelee(Faction.ENEMY, 2, false, gladius)
+    const gladiusTip = WeaponMeshFactory.buildNpcMelee('roman', 2, false, gladius)
     expect(gladius.getObjectByName('roman-gladius-profiled-blade')).toBeDefined()
     expect(gladiusTip.y).toBeGreaterThan(0.8)
 

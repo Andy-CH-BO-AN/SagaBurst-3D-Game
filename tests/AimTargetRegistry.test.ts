@@ -9,7 +9,7 @@ describe('AimTargetRegistry', () => {
   it('registers and unregisters NPC aim proxy cleanly without duplicates', () => {
     const registry = new AimTargetRegistry()
     const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 10, Faction.ENEMY, AIType.MELEE, 'TestNPC', 1, false)
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.MELEE, 'TestNPC', 1, false)
 
     expect(registry.targets.length).toBe(0)
 
@@ -28,7 +28,7 @@ describe('AimTargetRegistry', () => {
   it('removes NPC proxy on death and re-adds upon respawn', () => {
     const registry = new AimTargetRegistry()
     const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 10, Faction.ENEMY, AIType.MELEE, 'TestNPC', 1, false)
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.MELEE, 'TestNPC', 1, false)
 
     registry.registerNpc(npc)
     expect(registry.targets.includes(npc.aimCollider)).toBe(true)
@@ -84,7 +84,7 @@ describe('AimTargetRegistry', () => {
 
   it('enforces aim proxy layer semantics: visible=true, hit by raycaster (recursive=false), ignored by camera', () => {
     const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 10, Faction.ENEMY, AIType.MELEE, 'LayerNPC', 1, false)
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.MELEE, 'LayerNPC', 1, false)
     npc.group.position.set(0, 0, 5)
     npc.group.updateMatrixWorld(true)
 
