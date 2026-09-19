@@ -124,7 +124,7 @@ export class ArrowProjectile {
       this.tipLocalZ = -1.4
       const shaft = new THREE.Mesh(shared.pilumShaft, shared.woodMaterial)
       shaft.rotation.x = Math.PI / 2
-      shaft.castShadow = true
+      shaft.castShadow = this.isPlayerFired
       this.mesh.add(shaft)
 
       const socket = new THREE.Mesh(shared.pilumSocket, shared.ironMaterial)
@@ -152,7 +152,7 @@ export class ArrowProjectile {
       this.tipLocalZ = -0.52
       const shaft = new THREE.Mesh(shared.arrowShaft, shared.woodMaterial)
       shaft.rotation.x = Math.PI / 2
-      shaft.castShadow = true
+      shaft.castShadow = this.isPlayerFired
       this.mesh.add(shaft)
 
       const tip = new THREE.Mesh(shared.arrowTip, shared.ironMaterial)
@@ -163,6 +163,12 @@ export class ArrowProjectile {
       const fin = new THREE.Mesh(shared.arrowFin, shared.featherMaterial)
       fin.position.z = 0.4
       this.mesh.add(fin)
+    }
+
+    if (!this.isPlayerFired) {
+      for (const child of this.mesh.children) {
+        child.castShadow = false
+      }
     }
 
     this.mesh.position.copy(origin)
