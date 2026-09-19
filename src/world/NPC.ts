@@ -459,11 +459,11 @@ export class NPC {
   }
 
   private _updateBowVisualAtTarget(drawRatio: number, aimPoint: THREE.Vector3, showArrow: boolean): void {
-    const collector = this.animationCollector
-    if (!collector) {
+    if (!(import.meta.env.DEV && this.animationCollector)) {
       this.bowVisual?.update(drawRatio, aimPoint, showArrow)
       return
     }
+    const collector = this.animationCollector
     const t0 = performance.now()
     try {
       this.bowVisual?.update(drawRatio, aimPoint, showArrow)

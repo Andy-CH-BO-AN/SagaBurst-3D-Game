@@ -29,7 +29,7 @@ import type {
   HumanoidAnimationState,
   LegRig,
 } from './CharacterVisuals'
-import type { HumanoidAnimationPhase, NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
+import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 export interface HumanoidAnimationBinding {
   clip: HumanoidAnimationState
@@ -311,37 +311,31 @@ export class MixerController implements HumanoidAnimationController {
     this.subphaseCollector = collector
   }
 
-  private measureHumanoid<T>(phase: HumanoidAnimationPhase, work: () => T): T {
-    const collector = this.subphaseCollector
-    if (!collector) return work()
-    const t0 = performance.now()
-    try {
-      return work()
-    } finally {
-      collector.endHumanoidPhase(phase, t0)
-    }
-  }
-
   setEquipmentState(state: Partial<EquipmentPoseState>): void {
-    this.measureHumanoid('equipmentState', () => Object.assign(this.equipmentState, state))
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    Object.assign(this.equipmentState, state)
+    if (phaseCollector) phaseCollector.endHumanoidPhase('equipmentState', phaseStart)
   }
   private needsLevel(index: number): boolean {
     return this.visibleLOD === null || index === 0 || index === this.visibleLOD || this.transitionRemaining > 0
   }
   private restoreEquipment(all = false): void {
-    this.measureHumanoid('rigBoneApplication', () => {
-      this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
-    })
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
+    if (phaseCollector) phaseCollector.endHumanoidPhase('rigBoneApplication', phaseStart)
   }
   private finishPose(all = false): void {
-    this.measureHumanoid('rigBoneApplication', () => {
-      const alive = this.equipmentState.alive
-      this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
-      Object.assign(this.evaluatedEquipmentState, this.equipmentState)
-      this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
-      this.equipmentState.alive = alive
-      this.onPoseEvaluated?.()
-    })
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    const alive = this.equipmentState.alive
+    this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
+    Object.assign(this.evaluatedEquipmentState, this.equipmentState)
+    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
+    this.equipmentState.alive = alive
+    this.onPoseEvaluated?.()
+    if (phaseCollector) phaseCollector.endHumanoidPhase('rigBoneApplication', phaseStart)
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -350,7 +344,10 @@ export class MixerController implements HumanoidAnimationController {
     const dt = this.pendingMixerDt[index]
     if (dt === 0) return
     this.equipmentLayers[index]?.restore()
-    this.measureHumanoid('mixerUpdate', () => this.mixers[index].update(dt))
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    this.mixers[index].update(dt)
+    if (phaseCollector) phaseCollector.endHumanoidPhase('mixerUpdate', phaseStart)
     this.pendingMixerDt[index] = 0
   }
   private catchUpInactive(): void {
@@ -425,9 +422,10 @@ export class MixerController implements HumanoidAnimationController {
   setSwordHandShape(enabled: boolean): void {
     if (this.swordHandEnabled === enabled) return
     this.swordHandEnabled = enabled
-    this.measureHumanoid('equipmentState', () => {
-      for (const mesh of this.swordMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.swordHand] = enabled ? 1 : 0
-    })
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    for (const mesh of this.swordMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.swordHand] = enabled ? 1 : 0
+    if (phaseCollector) phaseCollector.endHumanoidPhase('equipmentState', phaseStart)
   }
 
   setPoseLayersEnabled(enabled: boolean): void {
@@ -437,14 +435,15 @@ export class MixerController implements HumanoidAnimationController {
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
     if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) this.catchUpInactive()
-    this.measureHumanoid('equipmentState', () => {
-      if (this.bowLegState !== state) {
-        for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
-        for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
-        this.bowLegState = state
-      }
-      for (const action of this.bowLegActions.get(state) ?? []) action.timeScale = timeScale
-    })
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    const phaseStart = phaseCollector ? performance.now() : 0
+    if (this.bowLegState !== state) {
+      for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
+      for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
+      this.bowLegState = state
+    }
+    for (const action of this.bowLegActions.get(state) ?? []) action.timeScale = timeScale
+    if (phaseCollector) phaseCollector.endHumanoidPhase('equipmentState', phaseStart)
   }
 
   getDuration(state: HumanoidAnimationState): number | undefined {
@@ -479,10 +478,16 @@ export class MixerController implements HumanoidAnimationController {
           }
         }
       }
-      if (state === 'idle' || state === 'walk' || state === 'run' || state === 'mounted') {
-        this.measureHumanoid('locomotionState', applyCurrentState)
+      const phase = state === 'idle' || state === 'walk' || state === 'run' || state === 'mounted'
+        ? 'locomotionState'
+        : 'equipmentState'
+      const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+      if (phaseCollector) {
+        const phaseStart = performance.now()
+        applyCurrentState()
+        phaseCollector.endHumanoidPhase(phase, phaseStart)
       } else {
-        this.measureHumanoid('equipmentState', applyCurrentState)
+        applyCurrentState()
       }
       return true
     }
@@ -522,7 +527,16 @@ export class MixerController implements HumanoidAnimationController {
       action.paused = true
     }
     this.restoreEquipment(true)
-    for (const mixer of this.mixers) this.measureHumanoid('mixerUpdate', () => mixer.update(0))
+    const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+    for (const mixer of this.mixers) {
+      if (phaseCollector) {
+        const phaseStart = performance.now()
+        mixer.update(0)
+        phaseCollector.endHumanoidPhase('mixerUpdate', phaseStart)
+      } else {
+        mixer.update(0)
+      }
+    }
     this.finishPose(true)
     return true
   }
@@ -538,7 +552,14 @@ export class MixerController implements HumanoidAnimationController {
     this.restoreEquipment()
     for (let index = 0; index < this.mixers.length; index++) {
       if (this.needsLevel(index)) {
-        this.measureHumanoid('mixerUpdate', () => this.mixers[index].update(this.pendingMixerDt[index] + dt))
+        const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+        if (phaseCollector) {
+          const phaseStart = performance.now()
+          this.mixers[index].update(this.pendingMixerDt[index] + dt)
+          phaseCollector.endHumanoidPhase('mixerUpdate', phaseStart)
+        } else {
+          this.mixers[index].update(this.pendingMixerDt[index] + dt)
+        }
         this.pendingMixerDt[index] = 0
       } else this.pendingMixerDt[index] += dt
     }
