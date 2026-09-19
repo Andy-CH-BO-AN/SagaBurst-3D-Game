@@ -41,11 +41,12 @@ The player is an additional participant on the selected side and does **not** co
 
 1. Open the game and use **Army Setup** to configure both armies, Player Faction, and **Formation Battle** or **Scattered Battle**.
 2. Open **Player Loadout** and choose a melee weapon, ranged weapon, shield (or no shield), and whether to start **Mounted** or **On Foot**.
-3. Click **START BATTLE**.
-4. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
-5. Fight alongside the selected allied army using swords, gladii, lances, bows, pila, shields, and horses.
-6. A battle ends when either configured AI army is eliminated.
-7. Use **REMATCH** to replay the same battle configuration or **BACK TO SETUP** to build another battle.
+3. Optional: enable **Spectator** to enter the battle directly with a free-flying camera instead of spawning a player character or starting horse.
+4. Click **START BATTLE**.
+5. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
+6. Fight alongside the selected allied army using swords, gladii, lances, bows, pila, shields, and horses.
+7. A battle ends when either configured AI army is eliminated.
+8. Use **REMATCH** to replay the same battle configuration or **BACK TO SETUP** to build another battle.
 
 If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
@@ -145,9 +146,7 @@ The `devcombat` mode includes reproducible battle presets used for performance p
 | `?devcombat=a` | 50 vs 50 infantry control scenario |
 | `?devcombat=b` | 100 vs 100 infantry scaling scenario |
 | `?devcombat=c` | 100 vs 100 mixed army scenario |
-| `?devcombat=d` | 100 vs 100 formation cavalry / horse-archer stress scenario |
-| `?devcombat=e` | 100 vs 100 all-melee cavalry, Scattered Battle, initial spectator, no camps / respawn |
-| `?devcombat=f` | 100 vs 100 mixed cavalry (50 melee cavalry + 50 horse archers per faction), Scattered Battle, initial spectator, no camps / respawn |
+| `?devcombat=d` | 100 vs 100 cavalry / horse-archer stress scenario |
 | `?devcombat` | Legacy fixed 50 vs 50 mounted developer scenario |
 
 `devcombat` exposes a runtime profiling HUD with wall-clock FPS, CPU frame work, NPC update time, collision time, projectile / impact work, renderer submit time, draw calls, triangle count, horse count, and LOD statistics.
@@ -169,38 +168,12 @@ Examples:
 http://localhost:5173/?devcombat=b&nolock
 http://localhost:5173/?devcombat=c&nolock
 http://localhost:5173/?devcombat=d&nolock
-http://localhost:5173/?devcombat=f&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
 ```
 
 There is no separate hardcoded **Standard** battle mode. Normal gameplay is fully driven by Custom Battle configuration.
 
-## 📊 Performance Profiling
-
-Large-battle profiling is designed around real headed-browser measurements rather than software-rendered headless FPS.
-
-The benchmark runner records the browser / WebGL environment and validates that a hardware renderer is being used before treating a run as a reliable gameplay baseline.
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-The broad benchmark suite runs the A–D scenarios and records before-contact and during-combat measurements including FPS, CPU work, renderer submit time, NPC update time, collision cost, draw calls, and triangles.
-
-For shadow-path work, Scenario F is the current mixed-cavalry isolation scene. The fixed-scene runner freezes simulation while keeping the render loop alive, verifies scene invariants, and compares Shadow ON / OFF / ON without treating renderer-submit time as pure GPU time:
-
-```bash
-node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
-```
-
-Recent structural shadow optimizations on `main` include:
-
-- **Roman humanoids** — LOD0 / LOD1 shadow casters reduced from 17 to 5 per instance while LOD2 remains shadow-free.
-- **NPC equipment** — Scenario F equipment shadow submissions reduced from 127 to 68 by keeping only silhouette-relevant casters; equipment LOD2 remains shadow-free.
-- **NPC projectiles** — flying NPC arrows and pila no longer cast shadows, reducing their structural shadow cost from 1 submission per active projectile to 0. Player-fired projectile shadows are preserved.
-
-Structural submission counts and shadow-census results are treated as the primary causal evidence. Cross-commit FPS / renderer-submit differences are reported only as directional timing evidence unless the exact same scene state is replayed.
 
 ## 🧰 Development Commands
 
