@@ -49,48 +49,64 @@ description: 用固定的 browser lifecycle、warm-up、20 秒取樣與 JSON 輸
 - 目的在於找 **magnitude / bottleneck direction**，不要一開始就跑 `4 probes × 3 runs`。
 - 若某個 probe 出現巨大差異（如 Submit 40ms → 25ms），後續才針對該方向做進一步驗證與拆解。
 
+## Fixed-Scene Shadow Isolation (固定場景陰影歸因診斷)
+
+用於精準拆解 Shadow 渲染路徑成本與陰影投射人口結構，完全排除動態戰況（存活數、箭矢數、LOD 分佈、鏡頭）干擾。
+
+### 診斷流程
+
+1. 啟動 Scenario F (`?devcombat=f&nolock`)
+2. 偵測 Combat Evidence (Active Attack > 0 || Arrow Count > 0 || Dead > 0)
+3. 戰況展開固定 4 秒
+4. Simulation Freeze (凍結所有 NPC、戰馬、箭矢推進與鏡頭輸入，保持 requestAnimationFrame 與 Renderer Submit 運作)
+5. **Window A (Shadow ON #1)**: 隔離 RuntimeProfiler，1 秒穩定，4 秒取樣，取 MainPassCensus 與 ShadowPassCensus
+6. **Window B (Shadow OFF)**: 同一畫面不 reload，關閉 shadowMap，隔離 RuntimeProfiler，1 秒穩定，4 秒取樣，取 MainPassCensus 驗證 non-shadow invariant (submissions/triangles 必須完全相等)
+7. **Window C (Shadow ON #2)**: 重新開啟陰影，驗證 Submit 是否無異常 drift 並回到 ON #1 水平
+8. 執行嚴格 Invariant 檢查（Alive/Dead、Arrow、Horse、Camera transform、Main non-shadow calls/tris 必須 100% 吻合）
+9. 輸出 A/B 比較表與 Shadow Pass Census (類別：Horse, Viking Humanoid, Roman Humanoid, Equipment, Other / Static)
+
 ## 執行方式
 
 在 repo root 執行：
 
 ### 1. 標準 Mount / NPC Benchmark
 ```bash
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=D --phase=before-contact --runs=3 --tag=candidate
 ```
 
 Scenario E 的 combat observation：
 ```bash
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=E --phase=during-combat --runs=1 --tag=candidate-e-combat
 ```
 
 ### 2. Scenario F Renderer Isolation Probes
 ```bash
 # Probe A: Normal
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=F --phase=during-combat --runs=1 --render-probe=normal \
   --tag=f-probe-normal --out=output/local-diagnostics/f-probe-normal.json
 
 # Probe B: Shadow OFF
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=F --phase=during-combat --runs=1 --render-probe=no-shadow \
   --tag=f-probe-no-shadow --out=output/local-diagnostics/f-probe-no-shadow.json
 
 # Probe C: Half Resolution
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=F --phase=during-combat --runs=1 --render-probe=half-resolution \
   --tag=f-probe-half-resolution --out=output/local-diagnostics/f-probe-half-resolution.json
 
 # Probe D: Simple Material
-node .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=F --phase=during-combat --runs=1 --render-probe=simple-material \
   --tag=f-probe-simple-material --out=output/local-diagnostics/f-probe-simple-material.json
 ```
 
 ### 3. 多 Probe 結果對比
 ```bash
-node .agents/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs \
+node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs \
   --scenario=F \
   --normal=output/local-diagnostics/f-probe-normal.json \
   --no-shadow=output/local-diagnostics/f-probe-no-shadow.json \
@@ -98,18 +114,29 @@ node .agents/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mj
   --simple-material=output/local-diagnostics/f-probe-simple-material.json
 ```
 
+### 4. Fixed-Scene Shadow Breakdown (固定場景陰影與 Census 診斷)
+```bash
+# AGY 本機執行入口（.agents 連結至 ai_share）
+node .agents/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
+
+# 或標準 repo 執行入口
+node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
+```
+
 ## 判讀限制
 
 - Before Contact 是正式 A/B performance comparison；如果沒有可靠 Alive/Dead，或 provisional window 不足，報告不足，不要把 `NPC Count` 當成戰場存活數，也不要補值。
 - E 與 F 的 combat 數據不是無效數據；它應該用來回答亂戰中的 Hotspot 與 Submit 特徵。若兩邊 Alive/Dead 進度不同，只把它當 hotspot context，不能宣稱是嚴格的 FPS 因果 A/B。
+- Fixed-Scene Shadow Isolation 是歸因診斷工具，不是一般 combat FPS benchmark；其結果用於鎖定陰影管線各類 caster 的負載權重。
 - exact main 若沒有內部 Mount profiler，必須明確標記 subphase baseline 來自 profiling-only checkpoint，不要假裝 exact main 有該數據。
 - benchmark script 的 `performance.now()` 只存在於 DEV browser recorder；不要把這套 recorder 複製進 production runtime。
 
 ## 完成前檢查
 
 ```bash
-node --check .agents/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs
-node --check .agents/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs
+node --check ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs
+node --check ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs
+node --check ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
 npm test -- --run
 npm run build
 git diff --check
