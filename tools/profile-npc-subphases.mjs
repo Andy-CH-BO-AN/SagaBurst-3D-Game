@@ -9,8 +9,8 @@
  *   node tools/profile-npc-subphases.mjs b     # Scenario B only
  *
  * 輸出：
- *   output/profile/npc-subphase-results.json
- *   output/profile/npc-subphase-table.md
+ *   output/profile/humanoid-animation-results.json
+ *   output/profile/humanoid-animation-table.md
  *
  * 量測邏輯：
  *   每個 Scenario 各跑兩次：
@@ -24,13 +24,15 @@
  */
 
 import { chromium } from 'playwright'
-import { spawn } from 'child_process'
+import { spawn, execFileSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
 const PORT = 5177   // 用不常用的 port 避免衝突
 const BASE_URL = `http://localhost:${PORT}`
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const BASELINE_GAMEPLAY_SHA = '524c52e051ff28159e4f09102100443dd62718da'
+const BASELINE_PROFILING_SHA = 'eb85ed95a399afa3782e973c3df0fd7e5c4dcc59'
 const SCENARIOS = [
   { letter: 'b', label: 'Scenario B (100v100 Infantry)', short: 'B' },
   { letter: 'd', label: 'Scenario D (100v100 Cavalry + Horse Archer)', short: 'D' },
@@ -324,15 +326,43 @@ function printSubphase(subSnap, npcUpdateAvg, label) {
   const classified = phases.reduce((s, [, v]) => s + (v?.avg ?? 0), 0)
   const other = Math.max(0, ref - classified)
   console.log(`    ${'Other (est.)'.padEnd(22)}: ${other.toFixed(2).padStart(6)} ms  ${((other / ref) * 100).toFixed(0).padStart(3)}%`)
+
+  const humanoidRef = subSnap.humanoidAnim?.avg ?? 1
+  const humanoidPhases = [
+    ['Mixer / clip update', subSnap.humanoidBreakdown?.mixerUpdate],
+    ['Locomotion state', subSnap.humanoidBreakdown?.locomotionState],
+    ['Procedural pose', subSnap.humanoidBreakdown?.proceduralPose],
+    ['Equipment state', subSnap.humanoidBreakdown?.equipmentState],
+    ['Bow / lance pose', subSnap.humanoidBreakdown?.bowLancePose],
+    ['Rig / bone application', subSnap.humanoidBreakdown?.rigBoneApplication],
+  ]
+  console.log(`    Humanoid internal (ref ${humanoidRef.toFixed(2)} ms):`)
+  for (const [lbl, stat] of humanoidPhases) {
+    const avg = stat?.avg ?? 0
+    console.log(`      ${lbl.padEnd(24)}: ${avg.toFixed(2).padStart(6)} ms  ${((avg / humanoidRef) * 100).toFixed(0).padStart(3)}%`)
+  }
 }
 
 // ─── Markdown 報告 ────────────────────────────────────────────
-function buildReport(scenarios, results) {
+function buildReport(scenarios, results, metadata) {
   const lines = []
 
-  lines.push('# NPC Subphase Profiling Report')
+  lines.push('# Humanoid Animation Profiling Report')
   lines.push('')
   lines.push(`Generated: ${new Date().toISOString()}`)
+  lines.push('')
+  lines.push('## Benchmark Identity')
+  lines.push('')
+  lines.push('- Gameplay baseline SHA (#45): `' + metadata.baselineGameplaySha + '`')
+  lines.push('- Profiling baseline SHA (#46): `' + metadata.baselineProfilingSha + '`')
+  lines.push('- Source SHA measured: `' + metadata.sourceSha + '`')
+  lines.push('- Cohort: deterministic 8-frame / 8-NPC slices; values are not divided by 8.')
+  lines.push('- Reporting window: RuntimeProfiler-aligned ~1 second.')
+  lines.push('- Before Contact: live simulation after warmup; Scenario E: 200 NPCs.')
+  lines.push('')
+  lines.push('```text')
+  lines.push(metadata.gitLog5)
+  lines.push('```')
   lines.push('')
 
   // ── Overhead 對比 ──
@@ -356,8 +386,8 @@ function buildReport(scenarios, results) {
   // ── Raw Metrics ──
   lines.push('## Raw Profiler Metrics (subphase ON)')
   lines.push('')
-  lines.push('| Scenario | Phase | Alive/Dead | FPS | CPU Frame avg/max | NPC Update avg/max | Renderer Submit avg/max | Draw Calls |')
-  lines.push('| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |')
+  lines.push('| Scenario | Phase | Alive/Dead | FPS | CPU Frame avg/max | NPC Update avg/max | Humanoid Animation avg/max | Renderer Submit avg/max | Draw Calls |')
+  lines.push('| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |')
   for (const sc of scenarios) {
     const r = results[sc.letter]
     if (!r) continue
@@ -366,7 +396,8 @@ function buildReport(scenarios, results) {
       const s = d?.snapshot
       if (!s) continue
       const lbl = pk === 'beforeContact' ? `**${sc.label}**` : ''
-      lines.push(`| ${lbl} | ${phase} | ${d.alive}/${d.dead} | ${s.fps.toFixed(1)} | ${s.cpuFrame.avg.toFixed(1)} / ${s.cpuFrame.max.toFixed(1)} | ${s.npcUpdate.avg.toFixed(2)} / ${s.npcUpdate.max.toFixed(2)} | ${s.renderSubmit.avg.toFixed(1)} / ${s.renderSubmit.max.toFixed(1)} | ${d.drawCalls?.toLocaleString() ?? '--'} |`)
+      const humanoid = d.subphaseSnapshot?.humanoidAnim
+      lines.push(`| ${lbl} | ${phase} | ${d.alive}/${d.dead} | ${s.fps.toFixed(1)} | ${s.cpuFrame.avg.toFixed(1)} / ${s.cpuFrame.max.toFixed(1)} | ${s.npcUpdate.avg.toFixed(2)} / ${s.npcUpdate.max.toFixed(2)} | ${humanoid?.avg?.toFixed(2) ?? '--'} / ${humanoid?.max?.toFixed(2) ?? '--'} | ${s.renderSubmit.avg.toFixed(1)} / ${s.renderSubmit.max.toFixed(1)} | ${d.drawCalls?.toLocaleString() ?? '--'} |`)
     }
   }
   lines.push('')
@@ -416,6 +447,28 @@ function buildReport(scenarios, results) {
     lines.push(`| Other (est.) | ${bcOther.toFixed(2)} | ${((bcOther / bcRef) * 100).toFixed(0)}% | ${dcOther.toFixed(2)} | ${((dcOther / dcRef) * 100).toFixed(0)}% |`)
     lines.push(`| **NPC Update raw** | **${bcRef.toFixed(2)}** | 100% | **${dcRef.toFixed(2)}** | 100% |`)
     lines.push('')
+
+    const humanoidPhaseKeys = [
+      ['Mixer / clip update', 'mixerUpdate'],
+      ['Locomotion state', 'locomotionState'],
+      ['Procedural pose', 'proceduralPose'],
+      ['Equipment state', 'equipmentState'],
+      ['Bow / lance pose', 'bowLancePose'],
+      ['Rig / bone application', 'rigBoneApplication'],
+    ]
+    const bcHumRef = bcSnap?.humanoidAnim?.avg ?? 1
+    const dcHumRef = dcSnap?.humanoidAnim?.avg ?? 1
+    lines.push('#### Humanoid Animation internal breakdown')
+    lines.push('')
+    lines.push('| Internal phase | Before Contact ms | BC % of Humanoid | During Combat ms | DC % of Humanoid |')
+    lines.push('| :--- | ---: | ---: | ---: | ---: |')
+    for (const [lbl, key] of humanoidPhaseKeys) {
+      const bcv = bcSnap?.humanoidBreakdown?.[key]?.avg ?? 0
+      const dcv = dcSnap?.humanoidBreakdown?.[key]?.avg ?? 0
+      lines.push(`| ${lbl} | ${bcv.toFixed(2)} | ${((bcv / bcHumRef) * 100).toFixed(0)}% | ${dcv.toFixed(2)} | ${((dcv / dcHumRef) * 100).toFixed(0)}% |`)
+    }
+    lines.push(`| **Humanoid Animation total** | **${bcHumRef.toFixed(2)}** | 100% | **${dcHumRef.toFixed(2)}** | 100% |`)
+    lines.push('')
   }
 
   // ── 排名 ──
@@ -460,6 +513,48 @@ function buildReport(scenarios, results) {
     }
     lines.push('')
     lines.push('> 本 script 僅呈現量測結果。下一支 PR 優化方向請依這些數字決定。')
+  }
+
+  // ── Humanoid internal ranking ──
+  const humanoidContexts = []
+  const humanoidData = {}
+  const humanoidPhaseKeys = [
+    ['Mixer / clip update', 'mixerUpdate'],
+    ['Locomotion state', 'locomotionState'],
+    ['Procedural pose', 'proceduralPose'],
+    ['Equipment state', 'equipmentState'],
+    ['Bow / lance pose', 'bowLancePose'],
+    ['Rig / bone application', 'rigBoneApplication'],
+  ]
+  for (const sc of scenarios) {
+    const r = results[sc.letter]
+    if (!r) continue
+    for (const [phase, pk] of [['Before Contact', 'beforeContact'], ['During Combat', 'duringCombat']]) {
+      const snap = r.on[pk]?.subphaseSnapshot
+      if (!snap?.humanoidBreakdown) continue
+      humanoidContexts.push(`${sc.short} ${phase === 'Before Contact' ? 'BC' : 'DC'}`)
+      for (const [, key] of humanoidPhaseKeys) {
+        if (!humanoidData[key]) humanoidData[key] = []
+        humanoidData[key].push(snap.humanoidBreakdown[key]?.avg ?? 0)
+      }
+    }
+  }
+  if (humanoidContexts.length > 0) {
+    const ranked = humanoidPhaseKeys.map(([lbl, key]) => {
+      const vals = humanoidData[key] || []
+      return { lbl, key, vals, maxVal: Math.max(...vals, 0) }
+    }).sort((a, b) => b.maxVal - a.maxVal)
+    lines.push('')
+    lines.push('## Humanoid Internal Hotspot Ranking')
+    lines.push('')
+    lines.push(`| Rank | Internal phase | ${humanoidContexts.join(' | ')} | Max |`)
+    lines.push(`| :--- | :--- | ${humanoidContexts.map(() => '---:').join(' | ')} | ---: |`)
+    for (let i = 0; i < ranked.length; i++) {
+      const { lbl, vals, maxVal } = ranked[i]
+      lines.push(`| ${i + 1} | **${lbl}** | ${vals.map((v) => v.toFixed(2)).join(' | ')} | **${maxVal.toFixed(2)}** |`)
+    }
+    lines.push('')
+    lines.push('> Internal rows are DEV-only timings collected from the same deterministic 8-NPC cohort and ~1s RuntimeProfiler window; the script performs all percentages and ranking calculations.')
   }
 
   return lines.join('\n')
@@ -555,14 +650,27 @@ async function main() {
     const outDir = path.resolve('output/profile')
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
 
-    const report = buildReport(scenarios, results)
+    const sourceSha = process.env.PROFILE_SOURCE_SHA
+      || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const gitLog5 = execFileSync('git', ['log', '-5', '--oneline'], { encoding: 'utf8' }).trim()
+    const metadata = {
+      baselineGameplaySha: BASELINE_GAMEPLAY_SHA,
+      baselineProfilingSha: BASELINE_PROFILING_SHA,
+      sourceSha,
+      gitLog5,
+      cohort: 8,
+      reportingWindowMs: 1000,
+      beforeContactIsLiveSimulation: true,
+      scenarioEExpectedNpcCount: 200,
+    }
+    const report = buildReport(scenarios, results, metadata)
 
-    const jsonPath = path.join(outDir, 'npc-subphase-results.json')
-    const mdPath   = path.join(outDir, 'npc-subphase-table.md')
+    const jsonPath = path.join(outDir, 'humanoid-animation-results.json')
+    const mdPath   = path.join(outDir, 'humanoid-animation-table.md')
 
     fs.writeFileSync(
       jsonPath,
-      JSON.stringify({ envInfo, scenarios, results }, null, 2),
+      JSON.stringify({ metadata, envInfo, scenarios, results }, null, 2),
     )
     fs.writeFileSync(mdPath, report)
 

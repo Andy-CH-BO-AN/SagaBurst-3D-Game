@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { setSwordMountedAttachment } from './SwordAttachmentContract'
+import type { HumanoidAnimationPhase, NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 export type CombatAction =
   | 'idle'
@@ -47,6 +48,7 @@ const ease = (value: number): number => {
 
 /** Shared allocation-free FK pose sampler used by Player and NPC combat. */
 export class CharacterCombatAnimator {
+  private subphaseCollector: NpcSubphaseCollector | null = null
   private action: CombatAction = 'idle'
   private ownership: 'clip' | 'procedural' = 'procedural'
   private elapsed = 0
@@ -66,6 +68,21 @@ export class CharacterCombatAnimator {
     private readonly bowPivot: THREE.Group,
   ) {
     this.poseIdle()
+  }
+
+  setSubphaseCollector(collector: NpcSubphaseCollector | null): void {
+    this.subphaseCollector = collector
+  }
+
+  private measureHumanoid<T>(phase: HumanoidAnimationPhase, work: () => T): T {
+    const collector = this.subphaseCollector
+    if (!collector) return work()
+    const t0 = performance.now()
+    try {
+      return work()
+    } finally {
+      collector.endHumanoidPhase(phase, t0)
+    }
   }
 
   get currentAction(): CombatAction { return this.action }
@@ -189,19 +206,21 @@ export class CharacterCombatAnimator {
       this.resetWeaponPivots()
       return
     }
-    const { right, left } = this.rig
-    setRigRotation(right.shoulder, 0, 0, -0.12)
-    setRigRotation(right.elbow, 0.15, 0, 0)
-    setRigRotation(right.wrist, 0, 0, 0)
-    setRigRotation(left.shoulder, 0, 0, 0.12)
-    setRigRotation(left.elbow, 0.15, 0, 0)
-    setRigRotation(left.wrist, 0, 0, 0)
-    this.applyShieldGuard()
-    this.resetWeaponPivots()
-    // Static model-to-grip alignment lives below this action pivot.
-    // The elbow contributes ~0.15 rad, so this action pitch makes the blade's
-    // model axis level instead of leaving the tip angled into the ground.
-    this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+    this.measureHumanoid('proceduralPose', () => {
+      const { right, left } = this.rig
+      setRigRotation(right.shoulder, 0, 0, -0.12)
+      setRigRotation(right.elbow, 0.15, 0, 0)
+      setRigRotation(right.wrist, 0, 0, 0)
+      setRigRotation(left.shoulder, 0, 0, 0.12)
+      setRigRotation(left.elbow, 0.15, 0, 0)
+      setRigRotation(left.wrist, 0, 0, 0)
+      this.applyShieldGuard()
+      this.resetWeaponPivots()
+      // Static model-to-grip alignment lives below this action pivot.
+      // The elbow contributes ~0.15 rad, so this action pitch makes the blade's
+      // model axis level instead of leaving the tip angled into the ground.
+      this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+    })
   }
 
   poseBow(chargeRatio: number, aimBlend = 1): void {
@@ -219,6 +238,7 @@ export class CharacterCombatAnimator {
   }
 
   private applyBowPose(chargeRatio: number, aimBlend: number): void {
+    this.measureHumanoid('bowLancePose', () => {
     const aim = ease(aimBlend)
     const draw = ease(chargeRatio) * aim
     const { right, left } = this.rig
@@ -239,6 +259,7 @@ export class CharacterCombatAnimator {
     setRigRotation(right.elbow, 0.15 + 0.15 * aim + 0.5 * draw, 0, 0.12 * draw)
     setRigRotation(right.wrist, -0.1 * draw, 0.08 * draw, 0)
     if (!this.rig.handGripFrames?.left) this.bowPivot.rotation.set(0, 0, -0.1)
+    })
   }
 
   poseMountedLanceReady(): void {
@@ -249,6 +270,7 @@ export class CharacterCombatAnimator {
     this.lanceEquipped = true
     this.rig.animation?.setEquipmentState?.({ lance: true, mounted })
     if (this.rig.equipmentGripFrames || this.busy) return
+    this.measureHumanoid('bowLancePose', () => {
     const { right, left } = this.rig
     setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)
     setRigRotation(right.elbow, mounted ? 0.15 : 0.38, 0, 0.12)
@@ -265,6 +287,7 @@ export class CharacterCombatAnimator {
     }
     this.meleePivot.rotation.set(0, 0, 0)
     this.meleePivot.position.set(0, -0.08, 0)
+    })
   }
 
   posePilum(progress: number): void {
@@ -277,6 +300,7 @@ export class CharacterCombatAnimator {
   }
 
   private posePilumFrame(progress: number): void {
+    this.measureHumanoid('bowLancePose', () => {
     const t = ease(progress)
     const { right, left } = this.rig
     setRigRotation(right.shoulder, THREE.MathUtils.lerp(-0.25, -1.4, t), 0.2 * t, -0.12)
@@ -285,6 +309,7 @@ export class CharacterCombatAnimator {
     setRigRotation(left.shoulder, -0.25 * t, 0, 0.12)
     setRigRotation(left.elbow, -0.15, 0, 0)
     this.bowPivot.rotation.set(THREE.MathUtils.lerp(-Math.PI / 2, -0.35, t), 0, 0)
+    })
   }
 
   private poseBowRelease(progress: number): void {
@@ -328,6 +353,7 @@ export class CharacterCombatAnimator {
   }
 
   private poseBladeThrust(action: CombatAction, phase: 'windup' | 'active' | 'recovery', t: number): void {
+    this.measureHumanoid('proceduralPose', () => {
     const great = action === 'greatswordSlash'
     const dagger = action === 'daggerSlash'
     const { right, left } = this.rig
@@ -409,9 +435,11 @@ export class CharacterCombatAnimator {
     // Once the arm is raised, local -Y is character-forward. Sliding the
     // action pivot along that axis makes the blade tip travel almost linearly.
     this.meleePivot.position.set(0, weaponOffset, 0)
+    })
   }
 
   private poseLance(mounted: boolean, phase: 'windup' | 'active' | 'recovery', t: number): void {
+    this.measureHumanoid('bowLancePose', () => {
     const thrust = phase === 'windup' ? 0 : phase === 'active' ? t : 1 - t
     const drawBack = phase === 'windup' ? t : phase === 'active' ? 1 - t : 0
     const { right, left } = this.rig
@@ -437,6 +465,7 @@ export class CharacterCombatAnimator {
     // The lance grip maps mesh +Y onto action-local -Y. Move along that same
     // axis so the attack is a true forward thrust instead of a sideways slide.
     this.meleePivot.position.set(0, -0.08 - thrust * 0.48 + drawBack * 0.22, 0)
+    })
   }
 
   /** Raises the shield hand to the torso and extends it along character-forward (-Z). */

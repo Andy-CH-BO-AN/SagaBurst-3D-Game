@@ -99,6 +99,7 @@ export class NPC {
   private rig: CharacterRig
   private externalPelvisHeight = 0
   private animator: CharacterCombatAnimator
+  private animationCollector: NpcSubphaseCollector | null = null
   private alertSprite: THREE.Sprite
 
   private swordPivot: THREE.Group
@@ -450,7 +451,25 @@ export class NPC {
   }
 
   private _updateBowVisual(drawRatio: number, targetWorld: THREE.Vector3): void {
-    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.hasActiveRangedWeapon && !this.bowArrowReleased)
+    this._updateBowVisualAtTarget(
+      drawRatio,
+      this._getElevatedRangedAimPoint(targetWorld),
+      this.hasActiveRangedWeapon && !this.bowArrowReleased,
+    )
+  }
+
+  private _updateBowVisualAtTarget(drawRatio: number, aimPoint: THREE.Vector3, showArrow: boolean): void {
+    const collector = this.animationCollector
+    if (!collector) {
+      this.bowVisual?.update(drawRatio, aimPoint, showArrow)
+      return
+    }
+    const t0 = performance.now()
+    try {
+      this.bowVisual?.update(drawRatio, aimPoint, showArrow)
+    } finally {
+      collector.endHumanoidPhase('bowLancePose', t0)
+    }
   }
 
   private _createAlertSprite(): THREE.Sprite {
@@ -619,6 +638,11 @@ export class NPC {
     cameraDistance: number = 0,
     _collector: NpcSubphaseCollector | null = null
   ): void {
+    if (import.meta.env.DEV) {
+      this.animationCollector = _collector
+      this.animator.setSubphaseCollector(_collector)
+      this.rig.animation?.setSubphaseCollector?.(_collector)
+    }
     if (this.state === AIState.DEAD) {
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
       if (this._isFlashing) {
@@ -931,7 +955,7 @@ export class NPC {
     if (!animationAdvanced && this.bowPivot.visible && this.characterFaction === 'viking') {
       this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
       this._tmpRangedTarget.y += 1.4
-      this.bowVisual?.update(0, this._tmpRangedTarget, false)
+      this._updateBowVisualAtTarget(0, this._tmpRangedTarget, false)
     }
 
     if (this.isMounted && this.mount) {

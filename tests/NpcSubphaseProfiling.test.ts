@@ -5,6 +5,15 @@ import {
   SUBPHASE_COHORT,
 } from '../src/debug/NpcSubphaseProfiler'
 
+const emptyHumanoid = () => ({
+  mixerUpdate: 0,
+  locomotionState: 0,
+  proceduralPose: 0,
+  equipmentState: 0,
+  bowLancePose: 0,
+  rigBoneApplication: 0,
+})
+
 describe('NpcSubphaseProfiler', () => {
   describe('NpcSubphaseCollector', () => {
     it('endPhase accumulates elapsed ms for each phase', () => {
@@ -136,6 +145,7 @@ describe('NpcSubphaseProfiler', () => {
         mountUpdate: 5.0,
         footPhysics: 0.1,
         deadUpdate: 0.3,
+        humanoid: { ...emptyHumanoid(), mixerUpdate: 1.7, rigBoneApplication: 0.8 },
         sampleCount: 25,
       })
 
@@ -144,6 +154,8 @@ describe('NpcSubphaseProfiler', () => {
       expect(snap!.humanoidAnim.avg).toBeCloseTo(4.5, 3)
       expect(snap!.mountUpdate.avg).toBeCloseTo(5.0, 3)
       expect(snap!.separation.avg).toBeCloseTo(2.1, 3)
+      expect(snap!.humanoidBreakdown.mixerUpdate.avg).toBeCloseTo(1.7, 3)
+      expect(snap!.humanoidBreakdown.rigBoneApplication.avg).toBeCloseTo(0.8, 3)
       expect(snap!.sampleCountAvg).toBeCloseTo(25, 3)
     })
 
@@ -153,7 +165,7 @@ describe('NpcSubphaseProfiler', () => {
       agg.record({
         gridQuery: 1, targetAI: 2, separation: 3, obstacleAvoid: 4,
         moveFace: 5, combatLogic: 6, humanoidAnim: 7, mountUpdate: 8,
-        footPhysics: 9, deadUpdate: 10, sampleCount: 20,
+        footPhysics: 9, deadUpdate: 10, humanoid: emptyHumanoid(), sampleCount: 20,
       })
       agg.flush() // consume first window
 
@@ -161,7 +173,7 @@ describe('NpcSubphaseProfiler', () => {
       agg.record({
         gridQuery: 0.1, targetAI: 0.2, separation: 0.3, obstacleAvoid: 0.4,
         moveFace: 0.5, combatLogic: 0.6, humanoidAnim: 0.7, mountUpdate: 0.8,
-        footPhysics: 0.9, deadUpdate: 1.0, sampleCount: 5,
+        footPhysics: 0.9, deadUpdate: 1.0, humanoid: emptyHumanoid(), sampleCount: 5,
       })
       const snap2 = agg.flush()
       expect(snap2).not.toBeNull()
@@ -180,7 +192,7 @@ describe('NpcSubphaseProfiler', () => {
       const frame = (humanoidAnim: number) => ({
         gridQuery: 0, targetAI: 0, separation: 0, obstacleAvoid: 0,
         moveFace: 0, combatLogic: 0, humanoidAnim, mountUpdate: 0,
-        footPhysics: 0, deadUpdate: 0, sampleCount: 200,
+        footPhysics: 0, deadUpdate: 0, humanoid: emptyHumanoid(), sampleCount: 200,
       })
       agg.record(frame(4))
       agg.record(frame(8))

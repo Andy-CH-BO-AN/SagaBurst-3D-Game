@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { proceduralMaterial } from './ProceduralMaterials'
+import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 export type CharacterFaction = 'viking' | 'roman'
 export type MountedPoseKind = 'BLACK_CAT' | 'CORGI' | 'HORSE'
@@ -51,6 +52,7 @@ export interface HumanoidAnimationPlayOptions {
 }
 
 export interface HumanoidAnimationController {
+  setSubphaseCollector?(collector: NpcSubphaseCollector | null): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void

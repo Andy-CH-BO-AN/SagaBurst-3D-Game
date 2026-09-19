@@ -29,6 +29,7 @@ import type {
   HumanoidAnimationState,
   LegRig,
 } from './CharacterVisuals'
+import type { HumanoidAnimationPhase, NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 export interface HumanoidAnimationBinding {
   clip: HumanoidAnimationState
@@ -300,25 +301,47 @@ function firstSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh {
 
 export class MixerController implements HumanoidAnimationController {
   equipmentLayers: CharacterEquipmentPose[] = []
+  private subphaseCollector: NpcSubphaseCollector | null = null
   private readonly equipmentState = createEquipmentPoseState()
   private readonly evaluatedEquipmentState = createEquipmentPoseState()
   private visibleLOD: number | null = null
   private transitionRemaining = 0
   private readonly pendingMixerDt: number[]
-  setEquipmentState(state: Partial<EquipmentPoseState>): void { Object.assign(this.equipmentState, state) }
+  setSubphaseCollector(collector: NpcSubphaseCollector | null): void {
+    this.subphaseCollector = collector
+  }
+
+  private measureHumanoid<T>(phase: HumanoidAnimationPhase, work: () => T): T {
+    const collector = this.subphaseCollector
+    if (!collector) return work()
+    const t0 = performance.now()
+    try {
+      return work()
+    } finally {
+      collector.endHumanoidPhase(phase, t0)
+    }
+  }
+
+  setEquipmentState(state: Partial<EquipmentPoseState>): void {
+    this.measureHumanoid('equipmentState', () => Object.assign(this.equipmentState, state))
+  }
   private needsLevel(index: number): boolean {
     return this.visibleLOD === null || index === 0 || index === this.visibleLOD || this.transitionRemaining > 0
   }
   private restoreEquipment(all = false): void {
-    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
+    this.measureHumanoid('rigBoneApplication', () => {
+      this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
+    })
   }
   private finishPose(all = false): void {
-    const alive = this.equipmentState.alive
-    this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
-    Object.assign(this.evaluatedEquipmentState, this.equipmentState)
-    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
-    this.equipmentState.alive = alive
-    this.onPoseEvaluated?.()
+    this.measureHumanoid('rigBoneApplication', () => {
+      const alive = this.equipmentState.alive
+      this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
+      Object.assign(this.evaluatedEquipmentState, this.equipmentState)
+      this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
+      this.equipmentState.alive = alive
+      this.onPoseEvaluated?.()
+    })
   }
 
   // Advance retained actions, including their loop/fade state, using Three's
@@ -327,7 +350,7 @@ export class MixerController implements HumanoidAnimationController {
     const dt = this.pendingMixerDt[index]
     if (dt === 0) return
     this.equipmentLayers[index]?.restore()
-    this.mixers[index].update(dt)
+    this.measureHumanoid('mixerUpdate', () => this.mixers[index].update(dt))
     this.pendingMixerDt[index] = 0
   }
   private catchUpInactive(): void {
@@ -402,7 +425,9 @@ export class MixerController implements HumanoidAnimationController {
   setSwordHandShape(enabled: boolean): void {
     if (this.swordHandEnabled === enabled) return
     this.swordHandEnabled = enabled
-    for (const mesh of this.swordMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.swordHand] = enabled ? 1 : 0
+    this.measureHumanoid('equipmentState', () => {
+      for (const mesh of this.swordMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.swordHand] = enabled ? 1 : 0
+    })
   }
 
   setPoseLayersEnabled(enabled: boolean): void {
@@ -412,12 +437,14 @@ export class MixerController implements HumanoidAnimationController {
 
   setBowLocomotion(state: 'idle' | 'walk' | 'run', timeScale: number): void {
     if (this.bowLegState !== state || (this.bowLegActions.get(state) ?? []).some(action => action.timeScale !== timeScale)) this.catchUpInactive()
-    if (this.bowLegState !== state) {
-      for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
-      for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
-      this.bowLegState = state
-    }
-    for (const action of this.bowLegActions.get(state) ?? []) action.timeScale = timeScale
+    this.measureHumanoid('equipmentState', () => {
+      if (this.bowLegState !== state) {
+        for (const action of this.bowLegActions.get(this.bowLegState ?? '') ?? []) action.stop()
+        for (const action of this.bowLegActions.get(state) ?? []) action.reset().play()
+        this.bowLegState = state
+      }
+      for (const action of this.bowLegActions.get(state) ?? []) action.timeScale = timeScale
+    })
   }
 
   getDuration(state: HumanoidAnimationState): number | undefined {
@@ -441,14 +468,21 @@ export class MixerController implements HumanoidAnimationController {
     }
     const fadeSeconds = options.fadeSeconds ?? 0.12
     if (state === this.current) {
-      for (const action of next) {
-        action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
-        action.clampWhenFinished = !loop
-        action.paused = false
-        action.timeScale = timeScale
-        if (options.startNormalizedTime !== undefined) {
-          action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
+      const applyCurrentState = () => {
+        for (const action of next) {
+          action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+          action.clampWhenFinished = !loop
+          action.paused = false
+          action.timeScale = timeScale
+          if (options.startNormalizedTime !== undefined) {
+            action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
+          }
         }
+      }
+      if (state === 'idle' || state === 'walk' || state === 'run' || state === 'mounted') {
+        this.measureHumanoid('locomotionState', applyCurrentState)
+      } else {
+        this.measureHumanoid('equipmentState', applyCurrentState)
       }
       return true
     }
@@ -488,7 +522,7 @@ export class MixerController implements HumanoidAnimationController {
       action.paused = true
     }
     this.restoreEquipment(true)
-    for (const mixer of this.mixers) mixer.update(0)
+    for (const mixer of this.mixers) this.measureHumanoid('mixerUpdate', () => mixer.update(0))
     this.finishPose(true)
     return true
   }
@@ -504,7 +538,7 @@ export class MixerController implements HumanoidAnimationController {
     this.restoreEquipment()
     for (let index = 0; index < this.mixers.length; index++) {
       if (this.needsLevel(index)) {
-        this.mixers[index].update(this.pendingMixerDt[index] + dt)
+        this.measureHumanoid('mixerUpdate', () => this.mixers[index].update(this.pendingMixerDt[index] + dt))
         this.pendingMixerDt[index] = 0
       } else this.pendingMixerDt[index] += dt
     }
