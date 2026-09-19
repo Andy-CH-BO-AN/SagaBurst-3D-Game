@@ -222,6 +222,13 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
     expect(level0Mesh.castShadow).toBe(true)
     expect(level1Mesh.castShadow).toBe(true)
     expect(level2Mesh.castShadow).toBe(false) // Strictly false, unpolluted by warmup!
+
+    const level0Horn = lodNode.levels[0].object.getObjectByName('viking-horn-l')!
+    const level1Horn = lodNode.levels[1].object.getObjectByName('viking-horn-l')!
+    const level2Horn = lodNode.levels[2].object.getObjectByName('viking-horn-l')!
+    expect(level0Horn.castShadow).toBe(true)
+    expect(level1Horn.castShadow).toBe(true)
+    expect(level2Horn.castShadow).toBe(false)
   })
 
   it('regression: CombatRenderWarmup handles renderer exceptions safely, restores render target, disposes temp target, and keeps isWarmed false', () => {
