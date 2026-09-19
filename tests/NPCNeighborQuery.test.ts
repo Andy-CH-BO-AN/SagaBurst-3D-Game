@@ -4,6 +4,12 @@ import { SpatialGrid, type SpatialEntity } from '../src/world/SpatialGrid'
 import { NPC, Faction, AIType, AIState, NPC_SEPARATION_RADIUS, NPC_NEIGHBOR_QUERY_RADIUS } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
+import {
+  HorseAssetRegistry,
+  type HorseAnimationState,
+  type HorseAssetManifest,
+} from '../src/world/HorseAssetRegistry'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 class TestEntity implements SpatialEntity {
   constructor(public id: string, private pos: THREE.Vector3) {}
@@ -104,12 +110,12 @@ describe('NPC Separation & Query Range Contracts', () => {
     expect(Math.abs(deltaXFar)).toBeLessThan(0.001)
   })
 
-  it('cavalry regression: 2.0m query radius captures neighbors for mounted NPCs without missing < 1.2m separation', () => {
+  it('cavalry regression (corgi mount baseline): 2.0m query radius captures neighbors for mounted NPCs without missing < 1.2m separation', () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)
     player.setPosition(0, 0, 100)
 
-    // Create two mounted NPCs side by side
+    // Create two mounted NPCs side by side (Corgi mount has zero horizontal saddle offset)
     const mountA = new Mount(scene, MountType.CORGI, 0, 0)
     const horseNpcA = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'HorseA', 1, false)
     horseNpcA.mount = mountA
@@ -144,6 +150,163 @@ describe('NPC Separation & Query Range Contracts', () => {
     // Rider A must experience separation push away from horseNpcB (-X)
     const deltaX = horseNpcA.group.position.x - prevA.x
     expect(deltaX).toBeLessThan(0)
+  })
+
+  it('cavalry regression (realistic horse): verifies horse saddle horizontal offset (0.18m) and proves 2.0m query covers worst-case offset without missing < 1.2m separation', () => {
+    // Setup realistic horse template matching production GLB metrics
+    const horseScene = new THREE.Group()
+    const rootBone = new THREE.Bone()
+    rootBone.name = 'horse.rig'
+    const childBone = new THREE.Bone()
+    childBone.name = 'DEF-spine.003'
+    childBone.position.y = 1
+    rootBone.add(childBone)
+    horseScene.add(rootBone)
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([-0.25, 0, 0, 0.25, 0, 0, 0, 1, 0], 3))
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], 4))
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4))
+    geometry.setIndex([0, 1, 2])
+
+    const sourceMaterial = new THREE.MeshStandardMaterial()
+    const skeleton = new THREE.Skeleton([rootBone, childBone])
+    const lodNodes = ['horse_lod0', 'horse_lod1', 'horse_lod2']
+    const bodyMeshNames = ['horse_body_lod0', 'horse_body_lod1', 'horse_body_lod2']
+    for (let index = 0; index < lodNodes.length; index++) {
+      const level = new THREE.Group()
+      level.name = lodNodes[index]
+      const mesh = new THREE.SkinnedMesh(geometry, sourceMaterial)
+      mesh.name = bodyMeshNames[index]
+      mesh.bind(skeleton)
+      level.add(mesh)
+      horseScene.add(level)
+    }
+
+    // Realistic socket matching production runtime GLB:
+    // saddleSeat local translation: [0, 1.74, -0.18]
+    const saddleSocket = new THREE.Object3D()
+    saddleSocket.name = 'socket_saddle_seat'
+    saddleSocket.position.set(0, 1.74, -0.18)
+    horseScene.add(saddleSocket)
+
+    for (const name of ['socket_stirrup_l', 'socket_stirrup_r', 'socket_camera']) {
+      const socket = new THREE.Object3D()
+      socket.name = name
+      horseScene.add(socket)
+    }
+
+    const clips: HorseAnimationState[] = ['idle', 'walk', 'trot', 'canter', 'gallop', 'jump', 'land', 'hit', 'death']
+    const manifest: HorseAssetManifest = {
+      schemaVersion: 2,
+      id: 'test-realistic-horse',
+      status: 'ready',
+      attribution: 'test',
+      sources: [],
+      file: 'horse.glb',
+      basisPath: '/basis/',
+      lodNodes: { lod0: lodNodes[0], lod1: lodNodes[1], lod2: lodNodes[2] },
+      bodyMeshNames,
+      sharedBodyMaps: { normal: 'normal.ktx2', roughness: 'roughness.ktx2' },
+      variants: [
+        { id: 'paint_01', label: '1', baseColor: '1.ktx2' },
+        { id: 'paint_02', label: '2', baseColor: '2.ktx2' },
+        { id: 'paint_03', label: '3', baseColor: '3.ktx2' },
+      ],
+      compression: { geometry: 'EXT_meshopt_compression', textures: 'KHR_texture_basisu' },
+      metrics: {
+        shoulderHeightM: 1.65,
+        overallHeightM: 2.27,
+        saddleHeightM: 1.74,
+        widthM: 0.7,
+        lengthM: 2.67,
+        packageBytes: 1,
+        triangles: { lod0: 1, lod1: 1, lod2: 1 },
+        textureMaxSize: 2048,
+      },
+      forward: '+Z',
+      clips,
+      sockets: ['socket_saddle_seat', 'socket_stirrup_l', 'socket_stirrup_r', 'socket_camera'],
+    }
+
+    const animations = clips.map((name) => new THREE.AnimationClip(name, 1, []))
+    const gltf = { scene: horseScene, scenes: [horseScene], animations } as unknown as GLTF
+    ;(HorseAssetRegistry as any).template = {
+      manifest,
+      gltf,
+      bodyMaterials: [
+        new THREE.MeshStandardMaterial({ color: 0x442211 }),
+        new THREE.MeshStandardMaterial({ color: 0x221100 }),
+        new THREE.MeshStandardMaterial({ color: 0x110000 }),
+      ],
+    }
+
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    player.setPosition(0, 0, 100)
+
+    // 1. Verify saddle seat offset metrics
+    const mountA = new Mount(scene, MountType.HORSE, 0, 0)
+    const localSaddle = mountA.getSaddleSeatLocal(new THREE.Vector3())
+    expect(localSaddle.y).toBeCloseTo(1.74, 2)
+    expect(localSaddle.z).toBeCloseTo(-0.18, 2)
+    const horizontalSaddleOffset = Math.hypot(localSaddle.x, localSaddle.z)
+    expect(horizontalSaddleOffset).toBeCloseTo(0.18, 2)
+
+    // Theoretical worst case:
+    // When two horses face opposite directions, maximum delta between mount distance and rider distance
+    // is 2 * 0.18m = 0.36m.
+    // If riders are at separation limit (1.20m), mounts are at 1.20 + 0.36 = 1.56m apart.
+    // Query radius 2.0m provides 2.0 - 1.56 = 0.44m safety margin.
+
+    // 2. Construct worst-case opposite facing scenario:
+    // Horse A at (0, 0, 0) rotated by PI (facing -Z, saddle moves to +Z: 0 + 0.18 = +0.18)
+    mountA.group.rotation.y = Math.PI
+    const horseNpcA = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'RealHorseA', 1, false)
+    horseNpcA.mount = mountA
+    mountA.setNpcRider(horseNpcA, horseNpcA.faction)
+    ;(horseNpcA as any)._syncToMount()
+
+    // Horse B at (0, 0, 1.51) rotated by 0 (facing +Z, saddle moves to -Z: 1.51 - 0.18 = +1.33)
+    const mountB = new Mount(scene, MountType.HORSE, 0, 1.51)
+    mountB.group.rotation.y = 0
+    const horseNpcB = new NPC(scene, 0, 1.51, Faction.ENEMY, 'roman', AIType.MELEE, 'RealHorseB', 1, false)
+    horseNpcB.mount = mountB
+    mountB.setNpcRider(horseNpcB, horseNpcB.faction)
+    ;(horseNpcB as any)._syncToMount()
+
+    // Verify root horse distance (combatPosition distance) is 1.51m (> 1.2m)
+    const horseRootDist = horseNpcA.combatPosition.distanceTo(horseNpcB.combatPosition)
+    expect(horseRootDist).toBeCloseTo(1.51, 2)
+
+    // Verify riders world distance is 1.33 - 0.18 = 1.15m (< 1.2m separation threshold)
+    const riderWorldDist = horseNpcA.group.position.distanceTo(horseNpcB.group.position)
+    expect(riderWorldDist).toBeCloseTo(1.15, 2)
+    expect(riderWorldDist).toBeLessThan(NPC_SEPARATION_RADIUS)
+
+    // Insert into grid
+    const grid = new SpatialGrid<NPC>(20)
+    grid.insert(horseNpcA)
+    grid.insert(horseNpcB)
+
+    // A 1.2m radius query would fail here because horseRootDist (1.51m) > 1.2m:
+    const narrowBuffer: NPC[] = []
+    grid.getNearbyInto(horseNpcA.combatPosition, 1.2, narrowBuffer)
+    expect(narrowBuffer).not.toContain(horseNpcB)
+
+    // But with NPC_NEIGHBOR_QUERY_RADIUS (2.0m), it reliably captures horseNpcB:
+    const candidateBuffer: NPC[] = []
+    grid.getNearbyInto(horseNpcA.combatPosition, NPC_NEIGHBOR_QUERY_RADIUS, candidateBuffer)
+    expect(candidateBuffer).toContain(horseNpcB)
+
+    // Execute update in CHASE state to ensure separation push works between real horse riders
+    ;(horseNpcA as any).state = AIState.CHASE
+    const prevZ = horseNpcA.group.position.z
+    horseNpcA.update(0.016, player, [horseNpcA, horseNpcB], candidateBuffer, [], null as any, () => {}, () => {}, false)
+
+    // Rider A is at z = 0.18, Rider B is at z = 1.33. Rider A must be pushed in -Z direction:
+    const deltaZ = horseNpcA.group.position.z - prevZ
+    expect(deltaZ).toBeLessThan(0)
   })
 
   it('non-CHASE states (IDLE, ALERT, ATTACK) do not require nearbyNPCs and behave identically with empty array', () => {

@@ -1768,8 +1768,10 @@ export class Game {
       if (npc.currentState === AIState.CHASE) {
         this.npcGrid.getNearbyInto(npc.combatPosition, NPC_NEIGHBOR_QUERY_RADIUS, this._nearbyNpcBuffer)
         nearbyNPCs = this._nearbyNpcBuffer
-        devQueriesCount++
-        devReturnedNeighborsCount += this._nearbyNpcBuffer.length
+        if (profile) {
+          devQueriesCount++
+          devReturnedNeighborsCount += this._nearbyNpcBuffer.length
+        }
       }
 
       npc.update(
@@ -1819,8 +1821,10 @@ export class Game {
       )
     }
     const npcUpdateMs = profile ? performance.now() - t0 : 0
-    this.devGridStats.queriesPerFrame = devQueriesCount
-    this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
+    if (profile) {
+      this.devGridStats.queriesPerFrame = devQueriesCount
+      this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
+    }
 
     // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()
