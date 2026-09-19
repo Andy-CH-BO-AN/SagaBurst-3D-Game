@@ -41,11 +41,12 @@ Player 是額外加入所選陣營的可操作角色，**不計入該陣營配�
 
 1. 開啟遊戲後，在 **軍隊配置 ARMY SETUP** 設定 Viking / Roman 軍隊、Player Faction，以及 **Formation Battle** 或 **Scattered Battle**。
 2. 切到 **玩家裝備 PLAYER LOADOUT**，選擇近戰武器、遠程武器、盾牌（或無盾），以及 **騎馬 MOUNTED** / **徒步 ON FOOT**。
-3. 點擊 **開始戰鬥 START BATTLE**。
-4. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
-5. 玩家加入所選陣營一方，可使用 Viking / Roman 的劍、Gladius、長槍、弓、Pilum、盾牌與戰馬參與戰鬥。
-6. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
-7. 使用 **REMATCH** 以相同設定重開，或選擇 **BACK TO SETUP** 返回首頁重新配置。
+3. 若只想看 AI 對戰，可開啟 **Spectator 觀戰模式**；進入戰鬥後會直接使用自由觀戰鏡頭，不生成 Player 與開場戰馬。
+4. 點擊 **開始戰鬥 START BATTLE**。
+5. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
+6. 玩家加入所選陣營一方，可使用 Viking / Roman 的劍、Gladius、長槍、弓、Pilum、盾牌與戰馬參與戰鬥。
+7. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
+8. 使用 **REMATCH** 以相同設定重開，或選擇 **BACK TO SETUP** 返回首頁重新配置。
 
 如果雙方 AI 軍隊在同一時間全滅，結果會判定為 **DRAW 平局**。
 
@@ -145,9 +146,7 @@ npm run dev
 | `?devcombat=a` | 50 vs 50 純步兵控制組 |
 | `?devcombat=b` | 100 vs 100 純步兵 scaling 場景 |
 | `?devcombat=c` | 100 vs 100 混合兵種場景 |
-| `?devcombat=d` | 100 vs 100 列陣騎兵 / 騎射手壓力場景 |
-| `?devcombat=e` | 100 vs 100 全近戰騎兵、Scattered Battle、初始觀戰、無營地 / 復活 |
-| `?devcombat=f` | 100 vs 100 混合騎兵（每方 50 近戰騎兵 + 50 騎射手）、Scattered Battle、初始觀戰、無營地 / 復活 |
+| `?devcombat=d` | 100 vs 100 騎兵 / 騎射手壓力場景 |
 | `?devcombat` | 舊版固定 50 vs 50 mounted 開發場景 |
 
 `devcombat` 會顯示 runtime profiling HUD，包含 wall-clock FPS、CPU Frame Work、NPC Update、Entity Collision、Projectile / Impact、Renderer Submit、Draw Calls、Triangles、Horse Count 與 LOD 統計。
@@ -169,38 +168,12 @@ npm run dev
 http://localhost:5173/?devcombat=b&nolock
 http://localhost:5173/?devcombat=c&nolock
 http://localhost:5173/?devcombat=d&nolock
-http://localhost:5173/?devcombat=f&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
 ```
 
 專案已不再保留硬編碼的 **Standard 9v5 Battle**。正式 gameplay 全部由 Custom Battle configuration 驅動。
 
-## 📊 效能 Profiling
-
-大型戰鬥效能評估以真實 headed browser 為基準，不使用 software-rendered headless FPS 當作 gameplay baseline。
-
-Benchmark runner 會記錄 Browser / WebGL 環境，並檢查是否為硬體加速 renderer，再決定該次執行能否視為可信的 gameplay baseline。
-
-```bash
-node tools/profile-large-battles.mjs
-```
-
-大型綜合 Benchmark 會依序執行 A–D 場景，並記錄接戰前與接戰中的 FPS、CPU Work、Renderer Submit、NPC Update、Collision、Draw Calls 與 Triangles 等資訊。
-
-針對 Shadow Path，目前以 **Scenario F** 作為混合騎兵隔離場景。Fixed-scene runner 會凍結 simulation、維持 render loop 運作、驗證場景 invariant，並執行 Shadow ON / OFF / ON 對照；Renderer Submit 不會被誤稱為純 GPU time：
-
-```bash
-node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
-```
-
-目前已進入 `main` 的結構性 Shadow 優化包含：
-
-- **Roman Humanoid** — LOD0 / LOD1 每名角色的 shadow caster 從 17 個精簡為 5 個；LOD2 維持零陰影。
-- **NPC Equipment** — Scenario F 裝備 Shadow Submissions 從 127 降至 68，只保留真正影響 silhouette 的 caster；Equipment LOD2 維持零陰影。
-- **NPC Projectile** — NPC 飛行中的 Arrow / Pilum 不再投射陰影，結構成本由每個 active projectile 1 submission 降為 0；Player 自己發射的 projectile shadow 保持不變。
-
-效能結論以 Shadow Census 的結構性 submissions / triangles 為主要因果證據。不同 commit 間的 FPS / Renderer Submit 只視為方向性 timing evidence，除非能完整重播完全相同的 scene state。
 
 ## 🧰 開發指令
 
