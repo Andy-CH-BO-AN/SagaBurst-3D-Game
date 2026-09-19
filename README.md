@@ -4,7 +4,7 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types, tiers, and battle deployment mode, then join the Viking side as the player while both AI armies automatically engage across a large battlefield.
+The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types, tiers, battle deployment mode, and whether the player fights as **Viking** or **Roman**, while both AI armies automatically engage across a large battlefield.
 
 ## ⚔️ Custom Battle
 
@@ -28,16 +28,21 @@ Battle deployment is selected independently from army size:
 - **Formation Battle** — Viking and Roman armies spawn in deterministic formations on opposite sides of the battlefield.
 - **Scattered Battle** — the Player, Viking NPCs, and Roman NPCs are deterministically scattered across the battlefield while normal Viking-vs-Roman faction, friendly-fire, and victory rules remain unchanged.
 
-Changing an army preset only changes the army composition; it does **not** switch the selected battle mode.
+Player faction is selected independently from army composition and deployment mode:
 
-The player is an additional Viking participant and does **not** count toward the configured Viking AI army total or victory condition.
+- **Viking Player** — Viking NPCs are allies, Roman NPCs are enemies, and Formation Battle starts the player on the Viking (+Z) side facing the Roman army.
+- **Roman Player** — Roman NPCs are allies, Viking NPCs are enemies, and Formation Battle starts the player on the Roman (-Z) side facing the Viking army.
+
+Changing an army preset only changes army composition; it preserves the selected **Battle Mode**, **Player Faction**, and **Spectator** setting.
+
+The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–100 AI troop total or the army-survival victory count.
 
 ### Battle flow
 
-1. Open the game, configure both armies, and select **Formation Battle** or **Scattered Battle** in the Custom Battle Setup screen.
+1. Open the game, configure both armies, select **Viking** or **Roman** as the Player Faction, and choose **Formation Battle** or **Scattered Battle**.
 2. Click **START BATTLE**.
 3. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
-4. Fight alongside the Viking army using melee weapons, bows, shields, lances, and horses.
+4. Fight alongside the selected allied army using melee weapons, bows, shields, lances, and horses.
 5. A battle ends when either configured AI army is eliminated.
 6. Use **REMATCH** to replay the same army and battle-mode configuration or **BACK TO SETUP** to build another battle.
 
@@ -45,9 +50,9 @@ If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
 ## 🐎 Player Starting Loadout
 
-Normal Custom Battles start the player as a fully equipped Viking heavy cavalry fighter, already mounted on a warhorse. In Formation Battle the player starts at the Viking spawn point; in Scattered Battle the player and starting horse spawn together at the battle's deterministic scattered player position.
+Normal Custom Battles start the player as a fully equipped mounted fighter, already on a warhorse. The player's humanoid appearance and allied army follow the selected Player Faction. In Formation Battle, Viking players start on the Viking (+Z) side facing -Z, while Roman players start on the Roman (-Z) side facing +Z. In Scattered Battle, the player and starting horse spawn together at the battle's deterministic scattered player position.
 
-Default equipment:
+The current default player inventory is shared by both Player Factions (faction-specific player loadouts are not implemented yet):
 
 - **Steel Lance** — equipped melee weapon for mounted combat and high-speed lance charges.
 - **Elven Runebow** — equipped Tier 3 ranged weapon.
@@ -56,7 +61,7 @@ Default equipment:
 
 After dismounting, open the Equipment UI with `Tab` or `I` to switch from the lance to the Runic Greatsword. The existing two-handed weapon behavior automatically moves the equipped shield to the player's back while the greatsword is in use.
 
-The player's starting horse is separate from the five spare horses in the Viking camp. In Scattered Battle, player deaths respawn at that battle's original scattered starting position, and REMATCH reproduces the same deterministic deployment for the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
+The player's starting horse is separate from the spare horses placed in the faction camps. **Player death is permanent for the current battle**: after dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends. REMATCH starts a fresh battle using the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
 
 ## 🏕️ Battle Camps
 
