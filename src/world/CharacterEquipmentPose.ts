@@ -149,12 +149,20 @@ export class CharacterEquipmentPose {
   }
 
   apply(state: EquipmentPoseState): void {
+    const live = state.alive && state.action !== 'death'
+    // Shield IK and lance FK each synchronize the root/ancestor chain before
+    // editing bones. Mounted-only poses need the same parent sync once. Keep
+    // that fact so the final propagation can descend without traversing the
+    // unchanged ancestors a second time.
+    const needsInitialWorldUpdate = live && state.mounted && !state.shield
+      && !(state.lance && (state.action === 'lanceThrust' || state.action === 'mountedLance'))
+    if (needsInitialWorldUpdate) this.root.updateWorldMatrix(true, false)
     for (const s of this.saved) s.q.copy(s.node.quaternion)
     this.applied = true
-    const live = state.alive && state.action !== 'death'
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
     // Ready remains the imported Sword Idle. Only the attack adds a small FK
     // extension; the grip/weapon attachment never moves relative to the hand.
+    let worldParentsAreCurrent = needsInitialWorldUpdate
     if (live && state.lance && (state.action === 'lanceThrust' || state.action === 'mountedLance')) {
       const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES[state.action]
       const peak = windup + active * .9, end = windup + active
@@ -162,6 +170,7 @@ export class CharacterEquipmentPose {
         : state.elapsed < peak ? -.18 + 1.18 * smooth((state.elapsed - windup) / (peak - windup))
           : state.elapsed < end ? 1 : 1 - smooth((state.elapsed - end) / recovery)
       this.root.updateWorldMatrix(true, true)
+      worldParentsAreCurrent = true
       this.rig.right.wrist.getWorldQuaternion(this.handWorld)
       this.root.getWorldQuaternion(this.rootWorld)
       this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
@@ -175,6 +184,7 @@ export class CharacterEquipmentPose {
     if (live && state.shield) {
       this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward)
       this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
+      worldParentsAreCurrent = true
     }
     for (const morph of this.morphs) {
       const values = morph.mesh.morphTargetInfluences!
@@ -182,6 +192,7 @@ export class CharacterEquipmentPose {
       if (morph.left !== undefined) values[morph.left] = 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
     }
-    this.root.updateWorldMatrix(true, true)
+    if (worldParentsAreCurrent) this.root.updateWorldMatrix(false, true)
+    else this.root.updateWorldMatrix(true, true)
   }
 }
