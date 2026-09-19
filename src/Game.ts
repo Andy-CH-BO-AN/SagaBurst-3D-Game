@@ -813,7 +813,7 @@ export class Game {
       playback.setEquipmentLoadout('lance', true)
       playback.sampleEquipment(0, true)
       this.humanoidStudioPlayback.set(rider, playback)
-      const seat = mount.getSaddleSeatLocal()
+      const seat = mount.getRiderPelvisSeatLocal()
       let pelvisHeight = 0
       if (rider.rig.pelvis) {
         rider.root.updateWorldMatrix(true, true)
@@ -870,7 +870,7 @@ export class Game {
   private _updateMountStudioStatus(): void {
     if (!this.mountStudioStatus || !this.mountStudioHorse) return
     if (this.mountStudioRider) {
-      const seat = this.mountStudioHorse.getSaddleSeatLocal()
+      const seat = this.mountStudioHorse.getRiderPelvisSeatLocal()
       this.mountStudioRider.root.position.set(
         seat.x,
         seat.y - this.mountStudioRiderPelvisHeight,

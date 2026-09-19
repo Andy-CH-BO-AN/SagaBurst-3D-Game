@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { SpatialGrid, type SpatialEntity } from '../src/world/SpatialGrid'
 import { NPC, Faction, AIType, AIState, NPC_SEPARATION_RADIUS, NPC_NEIGHBOR_QUERY_RADIUS } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
-import { Mount, MountType } from '../src/world/Mount'
+import { HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET, Mount, MountType } from '../src/world/Mount'
 import {
   HorseAssetRegistry,
   type HorseAnimationState,
@@ -152,7 +152,7 @@ describe('NPC Separation & Query Range Contracts', () => {
     expect(deltaX).toBeLessThan(0)
   })
 
-  it('cavalry regression (realistic horse): verifies horse saddle horizontal offset (0.18m) and proves 2.0m query covers worst-case offset without missing < 1.2m separation', () => {
+  it('cavalry regression (realistic horse): uses the visual saddle centre and proves the 2.0m query catches < 1.2m rider separation', () => {
     // Setup realistic horse template matching production GLB metrics
     const horseScene = new THREE.Group()
     const rootBone = new THREE.Bone()
@@ -255,24 +255,26 @@ describe('NPC Separation & Query Range Contracts', () => {
     expect(localSaddle.z).toBeCloseTo(-0.18, 2)
     const horizontalSaddleOffset = Math.hypot(localSaddle.x, localSaddle.z)
     expect(horizontalSaddleOffset).toBeCloseTo(0.18, 2)
+    const localRiderSeat = mountA.getRiderPelvisSeatLocal(new THREE.Vector3())
+    expect(localRiderSeat.z).toBeCloseTo(localSaddle.z + HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET, 2)
 
     // Theoretical worst case:
     // When two horses face opposite directions, maximum delta between mount distance and rider distance
-    // is 2 * 0.18m = 0.36m.
-    // If riders are at separation limit (1.20m), mounts are at 1.20 + 0.36 = 1.56m apart.
-    // Query radius 2.0m provides 2.0 - 1.56 = 0.44m safety margin.
+    // is twice the corrected visual rider-seat offset (about 0.27m in this fixture).
+    // At the 1.20m rider separation limit, mounts can be about 1.74m apart.
+    // Query radius 2.0m retains a safety margin.
 
     // 2. Construct worst-case opposite facing scenario:
-    // Horse A at (0, 0, 0) rotated by PI (facing -Z, saddle moves to +Z: 0 + 0.18 = +0.18)
-    mountA.group.rotation.y = Math.PI
+    // Horse A at (0, 0, 0) facing +Z, rider seat at +0.27.
+    mountA.group.rotation.y = 0
     const horseNpcA = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'RealHorseA', 1, false)
     horseNpcA.mount = mountA
     mountA.setNpcRider(horseNpcA, horseNpcA.faction)
     ;(horseNpcA as any)._syncToMount()
 
-    // Horse B at (0, 0, 1.51) rotated by 0 (facing +Z, saddle moves to -Z: 1.51 - 0.18 = +1.33)
+    // Horse B at (0, 0, 1.51) facing -Z, rider seat at 1.51 - 0.27 = 1.24.
     const mountB = new Mount(scene, MountType.HORSE, 0, 1.51)
-    mountB.group.rotation.y = 0
+    mountB.group.rotation.y = Math.PI
     const horseNpcB = new NPC(scene, 0, 1.51, Faction.ENEMY, 'roman', AIType.MELEE, 'RealHorseB', 1, false)
     horseNpcB.mount = mountB
     mountB.setNpcRider(horseNpcB, horseNpcB.faction)
@@ -282,9 +284,9 @@ describe('NPC Separation & Query Range Contracts', () => {
     const horseRootDist = horseNpcA.combatPosition.distanceTo(horseNpcB.combatPosition)
     expect(horseRootDist).toBeCloseTo(1.51, 2)
 
-    // Verify riders world distance is 1.33 - 0.18 = 1.15m (< 1.2m separation threshold)
+    // Verify riders are 1.24 - 0.27 = 0.97m apart (< 1.2m separation threshold).
     const riderWorldDist = horseNpcA.group.position.distanceTo(horseNpcB.group.position)
-    expect(riderWorldDist).toBeCloseTo(1.15, 2)
+    expect(riderWorldDist).toBeCloseTo(0.97, 2)
     expect(riderWorldDist).toBeLessThan(NPC_SEPARATION_RADIUS)
 
     // Insert into grid
@@ -307,7 +309,7 @@ describe('NPC Separation & Query Range Contracts', () => {
     const prevZ = horseNpcA.group.position.z
     horseNpcA.update(0.016, player, [horseNpcA, horseNpcB], candidateBuffer, [], null as any, () => {}, () => {}, false)
 
-    // Rider A is at z = 0.18, Rider B is at z = 1.33. Rider A must be pushed in -Z direction:
+    // Rider A is behind rider B along +Z, so separation pushes rider A in -Z.
     const deltaZ = horseNpcA.group.position.z - prevZ
     expect(deltaZ).toBeLessThan(0)
     } finally {

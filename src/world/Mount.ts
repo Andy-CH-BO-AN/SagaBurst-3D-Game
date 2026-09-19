@@ -23,6 +23,17 @@ export enum MountType {
 
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
 
+/**
+ * The authored leather saddle spans local Z -0.02…0.53m, while its raw socket
+ * is at Z -0.19m behind it. Keep the authored socket height and move the rider
+ * forward to the visual saddle centre, while preserving the raw socket for
+ * tack/camera attachments.
+ */
+export const HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET = 0.45
+
+const horseRiderSeatWorldOffset = new THREE.Vector3()
+const horseRiderSeatWorldQuaternion = new THREE.Quaternion()
+
 export enum MountState {
   IDLE = 'IDLE',
   WANDER = 'WANDER',
@@ -129,11 +140,32 @@ export class Mount {
     return this.group.worldToLocal(target)
   }
 
+  /** Visual rider seat: raw saddle socket adjusted to the saddle pan. */
+  getRiderPelvisSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
+    this.getSaddleSeatLocal(target)
+    if (this.type === MountType.HORSE) {
+      target.z += HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET
+    }
+    return target
+  }
+
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
     if (this.horseVisual) {
       return this.horseVisual.saddleSeat.getWorldPosition(target)
     }
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
+  }
+
+  /** Visual rider seat: raw saddle socket adjusted to the saddle pan. */
+  getRiderPelvisSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    this.getSaddleSeatWorld(target)
+    if (this.type === MountType.HORSE) {
+      this.group.getWorldQuaternion(horseRiderSeatWorldQuaternion)
+      target.add(horseRiderSeatWorldOffset
+        .set(0, 0, HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET)
+        .applyQuaternion(horseRiderSeatWorldQuaternion))
+    }
+    return target
   }
 
   setCameraDistance(distance: number): void {

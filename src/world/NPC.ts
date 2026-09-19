@@ -1055,7 +1055,7 @@ export class NPC {
     if (import.meta.env.DEV && collector) { collector.endPhase('mountRiderEquipment', _tRiderEquipment!) }
 
     if (import.meta.env.DEV && collector) { var _tSaddle = performance.now() }
-    this.mount.getSaddleSeatWorld(this.group.position)
+    this.mount.getRiderPelvisSeatWorld(this.group.position)
     if (import.meta.env.DEV && collector) { collector.endPhase('mountSaddleTransform', _tSaddle!) }
 
     if (import.meta.env.DEV && collector) { var _tRiderTransform = performance.now() }
