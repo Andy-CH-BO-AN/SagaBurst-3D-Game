@@ -5,6 +5,7 @@ export interface MainPassCensusScene {
   scene: THREE.Scene
   camera: THREE.Camera
   npcs: Array<{ group: THREE.Object3D, characterVisualGroup: THREE.Object3D,
+    characterFaction?: string,
     equipmentVisualLOD: { forEachRoot(fn: (kind: string, root: THREE.Object3D) => void): void } }>
   mounts: Array<{ horseVisual: { root: THREE.Object3D, lod: THREE.LOD } | null }>
   player: { group: THREE.Object3D }
@@ -67,7 +68,7 @@ function accumulator(): CensusAccumulator {
 }
 
 function broadCategory(category: string): string {
-  if (category.startsWith('Humanoid ')) return 'Humanoid'
+  if (category.startsWith('Humanoid ') || /^(Viking|Roman) Humanoid /.test(category)) return 'Humanoid'
   if (category.startsWith('Horse ')) return 'Horse'
   if (category.startsWith('Equipment/')) return 'Equipment'
   if (category === 'Player') return 'Player'
@@ -95,9 +96,12 @@ export function collectMainPassCensus(game: MainPassCensusScene): MainPassCensus
   tag(game.player.group, 'Player')
   for (const npc of game.npcs) {
     tag(npc.group, 'NPC other')
+    const faction = npc.characterFaction
+      ? `${npc.characterFaction.charAt(0).toUpperCase()}${npc.characterFaction.slice(1)}`
+      : null
     npc.characterVisualGroup.traverse(object => {
       if ((object as THREE.LOD).isLOD) (object as THREE.LOD).levels.forEach((level, i) =>
-        tag(level.object, `Humanoid LOD${i}`, npc.group.id))
+        tag(level.object, `${faction ? `${faction} ` : ''}Humanoid LOD${i}`, npc.group.id))
     })
     npc.equipmentVisualLOD.forEachRoot((kind, root) => tag(root, `Equipment/${kind}`, npc.group.id))
   }

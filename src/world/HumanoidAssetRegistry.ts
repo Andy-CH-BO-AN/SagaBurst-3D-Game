@@ -250,13 +250,13 @@ function createHornGeometry(side: -1 | 1): THREE.TubeGeometry {
 
 const VIKING_HORN_GEOMETRIES = [createHornGeometry(-1), createHornGeometry(1)] as const
 
-export function createVikingHornAccessory(): THREE.Group {
+export function createVikingHornAccessory(castShadow = true): THREE.Group {
   const accessory = new THREE.Group()
   accessory.name = 'viking-short-horns'
   VIKING_HORN_GEOMETRIES.forEach((geometry, index) => {
     const horn = new THREE.Mesh(geometry, VIKING_HORN_MATERIAL)
     horn.name = index === 0 ? 'viking-horn-l' : 'viking-horn-r'
-    horn.castShadow = true
+    horn.castShadow = castShadow
     accessory.add(horn)
   })
   return accessory
@@ -781,7 +781,7 @@ export class HumanoidAssetRegistry {
       }
       if (config.faction === 'viking') {
         const head = findBone(level, REQUIRED_BONES.head)
-        findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory())
+        findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))
       }
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
