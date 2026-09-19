@@ -389,6 +389,43 @@ export class NPC {
     this.headMesh.material = this.headMat
   }
 
+  /**
+   * DEV-only diagnostic hook to replace character and equipment materials with simple diagnostic materials.
+   * Updates _flashTargets and headMat so that hit flash restoration returns to simple materials.
+   */
+  devApplySimpleMaterials(getDiagnosticMaterial: (sourceMat: THREE.Material, isSkinned: boolean) => THREE.Material): void {
+    if (!import.meta.env.DEV) return
+
+    const replaceMaterial = (mesh: THREE.Mesh): void => {
+      const isSkinned = (mesh as THREE.SkinnedMesh).isSkinnedMesh === true
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((mat) => getDiagnosticMaterial(mat, isSkinned))
+      } else if (mesh.material) {
+        mesh.material = getDiagnosticMaterial(mesh.material, isSkinned)
+      }
+    }
+
+    const roots = [this.bodyMesh, this.swordPivot, this.bowPivot, this.shieldPivot]
+    for (const root of roots) {
+      if (!root) continue
+      root.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          replaceMaterial(child as THREE.Mesh)
+        }
+      })
+    }
+
+    if (this.headMesh && (this.headMesh as THREE.Mesh).isMesh) {
+      const isSkinned = (this.headMesh as THREE.SkinnedMesh).isSkinnedMesh === true
+      this.headMat = getDiagnosticMaterial(this.headMat, isSkinned) as THREE.MeshStandardMaterial
+      this.headMesh.material = this.headMat
+    }
+
+    for (const target of this._flashTargets) {
+      target.originalMat = target.mesh.material
+    }
+  }
+
   /** Releases this NPC from its mount and returns it to a normal walking body. */
   dismountFromMount(): void {
     if (!this.mount) return

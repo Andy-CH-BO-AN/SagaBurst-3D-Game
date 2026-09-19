@@ -424,6 +424,25 @@ export const PRESET_SCENARIO_E: BattleConfig = {
   rules: { respawnEnabled: false, includeCamps: false },
 }
 
+/** Developer performance scenario F: 100v100 Mixed Cavalry Stress (50 Melee Cavalry + 50 Horse Archer per faction), Scattered Battle, Initial Spectator */
+export const PRESET_SCENARIO_F: BattleConfig = {
+  mode: 'scattered',
+  spectator: true,
+  viking: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 15, 2: 20, 3: 15 },
+    horseArcher: { 1: 15, 2: 20, 3: 15 },
+  },
+  roman: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 15, 2: 20, 3: 15 },
+    horseArcher: { 1: 15, 2: 20, 3: 15 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
 /** Developer performance scenario (?devcombat): 50v50 cavalry, no camps. */
 export const PRESET_DEVCOMBAT: BattleConfig = {
   mode: 'formation',

@@ -180,6 +180,25 @@ export class Mount {
     this.group.removeFromParent()
   }
 
+  /**
+   * DEV-only diagnostic hook to replace mount visual materials with simple diagnostic materials.
+   */
+  devApplySimpleMaterials(getDiagnosticMaterial: (sourceMat: THREE.Material, isSkinned: boolean) => THREE.Material): void {
+    if (!import.meta.env.DEV) return
+    const root = this.horseVisual?.root ?? this.group
+    root.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh
+        const isSkinned = (mesh as THREE.SkinnedMesh).isSkinnedMesh === true
+        if (Array.isArray(mesh.material)) {
+          mesh.material = mesh.material.map((mat) => getDiagnosticMaterial(mat, isSkinned))
+        } else if (mesh.material) {
+          mesh.material = getDiagnosticMaterial(mesh.material, isSkinned)
+        }
+      }
+    })
+  }
+
   setNpcRider(npc: NPC, faction: Faction): void {
     if (this.dead) return
     this.riderNpc = npc
