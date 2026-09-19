@@ -214,6 +214,12 @@ const HORSE_STUDIO_CLIPS: HorseAnimationState[] = [
   'death',
 ]
 
+export const MOUNTED_MELEE_HIT_TOLERANCE = 0.5
+
+export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean): number {
+  return isMounted ? baseRange + MOUNTED_MELEE_HIT_TOLERANCE : baseRange
+}
+
 export class Game {
   static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -1405,13 +1411,14 @@ export class Game {
       this.player.updatePrevLanceTip()
     } else {
       const swordTipPos = this.player.getSwordTipPosition()
-      const MELEE_HIT_THRESHOLD = equippedMelee.range || 1.85
+      const baseRange = equippedMelee.range || 1.85
 
       for (const npc of this.npcs) {
         if (!npc.dead && npc.faction === Faction.ENEMY) {
           const aiCenter = npc.combatPosition.clone()
           aiCenter.y += 1.0
-          if (swordTipPos.distanceTo(aiCenter) <= MELEE_HIT_THRESHOLD) {
+          const hitThreshold = resolveMeleeHitThreshold(baseRange, npc.isMounted)
+          if (swordTipPos.distanceTo(aiCenter) <= hitThreshold) {
             this.player.markHitProcessed()
             const result = damageNpc(npc, damage)
             if (result.hitSuccess) {
