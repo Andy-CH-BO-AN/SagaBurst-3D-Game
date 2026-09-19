@@ -19,7 +19,6 @@ SagaBurst 標準效能量測
   --runs=N                 Before Contact 預設 3，Combat 預設 1
   --tag=NAME               輸出檔名 tag
   --host=HOST:PORT         預設 127.0.0.1:5173
-  --headed                 顯示 browser；預設 headless
   --no-subphase            允許沒有 Mount internal breakdown 的 baseline
   --warmup-ms=N            預設 3000
   --observation-ms=N       預設 20000
@@ -51,7 +50,6 @@ const observationMs = Number(valueOf('observation-ms', '20000'))
 const timeoutMs = Number(valueOf('timeout-ms', '25000'))
 const tag = valueOf('tag', `${scenarioArg.toLowerCase()}-${phase}`)
 const requireSubphase = !args.has('--no-subphase')
-const headed = args.has('--headed')
 
 const metricPatterns = {
   fps: /^FPS:\s+([\d.]+)/m,
@@ -148,7 +146,7 @@ function aggregate(samples) {
   return metrics
 }
 
-const browser = await chromium.launch({ headless: !headed })
+const browser = await chromium.launch({ headless: false })
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 } })
 const page = await context.newPage()
 await page.addInitScript(({ combatTimeoutMs }) => {
@@ -321,7 +319,7 @@ const report = {
   timeoutMs,
   requireSubphase,
   browserReuse: 'one browser process and one page for all runs',
-  headed,
+  headed: true,
   rows,
 }
 const outputPath = path.resolve(valueOf('out', `output/local-diagnostics/mount-benchmark-${tag}-${phase}.json`))
