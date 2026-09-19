@@ -4,7 +4,7 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types, tiers, battle deployment mode, and whether the player fights as **Viking** or **Roman**, while both AI armies automatically engage across a large battlefield.
+The current gameplay entry point is **Custom Battle**: configure Viking and Roman armies, choose troop types, tiers, battle deployment mode, Player Faction, and the player's starting loadout, while both AI armies automatically engage across a large battlefield.
 
 ## ⚔️ Custom Battle
 
@@ -33,35 +33,40 @@ Player faction is selected independently from army composition and deployment mo
 - **Viking Player** — Viking NPCs are allies, Roman NPCs are enemies, and Formation Battle starts the player on the Viking (+Z) side facing the Roman army.
 - **Roman Player** — Roman NPCs are allies, Viking NPCs are enemies, and Formation Battle starts the player on the Roman (-Z) side facing the Viking army.
 
-Changing an army preset only changes army composition; it preserves the selected **Battle Mode**, **Player Faction**, and **Spectator** setting.
+Changing an army preset only changes army composition; it preserves the selected **Battle Mode**, **Player Faction**, **Player Loadout**, and **Spectator** setting.
 
 The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–100 AI troop total or the army-survival victory count.
 
 ### Battle flow
 
-1. Open the game, configure both armies, select **Viking** or **Roman** as the Player Faction, and choose **Formation Battle** or **Scattered Battle**.
-2. Click **START BATTLE**.
-3. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
-4. Fight alongside the selected allied army using melee weapons, bows, shields, lances, and horses.
-5. A battle ends when either configured AI army is eliminated.
-6. Use **REMATCH** to replay the same army and battle-mode configuration or **BACK TO SETUP** to build another battle.
+1. Open the game and use **Army Setup** to configure both armies, Player Faction, and **Formation Battle** or **Scattered Battle**.
+2. Open **Player Loadout** and choose a melee weapon, ranged weapon, shield (or no shield), and whether to start **Mounted** or **On Foot**.
+3. Click **START BATTLE**.
+4. Actors spawn according to the selected deployment mode: opposite-side formations in Formation Battle, or deterministic mixed positions across the battlefield in Scattered Battle. The AI armies then automatically engage.
+5. Fight alongside the selected allied army using swords, gladii, lances, bows, pila, shields, and horses.
+6. A battle ends when either configured AI army is eliminated.
+7. Use **REMATCH** to replay the same battle configuration or **BACK TO SETUP** to build another battle.
 
 If both AI armies are eliminated at the same time, the result is a **DRAW**.
 
-## 🐎 Player Starting Loadout
+## 🧰 Player Loadout & Starting State
 
-Normal Custom Battles start the player as a fully equipped mounted fighter, already on a warhorse. The player's humanoid appearance and allied army follow the selected Player Faction. In Formation Battle, Viking players start on the Viking (+Z) side facing -Z, while Roman players start on the Roman (-Z) side facing +Z. In Scattered Battle, the player and starting horse spawn together at the battle's deterministic scattered player position.
+Custom Battle now has a dedicated **Player Loadout** page. Before starting the battle, choose exactly one melee weapon, one ranged weapon, an optional shield, and whether the player begins **Mounted** or **On Foot**.
 
-The current default player inventory is shared by both Player Factions (faction-specific player loadouts are not implemented yet):
+Player equipment is independent from Player Faction, so Viking and Roman gear can be mixed freely:
 
-- **Steel Lance** — equipped melee weapon for mounted combat and high-speed lance charges.
-- **Elven Runebow** — equipped Tier 3 ranged weapon.
-- **Round Shield T3** — equipped Viking shield.
-- **Runic Greatsword** — carried in the inventory as an alternate Tier 3 melee weapon.
+- **Melee** — Viking swords, Roman gladii, or the Steel Lance.
+- **Ranged** — Viking bows or Roman pila.
+- **Shield** — Viking round shields, Roman scuta, or no shield.
+- **Starting state** — **Mounted** creates and mounts the normal starting horse; **On Foot** does not create the special starting horse.
 
-After dismounting, open the Equipment UI with `Tab` or `I` to switch from the lance to the Runic Greatsword. The existing two-handed weapon behavior automatically moves the equipped shield to the player's back while the greatsword is in use.
+An explicit custom loadout gives the player only the selected starting equipment rather than also granting unrelated top-tier gear. Army presets and Reset preserve the selected Player Loadout.
 
-The player's starting horse is separate from the spare horses placed in the faction camps. **Player death is permanent for the current battle**: after dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends. REMATCH starts a fresh battle using the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
+Bow and Pilum controls intentionally differ: bows use the existing draw-and-release flow, while a Pilum is aimed with the right mouse button and committed with a left click. Entering ranged aim still unequips an equipped shield using the existing ranged-weapon behavior.
+
+For backward compatibility, battle configurations that do not contain `playerLoadout` keep the legacy default start: **Steel Lance**, **Elven Runebow**, **Round Shield T3**, and mounted. Initial Spectator mode overrides the loadout and does not create a starting horse.
+
+The player's starting horse is separate from the spare horses placed in the faction camps. **Player death is permanent for the current battle**: after dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends. REMATCH starts a fresh battle using the same configuration. Mounted save/load continues to preserve the player's mounted state and the mount's world position, while loaded save inventory overrides fresh-battle starting equipment.
 
 ## 🏕️ Battle Camps
 
@@ -105,8 +110,9 @@ After clicking **START BATTLE**, the game attempts to capture the mouse for came
 | Mouse | Look / control camera |
 | `Shift` | Sprint |
 | `Space` | Jump |
-| Left Mouse Button | Melee attack |
-| Hold Right Mouse Button + Left Mouse Button | Aim / shoot bow |
+| Left Mouse Button | Melee attack when not aiming |
+| Hold Right Mouse Button + hold/release Left Mouse Button | Aim / draw / fire bow |
+| Hold Right Mouse Button + click Left Mouse Button | Aim / throw Pilum |
 | `E` | Pick up equipment / mount horse / dismount |
 | `Tab` or `I` | Open character & inventory |
 | `0` | Open game menu |
@@ -115,10 +121,11 @@ After clicking **START BATTLE**, the game attempts to capture the mouse for came
 ## 🏹 Combat & RPG Systems
 
 - **Melee combat** — use daggers, swords, greatswords, and lances.
-- **Archery** — hold right mouse to aim, then use the left mouse button to draw and fire.
+- **Archery** — hold right mouse to aim, hold left mouse to draw, then release left mouse to fire.
+- **Pilum throwing** — hold right mouse to aim and click left mouse to commit a Roman Pilum throw.
 - **Mounted combat** — cavalry can charge with lances while mounted ranged units fight from horseback.
-- **Tiered equipment** — T1 / T2 / T3 weapons and ranged equipment have distinct combat values.
-- **Shields** — Viking round shields and Roman scuta are available from battle camps.
+- **Tiered equipment** — T1 / T2 / T3 Viking and Roman equipment have distinct combat values.
+- **Shields** — Viking round shields and Roman scuta can be selected in Player Loadout or collected during battle.
 - **Equipment pickups** — approach camp equipment and press `E` to collect it.
 - **Arrow supplies** — refill ranged ammunition from camp supply pickups.
 - **Horses** — approach an available horse and press `E` to mount; press `E` again to dismount.

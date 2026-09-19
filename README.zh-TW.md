@@ -4,7 +4,7 @@
 
 **SagaBurst** 是一個使用 **Three.js**、**TypeScript** 與 **Vite** 製作、可直接在瀏覽器中遊玩的 3D 動作 RPG 原型。
 
-目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種、Tier、戰鬥部署模式，並選擇 Player 要以 **Viking** 或 **Roman** 身分出戰；兩邊 AI 軍隊則會在大型戰場上自動接戰。
+目前正式遊戲入口為 **Custom Battle 自訂戰役**：玩家可以配置 Viking 與 Roman 雙方軍隊、兵種、Tier、戰鬥部署模式、Player Faction，以及 Player 的起始裝備與騎乘狀態；兩邊 AI 軍隊則會在大型戰場上自動接戰。
 
 ## ⚔️ Custom Battle 自訂戰役
 
@@ -33,35 +33,40 @@ Player Faction 與兵力、部署模式分開設定：
 - **Viking Player** — Viking NPC 為友軍、Roman NPC 為敵軍；Formation Battle 從 Viking 的 +Z 側出生並面向 Roman 軍隊。
 - **Roman Player** — Roman NPC 為友軍、Viking NPC 為敵軍；Formation Battle 從 Roman 的 -Z 側出生並面向 Viking 軍隊。
 
-切換 10 vs 10～100 vs 100 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction 與 Spectator** 設定。
+切換 10 vs 10～100 vs 100 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
 
 Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–100 名 AI 兵力，也不影響軍隊存活數判定**。
 
 ### 戰鬥流程
 
-1. 開啟遊戲後，在 Custom Battle Setup 配置 Viking / Roman 軍隊，選擇 Player Faction 為 **Viking** 或 **Roman**，再選擇 **Formation Battle** 或 **Scattered Battle**。
-2. 點擊 **START BATTLE**。
-3. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
-4. 玩家會加入所選陣營一方，使用近戰武器、弓、盾、長槍與戰馬參與戰鬥。
-5. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
-6. 使用 **REMATCH** 以相同兵力與 Battle Mode 重開，或選擇 **BACK TO SETUP** 返回首頁重新配兵。
+1. 開啟遊戲後，在 **軍隊配置 ARMY SETUP** 設定 Viking / Roman 軍隊、Player Faction，以及 **Formation Battle** 或 **Scattered Battle**。
+2. 切到 **玩家裝備 PLAYER LOADOUT**，選擇近戰武器、遠程武器、盾牌（或無盾），以及 **騎馬 MOUNTED** / **徒步 ON FOOT**。
+3. 點擊 **開始戰鬥 START BATTLE**。
+4. 所有 actor 會依模式出生：Formation Battle 讓兩軍在戰場兩側列陣；Scattered Battle 則讓 Player 與雙方 NPC 以確定性位置交錯散布在戰場各處。之後雙方 AI 會自動索敵接戰。
+5. 玩家加入所選陣營一方，可使用 Viking / Roman 的劍、Gladius、長槍、弓、Pilum、盾牌與戰馬參與戰鬥。
+6. 任一方配置的 AI 軍隊全滅後，戰鬥結束。
+7. 使用 **REMATCH** 以相同設定重開，或選擇 **BACK TO SETUP** 返回首頁重新配置。
 
 如果雙方 AI 軍隊在同一時間全滅，結果會判定為 **DRAW 平局**。
 
-## 🐎 Player 預設騎乘與裝備
+## 🧰 Player 裝備與出戰方式
 
-一般 Custom Battle 會讓 Player 以全裝備騎乘角色開場並直接騎上戰馬；角色外觀與友軍陣營會依選擇的 Player Faction 切換。Formation Battle 中，Viking Player 從 +Z 側出生並面向 -Z，Roman Player 則從 -Z 側出生並面向 +Z；Scattered Battle 會讓 Player 與開場戰馬一起出生在該場戰鬥的確定性散布位置。
+Custom Battle 現在有獨立的 **玩家裝備 PLAYER LOADOUT** 頁面。開始戰鬥前，可以直接選擇一把近戰武器、一把遠程武器、盾牌（或不帶盾），以及要 **騎馬 MOUNTED** 還是 **徒步 ON FOOT** 開場。
 
-目前 Viking / Roman Player 共用同一套預設背包與裝備（尚未實作依 Player Faction 切換的專屬起始裝備）：
+Player 裝備與 Player Faction 完全分開，因此 Viking / Roman 裝備可以自由混搭：
 
-- **Steel Lance 精鋼騎槍** — 預設近戰武器，用於馬上戰鬥與高速長槍衝刺。
-- **Elven Runebow 精靈符文弓** — 預設 Tier 3 遠程武器。
-- **Round Shield T3** — 預設 Viking Tier 3 圓盾。
-- **Runic Greatsword 符文大劍** — 額外放在背包中的 Tier 3 近戰武器，不會預設裝備。
+- **近戰武器** — Viking 長劍、Roman Gladius，或 Steel Lance 長槍。
+- **遠程武器** — Viking 弓，或 Roman Pilum 標槍。
+- **盾牌** — Viking 圓盾、Roman Scutum，或選擇無盾。
+- **出戰方式** — 選擇 **騎馬** 時會建立並騎上既有開場戰馬；選擇 **徒步** 時不會生成這匹特殊開場戰馬。
 
-下馬後可以按 `Tab` 或 `I` 開啟 Equipment UI，將近戰武器從騎槍切換成 Runic Greatsword。裝備雙手大劍時，既有雙手武器邏輯會自動把目前裝備的盾牌移到背後。
+有明確設定 Player Loadout 時，Player 起始背包只會包含所選裝備，不會另外塞入沒有選到的頂級裝備。切換兵力 Preset 或 Reset 也會保留目前的 Player Loadout。
 
-Player 的開場戰馬與雙方營地內提供的備用戰馬是分開計算的。**Player 在單場戰鬥中死亡後不會復活**，而是直接切換為自由觀戰模式；剩餘 Viking 與 Roman NPC 會繼續交戰直到分出勝負。使用 **REMATCH** 才會以相同設定重新開始一場新的戰鬥。存檔 / 讀檔會保留騎乘狀態與坐騎實際世界座標；舊版本存檔則會保留原本的背包與裝備，不會被自動升級成新的 T3 預設裝備。
+弓與 Pilum 的操作方式不同：弓沿用既有的拉弓 / 放箭流程；Pilum 則是按住右鍵瞄準，再用左鍵觸發投擲。進入遠程瞄準時，若有裝備盾牌，仍沿用既有邏輯自動卸下盾牌。
+
+為了向後相容，沒有 `playerLoadout` 的舊 BattleConfig 仍維持原本預設：**Steel Lance、Elven Runebow、Round Shield T3，並騎馬開場**。若啟用初始 **Spectator 觀戰模式**，則會忽略騎乘設定，不生成 Player 的開場戰馬。
+
+Player 的開場戰馬與雙方營地內提供的備用戰馬分開計算。**Player 在單場戰鬥中死亡後不會復活**，而是直接切換為自由觀戰模式；剩餘 Viking 與 Roman NPC 會繼續交戰直到分出勝負。使用 **REMATCH** 才會以相同設定重新開始一場新的戰鬥。存檔 / 讀檔仍會保留騎乘狀態與坐騎實際世界座標，而讀入的存檔背包會覆蓋新戰鬥的起始 Loadout。
 
 ## 🏕️ 雙方營地
 
@@ -105,8 +110,9 @@ npm run dev
 | 滑鼠 | 視角 / 鏡頭控制 |
 | `Shift` | 衝刺 |
 | `Space` | 跳躍 |
-| 滑鼠左鍵 | 近戰攻擊 |
-| 按住滑鼠右鍵 + 滑鼠左鍵 | 瞄準 / 使用弓箭射擊 |
+| 滑鼠左鍵 | 未瞄準時進行近戰攻擊 |
+| 按住滑鼠右鍵 + 按住 / 放開左鍵 | 弓箭瞄準 / 拉弓 / 放箭 |
+| 按住滑鼠右鍵 + 點擊左鍵 | 瞄準 / 投擲 Pilum 標槍 |
 | `E` | 拾取裝備 / 騎馬 / 下馬 |
 | `Tab` 或 `I` | 開啟角色與背包介面 |
 | `0` | 開啟遊戲選單 |
@@ -115,10 +121,11 @@ npm run dev
 ## 🏹 戰鬥與 RPG 系統
 
 - **近戰戰鬥** — 可使用匕首、劍、大劍與長槍。
-- **弓箭戰鬥** — 按住右鍵瞄準，再使用左鍵拉弓與射擊。
+- **弓箭戰鬥** — 按住右鍵瞄準，按住左鍵拉弓，再放開左鍵射擊。
+- **Pilum 標槍** — 按住右鍵瞄準，點擊左鍵觸發 Roman Pilum 投擲。
 - **騎乘戰鬥** — 騎兵可使用長槍衝刺，騎射手則能在馬背上進行遠程攻擊。
-- **Tier 裝備** — T1 / T2 / T3 的近戰與遠程裝備具有不同戰鬥數值。
-- **盾牌** — Viking 圓盾與 Roman Scutum 都可從營地取得。
+- **Tier 裝備** — Viking / Roman 的 T1 / T2 / T3 裝備具有不同戰鬥數值。
+- **盾牌** — Viking 圓盾與 Roman Scutum 都可在 Player Loadout 選擇，也能於戰場中取得。
 - **裝備拾取** — 靠近營地裝備後按 `E` 即可拾取。
 - **箭矢補給** — 可從營地補給點補充遠程彈藥。
 - **戰馬** — 靠近可騎乘的馬匹後按 `E` 上馬，再按一次 `E` 下馬。
