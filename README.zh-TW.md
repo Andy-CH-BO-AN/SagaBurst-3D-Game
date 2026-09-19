@@ -145,7 +145,9 @@ npm run dev
 | `?devcombat=a` | 50 vs 50 純步兵控制組 |
 | `?devcombat=b` | 100 vs 100 純步兵 scaling 場景 |
 | `?devcombat=c` | 100 vs 100 混合兵種場景 |
-| `?devcombat=d` | 100 vs 100 騎兵 / 騎射手壓力場景 |
+| `?devcombat=d` | 100 vs 100 列陣騎兵 / 騎射手壓力場景 |
+| `?devcombat=e` | 100 vs 100 全近戰騎兵、Scattered Battle、初始觀戰、無營地 / 復活 |
+| `?devcombat=f` | 100 vs 100 混合騎兵（每方 50 近戰騎兵 + 50 騎射手）、Scattered Battle、初始觀戰、無營地 / 復活 |
 | `?devcombat` | 舊版固定 50 vs 50 mounted 開發場景 |
 
 `devcombat` 會顯示 runtime profiling HUD，包含 wall-clock FPS、CPU Frame Work、NPC Update、Entity Collision、Projectile / Impact、Renderer Submit、Draw Calls、Triangles、Horse Count 與 LOD 統計。
@@ -167,6 +169,7 @@ npm run dev
 http://localhost:5173/?devcombat=b&nolock
 http://localhost:5173/?devcombat=c&nolock
 http://localhost:5173/?devcombat=d&nolock
+http://localhost:5173/?devcombat=f&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
 ```
@@ -183,7 +186,21 @@ Benchmark runner 會記錄 Browser / WebGL 環境，並檢查是否為硬體加�
 node tools/profile-large-battles.mjs
 ```
 
-Benchmark 會依序執行 A–D 場景，並記錄接戰前與接戰中的 FPS、CPU Work、Renderer Submit、NPC Update、Collision、Draw Calls 與 Triangles 等資訊。
+大型綜合 Benchmark 會依序執行 A–D 場景，並記錄接戰前與接戰中的 FPS、CPU Work、Renderer Submit、NPC Update、Collision、Draw Calls 與 Triangles 等資訊。
+
+針對 Shadow Path，目前以 **Scenario F** 作為混合騎兵隔離場景。Fixed-scene runner 會凍結 simulation、維持 render loop 運作、驗證場景 invariant，並執行 Shadow ON / OFF / ON 對照；Renderer Submit 不會被誤稱為純 GPU time：
+
+```bash
+node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
+```
+
+目前已進入 `main` 的結構性 Shadow 優化包含：
+
+- **Roman Humanoid** — LOD0 / LOD1 每名角色的 shadow caster 從 17 個精簡為 5 個；LOD2 維持零陰影。
+- **NPC Equipment** — Scenario F 裝備 Shadow Submissions 從 127 降至 68，只保留真正影響 silhouette 的 caster；Equipment LOD2 維持零陰影。
+- **NPC Projectile** — NPC 飛行中的 Arrow / Pilum 不再投射陰影，結構成本由每個 active projectile 1 submission 降為 0；Player 自己發射的 projectile shadow 保持不變。
+
+效能結論以 Shadow Census 的結構性 submissions / triangles 為主要因果證據。不同 commit 間的 FPS / Renderer Submit 只視為方向性 timing evidence，除非能完整重播完全相同的 scene state。
 
 ## 🧰 開發指令
 
