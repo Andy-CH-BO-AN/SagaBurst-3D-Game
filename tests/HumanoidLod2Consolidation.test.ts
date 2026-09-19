@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
+  AUDITED_ROMAN_LOD2_SHA256,
   consolidateRomanLod2,
   createRomanLod2ConsolidationTemplate,
+  isRomanLod2ConsolidationAssetAudited,
   tryCreateRomanLod2ConsolidationTemplate,
 } from '../src/world/HumanoidLod2Consolidation'
 import { gltfMaterialRenderContract, materialRenderContract, sameMaterialRenderContract } from '../src/world/MaterialRenderContract'
@@ -97,6 +99,16 @@ function readRomanLod2() {
 }
 
 describe('Roman LOD2 duplicate-material consolidation', () => {
+  it('enables consolidation only for the exact audited Roman LOD2 asset bytes', () => {
+    const bytes = readFileSync(new URL('../public/models/characters/v2/roman/lod2.glb', import.meta.url))
+    const actualSha256 = createHash('sha256').update(bytes).digest('hex')
+
+    expect(actualSha256).toBe(AUDITED_ROMAN_LOD2_SHA256)
+    expect(isRomanLod2ConsolidationAssetAudited(actualSha256)).toBe(true)
+    expect(isRomanLod2ConsolidationAssetAudited('0'.repeat(64))).toBe(false)
+    expect(isRomanLod2ConsolidationAssetAudited(undefined)).toBe(false)
+  })
+
   it('preserves source attributes, index coverage, skeleton binding, triangles and render policy while reducing eight skins to four', () => {
     const { root, skeleton, sources } = makeLod2()
     const before = new Map(sources.map(mesh => [mesh.name, {
