@@ -231,15 +231,18 @@ describe('NPC Separation & Query Range Contracts', () => {
 
     const animations = clips.map((name) => new THREE.AnimationClip(name, 1, []))
     const gltf = { scene: horseScene, scenes: [horseScene], animations } as unknown as GLTF
-    ;(HorseAssetRegistry as any).template = {
-      manifest,
-      gltf,
-      bodyMaterials: [
-        new THREE.MeshStandardMaterial({ color: 0x442211 }),
-        new THREE.MeshStandardMaterial({ color: 0x221100 }),
-        new THREE.MeshStandardMaterial({ color: 0x110000 }),
-      ],
-    }
+    const horseRegistry = HorseAssetRegistry as unknown as { template: unknown }
+    const originalHorseTemplate = horseRegistry.template
+    try {
+      horseRegistry.template = {
+        manifest,
+        gltf,
+        bodyMaterials: [
+          new THREE.MeshStandardMaterial({ color: 0x442211 }),
+          new THREE.MeshStandardMaterial({ color: 0x221100 }),
+          new THREE.MeshStandardMaterial({ color: 0x110000 }),
+        ],
+      }
 
     const scene = new THREE.Scene()
     const player = new Player(scene)
@@ -307,6 +310,9 @@ describe('NPC Separation & Query Range Contracts', () => {
     // Rider A is at z = 0.18, Rider B is at z = 1.33. Rider A must be pushed in -Z direction:
     const deltaZ = horseNpcA.group.position.z - prevZ
     expect(deltaZ).toBeLessThan(0)
+    } finally {
+      horseRegistry.template = originalHorseTemplate
+    }
   })
 
   it('non-CHASE states (IDLE, ALERT, ATTACK) do not require nearbyNPCs and behave identically with empty array', () => {
