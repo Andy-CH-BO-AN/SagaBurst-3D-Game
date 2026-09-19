@@ -151,17 +151,18 @@ export class NpcSubphaseAggregator {
     this._windowCount++
     this._sampleCountSum += frame.sampleCount
     for (const p of PHASES) {
-      // A full cohort contains one sampled eighth of the NPCs from each of
-      // eight frames. Normalize its total to the same per-frame scale as the
-      // RuntimeProfiler NPC Update raw metric before reporting it.
-      const v = frame[p] / SUBPHASE_COHORT
+      // Eight frames contain one sampled eighth of the NPCs per frame, so a
+      // completed cohort has measured every NPC exactly once. Its total is
+      // therefore already the estimated full-population per-frame phase cost.
+      const v = frame[p]
       this._acc[p].sum += v
       if (v > this._acc[p].max) this._acc[p].max = v
     }
   }
 
-  flush(windowCount: number): NpcSubphaseSnapshot | null {
-    if (windowCount <= 0 || this._windowCount === 0) return null
+  /** Emit the cohorts accumulated during one RuntimeProfiler reporting window. */
+  flush(): NpcSubphaseSnapshot | null {
+    if (this._windowCount === 0) return null
     const n = this._windowCount
     const snap: NpcSubphaseSnapshot = {
       gridQuery: this._stat('gridQuery', n),
@@ -178,6 +179,11 @@ export class NpcSubphaseAggregator {
     }
     this._resetAcc()
     return snap
+  }
+
+  /** Discard partial cohort aggregation when the matching runtime window resets. */
+  reset(): void {
+    this._resetAcc()
   }
 
   private _stat(p: NpcSubphasePhase, n: number): NpcSubphaseStat {

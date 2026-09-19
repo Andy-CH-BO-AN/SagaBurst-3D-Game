@@ -142,9 +142,7 @@ async function collectSnapshot(page, withSubphase) {
 async function resetProfiler(page, withSubphase) {
   await page.evaluate((ws) => {
     window.game.runtimeProfiler.reset(performance.now())
-    if (ws && window.game._npcSubphaseCollector) {
-      window.game._npcSubphaseCollector.reset()
-    }
+    if (ws) window.game.resetNpcSubphaseProfiling?.()
   }, withSubphase)
 }
 
@@ -209,10 +207,8 @@ function assertSnapshotPopulation(scenarioLetter, label, snapshot, requireBefore
   }
 }
 
-// The scattered Scenario E can begin melee contact before a one-second
-// RuntimeProfiler window has elapsed. Freeze only the simulation clock while
-// collecting the Before Contact window; the render loop and CPU profiler keep
-// running, then the live simulation is restarted for During Combat.
+// Freeze only the shader/JIT warmup. The measured Before Contact window must
+// use live simulation so movement, state progression, and timers are real.
 async function setSimulationFrozen(page, frozen) {
   await page.evaluate((shouldFreeze) => {
     const clock = window.game.clock
@@ -241,28 +237,27 @@ async function runPass(page, scenarioLetter, withSubphase) {
   await waitForGame(page, 40000)
   await assertScenarioSanity(page, scenarioLetter)
 
-  // Keep the pre-contact population intact for both scenarios, so the D/E
-  // baseline is comparable and Scenario E cannot race into melee during JIT
-  // warmup or the one-second profiler window.
+  // Avoid Scenario E entering melee during shader/JIT warmup.
   await setSimulationFrozen(page, true)
 
   // Warmup：讓 shader、JIT compile、冷啟動穩定
   console.log(`    Warming up 6s...`)
   await sleep(6000)
 
-  // 重置，排除 warmup jitter
+  // Resume live simulation, then begin an immediate clean pre-contact window.
+  await setSimulationFrozen(page, false)
   await resetProfiler(page, withSubphase)
 
-  // Before Contact：採樣 3s（確保 ≥2 個 1-second profiler window）
-  console.log(`    Before Contact: sampling 3s...`)
-  await sleep(3000)
+  // 1.25s is long enough for the 1-second RuntimeProfiler window while
+  // keeping the all-melee scattered scenario before its first deaths.
+  console.log(`    Before Contact: sampling 1.25s...`)
+  await sleep(1250)
 
   const beforeContact = await collectSnapshot(page, withSubphase)
   assertSnapshotPopulation(scenarioLetter, 'Before Contact', beforeContact, true)
   console.log(`    BC: FPS=${beforeContact?.fps?.toFixed(1) ?? '--'}, NPC Update=${beforeContact?.npcUpdateAvg?.toFixed(2) ?? '--'}ms, Alive=${beforeContact?.alive ?? '--'}, Dead=${beforeContact?.dead ?? '--'}`)
 
   // 等待接戰
-  await setSimulationFrozen(page, false)
   await waitForCombat(page, 45000)
 
   // 重置，During Combat 窗口乾淨

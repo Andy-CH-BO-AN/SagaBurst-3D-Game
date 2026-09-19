@@ -121,7 +121,7 @@ describe('NpcSubphaseProfiler', () => {
   })
 
   describe('NpcSubphaseAggregator', () => {
-    it('flush(1) returns a snapshot with correct phase values from a single window', () => {
+    it('flush returns a full-population per-frame estimate from one cohort', () => {
       const agg = new NpcSubphaseAggregator()
 
       // Simulate one 8-frame window result
@@ -139,13 +139,11 @@ describe('NpcSubphaseProfiler', () => {
         sampleCount: 25,
       })
 
-      const snap = agg.flush(1)
+      const snap = agg.flush()
       expect(snap).not.toBeNull()
-      // A full cohort covers eight frames, so snapshot timing is normalized
-      // to the per-frame scale used by NPC Update raw.
-      expect(snap!.humanoidAnim.avg).toBeCloseTo(4.5 / SUBPHASE_COHORT, 3)
-      expect(snap!.mountUpdate.avg).toBeCloseTo(5.0 / SUBPHASE_COHORT, 3)
-      expect(snap!.separation.avg).toBeCloseTo(2.1 / SUBPHASE_COHORT, 3)
+      expect(snap!.humanoidAnim.avg).toBeCloseTo(4.5, 3)
+      expect(snap!.mountUpdate.avg).toBeCloseTo(5.0, 3)
+      expect(snap!.separation.avg).toBeCloseTo(2.1, 3)
       expect(snap!.sampleCountAvg).toBeCloseTo(25, 3)
     })
 
@@ -157,7 +155,7 @@ describe('NpcSubphaseProfiler', () => {
         moveFace: 5, combatLogic: 6, humanoidAnim: 7, mountUpdate: 8,
         footPhysics: 9, deadUpdate: 10, sampleCount: 20,
       })
-      agg.flush(1) // consume first window
+      agg.flush() // consume first window
 
       // Second window with different values
       agg.record({
@@ -165,16 +163,32 @@ describe('NpcSubphaseProfiler', () => {
         moveFace: 0.5, combatLogic: 0.6, humanoidAnim: 0.7, mountUpdate: 0.8,
         footPhysics: 0.9, deadUpdate: 1.0, sampleCount: 5,
       })
-      const snap2 = agg.flush(1)
+      const snap2 = agg.flush()
       expect(snap2).not.toBeNull()
       // Must not carry over values from the first window
-      expect(snap2!.humanoidAnim.avg).toBeCloseTo(0.7 / SUBPHASE_COHORT, 3)
-      expect(snap2!.mountUpdate.avg).toBeCloseTo(0.8 / SUBPHASE_COHORT, 3)
+      expect(snap2!.humanoidAnim.avg).toBeCloseTo(0.7, 3)
+      expect(snap2!.mountUpdate.avg).toBeCloseTo(0.8, 3)
     })
 
     it('returns null when no windows have been recorded', () => {
       const agg = new NpcSubphaseAggregator()
-      expect(agg.flush(1)).toBeNull()
+      expect(agg.flush()).toBeNull()
+    })
+
+    it('averages completed cohorts in the reporting window', () => {
+      const agg = new NpcSubphaseAggregator()
+      const frame = (humanoidAnim: number) => ({
+        gridQuery: 0, targetAI: 0, separation: 0, obstacleAvoid: 0,
+        moveFace: 0, combatLogic: 0, humanoidAnim, mountUpdate: 0,
+        footPhysics: 0, deadUpdate: 0, sampleCount: 200,
+      })
+      agg.record(frame(4))
+      agg.record(frame(8))
+
+      const snap = agg.flush()
+      expect(snap!.humanoidAnim.avg).toBeCloseTo(6, 3)
+      expect(snap!.humanoidAnim.max).toBeCloseTo(8, 3)
+      expect(snap!.sampleCountAvg).toBeCloseTo(200, 3)
     })
   })
 

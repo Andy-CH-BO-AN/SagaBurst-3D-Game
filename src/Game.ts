@@ -1868,18 +1868,13 @@ export class Game {
       this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
     }
 
-    // Advance the 8-frame cohort window and flush completed windows
+    // Advance the 8-frame cohort window. Completed cohorts are accumulated
+    // until RuntimeProfiler emits its matching reporting-window snapshot.
     if (import.meta.env.DEV && this._npcSubphaseEnabled && this._npcSubphaseCollector && this._npcSubphaseAggregator) {
       this._subphaseFrameIndex++
       const windowResult = this._npcSubphaseCollector.advanceFrame()
       if (windowResult !== null) {
         this._npcSubphaseAggregator.record(windowResult)
-        // Use windowCount=1 to emit immediately; one 8-frame window = one snapshot
-        const snap = this._npcSubphaseAggregator.flush(1)
-        if (snap) {
-          this.runtimeProfiler.setNpcSubphaseSnapshot(snap)
-          this._updateDevCombatStatus()
-        }
       }
     }
 
@@ -1977,10 +1972,24 @@ export class Game {
         otherMs,
       }, frameEnd)
 
+      // Keep subphase and raw NPC Update snapshots on the same ~1-second
+      // reporting window. A full 8-frame cohort is never split.
+      if (newSnapshot && this._npcSubphaseEnabled && this._npcSubphaseAggregator) {
+        const subphaseSnapshot = this._npcSubphaseAggregator.flush()
+        if (subphaseSnapshot) this.runtimeProfiler.setNpcSubphaseSnapshot(subphaseSnapshot)
+      }
+
       if (newSnapshot || !this.hasDevCombatRenderedInitialHud) {
         this._updateDevCombatStatus()
         this.hasDevCombatRenderedInitialHud = true
       }
     }
+  }
+
+  /** DEV benchmark hook: reset subphase state with RuntimeProfiler's window. */
+  resetNpcSubphaseProfiling(): void {
+    this._npcSubphaseCollector?.reset()
+    this._npcSubphaseAggregator?.reset()
+    this._subphaseFrameIndex = 0
   }
 }
