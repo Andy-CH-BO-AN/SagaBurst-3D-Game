@@ -273,6 +273,8 @@ export function gltfMaterialRenderContract<TTexture>(
 }
 
 function sameNumber(first: number, second: number): boolean {
+  if (first === second) return true
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return false
   return Math.abs(first - second) < 1e-7
 }
 

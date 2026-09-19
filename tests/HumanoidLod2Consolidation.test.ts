@@ -8,7 +8,7 @@ import {
   createRomanLod2ConsolidationTemplate,
   tryCreateRomanLod2ConsolidationTemplate,
 } from '../src/world/HumanoidLod2Consolidation'
-import { gltfMaterialRenderContract, sameMaterialRenderContract } from '../src/world/MaterialRenderContract'
+import { gltfMaterialRenderContract, materialRenderContract, sameMaterialRenderContract } from '../src/world/MaterialRenderContract'
 
 const PAIRS = [
   ['Armour_top_1', 'Armour_top_2', 'Armour_top0', 'Armour_top1'],
@@ -220,6 +220,21 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
     expect(first.material).not.toBe(second.material)
     expect((first.material as THREE.MeshStandardMaterial).normalMap).not.toBe((second.material as THREE.MeshStandardMaterial).normalMap)
     expect(() => createRomanLod2ConsolidationTemplate(root)).not.toThrow()
+  })
+
+  it('treats equivalent MeshPhysicalMaterial defaults with infinite attenuation distance as compatible', () => {
+    const first = new THREE.MeshPhysicalMaterial()
+    const second = new THREE.MeshPhysicalMaterial()
+    expect(first.attenuationDistance).toBe(Infinity)
+    expect(second.attenuationDistance).toBe(Infinity)
+    expect(sameMaterialRenderContract(materialRenderContract(first), materialRenderContract(second))).toBe(true)
+  })
+
+  it('rejects MeshPhysicalMaterial when attenuation distance differs from infinity', () => {
+    const first = new THREE.MeshPhysicalMaterial()
+    const second = new THREE.MeshPhysicalMaterial()
+    second.attenuationDistance = 10
+    expect(sameMaterialRenderContract(materialRenderContract(first), materialRenderContract(second))).toBe(false)
   })
 
   it.each([
