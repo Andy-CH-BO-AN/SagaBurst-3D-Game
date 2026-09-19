@@ -33,7 +33,7 @@ node .codex/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=E --phase=during-combat --runs=1 --tag=candidate-e-combat
 ```
 
-預設使用 headless Chromium，避免可見 browser window 的 UI 合成干擾；需要目視驗證時使用 `--headed`。輸出預設放在 `output/local-diagnostics/`，該目錄不應被 commit。
+使用 headed Chromium，方便直接觀察遊戲畫面；輸出預設放在 `output/local-diagnostics/`，該目錄不應被 commit。
 
 baseline 與 candidate 的結果分開產生後，使用：
 
