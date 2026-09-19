@@ -149,6 +149,11 @@ export class WeaponMeshFactory {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
 
+    if (weaponId === 'gladius_rusty' || weaponId === 'gladius_standard' || weaponId === 'centurion_blade') {
+      const tier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'centurion_blade' ? 3 : 2
+      return { tipLocal: this.buildRomanGladius(tier, pivot) }
+    }
+
     if (weaponId === 'steel_lance') {
       pivot.userData.supportPointLocal = [0, 0.33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
@@ -335,49 +340,49 @@ export class WeaponMeshFactory {
   /**
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
+  static buildRomanGladius(tier: number, pivot: THREE.Group): THREE.Vector3 {
+    pivot.userData.gripCenterLocal = [0, 0.1, 0]
+    let bladeColor = 0x77716b
+    const bladeLength = 0.68
+    const bladeWidth = 0.105
+    let metalness = 0.72
+
+    if (tier === 2) {
+      bladeColor = 0xbfc3c3
+      metalness = 0.8
+    } else if (tier === 3) {
+      bladeColor = 0xd6d2b4
+      metalness = 1.0
+    }
+
+    const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: tier === 1 ? 0.48 : 0.3, repeat: [tier + 1, 5] })
+    const handleMat = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x4d241c : 0x3a2117, roughness: 0.82, repeat: [2, tier + 2] })
+    const pommelMat = proceduralMaterial({ kind: tier === 3 ? 'bronze' : 'iron', color: tier === 3 ? 0xb38a4c : 0x575b5d, metalness: 0.8, roughness: 0.38 })
+
+    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), pommelMat)
+    pommel.scale.y = 0.78
+    pivot.add(pommel)
+    const wraps = addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
+    const guard = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), pommelMat)
+    guard.scale.set(1.3, 0.38, 0.65)
+    guard.position.y = 0.2
+    pivot.add(guard)
+    const blade = new THREE.Mesh(profiledBladeGeometry(bladeLength, [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004], 0.034), bladeMat)
+    blade.position.y = 0.2
+    blade.name = 'roman-gladius-profiled-blade'
+    pivot.add(blade)
+    pivot.add(mergeRigidGeometryParts([pommel, ...wraps, guard], pommelMat, 'gladius-grip-metal'))
+    return new THREE.Vector3(0, 0.2 + bladeLength, 0)
+  }
+
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
     if (isLance) return this.buildMelee('steel_lance', pivot).tipLocal
 
     if (characterFaction === 'viking') {
       const weaponId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
       return this.buildMelee(weaponId, pivot).tipLocal
-    } else {
-      // Roman Gladius
-      pivot.userData.gripCenterLocal = [0, 0.1, 0]
-      let bladeColor = 0x77716b
-      const bladeLength = 0.68
-      const bladeWidth = 0.105
-      let metalness = 0.72
-
-      if (tier === 2) {
-        bladeColor = 0xbfc3c3
-        metalness = 0.8
-      } else if (tier === 3) {
-        bladeColor = 0xd6d2b4
-        metalness = 1.0
-      }
-
-      const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: tier === 1 ? 0.48 : 0.3, repeat: [tier + 1, 5] })
-      const handleMat = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x4d241c : 0x3a2117, roughness: 0.82, repeat: [2, tier + 2] })
-      const pommelMat = proceduralMaterial({ kind: tier === 3 ? 'bronze' : 'iron', color: tier === 3 ? 0xb38a4c : 0x575b5d, metalness: 0.8, roughness: 0.38 })
-
-      const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), pommelMat)
-      pommel.scale.y = 0.78
-      pivot.add(pommel)
-      const wraps = addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
-
-      const guard = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), pommelMat)
-      guard.scale.set(1.3, 0.38, 0.65)
-      guard.position.y = 0.2
-      pivot.add(guard)
-
-      const blade = new THREE.Mesh(profiledBladeGeometry(bladeLength, [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004], 0.034), bladeMat)
-      blade.position.y = 0.2
-      blade.name = 'roman-gladius-profiled-blade'
-      pivot.add(blade)
-      pivot.add(mergeRigidGeometryParts([pommel, ...wraps, guard], pommelMat, 'gladius-grip-metal'))
-      return new THREE.Vector3(0, 0.2 + bladeLength, 0)
     }
+    return this.buildRomanGladius(tier, pivot)
   }
 
   /**

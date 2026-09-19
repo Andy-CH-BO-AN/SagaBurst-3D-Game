@@ -10,17 +10,43 @@ export interface InventoryStack {
   quantity: number
 }
 
-export class InventoryManager {
-  private items: InventoryStack[] = [
-    { id: 'steel_lance', quantity: 1 },
-    { id: 'runic_greatsword', quantity: 1 },
-    { id: 'elven_runebow', quantity: 1 },
-    { id: 'round_shield_t3', quantity: 1 },
-  ]
+/** Generic game-start equipment input; intentionally independent of BattleConfig. */
+export interface InitialPlayerLoadout {
+  meleeWeaponId: string
+  rangedWeaponId: string
+  shieldId: string | null
+}
 
-  private equippedMeleeId: string  = 'steel_lance'
-  private equippedRangedId: string = 'elven_runebow'
-  private equippedShieldId: string | null = 'round_shield_t3'
+const LEGACY_LOADOUT: InitialPlayerLoadout = {
+  meleeWeaponId: 'steel_lance',
+  rangedWeaponId: 'elven_runebow',
+  shieldId: 'round_shield_t3',
+}
+
+export class InventoryManager {
+  private items: InventoryStack[]
+  private equippedMeleeId: string
+  private equippedRangedId: string
+  private equippedShieldId: string | null
+
+  constructor(initialLoadout?: InitialPlayerLoadout) {
+    const loadout = initialLoadout ?? LEGACY_LOADOUT
+    this.equippedMeleeId = loadout.meleeWeaponId
+    this.equippedRangedId = loadout.rangedWeaponId
+    this.equippedShieldId = loadout.shieldId
+    this.items = initialLoadout
+      ? [
+          { id: loadout.meleeWeaponId, quantity: 1 },
+          { id: loadout.rangedWeaponId, quantity: 1 },
+          ...(loadout.shieldId ? [{ id: loadout.shieldId, quantity: 1 }] : []),
+        ]
+      : [
+          { id: 'steel_lance', quantity: 1 },
+          { id: 'runic_greatsword', quantity: 1 },
+          { id: 'elven_runebow', quantity: 1 },
+          { id: 'round_shield_t3', quantity: 1 },
+        ]
+  }
 
   get inventoryStacks(): { item: WeaponData | ArmorData; quantity: number }[] {
     return this.items

@@ -59,6 +59,7 @@ export interface ArrowLaunchEvent {
   direction: THREE.Vector3
   speed: number
   damage: number
+  visualKind: 'arrow' | 'pilum'
 }
 
 export class Player {
@@ -84,7 +85,7 @@ export class Player {
 
   private bowPivot!: THREE.Group
   private bowGripPivot!: THREE.Group
-  private bowVisual!: CharacterBowVisual
+  private bowVisual: CharacterBowVisual | null = null
   private currentRangedId: string = ''
 
   private shieldPivot!: THREE.Group
@@ -161,6 +162,7 @@ export class Player {
   get swinging(): boolean       { return this.isSwinging }
   get isAiming(): boolean       { return this.aiming }
   get bowDrawRatio(): number    { return this.bowVisualDrawRatio }
+  get rangedVisualKind(): 'bow' | 'pilum' { return WEAPONS[this.currentRangedId]?.animationKind === 'pilum' ? 'pilum' : 'bow' }
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
   get targetable(): boolean     { return !this.isDead && !this.spectatorOnly }
@@ -179,23 +181,23 @@ export class Player {
   }
 
   getBowGripPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.bowVisual.getGripPosition(target)
+    return this.bowVisual?.getGripPosition(target) ?? this.bowGripPivot.getWorldPosition(target)
   }
 
   getBowNockPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.bowVisual.getNockPosition(target)
+    return this.bowVisual?.getNockPosition(target) ?? this.bowGripPivot.getWorldPosition(target)
   }
 
   getBowTopTipPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.bowVisual.getTopTipPosition(target)
+    return this.bowVisual?.getTopTipPosition(target) ?? this.bowGripPivot.getWorldPosition(target)
   }
 
   getBowBottomTipPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.bowVisual.getBottomTipPosition(target)
+    return this.bowVisual?.getBottomTipPosition(target) ?? this.bowGripPivot.getWorldPosition(target)
   }
 
   writeBowBodyProfile(target: Float32Array, pointCount = 9): number {
-    return this.bowVisual.writeBodyProfile(target, pointCount)
+    return this.bowVisual?.writeBodyProfile(target, pointCount) ?? 0
   }
 
   getBowStringHandPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -203,7 +205,7 @@ export class Player {
   }
 
   getNockedArrowTipPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.bowVisual.getArrowTipPosition(target)
+    return this.bowVisual?.getArrowTipPosition(target) ?? this.bowGripPivot.getWorldPosition(target)
   }
 
   setPosition(x: number, y: number, z: number): void {
@@ -237,7 +239,6 @@ export class Player {
     this.bowPivot = new THREE.Group()
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
-    this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
 
     // Shield Pivot (defaults to leftArm after character mesh is built)
     this.shieldPivot = new THREE.Group()
@@ -297,10 +298,8 @@ export class Player {
     if (this.rig.swordGripFrame && WEAPONS[this.currentMeleeId]?.animationKind === 'sword') {
       applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
-    applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
     if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     this.rig.right.handSocket.add(this.swordPivot)
-    this.rig.left.handSocket.add(this.bowPivot)
     this.rig.left.handSocket.add(this.shieldPivot)
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
@@ -308,6 +307,11 @@ export class Player {
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
     this.isSwinging = false
     this.hitEventPending = false
+    if (this.currentRangedId) {
+      const rangedId = this.currentRangedId
+      this.currentRangedId = ''
+      this.rebuildRangedWeapon(rangedId)
+    }
   }
 
   // ── Dynamic 3D Melee Weapon Builders ──
@@ -340,11 +344,26 @@ export class Player {
     polishWeaponMaterials(this.swordGripPivot)
   }
 
-  // ── Dynamic 3D Ranged Bow Builders (3 Distinct Geometries) ──
+  // ── Dynamic 3D Ranged Builders (Bow / Pilum) ──
   rebuildRangedWeapon(weaponId: string): void {
     if (this.currentRangedId === weaponId) return
+    this._cancelEquipmentAction()
     this.currentRangedId = weaponId
-    this.bowVisual.rebuild(weaponId)
+    const weapon = WEAPONS[weaponId]
+    this.bowPivot.removeFromParent()
+    this.bowGripPivot.clear()
+    if (weapon?.animationKind === 'pilum') {
+      this.bowVisual = null
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      this.rig.right.handSocket.add(this.bowPivot)
+      WeaponMeshFactory.buildNpcRanged('roman', weapon.tier, this.bowGripPivot)
+    } else {
+      this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+      applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
+      this.rig.left.handSocket.add(this.bowPivot)
+      this.bowVisual.rebuild(weaponId)
+    }
+    polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false
   }
 
@@ -538,6 +557,14 @@ export class Player {
     this.bowChargeTime = 0
   }
 
+  private _startPilumThrow(cameraAimPoint: THREE.Vector3, archeryMultiplier: number, equippedRanged?: WeaponData): void {
+    if (this.currentShieldId || this.arrows <= 0 || this.animator.busy || equippedRanged?.animationKind !== 'pilum') return
+    this.pendingArrowTarget.copy(cameraAimPoint)
+    this.pendingArcheryMultiplier = archeryMultiplier
+    this.pendingRangedWeapon = equippedRanged
+    this.animator.start('pilumThrow')
+  }
+
   update(
     dt: number,
     input: PlayerInput,
@@ -593,6 +620,7 @@ export class Player {
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
+    const isPilum = equippedRanged?.animationKind === 'pilum'
     this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
@@ -601,8 +629,8 @@ export class Player {
     if (wantsBowAim) {
       this.meleeAttackBufferTimer = 0
     }
-    const bowReleasing = this.animator.currentAction === 'bowRelease'
-    this.aiming = wantAim && !this.isSwinging && !bowReleasing
+    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
+    this.aiming = wantAim && !this.isSwinging && !rangedReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
 
     quiverUI.setAiming(this.aiming)
@@ -612,18 +640,24 @@ export class Player {
       this.bowPivot.visible = true
       this.nockedArrowReleased = false
 
-      if (input.isLeftMouseDown && this.arrows > 0) {
-        this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
-        quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
-      }
-      this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
-
-      if (input.consumeLeftClickRelease()) {
-        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
+      if (isPilum) {
+        this.bowChargeTime = 0
         quiverUI.setChargeRatio(0)
+        this.animator.posePilum(0)
+        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
+      } else {
+        if (input.isLeftMouseDown && this.arrows > 0) {
+          this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
+          quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
+        }
+        this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
+        if (input.consumeLeftClickRelease()) {
+          this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
+          quiverUI.setChargeRatio(0)
+        }
       }
     } else {
-      if (this.bowChargeTime > 0.1 && this.arrows > 0) {
+      if (!isPilum && this.bowChargeTime > 0.1 && this.arrows > 0) {
         this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
       }
       this.bowChargeTime = 0
@@ -646,10 +680,10 @@ export class Player {
       }
     }
 
-    const showingBow = this.aiming || this.animator.currentAction === 'bowRelease'
-    this.swordPivot.visible = !showingBow
-    this.rig.animation?.setSwordHandShape?.(!showingBow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
-    this.bowPivot.visible = showingBow
+    const showingRanged = this.aiming || this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
+    this.swordPivot.visible = !showingRanged
+    this.rig.animation?.setSwordHandShape?.(!showingRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
+    this.bowPivot.visible = showingRanged
 
     const forward = this._tmpForward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw))
     const right   = this._tmpRight.set( Math.cos(cameraYaw), 0, -Math.sin(cameraYaw))
@@ -693,7 +727,9 @@ export class Player {
       ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       : 0
     if (this.aiming) {
+      if (!isPilum) {
       this.animator.poseBow(this.bowChargeTime / maxChargeTime, this.aimBlend)
+      }
     } else if (!this.animator.busy) {
       if (equippedMelee?.animationKind === 'lance') this.animator.poseLanceReady(this.isMounted)
       else if (!isMoving || this.animator.currentAction === 'bowAim') this.animator.poseIdle()
@@ -705,7 +741,7 @@ export class Player {
     // the neutral FK/weapon state, so updating before this point would give the
     // newly selected walk/run action no time to advance on any frame.
     const animationEvents = this.animator.update(dt)
-    this._updateBowPose(maxChargeTime, cameraAimPoint)
+    if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
     if (this.animator.isLanceThrustActive) {
       if (!this.hasPrevLanceTip) {
@@ -716,12 +752,11 @@ export class Player {
       this.hasPrevLanceTip = false
     }
     if (animationEvents.projectileRelease) {
-      this._fireArrow(
-        this.pendingArrowTarget,
-        this.pendingArcheryMultiplier,
-        this.pendingRangedWeapon,
-        this.pendingBowChargeTime,
-      )
+      if (this.pendingRangedWeapon?.animationKind === 'pilum') {
+        this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon)
+      } else {
+        this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
+      }
       this.nockedArrowReleased = true
       this.bowVisualDrawRatio = 0
       soundManager.playBowRelease()
@@ -846,7 +881,7 @@ export class Player {
     const drawRatio = this.animator.currentAction === 'bowRelease'
       ? this.bowVisualDrawRatio
       : this.bowChargeTime / maxChargeTime
-    this.bowVisual.update(drawRatio, cameraAimPoint, this.arrows > 0 && !this.nockedArrowReleased)
+    this.bowVisual?.update(drawRatio, cameraAimPoint, this.arrows > 0 && !this.nockedArrowReleased)
   }
 
   private _fireArrow(
@@ -872,7 +907,7 @@ export class Player {
 
     const arrowOrigin = this._tmpWorldNock
     const arrowDirection = this._tmpArrowDirection
-    this.bowVisual.writeLaunch(arrowOrigin, arrowDirection, cameraAimPoint)
+    this.bowVisual?.writeLaunch(arrowOrigin, arrowDirection, cameraAimPoint)
 
     if (this.onFireArrow) {
       this.onFireArrow({
@@ -880,6 +915,23 @@ export class Player {
         direction: arrowDirection.clone(),
         speed,
         damage,
+        visualKind: 'arrow',
+      })
+    }
+  }
+
+  private _firePilum(cameraAimPoint: THREE.Vector3, archeryMultiplier: number, equippedRanged: WeaponData): void {
+    if (this.arrows <= 0) return
+    this.arrows -= 1
+    const origin = this.bowGripPivot.getWorldPosition(this._tmpWorldNock)
+    const direction = this._tmpArrowDirection.copy(cameraAimPoint).sub(origin).normalize()
+    if (this.onFireArrow) {
+      this.onFireArrow({
+        origin: origin.clone(),
+        direction: direction.clone(),
+        speed: equippedRanged.arrowSpeedMax ?? 48,
+        damage: Math.round(equippedRanged.damageMax * archeryMultiplier),
+        visualKind: 'pilum',
       })
     }
   }
