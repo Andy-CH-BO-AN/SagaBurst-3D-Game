@@ -162,7 +162,8 @@ describe('Viking head accessory', () => {
     const horns = createVikingHornAccessory()
     const bounds = new THREE.Box3().setFromObject(horns)
     expect(bounds.max.x - bounds.min.x).toBeLessThanOrEqual(0.44)
-    expect(horns.children).toHaveLength(2)
+    expect(horns.children).toHaveLength(1)
+    expect(horns.getObjectByName('viking-horns')).toBeInstanceOf(THREE.Mesh)
   })
 })
 
