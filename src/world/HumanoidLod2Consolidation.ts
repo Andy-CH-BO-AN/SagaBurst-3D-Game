@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { materialRenderContract, sameMaterialRenderContract } from './MaterialRenderContract'
 
 interface ConsolidationPair {
   first: string
@@ -55,42 +56,13 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Roman LOD2 consolidation: ${message}`)
 }
 
-function equalNumber(a: number, b: number): boolean {
-  return Math.abs(a - b) < 1e-7
-}
-
-function sameColor(a: THREE.Color | undefined, b: THREE.Color | undefined): boolean {
-  return a === b || Boolean(a && b && equalNumber(a.r, b.r) && equalNumber(a.g, b.g) && equalNumber(a.b, b.b))
-}
-
-function sameTextureSettings(a: THREE.Texture | null | undefined, b: THREE.Texture | null | undefined): boolean {
-  if (!a || !b) return a === b
-  return a.mapping === b.mapping && a.wrapS === b.wrapS && a.wrapT === b.wrapT
-    && a.magFilter === b.magFilter && a.minFilter === b.minFilter && a.anisotropy === b.anisotropy
-    && a.flipY === b.flipY && a.generateMipmaps === b.generateMipmaps && a.colorSpace === b.colorSpace
-    && a.channel === b.channel && a.matrix.equals(b.matrix)
-}
-
 /** The source GLB keeps these pairs as duplicate material records. Runtime image
  * identity may differ because GLTFLoader decodes equivalent embedded bytes twice,
  * so the byte-level equivalence is guarded in the asset-contract test. */
 function assertEquivalentMaterials(a: THREE.Material, b: THREE.Material, expected: ConsolidationPair): void {
   assert(a.name === expected.firstMaterial && b.name === expected.secondMaterial,
     `unexpected materials for ${expected.first}/${expected.second}`)
-  const left = a as THREE.MeshStandardMaterial
-  const right = b as THREE.MeshStandardMaterial
-  assert(a.type === b.type && a.side === b.side && a.transparent === b.transparent
-    && a.alphaTest === b.alphaTest && a.depthWrite === b.depthWrite && a.depthTest === b.depthTest
-    && a.blending === b.blending && a.vertexColors === b.vertexColors && a.opacity === b.opacity
-    && a.premultipliedAlpha === b.premultipliedAlpha && a.dithering === b.dithering
-    && a.colorWrite === b.colorWrite && a.polygonOffset === b.polygonOffset
-    && a.polygonOffsetFactor === b.polygonOffsetFactor && a.polygonOffsetUnits === b.polygonOffsetUnits
-    && equalNumber(left.metalness, right.metalness) && equalNumber(left.roughness, right.roughness)
-    && sameColor(left.color, right.color) && sameColor(left.emissive, right.emissive)
-    && sameTextureSettings(left.map, right.map) && sameTextureSettings(left.normalMap, right.normalMap)
-    && sameTextureSettings(left.roughnessMap, right.roughnessMap) && sameTextureSettings(left.metalnessMap, right.metalnessMap)
-    && sameTextureSettings(left.aoMap, right.aoMap) && sameTextureSettings(left.emissiveMap, right.emissiveMap)
-    && sameTextureSettings(left.alphaMap, right.alphaMap),
+  assert(sameMaterialRenderContract(materialRenderContract(a), materialRenderContract(b)),
   `material render state differs for ${expected.first}/${expected.second}`)
 }
 

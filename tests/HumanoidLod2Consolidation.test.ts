@@ -8,6 +8,7 @@ import {
   createRomanLod2ConsolidationTemplate,
   tryCreateRomanLod2ConsolidationTemplate,
 } from '../src/world/HumanoidLod2Consolidation'
+import { gltfMaterialRenderContract, sameMaterialRenderContract } from '../src/world/MaterialRenderContract'
 
 const PAIRS = [
   ['Armour_top_1', 'Armour_top_2', 'Armour_top0', 'Armour_top1'],
@@ -82,24 +83,17 @@ function readRomanLod2() {
     const start = binaryStart + (view.byteOffset ?? 0)
     return createHash('sha256').update(bytes.subarray(start, start + view.byteLength)).digest('hex')
   }
-  const textureSignature = (info: { index: number, texCoord?: number } | undefined) => {
-    if (!info) return null
+  const textureSignature = (info: { index: number, texCoord?: number, extensions?: { KHR_texture_transform?: { offset?: number[], rotation?: number, scale?: number[], texCoord?: number } } }) => {
     const texture = document.textures[info.index]
+    const transform = info.extensions?.KHR_texture_transform
     return {
-      image: imageHash(texture.source), sampler: document.samplers?.[texture.sampler] ?? {}, texCoord: info.texCoord ?? 0,
+      image: imageHash(texture.source), sampler: document.samplers?.[texture.sampler] ?? {},
+      texCoord: transform?.texCoord ?? info.texCoord ?? 0,
+      offset: transform?.offset ?? [0, 0], rotation: transform?.rotation ?? 0, scale: transform?.scale ?? [1, 1],
     }
   }
-  const signature = (materialIndex: number) => {
-    const material = document.materials[materialIndex]
-    const pbr = material.pbrMetallicRoughness ?? {}
-    return {
-      base: textureSignature(pbr.baseColorTexture), normal: textureSignature(material.normalTexture),
-      metallic: pbr.metallicFactor ?? 1, roughness: pbr.roughnessFactor ?? 1,
-      alphaMode: material.alphaMode ?? 'OPAQUE', alphaCutoff: material.alphaCutoff ?? 0.5,
-      doubleSided: material.doubleSided === true,
-    }
-  }
-  return { document, signature }
+  const materialContract = (materialIndex: number) => gltfMaterialRenderContract(document.materials[materialIndex], textureSignature)
+  return { document, materialContract }
 }
 
 describe('Roman LOD2 duplicate-material consolidation', () => {
@@ -189,8 +183,72 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
     expect(root.getObjectByName('Armour_top_1')).toBeInstanceOf(THREE.SkinnedMesh)
   })
 
+  it.each([
+    ['normalScale', (material: THREE.MeshStandardMaterial) => material.normalScale.set(0.3, 0.3)],
+    ['normalMap', (material: THREE.MeshStandardMaterial) => { material.normalMap = new THREE.Texture() }],
+    ['roughness', (material: THREE.MeshStandardMaterial) => { material.roughness = 0.3 }],
+    ['metalness', (material: THREE.MeshStandardMaterial) => { material.metalness = 0.1 }],
+    ['metallicRoughnessTexture', (material: THREE.MeshStandardMaterial) => {
+      const texture = new THREE.Texture()
+      material.roughnessMap = texture
+      material.metalnessMap = texture
+    }],
+    ['occlusionTexture', (material: THREE.MeshStandardMaterial) => { material.aoMap = new THREE.Texture() }],
+    ['aoMapIntensity', (material: THREE.MeshStandardMaterial) => { material.aoMapIntensity = 0.2 }],
+    ['emissiveTexture', (material: THREE.MeshStandardMaterial) => { material.emissiveMap = new THREE.Texture() }],
+    ['emissiveFactor', (material: THREE.MeshStandardMaterial) => { material.emissive.setRGB(0.2, 0.1, 0.3) }],
+    ['emissiveIntensity', (material: THREE.MeshStandardMaterial) => { material.emissiveIntensity = 0.2 }],
+    ['alphaTest', (material: THREE.MeshStandardMaterial) => { material.alphaTest = 0.2 }],
+  ])('rejects consolidation and fails open when %s differs', (_field, mutate) => {
+    const { root } = makeLod2()
+    const second = root.getObjectByName('Armour_top_2') as THREE.SkinnedMesh
+    mutate(second.material as THREE.MeshStandardMaterial)
+
+    expect(() => createRomanLod2ConsolidationTemplate(root)).toThrow('material render state differs')
+    expect(tryCreateRomanLod2ConsolidationTemplate(root, () => undefined)).toBeUndefined()
+    expect(root.children.filter(object => object instanceof THREE.SkinnedMesh)).toHaveLength(8)
+  })
+
+  it('allows equivalent materials with different object and texture identities', () => {
+    const { root } = makeLod2()
+    const first = root.getObjectByName('Armour_top_1') as THREE.SkinnedMesh
+    const second = root.getObjectByName('Armour_top_2') as THREE.SkinnedMesh
+    for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'] as const) {
+      ;(first.material as THREE.MeshStandardMaterial)[slot] = new THREE.Texture()
+      ;(second.material as THREE.MeshStandardMaterial)[slot] = new THREE.Texture()
+    }
+    expect(first.material).not.toBe(second.material)
+    expect((first.material as THREE.MeshStandardMaterial).normalMap).not.toBe((second.material as THREE.MeshStandardMaterial).normalMap)
+    expect(() => createRomanLod2ConsolidationTemplate(root)).not.toThrow()
+  })
+
+  it.each([
+    ['normalTexture scale', (material: any) => { material.normalTexture.scale = 0.3 }],
+    ['metallicRoughnessTexture', (material: any) => { material.pbrMetallicRoughness.metallicRoughnessTexture = { index: 1 } }],
+    ['occlusionTexture strength', (material: any) => { material.occlusionTexture.strength = 0.3 }],
+    ['emissiveTexture', (material: any) => { material.emissiveTexture = { index: 1 } }],
+    ['emissive factor', (material: any) => { material.emissiveFactor = [0.3, 0, 0] }],
+    ['emissive strength', (material: any) => { material.extensions.KHR_materials_emissive_strength.emissiveStrength = 0.3 }],
+  ])('uses the same GLTF material contract to reject changed %s', (_field, mutate) => {
+    const texture = (info: { index: number }) => ({ image: `hash-${info.index}`, sampler: {}, texCoord: 0 })
+    const base = {
+      pbrMetallicRoughness: {
+        baseColorFactor: [1, 1, 1, 1], metallicFactor: 0.5, roughnessFactor: 0.5,
+        metallicRoughnessTexture: { index: 0 },
+      },
+      normalTexture: { index: 0, scale: 0.65 },
+      occlusionTexture: { index: 0, strength: 0.8 },
+      emissiveTexture: { index: 0 },
+      emissiveFactor: [0.1, 0, 0],
+      extensions: { KHR_materials_emissive_strength: { emissiveStrength: 1.2 } },
+    }
+    const changed = structuredClone(base)
+    mutate(changed)
+    expect(sameMaterialRenderContract(gltfMaterialRenderContract(base, texture), gltfMaterialRenderContract(changed, texture))).toBe(false)
+  })
+
   it('verifies the shipped LOD2 pairs have the same skeleton, no morph targets, matching vertex formats and byte-identical texture material signatures', () => {
-    const { document, signature } = readRomanLod2()
+    const { document, materialContract } = readRomanLod2()
     const nodeByName = new Map(document.nodes.map((node: any) => [node.name, node]))
     const primitiveByNode = (name: string) => document.meshes[nodeByName.get(name)!.mesh].primitives
     const runtimeNames = new Map([
@@ -214,8 +272,10 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
         const aa = document.accessors[a.attributes[key]], bb = document.accessors[b.attributes[key]]
         expect([aa.componentType, aa.type, aa.normalized ?? false]).toEqual([bb.componentType, bb.type, bb.normalized ?? false])
       }
-      expect(signature(document.materials.findIndex((material: any) => material.name === firstMaterial)))
-        .toEqual(signature(document.materials.findIndex((material: any) => material.name === secondMaterial)))
+      expect(sameMaterialRenderContract(
+        materialContract(document.materials.findIndex((material: any) => material.name === firstMaterial)),
+        materialContract(document.materials.findIndex((material: any) => material.name === secondMaterial)),
+      )).toBe(true)
     }
   })
 })
