@@ -98,9 +98,6 @@ import {
   PRESET_SCENARIO_F,
 } from './battle/BattleConfig'
 import {
-  isPerfNoShadow,
-  isPerfHalfResolution,
-  isPerfSimpleMaterial,
   getActiveRenderProbe,
   applyDevSimpleMaterials,
 } from './debug/RendererCostIsolation'
@@ -237,8 +234,9 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 export class Game {
   static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
     const query = new URLSearchParams(window.location.search)
-    const perfNoShadow = isPerfNoShadow(query)
-    const perfHalfResolution = isPerfHalfResolution(query)
+    const activeProbe = getActiveRenderProbe(query)
+    const perfNoShadow = activeProbe === 'no-shadow'
+    const perfHalfResolution = activeProbe === 'half-resolution'
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     const basePixelRatio = Math.min(window.devicePixelRatio, 2)
@@ -523,7 +521,7 @@ export class Game {
     // ── Combat & Enemies ──
     if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
-      if (isPerfSimpleMaterial(query)) {
+      if (this.activeRenderProbe === 'simple-material') {
         applyDevSimpleMaterials(this.npcs, this.mounts)
       }
     } else if (devModelsMode === 'humans') {

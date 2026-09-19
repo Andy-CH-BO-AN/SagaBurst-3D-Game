@@ -130,7 +130,7 @@ describe('Scenario F: 100v100 Mixed Cavalry Scattered Battle', () => {
   })
 
   describe('Renderer Cost Isolation DEV Switches', () => {
-    it('detects query flags correctly', () => {
+    it('detects query flags correctly and strictly enforces mutual exclusivity', () => {
       expect(isPerfNoShadow(new URLSearchParams('devcombat=f&nolock'))).toBe(false)
       expect(isPerfNoShadow(new URLSearchParams('devcombat=f&nolock&perfNoShadow'))).toBe(true)
 
@@ -144,9 +144,25 @@ describe('Scenario F: 100v100 Mixed Cavalry Scattered Battle', () => {
       expect(getActiveRenderProbe(new URLSearchParams('devcombat=f&nolock&perfNoShadow'))).toBe('no-shadow')
       expect(getActiveRenderProbe(new URLSearchParams('devcombat=f&nolock&perfHalfResolution'))).toBe('half-resolution')
       expect(getActiveRenderProbe(new URLSearchParams('devcombat=f&nolock&perfSimpleMaterial'))).toBe('simple-material')
+
+      // Conflicting flags must be rejected to prevent poisoned composite diagnostics
+      expect(() =>
+        getActiveRenderProbe(new URLSearchParams('devcombat=f&nolock&perfNoShadow&perfHalfResolution'))
+      ).toThrow(/Conflicting render probes detected: perfNoShadow, perfHalfResolution/)
+
+      expect(() =>
+        getActiveRenderProbe(new URLSearchParams('devcombat=f&nolock&perfNoShadow&perfSimpleMaterial'))
+      ).toThrow(/Conflicting render probes detected: perfNoShadow, perfSimpleMaterial/)
+
+      expect(() =>
+        getActiveRenderProbe(
+          new URLSearchParams('devcombat=f&nolock&perfNoShadow&perfHalfResolution&perfSimpleMaterial')
+        )
+      ).toThrow(/Conflicting render probes detected: perfNoShadow, perfHalfResolution, perfSimpleMaterial/)
     })
 
-    it('creates simple materials preserving original side/culling', () => {
+    it('creates simple materials preserving coverage render states (alphaTest, textures, transparent, depthWrite)', () => {
+      // 1. Basic culling preservation
       const frontMat = new THREE.MeshStandardMaterial({ side: THREE.FrontSide })
       const doubleMat = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide })
       const backMat = new THREE.MeshStandardMaterial({ side: THREE.BackSide })
@@ -159,6 +175,88 @@ describe('Scenario F: 100v100 Mixed Cavalry Scattered Battle', () => {
       expect(simpleDouble.side).toBe(THREE.DoubleSide)
       expect(simpleBack.side).toBe(THREE.BackSide)
       expect(simpleFront.color.getHex()).toBe(0x888888)
+
+      // 2. Cutout preservation (e.g. horse groom/hair cards):
+      // Must preserve alphaTest, alpha-bearing map, side, depthWrite; strip normalMap/roughnessMap
+      const hairCardTex = new THREE.Texture()
+      const hairNormalTex = new THREE.Texture()
+      const cutoutHairMat = new THREE.MeshStandardMaterial({
+        side: THREE.DoubleSide,
+        alphaTest: 0.5,
+        map: hairCardTex,
+        normalMap: hairNormalTex,
+        depthWrite: true,
+        depthTest: true,
+      })
+
+      const simpleCutout = getDevSimpleMaterial(cutoutHairMat, true)
+      expect(simpleCutout.alphaTest).toBe(0.5)
+      expect(simpleCutout.map).toBe(hairCardTex)
+      expect((simpleCutout as any).normalMap).toBeUndefined()
+      expect(simpleCutout.side).toBe(THREE.DoubleSide)
+      expect(simpleCutout.depthWrite).toBe(true)
+      expect(simpleCutout.depthTest).toBe(true)
+      // Cutouts with map use white so texture alpha/color is untinted
+      expect(simpleCutout.color.getHex()).toBe(0xffffff)
+
+      // 3. Cutout with alphaMap
+      const alphaTex = new THREE.Texture()
+      const alphaMapMat = new THREE.MeshStandardMaterial({
+        alphaTest: 0.4,
+        alphaMap: alphaTex,
+      })
+      const simpleAlphaMap = getDevSimpleMaterial(alphaMapMat, false)
+      expect(simpleAlphaMap.alphaTest).toBe(0.4)
+      expect(simpleAlphaMap.alphaMap).toBe(alphaTex)
+
+      // 4. Transparent material preservation
+      const transMat = new THREE.MeshStandardMaterial({
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+        depthTest: true,
+      })
+      const simpleTrans = getDevSimpleMaterial(transMat, false)
+      expect(simpleTrans.transparent).toBe(true)
+      expect(simpleTrans.opacity).toBe(0.65)
+      expect(simpleTrans.depthWrite).toBe(false)
+      expect(simpleTrans.depthTest).toBe(true)
+
+      // 5. Standard opaque material strips diffuse map & PBR maps
+      const diffuseTex = new THREE.Texture()
+      const opaqueMat = new THREE.MeshStandardMaterial({
+        map: diffuseTex,
+        roughness: 0.8,
+        metalness: 0.2,
+      })
+      const simpleOpaque = getDevSimpleMaterial(opaqueMat, false)
+      expect(simpleOpaque.alphaTest).toBe(0)
+      expect(simpleOpaque.transparent).toBe(false)
+      expect(simpleOpaque.map).toBeNull()
+      expect(simpleOpaque.color.getHex()).toBe(0x888888)
+
+      // 6. Cache deduplication: identical states share material instance
+      const cutoutHairMat2 = new THREE.MeshStandardMaterial({
+        side: THREE.DoubleSide,
+        alphaTest: 0.5,
+        map: hairCardTex,
+        depthWrite: true,
+        depthTest: true,
+      })
+      const simpleCutout2 = getDevSimpleMaterial(cutoutHairMat2, true)
+      expect(simpleCutout2).toBe(simpleCutout)
+
+      // Differing render state gets distinct material instance
+      const simpleCutout3 = getDevSimpleMaterial(
+        new THREE.MeshStandardMaterial({
+          side: THREE.DoubleSide,
+          alphaTest: 0.8, // different alphaTest
+          map: hairCardTex,
+          depthWrite: true,
+        }),
+        true
+      )
+      expect(simpleCutout3).not.toBe(simpleCutout)
     })
 
     it('preserves half-resolution pixel ratio across resize', () => {
