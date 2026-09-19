@@ -26,6 +26,7 @@ import { EquipmentVisualLODController } from './EquipmentVisualLODController'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
 import { getDirectionalMovementFromVector, getEffectiveSpeedMultiplier } from '../movement/DirectionalMovement'
+import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -615,9 +616,11 @@ export class NPC {
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
     skipBoidsAndObstacles: boolean = false,
-    cameraDistance: number = 0
+    cameraDistance: number = 0,
+    _collector: NpcSubphaseCollector | null = null
   ): void {
     if (this.state === AIState.DEAD) {
+      if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
       if (this._isFlashing) {
         this.flashTimer -= dt
         if (this.flashTimer <= 0) {
@@ -635,6 +638,7 @@ export class NPC {
           this.respawn()
         }
       }
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
       return
     }
 
@@ -657,12 +661,16 @@ export class NPC {
       }
     }
 
+    if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
     const targetInfo = this._getTarget(dt, player, allNPCs)
+    if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
 
     // Releasing the projectile does not end the imported release clip. Keep its
     // recovery, even if this was the last arrow or the target disappears.
     if (recoveringBow) {
+      if (import.meta.env.DEV && _collector) { var _tAnimBowRec = performance.now() }
       const events = this.animator.update(dt, cameraDistance)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
       animationAdvanced = true
       if (targetInfo) this._updateBowVisual(0, targetInfo.position)
       else this.bowVisual?.update(0, undefined, false)
@@ -744,6 +752,7 @@ export class NPC {
 
         // Boid separation & Obstacles
         if (!skipBoidsAndObstacles) {
+          if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
           this._tmpSep.set(0, 0, 0)
           let sepCount = 0
           for (const other of nearbyNPCs) {
@@ -760,11 +769,15 @@ export class NPC {
             this._tmpSep.divideScalar(sepCount)
             moveDir.add(this._tmpSep).normalize()
           }
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
 
+          if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
           moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
         }
 
         // Face target before applying directional movement
+        if (import.meta.env.DEV && _collector) { var _tMvF = performance.now() }
         this._faceTarget(targetInfo.position)
 
         // Move towards target / charge + separation
@@ -772,6 +785,7 @@ export class NPC {
         
         // Keep chase movement inside the shared playable world boundary.
         clampToPlayableWorld(this.group.position)
+        if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
         break
       }
 
@@ -797,8 +811,10 @@ export class NPC {
           break
         }
 
+        if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
         this._faceTarget(targetInfo.position)
-        
+        if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
+
         // Mounted Archers orbit target while attacking within 6m <= dist <= 22m
         if (this.isMounted && this.hasActiveRangedWeapon) {
           const moveDir = this._tmpMoveDir
@@ -808,12 +824,17 @@ export class NPC {
           if (moveDir.lengthSq() > 0.001) {
              moveDir.normalize()
              if (!skipBoidsAndObstacles) {
+               if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
                moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+               if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
              }
+             if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
              this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+             if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
           }
         }
 
+        if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
@@ -830,7 +851,10 @@ export class NPC {
             if (!this.animator.busy) this.animator.start('pilumThrow')
           }
 
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
+          if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
           const rangedEvents = this.animator.update(dt, cameraDistance)
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
           if (this.characterFaction === 'viking') this._updateBowVisual(progress, targetInfo.position)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
@@ -865,7 +889,10 @@ export class NPC {
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
+          if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
           const meleeEvents = this.animator.update(dt, cameraDistance)
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
           animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
             if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
@@ -896,7 +923,11 @@ export class NPC {
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
-    if (!animationAdvanced) this.animator.update(dt, cameraDistance)
+    if (!animationAdvanced) {
+      if (import.meta.env.DEV && _collector) { var _tAnimIdle = performance.now() }
+      this.animator.update(dt, cameraDistance)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimIdle!) }
+    }
     if (!animationAdvanced && this.bowPivot.visible && this.characterFaction === 'viking') {
       this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
       this._tmpRangedTarget.y += 1.4
@@ -904,9 +935,12 @@ export class NPC {
     }
 
     if (this.isMounted && this.mount) {
+      if (import.meta.env.DEV && _collector) { var _tMount = performance.now() }
       this.mount.finishControlledFrame(dt, obstacles)
       this._syncToMount()
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('mountUpdate', _tMount!) }
     } else {
+      if (import.meta.env.DEV && _collector) { var _tFoot = performance.now() }
       this.group.rotation.x = 0 // reset posture
       // NPCs use the same terrain/platform gravity as the player and mounts.
       const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
@@ -935,6 +969,7 @@ export class NPC {
       
       // Re-apply after terrain / obstacle resolution for foot NPCs.
       clampToPlayableWorld(this.group.position)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('footPhysics', _tFoot!) }
     }
   }
 

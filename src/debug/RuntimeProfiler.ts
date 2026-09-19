@@ -7,6 +7,8 @@
  * or true GPU execution time.
  */
 
+import type { NpcSubphaseSnapshot } from './NpcSubphaseProfiler'
+
 export interface ProfilerFrameMetrics {
   cpuFrameMs: number
   npcGridMs: number
@@ -95,6 +97,9 @@ export class RuntimeProfiler {
 
   private latestSnapshot: RuntimeProfileSnapshot | null = null
 
+  // NPC subphase snapshot (DEV-only, populated by recordNpcSubphase)
+  private latestSubphaseSnapshot: NpcSubphaseSnapshot | null = null
+
   constructor(sampleWindowMs: number = 1000) {
     this.sampleWindowMs = sampleWindowMs
   }
@@ -163,8 +168,21 @@ export class RuntimeProfiler {
     return false
   }
 
+  /**
+   * Store the latest NPC subphase snapshot (produced by NpcSubphaseAggregator).
+   * Called by Game._loop() after each 8-frame cohort window completes.
+   * DEV-only; production never calls this.
+   */
+  setNpcSubphaseSnapshot(snapshot: NpcSubphaseSnapshot): void {
+    this.latestSubphaseSnapshot = snapshot
+  }
+
   getLatestSnapshot(): RuntimeProfileSnapshot | null {
     return this.latestSnapshot
+  }
+
+  getLatestSubphaseSnapshot(): NpcSubphaseSnapshot | null {
+    return this.latestSubphaseSnapshot
   }
 
   reset(now?: number): void {
@@ -180,6 +198,7 @@ export class RuntimeProfiler {
     resetAccumulator(this.accImpact)
     resetAccumulator(this.accRenderSubmit)
     resetAccumulator(this.accOther)
+    this.latestSubphaseSnapshot = null
   }
 
   /**
@@ -223,6 +242,44 @@ export class RuntimeProfiler {
 
     if (extra.geometries !== undefined) {
       lines.push(`geometry: ${extra.geometries}`)
+    }
+
+    // NPC subphase breakdown (DEV-only, only present when npcsubphase=1)
+    const sp = this.latestSubphaseSnapshot
+    if (sp) {
+      const npcUpdateAvg = s?.npcUpdate.avg ?? 0
+
+      const fmtPhase = (label: string, stat: MetricStat, w = 22): string => {
+        const avgStr = stat.avg.toFixed(2)
+        const pct = npcUpdateAvg > 0 ? (stat.avg / npcUpdateAvg * 100).toFixed(0) : '--'
+        return `  ${label.padEnd(w)}: ${avgStr.padStart(6)} ms  ${pct.padStart(3)}%`
+      }
+
+      // Sum of all classified phases for Other estimation
+      const classifiedSum =
+        sp.gridQuery.avg + sp.targetAI.avg + sp.separation.avg +
+        sp.obstacleAvoid.avg + sp.moveFace.avg + sp.combatLogic.avg +
+        sp.humanoidAnim.avg + sp.mountUpdate.avg + sp.footPhysics.avg +
+        sp.deadUpdate.avg
+      const otherEst = Math.max(0, npcUpdateAvg - classifiedSum)
+      const otherPct = npcUpdateAvg > 0 ? (otherEst / npcUpdateAvg * 100).toFixed(0) : '--'
+
+      lines.push(
+        '',
+        '── NPC Subphase (cohort estimate) ──',
+        fmtPhase('Grid Nearby Query', sp.gridQuery),
+        fmtPhase('Target / AI', sp.targetAI),
+        fmtPhase('Separation', sp.separation),
+        fmtPhase('Obstacle Avoidance', sp.obstacleAvoid),
+        fmtPhase('Movement / Facing', sp.moveFace),
+        fmtPhase('Combat Logic', sp.combatLogic),
+        fmtPhase('Humanoid Animation', sp.humanoidAnim),
+        fmtPhase('Mount Update', sp.mountUpdate),
+        fmtPhase('Foot Physics', sp.footPhysics),
+        fmtPhase('Dead Update', sp.deadUpdate),
+        `  ${'Other (est.)'.padEnd(22)}: ${otherEst.toFixed(2).padStart(6)} ms  ${otherPct.padStart(3)}%`,
+        `  (subphase = cohort est.; % relative to NPC Update raw)`,
+      )
     }
 
     return lines.join('\n')

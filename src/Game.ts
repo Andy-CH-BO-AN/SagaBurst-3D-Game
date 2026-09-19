@@ -113,6 +113,7 @@ import { InventoryManager } from './rpg/InventoryManager'
 import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
 import { WeaponPickup } from './world/WeaponPickup'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
+import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
 
 function distToSegmentSq(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
   const abX = b.x - a.x, abY = b.y - a.y, abZ = b.z - a.z
@@ -317,6 +318,11 @@ export class Game {
   private devCombatStatus: HTMLElement | null = null
   private hasDevCombatRenderedInitialHud = false
   readonly runtimeProfiler = new RuntimeProfiler(1000)
+  // DEV-only NPC subphase profiling (enabled by &npcsubphase=1 URL param)
+  private _npcSubphaseEnabled = false
+  private _subphaseFrameIndex = 0
+  private _npcSubphaseCollector: NpcSubphaseCollector | null = null
+  private _npcSubphaseAggregator: NpcSubphaseAggregator | null = null
   private startingHorse: Mount | null = null
   private loadedSaveMount: Mount | null = null
 
@@ -424,6 +430,13 @@ export class Game {
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
+
+    // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
+    if (import.meta.env.DEV && this.isDevCombat && query.get('npcsubphase') === '1') {
+      this._npcSubphaseEnabled = true
+      this._npcSubphaseCollector = new NpcSubphaseCollector()
+      this._npcSubphaseAggregator = new NpcSubphaseAggregator()
+    }
 
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
@@ -1748,17 +1761,27 @@ export class Game {
     if (profile) t0 = performance.now()
     let devQueriesCount = 0
     let devReturnedNeighborsCount = 0
+    let npcLoopIndex = 0
     for (const npc of this.npcs) {
       // These root positions are world-space here, matching the mount LOD distance.
       const cameraDistance = npc.group.position.distanceTo(this.camera.position)
+
+      // Cohort: does this NPC fall in the sampled slice this frame?
+      const inCohort = import.meta.env.DEV && this._npcSubphaseEnabled
+        && (npcLoopIndex % SUBPHASE_COHORT === this._subphaseFrameIndex % SUBPHASE_COHORT)
+      const collector = inCohort ? this._npcSubphaseCollector : null
+      if (inCohort && this._npcSubphaseCollector) this._npcSubphaseCollector.countSample()
+
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
         npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
           () => {}, // dead npc can't shoot
           true, // skipBoidsAndObstacles
-          cameraDistance
+          cameraDistance,
+          collector
         )
+        npcLoopIndex++
         continue
       }
 
@@ -1766,8 +1789,25 @@ export class Game {
       const skipBoidsAndObstacles = false
       let nearbyNPCs = Game._EMPTY_NPC_LIST
       if (npc.currentState === AIState.CHASE) {
-        this.npcGrid.getNearbyInto(npc.combatPosition, NPC_NEIGHBOR_QUERY_RADIUS, this._nearbyNpcBuffer)
+        // gridQuery subphase: measure the #45 CHASE-only nearby query.
+        if (import.meta.env.DEV && inCohort && collector) {
+          const _tGQ = performance.now()
+          this.npcGrid.getNearbyInto(
+            npc.combatPosition,
+            NPC_NEIGHBOR_QUERY_RADIUS,
+            this._nearbyNpcBuffer,
+          )
+          collector.endPhase('gridQuery', _tGQ)
+        } else {
+          this.npcGrid.getNearbyInto(
+            npc.combatPosition,
+            NPC_NEIGHBOR_QUERY_RADIUS,
+            this._nearbyNpcBuffer,
+          )
+        }
+
         nearbyNPCs = this._nearbyNpcBuffer
+
         if (profile) {
           devQueriesCount++
           devReturnedNeighborsCount += this._nearbyNpcBuffer.length
@@ -1817,13 +1857,30 @@ export class Game {
           this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
         },
         skipBoidsAndObstacles,
-        cameraDistance
+        cameraDistance,
+        collector
       )
+      npcLoopIndex++
     }
     const npcUpdateMs = profile ? performance.now() - t0 : 0
     if (profile) {
       this.devGridStats.queriesPerFrame = devQueriesCount
       this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
+    }
+
+    // Advance the 8-frame cohort window and flush completed windows
+    if (import.meta.env.DEV && this._npcSubphaseEnabled && this._npcSubphaseCollector && this._npcSubphaseAggregator) {
+      this._subphaseFrameIndex++
+      const windowResult = this._npcSubphaseCollector.advanceFrame()
+      if (windowResult !== null) {
+        this._npcSubphaseAggregator.record(windowResult)
+        // Use windowCount=1 to emit immediately; one 8-frame window = one snapshot
+        const snap = this._npcSubphaseAggregator.flush(1)
+        if (snap) {
+          this.runtimeProfiler.setNpcSubphaseSnapshot(snap)
+          this._updateDevCombatStatus()
+        }
+      }
     }
 
     // Check Player Melee Sword Hits (runs outside mount/interaction)
