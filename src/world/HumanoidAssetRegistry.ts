@@ -715,8 +715,8 @@ export class HumanoidAssetRegistry {
         })
         if (faction === 'roman' && index === 2 && template.romanLod2Consolidation) {
           consolidateRomanLod2(levelClone, template.romanLod2Consolidation, { allowDevControl: false })
+          cullRomanLod2TinyDetails(levelClone)
         }
-        if (faction === 'roman' && index === 2) cullRomanLod2TinyDetails(levelClone)
         warmupGroup.add(levelClone)
       })
     }
@@ -782,8 +782,8 @@ export class HumanoidAssetRegistry {
       if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2 && template.romanLod2Consolidation) {
         const representationControl = consolidateRomanLod2(level, template.romanLod2Consolidation)
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
+        cullRomanLod2TinyDetails(level)
       }
-      if (config.faction === 'roman' && index === 2) cullRomanLod2TinyDetails(level)
       if (config.faction === 'viking') {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))

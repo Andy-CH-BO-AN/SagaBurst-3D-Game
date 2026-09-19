@@ -68,6 +68,22 @@ function createMockLODScene(lodIndex: number): THREE.Group {
   return root
 }
 
+function addRomanLod2ConsolidationPairs(root: THREE.Group): void {
+  const source = root.children.find((child): child is THREE.SkinnedMesh => child instanceof THREE.SkinnedMesh)!
+  const pairs = [
+    ['Armour_top_1', 'Armour_top0'], ['Armour_top_2', 'Armour_top1'],
+    ['Helmet3_1', 'Helmet30'], ['Helmet3_2', 'Helmet31'],
+    ['New_eye', 'New_eye0'], ['New_eye_2', 'New_eye_20'],
+    ['RomanUndertunic_l', 'RomanUndertunic'], ['RomanUndertunic_r', 'RomanUndertunic'],
+  ]
+  for (const [name, materialName] of pairs) {
+    const mesh = new THREE.SkinnedMesh(source.geometry, new THREE.MeshStandardMaterial({ name: materialName }))
+    mesh.name = name
+    mesh.bind(source.skeleton)
+    root.add(mesh)
+  }
+}
+
 describe('Humanoid LOD Distances and Animation Throttle', () => {
   it('defines HUMANOID_LOD_DISTANCES as [0, 28, 60] for 0-28m LOD0, 28-60m LOD1, >60m LOD2', () => {
     expect(HUMANOID_LOD_DISTANCES).toEqual([0, 28, 60])
@@ -84,6 +100,8 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
     const lod0 = createMockLODScene(0)
     const lod1 = createMockLODScene(1)
     const lod2 = createMockLODScene(2) // Valid rig, but intentionally no named consolidation pairs.
+    const dangles = lod2.getObjectByName('mesh-lod2') as THREE.SkinnedMesh
+    dangles.name = 'Dangles'
     const romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(lod2, () => undefined)
     expect(romanLod2Consolidation).toBeUndefined()
     const mockTemplate = {
@@ -97,13 +115,44 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
 
     const warmup = HumanoidAssetRegistry.createWarmupGroup()
     const warmupLod2 = warmup.getObjectByName('roman-warmup-lod2')!
-    expect(warmupLod2.getObjectByName('mesh-lod2')).toBeInstanceOf(THREE.SkinnedMesh)
+    expect(warmupLod2.getObjectByName('Dangles')).toMatchObject({ visible: true })
 
     const instance = HumanoidAssetRegistry.createCharacterInstance({ faction: 'roman' } as any)
     const lod = instance.root.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)!
-    const original = lod.levels[2].object.getObjectByName('mesh-lod2')!
+    const original = lod.levels[2].object.getObjectByName('Dangles')!
     expect(original).toBeInstanceOf(THREE.SkinnedMesh)
+    expect(original.visible).toBe(true)
     expect(original.userData.humanoidLod2Consolidated).toBeUndefined()
+  })
+
+  it('regression: humanoidLod2Original keeps audited Roman LOD2 detail meshes untouched', () => {
+    const lod0 = createMockLODScene(0)
+    const lod1 = createMockLODScene(1)
+    const lod2 = createMockLODScene(2)
+    ;(lod2.getObjectByName('mesh-lod2') as THREE.SkinnedMesh).name = 'Dangles'
+    addRomanLod2ConsolidationPairs(lod2)
+    const romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(lod2, () => undefined)
+    expect(romanLod2Consolidation).toBeDefined()
+    const templatesMap = (HumanoidAssetRegistry as any).templates as Map<string, any>
+    templatesMap.set('roman', {
+      manifest: { status: 'ready' as const, files: { lod0: '', lod1: '', lod2: '' }, metrics: { heightM: 1.78, shoulderWidthM: 0.46, neckLengthM: 0.09 } },
+      levels: [{ scene: lod0, animations: [] }, { scene: lod1, animations: [] }, { scene: lod2, animations: [] }],
+      bowClips: [[], [], []],
+      romanLod2Consolidation,
+    })
+    const previousWindow = globalThis.window
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { search: '?humanoidLod2Original' } } })
+    try {
+      const instance = HumanoidAssetRegistry.createCharacterInstance({ faction: 'roman' } as any)
+      const lod = instance.root.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)!
+      const original = lod.levels[2].object
+      expect(original.getObjectByName('Dangles')?.visible).toBe(true)
+      expect(original.getObjectByName('New_eye')?.visible).toBe(true)
+      expect(original.getObjectByName('roman-lod2-consolidated-New_eye-New_eye_2')).toBeUndefined()
+    } finally {
+      if (previousWindow === undefined) delete (globalThis as { window?: Window }).window
+      else Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow })
+    }
   })
 
   it('regression: CombatRenderWarmup does not mutate canonical template state (parent, castShadow, receiveShadow, visible, layers, material)', () => {
