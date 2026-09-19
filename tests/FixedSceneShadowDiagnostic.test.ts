@@ -175,4 +175,34 @@ describe('Fixed-Scene Shadow Diagnostic Contracts', () => {
     expect(scene.children.length).toBe(initialChildCount)
     expect(scene.getObjectByName('npc_0')).toBe(npcGroup)
   })
+
+  it('clears latestSnapshot on reset and increments snapshotGeneration on new windows', async () => {
+    const { RuntimeProfiler } = await import('../src/debug/RuntimeProfiler')
+    const profiler = new RuntimeProfiler(100)
+    profiler.reset(0)
+    expect(profiler.getLatestSnapshot()).toBeNull()
+    const g0 = profiler.getSnapshotGeneration()
+
+    const mockFrame = {
+      cpuFrameMs: 16,
+      npcGridMs: 0,
+      npcUpdateMs: 0,
+      mountInteractionMs: 0,
+      collisionMs: 0,
+      arrowMs: 0,
+      impactMs: 0,
+      renderSubmitMs: 16,
+      otherMs: 0,
+    }
+
+    profiler.recordFrame(mockFrame, 50)
+    profiler.recordFrame(mockFrame, 150)
+    expect(profiler.getLatestSnapshot()).not.toBeNull()
+    expect(profiler.getSnapshotGeneration()).toBe(g0 + 1)
+    expect(profiler.getLatestSnapshot()?.generation).toBe(g0 + 1)
+
+    // Reset clears snapshot to prevent stale consumption
+    profiler.reset(200)
+    expect(profiler.getLatestSnapshot()).toBeNull()
+  })
 })

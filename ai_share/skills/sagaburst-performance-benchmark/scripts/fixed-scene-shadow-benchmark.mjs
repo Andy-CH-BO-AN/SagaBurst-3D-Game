@@ -78,7 +78,7 @@ try {
     window.game.setSimulationFrozen(true)
   })
 
-  // 擷取初始凍結場景特徵指紋
+  // 擷取初始凍結場景特徵指紋 (逐 entity 穩定座標快照)
   const initialFingerprint = await page.evaluate(() => {
     const game = window.game
     const hudText = document.querySelector('#dev-combat-status')?.textContent ?? ''
@@ -88,8 +88,9 @@ try {
     const horseCount = game.mounts.length
     const camPos = game.camera.position.toArray()
     const camQuat = game.camera.quaternion.toArray()
-    const npcSum = game.npcs.reduce((acc, n) => acc + n.group.position.x + n.group.position.z, 0)
-    const mountSum = game.mounts.reduce((acc, m) => acc + m.group.position.x + m.group.position.z, 0)
+    const npcPositions = game.npcs.map((n) => [n.group.position.x, n.group.position.y, n.group.position.z])
+    const mountPositions = game.mounts.map((m) => [m.group.position.x, m.group.position.y, m.group.position.z])
+    const arrowPositions = game.arrows.map((a) => [a.mesh.position.x, a.mesh.position.y, a.mesh.position.z])
     return {
       alive,
       dead,
@@ -97,8 +98,9 @@ try {
       horseCount,
       camPos,
       camQuat,
-      npcSum,
-      mountSum,
+      npcPositions,
+      mountPositions,
+      arrowPositions,
       hudText,
     }
   })
@@ -108,26 +110,32 @@ try {
   )
 
   /**
-   * 執行單一觀察窗口 (隔離 RuntimeProfiler)
+   * 執行單一觀察窗口 (嚴格隔離 RuntimeProfiler，等待 generation 推進)
    */
   async function observeWindow(windowLabel, enableShadow) {
     console.log(`[Fixed-Scene Shadow Benchmark] === 進入 ${windowLabel} (Shadow=${enableShadow}) ===`)
-    await page.evaluate((enabled) => {
+    const resetGen = await page.evaluate((enabled) => {
       window.game.setShadowsEnabled(enabled)
-      window.__resetRuntimeProfiler(performance.now())
+      return window.__resetRuntimeProfiler(performance.now())
     }, enableShadow)
 
-    console.log(`[Fixed-Scene Shadow Benchmark] 等待渲染管線穩定 1000 ms...`)
-    await page.waitForTimeout(1000)
+    console.log(`[Fixed-Scene Shadow Benchmark] 等待 reset (generation=${resetGen}) 後產生第一個完整新 snapshot...`)
+    await page.waitForFunction(
+      (gen) => {
+        const s = window.game?.runtimeProfiler?.getLatestSnapshot()
+        return s !== null && s.generation > gen
+      },
+      resetGen,
+      { timeout: 8000 }
+    )
 
-    console.log(`[Fixed-Scene Shadow Benchmark] 開始觀測 ${observationMs} ms...`)
+    console.log(`[Fixed-Scene Shadow Benchmark] 開始觀測 ${observationMs} ms (依 generation 去重)...`)
     const startTime = Date.now()
     const samples = []
-    let previousFps = null
-    let previousSubmit = null
+    const seenGenerations = new Set()
 
     while (Date.now() - startTime < observationMs) {
-      await page.waitForTimeout(350)
+      await page.waitForTimeout(200)
       const sample = await page.evaluate(() => {
         const game = window.game
         const s = game.runtimeProfiler.getLatestSnapshot()
@@ -135,6 +143,8 @@ try {
         return {
           snapshot: s
             ? {
+                generation: s.generation,
+                timestamp: s.timestamp,
                 fps: s.fps,
                 cpuFrameMs: s.cpuFrame.avg,
                 renderSubmitMs: s.renderSubmit.avg,
@@ -144,14 +154,10 @@ try {
         }
       })
 
-      if (sample.snapshot) {
-        // 避免重複放入同一個尚未更新的 snapshot
-        const isDuplicate =
-          previousFps === sample.snapshot.fps && previousSubmit === sample.snapshot.renderSubmitMs
-        if (!isDuplicate) {
+      if (sample.snapshot && sample.snapshot.generation > resetGen) {
+        if (!seenGenerations.has(sample.snapshot.generation)) {
+          seenGenerations.add(sample.snapshot.generation)
           samples.push(sample)
-          previousFps = sample.snapshot.fps
-          previousSubmit = sample.snapshot.renderSubmitMs
         }
       }
     }
@@ -165,7 +171,7 @@ try {
     const medRenderSubmit = median(samples.map((s) => s.snapshot.renderSubmitMs))
 
     console.log(
-      `[Fixed-Scene Shadow Benchmark] ${windowLabel} 觀測結果 (${samples.length} 樣本): FPS=${medFps.toFixed(1)}, CPU Frame=${medCpuFrame.toFixed(2)}ms, Render Submit=${medRenderSubmit.toFixed(2)}ms`
+      `[Fixed-Scene Shadow Benchmark] ${windowLabel} 觀測結果 (${samples.length} 個獨立 generation 樣本): FPS=${medFps.toFixed(1)}, CPU Frame=${medCpuFrame.toFixed(2)}ms, Render Submit=${medRenderSubmit.toFixed(2)}ms`
     )
 
     return {
@@ -192,7 +198,7 @@ try {
   // ── Window C: Shadow ON #2 (Sanity Check) ──
   const windowC = await observeWindow('Shadow ON #2', true)
 
-  // ── 結束驗證指紋 ──
+  // ── 結束驗證指紋 (逐 entity 穩定座標快照) ──
   const finalFingerprint = await page.evaluate(() => {
     const game = window.game
     const alive = game.npcs.filter((n) => !n.dead).length
@@ -201,8 +207,9 @@ try {
     const horseCount = game.mounts.length
     const camPos = game.camera.position.toArray()
     const camQuat = game.camera.quaternion.toArray()
-    const npcSum = game.npcs.reduce((acc, n) => acc + n.group.position.x + n.group.position.z, 0)
-    const mountSum = game.mounts.reduce((acc, m) => acc + m.group.position.x + m.group.position.z, 0)
+    const npcPositions = game.npcs.map((n) => [n.group.position.x, n.group.position.y, n.group.position.z])
+    const mountPositions = game.mounts.map((m) => [m.group.position.x, m.group.position.y, m.group.position.z])
+    const arrowPositions = game.arrows.map((a) => [a.mesh.position.x, a.mesh.position.y, a.mesh.position.z])
     return {
       alive,
       dead,
@@ -210,8 +217,9 @@ try {
       horseCount,
       camPos,
       camQuat,
-      npcSum,
-      mountSum,
+      npcPositions,
+      mountPositions,
+      arrowPositions,
     }
   })
 
@@ -231,12 +239,53 @@ try {
   if (initialFingerprint.horseCount !== finalFingerprint.horseCount) {
     errors.push(`Horse 數量變動: 初始 ${initialFingerprint.horseCount} vs 結束 ${finalFingerprint.horseCount}`)
   }
-  if (Math.abs(initialFingerprint.npcSum - finalFingerprint.npcSum) > 1e-4) {
-    errors.push(`NPC 座標和變動 (模擬仍在前進): ${initialFingerprint.npcSum} vs ${finalFingerprint.npcSum}`)
+
+  // 逐 NPC 座標校驗
+  if (initialFingerprint.npcPositions.length !== finalFingerprint.npcPositions.length) {
+    errors.push(`NPC 實體數變動: 初始 ${initialFingerprint.npcPositions.length} vs 結束 ${finalFingerprint.npcPositions.length}`)
+  } else {
+    for (let i = 0; i < initialFingerprint.npcPositions.length; i++) {
+      const [x0, y0, z0] = initialFingerprint.npcPositions[i]
+      const [x1, y1, z1] = finalFingerprint.npcPositions[i]
+      const dist = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
+      if (dist > 1e-4) {
+        errors.push(`NPC #${i} 座標變動 (dist=${dist.toFixed(6)}): [${x0.toFixed(2)}, ${y0.toFixed(2)}, ${z0.toFixed(2)}] -> [${x1.toFixed(2)}, ${y1.toFixed(2)}, ${z1.toFixed(2)}]`)
+        break
+      }
+    }
   }
-  if (Math.abs(initialFingerprint.mountSum - finalFingerprint.mountSum) > 1e-4) {
-    errors.push(`Mount 座標和變動 (戰馬仍在前進): ${initialFingerprint.mountSum} vs ${finalFingerprint.mountSum}`)
+
+  // 逐 Mount 座標校驗
+  if (initialFingerprint.mountPositions.length !== finalFingerprint.mountPositions.length) {
+    errors.push(`Mount 實體數變動: 初始 ${initialFingerprint.mountPositions.length} vs 結束 ${finalFingerprint.mountPositions.length}`)
+  } else {
+    for (let i = 0; i < initialFingerprint.mountPositions.length; i++) {
+      const [x0, y0, z0] = initialFingerprint.mountPositions[i]
+      const [x1, y1, z1] = finalFingerprint.mountPositions[i]
+      const dist = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
+      if (dist > 1e-4) {
+        errors.push(`Mount #${i} 座標變動 (dist=${dist.toFixed(6)}): [${x0.toFixed(2)}, ${y0.toFixed(2)}, ${z0.toFixed(2)}] -> [${x1.toFixed(2)}, ${y1.toFixed(2)}, ${z1.toFixed(2)}]`)
+        break
+      }
+    }
   }
+
+  // 逐 Arrow 座標校驗
+  if (initialFingerprint.arrowPositions.length !== finalFingerprint.arrowPositions.length) {
+    errors.push(`Arrow 實體數變動: 初始 ${initialFingerprint.arrowPositions.length} vs 結束 ${finalFingerprint.arrowPositions.length}`)
+  } else {
+    for (let i = 0; i < initialFingerprint.arrowPositions.length; i++) {
+      const [x0, y0, z0] = initialFingerprint.arrowPositions[i]
+      const [x1, y1, z1] = finalFingerprint.arrowPositions[i]
+      const dist = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
+      if (dist > 1e-4) {
+        errors.push(`Arrow #${i} 座標變動 (dist=${dist.toFixed(6)}): [${x0.toFixed(2)}, ${y0.toFixed(2)}, ${z0.toFixed(2)}] -> [${x1.toFixed(2)}, ${y1.toFixed(2)}, ${z1.toFixed(2)}]`)
+        break
+      }
+    }
+  }
+
+  // 攝影機位置與四元數校驗
   const camPosDiff = initialFingerprint.camPos.reduce(
     (sum, val, idx) => sum + Math.abs(val - finalFingerprint.camPos[idx]),
     0
@@ -301,6 +350,8 @@ try {
       horseCount: initialFingerprint.horseCount,
       camPos: initialFingerprint.camPos,
       camQuat: initialFingerprint.camQuat,
+      npcCount: initialFingerprint.npcPositions.length,
+      mountCount: initialFingerprint.mountPositions.length,
     },
     abResults: {
       on1: windowA,

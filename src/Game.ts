@@ -591,7 +591,7 @@ export class Game {
       ;(window as any).__setShadowsEnabled = (enabled: boolean) => this.setShadowsEnabled(Boolean(enabled))
       ;(window as any).__resetRuntimeProfiler = (now = performance.now()) => {
         this.runtimeProfiler.reset(now)
-        return true
+        return this.runtimeProfiler.getSnapshotGeneration()
       }
 
       if (query.has('humanoidLod2Control')) {
