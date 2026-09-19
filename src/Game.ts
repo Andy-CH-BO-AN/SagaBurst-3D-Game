@@ -297,7 +297,27 @@ export class Game {
   private isMountStudio = false
   private isModelStudio = false
   private isDevCombat = false
-  private frozenHumanoidLod2Diagnostic = false
+  private _isSimulationFrozen = false
+
+  get isSimulationFrozen(): boolean {
+    return this._isSimulationFrozen
+  }
+
+  setSimulationFrozen(frozen: boolean): boolean {
+    if (!import.meta.env.DEV) return false
+    const next = Boolean(frozen)
+    if (this._isSimulationFrozen && !next) {
+      this.clock.getDelta()
+    }
+    this._isSimulationFrozen = next
+    return this._isSimulationFrozen
+  }
+
+  setShadowsEnabled(enabled: boolean): boolean {
+    if (!import.meta.env.DEV) return this.renderer.shadowMap.enabled
+    this.renderer.shadowMap.enabled = Boolean(enabled)
+    return this.renderer.shadowMap.enabled
+  }
 
   private battleController: BattleController | null = null
   private npcs: NPC[] = []
@@ -566,11 +586,19 @@ export class Game {
     // ── Spawn World Pickups & Mounts ──
     if (this.isDevCombat) this._createDevCombatStatus()
 
-    if (import.meta.env.DEV && query.has('humanoidLod2Control')) {
-      ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
-      ;(window as any).__freezeHumanoidLod2Scene = (frozen = true) => {
-        this.frozenHumanoidLod2Diagnostic = Boolean(frozen)
-        return { frozen: this.frozenHumanoidLod2Diagnostic }
+    if (import.meta.env.DEV) {
+      ;(window as any).__freezeSimulation = (frozen = true) => this.setSimulationFrozen(Boolean(frozen))
+      ;(window as any).__setShadowsEnabled = (enabled: boolean) => this.setShadowsEnabled(Boolean(enabled))
+      ;(window as any).__resetRuntimeProfiler = (now = performance.now()) => {
+        this.runtimeProfiler.reset(now)
+        return this.runtimeProfiler.getSnapshotGeneration()
+      }
+
+      if (query.has('humanoidLod2Control')) {
+        ;(window as any).__setHumanoidLod2Representation = (optimized: boolean) => this._setHumanoidLod2Representation(Boolean(optimized))
+        ;(window as any).__freezeHumanoidLod2Scene = (frozen = true) => {
+          return { frozen: this.setSimulationFrozen(Boolean(frozen)) }
+        }
       }
     }
 
@@ -1721,14 +1749,38 @@ export class Game {
   // ── Main loop ──
   private _loop = (): void => {
     requestAnimationFrame(this._loop)
-    if (import.meta.env.DEV && this.frozenHumanoidLod2Diagnostic) {
-      this.renderer.render(this.scene, this.camera)
-      return
-    }
     const profile = import.meta.env.DEV && this.isDevCombat
     const frameStart = profile ? performance.now() : 0
     let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
+
+    if (import.meta.env.DEV && this._isSimulationFrozen) {
+      if (profile) t0 = performance.now()
+      this.renderer.render(this.scene, this.camera)
+      const renderSubmitMs = profile ? performance.now() - t0 : 0
+
+      if (profile) {
+        const frameEnd = performance.now()
+        const cpuFrameMs = frameEnd - frameStart
+        const newSnapshot = this.runtimeProfiler.recordFrame({
+          cpuFrameMs,
+          npcGridMs: 0,
+          npcUpdateMs: 0,
+          mountInteractionMs: 0,
+          collisionMs: 0,
+          arrowMs: 0,
+          impactMs: 0,
+          renderSubmitMs,
+          otherMs: Math.max(0, cpuFrameMs - renderSubmitMs),
+        }, frameEnd)
+
+        if (newSnapshot || !this.hasDevCombatRenderedInitialHud) {
+          this._updateDevCombatStatus()
+          this.hasDevCombatRenderedInitialHud = true
+        }
+      }
+      return
+    }
 
     for (const instance of this.humanoidShowcase) {
       const playback = this.humanoidStudioPlayback.get(instance)

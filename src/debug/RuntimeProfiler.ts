@@ -27,6 +27,8 @@ export interface MetricStat {
 }
 
 export interface RuntimeProfileSnapshot {
+  timestamp: number
+  generation: number
   fps: number
   sampleCount: number
   windowDurationMs: number
@@ -99,6 +101,7 @@ export class RuntimeProfiler {
   private readonly accRenderSubmit = createAccumulator()
   private readonly accOther = createAccumulator()
 
+  private snapshotGeneration: number = 0
   private latestSnapshot: RuntimeProfileSnapshot | null = null
 
   // NPC subphase snapshot (DEV-only, populated by recordNpcSubphase)
@@ -138,7 +141,10 @@ export class RuntimeProfiler {
     if (this.accumulatedDurationMs >= this.sampleWindowMs && this.sampleCount > 0) {
       const fps = (this.sampleCount / this.accumulatedDurationMs) * 1000
 
+      this.snapshotGeneration++
       this.latestSnapshot = {
+        timestamp: now,
+        generation: this.snapshotGeneration,
         fps,
         sampleCount: this.sampleCount,
         windowDurationMs: this.accumulatedDurationMs,
@@ -181,6 +187,10 @@ export class RuntimeProfiler {
     this.latestSubphaseSnapshot = snapshot
   }
 
+  getSnapshotGeneration(): number {
+    return this.snapshotGeneration
+  }
+
   getLatestSnapshot(): RuntimeProfileSnapshot | null {
     return this.latestSnapshot
   }
@@ -202,6 +212,7 @@ export class RuntimeProfiler {
     resetAccumulator(this.accImpact)
     resetAccumulator(this.accRenderSubmit)
     resetAccumulator(this.accOther)
+    this.latestSnapshot = null
     this.latestSubphaseSnapshot = null
   }
 
