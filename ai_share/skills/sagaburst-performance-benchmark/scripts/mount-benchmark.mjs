@@ -63,6 +63,7 @@ const host = valueOf('host', '127.0.0.1:5173')
 const warmupMs = Number(valueOf('warmup-ms', '3000'))
 const observationMs = Number(valueOf('observation-ms', '20000'))
 const timeoutMs = Number(valueOf('timeout-ms', '25000'))
+const initialBattleStateTimeoutMs = 15_000
 const tag = valueOf('tag', `${scenarioArg.toLowerCase()}-${phase}`)
 const requireSubphase = !args.has('--no-subphase')
 const chromePath = process.env.SAGABURST_CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -150,15 +151,16 @@ function addBattleHudAliveDead(metrics, battleText, sideCount) {
 function readInitialBattleState(devHudText, battleText, scenario) {
   const metrics = addBattleHudAliveDead(parseHud(devHudText), battleText, scenario.sideCount)
   const expectedNpcCount = scenario.sideCount * 2
+  const npcCount = metricsFromText(devHudText, /^NPC Count:\s+(\d+)/m)
+  const horseCount = metricsFromText(devHudText, /^Horse Count:\s+(\d+)/m)
   return {
-    npcCount: metricsFromText(devHudText, /^NPC Count:\s+(\d+)/m),
-    horseCount: metricsFromText(devHudText, /^Horse Count:\s+(\d+)/m),
+    npcCount,
+    horseCount,
     alive: metrics.alive ?? null,
     dead: metrics.dead ?? null,
     expectedNpcCount,
     expectedHorseCount: scenario.horseCount,
-    valid: metricsFromText(devHudText, /^NPC Count:\s+(\d+)/m) === expectedNpcCount &&
-      metrics.horseCount === scenario.horseCount &&
+    valid: npcCount === expectedNpcCount && horseCount === scenario.horseCount &&
       metrics.alive === expectedNpcCount && metrics.dead === 0,
   }
 }
@@ -166,6 +168,29 @@ function readInitialBattleState(devHudText, battleText, scenario) {
 function metricsFromText(text, pattern) {
   const match = text.match(pattern)
   return match ? Number(match[1]) : null
+}
+
+async function waitForInitialBattleState(page, scenario) {
+  const deadline = Date.now() + initialBattleStateTimeoutMs
+  let latestState = null
+
+  while (Date.now() < deadline) {
+    const hud = await page.evaluate(() => ({
+      devHudText: document.querySelector('#dev-combat-status')?.textContent ?? '',
+      battleText: document.querySelector('#battle-status-hud')?.textContent ?? '',
+    }))
+    latestState = readInitialBattleState(hud.devHudText, hud.battleText, scenario)
+    if (latestState.valid) return latestState
+    await page.waitForTimeout(100)
+  }
+
+  const expectedNpcCount = scenario.sideCount * 2
+  throw new Error(
+    `Initial battle state timeout after ${initialBattleStateTimeoutMs}ms: ` +
+    `actual NPC Count=${latestState?.npcCount ?? '--'}, Horse Count=${latestState?.horseCount ?? '--'}, ` +
+    `Alive=${latestState?.alive ?? '--'}, Dead=${latestState?.dead ?? '--'}; ` +
+    `expected NPC Count=${expectedNpcCount}, Horse Count=${scenario.horseCount}, Alive=${expectedNpcCount}, Dead=0`
+  )
 }
 
 function aggregate(samples) {
@@ -256,11 +281,7 @@ async function runOne(scenario, run) {
   try {
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
     await page.waitForSelector('#dev-combat-status', { timeout: 60_000 })
-    const initialHud = await page.evaluate(() => ({
-      devHudText: document.querySelector('#dev-combat-status')?.textContent ?? '',
-      battleText: document.querySelector('#battle-status-hud')?.textContent ?? '',
-    }))
-    const initialBattleState = readInitialBattleState(initialHud.devHudText, initialHud.battleText, scenario)
+    const initialBattleState = await waitForInitialBattleState(page, scenario)
     await page.waitForTimeout(warmupMs)
     const combatEvidenceMode = phase !== 'during-combat'
       ? 'not-applicable'
