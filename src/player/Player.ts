@@ -114,6 +114,7 @@ export class Player {
   private pendingBowChargeTime = 0
   private pendingArcheryMultiplier = 1
   private pendingRangedWeapon?: WeaponData
+  private pilumReleasedOnCommit = false
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
@@ -399,6 +400,7 @@ export class Player {
     this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
+    this.pilumReleasedOnCommit = false
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
@@ -557,12 +559,26 @@ export class Player {
     this.bowChargeTime = 0
   }
 
-  private _startPilumThrow(cameraAimPoint: THREE.Vector3, archeryMultiplier: number, equippedRanged?: WeaponData): void {
+  private _startPilumThrow(
+    cameraAimPoint: THREE.Vector3,
+    archeryMultiplier: number,
+    soundManager: SoundManager,
+    equippedRanged?: WeaponData,
+  ): void {
     if (this.currentShieldId || this.arrows <= 0 || this.animator.busy || equippedRanged?.animationKind !== 'pilum') return
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
-    this.animator.start('pilumThrow')
+    if (!this.animator.start('pilumThrow')) return
+
+    // Player input commits a pilum on LMB. NPCs keep their shared animator
+    // release event; only the Player launches here, so RMB-up cannot appear
+    // to be the trigger after the visual throw windup.
+    this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, equippedRanged)
+    this.pilumReleasedOnCommit = true
+    this.nockedArrowReleased = true
+    this.bowVisualDrawRatio = 0
+    soundManager.playBowRelease()
   }
 
   update(
@@ -644,7 +660,7 @@ export class Player {
         this.bowChargeTime = 0
         quiverUI.setChargeRatio(0)
         this.animator.posePilum(0)
-        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
+        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, soundManager, equippedRanged)
       } else {
         if (input.isLeftMouseDown && this.arrows > 0) {
           this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
@@ -752,16 +768,22 @@ export class Player {
       this.hasPrevLanceTip = false
     }
     if (animationEvents.projectileRelease) {
-      if (this.pendingRangedWeapon?.animationKind === 'pilum') {
+      const playerPilumAlreadyReleased = this.pendingRangedWeapon?.animationKind === 'pilum' && this.pilumReleasedOnCommit
+      if (playerPilumAlreadyReleased) {
+        // The Player emitted on LMB; retain the event only for visual timing.
+      } else if (this.pendingRangedWeapon?.animationKind === 'pilum') {
         this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon)
       } else {
         this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
       }
-      this.nockedArrowReleased = true
-      this.bowVisualDrawRatio = 0
-      soundManager.playBowRelease()
+      if (!playerPilumAlreadyReleased) {
+        this.nockedArrowReleased = true
+        this.bowVisualDrawRatio = 0
+        soundManager.playBowRelease()
+      }
     }
     if (animationEvents.actionCompleted) {
+      this.pilumReleasedOnCommit = false
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false

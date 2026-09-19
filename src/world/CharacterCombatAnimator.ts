@@ -33,10 +33,7 @@ export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnim
   greatswordSlash: { windup: 0.28, active: 0.18, recovery: 0.32 },
   bowAim: { windup: 0.18, active: 0, recovery: 0 },
   bowRelease: { windup: 0.04, active: 0, recovery: 0.18 },
-  // A pilum is committed by the player's left-click.  Keep the full throw
-  // animation as recovery, but release its projectile on that same update
-  // rather than making RMB-up appear to be the trigger after a long windup.
-  pilumThrow: { windup: 0, active: 0, recovery: 1.5 },
+  pilumThrow: { windup: 1.5, active: 0, recovery: 0 },
   lanceThrust: { windup: 0.12, active: 0.14, recovery: 0.16 },
   mountedLance: { windup: 0.08, active: 0.08, recovery: 0.12 },
 }
@@ -151,10 +148,7 @@ export class CharacterCombatAnimator {
     const total = Math.round((profile.windup + profile.active + profile.recovery) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
-      // A zero-windup ranged action (pilum) must still emit once on its first
-      // animation update.  The strict inequality intentionally remains for
-      // positive windups so bow-release timing is unchanged.
-      if ((profile.windup === 0 ? previous === 0 : previous < profile.windup) && this.elapsed >= profile.windup) {
+      if (previous < profile.windup && this.elapsed >= profile.windup) {
         this.events.projectileRelease = true
       }
       if (this.ownership === 'procedural') {
