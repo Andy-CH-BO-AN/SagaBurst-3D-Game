@@ -10,6 +10,7 @@ import {
   type HorseInstance,
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
+import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
@@ -130,7 +131,6 @@ export class Mount {
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
     if (this.horseVisual) {
-      this.group.updateWorldMatrix(true, true)
       return this.horseVisual.saddleSeat.getWorldPosition(target)
     }
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
@@ -218,9 +218,14 @@ export class Mount {
     this.group.position.addScaledVector(direction, speed * dt)
   }
 
-  finishControlledFrame(dt: number, obstacles: ObstacleData[]): void {
+  finishControlledFrame(
+    dt: number,
+    obstacles: ObstacleData[],
+    collector: NpcSubphaseCollector | null = null,
+  ): void {
     if (this.dead) return
     const wasOnGround = this.onGround
+    if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
     this.velY += -22 * dt
     this.group.position.y += this.velY * dt
@@ -231,7 +236,9 @@ export class Mount {
     } else {
       this.onGround = false
     }
+    if (import.meta.env.DEV && collector) { collector.endPhase('mountPhysics', _tPhysics!) }
 
+    if (import.meta.env.DEV && collector) { var _tObstacle = performance.now() }
     const collision = resolveObstacleCollision(
       this.group.position,
       this.previousPosition,
@@ -244,13 +251,17 @@ export class Mount {
     )
     this.velY = collision.velocityY
     this.onGround = collision.onGround
+    if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }
+
     clampToPlayableWorld(this.group.position)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.horseVisual) {
       if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.horseVisual.playOnce('land')
       this.hasGroundedOnce ||= this.onGround
+      if (import.meta.env.DEV && collector) { var _tHorseAnimation = performance.now() }
       this.horseVisual.setLocomotion(this.movementSpeed)
       this.horseVisual.update(dt, this.cameraDistance)
+      if (import.meta.env.DEV && collector) { collector.endPhase('mountHorseAnimation', _tHorseAnimation!) }
     }
   }
 

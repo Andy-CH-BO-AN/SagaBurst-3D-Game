@@ -884,8 +884,13 @@ export class Game {
       lodCounts[state.lod]++
     }
     const info = this.renderer.info
+    const alive = this.npcs.reduce((count, npc) => count + (npc.dead ? 0 : 1), 0)
+    const activeAttack = this.npcs.reduce((count, npc) => count + (npc.currentState === AIState.ATTACK ? 1 : 0), 0)
     this.devCombatStatus.textContent = this.runtimeProfiler.formatHUD({
       npcCount: this.npcs.length,
+      aliveCount: alive,
+      deadCount: this.npcs.length - alive,
+      activeAttackCount: activeAttack,
       horseCount: horses,
       arrowCount: this.arrows.length,
       drawCalls: info.render.calls,
@@ -1700,7 +1705,7 @@ export class Game {
       this.renderer.render(this.scene, this.camera)
       return
     }
-    const profile = this.isDevCombat
+    const profile = import.meta.env.DEV && this.isDevCombat
     const frameStart = profile ? performance.now() : 0
     let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
