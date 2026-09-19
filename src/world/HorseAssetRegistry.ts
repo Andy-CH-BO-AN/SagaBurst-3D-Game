@@ -135,6 +135,10 @@ const REQUIRED_SOCKETS = [
 
 const LOD_DISTANCES = [0, 18, 38] as const
 const MAX_PACKAGE_BYTES = 30 * 1024 * 1024
+export const HORSE_LOD2_CULLED_TINY_DETAIL_NAMES = [
+  'bridle_4F_Leather_Brown_Worn_mqm_lod2',
+  'bridle_body_4F_Leather_Brown_Worn_mqm_lod2',
+] as const
 const HORSE_GAIT_REFERENCE_SPEEDS: Partial<Record<HorseAnimationState, number>> = {
   walk: 2.4,
   trot: 5.25,
@@ -171,6 +175,14 @@ function requireMesh(root: THREE.Object3D, name: string): THREE.Mesh {
   if (!(object instanceof THREE.Mesh)) throw new Error(`Horse object ${name} is not a mesh`)
   if (Array.isArray(object.material)) throw new Error(`Horse body mesh ${name} must use one material`)
   return object
+}
+
+/** Far LOD keeps the horse silhouette and saddle, but not sub-pixel bridle meshes. */
+export function cullHorseLod2TinyDetails(root: THREE.Object3D): void {
+  for (const name of HORSE_LOD2_CULLED_TINY_DETAIL_NAMES) {
+    const detail = root.getObjectByName(name)
+    if (detail instanceof THREE.Mesh) detail.visible = false
+  }
 }
 
 function normalizedClips(gltf: GLTF): Map<HorseAnimationState, THREE.AnimationClip> {
@@ -394,6 +406,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     lod.addLevel(levels[index], LOD_DISTANCES[index], 0.1)
   }
   root.add(lod)
+  cullHorseLod2TinyDetails(levels[2])
   root.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       object.castShadow = lod.getObjectForDistance(0)?.getObjectById(object.id) !== undefined
