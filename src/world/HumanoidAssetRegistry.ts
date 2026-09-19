@@ -467,7 +467,12 @@ export class MixerController implements HumanoidAnimationController {
     }
     const fadeSeconds = options.fadeSeconds ?? 0.12
     if (state === this.current) {
-      const applyCurrentState = () => {
+      const phase = state === 'idle' || state === 'walk' || state === 'run' || state === 'mounted'
+        ? 'locomotionState'
+        : 'equipmentState'
+      const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
+      if (phaseCollector) {
+        const phaseStart = performance.now()
         for (const action of next) {
           action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
           action.clampWhenFinished = !loop
@@ -477,17 +482,17 @@ export class MixerController implements HumanoidAnimationController {
             action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
           }
         }
-      }
-      const phase = state === 'idle' || state === 'walk' || state === 'run' || state === 'mounted'
-        ? 'locomotionState'
-        : 'equipmentState'
-      const phaseCollector = import.meta.env.DEV ? this.subphaseCollector : null
-      if (phaseCollector) {
-        const phaseStart = performance.now()
-        applyCurrentState()
         phaseCollector.endHumanoidPhase(phase, phaseStart)
       } else {
-        applyCurrentState()
+        for (const action of next) {
+          action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+          action.clampWhenFinished = !loop
+          action.paused = false
+          action.timeScale = timeScale
+          if (options.startNormalizedTime !== undefined) {
+            action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
+          }
+        }
       }
       return true
     }
