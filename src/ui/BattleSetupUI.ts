@@ -34,6 +34,9 @@ export class BattleSetupUI {
     if (this.config.spectator === undefined) {
       this.config.spectator = false
     }
+    if (!this.config.playerFaction) {
+      this.config.playerFaction = 'viking'
+    }
   }
 
   mount(parent: HTMLElement = document.body, onStart: (config: BattleConfig) => void): void {
@@ -113,6 +116,20 @@ export class BattleSetupUI {
           <button type="button" class="mode-btn" id="mode-btn-scattered" data-mode="scattered">
             <span class="mode-btn-title">SCATTERED BATTLE</span>
             <span class="mode-btn-desc">玩家與雙方單位散布於整個戰場</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-mode-section">
+        <div class="mode-section-label">PLAYER FACTION</div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn" id="faction-btn-viking" data-player-faction="viking">
+            <span class="mode-btn-title">VIKING</span>
+            <span class="mode-btn-desc">諾德陣營 ｜ 維京外觀與盟友</span>
+          </button>
+          <button type="button" class="mode-btn" id="faction-btn-roman" data-player-faction="roman">
+            <span class="mode-btn-title">ROMAN</span>
+            <span class="mode-btn-desc">羅馬軍團 ｜ 羅馬外觀與盟友</span>
           </button>
         </div>
       </div>
@@ -215,13 +232,25 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
-    // Presets (Army composition only, strictly preserves selected Battle Mode and Spectator mode)
+    // Faction buttons
+    document.getElementById('faction-btn-viking')?.addEventListener('click', () => {
+      this.config.playerFaction = 'viking'
+      this._refreshView()
+    })
+    document.getElementById('faction-btn-roman')?.addEventListener('click', () => {
+      this.config.playerFaction = 'roman'
+      this._refreshView()
+    })
+
+    // Presets (Army composition only, strictly preserves selected Battle Mode, Spectator mode, and Player Faction)
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
+      const currentFaction = this.config.playerFaction ?? 'viking'
       this.config = JSON.parse(JSON.stringify(preset))
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
+      this.config.playerFaction = currentFaction
       this._refreshView()
     }
 
@@ -232,9 +261,11 @@ export class BattleSetupUI {
     document.getElementById('preset-reset')?.addEventListener('click', () => {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
+      const currentFaction = this.config.playerFaction ?? 'viking'
       this.config = createEmptyBattleConfig()
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
+      this.config.playerFaction = currentFaction
       this._refreshView()
     })
 
@@ -346,6 +377,17 @@ export class BattleSetupUI {
     }
     if (scatteredBtn) {
       scatteredBtn.classList.toggle('active', currentMode === 'scattered')
+    }
+
+    // Update Player Faction buttons active state
+    const currentFaction = this.config.playerFaction ?? 'viking'
+    const vikingBtn = document.getElementById('faction-btn-viking')
+    const romanBtn = document.getElementById('faction-btn-roman')
+    if (vikingBtn) {
+      vikingBtn.classList.toggle('active', currentFaction === 'viking')
+    }
+    if (romanBtn) {
+      romanBtn.classList.toggle('active', currentFaction === 'roman')
     }
 
     if (msgEl) {

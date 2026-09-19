@@ -10,11 +10,13 @@ import {
   UnitTier,
   ArmyConfig,
 } from './BattleConfig'
+import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
 
 export interface NpcSpawnSpec {
   x: number
   z: number
+  characterFaction: CharacterFaction
   faction: Faction
   aiType: AIType
   name: string
@@ -39,9 +41,17 @@ export interface CampHorseSpec {
 
 export const BATTLE_FRONTLINE_Z = 125.0
 export const VIKING_PLAYER_SPAWN = { x: 0, z: 145.0 }
+export const ROMAN_PLAYER_SPAWN = { x: 0, z: -145.0 }
 export const CAMP_PICKUP_Z = 151.0
 export const CAMP_HORSE_Z = 158.0
 export const PLAYER_SAFE_CLEARANCE = 2.0
+
+export function allegianceFor(
+  characterFaction: CharacterFaction,
+  playerFaction: CharacterFaction
+): Faction {
+  return characterFaction === playerFaction ? Faction.PLAYER : Faction.ENEMY
+}
 
 export const SCATTER_BOUND_MIN = -140.0
 export const SCATTER_BOUND_MAX = 140.0
@@ -74,6 +84,7 @@ interface UnitInstance {
 }
 
 interface PendingNpc {
+  characterFaction: CharacterFaction
   faction: Faction
   aiType: AIType
   name: string
@@ -96,23 +107,29 @@ export class BattleSpawner {
 
   private static _generateFormationPlan(config: BattleConfig): BattleSpawnPlan {
     const respawn = config.rules.respawnEnabled ?? false
+    const playerFaction: CharacterFaction = config.playerFaction ?? 'viking'
+    const vikingAllegiance = allegianceFor('viking', playerFaction)
+    const romanAllegiance = allegianceFor('roman', playerFaction)
+
     const npcSpecs: NpcSpawnSpec[] = [
-      ...this._generateArmySpecs(config.viking, Faction.PLAYER, respawn),
-      ...this._generateArmySpecs(config.roman, Faction.ENEMY, respawn),
+      ...this._generateArmySpecs(config.viking, 'viking', vikingAllegiance, playerFaction === 'viking', respawn),
+      ...this._generateArmySpecs(config.roman, 'roman', romanAllegiance, playerFaction === 'roman', respawn),
     ]
 
     const pickupSpecs: CampPickupSpec[] = []
     const horseSpecs: CampHorseSpec[] = []
 
     if (config.rules.includeCamps) {
-      pickupSpecs.push(...this._generateCampPickups(Faction.PLAYER))
-      pickupSpecs.push(...this._generateCampPickups(Faction.ENEMY))
-      horseSpecs.push(...this._generateCampHorses(Faction.PLAYER))
-      horseSpecs.push(...this._generateCampHorses(Faction.ENEMY))
+      pickupSpecs.push(...this._generateCampPickups('viking'))
+      pickupSpecs.push(...this._generateCampPickups('roman'))
+      horseSpecs.push(...this._generateCampHorses('viking'))
+      horseSpecs.push(...this._generateCampHorses('roman'))
     }
 
+    const playerSpawn = playerFaction === 'roman' ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN
+
     return {
-      playerSpawn: { x: VIKING_PLAYER_SPAWN.x, z: VIKING_PLAYER_SPAWN.z },
+      playerSpawn: { x: playerSpawn.x, z: playerSpawn.z },
       npcSpecs,
       pickupSpecs,
       horseSpecs,
@@ -121,16 +138,24 @@ export class BattleSpawner {
 
   private static _generateScatteredPlan(config: BattleConfig): BattleSpawnPlan {
     const respawn = config.rules.respawnEnabled ?? false
+    const playerFaction: CharacterFaction = config.playerFaction ?? 'viking'
+    const vikingAllegiance = allegianceFor('viking', playerFaction)
+    const romanAllegiance = allegianceFor('roman', playerFaction)
     const vikingExpanded = this._expandArmy(config.viking)
     const romanExpanded = this._expandArmy(config.roman)
 
-    const buildPending = (expanded: ReturnType<typeof BattleSpawner._expandArmy>, faction: Faction): PendingNpc[] => {
-      const isViking = faction === Faction.PLAYER
+    const buildPending = (
+      expanded: ReturnType<typeof BattleSpawner._expandArmy>,
+      characterFaction: CharacterFaction,
+      faction: Faction
+    ): PendingNpc[] => {
+      const isViking = characterFaction === 'viking'
       const prefix = isViking ? 'Viking' : 'Roman'
       const list: PendingNpc[] = []
 
       for (const u of expanded.infantry) {
         list.push({
+          characterFaction,
           faction,
           aiType: AIType.MELEE,
           name: `${prefix} T${u.tier} Infantry ${u.index}`,
@@ -141,6 +166,7 @@ export class BattleSpawner {
       }
       for (const u of expanded.archer) {
         list.push({
+          characterFaction,
           faction,
           aiType: AIType.RANGED,
           name: `${prefix} T${u.tier} Archer ${u.index}`,
@@ -151,6 +177,7 @@ export class BattleSpawner {
       }
       for (const u of expanded.cavalry) {
         list.push({
+          characterFaction,
           faction,
           aiType: AIType.MELEE,
           name: `${prefix} T${u.tier} Lancer ${u.index}`,
@@ -161,6 +188,7 @@ export class BattleSpawner {
       }
       for (const u of expanded.horseArcher) {
         list.push({
+          characterFaction,
           faction,
           aiType: AIType.RANGED,
           name: `${prefix} T${u.tier} Horse Archer ${u.index}`,
@@ -172,8 +200,8 @@ export class BattleSpawner {
       return list
     }
 
-    const vikingList = buildPending(vikingExpanded, Faction.PLAYER)
-    const romanList = buildPending(romanExpanded, Faction.ENEMY)
+    const vikingList = buildPending(vikingExpanded, 'viking', vikingAllegiance)
+    const romanList = buildPending(romanExpanded, 'roman', romanAllegiance)
     const totalNpcCount = vikingList.length + romanList.length
     const actorCount = totalNpcCount + 1 // + 1 for Player
 
@@ -242,6 +270,7 @@ export class BattleSpawner {
       npcSpecs.push({
         x: pos.x,
         z: pos.z,
+        characterFaction: pending.characterFaction,
         faction: pending.faction,
         aiType: pending.aiType,
         name: pending.name,
@@ -255,10 +284,10 @@ export class BattleSpawner {
     const horseSpecs: CampHorseSpec[] = []
 
     if (config.rules.includeCamps) {
-      pickupSpecs.push(...this._generateCampPickups(Faction.PLAYER))
-      pickupSpecs.push(...this._generateCampPickups(Faction.ENEMY))
-      horseSpecs.push(...this._generateCampHorses(Faction.PLAYER))
-      horseSpecs.push(...this._generateCampHorses(Faction.ENEMY))
+      pickupSpecs.push(...this._generateCampPickups('viking'))
+      pickupSpecs.push(...this._generateCampPickups('roman'))
+      horseSpecs.push(...this._generateCampHorses('viking'))
+      horseSpecs.push(...this._generateCampHorses('roman'))
     }
 
     return {
@@ -303,12 +332,15 @@ export class BattleSpawner {
    */
   private static _generateArmySpecs(
     army: ArmyConfig,
+    characterFaction: CharacterFaction,
     faction: Faction,
+    isPlayerArmy: boolean,
     respawnEnabled: boolean
   ): NpcSpawnSpec[] {
-    const isViking = faction === Faction.PLAYER
+    const isViking = characterFaction === 'viking'
     const zSign = isViking ? 1 : -1
     const prefix = isViking ? 'Viking' : 'Roman'
+    const playerSpawn = isViking ? VIKING_PLAYER_SPAWN : ROMAN_PLAYER_SPAWN
     const units = this._expandArmy(army)
     const specs: NpcSpawnSpec[] = []
 
@@ -330,12 +362,13 @@ export class BattleSpawner {
         let x = (col - (countInRow - 1) / 2) * infSpacingX
         const z = (infStartOffsetZ + row * infRowSpacingZ) * zSign
 
-        if (isViking && Math.hypot(x - VIKING_PLAYER_SPAWN.x, z - VIKING_PLAYER_SPAWN.z) < PLAYER_SAFE_CLEARANCE) {
+        if (isPlayerArmy && Math.hypot(x - playerSpawn.x, z - playerSpawn.z) < PLAYER_SAFE_CLEARANCE) {
           x = x >= 0 ? x + PLAYER_SAFE_CLEARANCE : x - PLAYER_SAFE_CLEARANCE
         }
         specs.push({
           x: Math.round(x * 100) / 100,
           z: Math.round(z * 100) / 100,
+          characterFaction,
           faction,
           aiType: AIType.MELEE,
           name: `${prefix} T${u.tier} Infantry ${u.index}`,
@@ -362,12 +395,13 @@ export class BattleSpawner {
       let x = (col - (countInRow - 1) / 2) * archSpacingX
       const z = (archBaseZ + row * archRowSpacingZ) * zSign
 
-      if (isViking && Math.hypot(x - VIKING_PLAYER_SPAWN.x, z - VIKING_PLAYER_SPAWN.z) < PLAYER_SAFE_CLEARANCE) {
+      if (isPlayerArmy && Math.hypot(x - playerSpawn.x, z - playerSpawn.z) < PLAYER_SAFE_CLEARANCE) {
         x = x >= 0 ? x + PLAYER_SAFE_CLEARANCE : x - PLAYER_SAFE_CLEARANCE
       }
       specs.push({
         x: Math.round(x * 100) / 100,
         z: Math.round(z * 100) / 100,
+        characterFaction,
         faction,
         aiType: AIType.RANGED,
         name: `${prefix} T${u.tier} Archer ${u.index}`,
@@ -416,6 +450,7 @@ export class BattleSpawner {
         specs.push({
           x: Math.round(x * 100) / 100,
           z: Math.round(z * 100) / 100,
+          characterFaction,
           faction,
           aiType,
           name: `${prefix} T${u.tier} ${unitLabel} ${u.index}`,
@@ -451,13 +486,13 @@ export class BattleSpawner {
             moved = true
           }
         }
-        if (isViking) {
+        if (isPlayerArmy) {
           const s = specs[i]
-          const pDist = Math.hypot(s.x - VIKING_PLAYER_SPAWN.x, s.z - VIKING_PLAYER_SPAWN.z)
+          const pDist = Math.hypot(s.x - playerSpawn.x, s.z - playerSpawn.z)
           if (pDist < PLAYER_SAFE_CLEARANCE) {
             const push = PLAYER_SAFE_CLEARANCE - pDist + 0.1
-            const nx = (s.x - VIKING_PLAYER_SPAWN.x) || (s.x >= 0 ? 1 : -1)
-            const nz = (s.z - VIKING_PLAYER_SPAWN.z) || 1
+            const nx = (s.x - playerSpawn.x) || (s.x >= 0 ? 1 : -1)
+            const nz = (s.z - playerSpawn.z) || (isViking ? 1 : -1)
             const len = Math.hypot(nx, nz)
             s.x = Math.round((s.x + (nx / len) * push) * 100) / 100
             s.z = Math.round((s.z + (nz / len) * push) * 100) / 100
@@ -471,8 +506,8 @@ export class BattleSpawner {
     return specs
   }
 
-  private static _generateCampPickups(faction: Faction): CampPickupSpec[] {
-    const isViking = faction === Faction.PLAYER
+  private static _generateCampPickups(characterFaction: CharacterFaction): CampPickupSpec[] {
+    const isViking = characterFaction === 'viking'
     const z = (isViking ? CAMP_PICKUP_Z : -CAMP_PICKUP_Z)
     const pickups: CampPickupSpec[] = []
 
@@ -532,8 +567,8 @@ export class BattleSpawner {
     return pickups
   }
 
-  private static _generateCampHorses(faction: Faction): CampHorseSpec[] {
-    const isViking = faction === Faction.PLAYER
+  private static _generateCampHorses(characterFaction: CharacterFaction): CampHorseSpec[] {
+    const isViking = characterFaction === 'viking'
     const z = (isViking ? CAMP_HORSE_Z : -CAMP_HORSE_Z)
     const prefix = isViking ? 'viking' : 'roman'
     const horses: CampHorseSpec[] = []

@@ -4,9 +4,14 @@ import { PRESET_10V10 } from "../src/battle/BattleConfig"
 import { Faction, AIType, NPC } from "../src/world/NPC"
 
 // Helper to create mock NPC objects
-function createMockNpc(faction: Faction, dead: boolean = false): NPC {
+function createMockNpc(
+  faction: Faction,
+  dead: boolean = false,
+  characterFaction: 'viking' | 'roman' = faction === Faction.ENEMY ? 'roman' : 'viking',
+): NPC {
   return {
     faction,
+    characterFaction,
     dead,
   } as unknown as NPC
 }

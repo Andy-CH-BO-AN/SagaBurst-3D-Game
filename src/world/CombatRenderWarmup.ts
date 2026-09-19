@@ -4,7 +4,6 @@ import { prewarmProjectileVisuals, createProjectileWarmupGroup } from './ArrowPr
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { createVikingHornAccessory } from './HumanoidAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
-import { Faction } from './NPC'
 
 export class CombatRenderWarmup {
   private static warmed = false
@@ -69,8 +68,8 @@ export class CombatRenderWarmup {
 
       // Representative melee weapons & shields
       const weaponGroup = new THREE.Group()
-      WeaponMeshFactory.buildNpcMelee(Faction.ENEMY, 2, false, weaponGroup)
-      WeaponMeshFactory.buildNpcMelee(Faction.PLAYER, 2, false, weaponGroup)
+      WeaponMeshFactory.buildNpcMelee('roman', 2, false, weaponGroup)
+      WeaponMeshFactory.buildNpcMelee('viking', 2, false, weaponGroup)
       WeaponMeshFactory.buildShield('shield_round_iron', weaponGroup)
       WeaponMeshFactory.buildShield('shield_scutum_iron', weaponGroup)
       warmupScene.add(weaponGroup)

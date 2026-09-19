@@ -9,7 +9,7 @@ import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
-import type { CharacterRig, MountedPoseKind } from './CharacterVisuals'
+import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
@@ -61,6 +61,7 @@ export class NPC {
   group: THREE.Group
   characterVisualGroup: THREE.Group
   readonly faction: Faction
+  readonly characterFaction: CharacterFaction
   readonly aiType: AIType
   readonly name: string
   readonly tier: 1 | 2 | 3
@@ -158,6 +159,7 @@ export class NPC {
     spawnX: number,
     spawnZ: number,
     faction: Faction,
+    characterFaction: CharacterFaction,
     aiType: AIType,
     name: string,
     tier: 1 | 2 | 3,
@@ -166,6 +168,7 @@ export class NPC {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this.faction = faction
+    this.characterFaction = characterFaction
     this.aiType = aiType
     this.name = name
     this.tier = tier
@@ -181,7 +184,7 @@ export class NPC {
     const unitType: BattleUnitType = this.generatedAsCavalry
       ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
       : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
-    const combatProfile = getUnitCombatProfile(this.faction, unitType, this.tier)
+    const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier)
 
     this.meleeDamage = combatProfile.finalMeleeDamage
     this.rangedDamage = combatProfile.rangedDamage ?? 0
@@ -214,7 +217,7 @@ export class NPC {
 
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
     const visualConfig = {
-      faction: this.faction === Faction.ENEMY ? 'roman' : 'viking',
+      faction: this.characterFaction,
       tier: this.tier,
       isPlayer: false,
     } as const
@@ -239,14 +242,14 @@ export class NPC {
     this.swordPivot = new THREE.Group()
     this.swordGripPivot = new THREE.Group()
     this.swordPivot.add(this.swordGripPivot)
-    applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', this.faction === Faction.PLAYER ? 0.15 : 0.10)
+    applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', this.characterFaction === 'viking' ? 0.15 : 0.10)
     this.swordPivot.userData.swordAttachmentOwned = false
     this.rig.right.handSocket.add(this.swordPivot)
 
     this.bowPivot = new THREE.Group()
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
-    if (this.faction === Faction.ENEMY) {
+    if (this.characterFaction === 'roman') {
       applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
       this.rig.right.handSocket.add(this.bowPivot)
     } else {
@@ -263,7 +266,7 @@ export class NPC {
 
     this.swordTipLocal.copy(
       WeaponMeshFactory.buildNpcMelee(
-        this.faction,
+        this.characterFaction,
         this.aiType === AIType.RANGED ? 1 : this.tier,
         this.isUsingLance,
         this.swordGripPivot,
@@ -275,11 +278,11 @@ export class NPC {
     if (this.rig.swordGripFrame && !this.isUsingLance) {
       applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
-    if (this.faction === Faction.PLAYER) {
+    if (this.characterFaction === 'viking') {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow', true)
     } else {
-      WeaponMeshFactory.buildNpcRanged(this.faction, this.tier, this.bowGripPivot)
+      WeaponMeshFactory.buildNpcRanged(this.characterFaction, this.tier, this.bowGripPivot)
     }
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
@@ -312,7 +315,7 @@ export class NPC {
     scene.add(this.group)
 
     if (this.generatedAsCavalry) {
-      const horseVariant = horseVariantForStableKey(`${this.faction}:${this.name}:${this.tier}`)
+      const horseVariant = horseVariantForStableKey(`${this.characterFaction}:${this.name}:${this.tier}`)
       this.mount = new Mount(scene, DEFAULT_MOUNT_TYPE, spawnX, spawnZ, basePos.y, horseVariant)
       this.mount.setNpcRider(this, this.faction)
       this._syncToMount()
@@ -655,7 +658,7 @@ export class NPC {
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
 
-          if (this.faction === Faction.PLAYER) {
+          if (this.characterFaction === 'viking') {
             if (!this.animator.busy) {
               this.bowArrowReleased = false
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
@@ -668,26 +671,26 @@ export class NPC {
           }
 
           const rangedEvents = this.animator.update(dt, cameraDistance)
-          if (this.faction === Faction.PLAYER) this._updateBowVisual(progress, targetInfo.position)
+          if (this.characterFaction === 'viking') this._updateBowVisual(progress, targetInfo.position)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
           if (shouldFire) {
             const origin = this._tmpRangedOrigin
             const dir = this._tmpRangedDirection
             const aimPoint = this._getElevatedRangedAimPoint(targetInfo.position)
-            if (this.faction === Faction.PLAYER && this.bowVisual) {
+            if (this.characterFaction === 'viking' && this.bowVisual) {
               // Bow NPCs launch from the same nock and along the same visual
               // target line as the player-controlled bow.
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            onFireArrow(origin, dir, this.faction === Faction.ENEMY ? 'pilum' : 'arrow')
+            onFireArrow(origin, dir, this.characterFaction === 'roman' ? 'pilum' : 'arrow')
             this.bowVisual?.hideArrow()
 
             this.arrows -= 1
             this.attackTimer = 0
-            if (this.faction === Faction.PLAYER && !rangedEvents.actionCompleted) {
+            if (this.characterFaction === 'viking' && !rangedEvents.actionCompleted) {
               this.bowArrowReleased = true
             } else {
               if (this.arrows === 0) this._switchToMelee()
@@ -739,7 +742,7 @@ export class NPC {
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     if (this.state !== AIState.DEAD) {
       if (!this.animator.busy && !animationAdvanced) {
-        if (this.bowPivot.visible && this.faction === Faction.PLAYER) this.animator.poseBow(0)
+        if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
         else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
       }
       this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
@@ -748,7 +751,7 @@ export class NPC {
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
     if (!animationAdvanced) this.animator.update(dt, cameraDistance)
-    if (!animationAdvanced && this.state !== AIState.DEAD && this.bowPivot.visible && this.faction === Faction.PLAYER) {
+    if (!animationAdvanced && this.state !== AIState.DEAD && this.bowPivot.visible && this.characterFaction === 'viking') {
       this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
       this._tmpRangedTarget.y += 1.4
       this.bowVisual?.update(0, this._tmpRangedTarget, false)

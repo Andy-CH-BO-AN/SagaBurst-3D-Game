@@ -3,7 +3,7 @@
  * Manages live combat monitoring, army casualties, victory determination,
  * and sessionStorage-based page reload transitions (REMATCH / BACK TO SETUP).
  */
-import { NPC, Faction } from '../world/NPC'
+import { NPC } from '../world/NPC'
 import { BattleConfig } from './BattleConfig'
 
 export type BattleResult = "VIKING_VICTORY" | "ROMAN_VICTORY" | "DRAW" | null
@@ -26,8 +26,8 @@ export class BattleController {
   }
 
   initCounts(npcs: NPC[]): void {
-    this.initialVikingCount = npcs.filter(n => n.faction === Faction.PLAYER).length
-    this.initialRomanCount = npcs.filter(n => n.faction === Faction.ENEMY).length
+    this.initialVikingCount = npcs.filter(n => n.characterFaction === 'viking').length
+    this.initialRomanCount = npcs.filter(n => n.characterFaction === 'roman').length
     this._updateHud(this.initialVikingCount, this.initialRomanCount)
   }
 
@@ -40,8 +40,8 @@ export class BattleController {
 
     for (const npc of npcs) {
       if (!npc.dead) {
-        if (npc.faction === Faction.PLAYER) vikingAlive++
-        else if (npc.faction === Faction.ENEMY) romanAlive++
+        if (npc.characterFaction === 'viking') vikingAlive++
+        else if (npc.characterFaction === 'roman') romanAlive++
       }
     }
 

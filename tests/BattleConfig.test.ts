@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Faction, AIType } from '../src/world/NPC'
+import { AIType } from '../src/world/NPC'
 import {
   calculateArmyTotal,
   validateBattleConfig,
@@ -73,89 +73,89 @@ describe('BattleConfig Domain & Validation', () => {
   })
 
   it('maps Viking Tier weapons and authoritative damage consistently', () => {
-    const t1Inf = getUnitCombatProfile(Faction.PLAYER, 'infantry', 1)
+    const t1Inf = getUnitCombatProfile('viking', 'infantry', 1)
     expect(t1Inf.aiType).toBe(AIType.MELEE)
     expect(t1Inf.cavalry).toBe(false)
     expect(t1Inf.meleeWeaponId).toBe('rusty_dagger')
     expect(t1Inf.finalMeleeDamage).toBe(12)
 
-    const t2Inf = getUnitCombatProfile(Faction.PLAYER, 'infantry', 2)
+    const t2Inf = getUnitCombatProfile('viking', 'infantry', 2)
     expect(t2Inf.meleeWeaponId).toBe('steel_sword')
     expect(t2Inf.finalMeleeDamage).toBe(25)
 
-    const t3Inf = getUnitCombatProfile(Faction.PLAYER, 'infantry', 3)
+    const t3Inf = getUnitCombatProfile('viking', 'infantry', 3)
     expect(t3Inf.meleeWeaponId).toBe('runic_greatsword')
     expect(t3Inf.finalMeleeDamage).toBe(45)
 
-    const t1Bow = getUnitCombatProfile(Faction.PLAYER, 'archer', 1)
+    const t1Bow = getUnitCombatProfile('viking', 'archer', 1)
     expect(t1Bow.aiType).toBe(AIType.RANGED)
     expect(t1Bow.rangedWeaponId).toBe('wooden_shortbow')
     expect(t1Bow.rangedDamage).toBe(22)
 
-    const t2Bow = getUnitCombatProfile(Faction.PLAYER, 'archer', 2)
+    const t2Bow = getUnitCombatProfile('viking', 'archer', 2)
     expect(t2Bow.rangedWeaponId).toBe('recurve_longbow')
     expect(t2Bow.rangedDamage).toBe(42)
 
-    const t3Bow = getUnitCombatProfile(Faction.PLAYER, 'archer', 3)
+    const t3Bow = getUnitCombatProfile('viking', 'archer', 3)
     expect(t3Bow.rangedWeaponId).toBe('elven_runebow')
     expect(t3Bow.rangedDamage).toBe(75)
   })
 
   it('maps Roman Tier weapons and authoritative damage consistently', () => {
-    const t1Inf = getUnitCombatProfile(Faction.ENEMY, 'infantry', 1)
+    const t1Inf = getUnitCombatProfile('roman', 'infantry', 1)
     expect(t1Inf.meleeWeaponId).toBe('gladius_rusty')
     expect(t1Inf.finalMeleeDamage).toBe(12)
 
-    const t2Inf = getUnitCombatProfile(Faction.ENEMY, 'infantry', 2)
+    const t2Inf = getUnitCombatProfile('roman', 'infantry', 2)
     expect(t2Inf.meleeWeaponId).toBe('gladius_standard')
     expect(t2Inf.finalMeleeDamage).toBe(25)
 
-    const t3Inf = getUnitCombatProfile(Faction.ENEMY, 'infantry', 3)
+    const t3Inf = getUnitCombatProfile('roman', 'infantry', 3)
     expect(t3Inf.meleeWeaponId).toBe('centurion_blade')
     expect(t3Inf.finalMeleeDamage).toBe(45)
 
-    const t1Pilum = getUnitCombatProfile(Faction.ENEMY, 'archer', 1)
+    const t1Pilum = getUnitCombatProfile('roman', 'archer', 1)
     expect(t1Pilum.aiType).toBe(AIType.RANGED)
     expect(t1Pilum.rangedWeaponId).toBe('pilum_basic')
     expect(t1Pilum.rangedDamage).toBe(22)
 
-    const t2Pilum = getUnitCombatProfile(Faction.ENEMY, 'archer', 2)
+    const t2Pilum = getUnitCombatProfile('roman', 'archer', 2)
     expect(t2Pilum.rangedWeaponId).toBe('pilum_standard')
     expect(t2Pilum.rangedDamage).toBe(42)
 
-    const t3Pilum = getUnitCombatProfile(Faction.ENEMY, 'archer', 3)
+    const t3Pilum = getUnitCombatProfile('roman', 'archer', 3)
     expect(t3Pilum.rangedWeaponId).toBe('legionary_pilum')
     expect(t3Pilum.rangedDamage).toBe(75)
   })
 
   it('calculates Cavalry lance 1.5x damage tier scaling accurately', () => {
-    const t1Cav = getUnitCombatProfile(Faction.PLAYER, 'cavalry', 1)
+    const t1Cav = getUnitCombatProfile('viking', 'cavalry', 1)
     expect(t1Cav.cavalry).toBe(true)
     expect(t1Cav.isUsingLance).toBe(true)
     expect(t1Cav.baseMeleeDamage).toBe(12)
     expect(t1Cav.finalMeleeDamage).toBe(18) // 12 * 1.5
 
-    const t2Cav = getUnitCombatProfile(Faction.PLAYER, 'cavalry', 2)
+    const t2Cav = getUnitCombatProfile('viking', 'cavalry', 2)
     expect(t2Cav.baseMeleeDamage).toBe(25)
     expect(t2Cav.finalMeleeDamage).toBe(37.5) // 25 * 1.5
 
-    const t3Cav = getUnitCombatProfile(Faction.PLAYER, 'cavalry', 3)
+    const t3Cav = getUnitCombatProfile('viking', 'cavalry', 3)
     expect(t3Cav.baseMeleeDamage).toBe(45)
     expect(t3Cav.finalMeleeDamage).toBe(67.5) // 45 * 1.5
 
     // Roman side identical scaling
-    const t3RomanCav = getUnitCombatProfile(Faction.ENEMY, 'cavalry', 3)
+    const t3RomanCav = getUnitCombatProfile('roman', 'cavalry', 3)
     expect(t3RomanCav.finalMeleeDamage).toBe(67.5)
   })
 
   it('verifies Horse Archer mapping is RANGED + cavalry', () => {
-    const vHorseArcher = getUnitCombatProfile(Faction.PLAYER, 'horseArcher', 3)
+    const vHorseArcher = getUnitCombatProfile('viking', 'horseArcher', 3)
     expect(vHorseArcher.aiType).toBe(AIType.RANGED)
     expect(vHorseArcher.cavalry).toBe(true)
     expect(vHorseArcher.isUsingLance).toBe(false)
     expect(vHorseArcher.rangedWeaponId).toBe('elven_runebow')
 
-    const rHorseArcher = getUnitCombatProfile(Faction.ENEMY, 'horseArcher', 3)
+    const rHorseArcher = getUnitCombatProfile('roman', 'horseArcher', 3)
     expect(rHorseArcher.aiType).toBe(AIType.RANGED)
     expect(rHorseArcher.cavalry).toBe(true)
     expect(rHorseArcher.isUsingLance).toBe(false)

@@ -23,7 +23,7 @@ describe('NPC imported bow release', () => {
   for (const arrows of [1, 2]) {
     it(`fires once and preserves recovery with ${arrows} arrow(s), even if the target disappears`, () => {
       vi.spyOn(NPC.prototype as unknown as NPCFixture, '_createAlertSprite').mockReturnValue(new THREE.Sprite())
-      const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, AIType.RANGED, 'bow-recovery', 2, false)
+      const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'bow-recovery', 2, false)
       const fixture = npc as unknown as NPCFixture
       fixture.state = AIState.ATTACK
       fixture.arrows = arrows

@@ -7,7 +7,6 @@ import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
 import { createHumanoidRigAdapter, MixerController } from '../src/world/HumanoidAssetRegistry'
 import { createEquipmentSocketProxies } from '../src/world/HumanoidEquipmentSockets'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
-import { Faction } from '../src/world/NPC'
 import { prepareSwordHandShape } from '../src/world/SwordHandShape'
 import { preserveBowHandTopology } from '../src/world/BowGripLOD'
 import { Player } from '../src/player/Player'
@@ -63,7 +62,7 @@ describe('正式 GLB 的固定握劍契約', () => {
       controller.onPoseEvaluated()
       const pivot = new THREE.Group(), model = new THREE.Group()
       pivot.add(model); rig.right.handSocket.add(pivot)
-      WeaponMeshFactory.buildNpcMelee(faction === 'roman' ? Faction.ENEMY : Faction.PLAYER, 2, false, model)
+      WeaponMeshFactory.buildNpcMelee(faction, 2, false, model)
       applySwordAttachment(rig.right.handSocket, pivot, model, manifest.swordGripFrames.lod0)
       const attachment = pivot.matrix.clone()
       const animator = new CharacterCombatAnimator(rig, pivot, new THREE.Group())

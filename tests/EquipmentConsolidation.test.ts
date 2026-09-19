@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
-import { Faction } from '../src/world/NPC'
 import { polishWeaponMaterials } from '../src/world/CharacterVisuals'
 import { proceduralMaterialCacheSize } from '../src/world/ProceduralMaterials'
 import baseline from './fixtures/equipment-geometry-cf04fd3.json'
@@ -11,7 +10,7 @@ const counts = { viking: 4, roman: 3, round_shield: 5, scutum: 5 }
 function build(kind: string, tier: number) {
   const root = new THREE.Group()
   const tip = kind === 'viking' || kind === 'roman'
-    ? WeaponMeshFactory.buildNpcMelee(kind === 'viking' ? Faction.PLAYER : Faction.ENEMY, tier, false, root)
+    ? WeaponMeshFactory.buildNpcMelee(kind as 'viking' | 'roman', tier, false, root)
     : (WeaponMeshFactory.buildShield(`${kind}_t${tier}`, root), null)
   return { root, tip }
 }
@@ -25,7 +24,7 @@ describe('rigid sword / shield consolidation', () => {
       root.scale.set(0.8, 1.1, 1.2)
       root.userData.attachmentMarker = 'caller-owned'
       root.add(unrelated)
-      if (kind === 'viking' || kind === 'roman') WeaponMeshFactory.buildNpcMelee(kind === 'viking' ? Faction.PLAYER : Faction.ENEMY, 3, false, root)
+      if (kind === 'viking' || kind === 'roman') WeaponMeshFactory.buildNpcMelee(kind, 3, false, root)
       else WeaponMeshFactory.buildShield(`${kind}_t3`, root)
       expect(root.parent).toBe(parent)
       expect(root.position.toArray()).toEqual([2, 3, 4])

@@ -95,7 +95,7 @@ import {
   PRESET_SCENARIO_C,
   PRESET_SCENARIO_D,
 } from './battle/BattleConfig'
-import { BattleSpawner, VIKING_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
+import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
@@ -392,11 +392,13 @@ export class Game {
     }
 
     // ── Player & Input ──
+    const playerFaction = battleConfig?.playerFaction ?? 'viking'
+    const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    this.player = new Player(this.scene)
-    // Release and diagnostic armies are ahead at -Z. Establish the actor's
+    this.player = new Player(this.scene, playerFaction)
+    // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
-    this.player.faceDirection(0, -1)
+    this.player.faceDirection(0, isRoman ? 1 : -1)
 
     const isInitialSpectator = Boolean(battleConfig?.spectator)
     if (isInitialSpectator) {
@@ -442,12 +444,12 @@ export class Game {
       this.camera.lookAt(0, initY, -1)
       this.spectatorController.initFromCamera(this.camera)
     } else {
-      const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
+      const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const terrainY = getTerrainHeight(playerSpawn.x, playerSpawn.z)
       this.player.group.position.set(playerSpawn.x, terrainY + 0.95, playerSpawn.z)
       this.player.spawnX = playerSpawn.x
       this.player.spawnZ = playerSpawn.z
-      this.thirdPersonCamera.setYaw(0)
+      this.thirdPersonCamera.setYaw(isRoman ? Math.PI : 0)
     }
 
     this.lockOverlay    = document.getElementById('lock-overlay')!
@@ -479,7 +481,7 @@ export class Game {
     }
 
     if (!this.isModelStudio && !isInitialSpectator) {
-      const playerSpawn = battlePlan?.playerSpawn ?? VIKING_PLAYER_SPAWN
+      const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
         DEFAULT_MOUNT_TYPE,
@@ -488,6 +490,7 @@ export class Game {
       )
       this.startingHorse = startingHorse
       this.mounts.push(startingHorse)
+      this.player.faceDirection(0, isRoman ? 1 : -1)
       this._mountPlayer(startingHorse)
     }
     
@@ -875,6 +878,7 @@ export class Game {
       spec.x,
       spec.z,
       spec.faction,
+      spec.characterFaction,
       spec.aiType,
       spec.name,
       spec.tier,

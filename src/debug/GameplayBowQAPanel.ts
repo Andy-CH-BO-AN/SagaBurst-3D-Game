@@ -140,8 +140,8 @@ export class GameplayBowQAPanel {
     this.input.consumeLeftClickRelease()
     this.player = new Player(this.scene)
     this.player.faceDirection(0, 1)
-    this.archer = new NPC(this.scene, 0, 0, Faction.PLAYER, AIType.RANGED, 'Bow QA Viking', 2, false)
-    this.target = new NPC(this.scene, 0, 12, Faction.ENEMY, AIType.MELEE, 'Bow QA target', 2, false)
+    this.archer = new NPC(this.scene, 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'Bow QA Viking', 2, false)
+    this.target = new NPC(this.scene, 0, 12, Faction.ENEMY, 'roman', AIType.MELEE, 'Bow QA target', 2, false)
     this.target.position.y = getTerrainHeight(0, 12)
     this.target.group.visible = false
     // Let the real patrol AI consume its initial airborne spawn waypoint once,

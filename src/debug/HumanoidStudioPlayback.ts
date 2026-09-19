@@ -4,7 +4,6 @@ import type { HumanoidCharacterInstance } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../world/CharacterCombatAnimator'
 import { CharacterBowVisual } from '../world/CharacterBowVisual'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { Faction } from '../world/NPC'
 import { applySwordAttachment } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import { applyCharacterMountedPose, type HumanoidAnimationState } from '../world/CharacterVisuals'
@@ -40,10 +39,10 @@ export class HumanoidStudioPlayback {
     this.lance.visible = this.shield.visible = false
     const grip = new THREE.Group()
     this.sword.add(grip)
-    WeaponMeshFactory.buildNpcMelee(faction === 'roman' ? Faction.ENEMY : Faction.PLAYER, 2, false, grip)
+    WeaponMeshFactory.buildNpcMelee(faction, 2, false, grip)
     applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
-    WeaponMeshFactory.buildNpcRanged(Faction.ENEMY, 2, this.pilum)
+    WeaponMeshFactory.buildNpcRanged('roman', 2, this.pilum)
     const bowGrip = new THREE.Group()
     this.bow.add(bowGrip)
     applyBowAttachment(instance.rig.left.handSocket, this.bow)

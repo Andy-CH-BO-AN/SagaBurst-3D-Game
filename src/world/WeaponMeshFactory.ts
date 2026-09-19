@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { Faction } from './NPC'
+import type { CharacterFaction } from './CharacterVisuals'
 import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail } from './EquipmentVisualLODController'
@@ -335,10 +335,10 @@ export class WeaponMeshFactory {
   /**
    * 建構 NPC 專用近戰武器（含羅馬/維京差異）
    */
-  static buildNpcMelee(faction: Faction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
+  static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
     if (isLance) return this.buildMelee('steel_lance', pivot).tipLocal
 
-    if (faction === Faction.PLAYER) {
+    if (characterFaction === 'viking') {
       const weaponId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
       return this.buildMelee(weaponId, pivot).tipLocal
     } else {
@@ -383,8 +383,8 @@ export class WeaponMeshFactory {
   /**
    * 建構 NPC 專用遠程武器（羅馬標槍 vs 維京弓）
    */
-  static buildNpcRanged(faction: Faction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
-    if (faction === Faction.ENEMY) {
+  static buildNpcRanged(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
+    if (characterFaction === 'roman') {
       // Roman Pilum (Javelin)
       const woodMat = proceduralMaterial({ kind: 'wood', color: 0x68452c, roughness: 0.78, repeat: [2, 7] })
       const ironMat = proceduralMaterial({ kind: 'iron', color: 0x777d7f, roughness: 0.36, metalness: 0.82 })
