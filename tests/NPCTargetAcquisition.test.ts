@@ -343,4 +343,51 @@ describe('NPC Target Acquisition Caching & Staggered Reacquisition', () => {
     // Spread should span across the interval
     expect(max - min).toBeGreaterThan(0.8)
   })
+
+  it('preserves distinct stagger phases across multiple NPCs after same-frame target death invalidation', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    player.setPosition(0, 0, -100)
+
+    // Two friendly NPCs with different coordinates/names (so different initial stagger phases)
+    const npcA = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'VikingA', 1, false)
+    const npcB = new NPC(scene, 1, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'VikingB', 1, false)
+
+    expect((npcA as any)._initialStaggerPhase).not.toBe((npcB as any)._initialStaggerPhase)
+
+    // A shared target enemy and a backup enemy
+    const sharedTarget = new NPC(scene, 0, 5, Faction.ENEMY, 'roman', AIType.MELEE, 'RomanShared', 1, false)
+    const backupTarget = new NPC(scene, 0, 20, Faction.ENEMY, 'roman', AIType.MELEE, 'RomanBackup', 1, false)
+    const allNPCs = [npcA, npcB, sharedTarget, backupTarget]
+
+    // Initial update locks both onto sharedTarget
+    updateNpc(npcA, player, allNPCs, 0.01)
+    updateNpc(npcB, player, allNPCs, 0.01)
+    expect((npcA as any)._cachedTargetNpc).toBe(sharedTarget)
+    expect((npcB as any)._cachedTargetNpc).toBe(sharedTarget)
+
+    // Now the shared target dies
+    sharedTarget.takeDamage(9999)
+    expect(sharedTarget.dead).toBe(true)
+
+    // Both NPCs update on the same frame, invalidating their target simultaneously
+    updateNpc(npcA, player, allNPCs, 0.016)
+    updateNpc(npcB, player, allNPCs, 0.016)
+
+    // Both immediately switch to backupTarget
+    expect((npcA as any)._cachedTargetNpc).toBe(backupTarget)
+    expect((npcB as any)._cachedTargetNpc).toBe(backupTarget)
+
+    // CRITICAL: Their timers must NOT be synchronized to the same value!
+    expect((npcA as any)._targetReacquireTimer).not.toBe((npcB as any)._targetReacquireTimer)
+    expect((npcA as any)._targetReacquireTimer).toBeCloseTo(
+      (npcA as any)._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL,
+      4
+    )
+    expect((npcB as any)._targetReacquireTimer).toBeCloseTo(
+      (npcB as any)._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL,
+      4
+    )
+  })
 })
+

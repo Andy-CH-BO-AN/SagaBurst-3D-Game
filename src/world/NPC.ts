@@ -543,7 +543,7 @@ export class NPC {
 
       if (hadTarget && !targetValid) {
         this._acquireTarget(player, allNPCs)
-        this._targetReacquireTimer = TARGET_REACQUIRE_INTERVAL
+        this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
       } else {
         this._targetReacquireTimer -= dt
         if (this._targetReacquireTimer <= 0) {
