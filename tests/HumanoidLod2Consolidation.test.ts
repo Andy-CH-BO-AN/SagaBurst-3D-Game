@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
   AUDITED_ROMAN_LOD2_SHA256,
+  cullRomanLod2TinyDetails,
   consolidateRomanLod2,
   createRomanLod2ConsolidationTemplate,
   isRomanLod2ConsolidationAssetAudited,
@@ -159,6 +160,20 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
     expect(lod.levels[1].object).toBe(lod1)
     expect(lod0.children).toHaveLength(0)
     expect(lod1.children).toHaveLength(0)
+  })
+
+  it('culls only consolidated eyes and Dangles from a Roman LOD2 representation', () => {
+    const { root, skeleton } = makeLod2()
+    const dangles = skinned('Dangles', 'Dangles0', skeleton, 99)
+    const ties = skinned('Ties', 'Ties0', skeleton, 102)
+    root.add(dangles, ties)
+    consolidateRomanLod2(root, createRomanLod2ConsolidationTemplate(root))
+    cullRomanLod2TinyDetails(root)
+
+    const eyes = root.getObjectByName('roman-lod2-consolidated-New_eye-New_eye_2')!
+    expect(eyes.visible).toBe(false)
+    expect(dangles.visible).toBe(false)
+    expect(ties.visible).toBe(true)
   })
 
   it('shares each cached merged geometry across instances while preserving a distinct skeleton per instance', () => {

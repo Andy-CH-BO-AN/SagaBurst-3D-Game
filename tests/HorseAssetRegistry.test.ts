@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
   createHorseInstance,
+  HORSE_LOD2_CULLED_TINY_DETAIL_NAMES,
   type HorseAnimationState,
   type HorseAssetManifest,
   type HorseTemplate,
@@ -60,6 +61,14 @@ function testTemplate(): HorseTemplate {
     mesh.bind(skeleton)
     level.add(mesh)
     scene.add(level)
+    if (index === 2) {
+      for (const name of HORSE_LOD2_CULLED_TINY_DETAIL_NAMES) {
+        const detail = new THREE.SkinnedMesh(geometry, sourceMaterial)
+        detail.name = name
+        detail.bind(skeleton)
+        level.add(detail)
+      }
+    }
   }
   for (const name of [
     'socket_saddle_seat',
@@ -203,6 +212,20 @@ describe('HorseAssetRegistry instance isolation', () => {
     expect(horse.appearanceVariant).toBe(1)
     expect(bodyLod2.material).toBe(template.bodyMaterials[1])
 
+    horse.dispose()
+  })
+
+  it('keeps bridle details at LOD0/1 and culls only the two audited LOD2 meshes', () => {
+    const horse = createHorseInstance(testTemplate(), 0)
+    const lod0 = horse.lod.levels[0].object
+    const lod1 = horse.lod.levels[1].object
+    const lod2 = horse.lod.levels[2].object
+
+    expect(lod0.children.every(child => child.visible)).toBe(true)
+    expect(lod1.children.every(child => child.visible)).toBe(true)
+    for (const name of HORSE_LOD2_CULLED_TINY_DETAIL_NAMES) {
+      expect(lod2.getObjectByName(name)?.visible).toBe(false)
+    }
     horse.dispose()
   })
 })
