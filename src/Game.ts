@@ -94,6 +94,7 @@ import {
   PRESET_SCENARIO_B,
   PRESET_SCENARIO_C,
   PRESET_SCENARIO_D,
+  PRESET_SCENARIO_E,
 } from './battle/BattleConfig'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
@@ -417,12 +418,6 @@ export class Game {
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
-    const isInitialSpectator = Boolean(battleConfig?.spectator)
-    if (isInitialSpectator) {
-      this.player.spectatorOnly = true
-      this.player.group.visible = false
-    }
-
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
     const devModelsMode = query.get('devmodels')
@@ -432,6 +427,7 @@ export class Game {
 
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
+    let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -444,10 +440,19 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_C
       } else if (devVal === 'd' || devVal === 'scenariod') {
         scenarioConfig = PRESET_SCENARIO_D
+      } else if (devVal === 'e' || devVal === 'scenarioe') {
+        scenarioConfig = PRESET_SCENARIO_E
       }
+      activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
     } else if (battleConfig) {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
+    }
+
+    const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
+    if (isInitialSpectator) {
+      this.player.spectatorOnly = true
+      this.player.group.visible = false
     }
 
     // ── Camera controller ──
@@ -497,7 +502,7 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && shouldCreateStartingHorse(battleConfig)) {
+    if (!this.isModelStudio && shouldCreateStartingHorse(activeBattleConfig)) {
       const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
