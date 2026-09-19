@@ -93,6 +93,8 @@ export class NPC {
   private builtShieldId: string | null | undefined = undefined
 
   private flashMat: THREE.MeshBasicMaterial
+  private _isFlashing = false
+  private _flashTargets: Array<{ mesh: THREE.Mesh; originalMat: THREE.Material | THREE.Material[] }> = []
 
   readonly maxHp = 120
   private currentHp = 120
@@ -131,6 +133,10 @@ export class NPC {
   private readonly _tmpPelvisWorld = new THREE.Vector3()
   private readonly _tmpFacing = new THREE.Vector3()
   private readonly _tmpToTarget = new THREE.Vector3()
+  private readonly _tmpPreviousPosition = new THREE.Vector3()
+  private readonly _tmpPatrolDir = new THREE.Vector3()
+  private readonly _tmpFaceDir = new THREE.Vector3()
+  private readonly _tmpDismountPosition = new THREE.Vector3()
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -305,6 +311,7 @@ export class NPC {
     // reaches the detail children before the renderer submits those proxies.
     const humanoidLOD = this.bodyMesh.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)
     if (humanoidLOD) this.equipmentVisualLOD.followHumanoid(humanoidLOD)
+    this._initFlashTargets()
 
     this.alertSprite = this._createAlertSprite()
     this.alertSprite.position.set(0, 2.3, 0)
@@ -322,10 +329,37 @@ export class NPC {
     }
   }
 
+  private _initFlashTargets(): void {
+    this._flashTargets = []
+    this.bodyMesh.traverse((child) => {
+      if (this.shieldPivot.getObjectById(child.id)) return
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh
+        const originalMat = (mesh.userData.originalMat ?? mesh.material) as THREE.Material | THREE.Material[]
+        mesh.userData.originalMat = originalMat
+        this._flashTargets.push({ mesh, originalMat })
+      }
+    })
+  }
+
+  private _applyDamageFlash(): void {
+    for (let i = 0; i < this._flashTargets.length; i++) {
+      this._flashTargets[i].mesh.material = this.flashMat
+    }
+    this.headMesh.material = this.flashMat
+  }
+
+  private _restoreDamageFlash(): void {
+    for (let i = 0; i < this._flashTargets.length; i++) {
+      this._flashTargets[i].mesh.material = this._flashTargets[i].originalMat
+    }
+    this.headMesh.material = this.headMat
+  }
+
   /** Releases this NPC from its mount and returns it to a normal walking body. */
   dismountFromMount(): void {
     if (!this.mount) return
-    const mountPosition = this.mount.group.position.clone()
+    const mountPosition = this._tmpDismountPosition.copy(this.mount.group.position)
     this.mount.releaseRider()
     this.mount = null
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, false)
@@ -413,6 +447,10 @@ export class NPC {
 
     this.currentHp = Math.max(0, this.currentHp - amount)
     this.flashTimer = 0.15
+    if (!this._isFlashing) {
+      this._isFlashing = true
+      this._applyDamageFlash()
+    }
 
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
@@ -423,6 +461,8 @@ export class NPC {
     if (this.currentHp <= 0) {
       this.dismountFromMount()
       this.state = AIState.DEAD
+      this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
+      this.rig.animation?.setEquipmentState?.({ mounted: false })
       this.respawnTimer = RESPAWN_TIME
       this.alertSprite.visible = false
       for (const cb of this.onDeathCallbacks) cb(this)
@@ -470,38 +510,51 @@ export class NPC {
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0
   ): void {
-    const previousPosition = this.group.position.clone()
+    if (this.state === AIState.DEAD) {
+      if (this._isFlashing) {
+        this.flashTimer -= dt
+        if (this.flashTimer <= 0) {
+          this.flashTimer = 0
+          this._isFlashing = false
+          this._restoreDamageFlash()
+        }
+      }
+      this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
+      this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
+      this.animator.update(dt, cameraDistance)
+      if (this.respawnEnabled) {
+        this.respawnTimer -= dt
+        if (this.respawnTimer <= 0) {
+          this.respawn()
+        }
+      }
+      return
+    }
+
+    const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     let animationAdvanced = false
     if (this.mount) this.mount.beginControlledFrame()
     const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
     this.rebuildShield()
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, this.state !== AIState.DEAD)
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, true)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
-    if (this.flashTimer > 0) {
+    if (this._isFlashing) {
       this.flashTimer -= dt
-      this.bodyMesh.traverse((child) => {
-        if (this.shieldPivot.getObjectById(child.id)) return
-        if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.flashMat
-      })
-      this.headMesh.material = this.flashMat
-    } else {
-      this.bodyMesh.traverse((child) => {
-        if (this.shieldPivot.getObjectById(child.id)) return
-        if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
-          (child as THREE.Mesh).material = child.userData.originalMat
-        }
-      })
-      this.headMesh.material = this.headMat
+      if (this.flashTimer <= 0) {
+        this.flashTimer = 0
+        this._isFlashing = false
+        this._restoreDamageFlash()
+      }
     }
 
     const targetInfo = this._findTarget(player, allNPCs)
 
     // Releasing the projectile does not end the imported release clip. Keep its
     // recovery, even if this was the last arrow or the target disappears.
-    if (recoveringBow && this.state !== AIState.DEAD) {
+    if (recoveringBow) {
       const events = this.animator.update(dt, cameraDistance)
       animationAdvanced = true
       if (targetInfo) this._updateBowVisual(0, targetInfo.position)
@@ -725,42 +778,28 @@ export class NPC {
         }
         break
       }
-
-      case AIState.DEAD: {
-        this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
-        this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
-        if (this.respawnEnabled) {
-          this.respawnTimer -= dt
-          if (this.respawnTimer <= 0) {
-            this.respawn()
-          }
-        }
-        break
-      }
     }
 
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
-    if (this.state !== AIState.DEAD) {
-      if (!this.animator.busy && !animationAdvanced) {
-        if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
-        else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
-      }
-      this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+    if (!this.animator.busy && !animationAdvanced) {
+      if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
+      else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
     }
+    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
     if (!animationAdvanced) this.animator.update(dt, cameraDistance)
-    if (!animationAdvanced && this.state !== AIState.DEAD && this.bowPivot.visible && this.characterFaction === 'viking') {
+    if (!animationAdvanced && this.bowPivot.visible && this.characterFaction === 'viking') {
       this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
       this._tmpRangedTarget.y += 1.4
       this.bowVisual?.update(0, this._tmpRangedTarget, false)
     }
 
-    if (this.state !== AIState.DEAD && this.isMounted && this.mount) {
+    if (this.isMounted && this.mount) {
       this.mount.finishControlledFrame(dt, obstacles)
       this._syncToMount()
-    } else if (this.state !== AIState.DEAD) {
+    } else {
       this.group.rotation.x = 0 // reset posture
       // NPCs use the same terrain/platform gravity as the player and mounts.
       const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
@@ -799,7 +838,7 @@ export class NPC {
     if (dist < 0.5) {
       this.currentWaypointIdx = (this.currentWaypointIdx + 1) % this.waypoints.length
     } else {
-      const dir = target.clone().sub(this.group.position)
+      const dir = this._tmpPatrolDir.copy(target).sub(this.group.position)
       dir.y = 0
       dir.normalize()
       if (!skipBoidsAndObstacles) {
@@ -844,7 +883,7 @@ export class NPC {
   }
 
   private _faceTarget(targetPos: THREE.Vector3): void {
-    const dir = targetPos.clone().sub(this.group.position)
+    const dir = this._tmpFaceDir.copy(targetPos).sub(this.group.position)
     dir.y = 0
     if (dir.lengthSq() > 0.001) {
       const targetAngle = Math.atan2(dir.x, dir.z)
@@ -883,6 +922,11 @@ export class NPC {
   }
 
   respawn(): void {
+    if (this._isFlashing) {
+      this.flashTimer = 0
+      this._isFlashing = false
+      this._restoreDamageFlash()
+    }
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
     if (this.aiType === AIType.RANGED) {
