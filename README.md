@@ -145,7 +145,9 @@ The `devcombat` mode includes reproducible battle presets used for performance p
 | `?devcombat=a` | 50 vs 50 infantry control scenario |
 | `?devcombat=b` | 100 vs 100 infantry scaling scenario |
 | `?devcombat=c` | 100 vs 100 mixed army scenario |
-| `?devcombat=d` | 100 vs 100 cavalry / horse-archer stress scenario |
+| `?devcombat=d` | 100 vs 100 formation cavalry / horse-archer stress scenario |
+| `?devcombat=e` | 100 vs 100 all-melee cavalry, Scattered Battle, initial spectator, no camps / respawn |
+| `?devcombat=f` | 100 vs 100 mixed cavalry (50 melee cavalry + 50 horse archers per faction), Scattered Battle, initial spectator, no camps / respawn |
 | `?devcombat` | Legacy fixed 50 vs 50 mounted developer scenario |
 
 `devcombat` exposes a runtime profiling HUD with wall-clock FPS, CPU frame work, NPC update time, collision time, projectile / impact work, renderer submit time, draw calls, triangle count, horse count, and LOD statistics.
@@ -167,6 +169,7 @@ Examples:
 http://localhost:5173/?devcombat=b&nolock
 http://localhost:5173/?devcombat=c&nolock
 http://localhost:5173/?devcombat=d&nolock
+http://localhost:5173/?devcombat=f&nolock
 http://localhost:5173/?devmodels=humans&nolock
 http://localhost:5173/?devmodels=mounts&nolock
 ```
@@ -183,7 +186,21 @@ The benchmark runner records the browser / WebGL environment and validates that 
 node tools/profile-large-battles.mjs
 ```
 
-The benchmark runs the A–D scenarios and records before-contact and during-combat measurements including FPS, CPU work, renderer submit time, NPC update time, collision cost, draw calls, and triangles.
+The broad benchmark suite runs the A–D scenarios and records before-contact and during-combat measurements including FPS, CPU work, renderer submit time, NPC update time, collision cost, draw calls, and triangles.
+
+For shadow-path work, Scenario F is the current mixed-cavalry isolation scene. The fixed-scene runner freezes simulation while keeping the render loop alive, verifies scene invariants, and compares Shadow ON / OFF / ON without treating renderer-submit time as pure GPU time:
+
+```bash
+node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
+```
+
+Recent structural shadow optimizations on `main` include:
+
+- **Roman humanoids** — LOD0 / LOD1 shadow casters reduced from 17 to 5 per instance while LOD2 remains shadow-free.
+- **NPC equipment** — Scenario F equipment shadow submissions reduced from 127 to 68 by keeping only silhouette-relevant casters; equipment LOD2 remains shadow-free.
+- **NPC projectiles** — flying NPC arrows and pila no longer cast shadows, reducing their structural shadow cost from 1 submission per active projectile to 0. Player-fired projectile shadows are preserved.
+
+Structural submission counts and shadow-census results are treated as the primary causal evidence. Cross-commit FPS / renderer-submit differences are reported only as directional timing evidence unless the exact same scene state is replayed.
 
 ## 🧰 Development Commands
 
