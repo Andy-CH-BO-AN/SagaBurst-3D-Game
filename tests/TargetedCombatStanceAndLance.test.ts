@@ -104,13 +104,24 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isAiming).toBe(true)
     const initialPila = h.player.arrowCount
 
-    // LMB is the commit point: the first animation update emits the pilum.
+    // LMB is the commit point: the pilum launches immediately and the held
+    // mesh disappears so there is never a held pilum plus a flying pilum.
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    expect((h.player as any).bowPivot.visible).toBe(false)
 
-    // RMB-up only exits aim; it cannot be the delayed launch trigger.
+    // Keep RMB held through the visual follow-through. No duplicate projectile
+    // fires, and a fresh held pilum appears when the next aim state begins.
+    h.update(input({ isRightMouseDown: true }), 1.5)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+    expect(h.player.isAiming).toBe(true)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+
+    // RMB-up only exits aim; it cannot be a delayed or duplicate launch trigger.
     h.update(input({ isRightMouseDown: false }), 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
