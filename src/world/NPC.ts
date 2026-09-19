@@ -56,6 +56,23 @@ const RANGED_COOLDOWN  = 1.5
 const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
 
+export const TARGET_REACQUIRE_INTERVAL = 0.1
+
+export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: string): number {
+  let hash = 2166136261 >>> 0
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  const xInt = Math.round(spawnX * 100) | 0
+  const zInt = Math.round(spawnZ * 100) | 0
+  hash ^= xInt
+  hash = Math.imul(hash, 16777619) >>> 0
+  hash ^= zInt
+  hash = Math.imul(hash, 16777619) >>> 0
+  return (hash >>> 0) / 4294967296
+}
+
 export class NPC {
   // Visuals
   group: THREE.Group
@@ -137,6 +154,18 @@ export class NPC {
   private readonly _tmpPatrolDir = new THREE.Vector3()
   private readonly _tmpFaceDir = new THREE.Vector3()
   private readonly _tmpDismountPosition = new THREE.Vector3()
+  private readonly _tmpTargetPosition = new THREE.Vector3()
+  private readonly _liveTargetInfo: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } = {
+    position: new THREE.Vector3(),
+    isDead: false,
+    isPlayer: false,
+    npc: undefined,
+  }
+  private _cachedTargetIsPlayer: boolean = false
+  private _cachedTargetNpc: NPC | null = null
+  private _targetAcquisitionInitialized: boolean = false
+  private _targetReacquireTimer: number = 0
+  private readonly _initialStaggerPhase: number
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -179,6 +208,7 @@ export class NPC {
     this.name = name
     this.tier = tier
     this.generatedAsCavalry = cavalry ?? Math.random() < 0.4
+    this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (this.aiType === AIType.RANGED) {
       this.arrows = 30
@@ -470,16 +500,91 @@ export class NPC {
     return true
   }
 
+  private _getPlayerPosition(player: Player, out: THREE.Vector3): THREE.Vector3 {
+    if (player.isMounted && player.currentMount) {
+      return out.copy(player.currentMount.group.position)
+    }
+    return out.copy(player.group.position)
+  }
+
+  private _isCachedTargetValid(player: Player): boolean {
+    if (this._cachedTargetIsPlayer) {
+      return this.faction === Faction.ENEMY && player.targetable && !player.dead
+    }
+    if (this._cachedTargetNpc !== null) {
+      return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
+    }
+    return false
+  }
+
+  private _acquireTarget(player: Player, allNPCs: NPC[]): void {
+    const target = this._findTarget(player, allNPCs)
+    if (target === null) {
+      this._cachedTargetIsPlayer = false
+      this._cachedTargetNpc = null
+    } else {
+      this._cachedTargetIsPlayer = target.isPlayer
+      this._cachedTargetNpc = target.npc ?? null
+    }
+  }
+
+  private _getTarget(
+    dt: number,
+    player: Player,
+    allNPCs: NPC[],
+  ): { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null {
+    if (!this._targetAcquisitionInitialized) {
+      this._targetAcquisitionInitialized = true
+      this._acquireTarget(player, allNPCs)
+      this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
+    } else {
+      const hadTarget = this._cachedTargetIsPlayer || this._cachedTargetNpc !== null
+      const targetValid = this._isCachedTargetValid(player)
+
+      if (hadTarget && !targetValid) {
+        this._acquireTarget(player, allNPCs)
+        this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
+      } else {
+        this._targetReacquireTimer -= dt
+        if (this._targetReacquireTimer <= 0) {
+          this._acquireTarget(player, allNPCs)
+          this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
+          while (this._targetReacquireTimer <= 0) {
+            this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
+          }
+        }
+      }
+    }
+
+    if (this._cachedTargetIsPlayer) {
+      this._getPlayerPosition(player, this._tmpTargetPosition)
+      this._liveTargetInfo.position = this._tmpTargetPosition
+      this._liveTargetInfo.isDead = player.dead
+      this._liveTargetInfo.isPlayer = true
+      this._liveTargetInfo.npc = undefined
+      return this._liveTargetInfo
+    }
+    if (this._cachedTargetNpc !== null) {
+      this._liveTargetInfo.position = this._cachedTargetNpc.combatPosition
+      this._liveTargetInfo.isDead = this._cachedTargetNpc.dead
+      this._liveTargetInfo.isPlayer = false
+      this._liveTargetInfo.npc = this._cachedTargetNpc
+      return this._liveTargetInfo
+    }
+    return null
+  }
+
   private _findTarget(player: Player, allNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     let closestTarget = null
     let closestDistSq = Infinity
 
     // Check Player
     if (this.faction === Faction.ENEMY && player.targetable) {
-      const dSq = this.combatPosition.distanceToSquared(player.combatPosition)
+      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+      const dSq = this.combatPosition.distanceToSquared(playerPos)
       if (dSq < closestDistSq) {
         closestDistSq = dSq
-        closestTarget = { position: player.combatPosition, isDead: player.dead, isPlayer: true }
+        closestTarget = { position: playerPos, isDead: player.dead, isPlayer: true }
       }
     }
 
@@ -550,7 +655,7 @@ export class NPC {
       }
     }
 
-    const targetInfo = this._findTarget(player, allNPCs)
+    const targetInfo = this._getTarget(dt, player, allNPCs)
 
     // Releasing the projectile does not end the imported release clip. Keep its
     // recovery, even if this was the last arrow or the target disappears.
@@ -947,6 +1052,10 @@ export class NPC {
     this._alignExternalVisualToMount(false)
     this.animator.cancel()
     this.alertSprite.visible = false
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this._targetReacquireTimer = 0
     for (const cb of this.onRespawnCallbacks) cb(this)
   }
 }

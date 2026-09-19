@@ -27,8 +27,9 @@ describe('NPC imported bow release', () => {
       const fixture = npc as unknown as NPCFixture
       fixture.state = AIState.ATTACK
       fixture.arrows = arrows
+      const targetNpc = new NPC(new THREE.Scene(), 0, 15, Faction.ENEMY, 'roman', AIType.MELEE, 'bow-recovery-target', 2, false)
       const target = vi.spyOn(fixture, '_findTarget').mockReturnValue({
-        position: npc.position.clone().add(new THREE.Vector3(0, 0, 15)), isDead: false, isPlayer: false,
+        position: targetNpc.combatPosition, isDead: false, isPlayer: false, npc: targetNpc,
       })
       const hand = fixture.rig.left.wrist
       hand.name = 'recovery_hand'
