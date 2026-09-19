@@ -451,7 +451,7 @@ export class Player {
 
   syncMountTransform(): void {
     if (!this.isMounted || !this.currentMount) return
-    this.currentMount.getSaddleSeatWorld(this.group.position)
+    this.currentMount.getRiderPelvisSeatWorld(this.group.position)
     this.group.position.y += PLAYER_HALF_HEIGHT
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
     this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.currentMount.type as MountedPoseKind })

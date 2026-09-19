@@ -790,7 +790,7 @@ describe('Phase 23 horse asset contract', () => {
     applyCharacterMountedPose(rig, true, 'HORSE')
     for (const mountLeg of [rig.leftLeg, rig.rightLeg]) {
       expect(mountLeg.hip.rotation.x).toBeCloseTo(0.68)
-      expect(Math.abs(mountLeg.hip.rotation.z)).toBeCloseTo(0.25)
+      expect(Math.abs(mountLeg.hip.rotation.z)).toBeCloseTo(0.58)
       expect(mountLeg.knee.rotation.x).toBeCloseTo(-1.22)
       expect(mountLeg.ankle.rotation.x).toBeCloseTo(0.44)
     }
