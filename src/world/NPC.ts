@@ -57,6 +57,8 @@ const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
 
 export const TARGET_REACQUIRE_INTERVAL = 0.1
+export const NPC_SEPARATION_RADIUS = 1.2
+export const NPC_NEIGHBOR_QUERY_RADIUS = 2.0
 
 export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: string): number {
   let hash = 2166136261 >>> 0
@@ -747,7 +749,7 @@ export class NPC {
           for (const other of nearbyNPCs) {
             if (other === this || other.dead) continue
             const d = this.group.position.distanceTo(other.position)
-            if (d < 1.2) {
+            if (d < NPC_SEPARATION_RADIUS) {
               this._tmpPush.copy(this.group.position).sub(other.position)
               this._tmpPush.y = 0
               this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, d)))

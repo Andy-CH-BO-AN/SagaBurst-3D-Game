@@ -86,7 +86,7 @@ export function handleProjectileHitEffects(
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { NPC, Faction } from './world/NPC'
+import { NPC, Faction, AIState, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
 import {
   BattleConfig,
   PRESET_DEVCOMBAT,
@@ -94,6 +94,7 @@ import {
   PRESET_SCENARIO_B,
   PRESET_SCENARIO_C,
   PRESET_SCENARIO_D,
+  PRESET_SCENARIO_E,
 } from './battle/BattleConfig'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
@@ -373,7 +374,13 @@ export class Game {
   }
 
   // LOD & Spatial Partitioning
+  private static readonly _EMPTY_NPC_LIST: NPC[] = []
+  private readonly _nearbyNpcBuffer: NPC[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
+  public readonly devGridStats = {
+    queriesPerFrame: 0,
+    returnedNeighborsAvg: 0,
+  }
 
   constructor(renderer: THREE.WebGLRenderer, battleConfig?: BattleConfig) {
     this.renderer = renderer
@@ -411,12 +418,6 @@ export class Game {
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
-    const isInitialSpectator = Boolean(battleConfig?.spectator)
-    if (isInitialSpectator) {
-      this.player.spectatorOnly = true
-      this.player.group.visible = false
-    }
-
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
     const devModelsMode = query.get('devmodels')
@@ -426,6 +427,7 @@ export class Game {
 
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
+    let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -438,10 +440,19 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_C
       } else if (devVal === 'd' || devVal === 'scenariod') {
         scenarioConfig = PRESET_SCENARIO_D
+      } else if (devVal === 'e' || devVal === 'scenarioe') {
+        scenarioConfig = PRESET_SCENARIO_E
       }
+      activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
     } else if (battleConfig) {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
+    }
+
+    const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
+    if (isInitialSpectator) {
+      this.player.spectatorOnly = true
+      this.player.group.visible = false
     }
 
     // ── Camera controller ──
@@ -491,7 +502,7 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && shouldCreateStartingHorse(battleConfig)) {
+    if (!this.isModelStudio && shouldCreateStartingHorse(activeBattleConfig)) {
       const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
@@ -1735,12 +1746,14 @@ export class Game {
 
     // 2. NPC Update
     if (profile) t0 = performance.now()
+    let devQueriesCount = 0
+    let devReturnedNeighborsCount = 0
     for (const npc of this.npcs) {
       // These root positions are world-space here, matching the mount LOD distance.
       const cameraDistance = npc.group.position.distanceTo(this.camera.position)
       if (npc.hp <= 0) {
         // Dead NPCs still need animation update, but no AI/Boids
-        npc.update(dt, this.player, this.npcs, [], this.obstacles, this.hpBar, 
+        npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
           () => {}, // dead npc can't shoot
           true, // skipBoidsAndObstacles
@@ -1751,7 +1764,15 @@ export class Game {
 
       // No LOD tiers. Full update for everyone.
       const skipBoidsAndObstacles = false
-      const nearbyNPCs = this.npcGrid.getNearby(npc.combatPosition, 40)
+      let nearbyNPCs = Game._EMPTY_NPC_LIST
+      if (npc.currentState === AIState.CHASE) {
+        this.npcGrid.getNearbyInto(npc.combatPosition, NPC_NEIGHBOR_QUERY_RADIUS, this._nearbyNpcBuffer)
+        nearbyNPCs = this._nearbyNpcBuffer
+        if (profile) {
+          devQueriesCount++
+          devReturnedNeighborsCount += this._nearbyNpcBuffer.length
+        }
+      }
 
       npc.update(
         dt, 
@@ -1800,6 +1821,10 @@ export class Game {
       )
     }
     const npcUpdateMs = profile ? performance.now() - t0 : 0
+    if (profile) {
+      this.devGridStats.queriesPerFrame = devQueriesCount
+      this.devGridStats.returnedNeighborsAvg = devQueriesCount > 0 ? devReturnedNeighborsCount / devQueriesCount : 0
+    }
 
     // Check Player Melee Sword Hits (runs outside mount/interaction)
     this._checkPlayerMeleeHits()

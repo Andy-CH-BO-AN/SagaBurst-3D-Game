@@ -405,6 +405,25 @@ export const PRESET_SCENARIO_D: BattleConfig = {
   rules: { respawnEnabled: false, includeCamps: false },
 }
 
+/** Developer performance scenario E: 100v100 All-Melee Cavalry, Scattered Battle, Initial Spectator */
+export const PRESET_SCENARIO_E: BattleConfig = {
+  mode: 'scattered',
+  spectator: true,
+  viking: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 30, 2: 40, 3: 30 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  roman: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 30, 2: 40, 3: 30 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
 /** Developer performance scenario (?devcombat): 50v50 cavalry, no camps. */
 export const PRESET_DEVCOMBAT: BattleConfig = {
   mode: 'formation',
