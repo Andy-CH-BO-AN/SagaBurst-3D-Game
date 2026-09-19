@@ -6,6 +6,7 @@ import {
   HumanoidAssetRegistry,
 } from '../src/world/HumanoidAssetRegistry'
 import { CombatRenderWarmup } from '../src/world/CombatRenderWarmup'
+import { tryCreateRomanLod2ConsolidationTemplate } from '../src/world/HumanoidLod2Consolidation'
 
 let registrySnapshot: any = null
 
@@ -77,6 +78,32 @@ describe('Humanoid LOD Distances and Animation Throttle', () => {
 
   it('keeps HUMANOID_ANIMATION_THROTTLE_DISTANCE semantic constant at 28m decoupled from LOD policy', () => {
     expect(HUMANOID_ANIMATION_THROTTLE_DISTANCE).toBe(28)
+  })
+
+  it('regression: a Roman LOD2 that cannot be consolidated still warms and creates with its original representation', () => {
+    const lod0 = createMockLODScene(0)
+    const lod1 = createMockLODScene(1)
+    const lod2 = createMockLODScene(2) // Valid rig, but intentionally no named consolidation pairs.
+    const romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(lod2, () => undefined)
+    expect(romanLod2Consolidation).toBeUndefined()
+    const mockTemplate = {
+      manifest: { status: 'ready' as const, files: { lod0: '', lod1: '', lod2: '' }, metrics: { heightM: 1.78, shoulderWidthM: 0.46, neckLengthM: 0.09 } },
+      levels: [{ scene: lod0, animations: [] }, { scene: lod1, animations: [] }, { scene: lod2, animations: [] }],
+      bowClips: [[], [], []],
+      romanLod2Consolidation,
+    }
+    const templatesMap = (HumanoidAssetRegistry as any).templates as Map<string, any>
+    templatesMap.set('roman', mockTemplate)
+
+    const warmup = HumanoidAssetRegistry.createWarmupGroup()
+    const warmupLod2 = warmup.getObjectByName('roman-warmup-lod2')!
+    expect(warmupLod2.getObjectByName('mesh-lod2')).toBeInstanceOf(THREE.SkinnedMesh)
+
+    const instance = HumanoidAssetRegistry.createCharacterInstance({ faction: 'roman' } as any)
+    const lod = instance.root.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)!
+    const original = lod.levels[2].object.getObjectByName('mesh-lod2')!
+    expect(original).toBeInstanceOf(THREE.SkinnedMesh)
+    expect(original.userData.humanoidLod2Consolidated).toBeUndefined()
   })
 
   it('regression: CombatRenderWarmup does not mutate canonical template state (parent, castShadow, receiveShadow, visible, layers, material)', () => {

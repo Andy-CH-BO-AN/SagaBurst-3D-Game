@@ -12,7 +12,7 @@ import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
 import {
   consolidateRomanLod2,
-  createRomanLod2ConsolidationTemplate,
+  tryCreateRomanLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
 import type { SwordGripFrame } from './SwordAttachmentContract'
@@ -646,7 +646,7 @@ export class HumanoidAssetRegistry {
       const frame = readHandFrame(manifest)
       const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
       const romanLod2Consolidation = faction === 'roman'
-        ? createRomanLod2ConsolidationTemplate(levels[2].scene)
+        ? tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
         : undefined
       this.templates.set(faction, { manifest, levels, bowClips, romanLod2Consolidation })
     }))
@@ -670,8 +670,7 @@ export class HumanoidAssetRegistry {
             obj.receiveShadow = true
           }
         })
-        if (faction === 'roman' && index === 2) {
-          if (!template.romanLod2Consolidation) throw new Error('Roman LOD2 consolidation template is missing')
+        if (faction === 'roman' && index === 2 && template.romanLod2Consolidation) {
           consolidateRomanLod2(levelClone, template.romanLod2Consolidation, { allowDevControl: false })
         }
         warmupGroup.add(levelClone)
@@ -736,8 +735,7 @@ export class HumanoidAssetRegistry {
       })
       const preserveOriginalLod2 = import.meta.env.DEV && typeof window !== 'undefined'
         && new URLSearchParams(window.location.search).has('humanoidLod2Original')
-      if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2) {
-        if (!template.romanLod2Consolidation) throw new Error('Roman LOD2 consolidation template is missing')
+      if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2 && template.romanLod2Consolidation) {
         const representationControl = consolidateRomanLod2(level, template.romanLod2Consolidation)
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
       }

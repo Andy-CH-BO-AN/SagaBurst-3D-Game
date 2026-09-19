@@ -6,6 +6,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import {
   consolidateRomanLod2,
   createRomanLod2ConsolidationTemplate,
+  tryCreateRomanLod2ConsolidationTemplate,
 } from '../src/world/HumanoidLod2Consolidation'
 
 const PAIRS = [
@@ -174,6 +175,18 @@ describe('Roman LOD2 duplicate-material consolidation', () => {
       expect(firstMerged[index].skeleton).not.toBe(secondMerged[index].skeleton)
       expect(firstMerged[index].skeleton.bones[0]).not.toBe(secondMerged[index].skeleton.bones[0])
     }
+  })
+
+  it('fails open when an updated asset no longer matches a consolidation pair', () => {
+    const { root } = makeLod2()
+    root.remove(root.getObjectByName('Armour_top_2')!)
+    const diagnostics: Array<{ message: string, error: unknown }> = []
+
+    expect(tryCreateRomanLod2ConsolidationTemplate(root, (message, error) => diagnostics.push({ message, error }))).toBeUndefined()
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0].message).toBe('Roman LOD2 consolidation unavailable; using original render structure')
+    expect(diagnostics[0].error).toBeInstanceOf(Error)
+    expect(root.getObjectByName('Armour_top_1')).toBeInstanceOf(THREE.SkinnedMesh)
   })
 
   it('verifies the shipped LOD2 pairs have the same skeleton, no morph targets, matching vertex formats and byte-identical texture material signatures', () => {

@@ -179,6 +179,23 @@ export function createRomanLod2ConsolidationTemplate(root: THREE.Object3D): Roma
   return { records: ROMAN_LOD2_PAIRS.map(pair => createTemplateRecord(root, pair)) }
 }
 
+/**
+ * Consolidation is an optional render optimization, never an asset-load contract.
+ * An updated but otherwise valid Roman GLB can keep its original LOD2 structure
+ * until its pair definitions are re-audited.
+ */
+export function tryCreateRomanLod2ConsolidationTemplate(
+  root: THREE.Object3D,
+  onUnavailable: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+): RomanLod2ConsolidationTemplate | undefined {
+  try {
+    return createRomanLod2ConsolidationTemplate(root)
+  } catch (error) {
+    onUnavailable('Roman LOD2 consolidation unavailable; using original render structure', error)
+    return undefined
+  }
+}
+
 function devControlEnabled(): boolean {
   return import.meta.env.DEV && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).has('humanoidLod2Control')
