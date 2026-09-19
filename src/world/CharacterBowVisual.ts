@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { polishWeaponMaterials } from './CharacterVisuals'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
+import { equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
 import {
   applyBowAttachment,
@@ -62,31 +63,32 @@ export class CharacterBowVisual {
     this.stringLength = parts.stringLength
 
     const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    this.stringTop = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat)
-    this.stringBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat)
+    this.stringTop = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    this.stringBottom = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.gripPivot.add(this.stringTop, this.stringBottom)
 
     this.nockedArrow = new THREE.Group()
-    const shaft = new THREE.Mesh(
+    equipmentShadowUntil(this.nockedArrow, -1)
+    const shaft = equipmentShadowUntil(new THREE.Mesh(
       new THREE.CylinderGeometry(0.004, 0.004, 0.95, 6),
       new THREE.MeshLambertMaterial({ color: 0x5c3a1e }),
-    )
+    ), -1)
     shaft.rotation.x = Math.PI / 2
     this.nockedArrow.add(shaft)
 
     const elven = weaponId === 'elven_runebow'
-    const tip = new THREE.Mesh(
+    const tip = equipmentShadowUntil(new THREE.Mesh(
       new THREE.ConeGeometry(0.014, 0.09, 6),
       new THREE.MeshStandardMaterial({ color: elven ? 0x00f0ff : 0xaaaaaa, metalness: 0.9 }),
-    )
+    ), -1)
     tip.rotation.x = -Math.PI / 2
     tip.position.z = -0.52
     this.nockedArrow.add(tip)
 
-    const fin = new THREE.Mesh(
+    const fin = equipmentShadowUntil(new THREE.Mesh(
       new THREE.BoxGeometry(0.003, 0.035, 0.09),
       new THREE.MeshBasicMaterial({ color: elven ? 0x00d2ff : 0xdddddd }),
-    )
+    ), -1)
     fin.position.z = 0.4
     this.nockedArrow.add(fin)
     this.gripPivot.add(this.nockedArrow)
