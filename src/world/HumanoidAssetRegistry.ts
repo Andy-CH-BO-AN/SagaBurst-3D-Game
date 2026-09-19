@@ -19,6 +19,7 @@ import {
   tryCreateRomanLod2ConsolidationTemplate,
   type RomanLod2ConsolidationTemplate,
 } from './HumanoidLod2Consolidation'
+import { shouldRomanHumanoidCastShadow } from './RomanHumanoidShadowPolicy'
 import type { SwordGripFrame } from './SwordAttachmentContract'
 import type {
   ArmRig,
@@ -772,7 +773,9 @@ export class HumanoidAssetRegistry {
       level.name = `${config.faction}-lod${index}`
       level.traverse((object) => {
         if (object instanceof THREE.Mesh) {
-          object.castShadow = index < 2
+          object.castShadow = config.faction === 'roman'
+            ? shouldRomanHumanoidCastShadow(object.name, index)
+            : index < 2
           object.receiveShadow = true
           object.userData.originalMat = object.material
         }
