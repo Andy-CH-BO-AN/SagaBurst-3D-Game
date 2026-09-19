@@ -131,7 +131,6 @@ export class Mount {
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
     if (this.horseVisual) {
-      this.group.updateWorldMatrix(true, true)
       return this.horseVisual.saddleSeat.getWorldPosition(target)
     }
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
