@@ -7,6 +7,12 @@ description: 用固定的 browser lifecycle、warm-up、20 秒取樣與 JSON 輸
 
 這個 skill 用於 SagaBurst 的可重複效能量測。它只負責啟動瀏覽器、取樣、輸出 raw JSON 與計算比較，不修改遊戲規則、AI、移動、碰撞或動畫品質。
 
+## 執行環境
+
+- Benchmark 必須在 local repo terminal 執行，使用 local headed Google Chrome、local display 與 local GPU/WebGL context。不要使用 Codex sandbox browser、in-app browser、headless browser 或 software-rendered fallback。
+- macOS 預設使用 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`；若 Chrome 不在該位置，設定 `SAGABURST_CHROME_PATH` 指向本機 Chrome executable。找不到 local Chrome 時應停止並回報，不要靜默改用 Playwright bundled Chromium。
+- GitHub PR、push、issue 或其他需要登入的操作使用 local terminal 的 `gh` / `git` credentials；不要要求使用者在 sandbox 內登入 GitHub。這些操作不屬於 benchmark runner 本身，但同一輪任務若需要發 PR，必須遵守此環境界線。
+
 ## 標準規則
 
 - 每個 benchmark 使用一個 browser process 與一個 page，run 之間只重新導向 URL。
@@ -33,7 +39,7 @@ node .codex/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
   --scenario=E --phase=during-combat --runs=1 --tag=candidate-e-combat
 ```
 
-使用 headed Chromium，方便直接觀察遊戲畫面；輸出預設放在 `output/local-diagnostics/`，該目錄不應被 commit。
+使用 local headed Google Chrome，方便直接觀察遊戲畫面；輸出預設放在 `output/local-diagnostics/`，該目錄不應被 commit。
 
 baseline 與 candidate 的結果分開產生後，使用：
 
