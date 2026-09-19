@@ -3,52 +3,51 @@
  *
  * Authoritative shadow casting policy for Roman Humanoid character instances.
  *
- * Audited from PR #55 fixed-scene shadow breakdown & isolated visual QA:
+ * Audited and verified for gameplay perspective fidelity:
+ * Keeps only 5 essential silhouette casters:
+ * - Helmet3_1: Main helmet
+ * - Armour_top_1: Lorica Segmentata chest/shoulder armor
+ * - Tunic_1: Red tunic body and skirt
+ * - Boots: Feet and caligae (ground contact shadow)
+ * - Wrist_guard1: Forearm bracers (arm silhouette continuity during combat/archery)
  *
- * DROP_ALL_LODS (dropped in both LOD0 and LOD1):
- * - New_eye, New_eye_2: Eyeballs embedded inside skull/helmet; zero perceptible shadow difference.
- * - Helmet3_2: 2.5cm forehead brow emblem attached directly to Helmet3_1; completely enclosed in helmet shadow volume.
- * - Armour_top_2: Internal shoulder buckles completely enclosed by Armour_top_1.
- * - Ties: Thin lace cords flat against torso/tunic; 0 pixel contribution in shadow map.
- * - RomanUndertunic_l, RomanUndertunic_r: Internal thigh patches under Tunic_1; fully enveloped by skirt.
- *
- * DROP_FROM_LOD1 (dropped only in LOD1 where camera distance >= 12m):
- * - Dangles: Pteruges leather straps; visible close-up in LOD0, sub-pixel at mid-distance.
- * - Wrist_guard1: Forearm bracers; arm shadow is already fully defined by New_arms.
- *
- * KEEP_ALWAYS:
- * - Helmet3_1: Main helmet (cap, cheek guards, crest)
- * - New_head: Face, neck, chin
- * - Armour_top_1: Lorica Segmentata chest & shoulder plates
- * - Full_figure_42_T_pose: Clavicle & torso body
- * - Tunic_1: Red tunic skirt & body garment
- * - New_arms: Arms, elbows, hands
- * - New_legs: Legs & thighs
- * - Boots: Feet & caligae
+ * All other 12 meshes do not cast shadow in LOD0 or LOD1:
+ * - New_arms, New_legs, New_head, Full_figure_42_T_pose, Dangles, Ties,
+ *   Helmet3_2, Armour_top_2, RomanUndertunic_l, RomanUndertunic_r, New_eye, New_eye_2
  *
  * LOD2:
  * - Unconditionally castShadow = false for all meshes.
  */
 
+export const ROMAN_SHADOW_KEEP_MESHES: ReadonlySet<string> = new Set([
+  'Helmet3_1',
+  'Armour_top_1',
+  'Tunic_1',
+  'Boots',
+  'Wrist_guard1',
+])
+
 export const ROMAN_SHADOW_DROP_ALL_LODS: ReadonlySet<string> = new Set([
+  'Armour_top_2',
+  'Dangles',
+  'Full_figure_42_T_pose',
+  'Helmet3_2',
+  'New_arms',
   'New_eye',
   'New_eye_2',
-  'Helmet3_2',
-  'Armour_top_2',
-  'Ties',
+  'New_head',
+  'New_legs',
   'RomanUndertunic_l',
   'RomanUndertunic_r',
+  'Ties',
 ])
 
 export const ROMAN_SHADOW_DROP_LOD1: ReadonlySet<string> = new Set([
   ...ROMAN_SHADOW_DROP_ALL_LODS,
-  'Dangles',
-  'Wrist_guard1',
 ])
 
 export function shouldRomanHumanoidCastShadow(meshName: string, lodIndex: number): boolean {
   if (lodIndex >= 2) return false
-  if (lodIndex === 0) return !ROMAN_SHADOW_DROP_ALL_LODS.has(meshName)
-  if (lodIndex === 1) return !ROMAN_SHADOW_DROP_LOD1.has(meshName)
+  if (lodIndex === 0 || lodIndex === 1) return ROMAN_SHADOW_KEEP_MESHES.has(meshName)
   return false
 }
