@@ -8,6 +8,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import { execFileSync } from 'child_process'
 
 const BASELINE_FILE = process.argv[2] || 'output/profile/humanoid-animation-baseline.json'
 const CANDIDATE_FILE = process.argv[3] || 'output/profile/humanoid-animation-results.json'
@@ -124,6 +125,7 @@ function main() {
     baselineSourceFile: path.resolve(BASELINE_FILE),
     candidateSourceSha: candidate.metadata?.sourceSha ?? 'unknown',
     candidateSourceFile: path.resolve(CANDIDATE_FILE),
+    baselineGitLog5: execFileSync('git', ['log', '-5', '--oneline', BASELINE_PROFILING_SHA], { encoding: 'utf8' }).trim(),
     comparisonRule: 'exact alive/dead population match; otherwise not directly comparable',
     cohort: 8,
     reportingWindowMs: 1000,
@@ -139,6 +141,12 @@ function main() {
   lines.push('- Cohort: deterministic 8-frame / 8-NPC slices; no manual /8.')
   lines.push('- Windows: RuntimeProfiler-aligned ~1 second; Before Contact uses live simulation.')
   lines.push('- Comparison rule: exact alive/dead match only; mismatches are reported without a delta.')
+  lines.push('')
+  lines.push('Initial baseline `git log -5 --oneline`:')
+  lines.push('')
+  lines.push('```text')
+  lines.push(metadata.baselineGitLog5)
+  lines.push('```')
   lines.push('')
 
   for (const row of comparisons) {
