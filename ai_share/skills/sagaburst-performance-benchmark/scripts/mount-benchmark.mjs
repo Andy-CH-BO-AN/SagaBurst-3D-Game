@@ -37,11 +37,23 @@ const scenarioArg = valueOf('scenario', 'all').toUpperCase()
 const allScenarios = [
   { id: 'D', query: 'devcombat=d' },
   { id: 'E', query: 'devcombat=e' },
+  { id: 'F', query: 'devcombat=f' },
 ]
 const scenarios = scenarioArg === 'ALL'
   ? allScenarios
   : allScenarios.filter((scenario) => scenario.id === scenarioArg)
 if (scenarios.length === 0) throw new Error(`未知 scenario: ${scenarioArg}`)
+
+const renderProbe = valueOf('render-probe', 'normal').toLowerCase()
+const probeQueries = {
+  'normal': '',
+  'no-shadow': '&perfNoShadow',
+  'half-resolution': '&perfHalfResolution',
+  'simple-material': '&perfSimpleMaterial',
+}
+if (!(renderProbe in probeQueries)) {
+  throw new Error(`未知 render-probe: ${renderProbe}，可選: ${Object.keys(probeQueries).join(', ')}`)
+}
 
 const runs = Number(valueOf('runs', phase === 'before-contact' ? '3' : '1'))
 const host = valueOf('host', '127.0.0.1:5173')
@@ -66,6 +78,8 @@ const metricPatterns = {
   activeAttack: /^Active Attack NPCs:\s+(\d+)/m,
   horseCount: /^Horse Count:\s+(\d+)/m,
   arrowCount: /^Arrow Count:\s+(\d+)/m,
+  drawCalls: /^Main-pass Draw Calls:\s+(\d+)/m,
+  triangles: /^Main-pass Triangles:\s+(\d+)/m,
   mountUpdatePhaseMs: /^  Mount Update\s*:\s*([\d.]+)/m,
   mountPhysicsMs: /^  Physics \/ Gravity\s*:\s*([\d.]+)/m,
   mountObstacleCollisionMs: /^  Obstacle Collision\s*:\s*([\d.]+)/m,
@@ -136,6 +150,7 @@ function aggregate(samples) {
     'mountUpdatePhaseMs', 'maxMountSubphase', 'mountPhysicsMs', 'mountObstacleCollisionMs',
     'mountHorseAnimationMs', 'mountRiderEquipmentMs', 'mountSaddleTransformMs',
     'mountRiderTransformMs', 'mountOtherMs', 'alive', 'dead', 'activeAttack',
+    'drawCalls', 'triangles', 'horseCount', 'arrowCount',
   ]
   const metrics = Object.fromEntries(keys.map((key) => [
     key,
@@ -211,7 +226,8 @@ async function runOne(scenario, run) {
   const onPageError = (error) => pageErrors.push(error.message)
   page.on('console', onConsole)
   page.on('pageerror', onPageError)
-  const url = `http://${host}/?${scenario.query}&nolock&npcsubphase=1`
+  const probeQuery = probeQueries[renderProbe] || ''
+  const url = `http://${host}/?${scenario.query}&nolock&npcsubphase=1${probeQuery}`
   const startedAt = new Date().toISOString()
   try {
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
@@ -223,6 +239,7 @@ async function runOne(scenario, run) {
     if (phase === 'during-combat' && scenario.id !== 'E') {
       await page.evaluate(() => window.__sagaburstWaitForCombat())
     }
+    const observationStartMs = await page.evaluate(() => performance.now())
     await new Promise((resolve) => setTimeout(resolve, observationMs))
     const recorded = await page.evaluate(() => window.__sagaburstHudSamples ?? [])
     const parsed = recorded
@@ -238,7 +255,9 @@ async function runOne(scenario, run) {
     const samples = []
     for (const sample of parsed) {
       if (phase === 'during-combat') {
-        samples.push({ atMs: sample.atMs, metrics: sample.metrics })
+        if (sample.atMs >= observationStartMs) {
+          samples.push({ atMs: sample.atMs, metrics: sample.metrics })
+        }
         continue
       }
       if (isCombatEvidence(sample.metrics)) {
@@ -261,6 +280,7 @@ async function runOne(scenario, run) {
     const last = parsed.at(-1)
     return {
       scenario: scenario.id,
+      renderProbe,
       phase,
       run,
       startedAt,
@@ -284,6 +304,7 @@ async function runOne(scenario, run) {
   } catch (error) {
     return {
       scenario: scenario.id,
+      renderProbe,
       phase,
       run,
       startedAt,
@@ -315,6 +336,7 @@ try {
 const report = {
   generatedAt: new Date().toISOString(),
   tag,
+  renderProbe,
   phase,
   scenarios: scenarios.map((scenario) => scenario.id),
   host,

@@ -95,7 +95,15 @@ import {
   PRESET_SCENARIO_C,
   PRESET_SCENARIO_D,
   PRESET_SCENARIO_E,
+  PRESET_SCENARIO_F,
 } from './battle/BattleConfig'
+import {
+  isPerfNoShadow,
+  isPerfHalfResolution,
+  isPerfSimpleMaterial,
+  getActiveRenderProbe,
+  applyDevSimpleMaterials,
+} from './debug/RendererCostIsolation'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -228,10 +236,16 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 
 export class Game {
   static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
+    const query = new URLSearchParams(window.location.search)
+    const perfNoShadow = isPerfNoShadow(query)
+    const perfHalfResolution = isPerfHalfResolution(query)
+
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    const basePixelRatio = Math.min(window.devicePixelRatio, 2)
+    const effectivePixelRatio = perfHalfResolution ? basePixelRatio * 0.5 : basePixelRatio
+    renderer.setPixelRatio(effectivePixelRatio)
     renderer.setSize(window.innerWidth, window.innerHeight)
-    renderer.shadowMap.enabled = true
+    renderer.shadowMap.enabled = !perfNoShadow
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -317,6 +331,7 @@ export class Game {
   private mountStudioStatus: HTMLElement | null = null
   private devCombatStatus: HTMLElement | null = null
   private hasDevCombatRenderedInitialHud = false
+  private activeRenderProbe: string = 'normal'
   readonly runtimeProfiler = new RuntimeProfiler(1000)
   // DEV-only NPC subphase profiling (enabled by &npcsubphase=1 URL param)
   private _npcSubphaseEnabled = false
@@ -426,6 +441,7 @@ export class Game {
 
     const query = new URLSearchParams(window.location.search)
     this.isDevCombat = query.has('devcombat')
+    this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts'
@@ -455,6 +471,8 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_D
       } else if (devVal === 'e' || devVal === 'scenarioe') {
         scenarioConfig = PRESET_SCENARIO_E
+      } else if (devVal === 'f' || devVal === 'scenariof') {
+        scenarioConfig = PRESET_SCENARIO_F
       }
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
@@ -505,6 +523,9 @@ export class Game {
     // ── Combat & Enemies ──
     if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
+      if (isPerfSimpleMaterial(query)) {
+        applyDevSimpleMaterials(this.npcs, this.mounts)
+      }
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()
     } else if (devModelsMode === 'mounts') {
@@ -887,6 +908,7 @@ export class Game {
     const alive = this.npcs.reduce((count, npc) => count + (npc.dead ? 0 : 1), 0)
     const activeAttack = this.npcs.reduce((count, npc) => count + (npc.currentState === AIState.ATTACK ? 1 : 0), 0)
     this.devCombatStatus.textContent = this.runtimeProfiler.formatHUD({
+      renderProbe: this.activeRenderProbe !== 'normal' ? this.activeRenderProbe : undefined,
       npcCount: this.npcs.length,
       aliveCount: alive,
       deadCount: this.npcs.length - alive,

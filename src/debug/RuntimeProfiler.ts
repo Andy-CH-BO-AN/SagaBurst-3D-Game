@@ -42,6 +42,7 @@ export interface RuntimeProfileSnapshot {
 }
 
 export interface ExtraHUDMetrics {
+  renderProbe?: string
   npcCount: number
   aliveCount?: number
   deadCount?: number
@@ -220,6 +221,7 @@ export class RuntimeProfiler {
     const cpuFrameLine = fmtStat('CPU Frame Work', s?.cpuFrame, 20)
 
     const lines: string[] = [
+      ...(extra.renderProbe ? [`PROBE: ${extra.renderProbe}`] : []),
       `FPS: ${fpsStr}`,
       cpuFrameLine,
       '',
