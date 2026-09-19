@@ -61,7 +61,7 @@ The current default player inventory is shared by both Player Factions (faction-
 
 After dismounting, open the Equipment UI with `Tab` or `I` to switch from the lance to the Runic Greatsword. The existing two-handed weapon behavior automatically moves the equipped shield to the player's back while the greatsword is in use.
 
-The player's starting horse is separate from the spare horses placed in the faction camps. In Scattered Battle, player deaths respawn at that battle's original scattered starting position, and REMATCH reproduces the same deterministic deployment for the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
+The player's starting horse is separate from the spare horses placed in the faction camps. **Player death is permanent for the current battle**: after dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends. REMATCH starts a fresh battle using the same configuration. Mounted save/load also preserves the player's mounted state and the mount's world position, while legacy saves keep their existing inventory instead of being automatically upgraded to the new elite loadout.
 
 ## 🏕️ Battle Camps
 
