@@ -6,7 +6,10 @@ import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
-export const MAX_ARMY_SIZE = 100
+/** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
+export const MAX_CUSTOM_ARMY_SIZE = 100
+/** DEV-only preset limit used by the fixed performance benchmark scenarios. */
+export const MAX_BENCHMARK_ARMY_SIZE = 200
 
 export type UnitTier = 1 | 2 | 3
 export type BattleUnitType = 'infantry' | 'archer' | 'cavalry' | 'horseArcher'
@@ -133,7 +136,10 @@ export function calculateArmyTotal(army: ArmyConfig): number {
   return total
 }
 
-export function validateBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
+function validateBattleConfigWithArmyLimit(
+  config: unknown,
+  maxArmySize: number
+): { valid: boolean; errors: string[] } {
   const errors: string[] = []
   if (!config || typeof config !== 'object') {
     return { valid: false, errors: ['Invalid config object'] }
@@ -193,8 +199,8 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
         const val = counts[tier]
         if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
           errors.push(`${sideName} ${cat} T${tier} must be a non-negative integer`)
-        } else if (val > MAX_ARMY_SIZE) {
-          errors.push(`${sideName} ${cat} T${tier} exceeds maximum ${MAX_ARMY_SIZE}`)
+        } else if (val > maxArmySize) {
+          errors.push(`${sideName} ${cat} T${tier} exceeds maximum ${maxArmySize}`)
         } else {
           sideTotal += val
         }
@@ -208,17 +214,27 @@ export function validateBattleConfig(config: unknown): { valid: boolean; errors:
 
   if (vikingTotal < 1) {
     errors.push('Viking army must have at least 1 unit')
-  } else if (vikingTotal > MAX_ARMY_SIZE) {
-    errors.push(`Viking army total (${vikingTotal}) exceeds ${MAX_ARMY_SIZE}`)
+  } else if (vikingTotal > maxArmySize) {
+    errors.push(`Viking army total (${vikingTotal}) exceeds ${maxArmySize}`)
   }
 
   if (romanTotal < 1) {
     errors.push('Roman army must have at least 1 unit')
-  } else if (romanTotal > MAX_ARMY_SIZE) {
-    errors.push(`Roman army total (${romanTotal}) exceeds ${MAX_ARMY_SIZE}`)
+  } else if (romanTotal > maxArmySize) {
+    errors.push(`Roman army total (${romanTotal}) exceeds ${maxArmySize}`)
   }
 
   return { valid: errors.length === 0, errors }
+}
+
+/** Validates untrusted production Custom Battle data. Never raises the 100-per-side UI limit. */
+export function validateBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
+  return validateBattleConfigWithArmyLimit(config, MAX_CUSTOM_ARMY_SIZE)
+}
+
+/** Validates trusted, fixed DEV benchmark presets without changing production validation. */
+export function validateBenchmarkBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
+  return validateBattleConfigWithArmyLimit(config, MAX_BENCHMARK_ARMY_SIZE)
 }
 
 /**
@@ -439,6 +455,63 @@ export const PRESET_SCENARIO_F: BattleConfig = {
     archer: { 1: 0, 2: 0, 3: 0 },
     cavalry: { 1: 15, 2: 20, 3: 15 },
     horseArcher: { 1: 15, 2: 20, 3: 15 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
+/** Developer performance scenario G: 200v200 Infantry. */
+export const PRESET_SCENARIO_G: BattleConfig = {
+  mode: 'formation',
+  spectator: true,
+  viking: {
+    infantry: { 1: 80, 2: 80, 3: 40 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  roman: {
+    infantry: { 1: 80, 2: 80, 3: 40 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
+/** Developer performance scenario H: 200v200 Mixed, Formation, Initial Spectator. */
+export const PRESET_SCENARIO_H: BattleConfig = {
+  mode: 'formation',
+  spectator: true,
+  viking: {
+    infantry: { 1: 20, 2: 24, 3: 16 },
+    archer: { 1: 20, 2: 24, 3: 16 },
+    cavalry: { 1: 12, 2: 16, 3: 12 },
+    horseArcher: { 1: 12, 2: 16, 3: 12 },
+  },
+  roman: {
+    infantry: { 1: 20, 2: 24, 3: 16 },
+    archer: { 1: 20, 2: 24, 3: 16 },
+    cavalry: { 1: 12, 2: 16, 3: 12 },
+    horseArcher: { 1: 12, 2: 16, 3: 12 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+}
+
+/** Developer performance scenario I: 200v200 Cavalry / Horse Archer stress, Scattered, Initial Spectator. */
+export const PRESET_SCENARIO_I: BattleConfig = {
+  mode: 'scattered',
+  spectator: true,
+  viking: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 30, 2: 40, 3: 30 },
+    horseArcher: { 1: 30, 2: 40, 3: 30 },
+  },
+  roman: {
+    infantry: { 1: 0, 2: 0, 3: 0 },
+    archer: { 1: 0, 2: 0, 3: 0 },
+    cavalry: { 1: 30, 2: 40, 3: 30 },
+    horseArcher: { 1: 30, 2: 40, 3: 30 },
   },
   rules: { respawnEnabled: false, includeCamps: false },
 }

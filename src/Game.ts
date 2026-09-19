@@ -96,6 +96,9 @@ import {
   PRESET_SCENARIO_D,
   PRESET_SCENARIO_E,
   PRESET_SCENARIO_F,
+  PRESET_SCENARIO_G,
+  PRESET_SCENARIO_H,
+  PRESET_SCENARIO_I,
 } from './battle/BattleConfig'
 import {
   getActiveRenderProbe,
@@ -491,6 +494,12 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_E
       } else if (devVal === 'f' || devVal === 'scenariof') {
         scenarioConfig = PRESET_SCENARIO_F
+      } else if (devVal === 'g' || devVal === 'scenariog') {
+        scenarioConfig = PRESET_SCENARIO_G
+      } else if (devVal === 'h' || devVal === 'scenarioh') {
+        scenarioConfig = PRESET_SCENARIO_H
+      } else if (devVal === 'i' || devVal === 'scenarioi') {
+        scenarioConfig = PRESET_SCENARIO_I
       }
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
