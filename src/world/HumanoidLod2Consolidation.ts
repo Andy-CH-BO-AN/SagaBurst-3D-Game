@@ -10,9 +10,23 @@ interface ConsolidationPair {
 }
 
 export const AUDITED_ROMAN_LOD2_SHA256 = '0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14'
+export const ROMAN_LOD2_CULLED_TINY_DETAIL_NAMES = ['New_eye', 'New_eye_2', 'Dangles'] as const
 
 export function isRomanLod2ConsolidationAssetAudited(actualSha256: string | undefined): boolean {
   return actualSha256 === AUDITED_ROMAN_LOD2_SHA256
+}
+
+/** Hide only the audited far-LOD details, whether eyes are consolidated or original. */
+export function cullRomanLod2TinyDetails(root: THREE.Object3D): void {
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return
+    const sourceParts = object.userData.sourceParts
+    const isConsolidatedEye = Array.isArray(sourceParts)
+      && sourceParts.some(part => part === 'New_eye' || part === 'New_eye_2')
+    if (isConsolidatedEye || ROMAN_LOD2_CULLED_TINY_DETAIL_NAMES.includes(object.name as typeof ROMAN_LOD2_CULLED_TINY_DETAIL_NAMES[number])) {
+      object.visible = false
+    }
+  })
 }
 
 const ROMAN_LOD2_PAIRS: readonly ConsolidationPair[] = [
