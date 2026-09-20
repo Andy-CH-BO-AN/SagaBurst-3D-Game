@@ -10,16 +10,30 @@
 
 Viking 與 Roman 每方都可以配置 **1–200 名 AI 士兵**，雙方兵力不需要相同，也支援像 `1 vs 200`、`200 vs 1` 這種非對稱戰鬥。
 
-每個陣營都可以獨立配置四種兵種與三個 Tier：
+每個陣營都有自己的兵種 Preset 目錄。所有 Preset 都支援 **T1 / T2 / T3**；Preset 只決定出生時的起始 Loadout，實際戰鬥行為則由角色當下持有的武器、盾牌、騎乘狀態與 CombatBalance 規則共同決定。
 
-| 兵種 | 定位 |
+**Viking 兵種**
+
+| 兵種 | 戰場定位 |
 | --- | --- |
-| Infantry 步兵 | 徒步近戰單位 |
-| Archer 遠程步兵 | 徒步遠程單位 |
-| Cavalry 騎兵 | 騎乘近戰 / 長槍衝刺單位 |
-| Horse Archer 騎射手 | 騎乘遠程單位 |
+| Berserker 狂戰士 | 無盾高侵略性近戰；徒步持 Sword 時可取得動態 Viking 加成 |
+| Spearman 槍兵 | 徒步 Lance 兵種，專門剋制「當下仍在騎乘」的目標 |
+| Archer 弓兵 | 徒步 Bow 單位，固定使用 T1 匕首作為近戰備援 |
+| Sword Cavalry 刀騎兵 | 騎乘 Sword + Viking 圓盾 |
+| Lancer 槍騎兵 | 以高速 Lance Charge 為核心的騎兵 |
+| Mounted Archer 弓騎兵 | 騎乘 Bow 單位，固定使用 T1 匕首作為近戰備援 |
 
-所有兵種都支援 **T1 / T2 / T3**，不同 Tier 會使用對應強度的裝備與傷害數值。
+**Roman 兵種**
+
+| 兵種 | 戰場定位 |
+| --- | --- |
+| Heavy Infantry 重裝步兵 | Gladius + Scutum 的防禦型正面步兵 |
+| Spearman 槍兵 | 徒步 Lance 反騎兵單位 |
+| Archer 弓兵 | 徒步 Bow 單位，固定使用 T1 Gladius 作為近戰備援 |
+| Javelin Infantry 標槍兵 | Pilum / Javelin 遠程單位，固定使用 T1 Gladius 作為近戰備援 |
+| Sword Cavalry 刀騎兵 | 騎乘 Gladius + Scutum |
+| Lancer 槍騎兵 | 騎乘 Lance Charge 單位 |
+| Mounted Archer 弓騎兵 | 騎乘 Bow 單位，固定使用 T1 Gladius 作為近戰備援 |
 
 Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50**、**100 vs 100**、**200 vs 200** 快速配置，也可以完全手動建立自己的軍隊組合。
 
@@ -35,7 +49,7 @@ Player Faction 與兵力、部署模式分開設定：
 
 切換 10 vs 10～200 vs 200 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
 
-Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–200 名 AI 兵力，也不影響軍隊存活數判定**。
+Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–200 名 AI 兵力，也不影響軍隊存活數判定**。Army Setup 可另外設定 **1–9999 HP** 的 Player HP；Player 與 NPC 的預設 HP 都是 **200**。
 
 ### 戰鬥流程
 
@@ -56,7 +70,7 @@ Custom Battle 現在有獨立的 **玩家裝備 PLAYER LOADOUT** 頁面。開始
 
 Player 裝備與 Player Faction 完全分開，因此 Viking / Roman 裝備可以自由混搭：
 
-- **近戰武器** — Viking 長劍、Roman Gladius，或 Steel Lance 長槍。
+- **近戰武器** — Viking 長劍、Roman Gladius，或 T1 / T2 / T3 Lance 長槍。
 - **遠程武器** — Viking 弓，或 Roman Pilum 標槍。
 - **盾牌** — Viking 圓盾、Roman Scutum，或選擇無盾。
 - **出戰方式** — 選擇 **騎馬** 時會建立並騎上既有開場戰馬；選擇 **徒步** 時不會生成這匹特殊開場戰馬。
@@ -68,6 +82,42 @@ Player 裝備與 Player Faction 完全分開，因此 Viking / Roman 裝備可�
 為了向後相容，沒有 `playerLoadout` 的舊 BattleConfig 仍維持原本預設：**Steel Lance、Elven Runebow、Round Shield T3，並騎馬開場**。若啟用初始 **Spectator 觀戰模式**，則會忽略騎乘設定，不生成 Player 的開場戰馬。
 
 Player 的開場戰馬與雙方營地內提供的備用戰馬分開計算。**Player 在單場戰鬥中死亡後不會復活**，而是直接切換為自由觀戰模式；剩餘 Viking 與 Roman NPC 會繼續交戰直到分出勝負。使用 **REMATCH** 才會以相同設定重新開始一場新的戰鬥。存檔 / 讀檔仍會保留騎乘狀態與坐騎實際世界座標，而讀入的存檔背包會覆蓋新戰鬥的起始 Loadout。
+
+## ⚖️ 戰鬥規則與 Balance
+
+戰鬥行為依角色的 **當下裝備與騎乘狀態** 動態決定，而不是永久綁死在某個 runtime 兵種 class。
+
+| 規則 | 目前行為 |
+| --- | --- |
+| 預設 HP | Player 200 / NPC 200 |
+| Lance Tier | T1 30 / T2 45 / T3 60 基礎傷害，攻擊距離 3.9m |
+| 徒步 Lance 反騎 | 徒步持 Lance 攻擊「**當下仍在騎乘**」的目標時傷害 ×2；目標落馬後不再有反騎加成 |
+| 騎乘 Lance Charge | 騎乘持 Lance 且速度 > 10 m/s 時，命中傷害 ×3 |
+| Charge + Horse Impact | Lance Charge 確實命中時，同一幀不再額外疊加 Horse Impact；若 Lance 揮空，馬匹碰撞仍可正常造成 Impact |
+| Horse Impact | 所有受控坐騎速度 > 4 m/s 時都可撞擊敵對目標；傷害為 `round(8 + speed × 1.5 × sprintMultiplier)`，Sprint multiplier 為 ×1.5，同一目標冷卻 0.6 秒 |
+| Berserker 條件 | Viking + 徒步 + 當下 active combat state 為 Sword + 無盾：移速 ×1.3、近戰傷害 ×1.2、近戰攻擊頻率 ×1.2 |
+| Bow | 傷害 ×0.5、攻擊頻率 ×1.3；NPC 徒步接戰距離 50m / 騎乘 15m |
+| Javelin | 傷害 ×1.5、攻擊頻率 ×0.7；NPC 徒步接戰距離 30m / 騎乘 15m |
+| 盾牌 | T1 10% / T2 15% / T3 20% 減傷；角色騎馬時會先套用盾牌減傷，再把傷害導向戰馬 |
+
+騎乘單位受到戰鬥傷害時，會先由戰馬承受傷害；戰馬死亡後 Rider 下馬，之後所有反騎判定都會依新的徒步狀態重新計算。
+
+### Combat 資料架構
+
+戰鬥數值刻意拆成明確的 Authoritative Single Source of Truth，避免再次把 magic numbers 散落在 Player / NPC / UI：
+
+- `src/rpg/WeaponDatabase.ts` — 武器基礎屬性與 `combatKind`。
+- `src/combat/CombatBalance.ts` — HP 預設值、倍率、射程、冷卻、Lance、Berserker 與 Mount Impact 規則。
+- `src/battle/UnitPresetCatalog.ts` — 各陣營兵種 Preset 與 T1 / T2 / T3 起始 Loadout。
+- `src/combat/DamageRouter.ts` — 共用盾牌減傷、Rider / Mount 傷害導向、死亡與下馬流程。
+- `src/combat/MountImpact.ts` — Player 與 NPC 騎兵共用的 swept-path 馬匹撞擊判定與傷害流程。
+
+核心 runtime 模型為：
+
+```text
+Unit + Faction + Current Equipment + Current Mount State + CombatBalance
+= Current Combat Behavior
+```
 
 ## 🏕️ 雙方營地
 
@@ -198,6 +248,11 @@ npm run preview
 - Vite
 - Vitest
 - Playwright
+
+## 🗺️ Roadmap
+
+- **T4 Elite 精英兵種 — 尚未實作。** 未來可加入具有陣營特色的 T4 Elite，例如持盾的 Viking **Varangian Captain 瓦良格隊長**，以及 Roman **Centurion 百夫長**。T4 的目標是增加新的精英戰場定位，而不是單純把 T3 數值往上堆。
+- 持續改善 200 vs 200 大型戰鬥的 AI 接戰、騎兵互動、角色動畫與 render-path performance。
 
 ## 🚧 專案狀態
 
