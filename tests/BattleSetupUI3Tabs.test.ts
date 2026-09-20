@@ -309,4 +309,61 @@ describe('BattleSetupUI 3 Tabs & Player HP', () => {
 
     ui.destroy()
   })
+
+  it('provides compact sub-tabs inside Tab 2 and toggles subpanels cleanly', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    const subBtns = container.querySelectorAll('.ref-subtab-btn')
+    expect(subBtns.length).toBe(5)
+
+    const balanceBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'balance')
+    const vikingBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'viking')
+    const romanBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'roman')
+    const weaponsBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'weapons')
+    const shieldsBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'shields')
+
+    expect(balanceBtn).toBeDefined()
+    expect(vikingBtn).toBeDefined()
+    expect(romanBtn).toBeDefined()
+    expect(weaponsBtn).toBeDefined()
+    expect(shieldsBtn).toBeDefined()
+
+    const subPanels = container.querySelectorAll('.ref-subpanel')
+    expect(subPanels.length).toBe(5)
+
+    const balancePanel = subPanels.find((p: any) => p.dataset.refSubpanel === 'balance')
+    const weaponsPanel = subPanels.find((p: any) => p.dataset.refSubpanel === 'weapons')
+
+    // Initial subtab is balance
+    expect(balanceBtn?.classList.contains('active')).toBe(true)
+    expect(balancePanel?.classList.contains('active')).toBe(true)
+    expect(weaponsBtn?.classList.contains('active')).toBe(false)
+    expect(weaponsPanel?.classList.contains('active')).toBe(false)
+
+    // Click weapons subtab
+    weaponsBtn?.click()
+    expect(weaponsBtn?.classList.contains('active')).toBe(true)
+    expect(weaponsPanel?.classList.contains('active')).toBe(true)
+    expect(balanceBtn?.classList.contains('active')).toBe(false)
+    expect(balancePanel?.classList.contains('active')).toBe(false)
+
+    ui.destroy()
+  })
+
+  it('removes technical IDs from weapons and shields reference tables and cards', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    const html = (domRegistry.get('battle-setup-container') as any).innerHTML
+
+    // ID column header should not exist
+    expect(html).not.toContain('<th>ID</th>')
+    // Technical IDs should not be wrapped in code blocks in reference tables
+    expect(html).not.toContain('<code>rusty_dagger</code>')
+    expect(html).not.toContain('<code>round_shield_t1</code>')
+    expect(html).not.toContain('<code>steel_lance</code>')
+
+    ui.destroy()
+  })
 })

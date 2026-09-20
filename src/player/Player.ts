@@ -105,6 +105,10 @@ export class Player {
   private stamina = MAX_STAMINA
   private isSprinting = false
   private pilumCooldownTimer = 0
+  private bowCooldownTimer = 0
+
+  get bowCooldown(): number { return this.bowCooldownTimer }
+  get pilumCooldown(): number { return this.pilumCooldownTimer }
 
   setMaxHp(value: number, resetCurrent = true): void {
     this.maxHp = value
@@ -568,7 +572,7 @@ export class Player {
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy || this.bowCooldownTimer > 0) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -576,7 +580,8 @@ export class Player {
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
-    this.animator.start('bowRelease')
+    if (!this.animator.start('bowRelease')) return
+    this.bowCooldownTimer = getRangedCooldown('bow')
     this.bowChargeTime = 0
   }
 
@@ -763,6 +768,9 @@ export class Player {
 
     if (this.pilumCooldownTimer > 0) {
       this.pilumCooldownTimer -= dt
+    }
+    if (this.bowCooldownTimer > 0) {
+      this.bowCooldownTimer -= dt
     }
 
     const isMounted = Boolean(this.isMounted && this.currentMount)

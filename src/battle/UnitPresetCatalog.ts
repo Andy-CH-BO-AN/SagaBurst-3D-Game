@@ -6,6 +6,7 @@
  */
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { ARMORS } from '../rpg/ArmorDatabase'
 
 export type UnitTier = 1 | 2 | 3
 
@@ -105,12 +106,12 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '弓兵',
     nameEn: 'Archer',
-    description: '諾德長弓手，擅長長距離射擊，近身切換長劍。',
+    description: '諾德長弓手，擅長長距離射擊，近身以短匕自衛。',
     traits: ['bow_fire'],
     tierLoadouts: {
       1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: null },
-      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null },
-      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
+      2: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null },
+      3: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
     },
   },
   viking_sword_cavalry: {
@@ -148,8 +149,8 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     traits: ['bow_fire'],
     tierLoadouts: {
       1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: 'horse' },
-      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
+      2: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
     },
   },
 
@@ -185,12 +186,12 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'roman',
     nameZh: '弓兵',
     nameEn: 'Archer',
-    description: '羅馬軍團弓箭手，提供長程遠程壓制火力。',
+    description: '羅馬軍團弓箭手，提供長程遠程壓制火力，近身以短劍自衛。',
     traits: ['bow_fire'],
     tierLoadouts: {
       1: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: null },
-      2: { meleeWeaponId: 'gladius_standard', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null },
-      3: { meleeWeaponId: 'centurion_blade', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
+      2: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null },
+      3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
     },
   },
   roman_javelin_infantry: {
@@ -198,12 +199,12 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'roman',
     nameZh: '標槍兵',
     nameEn: 'Javelin Infantry',
-    description: '羅馬軍團標槍步兵，投擲重標槍破壞敵陣。',
+    description: '羅馬軍團標槍步兵，投擲重標槍破壞敵陣，近身以短劍自衛。',
     traits: ['javelin_throw'],
     tierLoadouts: {
       1: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null, mountId: null },
-      2: { meleeWeaponId: 'gladius_standard', rangedWeaponId: 'pilum_standard', shieldId: null, mountId: null },
-      3: { meleeWeaponId: 'centurion_blade', rangedWeaponId: 'legionary_pilum', shieldId: null, mountId: null },
+      2: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_standard', shieldId: null, mountId: null },
+      3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'legionary_pilum', shieldId: null, mountId: null },
     },
   },
   roman_sword_cavalry: {
@@ -241,8 +242,8 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     traits: ['bow_fire'],
     tierLoadouts: {
       1: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: 'horse' },
-      2: { meleeWeaponId: 'gladius_standard', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'centurion_blade', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
+      2: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
     },
   },
 }
@@ -280,6 +281,6 @@ export function getTraitDescription(trait: UnitPresetTrait): string {
     case 'javelin_throw':
       return `標槍投擲（傷害 ×${COMBAT_BALANCE.javelin.damageMultiplier}、射速 ×${COMBAT_BALANCE.javelin.attackRateMultiplier}、徒步射程 ${COMBAT_BALANCE.javelin.footAttackRange}m / 騎乘 ${COMBAT_BALANCE.javelin.mountedAttackRange}m）`
     case 'shield_defense':
-      return '持盾防禦（大幅降低正面受到的近戰與遠程傷害）'
+      return `持盾防禦（持盾受傷減免：T1 ${Math.round(ARMORS.round_shield_t1.damageReduction * 100)}%、T2 ${Math.round(ARMORS.round_shield_t2.damageReduction * 100)}%、T3 ${Math.round(ARMORS.round_shield_t3.damageReduction * 100)}%）`
   }
 }

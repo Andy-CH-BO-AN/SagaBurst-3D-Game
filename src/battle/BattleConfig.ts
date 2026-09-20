@@ -5,7 +5,7 @@
 import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
   UnitPresetId,
@@ -30,21 +30,19 @@ export interface UnitTierCounts {
 }
 
 export type VikingArmyConfig = Partial<Record<VikingPresetId, UnitTierCounts>> & {
-  infantry?: UnitTierCounts
-  archer?: UnitTierCounts
-  cavalry?: UnitTierCounts
-  horseArcher?: UnitTierCounts
-  [key: string]: UnitTierCounts | undefined
+  readonly infantry?: UnitTierCounts
+  readonly archer?: UnitTierCounts
+  readonly cavalry?: UnitTierCounts
+  readonly horseArcher?: UnitTierCounts
 }
 
 export type RomanArmyConfig = Partial<Record<RomanPresetId, UnitTierCounts>> & {
-  infantry?: UnitTierCounts
-  archer?: UnitTierCounts
-  cavalry?: UnitTierCounts
-  horseArcher?: UnitTierCounts
-  [key: string]: UnitTierCounts | undefined
+  readonly infantry?: UnitTierCounts
+  readonly archer?: UnitTierCounts
+  readonly cavalry?: UnitTierCounts
+  readonly horseArcher?: UnitTierCounts
 }
-
+export type LegacyArmyConfig = Partial<Record<BattleUnitType, UnitTierCounts>>
 export type ArmyConfig = VikingArmyConfig | RomanArmyConfig
 
 export interface BattleRules {
@@ -162,19 +160,18 @@ export function attachArmyAliases(army: any, faction: CharacterFaction): any {
 }
 
 export function createEmptyVikingArmyConfig(): VikingArmyConfig {
-  const army = {
+  return attachArmyAliases({
     viking_berserker: { 1: 0, 2: 0, 3: 0 },
     viking_spearman: { 1: 0, 2: 0, 3: 0 },
     viking_archer: { 1: 0, 2: 0, 3: 0 },
     viking_sword_cavalry: { 1: 0, 2: 0, 3: 0 },
     viking_lancer: { 1: 0, 2: 0, 3: 0 },
     viking_horse_archer: { 1: 0, 2: 0, 3: 0 },
-  }
-  return attachArmyAliases(army, 'viking')
+  }, 'viking')
 }
 
 export function createEmptyRomanArmyConfig(): RomanArmyConfig {
-  const army = {
+  return attachArmyAliases({
     roman_heavy_infantry: { 1: 0, 2: 0, 3: 0 },
     roman_spearman: { 1: 0, 2: 0, 3: 0 },
     roman_archer: { 1: 0, 2: 0, 3: 0 },
@@ -182,8 +179,7 @@ export function createEmptyRomanArmyConfig(): RomanArmyConfig {
     roman_sword_cavalry: { 1: 0, 2: 0, 3: 0 },
     roman_lancer: { 1: 0, 2: 0, 3: 0 },
     roman_horse_archer: { 1: 0, 2: 0, 3: 0 },
-  }
-  return attachArmyAliases(army, 'roman')
+  }, 'roman')
 }
 
 export function createEmptyArmyConfig(faction?: CharacterFaction): any {
@@ -433,7 +429,11 @@ export function getUnitCombatProfile(
 
   const baseMeleeDamage = WEAPONS[meleeWeaponId]?.damageMax ?? (isUsingLance ? (tier === 1 ? 30 : tier === 2 ? 45 : 60) : 12)
   const finalMeleeDamage = baseMeleeDamage * lanceMultiplier
-  const rangedDamage = rangedWeaponId ? (WEAPONS[rangedWeaponId]?.damageMax ?? 22) : undefined
+  const baseRangedDamage = rangedWeaponId ? (WEAPONS[rangedWeaponId]?.damageMax ?? 22) : undefined
+  const rangedKind = getRangedCombatKind(rangedWeaponId)
+  const rangedDamage = baseRangedDamage !== undefined
+    ? baseRangedDamage * getRangedDamageMultiplier(rangedKind)
+    : undefined
 
   return {
     characterFaction,

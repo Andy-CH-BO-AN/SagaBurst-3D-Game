@@ -11,6 +11,7 @@ import {
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
@@ -318,7 +319,7 @@ export class Mount {
 
   canImpact(target: object, now: number): boolean {
     const lastImpact = this.impactTimes.get(target) ?? -Infinity
-    if (now - lastImpact < 0.6) return false
+    if (now - lastImpact < COMBAT_BALANCE.mountImpact.sameTargetCooldown) return false
     this.impactTimes.set(target, now)
     return true
   }

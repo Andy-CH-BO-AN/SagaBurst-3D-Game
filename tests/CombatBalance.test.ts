@@ -11,6 +11,9 @@ import {
   calculateLanceChargeDamage,
   calculateMountImpactDamage,
 } from '../src/combat/CombatBalance'
+import { UNIT_PRESETS } from '../src/battle/UnitPresetCatalog'
+import { ARMORS } from '../src/rpg/ArmorDatabase'
+import { damageNpc } from '../src/combat/DamageRouter'
 
 describe('CombatBalance SSOT & Pure Functions', () => {
   describe('A. Balance Constants', () => {
@@ -176,6 +179,123 @@ describe('CombatBalance SSOT & Pure Functions', () => {
     it('applies 1.5x sprint multiplier when sprinting', () => {
       // (8 + 10 * 1.5) * 1.5 = 23 * 1.5 = 34.5 -> 35
       expect(calculateMountImpactDamage(10, true)).toBe(35)
+    })
+  })
+
+  describe('G. Ranged Archetype Melee Fallback Fixed to T1', () => {
+    it('fixes Viking Archer and Mounted Archer melee weapons to T1 across all tiers', () => {
+      const archer = UNIT_PRESETS.viking_archer
+      expect(archer.tierLoadouts[1].meleeWeaponId).toBe('rusty_dagger')
+      expect(archer.tierLoadouts[2].meleeWeaponId).toBe('rusty_dagger')
+      expect(archer.tierLoadouts[3].meleeWeaponId).toBe('rusty_dagger')
+      expect(archer.tierLoadouts[1].rangedWeaponId).toBe('wooden_shortbow')
+      expect(archer.tierLoadouts[2].rangedWeaponId).toBe('recurve_longbow')
+      expect(archer.tierLoadouts[3].rangedWeaponId).toBe('elven_runebow')
+
+      const horseArcher = UNIT_PRESETS.viking_horse_archer
+      expect(horseArcher.tierLoadouts[1].meleeWeaponId).toBe('rusty_dagger')
+      expect(horseArcher.tierLoadouts[2].meleeWeaponId).toBe('rusty_dagger')
+      expect(horseArcher.tierLoadouts[3].meleeWeaponId).toBe('rusty_dagger')
+      expect(horseArcher.tierLoadouts[1].rangedWeaponId).toBe('wooden_shortbow')
+      expect(horseArcher.tierLoadouts[2].rangedWeaponId).toBe('recurve_longbow')
+      expect(horseArcher.tierLoadouts[3].rangedWeaponId).toBe('elven_runebow')
+    })
+
+    it('fixes Roman Archer, Javelin Infantry, and Mounted Archer melee weapons to T1 across all tiers', () => {
+      const archer = UNIT_PRESETS.roman_archer
+      expect(archer.tierLoadouts[1].meleeWeaponId).toBe('gladius_rusty')
+      expect(archer.tierLoadouts[2].meleeWeaponId).toBe('gladius_rusty')
+      expect(archer.tierLoadouts[3].meleeWeaponId).toBe('gladius_rusty')
+      expect(archer.tierLoadouts[1].rangedWeaponId).toBe('wooden_shortbow')
+      expect(archer.tierLoadouts[2].rangedWeaponId).toBe('recurve_longbow')
+      expect(archer.tierLoadouts[3].rangedWeaponId).toBe('elven_runebow')
+
+      const jav = UNIT_PRESETS.roman_javelin_infantry
+      expect(jav.tierLoadouts[1].meleeWeaponId).toBe('gladius_rusty')
+      expect(jav.tierLoadouts[2].meleeWeaponId).toBe('gladius_rusty')
+      expect(jav.tierLoadouts[3].meleeWeaponId).toBe('gladius_rusty')
+      expect(jav.tierLoadouts[1].rangedWeaponId).toBe('pilum_basic')
+      expect(jav.tierLoadouts[2].rangedWeaponId).toBe('pilum_standard')
+      expect(jav.tierLoadouts[3].rangedWeaponId).toBe('legionary_pilum')
+
+      const horseArcher = UNIT_PRESETS.roman_horse_archer
+      expect(horseArcher.tierLoadouts[1].meleeWeaponId).toBe('gladius_rusty')
+      expect(horseArcher.tierLoadouts[2].meleeWeaponId).toBe('gladius_rusty')
+      expect(horseArcher.tierLoadouts[3].meleeWeaponId).toBe('gladius_rusty')
+      expect(horseArcher.tierLoadouts[1].rangedWeaponId).toBe('wooden_shortbow')
+      expect(horseArcher.tierLoadouts[2].rangedWeaponId).toBe('recurve_longbow')
+      expect(horseArcher.tierLoadouts[3].rangedWeaponId).toBe('elven_runebow')
+    })
+  })
+
+  describe('H. Shield Damage Reduction for Rider and Horse', () => {
+    it('defines authoritative shield tier reductions: 10% (T1), 15% (T2), 20% (T3)', () => {
+      expect(ARMORS.round_shield_t1.damageReduction).toBe(0.10)
+      expect(ARMORS.round_shield_t2.damageReduction).toBe(0.15)
+      expect(ARMORS.round_shield_t3.damageReduction).toBe(0.20)
+
+      expect(ARMORS.scutum_t1.damageReduction).toBe(0.10)
+      expect(ARMORS.scutum_t2.damageReduction).toBe(0.15)
+      expect(ARMORS.scutum_t3.damageReduction).toBe(0.20)
+    })
+
+    it('DamageRouter applies shield reduction to Horse while mounted, and to Rider after dismount', () => {
+      let mountDamageTaken = 0
+      let npcDamageTaken = 0
+
+      const mockMount: any = {
+        dead: false,
+        currentHp: 200,
+        maxHp: 200,
+        mountDisplayName: '戰馬',
+        takeDamage: (amt: number) => {
+          mountDamageTaken = amt
+          return true
+        },
+      }
+
+      const mockNpc: any = {
+        name: 'TestNpc',
+        shieldId: 'round_shield_t2', // 15% reduction
+        isMounted: true,
+        mount: mockMount,
+        hpRatio: 1.0,
+        dismountFromMount: () => { mockNpc.isMounted = false },
+        takeDamage: (amt: number) => {
+          npcDamageTaken = amt
+          return true
+        },
+      }
+
+      // 1. Mounted with T2 shield: 100 incoming damage -> mount takes 85
+      damageNpc(mockNpc, 100)
+      expect(mountDamageTaken).toBe(85)
+      expect(npcDamageTaken).toBe(0)
+
+      // 2. Unmounted with T2 shield: 100 incoming damage -> NPC takes 85
+      mockNpc.isMounted = false
+      mockNpc.mount = null
+      damageNpc(mockNpc, 100)
+      expect(npcDamageTaken).toBe(85)
+
+      // 3. No shield: 100 incoming damage -> NPC takes full 100
+      mockNpc.shieldId = null
+      damageNpc(mockNpc, 100)
+      expect(npcDamageTaken).toBe(100)
+    })
+  })
+
+  describe('I. Bow Cadence & Impact Cooldown SSOT', () => {
+    it('verifies bow attack rate produces ~1.154s cadence and javelin ~2.143s', () => {
+      const bowCooldown = getRangedCooldown('bow')
+      expect(bowCooldown).toBeCloseTo(1.5 / 1.3, 3)
+
+      const javelinCooldown = getRangedCooldown('javelin')
+      expect(javelinCooldown).toBeCloseTo(1.5 / 0.7, 3)
+    })
+
+    it('mountImpact sameTargetCooldown is authoritative 0.6s', () => {
+      expect(COMBAT_BALANCE.mountImpact.sameTargetCooldown).toBe(0.6)
     })
   })
 })

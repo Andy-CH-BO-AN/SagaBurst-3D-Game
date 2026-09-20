@@ -1020,7 +1020,9 @@ export class Game {
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
-      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, spec.x, spec.z)
+      const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
+      const variant = horseVariantForStableKey(stableKey)
+      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, spec.x, spec.z, undefined, variant)
       npc.mountVehicle(mount)
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)

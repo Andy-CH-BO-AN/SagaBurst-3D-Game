@@ -112,15 +112,15 @@ describe('BattleConfig Domain & Validation', () => {
     const t1Bow = getUnitCombatProfile('viking', 'archer', 1)
     expect(t1Bow.aiType).toBe(AIType.RANGED)
     expect(t1Bow.rangedWeaponId).toBe('wooden_shortbow')
-    expect(t1Bow.rangedDamage).toBe(22)
+    expect(t1Bow.rangedDamage).toBe(11) // 22 * 0.5
 
     const t2Bow = getUnitCombatProfile('viking', 'archer', 2)
     expect(t2Bow.rangedWeaponId).toBe('recurve_longbow')
-    expect(t2Bow.rangedDamage).toBe(42)
+    expect(t2Bow.rangedDamage).toBe(21) // 42 * 0.5
 
     const t3Bow = getUnitCombatProfile('viking', 'archer', 3)
     expect(t3Bow.rangedWeaponId).toBe('elven_runebow')
-    expect(t3Bow.rangedDamage).toBe(75)
+    expect(t3Bow.rangedDamage).toBe(37.5) // 75 * 0.5
   })
 
   it('maps Roman Tier weapons and authoritative damage consistently', () => {
@@ -139,15 +139,15 @@ describe('BattleConfig Domain & Validation', () => {
     const t1Pilum = getUnitCombatProfile('roman', 'archer', 1)
     expect(t1Pilum.aiType).toBe(AIType.RANGED)
     expect(t1Pilum.rangedWeaponId).toBe('pilum_basic')
-    expect(t1Pilum.rangedDamage).toBe(22)
+    expect(t1Pilum.rangedDamage).toBe(33) // 22 * 1.5
 
     const t2Pilum = getUnitCombatProfile('roman', 'archer', 2)
     expect(t2Pilum.rangedWeaponId).toBe('pilum_standard')
-    expect(t2Pilum.rangedDamage).toBe(42)
+    expect(t2Pilum.rangedDamage).toBe(63) // 42 * 1.5
 
     const t3Pilum = getUnitCombatProfile('roman', 'archer', 3)
     expect(t3Pilum.rangedWeaponId).toBe('legionary_pilum')
-    expect(t3Pilum.rangedDamage).toBe(75)
+    expect(t3Pilum.rangedDamage).toBe(112.5) // 75 * 1.5
   })
 
   it('verifies Cavalry lance T1-T3 tier base damage (30/45/60) without 1.5x multiplier', () => {

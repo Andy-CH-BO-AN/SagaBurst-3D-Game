@@ -29,6 +29,7 @@ import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import {
   COMBAT_BALANCE,
   getRangedCombatKind,
+  getRangedDamageMultiplier,
   getNpcRangedAttackRange,
   getRangedCooldown,
   getAntiCavalryMultiplier,
@@ -248,7 +249,11 @@ export class NPC {
       const meleeData = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
       this.meleeDamage = meleeData?.damageMax ?? 20
       this.isUsingLance = meleeData?.combatKind === 'lance'
-      this.rangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
+      const baseRangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
+      const rangedKind = getRangedCombatKind(this.rangedWeaponId)
+      this.rangedDamage = this.rangedWeaponId
+        ? baseRangedDamage * getRangedDamageMultiplier(rangedKind)
+        : 0
       this.arrows = this.rangedWeaponId ? 30 : 0
     } else {
       const unitType: BattleUnitType = this.generatedAsCavalry

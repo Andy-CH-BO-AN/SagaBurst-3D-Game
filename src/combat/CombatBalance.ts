@@ -96,7 +96,8 @@ export function getNpcRangedAttackRange(kind: RangedCombatKind, isMounted: boole
 /**
  * Returns the damage multiplier for a ranged combat kind.
  */
-export function getRangedDamageMultiplier(kind: RangedCombatKind): number {
+export function getRangedDamageMultiplier(kind: RangedCombatKind | null | undefined): number {
+  if (!kind) return 1.0
   return COMBAT_BALANCE[kind].damageMultiplier
 }
 
@@ -105,7 +106,8 @@ export function getRangedDamageMultiplier(kind: RangedCombatKind): number {
  * Bow: 1.5 / 1.3 ≈ 1.1538s
  * Javelin: 1.5 / 0.7 ≈ 2.142857s
  */
-export function getRangedCooldown(kind: RangedCombatKind, baseCooldown = 1.5): number {
+export function getRangedCooldown(kind: RangedCombatKind | null | undefined, baseCooldown = 1.5): number {
+  if (!kind) return baseCooldown
   const rules = COMBAT_BALANCE[kind]
   return baseCooldown / rules.attackRateMultiplier
 }
