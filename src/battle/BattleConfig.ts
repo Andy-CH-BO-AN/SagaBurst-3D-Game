@@ -7,7 +7,7 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
 /** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
-export const MAX_CUSTOM_ARMY_SIZE = 100
+export const MAX_CUSTOM_ARMY_SIZE = 200
 /** DEV-only preset limit used by the fixed performance benchmark scenarios. */
 export const MAX_BENCHMARK_ARMY_SIZE = 200
 
@@ -227,7 +227,7 @@ function validateBattleConfigWithArmyLimit(
   return { valid: errors.length === 0, errors }
 }
 
-/** Validates untrusted production Custom Battle data. Never raises the 100-per-side UI limit. */
+/** Validates untrusted production Custom Battle data using the production army limit. */
 export function validateBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
   return validateBattleConfigWithArmyLimit(config, MAX_CUSTOM_ARMY_SIZE)
 }
@@ -360,6 +360,24 @@ export const PRESET_100V100: BattleConfig = {
     archer: { 1: 10, 2: 10, 3: 10 },
     cavalry: { 1: 5, 2: 10, 3: 5 },
     horseArcher: { 1: 5, 2: 10, 3: 5 },
+  },
+  rules: { respawnEnabled: false, includeCamps: true },
+}
+
+/** Standard Custom Battle preset: 200v200 mixed army with normal player gameplay rules. */
+export const PRESET_200V200: BattleConfig = {
+  mode: 'formation',
+  viking: {
+    infantry: { 1: 20, 2: 24, 3: 16 },
+    archer: { 1: 20, 2: 24, 3: 16 },
+    cavalry: { 1: 12, 2: 16, 3: 12 },
+    horseArcher: { 1: 12, 2: 16, 3: 12 },
+  },
+  roman: {
+    infantry: { 1: 20, 2: 24, 3: 16 },
+    archer: { 1: 20, 2: 24, 3: 16 },
+    cavalry: { 1: 12, 2: 16, 3: 12 },
+    horseArcher: { 1: 12, 2: 16, 3: 12 },
   },
   rules: { respawnEnabled: false, includeCamps: true },
 }

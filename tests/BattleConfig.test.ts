@@ -13,6 +13,7 @@ import {
   PRESET_25V25,
   PRESET_50V50,
   PRESET_100V100,
+  PRESET_200V200,
   PRESET_SCENARIO_A,
   PRESET_SCENARIO_B,
   PRESET_SCENARIO_C,
@@ -35,26 +36,41 @@ describe('BattleConfig Domain & Validation', () => {
     expect(calculateArmyTotal(army)).toBe(15)
   })
 
-  it('validates army counts strictly within 1 to 100 bounds', () => {
-    expect(MAX_CUSTOM_ARMY_SIZE).toBe(100)
+  it('validates Custom Battle army counts strictly within 1 to 200 bounds', () => {
+    expect(MAX_CUSTOM_ARMY_SIZE).toBe(200)
     expect(MAX_BENCHMARK_ARMY_SIZE).toBe(200)
 
-    const validConfig: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
-      roman: { ...createEmptyArmyConfig(), infantry: { 1: 100, 2: 0, 3: 0 } },
+    const valid200v200: BattleConfig = {
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 0, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
-    expect(validateBattleConfig(validConfig).valid).toBe(true)
+    expect(validateBattleConfig(valid200v200).valid).toBe(true)
+    expect(validateBattleConfig({
+      ...valid200v200,
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 1, 2: 0, 3: 0 } },
+    }).valid).toBe(true)
+    expect(validateBattleConfig({
+      ...valid200v200,
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 1, 2: 0, 3: 0 } },
+    }).valid).toBe(true)
 
-    // Over 100 rejection (101 units)
-    const overConfig: BattleConfig = {
-      viking: { ...createEmptyArmyConfig(), infantry: { 1: 101, 2: 0, 3: 0 } },
-      roman: { ...createEmptyArmyConfig(), infantry: { 1: 10, 2: 0, 3: 0 } },
+    const overViking: BattleConfig = {
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 201, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 0, 3: 0 } },
       rules: { respawnEnabled: false, includeCamps: true },
     }
-    const overResult = validateBattleConfig(overConfig)
-    expect(overResult.valid).toBe(false)
-    expect(overResult.errors.some(e => e.includes('exceeds'))).toBe(true)
+    expect(validateBattleConfig(overViking).valid).toBe(false)
+    expect(validateBattleConfig({
+      ...overViking,
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 201, 2: 0, 3: 0 } },
+    }).valid).toBe(false)
+    expect(validateBattleConfig({
+      ...overViking,
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 1, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 200, 2: 0, 3: 0 } },
+    }).valid).toBe(false)
 
     // Zero units rejection
     const zeroConfig: BattleConfig = {
@@ -186,6 +202,18 @@ describe('BattleConfig Domain & Validation', () => {
     expect(calculateArmyTotal(PRESET_100V100.roman)).toBe(100)
     expect(PRESET_100V100.rules.includeCamps).toBe(true)
 
+    expect(validateBattleConfig(PRESET_200V200).valid).toBe(true)
+    expect(calculateArmyTotal(PRESET_200V200.viking)).toBe(200)
+    expect(calculateArmyTotal(PRESET_200V200.roman)).toBe(200)
+    expect(PRESET_200V200.rules).toEqual({ respawnEnabled: false, includeCamps: true })
+    expect(PRESET_200V200.spectator).toBeUndefined()
+    for (const army of [PRESET_200V200.viking, PRESET_200V200.roman]) {
+      expect(army.infantry[1] + army.infantry[2] + army.infantry[3]).toBe(60)
+      expect(army.archer[1] + army.archer[2] + army.archer[3]).toBe(60)
+      expect(army.cavalry[1] + army.cavalry[2] + army.cavalry[3]).toBe(40)
+      expect(army.horseArcher[1] + army.horseArcher[2] + army.horseArcher[3]).toBe(40)
+    }
+
     // Developer Stress Scenarios A-D
     expect(validateBattleConfig(PRESET_SCENARIO_A).valid).toBe(true)
     expect(calculateArmyTotal(PRESET_SCENARIO_A.viking)).toBe(50)
@@ -208,9 +236,9 @@ describe('BattleConfig Domain & Validation', () => {
     expect(calculateArmyTotal(PRESET_DEVCOMBAT.roman)).toBe(50)
     expect(PRESET_DEVCOMBAT.rules.includeCamps).toBe(false)
 
-    // 200v200 DEV presets use an explicit benchmark validator; production validation remains 100/side.
+    // 200v200 DEV presets use an explicit benchmark validator while production now also permits 200/side.
     for (const preset of [PRESET_SCENARIO_G, PRESET_SCENARIO_H, PRESET_SCENARIO_I]) {
-      expect(validateBattleConfig(preset).valid).toBe(false)
+      expect(validateBattleConfig(preset).valid).toBe(true)
       expect(validateBenchmarkBattleConfig(preset).valid).toBe(true)
       expect(calculateArmyTotal(preset.viking)).toBe(200)
       expect(calculateArmyTotal(preset.roman)).toBe(200)
@@ -299,5 +327,6 @@ describe('BattleConfig Domain & Validation', () => {
     expect(PRESET_25V25.mode).toBe('formation')
     expect(PRESET_50V50.mode).toBe('formation')
     expect(PRESET_100V100.mode).toBe('formation')
+    expect(PRESET_200V200.mode).toBe('formation')
   })
 })

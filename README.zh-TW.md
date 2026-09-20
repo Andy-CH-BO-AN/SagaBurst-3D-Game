@@ -8,7 +8,7 @@
 
 ## ⚔️ Custom Battle 自訂戰役
 
-Viking 與 Roman 每方都可以配置 **1–100 名 AI 士兵**，雙方兵力不需要相同，也支援像 `1 vs 100`、`100 vs 1` 這種非對稱戰鬥。
+Viking 與 Roman 每方都可以配置 **1–200 名 AI 士兵**，雙方兵力不需要相同，也支援像 `1 vs 200`、`200 vs 1` 這種非對稱戰鬥。
 
 每個陣營都可以獨立配置四種兵種與三個 Tier：
 
@@ -21,7 +21,7 @@ Viking 與 Roman 每方都可以配置 **1–100 名 AI 士兵**，雙方兵力�
 
 所有兵種都支援 **T1 / T2 / T3**，不同 Tier 會使用對應強度的裝備與傷害數值。
 
-Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50**、**100 vs 100** 快速配置，也可以完全手動建立自己的軍隊組合。
+Setup UI 內建 **10 vs 10**、**25 vs 25**、**50 vs 50**、**100 vs 100**、**200 vs 200** 快速配置，也可以完全手動建立自己的軍隊組合。
 
 戰鬥部署模式與兵力 Preset 分開設定：
 
@@ -33,9 +33,9 @@ Player Faction 與兵力、部署模式分開設定：
 - **Viking Player** — Viking NPC 為友軍、Roman NPC 為敵軍；Formation Battle 從 Viking 的 +Z 側出生並面向 Roman 軍隊。
 - **Roman Player** — Roman NPC 為友軍、Viking NPC 為敵軍；Formation Battle 從 Roman 的 -Z 側出生並面向 Viking 軍隊。
 
-切換 10 vs 10～100 vs 100 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
+切換 10 vs 10～200 vs 200 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
 
-Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–100 名 AI 兵力，也不影響軍隊存活數判定**。
+Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–200 名 AI 兵力，也不影響軍隊存活數判定**。
 
 ### 戰鬥流程
 
@@ -203,6 +203,6 @@ npm run preview
 
 SagaBurst 目前仍是一個持續開發中的 3D 動作 RPG 原型，核心方向包含大規模 AI 戰鬥、近戰與遠程戰鬥、騎乘系統、裝備成長，以及瀏覽器中的 3D 角色與動畫系統。
 
-目前已支援最高 **100 vs 100 AI** 的戰鬥，包含步兵、遠程單位、騎兵與騎射手，並提供三個裝備 Tier。
+目前已支援從 **1 vs 1 到最高 200 vs 200 AI** 的 Custom Battle，包含步兵、遠程單位、騎兵與騎射手，並提供三個裝備 Tier。
 
 目前開發重點會持續放在戰鬥行為、角色動畫、大型戰鬥 render performance，以及 Custom Battle 體驗。

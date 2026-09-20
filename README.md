@@ -8,7 +8,7 @@ The current gameplay entry point is **Custom Battle**: configure Viking and Roma
 
 ## ⚔️ Custom Battle
 
-Each side can field **1–100 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 100` or `100 vs 1`.
+Each side can field **1–200 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 200` or `200 vs 1`.
 
 Each faction can be configured independently across four unit roles and three tiers:
 
@@ -21,7 +21,7 @@ Each faction can be configured independently across four unit roles and three ti
 
 Every unit role supports **T1 / T2 / T3**. Higher tiers use stronger faction-appropriate equipment and damage values.
 
-Quick presets are available for **10 vs 10**, **25 vs 25**, **50 vs 50**, and **100 vs 100**, or you can build an army manually with the setup controls.
+Quick presets are available for **10 vs 10**, **25 vs 25**, **50 vs 50**, **100 vs 100**, and **200 vs 200**, or you can build an army manually with the setup controls.
 
 Battle deployment is selected independently from army size:
 
@@ -35,7 +35,7 @@ Player faction is selected independently from army composition and deployment mo
 
 Changing an army preset only changes army composition; it preserves the selected **Battle Mode**, **Player Faction**, **Player Loadout**, and **Spectator** setting.
 
-The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–100 AI troop total or the army-survival victory count.
+The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–200 AI troop total or the army-survival victory count.
 
 ### Battle flow
 
@@ -203,6 +203,6 @@ npm run preview
 
 SagaBurst is an actively evolving 3D action RPG prototype focused on large AI battles, melee and ranged combat, mounted gameplay, equipment progression, and browser-based 3D character systems.
 
-The game currently supports battles up to **100 vs 100 AI troops**, including infantry, ranged units, cavalry, and mounted ranged units across three equipment tiers.
+The game currently supports Custom Battles from **1 vs 1 up to 200 vs 200 AI troops**, including infantry, ranged units, cavalry, and mounted ranged units across three equipment tiers.
 
 Current development is centered on improving combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
