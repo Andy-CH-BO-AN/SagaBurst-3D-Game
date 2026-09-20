@@ -118,7 +118,13 @@ import { CompassUI } from './ui/CompassUI'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
-import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
+import {
+  COMBAT_BALANCE,
+  calculateLanceChargeDamage,
+  calculateMountImpactDamage,
+  getAntiCavalryMultiplier,
+  getBerserkerModifiers,
+} from './combat/CombatBalance'
 import { WeaponPickup } from './world/WeaponPickup'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
@@ -507,6 +513,9 @@ export class Game {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
     }
 
+    const initialPlayerHp = activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+    this.player.setMaxHp(initialPlayerHp, true)
+
     const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
     if (isInitialSpectator) {
       this.player.spectatorOnly = true
@@ -582,6 +591,7 @@ export class Game {
     // ── RPG Systems & Inventory ──
     this.staminaBar       = new StaminaBar()
     this.hpBar            = new HpBar()
+    this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
@@ -1006,14 +1016,17 @@ export class Game {
       spec.name,
       spec.tier,
       spec.cavalry,
+      spec.loadout,
     )
     npc.respawnEnabled = spec.respawnEnabled
+    if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
+      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, spec.x, spec.z)
+      npc.mountVehicle(mount)
+      this.mounts.push(mount)
+      this._aimTargetRegistry.registerMount(mount)
+    }
     this.npcs.push(npc)
     this._aimTargetRegistry.registerNpc(npc)
-    if (npc.mount) {
-      this.mounts.push(npc.mount)
-      this._aimTargetRegistry.registerMount(npc.mount)
-    }
     return npc
   }
 
@@ -1293,7 +1306,7 @@ export class Game {
     // 1. Restore player stats, position, skills & inventory first
     this.player.setPosition(data.position.x, data.position.y, data.position.z)
     this.player.setStamina(data.stamina)
-    this.player.setHp(data.hp ?? 100)
+    this.player.setHp(data.hp ?? COMBAT_BALANCE.hp.playerDefault)
     this.player.setArrowCount(data.arrows ?? 30)
 
     if (data.skills) {
@@ -1437,10 +1450,10 @@ export class Game {
   // ── Shared: Lance Charge Bonus (C-5) ──
   /** Returns the final damage after applying lance charge multiplier.
    *  Also sets skipImpactThisFrame on the player's mount if charging. */
-  private _applyLanceChargeBonus(isLance: boolean, baseDamage: number): number {
+  private _applyLanceChargeBonus(combatKind: string | undefined, isLance: boolean, baseDamage: number): number {
     const mount = this.player.isMounted ? this.player.currentMount : null
     const speed = mount ? mount.movementSpeed : 0
-    const result = calculateLanceChargeDamage(isLance, speed, baseDamage)
+    const result = calculateLanceChargeDamage(baseDamage, combatKind ?? (isLance ? 'lance' : 'sword'), this.player.isMounted, speed)
     if (mount && result.skipImpact) {
       mount.skipImpactThisFrame = true
     }
@@ -1458,11 +1471,19 @@ export class Game {
       return
     }
 
-    let baseDamage = equippedMelee.damageMax
-    baseDamage = this._applyLanceChargeBonus(equippedMelee.isLance === true, baseDamage)
-    const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
+    const combatKind = equippedMelee.combatKind ?? (equippedMelee.isLance ? 'lance' : 'sword')
+    const berserker = getBerserkerModifiers(
+      this.player.characterFaction,
+      this.player.isMounted,
+      combatKind,
+      this.player.hasShield
+    )
 
-    if (equippedMelee.isLance) {
+    let baseDamage = equippedMelee.damageMax
+    baseDamage = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
+    const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
+
+    if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()
       const prevTipPos = this.player.hasPrevLanceTip ? this.player.prevLanceTipPos : currTipPos
       const currGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
@@ -1488,10 +1509,12 @@ export class Game {
 
           if (minDSq <= hitTolerance * hitTolerance) {
             this.player.markHitProcessed()
-            const result = damageNpc(npc, damage)
+            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
+            const finalDamage = Math.round(damage * antiCav)
+            const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter.clone())
+              this.damageNumbers.spawn(finalDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
             }
@@ -1511,10 +1534,12 @@ export class Game {
           const hitThreshold = resolveMeleeHitThreshold(baseRange, npc.isMounted)
           if (swordTipPos.distanceTo(aiCenter) <= hitThreshold) {
             this.player.markHitProcessed()
-            const result = damageNpc(npc, damage)
+            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
+            const finalDamage = Math.round(damage * antiCav)
+            const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter)
+              this.damageNumbers.spawn(finalDamage, aiCenter)
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
             }
@@ -1703,9 +1728,11 @@ export class Game {
 
     const applyImpactDamage = (mount: Mount, target: any, targetPos: THREE.Vector3, onHit: (damage: number) => void): void => {
       if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return
-      if (mount.movementSpeed > 4 && mount.canImpact(target, now)) {
-        const damage = Math.round(8 + mount.movementSpeed * 1.5 * (mount.isSprinting ? 1.5 : 1.0))
-        onHit(damage)
+      if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
+        const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
+        if (damage > 0) {
+          onHit(damage)
+        }
       }
     }
 

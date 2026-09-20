@@ -6,12 +6,18 @@
 import { Faction, AIType } from '../world/NPC'
 import {
   BattleConfig,
-  BattleUnitType,
   UnitTier,
   ArmyConfig,
+  normalizeArmyConfig,
 } from './BattleConfig'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
+import {
+  UNIT_PRESETS,
+  resolveUnitLoadout,
+  type UnitLoadout,
+  type UnitPresetId,
+} from './UnitPresetCatalog'
 
 export interface NpcSpawnSpec {
   x: number
@@ -23,6 +29,8 @@ export interface NpcSpawnSpec {
   tier: UnitTier
   cavalry: boolean
   respawnEnabled: boolean
+  presetId?: UnitPresetId
+  loadout?: UnitLoadout
 }
 
 export interface CampPickupSpec {
@@ -78,9 +86,13 @@ export interface BattleSpawnPlan {
 }
 
 interface UnitInstance {
-  type: BattleUnitType
+  presetId: UnitPresetId
+  presetName: string
   tier: UnitTier
   index: number
+  cavalry: boolean
+  aiType: AIType
+  loadout: UnitLoadout
 }
 
 interface PendingNpc {
@@ -91,6 +103,8 @@ interface PendingNpc {
   tier: UnitTier
   cavalry: boolean
   respawnEnabled: boolean
+  presetId?: UnitPresetId
+  loadout?: UnitLoadout
 }
 
 export class BattleSpawner {
@@ -141,8 +155,8 @@ export class BattleSpawner {
     const playerFaction: CharacterFaction = config.playerFaction ?? 'viking'
     const vikingAllegiance = allegianceFor('viking', playerFaction)
     const romanAllegiance = allegianceFor('roman', playerFaction)
-    const vikingExpanded = this._expandArmy(config.viking)
-    const romanExpanded = this._expandArmy(config.roman)
+    const vikingExpanded = this._expandArmy(config.viking, 'viking')
+    const romanExpanded = this._expandArmy(config.roman, 'roman')
 
     const buildPending = (
       expanded: ReturnType<typeof BattleSpawner._expandArmy>,
@@ -153,50 +167,26 @@ export class BattleSpawner {
       const prefix = isViking ? 'Viking' : 'Roman'
       const list: PendingNpc[] = []
 
-      for (const u of expanded.infantry) {
-        list.push({
-          characterFaction,
-          faction,
-          aiType: AIType.MELEE,
-          name: `${prefix} T${u.tier} Infantry ${u.index}`,
-          tier: u.tier,
-          cavalry: false,
-          respawnEnabled: respawn,
-        })
+      const addGroup = (group: UnitInstance[]) => {
+        for (const u of group) {
+          list.push({
+            characterFaction,
+            faction,
+            aiType: u.aiType,
+            name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
+            tier: u.tier,
+            cavalry: u.cavalry,
+            respawnEnabled: respawn,
+            presetId: u.presetId,
+            loadout: u.loadout,
+          })
+        }
       }
-      for (const u of expanded.archer) {
-        list.push({
-          characterFaction,
-          faction,
-          aiType: AIType.RANGED,
-          name: `${prefix} T${u.tier} Archer ${u.index}`,
-          tier: u.tier,
-          cavalry: false,
-          respawnEnabled: respawn,
-        })
-      }
-      for (const u of expanded.cavalry) {
-        list.push({
-          characterFaction,
-          faction,
-          aiType: AIType.MELEE,
-          name: `${prefix} T${u.tier} Lancer ${u.index}`,
-          tier: u.tier,
-          cavalry: true,
-          respawnEnabled: respawn,
-        })
-      }
-      for (const u of expanded.horseArcher) {
-        list.push({
-          characterFaction,
-          faction,
-          aiType: AIType.RANGED,
-          name: `${prefix} T${u.tier} Horse Archer ${u.index}`,
-          tier: u.tier,
-          cavalry: true,
-          respawnEnabled: respawn,
-        })
-      }
+
+      addGroup(expanded.infantry)
+      addGroup(expanded.archer)
+      addGroup(expanded.cavalry)
+      addGroup(expanded.horseArcher)
       return list
     }
 
@@ -277,6 +267,8 @@ export class BattleSpawner {
         tier: pending.tier,
         cavalry: pending.cavalry,
         respawnEnabled: pending.respawnEnabled,
+        presetId: pending.presetId,
+        loadout: pending.loadout,
       })
     }
 
@@ -298,30 +290,65 @@ export class BattleSpawner {
     }
   }
 
-  private static _expandArmy(army: ArmyConfig): {
+  private static _expandArmy(army: ArmyConfig, faction: CharacterFaction): {
     infantry: UnitInstance[]
     archer: UnitInstance[]
     cavalry: UnitInstance[]
     horseArcher: UnitInstance[]
   } {
-    const expand = (type: BattleUnitType): UnitInstance[] => {
-      const list: UnitInstance[] = []
-      const counts = army[type]
-      let idx = 1
+    const infantry: UnitInstance[] = []
+    const archer: UnitInstance[] = []
+    const cavalry: UnitInstance[] = []
+    const horseArcher: UnitInstance[] = []
+
+    const normalized = normalizeArmyConfig(army, faction)
+    let idx = 1
+
+    for (const [presetKey, tierCounts] of Object.entries(normalized)) {
+      const presetId = presetKey as UnitPresetId
+      const preset = UNIT_PRESETS[presetId]
+      const presetName = preset?.nameEn ?? presetKey
+
       for (const tier of [1, 2, 3] as UnitTier[]) {
-        const count = counts[tier] || 0
+        const count = tierCounts[tier] || 0
+        const loadout = resolveUnitLoadout(presetId, tier)
+        const isMounted = Boolean(loadout.mountId)
+        const hasRanged = Boolean(loadout.rangedWeaponId)
+        const aiType = hasRanged ? AIType.RANGED : AIType.MELEE
+
         for (let i = 0; i < count; i++) {
-          list.push({ type, tier, index: idx++ })
+          const unit: UnitInstance = {
+            presetId,
+            presetName,
+            tier,
+            index: idx++,
+            cavalry: isMounted,
+            aiType,
+            loadout,
+          }
+
+          if (isMounted) {
+            if (hasRanged) {
+              horseArcher.push(unit)
+            } else {
+              cavalry.push(unit)
+            }
+          } else {
+            if (hasRanged) {
+              archer.push(unit)
+            } else {
+              infantry.push(unit)
+            }
+          }
         }
       }
-      return list
     }
 
     return {
-      infantry: expand('infantry'),
-      archer: expand('archer'),
-      cavalry: expand('cavalry'),
-      horseArcher: expand('horseArcher'),
+      infantry,
+      archer,
+      cavalry,
+      horseArcher,
     }
   }
 
@@ -341,7 +368,7 @@ export class BattleSpawner {
     const zSign = isViking ? 1 : -1
     const prefix = isViking ? 'Viking' : 'Roman'
     const playerSpawn = isViking ? VIKING_PLAYER_SPAWN : ROMAN_PLAYER_SPAWN
-    const units = this._expandArmy(army)
+    const units = this._expandArmy(army, characterFaction)
     const specs: NpcSpawnSpec[] = []
 
     // ── 1. Infantry Formation (Center Frontline) ──
@@ -370,11 +397,13 @@ export class BattleSpawner {
           z: Math.round(z * 100) / 100,
           characterFaction,
           faction,
-          aiType: AIType.MELEE,
-          name: `${prefix} T${u.tier} Infantry ${u.index}`,
+          aiType: u.aiType,
+          name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
           tier: u.tier,
           cavalry: false,
           respawnEnabled,
+          presetId: u.presetId,
+          loadout: u.loadout,
         })
       }
     }
@@ -403,11 +432,13 @@ export class BattleSpawner {
         z: Math.round(z * 100) / 100,
         characterFaction,
         faction,
-        aiType: AIType.RANGED,
-        name: `${prefix} T${u.tier} Archer ${u.index}`,
+        aiType: u.aiType,
+        name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
         tier: u.tier,
         cavalry: false,
         respawnEnabled,
+        presetId: u.presetId,
+        loadout: u.loadout,
       })
     }
 
@@ -433,9 +464,7 @@ export class BattleSpawner {
 
     const placeWingUnits = (
       unitList: UnitInstance[],
-      wingBaseX: number,
-      aiType: AIType,
-      unitLabel: string
+      wingBaseX: number
     ) => {
       for (let i = 0; i < unitList.length; i++) {
         const u = unitList[i]
@@ -452,17 +481,19 @@ export class BattleSpawner {
           z: Math.round(z * 100) / 100,
           characterFaction,
           faction,
-          aiType,
-          name: `${prefix} T${u.tier} ${unitLabel} ${u.index}`,
+          aiType: u.aiType,
+          name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
           tier: u.tier,
           cavalry: true,
           respawnEnabled,
+          presetId: u.presetId,
+          loadout: u.loadout,
         })
       }
     }
 
-    placeWingUnits(units.cavalry, cavalryBaseX, AIType.MELEE, 'Lancer')
-    placeWingUnits(units.horseArcher, horseArcherBaseX, AIType.RANGED, 'Horse Archer')
+    placeWingUnits(units.cavalry, cavalryBaseX)
+    placeWingUnits(units.horseArcher, horseArcherBaseX)
 
     // Relaxation to strictly guarantee >= 2.0m spacing between all friendly units and clearance from player
     const MIN_FRIENDLY_SPAWN_SPACING = 2.05

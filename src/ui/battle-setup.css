@@ -579,6 +579,182 @@
 .starting-state-card.selected { color: #ffe0a0; background: #352719; border-color: #d4af37; box-shadow: inset 0 0 16px rgba(212,175,55,.11); }
 .starting-state-card.selected i { display: block; }
 
+/* ── Reference Panel (Tab 2) ── */
+.reference-page {
+  width: min(1180px, 100%);
+  max-width: 1180px;
+  background: rgba(18, 14, 11, 0.95);
+  border: 1px solid #4a3e31;
+  border-radius: 6px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.reference-panel-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid #4a3e31;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+}
+.reference-panel-heading h2 {
+  font-size: 20px;
+  letter-spacing: 0.15em;
+  color: #e5c386;
+  margin: 0;
+}
+.reference-panel-heading span {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #8c7b65;
+}
+
+.reference-section {
+  margin-bottom: 24px;
+}
+.reference-section-title {
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  color: #d4af37;
+  border-bottom: 1px solid #35291f;
+  padding-bottom: 6px;
+  margin: 0 0 14px 0;
+  text-transform: uppercase;
+}
+
+.balance-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.balance-rule-card {
+  background: #191410;
+  border: 1px solid #3d3126;
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+.balance-rule-card h4 {
+  font-size: 13px;
+  color: #f1c40f;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.08em;
+}
+.balance-rule-card p {
+  font-size: 11px;
+  color: #b5a492;
+  margin: 3px 0;
+  line-height: 1.4;
+}
+.balance-rule-card b {
+  color: #ffe0a0;
+}
+
+.reference-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.reference-preset-card {
+  background: #17130f;
+  border: 1px solid #3d3126;
+  border-radius: 4px;
+  padding: 12px;
+}
+.reference-preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.reference-preset-header h4 {
+  font-size: 14px;
+  color: #f1c40f;
+  margin: 0;
+}
+.reference-preset-type {
+  font-size: 10px;
+  color: #8c7b65;
+  letter-spacing: 0.1em;
+}
+.reference-preset-desc {
+  font-size: 11px;
+  color: #a89a84;
+  margin: 0 0 8px 0;
+}
+.reference-preset-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.reference-trait-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  background: #251e18;
+  border: 1px solid #4a3a2d;
+  border-radius: 3px;
+  color: #d8c29d;
+}
+.reference-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid #2a2119;
+  padding-top: 6px;
+  font-size: 10px;
+}
+.reference-tier-row {
+  color: #b5a492;
+}
+.reference-tier-row b {
+  color: #f1c40f;
+  margin-right: 4px;
+}
+
+.reference-weapons-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.reference-weapons-table th,
+.reference-weapons-table td {
+  padding: 8px 10px;
+  border: 1px solid #33271d;
+  text-align: left;
+}
+.reference-weapons-table th {
+  background: #201913;
+  color: #cbb493;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+.reference-weapons-table tr:nth-child(even) {
+  background: #15100c;
+}
+.reference-weapons-table tr:nth-child(odd) {
+  background: #191410;
+}
+.reference-weapons-table code {
+  color: #e5c386;
+}
+
+/* ── Player HP Control ── */
+.player-hp-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.player-hp-control label {
+  font-size: 13px;
+  color: #c9baa8;
+}
+.player-hp-input {
+  width: 100px;
+  text-align: center;
+}
+
 .setup-actions { width: min(1180px, 100%); margin-top: 22px; padding-top: 18px; border-top: 1px solid #3e3025; }
 .spectator-toggle-label { padding: 10px 14px; border: 1px solid #493b2f; background: rgba(22,17,13,.72); font-size: 13px; }
 .start-btn { display: flex; min-width: 230px; flex-direction: column; align-items: center; gap: 3px; padding: 11px 38px; }

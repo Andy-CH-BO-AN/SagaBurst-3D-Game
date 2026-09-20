@@ -71,10 +71,10 @@ describe('Permanent Player Death & Spectator Camera', () => {
       player.spawnZ = 0
 
       expect(player.dead).toBe(false)
-      expect(player.hp).toBe(100)
+      expect(player.hp).toBe(200)
 
       // Apply fatal damage
-      const hit = player.takeDamage(150, mockHpBar)
+      const hit = player.takeDamage(250, mockHpBar)
       expect(hit).toBe(true)
       expect(player.dead).toBe(true)
       expect(player.hp).toBe(0)
@@ -359,7 +359,7 @@ describe('Permanent Player Death & Spectator Camera', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene)
       const mockHpBar = { setFill: vi.fn() } as any
-      player.takeDamage(100, mockHpBar)
+      player.takeDamage(250, mockHpBar)
       expect(player.dead).toBe(true)
 
       const initialPos = player.position.clone()

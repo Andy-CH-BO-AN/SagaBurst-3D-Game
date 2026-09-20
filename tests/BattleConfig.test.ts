@@ -150,24 +150,28 @@ describe('BattleConfig Domain & Validation', () => {
     expect(t3Pilum.rangedDamage).toBe(75)
   })
 
-  it('calculates Cavalry lance 1.5x damage tier scaling accurately', () => {
+  it('verifies Cavalry lance T1-T3 tier base damage (30/45/60) without 1.5x multiplier', () => {
     const t1Cav = getUnitCombatProfile('viking', 'cavalry', 1)
     expect(t1Cav.cavalry).toBe(true)
     expect(t1Cav.isUsingLance).toBe(true)
-    expect(t1Cav.baseMeleeDamage).toBe(12)
-    expect(t1Cav.finalMeleeDamage).toBe(18) // 12 * 1.5
+    expect(t1Cav.meleeWeaponId).toBe('hunting_spear')
+    expect(t1Cav.baseMeleeDamage).toBe(30)
+    expect(t1Cav.finalMeleeDamage).toBe(30) // Base weapon damage, no 1.5x
 
     const t2Cav = getUnitCombatProfile('viking', 'cavalry', 2)
-    expect(t2Cav.baseMeleeDamage).toBe(25)
-    expect(t2Cav.finalMeleeDamage).toBe(37.5) // 25 * 1.5
+    expect(t2Cav.meleeWeaponId).toBe('steel_lance')
+    expect(t2Cav.baseMeleeDamage).toBe(45)
+    expect(t2Cav.finalMeleeDamage).toBe(45) // Base weapon damage, no 1.5x
 
     const t3Cav = getUnitCombatProfile('viking', 'cavalry', 3)
-    expect(t3Cav.baseMeleeDamage).toBe(45)
-    expect(t3Cav.finalMeleeDamage).toBe(67.5) // 45 * 1.5
+    expect(t3Cav.meleeWeaponId).toBe('heavy_lance')
+    expect(t3Cav.baseMeleeDamage).toBe(60)
+    expect(t3Cav.finalMeleeDamage).toBe(60) // Base weapon damage, no 1.5x
 
     // Roman side identical scaling
     const t3RomanCav = getUnitCombatProfile('roman', 'cavalry', 3)
-    expect(t3RomanCav.finalMeleeDamage).toBe(67.5)
+    expect(t3RomanCav.meleeWeaponId).toBe('heavy_lance')
+    expect(t3RomanCav.finalMeleeDamage).toBe(60)
   })
 
   it('verifies Horse Archer mapping is RANGED + cavalry', () => {

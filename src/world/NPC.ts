@@ -20,13 +20,23 @@ import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
 import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
-import { DEFAULT_MOUNT_TYPE, Mount } from './Mount'
-import { horseVariantForStableKey } from './HorseAssetRegistry'
+import { Mount } from './Mount'
 import { EquipmentVisualLODController } from './EquipmentVisualLODController'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
 import { getDirectionalMovementFromVector, getEffectiveSpeedMultiplier } from '../movement/DirectionalMovement'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
+import {
+  COMBAT_BALANCE,
+  getRangedCombatKind,
+  getNpcRangedAttackRange,
+  getRangedCooldown,
+  getAntiCavalryMultiplier,
+  getBerserkerModifiers,
+  calculateLanceChargeDamage,
+} from '../combat/CombatBalance'
+import type { UnitLoadout } from '../battle/UnitPresetCatalog'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -47,13 +57,11 @@ export enum AIType {
 }
 
 const DETECTION_RADIUS = 300.0
-const RANGED_ATTACK_MAX = 22.0
 const RANGED_ATTACK_MIN = 6.0
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 
 const CHASE_SPEED      = 4.8
 const PATROL_SPEED     = 2.2
-const RANGED_COOLDOWN  = 1.5
 const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
 
@@ -92,6 +100,24 @@ export class NPC {
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
+  public meleeWeaponId: string | null = 'steel_sword'
+  public rangedWeaponId?: string
+  public loadout?: UnitLoadout
+
+  get meleeCombatKind(): 'sword' | 'lance' {
+    const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
+    return w?.combatKind === 'lance' ? 'lance' : 'sword'
+  }
+
+  get rangedCombatKind(): 'bow' | 'javelin' | null {
+    return getRangedCombatKind(this.rangedWeaponId)
+  }
+
+  get maxRangedAttackDistance(): number {
+    const kind = this.rangedCombatKind
+    if (!kind) return 22.0
+    return getNpcRangedAttackRange(kind, this.isMounted)
+  }
 
   private bodyMesh: THREE.Group
   private headMesh: THREE.Mesh
@@ -116,8 +142,8 @@ export class NPC {
   private _isFlashing = false
   private _flashTargets: Array<{ mesh: THREE.Mesh; originalMat: THREE.Material | THREE.Material[] }> = []
 
-  readonly maxHp = 120
-  private currentHp = 120
+  readonly maxHp: number = COMBAT_BALANCE.hp.npcDefault
+  private currentHp: number = COMBAT_BALANCE.hp.npcDefault
 
   private state: AIState = AIState.IDLE
   private alertTimer = 0
@@ -202,6 +228,7 @@ export class NPC {
     name: string,
     tier: 1 | 2 | 3,
     cavalry?: boolean,
+    loadout?: UnitLoadout,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -210,25 +237,34 @@ export class NPC {
     this.aiType = aiType
     this.name = name
     this.tier = tier
-    this.generatedAsCavalry = cavalry ?? Math.random() < 0.4
+    this.loadout = loadout
+    this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
-    if (this.aiType === AIType.RANGED) {
-      this.arrows = 30
+    if (loadout) {
+      this.meleeWeaponId = loadout.meleeWeaponId ?? null
+      this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
+      this.shieldId = loadout.shieldId ?? null
+      const meleeData = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
+      this.meleeDamage = meleeData?.damageMax ?? 20
+      this.isUsingLance = meleeData?.combatKind === 'lance'
+      this.rangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
+      this.arrows = this.rangedWeaponId ? 30 : 0
     } else {
-      this.arrows = 0
+      const unitType: BattleUnitType = this.generatedAsCavalry
+        ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
+        : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
+      const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier)
+
+      this.meleeWeaponId = combatProfile.meleeWeaponId
+      this.rangedWeaponId = combatProfile.rangedWeaponId
+      this.meleeDamage = combatProfile.finalMeleeDamage
+      this.rangedDamage = combatProfile.rangedDamage ?? 0
+      this.isUsingLance = combatProfile.isUsingLance
+      this.shieldId = combatProfile.shieldId
+      this.arrows = this.aiType === AIType.RANGED ? 30 : 0
     }
 
-    // Assign authoritative combat profile & damages from BattleConfig
-    const unitType: BattleUnitType = this.generatedAsCavalry
-      ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
-      : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
-    const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier)
-
-    this.meleeDamage = combatProfile.finalMeleeDamage
-    this.rangedDamage = combatProfile.rangedDamage ?? 0
-    this.isUsingLance = combatProfile.isUsingLance
-    this.shieldId = combatProfile.shieldId
     if (this.isUsingLance) {
       this.meleeAttackRadius = 3.9
     }
@@ -288,12 +324,18 @@ export class NPC {
     this.bowPivot = new THREE.Group()
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
-    if (this.characterFaction === 'roman') {
+    const rangedKind = this.rangedCombatKind
+    if (rangedKind === 'javelin') {
       applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
       this.rig.right.handSocket.add(this.bowPivot)
+      WeaponMeshFactory.buildNpcRanged(this.characterFaction, this.tier, this.bowGripPivot)
     } else {
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
+      if (rangedKind === 'bow') {
+        this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+        this.bowVisual.rebuild(this.rangedWeaponId || 'wooden_shortbow', true)
+      }
     }
 
     this.shieldPivot = new THREE.Group()
@@ -309,6 +351,7 @@ export class NPC {
         this.aiType === AIType.RANGED ? 1 : this.tier,
         this.isUsingLance,
         this.swordGripPivot,
+        this.meleeWeaponId ?? undefined,
       ),
     )
     this.swordGripPivot.position.set(0, 0, 0)
@@ -316,12 +359,6 @@ export class NPC {
     if (this.rig.equipmentGripFrames && this.isUsingLance) applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     if (this.rig.swordGripFrame && !this.isUsingLance) {
       applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
-    }
-    if (this.characterFaction === 'viking') {
-      this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-      this.bowVisual.rebuild(combatProfile.rangedWeaponId || 'wooden_shortbow', true)
-    } else {
-      WeaponMeshFactory.buildNpcRanged(this.characterFaction, this.tier, this.bowGripPivot)
     }
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
@@ -339,7 +376,7 @@ export class NPC {
 
     this.rebuildShield()
     this.equipmentVisualLOD.register(this.isUsingLance ? 'lance' : 'sword', this.swordGripPivot)
-    this.equipmentVisualLOD.register(this.bowVisual ? 'bow' : 'pilum', this.bowGripPivot)
+    this.equipmentVisualLOD.register(rangedKind === 'javelin' ? 'pilum' : 'bow', this.bowGripPivot)
     // Equipment proxies are siblings of this LOD, so its render-time selection
     // reaches the detail children before the renderer submits those proxies.
     const humanoidLOD = this.bodyMesh.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)
@@ -353,13 +390,13 @@ export class NPC {
 
     this.group.position.copy(basePos)
     scene.add(this.group)
+  }
 
-    if (this.generatedAsCavalry) {
-      const horseVariant = horseVariantForStableKey(`${this.characterFaction}:${this.name}:${this.tier}`)
-      this.mount = new Mount(scene, DEFAULT_MOUNT_TYPE, spawnX, spawnZ, basePos.y, horseVariant)
-      this.mount.setNpcRider(this, this.faction)
-      this._syncToMount()
-    }
+  mountVehicle(mount: Mount): void {
+    this.mount = mount
+    this.mount.setNpcRider(this, this.faction)
+    this._alignExternalVisualToMount(true)
+    this._syncToMount()
   }
 
   private _initFlashTargets(): void {
@@ -763,13 +800,13 @@ export class NPC {
         const moveDir = this._tmpMoveDir
 
         if (this.hasActiveRangedWeapon) {
-          // Ranged behavior (6 <= dist <= 22)
-          if (dist <= RANGED_ATTACK_MAX && dist >= RANGED_ATTACK_MIN) {
+          // Ranged behavior
+          if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
             this.state = AIState.ATTACK
             this.attackTimer = 0
             break
           } else {
-            // Approach when dist > 22
+            // Approach when dist > maxRangedAttackDistance
             moveDir.copy(targetInfo.position).sub(this.group.position)
           }
         } else {
@@ -841,8 +878,8 @@ export class NPC {
           break
         }
 
-        // Target retreated beyond max ranged attack distance (> 22m), approach in CHASE
-        if (this.hasActiveRangedWeapon && dist > RANGED_ATTACK_MAX) {
+        // Target retreated beyond max ranged attack distance, approach in CHASE
+        if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
           this.animator.cancel()
           this.state = AIState.CHASE
           break
@@ -852,7 +889,7 @@ export class NPC {
         this._faceTarget(targetInfo.position)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
-        // Mounted Archers orbit target while attacking within 6m <= dist <= 22m
+        // Mounted Archers orbit target while attacking within 6m <= dist <= maxRangedAttackDistance
         if (this.isMounted && this.hasActiveRangedWeapon) {
           const moveDir = this._tmpMoveDir
           // Orbit target
@@ -873,45 +910,50 @@ export class NPC {
 
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
-          this.attackTimer += dt
-          const progress = Math.min(1, this.attackTimer / RANGED_COOLDOWN)
+          const rangedKind = this.rangedCombatKind ?? 'bow'
+          const cooldown = getRangedCooldown(rangedKind)
+          const isBow = rangedKind === 'bow'
+          const windup = isBow ? 0.04 : 0.45
 
-          if (this.characterFaction === 'viking') {
+          this.attackTimer += dt
+          const progress = Math.min(1, this.attackTimer / cooldown)
+
+          if (isBow) {
             if (!this.animator.busy) {
               this.bowArrowReleased = false
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
-            if (this.attackTimer >= RANGED_COOLDOWN && this.animator.currentAction === 'bowAim') {
+            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
               this.animator.start('bowRelease')
             }
           } else {
-            if (!this.animator.busy) this.animator.start('pilumThrow')
+            if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
+              this.animator.start('pilumThrow')
+            }
           }
 
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
           const rangedEvents = this.animator.update(dt, cameraDistance)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
-          if (this.characterFaction === 'viking') this._updateBowVisual(progress, targetInfo.position)
+          if (isBow) this._updateBowVisual(progress, targetInfo.position)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
           if (shouldFire) {
             const origin = this._tmpRangedOrigin
             const dir = this._tmpRangedDirection
             const aimPoint = this._getElevatedRangedAimPoint(targetInfo.position)
-            if (this.characterFaction === 'viking' && this.bowVisual) {
-              // Bow NPCs launch from the same nock and along the same visual
-              // target line as the player-controlled bow.
+            if (isBow && this.bowVisual) {
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            onFireArrow(origin, dir, this.characterFaction === 'roman' ? 'pilum' : 'arrow')
+            onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
             this.bowVisual?.hideArrow()
 
             this.arrows -= 1
             this.attackTimer = 0
-            if (this.characterFaction === 'viking' && !rangedEvents.actionCompleted) {
+            if (isBow && !rangedEvents.actionCompleted) {
               this.bowArrowReleased = true
             } else {
               if (this.arrows === 0) this._switchToMelee()
@@ -920,6 +962,7 @@ export class NPC {
             }
           }
         } else {
+          const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.meleeCombatKind, Boolean(this.shieldId))
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction())
             this.attackHitProcessed = false
@@ -928,17 +971,18 @@ export class NPC {
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const meleeEvents = this.animator.update(dt, cameraDistance)
+          const meleeEvents = this.animator.update(dt * berserker.meleeAttackRateMultiplier, cameraDistance)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
           animationAdvanced = true
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
             if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
               this.attackHitProcessed = true
-              const finalDamage = this._calcLanceDamage(this.meleeDamage)
+              const targetIsMounted = targetInfo.isPlayer ? Boolean(player?.isMounted) : Boolean(targetInfo.npc?.isMounted)
+              const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
               onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
             }
           }
-          if (meleeEvents.actionCompleted) this.attackTimer = AI_ATTACK_GAP
+          if (meleeEvents.actionCompleted) this.attackTimer = AI_ATTACK_GAP / berserker.meleeAttackRateMultiplier
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
@@ -1036,7 +1080,8 @@ export class NPC {
     const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
-    const effectiveSpeed = baseSpeed * multiplier
+    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.meleeCombatKind, Boolean(this.shieldId))
+    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -1079,13 +1124,28 @@ export class NPC {
     }
   }
 
-  /** Returns damage after applying lance charge multiplier (3x while galloping). */
-  private _calcLanceDamage(baseDamage: number): number {
-    if (this.isUsingLance && this.isMounted && this.mount && this.mount.movementSpeed > 10) {
-      this.mount.skipImpactThisFrame = true
-      return baseDamage * 3.0
+  /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
+  private _calcLanceDamage(baseDamage: number, targetIsMounted: boolean): number {
+    const combatKind = this.meleeCombatKind
+    const hasShield = Boolean(this.shieldId)
+    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, combatKind, hasShield)
+
+    let dmg = baseDamage * berserker.meleeDamageMultiplier
+
+    // Lance charge (mounted)
+    const chargeResult = calculateLanceChargeDamage(baseDamage, combatKind, this.isMounted, this.mount?.movementSpeed ?? 0)
+    if (chargeResult.isCharge) {
+      if (this.mount && chargeResult.skipImpact) {
+        this.mount.skipImpactThisFrame = true
+      }
+      dmg = chargeResult.damage * berserker.meleeDamageMultiplier
     }
-    return baseDamage
+
+    // Anti-cavalry (foot lance vs mounted target)
+    const antiCav = getAntiCavalryMultiplier(combatKind, this.isMounted, targetIsMounted)
+    dmg *= antiCav
+
+    return Math.round(dmg)
   }
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {

@@ -64,7 +64,7 @@ describe('Player loadout configuration', () => {
     const onFireArrow = vi.fn()
     player.onFireArrow = onFireArrow
     raw._firePilum(new THREE.Vector3(0, 1, -10), 1, { ...raw.pendingRangedWeapon, id: 'pilum_standard', animationKind: 'pilum', arrowSpeedMax: 48, damageMax: 42 })
-    expect(onFireArrow).toHaveBeenCalledWith(expect.objectContaining({ visualKind: 'pilum', speed: 48, damage: 42 }))
+    expect(onFireArrow).toHaveBeenCalledWith(expect.objectContaining({ visualKind: 'pilum', speed: 48, damage: 63 }))
     expect(player.arrowCount).toBe(1)
 
     player.rebuildRangedWeapon('elven_runebow')

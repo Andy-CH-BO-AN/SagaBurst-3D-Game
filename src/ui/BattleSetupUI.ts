@@ -22,11 +22,15 @@ import {
   getDefaultBattleConfig,
   createEmptyBattleConfig,
   createDefaultPlayerLoadout,
+  attachArmyAliases,
 } from '../battle/BattleConfig'
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { getUnitPresetsForFaction } from '../battle/UnitPresetCatalog'
 
 export class BattleSetupUI {
   private config: BattleConfig
-  private activeTab: 'army' | 'loadout' = 'army'
+  private activeTab: 'army' | 'reference' | 'loadout' = 'army'
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
 
@@ -43,9 +47,14 @@ export class BattleSetupUI {
     if (!this.config.playerFaction) {
       this.config.playerFaction = 'viking'
     }
+    if (this.config.playerHp === undefined) {
+      this.config.playerHp = COMBAT_BALANCE.hp.playerDefault
+    }
     if (!this.config.playerLoadout) {
       this.config.playerLoadout = createDefaultPlayerLoadout()
     }
+    attachArmyAliases(this.config.viking, 'viking')
+    attachArmyAliases(this.config.roman, 'roman')
   }
 
   mount(parent: HTMLElement = document.body, onStart: (config: BattleConfig) => void): void {
@@ -131,6 +140,131 @@ export class BattleSetupUI {
       </section>
     `
 
+    const renderReferencePanel = () => {
+      const vikingPresets = getUnitPresetsForFaction('viking')
+      const romanPresets = getUnitPresetsForFaction('roman')
+
+      const renderPresetList = (presets: typeof vikingPresets) => `
+        <div class="reference-preset-grid">
+          ${presets.map(p => `
+            <div class="reference-preset-card">
+              <div class="reference-preset-header">
+                <h4>${p.nameZh} (${p.nameEn})</h4>
+                <span class="reference-preset-type">${p.faction}</span>
+              </div>
+              <p class="reference-preset-desc">${p.description}</p>
+              <div class="reference-preset-traits">
+                ${p.traits.map(t => `<span class="reference-trait-badge">${t}</span>`).join('')}
+              </div>
+              <div class="reference-tiers">
+                ${([1, 2, 3] as UnitTier[]).map(t => {
+                  const l = p.tierLoadouts[t]
+                  return `
+                    <div class="reference-tier-row">
+                      <b>T${t}:</b>
+                      <span>近戰: ${l.meleeWeaponId ? (WEAPONS[l.meleeWeaponId]?.name ?? l.meleeWeaponId) : '無'}</span>
+                      ${l.rangedWeaponId ? `<span> | 遠程: ${WEAPONS[l.rangedWeaponId]?.name ?? l.rangedWeaponId}</span>` : ''}
+                      ${l.shieldId ? `<span> | 盾牌: ${l.shieldId}</span>` : ''}
+                      ${l.mountId ? `<span> | 騎乘: 是</span>` : ''}
+                    </div>
+                  `
+                }).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `
+
+      return `
+        <div id="setup-reference-panel" class="setup-tab-panel reference-page">
+          <div class="reference-panel-heading">
+            <h2>兵種與戰鬥數值參考</h2><span>UNITS &amp; COMBAT BALANCE</span>
+          </div>
+
+          <section class="reference-section">
+            <h3 class="reference-section-title">戰鬥平衡常數 COMBAT BALANCE (SSOT)</h3>
+            <div class="balance-rules-grid">
+              <div class="balance-rule-card">
+                <h4>基礎生命值 Base HP</h4>
+                <p>NPC 預設 HP: <b>${COMBAT_BALANCE.hp.npcDefault}</b></p>
+                <p>玩家預設 HP: <b>${COMBAT_BALANCE.hp.playerDefault}</b></p>
+              </div>
+              <div class="balance-rule-card">
+                <h4>弓箭 Bow</h4>
+                <p>傷害倍率: <b>×${COMBAT_BALANCE.bow.damageMultiplier}</b></p>
+                <p>攻速倍率: <b>×${COMBAT_BALANCE.bow.attackRateMultiplier}</b></p>
+                <p>步兵射程: <b>${COMBAT_BALANCE.bow.footAttackRange}m</b> | 騎兵射程: <b>${COMBAT_BALANCE.bow.mountedAttackRange}m</b></p>
+                <p>冷卻間隔: <b>${(COMBAT_BALANCE.bow.baseCooldown / COMBAT_BALANCE.bow.attackRateMultiplier).toFixed(2)}s</b></p>
+              </div>
+              <div class="balance-rule-card">
+                <h4>標槍 Javelin</h4>
+                <p>傷害倍率: <b>×${COMBAT_BALANCE.javelin.damageMultiplier}</b></p>
+                <p>攻速倍率: <b>×${COMBAT_BALANCE.javelin.attackRateMultiplier}</b></p>
+                <p>步兵射程: <b>${COMBAT_BALANCE.javelin.footAttackRange}m</b> | 騎兵射程: <b>${COMBAT_BALANCE.javelin.mountedAttackRange}m</b></p>
+                <p>冷卻間隔: <b>${(COMBAT_BALANCE.javelin.baseCooldown / COMBAT_BALANCE.javelin.attackRateMultiplier).toFixed(2)}s</b></p>
+              </div>
+              <div class="balance-rule-card">
+                <h4>長槍 Lance</h4>
+                <p>步兵反騎: <b>×${COMBAT_BALANCE.lance.unmountedVsMountedDamageMultiplier}</b> (步兵持槍 vs 騎乘目標)</p>
+                <p>騎槍衝刺: <b>×${COMBAT_BALANCE.lance.mountedChargeDamageMultiplier}</b> (騎乘持槍且速度 &gt; ${COMBAT_BALANCE.lance.mountedChargeSpeedThreshold}m/s)</p>
+                <p>無一般普通額外倍率 (由武器 Base Damage 決定)</p>
+              </div>
+              <div class="balance-rule-card">
+                <h4>狂戰士 Berserker</h4>
+                <p>觸發條件: 維京 + 步兵 + 單手劍 + 無盾</p>
+                <p>跑速倍率: <b>×${COMBAT_BALANCE.berserker.moveSpeedMultiplier}</b></p>
+                <p>近戰傷害: <b>×${COMBAT_BALANCE.berserker.meleeDamageMultiplier}</b></p>
+                <p>近戰攻速: <b>×${COMBAT_BALANCE.berserker.meleeAttackRateMultiplier}</b></p>
+              </div>
+              <div class="balance-rule-card">
+                <h4>戰馬撞擊 Mount Impact</h4>
+                <p>最低撞擊速度: <b>${COMBAT_BALANCE.mountImpact.minSpeed}m/s</b></p>
+                <p>基礎傷害: <b>${COMBAT_BALANCE.mountImpact.baseDamage}</b> + 速度 × <b>${COMBAT_BALANCE.mountImpact.speedDamageMultiplier}</b></p>
+                <p>衝刺衝撞倍率: <b>×${COMBAT_BALANCE.mountImpact.sprintDamageMultiplier}</b></p>
+                <p>同一目標冷卻: <b>${COMBAT_BALANCE.mountImpact.sameTargetCooldown}s</b></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="reference-section">
+            <h3 class="reference-section-title">維京兵種預設 Archetypes (VIKING)</h3>
+            ${renderPresetList(vikingPresets)}
+          </section>
+
+          <section class="reference-section">
+            <h3 class="reference-section-title">羅馬兵種預設 Archetypes (ROMAN)</h3>
+            ${renderPresetList(romanPresets)}
+          </section>
+
+          <section class="reference-section">
+            <h3 class="reference-section-title">武器庫 WEAPONS REGISTRY</h3>
+            <table class="reference-weapons-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>名稱</th>
+                  <th>戰鬥類別</th>
+                  <th>基礎傷害</th>
+                  <th>攻擊距離</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.values(WEAPONS).map(w => `
+                  <tr>
+                    <td><code>${w.id}</code></td>
+                    <td>${w.name}</td>
+                    <td><b>${w.combatKind}</b></td>
+                    <td>${w.damageMin}-${w.damageMax}</td>
+                    <td>${w.range ? `${w.range}m` : '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </section>
+        </div>
+      `
+    }
+
     const renderLoadoutPanel = () => `
       <div id="setup-loadout-panel" class="setup-tab-panel loadout-page">
         <div class="loadout-panel-heading">
@@ -148,7 +282,11 @@ export class BattleSetupUI {
               { id: 'gladius_standard', tier: 'T2', zh: '制式羅馬短劍', en: 'STANDARD GLADIUS' },
               { id: 'centurion_blade', tier: 'T3', zh: '百夫長短劍', en: 'CENTURION BLADE' },
             ], 'melee')}
-            ${renderEquipmentGroup('騎兵', 'CAVALRY', [{ id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' }], 'melee')}
+            ${renderEquipmentGroup('長槍', 'LANCE', [
+              { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
+              { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
+              { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
+            ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
@@ -180,6 +318,12 @@ export class BattleSetupUI {
           <div class="starting-state-options" role="radiogroup" aria-label="Starting state">
             <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="false"><b>徒步</b><small>ON FOOT</small></button>
             <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="true"><b>騎馬</b><small>MOUNTED</small><i>✓</i></button>
+          </div>
+        </section>
+        <section class="starting-state"><div class="loadout-category-heading"><h3>玩家生命值</h3><span>PLAYER HP</span></div>
+          <div class="player-hp-control">
+            <label for="player-hp-input">HP (1–9999):</label>
+            <input type="number" id="player-hp-input" min="1" max="9999" value="${this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault}" class="player-hp-input" />
           </div>
         </section>
       </div>
@@ -221,6 +365,7 @@ export class BattleSetupUI {
 
       <div class="setup-tabs" role="tablist" aria-label="Battle setup sections">
         <button type="button" id="setup-tab-army" class="setup-tab" role="tab"><b>軍隊配置</b><small>ARMY SETUP</small></button>
+        <button type="button" id="setup-tab-reference" class="setup-tab" role="tab"><b>兵種與數值</b><small>UNITS &amp; REFERENCE</small></button>
         <button type="button" id="setup-tab-loadout" class="setup-tab" role="tab"><b>玩家裝備</b><small>PLAYER LOADOUT</small></button>
       </div>
       <div id="setup-army-panel" class="setup-tab-panel">
@@ -259,6 +404,7 @@ export class BattleSetupUI {
         </div>
 
       </div>
+      ${renderReferencePanel()}
       ${renderLoadoutPanel()}
 
       <div id="validation-msg" class="setup-validation-msg"></div>
@@ -303,6 +449,7 @@ export class BattleSetupUI {
       input.addEventListener('input', () => {
         const faction = input.dataset.faction as 'viking' | 'roman'
         const unit = input.dataset.unit as BattleUnitType
+        if (!faction || !unit) return
         const tier = parseInt(input.dataset.tier || '1', 10) as UnitTier
         const raw = parseInt(input.value, 10)
         const val = isNaN(raw) ? 0 : Math.max(0, Math.min(MAX_CUSTOM_ARMY_SIZE, raw))
@@ -312,8 +459,9 @@ export class BattleSetupUI {
       input.addEventListener('blur', () => {
         const faction = input.dataset.faction as 'viking' | 'roman'
         const unit = input.dataset.unit as BattleUnitType
+        if (!faction || !unit) return
         const tier = parseInt(input.dataset.tier || '1', 10) as UnitTier
-        input.value = String(this.config[faction][unit][tier] || 0)
+        input.value = String(this.config[faction]?.[unit]?.[tier] || 0)
       })
     })
 
@@ -341,9 +489,26 @@ export class BattleSetupUI {
       this.activeTab = 'army'
       this._refreshView()
     })
+    document.getElementById('setup-tab-reference')?.addEventListener('click', () => {
+      this.activeTab = 'reference'
+      this._refreshView()
+    })
     document.getElementById('setup-tab-loadout')?.addEventListener('click', () => {
       this.activeTab = 'loadout'
       this._refreshView()
+    })
+
+    const hpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
+    hpInput?.addEventListener('input', () => {
+      const raw = parseInt(hpInput.value, 10)
+      const val = isNaN(raw) ? COMBAT_BALANCE.hp.playerDefault : Math.max(1, Math.min(9999, raw))
+      this.config.playerHp = val
+    })
+    hpInput?.addEventListener('blur', () => {
+      const raw = parseInt(hpInput.value, 10)
+      const val = isNaN(raw) ? COMBAT_BALANCE.hp.playerDefault : Math.max(1, Math.min(9999, raw))
+      this.config.playerHp = val
+      hpInput.value = String(val)
     })
 
     this.container.querySelectorAll('.loadout-card').forEach(card => {
@@ -370,12 +535,16 @@ export class BattleSetupUI {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
+      const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       this.config = JSON.parse(JSON.stringify(preset))
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
+      this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
       this._refreshView()
     }
 
@@ -388,12 +557,16 @@ export class BattleSetupUI {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
+      const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       this.config = createEmptyBattleConfig()
       this.config.mode = currentMode
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
+      this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
       this._refreshView()
     })
 
@@ -432,6 +605,9 @@ export class BattleSetupUI {
     value: number
   ): void {
     const army = this.config[faction]
+    if (!army[unit]) {
+      army[unit] = { 1: 0, 2: 0, 3: 0 }
+    }
     const oldVal = army[unit][tier] || 0
     const otherTotal = calculateArmyTotal(army) - oldVal
     const maxAllowed = Math.max(0, MAX_CUSTOM_ARMY_SIZE - otherTotal)
@@ -448,6 +624,9 @@ export class BattleSetupUI {
     delta: number
   ): void {
     const army = this.config[faction]
+    if (!army[unit]) {
+      army[unit] = { 1: 0, 2: 0, 3: 0 }
+    }
     const currentVal = army[unit][tier] || 0
     const currentTotal = calculateArmyTotal(army)
 
@@ -465,6 +644,9 @@ export class BattleSetupUI {
   private _refreshView(): void {
     if (!this.container) return
 
+    attachArmyAliases(this.config.viking, 'viking')
+    attachArmyAliases(this.config.roman, 'roman')
+
     const units: BattleUnitType[] = ['infantry', 'archer', 'cavalry', 'horseArcher']
     const tiers: UnitTier[] = [1, 2, 3]
 
@@ -473,7 +655,7 @@ export class BattleSetupUI {
       for (const u of units) {
         for (const t of tiers) {
           const el = document.getElementById(`val-${faction}-${u}-${t}`) as HTMLInputElement | null
-          if (el) el.value = String(army[u][t] || 0)
+          if (el) el.value = String(army[u]?.[t] ?? 0)
         }
       }
     }
@@ -535,15 +717,27 @@ export class BattleSetupUI {
       spectatorCheckbox.checked = Boolean(this.config.spectator)
     }
 
+    const playerHpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
+    if (playerHpInput) {
+      playerHpInput.value = String(this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault)
+    }
+
     const loadout = this.config.playerLoadout
     const armyPanel = document.getElementById('setup-army-panel')
+    const referencePanel = document.getElementById('setup-reference-panel')
     const loadoutPanel = document.getElementById('setup-loadout-panel')
     const armyTab = document.getElementById('setup-tab-army')
+    const referenceTab = document.getElementById('setup-tab-reference')
     const loadoutTab = document.getElementById('setup-tab-loadout')
+
     armyPanel?.classList.toggle('active', this.activeTab === 'army')
+    referencePanel?.classList.toggle('active', this.activeTab === 'reference')
     loadoutPanel?.classList.toggle('active', this.activeTab === 'loadout')
+
     armyTab?.classList.toggle('active', this.activeTab === 'army')
+    referenceTab?.classList.toggle('active', this.activeTab === 'reference')
     loadoutTab?.classList.toggle('active', this.activeTab === 'loadout')
+
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLElement
