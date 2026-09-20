@@ -36,6 +36,7 @@ import {
 } from '../movement/DirectionalMovement'
 import {
   COMBAT_BALANCE,
+  getRangedCombatKind,
   getRangedDamageMultiplier,
   getRangedCooldown,
   getBerserkerModifiers,
@@ -581,7 +582,7 @@ export class Player {
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
     if (!this.animator.start('bowRelease')) return
-    this.bowCooldownTimer = getRangedCooldown('bow')
+    this.bowCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'bow')
     this.bowChargeTime = 0
   }
 
@@ -602,7 +603,7 @@ export class Player {
     // release event; only the Player launches here, so RMB-up cannot appear
     // to be the trigger after the visual throw windup.
     this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, equippedRanged)
-    this.pilumCooldownTimer = getRangedCooldown('javelin')
+    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
     this.pilumReleasedOnCommit = true
     this.nockedArrowReleased = true
     this.bowVisualDrawRatio = 0
@@ -665,7 +666,7 @@ export class Player {
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
     const isPilum = equippedRanged?.animationKind === 'pilum'
-    this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
+    this.animator.setEquipment(equippedMelee?.combatKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
@@ -707,7 +708,7 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      const isLance = equippedMelee?.animationKind === 'lance'
+      const isLance = equippedMelee?.combatKind === 'lance'
       if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
         if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
           if (isLance && this.animator.busy) {
@@ -774,10 +775,13 @@ export class Player {
     }
 
     const isMounted = Boolean(this.isMounted && this.currentMount)
+    const activeCombatKind = (this.aiming || this.animator.currentAction === 'bowAim' || this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow')
+      ? (equippedRanged?.combatKind ?? null)
+      : (equippedMelee?.combatKind ?? null)
     const berserker = getBerserkerModifiers(
       this.visualFaction,
       isMounted,
-      equippedMelee?.combatKind,
+      activeCombatKind,
       Boolean(this.currentShieldId),
     )
     const speedMultiplier = directionalPolicy
@@ -838,7 +842,7 @@ export class Player {
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
-      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.animationKind === 'lance') {
+      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.combatKind === 'lance') {
         this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
       }
     }
@@ -976,7 +980,7 @@ export class Player {
     const chargeRatio = chargeTime / maxChargeTime
     const speed  = THREE.MathUtils.lerp(speedMin, speedMax, chargeRatio)
     const baseDamage = THREE.MathUtils.lerp(dmgMin, dmgMax, chargeRatio)
-    const damage = Math.round(baseDamage * archeryMultiplier * getRangedDamageMultiplier('bow'))
+    const damage = Math.round(baseDamage * archeryMultiplier * getRangedDamageMultiplier(getRangedCombatKind(this.pendingRangedWeapon) ?? 'bow'))
 
     const arrowOrigin = this._tmpWorldNock
     const arrowDirection = this._tmpArrowDirection
@@ -998,12 +1002,13 @@ export class Player {
     this.arrows -= 1
     const origin = this.bowGripPivot.getWorldPosition(this._tmpWorldNock)
     const direction = this._tmpArrowDirection.copy(cameraAimPoint).sub(origin).normalize()
+    const rangedKind = getRangedCombatKind(equippedRanged) ?? 'javelin'
     if (this.onFireArrow) {
       this.onFireArrow({
         origin: origin.clone(),
         direction: direction.clone(),
         speed: equippedRanged.arrowSpeedMax ?? 48,
-        damage: Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier('javelin')),
+        damage: Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)),
         visualKind: 'pilum',
       })
     }

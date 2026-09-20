@@ -185,7 +185,13 @@ describe('BattleConfig Domain & Validation', () => {
     expect(rHorseArcher.aiType).toBe(AIType.RANGED)
     expect(rHorseArcher.cavalry).toBe(true)
     expect(rHorseArcher.isUsingLance).toBe(false)
-    expect(rHorseArcher.rangedWeaponId).toBe('legionary_pilum')
+    expect(rHorseArcher.rangedWeaponId).toBe('elven_runebow')
+    expect(rHorseArcher.rangedDamage).toBe(37.5)
+
+    // Verify Roman horseArcher T1, T2, T3 bow progression
+    expect(getUnitCombatProfile('roman', 'horseArcher', 1).rangedWeaponId).toBe('wooden_shortbow')
+    expect(getUnitCombatProfile('roman', 'horseArcher', 2).rangedWeaponId).toBe('recurve_longbow')
+    expect(getUnitCombatProfile('roman', 'horseArcher', 3).rangedWeaponId).toBe('elven_runebow')
   })
 
   it('validates Presets conformity', () => {

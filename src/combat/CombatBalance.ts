@@ -4,7 +4,7 @@
  * balance multipliers, attack ranges, cooldowns, and pure combat helpers.
  */
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { WeaponCombatKind } from '../rpg/WeaponDatabase'
+import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 
 export type RangedCombatKind = 'bow' | 'javelin'
 
@@ -61,19 +61,32 @@ export interface LanceChargeResult {
 
 /**
  * Resolves whether a weapon or combat kind maps to bow or javelin.
+ * Strictly checks explicit combatKind property on weapon object,
+ * explicit combatKind literal, or database lookup by ID.
+ * Does NOT perform arbitrary ID substring matching.
  */
 export function getRangedCombatKind(
-  weaponOrKind: { combatKind?: WeaponCombatKind } | WeaponCombatKind | string | null | undefined
+  weaponOrKind: { id?: string; combatKind?: WeaponCombatKind } | WeaponCombatKind | string | null | undefined
 ): RangedCombatKind | null {
   if (!weaponOrKind) return null
-  if (typeof weaponOrKind === 'string') {
-    if (weaponOrKind === 'bow' || weaponOrKind.includes('bow')) return 'bow'
-    if (weaponOrKind === 'javelin' || weaponOrKind.includes('pilum')) return 'javelin'
+  if (typeof weaponOrKind === 'object') {
+    const kind = weaponOrKind.combatKind
+    if (kind === 'bow' || kind === 'javelin') return kind
+    const id = (weaponOrKind as any).id
+    if (id && WEAPONS[id]) {
+      const dbKind = WEAPONS[id].combatKind
+      if (dbKind === 'bow' || dbKind === 'javelin') return dbKind
+    }
     return null
   }
-  const kind = weaponOrKind.combatKind
-  if (kind === 'bow') return 'bow'
-  if (kind === 'javelin') return 'javelin'
+  if (weaponOrKind === 'bow' || weaponOrKind === 'javelin') {
+    return weaponOrKind
+  }
+  const weapon = WEAPONS[weaponOrKind]
+  if (weapon) {
+    if (weapon.combatKind === 'bow' || weapon.combatKind === 'javelin') return weapon.combatKind
+    return null
+  }
   return null
 }
 
@@ -103,13 +116,17 @@ export function getRangedDamageMultiplier(kind: RangedCombatKind | null | undefi
 
 /**
  * Returns the effective cooldown between projectile releases.
- * Bow: 1.5 / 1.3 ≈ 1.1538s
- * Javelin: 1.5 / 0.7 ≈ 2.142857s
+ * Bow: COMBAT_BALANCE.bow.baseCooldown / COMBAT_BALANCE.bow.attackRateMultiplier (1.5 / 1.3 ≈ 1.1538s)
+ * Javelin: COMBAT_BALANCE.javelin.baseCooldown / COMBAT_BALANCE.javelin.attackRateMultiplier (1.5 / 0.7 ≈ 2.142857s)
  */
-export function getRangedCooldown(kind: RangedCombatKind | null | undefined, baseCooldown = 1.5): number {
-  if (!kind) return baseCooldown
+export function getRangedCooldown(
+  kind: RangedCombatKind | null | undefined,
+  overrideBaseCooldown?: number
+): number {
+  if (!kind) return overrideBaseCooldown ?? COMBAT_BALANCE.bow.baseCooldown
   const rules = COMBAT_BALANCE[kind]
-  return baseCooldown / rules.attackRateMultiplier
+  const base = overrideBaseCooldown ?? rules.baseCooldown
+  return base / rules.attackRateMultiplier
 }
 
 /**
@@ -212,11 +229,11 @@ export function calculateLanceChargeDamage(
 /**
  * Calculates mount impact damage based on movement speed and sprint state:
  * movementSpeed <= 4 => 0
- * movementSpeed > 4 => Math.round((8 + movementSpeed * 1.5) * (isSprinting ? 1.5 : 1.0))
+ * movementSpeed > 4 => Math.round(8 + movementSpeed * 1.5 * (isSprinting ? 1.5 : 1.0))
  */
 export function calculateMountImpactDamage(movementSpeed: number, isSprinting: boolean): number {
   const cfg = COMBAT_BALANCE.mountImpact
   if (movementSpeed <= cfg.minSpeed) return 0
   const sprintMult = isSprinting ? cfg.sprintDamageMultiplier : 1.0
-  return Math.round((cfg.baseDamage + movementSpeed * cfg.speedDamageMultiplier) * sprintMult)
+  return Math.round(cfg.baseDamage + movementSpeed * cfg.speedDamageMultiplier * sprintMult)
 }

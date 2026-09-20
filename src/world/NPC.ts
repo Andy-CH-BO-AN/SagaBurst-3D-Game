@@ -37,7 +37,7 @@ import {
   calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
 import type { UnitLoadout } from '../battle/UnitPresetCatalog'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -107,11 +107,23 @@ export class NPC {
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
-    return w?.combatKind === 'lance' ? 'lance' : 'sword'
+    return w?.combatKind === 'lance' || this.isUsingLance ? 'lance' : 'sword'
   }
 
   get rangedCombatKind(): 'bow' | 'javelin' | null {
-    return getRangedCombatKind(this.rangedWeaponId)
+    const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    return getRangedCombatKind(weapon)
+  }
+
+  get hasActiveRangedWeapon(): boolean {
+    return Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
+  }
+
+  get activeCombatKind(): WeaponCombatKind | null {
+    if (this.hasActiveRangedWeapon && this.rangedCombatKind) {
+      return this.rangedCombatKind
+    }
+    return this.meleeCombatKind
   }
 
   get maxRangedAttackDistance(): number {
@@ -250,7 +262,8 @@ export class NPC {
       this.meleeDamage = meleeData?.damageMax ?? 20
       this.isUsingLance = meleeData?.combatKind === 'lance'
       const baseRangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
-      const rangedKind = getRangedCombatKind(this.rangedWeaponId)
+      const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+      const rangedKind = getRangedCombatKind(weapon)
       this.rangedDamage = this.rangedWeaponId
         ? baseRangedDamage * getRangedDamageMultiplier(rangedKind)
         : 0
@@ -503,10 +516,6 @@ export class NPC {
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
     this.equipmentVisualLOD.register('shield', this.shieldPivot)
-  }
-
-  private get hasActiveRangedWeapon(): boolean {
-    return this.arrows > 0 && !(this.shieldId && this.bowVisual)
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -967,7 +976,7 @@ export class NPC {
             }
           }
         } else {
-          const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.meleeCombatKind, Boolean(this.shieldId))
+          const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction())
             this.attackHitProcessed = false
@@ -1085,7 +1094,7 @@ export class NPC {
     const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
-    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.meleeCombatKind, Boolean(this.shieldId))
+    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
     const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)

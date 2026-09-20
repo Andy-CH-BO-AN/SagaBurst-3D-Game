@@ -420,7 +420,7 @@ export function getUnitCombatProfile(
   }
 
   if (aiType === AIType.RANGED) {
-    if (characterFaction === 'viking') {
+    if (characterFaction === 'viking' || unitType === 'horseArcher') {
       rangedWeaponId = tier === 1 ? 'wooden_shortbow' : tier === 2 ? 'recurve_longbow' : 'elven_runebow'
     } else {
       rangedWeaponId = tier === 1 ? 'pilum_basic' : tier === 2 ? 'pilum_standard' : 'legionary_pilum'
@@ -430,7 +430,8 @@ export function getUnitCombatProfile(
   const baseMeleeDamage = WEAPONS[meleeWeaponId]?.damageMax ?? (isUsingLance ? (tier === 1 ? 30 : tier === 2 ? 45 : 60) : 12)
   const finalMeleeDamage = baseMeleeDamage * lanceMultiplier
   const baseRangedDamage = rangedWeaponId ? (WEAPONS[rangedWeaponId]?.damageMax ?? 22) : undefined
-  const rangedKind = getRangedCombatKind(rangedWeaponId)
+  const rangedWeapon = rangedWeaponId ? WEAPONS[rangedWeaponId] : undefined
+  const rangedKind = getRangedCombatKind(rangedWeapon)
   const rangedDamage = baseRangedDamage !== undefined
     ? baseRangedDamage * getRangedDamageMultiplier(rangedKind)
     : undefined

@@ -3,8 +3,6 @@
  * Centralized definition for weapons and inventory items.
  * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold).
  */
-import { calculateLanceChargeDamage as calculateCharge } from '../combat/CombatBalance'
-
 export type ItemType = 'melee' | 'ranged' | 'consumable'
 export type WeaponAnimationKind = 'dagger' | 'sword' | 'greatsword' | 'lance' | 'bow' | 'pilum'
 export type WeaponCombatKind = 'sword' | 'lance' | 'bow' | 'javelin'
@@ -269,6 +267,6 @@ export function calculateLanceChargeDamage(
   movementSpeed: number,
   baseDamage: number
 ): { damage: number; skipImpact: boolean } {
-  const result = calculateCharge(isLance ? 'lance' : undefined, true, movementSpeed, baseDamage)
-  return { damage: result.damage, skipImpact: result.skipImpact }
+  const isCharge = isLance && movementSpeed > 10
+  return { damage: isCharge ? baseDamage * 3.0 : baseDamage, skipImpact: isCharge }
 }
