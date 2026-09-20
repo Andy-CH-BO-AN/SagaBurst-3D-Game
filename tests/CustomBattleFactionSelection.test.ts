@@ -452,6 +452,29 @@ describe('Player Faction Selection (Viking / Roman)', () => {
       ui.destroy()
     })
 
+    it('exposes the 200v200 preset and clamps manual Custom Battle counts at 200 per faction', () => {
+      const ui = new BattleSetupUI(createEmptyBattleConfig())
+      ui.mount(container, () => {})
+
+      const setupMarkup = (domRegistry.get('battle-setup-container') as any).innerHTML
+      expect(setupMarkup).toContain('max="200"')
+      expect(setupMarkup).toContain('/ 200')
+      expect(domRegistry.get('preset-200')).toBeDefined()
+
+      ;(ui as any)._setUnitCount('viking', 'infantry', 1, 250)
+      ;(ui as any)._setUnitCount('roman', 'infantry', 1, 250)
+      expect((ui as any).config.viking.infantry[1]).toBe(200)
+      expect((ui as any).config.roman.infantry[1]).toBe(200)
+      expect(domRegistry.get('viking-total')?.textContent).toBe('200')
+      expect(domRegistry.get('roman-total')?.textContent).toBe('200')
+      expect((domRegistry.get('btn-start-battle') as MockElement).disabled).toBe(false)
+
+      domRegistry.get('preset-200')?.click()
+      expect((ui as any).config.viking.infantry).toEqual({ 1: 20, 2: 24, 3: 16 })
+      expect((ui as any).config.roman.horseArcher).toEqual({ 1: 12, 2: 16, 3: 12 })
+      ui.destroy()
+    })
+
     it('preserves selected playerFaction when reset button is clicked', () => {
       const ui = new BattleSetupUI()
       ui.mount(container, () => {})

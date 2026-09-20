@@ -16,6 +16,7 @@ import {
   PRESET_25V25,
   PRESET_50V50,
   PRESET_100V100,
+  PRESET_200V200,
   calculateArmyTotal,
   validateBattleConfig,
   getDefaultBattleConfig,
@@ -253,6 +254,7 @@ export class BattleSetupUI {
           <button class="preset-btn" id="preset-25">25 VS 25</button>
           <button class="preset-btn" id="preset-50">50 VS 50</button>
           <button class="preset-btn" id="preset-100">100 VS 100</button>
+          <button class="preset-btn" id="preset-200">200 VS 200</button>
           <button class="preset-btn" id="preset-reset">RESET</button>
         </div>
 
@@ -381,6 +383,7 @@ export class BattleSetupUI {
     document.getElementById('preset-25')?.addEventListener('click', () => applyPreset(PRESET_25V25))
     document.getElementById('preset-50')?.addEventListener('click', () => applyPreset(PRESET_50V50))
     document.getElementById('preset-100')?.addEventListener('click', () => applyPreset(PRESET_100V100))
+    document.getElementById('preset-200')?.addEventListener('click', () => applyPreset(PRESET_200V200))
     document.getElementById('preset-reset')?.addEventListener('click', () => {
       const currentMode = this.config.mode ?? 'formation'
       const currentSpectator = this.config.spectator ?? false
