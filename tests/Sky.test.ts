@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { PRODUCTION_SHADOW_MAP_SIZE, resolveShadowMapSize } from '../src/world/Sky'
+import * as THREE from 'three'
+import {
+  createSky,
+  getDirectionalShadowMapSize,
+  PRODUCTION_SHADOW_MAP_SIZE,
+  resolveShadowMapSize,
+  setDirectionalShadowMapSize,
+} from '../src/world/Sky'
 
 describe('shadow map size', () => {
   it('uses the production blob-shadow resolution by default', () => {
@@ -13,5 +20,14 @@ describe('shadow map size', () => {
     }
 
     expect(resolveShadowMapSize(new URLSearchParams('shadowMapSize=768'))).toBe(256)
+  })
+
+  it('updates and reports the actual directional shadow map size', () => {
+    const scene = new THREE.Scene()
+    createSky(scene, 2048)
+
+    expect(getDirectionalShadowMapSize(scene)).toBe(2048)
+    expect(setDirectionalShadowMapSize(scene, 256)).toBe(256)
+    expect(getDirectionalShadowMapSize(scene)).toBe(256)
   })
 })

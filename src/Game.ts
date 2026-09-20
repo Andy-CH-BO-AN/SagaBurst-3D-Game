@@ -5,7 +5,12 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { createSky, resolveShadowMapSize } from './world/Sky'
+import {
+  createSky,
+  getDirectionalShadowMapSize,
+  resolveShadowMapSize,
+  setDirectionalShadowMapSize,
+} from './world/Sky'
 import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
@@ -320,6 +325,15 @@ export class Game {
     if (!import.meta.env.DEV) return this.renderer.shadowMap.enabled
     this.renderer.shadowMap.enabled = Boolean(enabled)
     return this.renderer.shadowMap.enabled
+  }
+
+  getShadowMapSize(): number {
+    return getDirectionalShadowMapSize(this.scene)
+  }
+
+  setShadowMapSize(shadowMapSize: number): number {
+    if (!import.meta.env.DEV) return this.getShadowMapSize()
+    return setDirectionalShadowMapSize(this.scene, shadowMapSize)
   }
 
   private battleController: BattleController | null = null

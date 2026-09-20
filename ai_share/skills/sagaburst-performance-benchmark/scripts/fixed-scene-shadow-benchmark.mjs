@@ -18,7 +18,9 @@ SagaBurst 固定場景陰影成本拆解 (Fixed-Scene Shadow Cost Breakdown)
   --settle-ms=N           接戰後展開時間 (ms)，預設 4000
   --observation-ms=N      每個 Window 觀測時間 (ms)，預設 4000
   --timeout-ms=N          等待 Combat Evidence 超時時間 (ms)，預設 30000
-  --shadow-map-size=N     DEV shadowMapSize（2048 / 1024 / 512 / 256），預設 production 值
+  --shadow-map-size=N     單一尺寸（相容舊入口；僅接受 2048 / 1024 / 512 / 256）
+  --shadow-map-sizes=LIST 同一 frozen scene 的尺寸序列，預設 2048,1024,512,256,2048
+  --resolution-only        只跑同場景 resolution sequence，略過既有 Shadow ON/OFF breakdown
   --host=HOST:PORT        預設 127.0.0.1:5173
   --tag=NAME              輸出 tag
   --out=PATH              指定輸出 JSON 路徑 (預設 output/local-diagnostics/fixed-scene-shadow.json)
@@ -30,7 +32,24 @@ const scenario = valueOf('scenario', 'F').toUpperCase()
 const settleMs = Number(valueOf('settle-ms', '4000'))
 const observationMs = Number(valueOf('observation-ms', '4000'))
 const timeoutMs = Number(valueOf('timeout-ms', '30000'))
-const shadowMapSize = valueOf('shadow-map-size', '')
+const singleShadowMapSize = valueOf('shadow-map-size', '')
+const shadowMapSizesArg = valueOf('shadow-map-sizes', '')
+const resolutionOnly = args.has('--resolution-only')
+const SUPPORTED_SHADOW_MAP_SIZES = new Set([2048, 1024, 512, 256])
+
+if (singleShadowMapSize && shadowMapSizesArg) {
+  throw new Error('Specify only one of --shadow-map-size or --shadow-map-sizes')
+}
+
+const shadowMapSizes = (shadowMapSizesArg || singleShadowMapSize || '2048,1024,512,256,2048')
+  .split(',')
+  .map((value) => Number(value.trim()))
+
+if (shadowMapSizes.length === 0 || shadowMapSizes.some((size) => !SUPPORTED_SHADOW_MAP_SIZES.has(size))) {
+  throw new Error(
+    `Unsupported shadow map size sequence: ${shadowMapSizes.join(',')}. Supported sizes: ${[...SUPPORTED_SHADOW_MAP_SIZES].join(', ')}`
+  )
+}
 const host = valueOf('host', '127.0.0.1:5173')
 const tag = valueOf('tag', 'fixed-scene-shadow')
 const defaultOut = path.resolve('output/local-diagnostics/fixed-scene-shadow.json')
@@ -56,7 +75,7 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 720 
 const page = await context.newPage()
 
 try {
-  const shadowMapQuery = shadowMapSize ? `&shadowMapSize=${encodeURIComponent(shadowMapSize)}` : ''
+  const shadowMapQuery = `&shadowMapSize=${encodeURIComponent(shadowMapSizes[0])}`
   const targetUrl = `http://${host}/?devcombat=${scenario.toLowerCase()}&nolock${shadowMapQuery}`
   console.log(`[Fixed-Scene Shadow Benchmark] 載入頁面: ${targetUrl}`)
   await page.goto(targetUrl)
@@ -115,12 +134,26 @@ try {
   /**
    * 執行單一觀察窗口 (嚴格隔離 RuntimeProfiler，等待 generation 推進)
    */
-  async function observeWindow(windowLabel, enableShadow) {
+  async function observeWindow(windowLabel, enableShadow, requestedShadowMapSize) {
     console.log(`[Fixed-Scene Shadow Benchmark] === 進入 ${windowLabel} (Shadow=${enableShadow}) ===`)
-    const resetGen = await page.evaluate((enabled) => {
+    const actualRuntimeShadowMapSize = await page.evaluate(({ enabled, shadowMapSize }) => {
+      if (shadowMapSize !== undefined) window.game.setShadowMapSize(shadowMapSize)
       window.game.setShadowsEnabled(enabled)
+      return window.game.getShadowMapSize()
+    }, { enabled: enableShadow, shadowMapSize: requestedShadowMapSize })
+
+    if (requestedShadowMapSize !== undefined && actualRuntimeShadowMapSize !== requestedShadowMapSize) {
+      throw new Error(
+        `${windowLabel} requested shadowMapSize=${requestedShadowMapSize}, but runtime reports ${actualRuntimeShadowMapSize}`
+      )
+    }
+
+    // mapSize changes dispose the previous target; let the next render allocate and settle first.
+    await page.waitForTimeout(1000)
+
+    const resetGen = await page.evaluate(() => {
       return window.__resetRuntimeProfiler(performance.now())
-    }, enableShadow)
+    })
 
     console.log(`[Fixed-Scene Shadow Benchmark] 等待 reset (generation=${resetGen}) 後產生第一個完整新 snapshot...`)
     await page.waitForFunction(
@@ -180,6 +213,8 @@ try {
     return {
       label: windowLabel,
       enableShadow,
+      requestedShadowMapSize: requestedShadowMapSize ?? null,
+      actualRuntimeShadowMapSize,
       sampleCount: samples.length,
       fps: medFps,
       cpuFrameMs: medCpuFrame,
@@ -188,6 +223,91 @@ try {
     }
   }
 
+  if (resolutionOnly) {
+    const resolutionResults = []
+    for (const shadowMapSize of shadowMapSizes) {
+      const window = await observeWindow(`Shadow ON ${shadowMapSize}`, true, shadowMapSize)
+      const mainPassCensus = await page.evaluate(() => window.__collectMainPassCensus(window.game))
+      const shadowPassCensus = await page.evaluate(() => window.__collectShadowPassCensus(window.game))
+      resolutionResults.push({
+        requestedShadowMapSize: shadowMapSize,
+        actualRuntimeShadowMapSize: window.actualRuntimeShadowMapSize,
+        window,
+        mainPassCensus: {
+          passTotals: mainPassCensus.passTotals,
+          categories: mainPassCensus.categories,
+        },
+        shadowPassCensus,
+      })
+    }
+
+    const finalFingerprint = await page.evaluate(() => {
+      const game = window.game
+      return {
+        alive: game.npcs.filter((n) => !n.dead).length,
+        dead: game.npcs.filter((n) => n.dead).length,
+        arrowCount: game.arrows.length,
+        horseCount: game.mounts.length,
+        camPos: game.camera.position.toArray(),
+        camQuat: game.camera.quaternion.toArray(),
+        npcPositions: game.npcs.map((n) => [n.group.position.x, n.group.position.y, n.group.position.z]),
+        mountPositions: game.mounts.map((m) => [m.group.position.x, m.group.position.y, m.group.position.z]),
+        arrowPositions: game.arrows.map((a) => [a.mesh.position.x, a.mesh.position.y, a.mesh.position.z]),
+      }
+    })
+    const { hudText: _hudText, ...initialComparableFingerprint } = initialFingerprint
+    const errors = []
+    if (JSON.stringify(initialComparableFingerprint) !== JSON.stringify(finalFingerprint)) {
+      errors.push('Frozen scene fingerprint changed (Alive/Dead/Arrow/Horse/Camera/NPC/Mount/Arrow positions)')
+    }
+
+    const firstResult = resolutionResults[0]
+    const firstTotals = firstResult.mainPassCensus.passTotals.totalNonShadow
+    for (const result of resolutionResults) {
+      const totals = result.mainPassCensus.passTotals.totalNonShadow
+      if (result.actualRuntimeShadowMapSize !== result.requestedShadowMapSize) {
+        errors.push(`Runtime size mismatch: requested=${result.requestedShadowMapSize}, actual=${result.actualRuntimeShadowMapSize}`)
+      }
+      if (totals.mainSubmissions !== firstTotals.mainSubmissions || totals.triangles !== firstTotals.triangles) {
+        errors.push(
+          `Resolution ${result.requestedShadowMapSize} changed Main/non-shadow census: Calls=${totals.mainSubmissions} vs ${firstTotals.mainSubmissions}, Triangles=${totals.triangles} vs ${firstTotals.triangles}`
+        )
+      }
+      if (result.shadowPassCensus.totalSubmissions <= 0) {
+        errors.push(`Resolution ${result.requestedShadowMapSize} has no shadow submissions`)
+      }
+    }
+    if (errors.length > 0) throw new Error(`Resolution-only invariant check failed:\n${errors.join('\n')}`)
+
+    const report = {
+      generatedAt: new Date().toISOString(),
+      scenario,
+      tag,
+      requestedShadowMapSizes: shadowMapSizes,
+      fingerprint: {
+        alive: initialFingerprint.alive,
+        dead: initialFingerprint.dead,
+        arrowCount: initialFingerprint.arrowCount,
+        horseCount: initialFingerprint.horseCount,
+        camPos: initialFingerprint.camPos,
+        camQuat: initialFingerprint.camQuat,
+        npcCount: initialFingerprint.npcPositions.length,
+        mountCount: initialFingerprint.mountPositions.length,
+      },
+      resolutionResults,
+    }
+    fs.mkdirSync(path.dirname(outPath), { recursive: true })
+    fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf8')
+    console.log(`[Fixed-Scene Shadow Benchmark] 同場景 resolution JSON 已儲存至: ${outPath}`)
+    console.log(`| Requested | Runtime | FPS | Renderer Submit | CPU Frame | Main/non-shadow Calls | Main/non-shadow Tris |`)
+    console.log(`|:---|:---|---:|---:|---:|---:|---:|`)
+    for (const result of resolutionResults) {
+      const totals = result.mainPassCensus.passTotals.totalNonShadow
+      console.log(
+        `| ${result.requestedShadowMapSize} | ${result.actualRuntimeShadowMapSize} | ${result.window.fps.toFixed(1)} | ${result.window.renderSubmitMs.toFixed(2)} ms | ${result.window.cpuFrameMs.toFixed(2)} ms | ${totals.mainSubmissions} | ${totals.triangles.toLocaleString()} |`
+      )
+    }
+  } else {
   // ── Window A: Shadow ON #1 ──
   const windowA = await observeWindow('Shadow ON #1', true)
   const mainCensusOn1 = await page.evaluate(() => window.__collectMainPassCensus(window.game))
@@ -200,6 +320,24 @@ try {
 
   // ── Window C: Shadow ON #2 (Sanity Check) ──
   const windowC = await observeWindow('Shadow ON #2', true)
+
+  // ── 同一 frozen scene 的 resolution A/B/recovery ──
+  const resolutionResults = []
+  for (const shadowMapSize of shadowMapSizes) {
+    const window = await observeWindow(`Shadow ON ${shadowMapSize}`, true, shadowMapSize)
+    const mainPassCensus = await page.evaluate(() => window.__collectMainPassCensus(window.game))
+    const shadowPassCensus = await page.evaluate(() => window.__collectShadowPassCensus(window.game))
+    resolutionResults.push({
+      requestedShadowMapSize: shadowMapSize,
+      actualRuntimeShadowMapSize: window.actualRuntimeShadowMapSize,
+      window,
+      mainPassCensus: {
+        passTotals: mainPassCensus.passTotals,
+        categories: mainPassCensus.categories,
+      },
+      shadowPassCensus,
+    })
+  }
 
   // ── 結束驗證指紋 (逐 entity 穩定座標快照) ──
   const finalFingerprint = await page.evaluate(() => {
@@ -328,6 +466,27 @@ try {
     errors.push(`Shadow OFF 時 Shadow Census triangles 必須 == 0，實際為: ${shadowCensusOff.totalTriangles}`)
   }
 
+  const firstResolution = resolutionResults[0]
+  for (const result of resolutionResults) {
+    if (result.actualRuntimeShadowMapSize !== result.requestedShadowMapSize) {
+      errors.push(
+        `Shadow map runtime size 不一致: requested=${result.requestedShadowMapSize}, actual=${result.actualRuntimeShadowMapSize}`
+      )
+    }
+    const calls = result.mainPassCensus.passTotals.totalNonShadow.mainSubmissions
+    const triangles = result.mainPassCensus.passTotals.totalNonShadow.triangles
+    const firstCalls = firstResolution.mainPassCensus.passTotals.totalNonShadow.mainSubmissions
+    const firstTriangles = firstResolution.mainPassCensus.passTotals.totalNonShadow.triangles
+    if (calls !== firstCalls || triangles !== firstTriangles) {
+      errors.push(
+        `Resolution ${result.requestedShadowMapSize} 的 Main/non-shadow 不一致: Calls=${calls} vs ${firstCalls}, Triangles=${triangles} vs ${firstTriangles}`
+      )
+    }
+    if (result.shadowPassCensus.totalSubmissions <= 0) {
+      errors.push(`Resolution ${result.requestedShadowMapSize} 的 Shadow Census submissions 必須 > 0`)
+    }
+  }
+
   if (errors.length > 0) {
     console.error(`[Fixed-Scene Shadow Benchmark] Invariant 校驗失敗:\n - ${errors.join('\n - ')}`)
     throw new Error(`Fixed-Scene Invariant Check Failed:\n${errors.join('\n')}`)
@@ -346,7 +505,7 @@ try {
     generatedAt: new Date().toISOString(),
     scenario,
     tag,
-    shadowMapSize: shadowMapSize ? Number(shadowMapSize) : null,
+    requestedShadowMapSizes: shadowMapSizes,
     fingerprint: {
       alive: initialFingerprint.alive,
       dead: initialFingerprint.dead,
@@ -368,8 +527,8 @@ try {
       nonShadowCalls: nonShadowCallsOn,
       nonShadowTriangles: nonShadowTrisOn,
     },
+    resolutionResults,
     shadowCensus: shadowCensusOn,
-    shadowCasterInstances: shadowCensusOn.categories.reduce((sum, category) => sum + category.instances, 0),
     shadowCensusOff,
     mainPassCensusOn: {
       passTotals: mainCensusOn1.passTotals,
@@ -409,6 +568,17 @@ try {
   )
   console.log(``)
 
+  console.log(`### 同一 Frozen Scene 的 Shadow Map Resolution A/B`)
+  console.log(`| Requested | Runtime | FPS | Renderer Submit | CPU Frame | Main/non-shadow Calls | Main/non-shadow Tris |`)
+  console.log(`|:---|:---|---:|---:|---:|---:|---:|`)
+  for (const result of resolutionResults) {
+    const totals = result.mainPassCensus.passTotals.totalNonShadow
+    console.log(
+      `| ${result.requestedShadowMapSize} | ${result.actualRuntimeShadowMapSize} | ${result.window.fps.toFixed(1)} | ${result.window.renderSubmitMs.toFixed(2)} ms | ${result.window.cpuFrameMs.toFixed(2)} ms | ${totals.mainSubmissions} | ${totals.triangles.toLocaleString()} |`
+    )
+  }
+  console.log(``)
+
   console.log(`### Shadow Pass Census (陰影投射類別人口普查)`)
   console.log(`| Category | Shadow Submissions | Shadow Triangles | Instances | Skinned Meshes | 佔比 (Submissions) |`)
   console.log(`|:---|---:|---:|---:|---:|---:|`)
@@ -437,6 +607,7 @@ try {
   }
 
   console.log(`====================================================================================\n`)
+  }
 } finally {
   await browser.close()
 }
