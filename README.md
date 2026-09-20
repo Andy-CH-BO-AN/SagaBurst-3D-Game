@@ -10,16 +10,30 @@ The current gameplay entry point is **Custom Battle**: configure Viking and Roma
 
 Each side can field **1–200 AI troops**. Viking and Roman army sizes can be asymmetric, including scenarios such as `1 vs 200` or `200 vs 1`.
 
-Each faction can be configured independently across four unit roles and three tiers:
+Each faction has its own unit preset catalog. Every preset supports **T1 / T2 / T3**, with the preset defining the starting loadout while live combat behavior is determined by the unit's current weapon, shield, mount state, and combat rules.
 
-| Unit | Role |
+**Viking presets**
+
+| Unit | Battlefield role |
 | --- | --- |
-| Infantry | Foot melee unit |
-| Archer | Foot ranged unit |
-| Cavalry | Mounted melee / lancer unit |
-| Horse Archer | Mounted ranged unit |
+| Berserker | Unshielded aggressive melee; gains dynamic Viking sword bonuses while on foot |
+| Spearman | Foot Lance unit specialized against currently mounted targets |
+| Archer | Foot Bow unit with a fixed T1 dagger fallback |
+| Sword Cavalry | Mounted sword + round-shield unit |
+| Lancer | Mounted Lance unit built around high-speed charge attacks |
+| Mounted Archer | Mounted Bow unit with a fixed T1 dagger fallback |
 
-Every unit role supports **T1 / T2 / T3**. Higher tiers use stronger faction-appropriate equipment and damage values.
+**Roman presets**
+
+| Unit | Battlefield role |
+| --- | --- |
+| Heavy Infantry | Gladius + Scutum defensive frontline |
+| Spearman | Foot Lance anti-cavalry unit |
+| Archer | Foot Bow unit with a fixed T1 Gladius fallback |
+| Javelin Infantry | Pilum/Javelin ranged unit with a fixed T1 Gladius fallback |
+| Sword Cavalry | Mounted Gladius + Scutum unit |
+| Lancer | Mounted Lance charge unit |
+| Mounted Archer | Mounted Bow unit with a fixed T1 Gladius fallback |
 
 Quick presets are available for **10 vs 10**, **25 vs 25**, **50 vs 50**, **100 vs 100**, and **200 vs 200**, or you can build an army manually with the setup controls.
 
@@ -35,7 +49,7 @@ Player faction is selected independently from army composition and deployment mo
 
 Changing an army preset only changes army composition; it preserves the selected **Battle Mode**, **Player Faction**, **Player Loadout**, and **Spectator** setting.
 
-The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–200 AI troop total or the army-survival victory count.
+The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–200 AI troop total or the army-survival victory count. Player HP is independently configurable from **1–9999** in Army Setup; the default Player and NPC HP is **200**.
 
 ### Battle flow
 
@@ -56,7 +70,7 @@ Custom Battle now has a dedicated **Player Loadout** page. Before starting the b
 
 Player equipment is independent from Player Faction, so Viking and Roman gear can be mixed freely:
 
-- **Melee** — Viking swords, Roman gladii, or the Steel Lance.
+- **Melee** — Viking swords, Roman gladii, or T1 / T2 / T3 Lances.
 - **Ranged** — Viking bows or Roman pila.
 - **Shield** — Viking round shields, Roman scuta, or no shield.
 - **Starting state** — **Mounted** creates and mounts the normal starting horse; **On Foot** does not create the special starting horse.
@@ -68,6 +82,42 @@ Bow and Pilum controls intentionally differ: bows use the existing draw-and-rele
 For backward compatibility, battle configurations that do not contain `playerLoadout` keep the legacy default start: **Steel Lance**, **Elven Runebow**, **Round Shield T3**, and mounted. Initial Spectator mode overrides the loadout and does not create a starting horse.
 
 The player's starting horse is separate from the spare horses placed in the faction camps. **Player death is permanent for the current battle**: after dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends. REMATCH starts a fresh battle using the same configuration. Mounted save/load continues to preserve the player's mounted state and the mount's world position, while loaded save inventory overrides fresh-battle starting equipment.
+
+## ⚖️ Combat Rules & Balance
+
+Combat behavior is evaluated from the unit's **current equipment and mount state**, not from a permanent runtime class identity.
+
+| Rule | Current behavior |
+| --- | --- |
+| Default HP | Player 200 / NPC 200 |
+| Lance progression | T1 30 / T2 45 / T3 60 base damage, 3.9m reach |
+| Foot Lance anti-cavalry | Unmounted Lance attacker vs a **currently mounted** target: ×2 damage. The bonus ends after the target dismounts. |
+| Mounted Lance charge | Mounted Lance attack above 10 m/s: ×3 damage |
+| Charge + Horse Impact | A successful Lance charge suppresses Horse Impact for that same frame so damage does not double-dip; a missed Lance attack does not suppress impact |
+| Horse Impact | All controlled mounts can damage hostile targets above 4 m/s using `round(8 + speed × 1.5 × sprintMultiplier)`; sprint multiplier is ×1.5 and same-target cooldown is 0.6s |
+| Berserker condition | Viking + on foot + active Sword combat state + no shield: move speed ×1.3, melee damage ×1.2, melee attack rate ×1.2 |
+| Bow | Damage ×0.5, attack rate ×1.3, NPC engagement range 50m on foot / 15m mounted |
+| Javelin | Damage ×1.5, attack rate ×0.7, NPC engagement range 30m on foot / 15m mounted |
+| Shields | T1 10% / T2 15% / T3 20% damage reduction. While mounted, shield reduction is applied before damage is routed to the horse. |
+
+Mounted targets route incoming combat damage to the horse first. When the horse dies, the rider dismounts and subsequent anti-cavalry checks use the rider's new unmounted state.
+
+### Combat data architecture
+
+Combat values are intentionally split into authoritative data sources instead of being hardcoded across Player / NPC / UI code:
+
+- `src/rpg/WeaponDatabase.ts` — weapon base stats and `combatKind`.
+- `src/combat/CombatBalance.ts` — HP defaults, multipliers, ranges, cooldowns, Lance rules, Berserker rules, and Mount Impact formula.
+- `src/battle/UnitPresetCatalog.ts` — faction unit presets and T1 / T2 / T3 starting loadouts.
+- `src/combat/DamageRouter.ts` — shared shield, rider, mount, death, and dismount damage routing.
+- `src/combat/MountImpact.ts` — shared swept-path mount impact resolution for Player and NPC cavalry.
+
+The intended runtime model is:
+
+```text
+Unit + Faction + Current Equipment + Current Mount State + CombatBalance
+= Current Combat Behavior
+```
 
 ## 🏕️ Battle Camps
 
@@ -198,6 +248,11 @@ npm run preview
 - Vite
 - Vitest
 - Playwright
+
+## 🗺️ Roadmap
+
+- **T4 Elite units — not implemented yet.** Future faction-specific elites may include concepts such as a shield-bearing Viking **Varangian Captain** and a Roman **Centurion**. The goal is to add distinct elite battlefield roles rather than simply scaling T3 stats upward.
+- Continue improving 200 vs 200 combat behavior, cavalry interactions, animation fidelity, and render-path performance.
 
 ## 🚧 Project Status
 
