@@ -11,7 +11,7 @@ import { Mount, MountState } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
 import { COMBAT_BALANCE, calculateMountImpactDamage } from './CombatBalance'
-import { damageNpc, damagePlayer, type DamageResult } from './DamageRouter'
+import { damageNpc, type DamageResult } from './DamageRouter'
 import type { SpatialGrid } from '../world/SpatialGrid'
 
 /** Swept line-segment collision check between mount trajectory and a target sphere. */
@@ -55,8 +55,11 @@ export interface MountImpactOptions {
   npcGrid?: SpatialGrid<NPC>
   /** Reusable candidate array to prevent per-frame garbage collection. */
   candidateBuffer?: NPC[]
-  /** Authoritative player damage callback (supplies player hpBar and equipped shield). */
-  onDamagePlayer?: (damage: number) => DamageResult
+  /**
+   * Authoritative player damage callback (required).
+   * Must supply the player's equipped shield and HP bar — MountImpact.ts must not guess these.
+   */
+  onDamagePlayer: (damage: number) => DamageResult
   /** Side-effects for Player mount impacting an enemy NPC (damage numbers, HUD, sound). */
   onPlayerMountHitNpc?: (damage: number, npc: NPC, result: DamageResult) => void
   /** Side-effects for Enemy mount impacting the Player (mount HP fill, hit sound). */
@@ -74,9 +77,9 @@ export function resolveMountImpacts(
   player: Player,
   npcs: NPC[],
   now: number,
-  options?: MountImpactOptions
+  options: MountImpactOptions
 ): void {
-  const candidateBuffer = options?.candidateBuffer ?? []
+  const candidateBuffer = options.candidateBuffer ?? []
 
   for (const mount of mounts) {
     if (mount.state !== MountState.CONTROLLED || mount.dead) continue
@@ -86,7 +89,7 @@ export function resolveMountImpacts(
     // ── Case A: Player-Owned Mount ──
     if (mount === player.currentMount) {
       let candidates: NPC[]
-      if (options?.npcGrid) {
+      if (options.npcGrid) {
         const sweepDist = mount.group.position.distanceTo(mount.previousPosition)
         const queryRadius = Math.max(6.0, sweepDist + 2.0)
         candidates = options.npcGrid.getNearbyInto(mount.group.position, queryRadius, candidateBuffer)
@@ -101,7 +104,7 @@ export function resolveMountImpacts(
           applyMountImpactDamage(mount, targetNpc, targetNpc.combatPosition, now, (damage) => {
             const result = damageNpc(targetNpc, damage)
             if (result.hitSuccess) {
-              options?.onPlayerMountHitNpc?.(damage, targetNpc, result)
+              options.onPlayerMountHitNpc?.(damage, targetNpc, result)
             }
           })
         }
@@ -117,11 +120,9 @@ export function resolveMountImpacts(
     if (riderFaction === Faction.ENEMY && player.targetable) {
       if (checkMountImpact(mount, player.position, 0.38)) {
         applyMountImpactDamage(mount, player, player.position, now, (damage) => {
-          const result = options?.onDamagePlayer
-            ? options.onDamagePlayer(damage)
-            : damagePlayer(player, damage, (player as any)._hpBar ?? { setFill: () => {} } as any, null)
+          const result = options.onDamagePlayer(damage)
           if (result.hitSuccess) {
-            options?.onEnemyMountHitPlayer?.(damage, result)
+            options.onEnemyMountHitPlayer?.(damage, result)
           }
         })
       }
@@ -129,7 +130,7 @@ export function resolveMountImpacts(
 
     // 2. NPC Mount -> Hostile NPCs
     let candidates: NPC[]
-    if (options?.npcGrid) {
+    if (options.npcGrid) {
       const sweepDist = mount.group.position.distanceTo(mount.previousPosition)
       const queryRadius = Math.max(6.0, sweepDist + 2.0)
       candidates = options.npcGrid.getNearbyInto(mount.group.position, queryRadius, candidateBuffer)
@@ -147,7 +148,7 @@ export function resolveMountImpacts(
           const result = damageNpc(targetNpc, damage)
           if (result.hitSuccess) {
             // NPC -> NPC: does NOT spawn floating damage numbers or change player HUD
-            options?.onNpcMountHitNpc?.(damage, mount, targetNpc, result)
+            options.onNpcMountHitNpc?.(damage, mount, targetNpc, result)
           }
         })
       }

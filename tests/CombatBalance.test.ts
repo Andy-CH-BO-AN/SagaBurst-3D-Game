@@ -22,6 +22,7 @@ import { Mount, MountState } from '../src/world/Mount'
 import { resolveMountImpacts, checkMountImpact } from '../src/combat/MountImpact'
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { getUnitCombatProfile } from '../src/battle/BattleConfig'
+import { Game } from '../src/Game'
 
 describe('CombatBalance SSOT & Pure Functions', () => {
   describe('A. Balance Constants', () => {
@@ -916,7 +917,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const player = new Player(scene, 'viking')
       player.group.position.set(100, 0, 100) // far away
 
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0, { onDamagePlayer: vi.fn() })
       // Non-sprint speed 10 m/s: 8 + 10 * 1.5 = 23 damage -> 200 - 23 = 177 HP
       expect(hostileFootNpc.hp).toBe(177)
     })
@@ -938,7 +939,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const player = new Player(scene, 'viking')
       player.group.position.set(100, 0, 100)
 
-      resolveMountImpacts([mount], player, [friendlyFootNpc], 1.0)
+      resolveMountImpacts([mount], player, [friendlyFootNpc], 1.0, { onDamagePlayer: vi.fn() })
       // Friendly NPC must not receive impact damage
       expect(friendlyFootNpc.hp).toBe(200)
     })
@@ -960,16 +961,17 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const player = new Player(scene, 'viking')
       player.group.position.set(100, 0, 100)
 
+      const onDamagePlayer = vi.fn()
       // First impact at t = 1.0 -> 23 damage (HP = 177)
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0, { onDamagePlayer })
       expect(hostileFootNpc.hp).toBe(177)
 
       // Second impact attempt at t = 1.3 (0.3s later < 0.6s cooldown) -> blocked
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.3)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.3, { onDamagePlayer })
       expect(hostileFootNpc.hp).toBe(177)
 
       // Third impact attempt at t = 1.7 (0.7s later > 0.6s cooldown) -> applies 23 damage (HP = 154)
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.7)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.7, { onDamagePlayer })
       expect(hostileFootNpc.hp).toBe(154)
     })
 
@@ -994,7 +996,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       // When skipImpactThisFrame is true, checkMountImpact is false
       expect(checkMountImpact(mount, hostileFootNpc.combatPosition, 0.5)).toBe(false)
 
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0, { onDamagePlayer: vi.fn() })
       // Mount impact is suppressed; NPC takes no impact damage
       expect(hostileFootNpc.hp).toBe(200)
     })
@@ -1017,15 +1019,169 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const player = new Player(scene, 'viking')
       player.group.position.set(100, 0, 100)
 
-      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0)
+      const onDamagePlayer = vi.fn()
+      resolveMountImpacts([mount], player, [hostileFootNpc], 1.0, { onDamagePlayer })
       expect(hostileFootNpc.hp).toBe(200)
 
       // Frame ends -> reset skipImpactThisFrame = false
       mount.skipImpactThisFrame = false
 
       // Frame 2 at t = 2.0 -> normal movement can impact
-      resolveMountImpacts([mount], player, [hostileFootNpc], 2.0)
+      resolveMountImpacts([mount], player, [hostileFootNpc], 2.0, { onDamagePlayer })
       expect(hostileFootNpc.hp).toBe(177)
+    })
+
+    it('10. Player Lance charge miss leaves Horse Impact enabled in the same frame', () => {
+      const scene = new THREE.Scene()
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.state = MountState.CONTROLLED
+      mount.previousPosition.set(0, 0, -2)
+      mount.group.position.set(0, 0, 2)
+      mount.movementSpeed = 12 // Charge-qualified: strictly greater than 10 m/s
+
+      const enemyNpc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'RomanFoot', 1, false)
+      enemyNpc.group.position.set(0, 0, 0) // On the mount sweep, but behind the Player's Lance
+      enemyNpc.shieldId = null
+
+      const player = {
+        dead: false,
+        spectatorOnly: false,
+        isMounted: true,
+        currentMount: mount,
+        characterFaction: 'viking',
+        hasShield: false,
+        facingYaw: 0,
+        combatPosition: new THREE.Vector3(0, 0, 2),
+        isHitFrame: () => true,
+        isLanceThrustActive: false,
+        getSwordTipPosition: () => new THREE.Vector3(0, 1, 6),
+        hasPrevLanceTip: true,
+        prevLanceTipPos: new THREE.Vector3(0, 1, 5),
+        getWeaponGripPosition: (out: THREE.Vector3) => out.set(0, 1, 2),
+        markHitProcessed: vi.fn(),
+        updatePrevLanceTip: vi.fn(),
+      }
+      const game = {
+        player,
+        controlMode: 'player',
+        inventoryManager: { equippedMelee: WEAPONS.heavy_lance },
+        skillManager: { getOneHandedMultiplier: () => 1, addXp: vi.fn() },
+        npcs: [enemyNpc],
+        _tmpGripPos: new THREE.Vector3(),
+        _tmpPlayerForward: new THREE.Vector3(),
+        _tmpAiCenter: new THREE.Vector3(),
+        _tmpToTarget: new THREE.Vector3(),
+        _applyLanceChargeBonus: (Game.prototype as any)._applyLanceChargeBonus,
+        soundManager: { playHit: vi.fn() },
+        damageNumbers: { spawn: vi.fn() },
+        _showEnemyHud: vi.fn(),
+      }
+
+      // Exercise Game's real Lance-hit path. The NPC is behind the Lance, so it misses.
+      ;(Game.prototype as any)._checkPlayerMeleeHits.call(game)
+      expect(mount.skipImpactThisFrame).toBe(false)
+
+      // The same-frame sweep must remain eligible for Horse Impact: 8 + 12 * 1.5 = 26.
+      const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
+      resolveMountImpacts([mount], player as any, [enemyNpc], 1.0, { onDamagePlayer: vi.fn() })
+      expect(enemyNpc.hp).toBe(200 - damage)
+    })
+
+    it('11. Player-owned mount at 10 m/s impacts ENEMY NPC for 23; allied (PLAYER) NPC is not hit', () => {
+      const scene = new THREE.Scene()
+
+      // Player owns this mount via player.currentMount (riderFaction intentionally left null)
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.previousPosition.set(0, 0, -2)
+      mount.group.position.set(0, 0, 2)
+      mount.movementSpeed = 10
+      mount.isSprinting = false
+
+      const player = new Player(scene, 'viking')
+      player.group.position.set(0, 0, 0)
+      player.mountVehicle(mount)
+      // mountVehicle sets currentMount and state=CONTROLLED but does NOT set riderFaction
+      expect(mount.riderFaction).toBeNull()
+      expect(player.currentMount).toBe(mount)
+
+      const enemyNpc = new NPC(scene, 0, 2, Faction.ENEMY, 'roman', AIType.MELEE, 'RomanFoot', 1, false)
+      enemyNpc.group.position.set(0, 0, 0)
+      enemyNpc.shieldId = null
+      expect(enemyNpc.hp).toBe(200)
+
+      const alliedNpc = new NPC(scene, 0, 2, Faction.PLAYER, 'viking', AIType.MELEE, 'VikingFoot', 1, false)
+      alliedNpc.group.position.set(0, 0, 0)
+      alliedNpc.shieldId = null
+      expect(alliedNpc.hp).toBe(200)
+
+      resolveMountImpacts([mount], player, [enemyNpc, alliedNpc], 1.0, { onDamagePlayer: vi.fn() })
+
+      // Enemy NPC takes 23 damage (8 + 10 * 1.5)
+      expect(enemyNpc.hp).toBe(177)
+      // Allied NPC is unharmed (Player mount only targets Faction.ENEMY)
+      expect(alliedNpc.hp).toBe(200)
+    })
+
+    it('12. Player-owned mount impact works correctly even when mount.riderFaction is null', () => {
+      const scene = new THREE.Scene()
+
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.previousPosition.set(0, 0, -2)
+      mount.group.position.set(0, 0, 2)
+      mount.movementSpeed = 12
+      mount.isSprinting = false
+      // riderFaction is explicitly null — ownership detected via player.currentMount only
+      mount.riderFaction = null
+
+      const player = new Player(scene, 'viking')
+      player.group.position.set(0, 0, 0)
+      player.mountVehicle(mount)
+      expect(player.currentMount).toBe(mount)
+      expect(mount.riderFaction).toBeNull()
+
+      const enemyNpc = new NPC(scene, 0, 2, Faction.ENEMY, 'roman', AIType.MELEE, 'RomanFoot', 1, false)
+      enemyNpc.group.position.set(0, 0, 0)
+      enemyNpc.shieldId = null
+
+      resolveMountImpacts([mount], player, [enemyNpc], 1.0, { onDamagePlayer: vi.fn() })
+
+      // Sprint speed 12, isSprinting = false: 8 + 12 * 1.5 = 26
+      const expectedDamage = calculateMountImpactDamage(12, false)
+      expect(enemyNpc.hp).toBe(200 - expectedDamage)
+    })
+
+    it('13. Enemy NPC mount -> Player uses the authoritative callback with shield and mount routing', () => {
+      const scene = new THREE.Scene()
+
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.state = MountState.CONTROLLED
+      mount.riderFaction = Faction.ENEMY
+      mount.previousPosition.set(0, 0, -2)
+      mount.group.position.set(0, 0, 2)
+      mount.movementSpeed = 10
+      mount.isSprinting = false
+
+      const player = new Player(scene, 'viking')
+      const playerMount = new Mount(scene, 'horse', 0, 0, 0)
+      player.mountVehicle(playerMount)
+      player.group.position.set(0, 0, 0) // Player target position is in the enemy mount's sweep.
+      const hpBar = { setFill: vi.fn() } as any
+      const onDamagePlayer = vi.fn((damage: number) =>
+        damagePlayer(player, damage, hpBar, 'round_shield_t2')
+      )
+      const onEnemyMountHitPlayer = vi.fn()
+
+      resolveMountImpacts([mount], player, [], 1.0, { onDamagePlayer, onEnemyMountHitPlayer })
+
+      // The resolver supplies raw impact damage to the authoritative callback exactly once.
+      expect(onDamagePlayer).toHaveBeenCalledTimes(1)
+      expect(onDamagePlayer).toHaveBeenCalledWith(23)
+      // The callback applies the equipped T2 shield (15%) and routes damage to the mounted Player's horse.
+      expect(playerMount.currentHp).toBeCloseTo(100 - 23 * 0.85)
+      expect(onEnemyMountHitPlayer).toHaveBeenCalledWith(
+        23,
+        expect.objectContaining({ isMountHit: true, targetName: `坐騎：${playerMount.displayName}` })
+      )
     })
   })
 })

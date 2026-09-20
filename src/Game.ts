@@ -1452,15 +1452,12 @@ export class Game {
 
   // ── Shared: Lance Charge Bonus (C-5) ──
   /** Returns the final damage after applying lance charge multiplier.
-   *  Also sets skipImpactThisFrame on the player's mount if charging. */
-  private _applyLanceChargeBonus(combatKind: string | undefined, isLance: boolean, baseDamage: number): number {
+   *  Pure — does NOT mutate mount state. Caller sets skipImpactThisFrame only on confirmed hit. */
+  private _applyLanceChargeBonus(combatKind: string | undefined, isLance: boolean, baseDamage: number): { damage: number; isCharge: boolean } {
     const mount = this.player.isMounted ? this.player.currentMount : null
     const speed = mount ? mount.movementSpeed : 0
     const result = calculateLanceChargeDamage(baseDamage, combatKind ?? (isLance ? 'lance' : 'sword'), this.player.isMounted, speed)
-    if (mount && result.skipImpact) {
-      mount.skipImpactThisFrame = true
-    }
-    return result.damage
+    return { damage: result.damage, isCharge: result.skipImpact }
   }
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
@@ -1475,6 +1472,7 @@ export class Game {
     }
 
     const combatKind = equippedMelee.combatKind ?? (equippedMelee.isLance ? 'lance' : 'sword')
+    const baseDamage = equippedMelee.damageMax
     const berserker = getBerserkerModifiers(
       this.player.characterFaction,
       this.player.isMounted,
@@ -1482,9 +1480,8 @@ export class Game {
       this.player.hasShield
     )
 
-    let baseDamage = equippedMelee.damageMax
-    baseDamage = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
-    const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
+    const { damage: chargedDamage, isCharge } = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
+    const damage = Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
 
     if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()
@@ -1516,6 +1513,10 @@ export class Game {
             const finalDamage = Math.round(damage * antiCav)
             const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
+              // Only suppress Horse Impact when the Lance charge actually landed
+              if (isCharge && this.player.currentMount) {
+                this.player.currentMount.skipImpactThisFrame = true
+              }
               this.soundManager.playHit()
               this.damageNumbers.spawn(finalDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
