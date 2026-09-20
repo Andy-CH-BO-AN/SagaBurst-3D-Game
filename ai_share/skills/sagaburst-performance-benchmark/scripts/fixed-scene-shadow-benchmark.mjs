@@ -18,6 +18,7 @@ SagaBurst 固定場景陰影成本拆解 (Fixed-Scene Shadow Cost Breakdown)
   --settle-ms=N           接戰後展開時間 (ms)，預設 4000
   --observation-ms=N      每個 Window 觀測時間 (ms)，預設 4000
   --timeout-ms=N          等待 Combat Evidence 超時時間 (ms)，預設 30000
+  --shadow-map-size=N     DEV shadowMapSize（2048 / 1024 / 512 / 256），預設 production 值
   --host=HOST:PORT        預設 127.0.0.1:5173
   --tag=NAME              輸出 tag
   --out=PATH              指定輸出 JSON 路徑 (預設 output/local-diagnostics/fixed-scene-shadow.json)
@@ -29,6 +30,7 @@ const scenario = valueOf('scenario', 'F').toUpperCase()
 const settleMs = Number(valueOf('settle-ms', '4000'))
 const observationMs = Number(valueOf('observation-ms', '4000'))
 const timeoutMs = Number(valueOf('timeout-ms', '30000'))
+const shadowMapSize = valueOf('shadow-map-size', '')
 const host = valueOf('host', '127.0.0.1:5173')
 const tag = valueOf('tag', 'fixed-scene-shadow')
 const defaultOut = path.resolve('output/local-diagnostics/fixed-scene-shadow.json')
@@ -54,7 +56,8 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 720 
 const page = await context.newPage()
 
 try {
-  const targetUrl = `http://${host}/?devcombat=${scenario.toLowerCase()}&nolock`
+  const shadowMapQuery = shadowMapSize ? `&shadowMapSize=${encodeURIComponent(shadowMapSize)}` : ''
+  const targetUrl = `http://${host}/?devcombat=${scenario.toLowerCase()}&nolock${shadowMapQuery}`
   console.log(`[Fixed-Scene Shadow Benchmark] 載入頁面: ${targetUrl}`)
   await page.goto(targetUrl)
 
@@ -343,6 +346,7 @@ try {
     generatedAt: new Date().toISOString(),
     scenario,
     tag,
+    shadowMapSize: shadowMapSize ? Number(shadowMapSize) : null,
     fingerprint: {
       alive: initialFingerprint.alive,
       dead: initialFingerprint.dead,
@@ -365,6 +369,7 @@ try {
       nonShadowTriangles: nonShadowTrisOn,
     },
     shadowCensus: shadowCensusOn,
+    shadowCasterInstances: shadowCensusOn.categories.reduce((sum, category) => sum + category.instances, 0),
     shadowCensusOff,
     mainPassCensusOn: {
       passTotals: mainCensusOn1.passTotals,

@@ -4,7 +4,19 @@
  */
 import * as THREE from 'three'
 
-export function createSky(scene: THREE.Scene): void {
+export const PRODUCTION_SHADOW_MAP_SIZE = 256
+const SHADOW_MAP_SIZE_OPTIONS = [2048, 1024, 512, 256] as const
+
+export function resolveShadowMapSize(query: URLSearchParams): number {
+  if (!import.meta.env.DEV) return PRODUCTION_SHADOW_MAP_SIZE
+
+  const requested = Number(query.get('shadowMapSize'))
+  return SHADOW_MAP_SIZE_OPTIONS.includes(requested as (typeof SHADOW_MAP_SIZE_OPTIONS)[number])
+    ? requested
+    : PRODUCTION_SHADOW_MAP_SIZE
+}
+
+export function createSky(scene: THREE.Scene, shadowMapSize = PRODUCTION_SHADOW_MAP_SIZE): void {
   scene.background = new THREE.Color(0x87ceeb)
 
   // Atmospheric fog
@@ -18,8 +30,8 @@ export function createSky(scene: THREE.Scene): void {
   const sun = new THREE.DirectionalLight(0xfff0cc, 1.8)
   sun.position.set(60, 80, 40)
   sun.castShadow = true
-  sun.shadow.mapSize.width = 2048
-  sun.shadow.mapSize.height = 2048
+  sun.shadow.mapSize.width = shadowMapSize
+  sun.shadow.mapSize.height = shadowMapSize
   sun.shadow.camera.near = 0.5
   sun.shadow.camera.far = 300
   sun.shadow.camera.left = -80

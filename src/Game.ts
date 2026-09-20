@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { createSky } from './world/Sky'
+import { createSky, resolveShadowMapSize } from './world/Sky'
 import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
@@ -443,7 +443,7 @@ export class Game {
     this._aimRaycaster.layers.enable(AIM_RAYCAST_LAYER)
 
     // ── World ──
-    createSky(this.scene)
+    createSky(this.scene, resolveShadowMapSize(new URLSearchParams(window.location.search)))
     const { terrainMesh, obstacles, obstacleMeshes } = createTerrain(this.scene)
     this.obstacles = obstacles
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
