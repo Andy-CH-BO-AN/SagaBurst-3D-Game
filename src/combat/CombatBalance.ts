@@ -189,6 +189,11 @@ export function calculateLanceChargeDamage(
   baseDamage: number
 ): LanceChargeResult
 export function calculateLanceChargeDamage(
+  isLance: boolean,
+  movementSpeed: number,
+  baseDamage: number
+): LanceChargeResult
+export function calculateLanceChargeDamage(
   arg1: any,
   arg2: any,
   arg3?: any,
@@ -199,7 +204,12 @@ export function calculateLanceChargeDamage(
   let isMounted: boolean
   let movementSpeed: number
 
-  if (typeof arg1 === 'number') {
+  if (typeof arg1 === 'boolean' && typeof arg2 === 'number' && typeof arg3 === 'number' && arg4 === undefined) {
+    combatKind = arg1 ? 'lance' : 'sword'
+    isMounted = true
+    movementSpeed = arg2
+    baseDamage = arg3
+  } else if (typeof arg1 === 'number') {
     baseDamage = arg1
     combatKind = arg2
     isMounted = Boolean(arg3)

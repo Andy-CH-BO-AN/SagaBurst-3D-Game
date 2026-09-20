@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   COMBAT_BALANCE,
   getRangedCombatKind,
@@ -13,10 +13,12 @@ import {
 } from '../src/combat/CombatBalance'
 import { UNIT_PRESETS } from '../src/battle/UnitPresetCatalog'
 import { ARMORS } from '../src/rpg/ArmorDatabase'
-import { damageNpc } from '../src/combat/DamageRouter'
+import { damageNpc, damagePlayer } from '../src/combat/DamageRouter'
 import * as THREE from 'three'
 import { NPC, Faction, AIState, AIType } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
+import { ArrowProjectile } from '../src/world/ArrowProjectile'
+import { Mount } from '../src/world/Mount'
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { getUnitCombatProfile } from '../src/battle/BattleConfig'
 
@@ -414,6 +416,333 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       player.update(dt, mockInput, 0, new THREE.Vector3(0, 0, 10), [], mockStaminaBar, mockQuiverUI, mockSoundManager)
 
       expect(player.bowCooldown).toBeCloseTo(expectedCooldown - dt)
+    })
+  })
+
+  describe('K. Enemy Projectiles Damaging Player Integration', () => {
+    it('1. Unmounted Player, no shield takes 21 damage from T2 enemy bow projectile (200 -> 179), and repeated hits trigger death flow', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onDeath = vi.fn()
+      player.onPlayerDeath = onDeath
+
+      const onHitTarget = vi.fn()
+      // T2 Bow projectile with 21 damage
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        21,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      expect(player.currentHp).toBe(179)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        21,
+        expect.any(THREE.Vector3),
+        'Player',
+        179 / 200,
+        true,
+        undefined,
+        false
+      )
+      expect(mockHpBar.setFill).toHaveBeenCalledWith(179 / 200)
+      expect(player.dead).toBe(false)
+      expect(onDeath).not.toHaveBeenCalled()
+
+      // Repeated hits reduce HP to 0 and trigger permanent death flow
+      const fatalArrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        200,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+      fatalArrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      expect(player.currentHp).toBe(0)
+      expect(player.dead).toBe(true)
+      expect(onDeath).toHaveBeenCalledTimes(1)
+    })
+
+    it('2. Unmounted Player, T2 shield (15% reduction) receives 85 damage from 100 incoming damage', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onHitTarget = vi.fn()
+
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        100,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2')
+      )
+
+      // 100 * (1 - 0.15) = 85 damage -> 200 - 85 = 115 HP
+      expect(player.currentHp).toBe(115)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        100,
+        expect.any(THREE.Vector3),
+        'Player',
+        115 / 200,
+        true,
+        undefined,
+        false
+      )
+      expect(mockHpBar.setFill).toHaveBeenCalledWith(115 / 200)
+    })
+
+    it('3. Mounted Player, T2 shield (15% reduction) routes 85 damage to Horse, Rider HP unchanged', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.currentHp = 200
+      mount.maxHp = 200
+      player.mountVehicle(mount)
+
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onHitTarget = vi.fn()
+
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        100,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2')
+      )
+
+      // Horse receives 85 damage -> 115 HP
+      expect(mount.currentHp).toBe(115)
+      // Rider HP unchanged
+      expect(player.currentHp).toBe(200)
+      expect(player.isMounted).toBe(true)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        100,
+        expect.any(THREE.Vector3),
+        `坐騎：${mount.displayName}`,
+        115 / 200,
+        true,
+        undefined,
+        true
+      )
+    })
+
+    it('4. Mounted Player, no shield routes full 100 damage to Horse, Rider HP unchanged', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.currentHp = 200
+      mount.maxHp = 200
+      player.mountVehicle(mount)
+
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onHitTarget = vi.fn()
+
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        100,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      // Horse receives 100 damage -> 100 HP
+      expect(mount.currentHp).toBe(100)
+      expect(player.currentHp).toBe(200)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        100,
+        expect.any(THREE.Vector3),
+        `坐騎：${mount.displayName}`,
+        100 / 200,
+        true,
+        undefined,
+        true
+      )
+    })
+
+    it('5. Horse death from a projectile causes dismount behavior exactly once', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mount = new Mount(scene, 'horse', 0, 0, 0)
+      mount.currentHp = 50
+      mount.maxHp = 200
+      player.mountVehicle(mount)
+
+      const dismountSpy = vi.spyOn(player, 'dismountFromMount')
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onHitTarget = vi.fn()
+
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        100,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      expect(mount.dead).toBe(true)
+      expect(player.isMounted).toBe(false)
+      expect(dismountSpy).toHaveBeenCalledTimes(1)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        100,
+        expect.any(THREE.Vector3),
+        `坐騎：${mount.displayName}`,
+        0,
+        true,
+        undefined,
+        true
+      )
+    })
+
+    it('6. Javelin uses the same Player damage routing as Bow', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mockHpBar = { setFill: vi.fn() } as any
+      const onHitTarget = vi.fn()
+
+      // T2 Javelin projectile with 63 damage
+      const javelin = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        63,
+        Faction.ENEMY,
+        false,
+        'pilum'
+      )
+
+      javelin.update(
+        0.01,
+        player,
+        [],
+        [],
+        onHitTarget,
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      expect(player.currentHp).toBe(200 - 63)
+      expect(onHitTarget).toHaveBeenCalledWith(
+        63,
+        expect.any(THREE.Vector3),
+        'Player',
+        137 / 200,
+        true,
+        undefined,
+        false
+      )
+    })
+
+    it('7. The hit callback/HUD receives the actual post-hit target HP ratio for both Player and Mount', () => {
+      const scene = new THREE.Scene()
+      const player = new Player(scene, 'viking')
+      player.position.set(0, 0, 0)
+      const mockHpBar = { setFill: vi.fn() } as any
+      let reportedRatio = -1
+
+      const arrow = new ArrowProjectile(
+        scene,
+        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, 0, -1),
+        10,
+        50,
+        Faction.ENEMY,
+        false,
+        'arrow'
+      )
+
+      arrow.update(
+        0.01,
+        player,
+        [],
+        [],
+        (_damage, _pos, _name, hpRatio) => {
+          reportedRatio = hpRatio
+        },
+        (damage) => damagePlayer(player, damage, mockHpBar, null)
+      )
+
+      // Post-hit HP is 150 / 200 = 0.75
+      expect(reportedRatio).toBe(0.75)
+      expect(player.hpRatio).toBe(0.75)
     })
   })
 })

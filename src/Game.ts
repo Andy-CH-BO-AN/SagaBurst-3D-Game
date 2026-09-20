@@ -2044,7 +2044,9 @@ export class Game {
             },
           },
         )
-      })
+      },
+      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
+    )
 
       if (!arrow.isAlive) {
         this.arrows.splice(i, 1)

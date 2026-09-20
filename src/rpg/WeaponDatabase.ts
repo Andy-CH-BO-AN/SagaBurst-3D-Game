@@ -258,15 +258,3 @@ export function getTierBadge(tier: 1 | 2 | 3): string {
     case 3: return '★★★ Tier 3 (史詩)'
   }
 }
-
-/**
- * Backward-compatible wrapper delegating lance charge damage calculation to CombatBalance.
- */
-export function calculateLanceChargeDamage(
-  isLance: boolean,
-  movementSpeed: number,
-  baseDamage: number
-): { damage: number; skipImpact: boolean } {
-  const isCharge = isLance && movementSpeed > 10
-  return { damage: isCharge ? baseDamage * 3.0 : baseDamage, skipImpact: isCharge }
-}
