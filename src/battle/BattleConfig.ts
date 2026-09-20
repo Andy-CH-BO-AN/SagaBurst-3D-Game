@@ -227,7 +227,7 @@ function validateBattleConfigWithArmyLimit(
   return { valid: errors.length === 0, errors }
 }
 
-/** Validates untrusted production Custom Battle data. Never raises the 100-per-side UI limit. */
+/** Validates untrusted production Custom Battle data using the production army limit. */
 export function validateBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
   return validateBattleConfigWithArmyLimit(config, MAX_CUSTOM_ARMY_SIZE)
 }

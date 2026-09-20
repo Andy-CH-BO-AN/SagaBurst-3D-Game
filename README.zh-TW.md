@@ -33,7 +33,7 @@ Player Faction 與兵力、部署模式分開設定：
 - **Viking Player** — Viking NPC 為友軍、Roman NPC 為敵軍；Formation Battle 從 Viking 的 +Z 側出生並面向 Roman 軍隊。
 - **Roman Player** — Roman NPC 為友軍、Viking NPC 為敵軍；Formation Battle 從 Roman 的 -Z 側出生並面向 Viking 軍隊。
 
-切換 10 vs 10～100 vs 100 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
+切換 10 vs 10～200 vs 200 等兵力 Preset 只會修改軍隊配置，並保留目前選擇的 **Battle Mode、Player Faction、Player Loadout 與 Spectator** 設定。
 
 Player 是額外加入所選陣營的可操作角色，**不計入該陣營配置的 1–200 名 AI 兵力，也不影響軍隊存活數判定**。
 
