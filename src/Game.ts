@@ -5,7 +5,12 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { createSky } from './world/Sky'
+import {
+  createSky,
+  getDirectionalShadowMapSize,
+  resolveShadowMapSize,
+  setDirectionalShadowMapSize,
+} from './world/Sky'
 import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
@@ -322,6 +327,15 @@ export class Game {
     return this.renderer.shadowMap.enabled
   }
 
+  getShadowMapSize(): number {
+    return getDirectionalShadowMapSize(this.scene)
+  }
+
+  setShadowMapSize(shadowMapSize: number): number {
+    if (!import.meta.env.DEV) return this.getShadowMapSize()
+    return setDirectionalShadowMapSize(this.scene, shadowMapSize)
+  }
+
   private battleController: BattleController | null = null
   private npcs: NPC[] = []
   private damageNumbers: DamageNumbers
@@ -443,7 +457,7 @@ export class Game {
     this._aimRaycaster.layers.enable(AIM_RAYCAST_LAYER)
 
     // ── World ──
-    createSky(this.scene)
+    createSky(this.scene, resolveShadowMapSize(new URLSearchParams(window.location.search)))
     const { terrainMesh, obstacles, obstacleMeshes } = createTerrain(this.scene)
     this.obstacles = obstacles
     this._aimTargetRegistry.addStaticTarget(terrainMesh)

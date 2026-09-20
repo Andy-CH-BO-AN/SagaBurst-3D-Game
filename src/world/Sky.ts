@@ -4,7 +4,43 @@
  */
 import * as THREE from 'three'
 
-export function createSky(scene: THREE.Scene): void {
+export const PRODUCTION_SHADOW_MAP_SIZE = 256
+const SHADOW_MAP_SIZE_OPTIONS = [2048, 1024, 512, 256] as const
+
+function getSun(scene: THREE.Scene): THREE.DirectionalLight {
+  const sun = scene.children.find(
+    (object): object is THREE.DirectionalLight => object instanceof THREE.DirectionalLight && object.castShadow
+  )
+  if (!sun) throw new Error('Shadow-casting directional sun not found')
+  return sun
+}
+
+export function resolveShadowMapSize(query: URLSearchParams): number {
+  if (!import.meta.env.DEV) return PRODUCTION_SHADOW_MAP_SIZE
+
+  const requested = Number(query.get('shadowMapSize'))
+  return SHADOW_MAP_SIZE_OPTIONS.includes(requested as (typeof SHADOW_MAP_SIZE_OPTIONS)[number])
+    ? requested
+    : PRODUCTION_SHADOW_MAP_SIZE
+}
+
+export function getDirectionalShadowMapSize(scene: THREE.Scene): number {
+  return getSun(scene).shadow.mapSize.width
+}
+
+export function setDirectionalShadowMapSize(scene: THREE.Scene, shadowMapSize: number): number {
+  const sun = getSun(scene)
+  if (sun.shadow.mapSize.width === shadowMapSize && sun.shadow.mapSize.height === shadowMapSize) {
+    return shadowMapSize
+  }
+
+  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize)
+  sun.shadow.map?.dispose()
+  sun.shadow.map = null
+  return shadowMapSize
+}
+
+export function createSky(scene: THREE.Scene, shadowMapSize = PRODUCTION_SHADOW_MAP_SIZE): void {
   scene.background = new THREE.Color(0x87ceeb)
 
   // Atmospheric fog
@@ -18,8 +54,8 @@ export function createSky(scene: THREE.Scene): void {
   const sun = new THREE.DirectionalLight(0xfff0cc, 1.8)
   sun.position.set(60, 80, 40)
   sun.castShadow = true
-  sun.shadow.mapSize.width = 2048
-  sun.shadow.mapSize.height = 2048
+  sun.shadow.mapSize.width = shadowMapSize
+  sun.shadow.mapSize.height = shadowMapSize
   sun.shadow.camera.near = 0.5
   sun.shadow.camera.far = 300
   sun.shadow.camera.left = -80
