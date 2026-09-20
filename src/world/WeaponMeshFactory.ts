@@ -5,6 +5,7 @@ import { proceduralMaterial } from './ProceduralMaterials'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -154,7 +155,7 @@ export class WeaponMeshFactory {
       return { tipLocal: this.buildRomanGladius(tier, pivot) }
     }
 
-    if (weaponId === 'steel_lance') {
+    if (weaponId === 'steel_lance' || weaponId === 'hunting_spear' || weaponId === 'heavy_lance' || WEAPONS[weaponId]?.combatKind === 'lance') {
       pivot.userData.supportPointLocal = [0, 0.33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.6, 0]
@@ -375,12 +376,19 @@ export class WeaponMeshFactory {
     return new THREE.Vector3(0, 0.2 + bladeLength, 0)
   }
 
-  static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group): THREE.Vector3 {
+  static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
+    if (weaponId) {
+      if (weaponId.startsWith('gladius_') || weaponId === 'centurion_blade') {
+        const gladiusTier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'gladius_standard' ? 2 : 3
+        return this.buildRomanGladius(gladiusTier, pivot)
+      }
+      return this.buildMelee(weaponId, pivot).tipLocal
+    }
     if (isLance) return this.buildMelee('steel_lance', pivot).tipLocal
 
     if (characterFaction === 'viking') {
-      const weaponId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
-      return this.buildMelee(weaponId, pivot).tipLocal
+      const wId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
+      return this.buildMelee(wId, pivot).tipLocal
     }
     return this.buildRomanGladius(tier, pivot)
   }

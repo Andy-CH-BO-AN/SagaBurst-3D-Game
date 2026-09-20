@@ -4,6 +4,8 @@
  * Phase 7 & 8 addition: inventory items & equipped weapons persistence.
  */
 
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
+
 const SAVE_KEY = 'wdyh_save_v1'
 
 export interface SkillDetail {
@@ -37,7 +39,7 @@ export interface PlayerSaveData {
 
 export const DEFAULT_SAVE: PlayerSaveData = {
   position: { x: 0, y: 0.95, z: 0 },
-  hp: 100,
+  hp: COMBAT_BALANCE.hp.playerDefault,
   stamina: 100,
   arrows: 30,
   skills: {

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as THREE from 'three'
 import { InventoryManager } from '../src/rpg/InventoryManager'
 import { DEFAULT_SAVE, PlayerSaveData, SaveManager } from '../src/save/SaveManager'
-import { WEAPONS, calculateLanceChargeDamage } from '../src/rpg/WeaponDatabase'
+import { WEAPONS } from '../src/rpg/WeaponDatabase'
+import { calculateLanceChargeDamage } from '../src/combat/CombatBalance'
 import { Mount, MountState, MountType } from '../src/world/Mount'
 import { VIKING_PLAYER_SPAWN } from '../src/battle/BattleSpawner'
 import { reconcileLoadedMounts, resolveMountSpawnPosition, resolveMountSpawnY } from '../src/Game'
@@ -73,18 +74,18 @@ describe('Lance Charge Bonus Production Behavior', () => {
     expect(lance.isLance).toBe(true)
 
     const result = calculateLanceChargeDamage(lance.isLance === true, 12.0, lance.damageMax)
-    expect(result.damage).toBe(90.0) // 30 * 3
+    expect(result.damage).toBe(135.0) // 45 * 3
     expect(result.skipImpact).toBe(true)
   })
 
   it('does not trigger charge bonus when moving at or below speed threshold 10', () => {
     const lance = WEAPONS['steel_lance']
     const trotResult = calculateLanceChargeDamage(lance.isLance === true, 10.0, lance.damageMax)
-    expect(trotResult.damage).toBe(30.0)
+    expect(trotResult.damage).toBe(45.0)
     expect(trotResult.skipImpact).toBe(false)
 
     const walkResult = calculateLanceChargeDamage(lance.isLance === true, 5.0, lance.damageMax)
-    expect(walkResult.damage).toBe(30.0)
+    expect(walkResult.damage).toBe(45.0)
     expect(walkResult.skipImpact).toBe(false)
   })
 

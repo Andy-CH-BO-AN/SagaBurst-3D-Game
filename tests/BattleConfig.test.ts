@@ -112,15 +112,15 @@ describe('BattleConfig Domain & Validation', () => {
     const t1Bow = getUnitCombatProfile('viking', 'archer', 1)
     expect(t1Bow.aiType).toBe(AIType.RANGED)
     expect(t1Bow.rangedWeaponId).toBe('wooden_shortbow')
-    expect(t1Bow.rangedDamage).toBe(22)
+    expect(t1Bow.rangedDamage).toBe(11) // 22 * 0.5
 
     const t2Bow = getUnitCombatProfile('viking', 'archer', 2)
     expect(t2Bow.rangedWeaponId).toBe('recurve_longbow')
-    expect(t2Bow.rangedDamage).toBe(42)
+    expect(t2Bow.rangedDamage).toBe(21) // 42 * 0.5
 
     const t3Bow = getUnitCombatProfile('viking', 'archer', 3)
     expect(t3Bow.rangedWeaponId).toBe('elven_runebow')
-    expect(t3Bow.rangedDamage).toBe(75)
+    expect(t3Bow.rangedDamage).toBe(37.5) // 75 * 0.5
   })
 
   it('maps Roman Tier weapons and authoritative damage consistently', () => {
@@ -139,35 +139,39 @@ describe('BattleConfig Domain & Validation', () => {
     const t1Pilum = getUnitCombatProfile('roman', 'archer', 1)
     expect(t1Pilum.aiType).toBe(AIType.RANGED)
     expect(t1Pilum.rangedWeaponId).toBe('pilum_basic')
-    expect(t1Pilum.rangedDamage).toBe(22)
+    expect(t1Pilum.rangedDamage).toBe(33) // 22 * 1.5
 
     const t2Pilum = getUnitCombatProfile('roman', 'archer', 2)
     expect(t2Pilum.rangedWeaponId).toBe('pilum_standard')
-    expect(t2Pilum.rangedDamage).toBe(42)
+    expect(t2Pilum.rangedDamage).toBe(63) // 42 * 1.5
 
     const t3Pilum = getUnitCombatProfile('roman', 'archer', 3)
     expect(t3Pilum.rangedWeaponId).toBe('legionary_pilum')
-    expect(t3Pilum.rangedDamage).toBe(75)
+    expect(t3Pilum.rangedDamage).toBe(112.5) // 75 * 1.5
   })
 
-  it('calculates Cavalry lance 1.5x damage tier scaling accurately', () => {
+  it('verifies Cavalry lance T1-T3 tier base damage (30/45/60) without 1.5x multiplier', () => {
     const t1Cav = getUnitCombatProfile('viking', 'cavalry', 1)
     expect(t1Cav.cavalry).toBe(true)
     expect(t1Cav.isUsingLance).toBe(true)
-    expect(t1Cav.baseMeleeDamage).toBe(12)
-    expect(t1Cav.finalMeleeDamage).toBe(18) // 12 * 1.5
+    expect(t1Cav.meleeWeaponId).toBe('hunting_spear')
+    expect(t1Cav.baseMeleeDamage).toBe(30)
+    expect(t1Cav.finalMeleeDamage).toBe(30) // Base weapon damage, no 1.5x
 
     const t2Cav = getUnitCombatProfile('viking', 'cavalry', 2)
-    expect(t2Cav.baseMeleeDamage).toBe(25)
-    expect(t2Cav.finalMeleeDamage).toBe(37.5) // 25 * 1.5
+    expect(t2Cav.meleeWeaponId).toBe('steel_lance')
+    expect(t2Cav.baseMeleeDamage).toBe(45)
+    expect(t2Cav.finalMeleeDamage).toBe(45) // Base weapon damage, no 1.5x
 
     const t3Cav = getUnitCombatProfile('viking', 'cavalry', 3)
-    expect(t3Cav.baseMeleeDamage).toBe(45)
-    expect(t3Cav.finalMeleeDamage).toBe(67.5) // 45 * 1.5
+    expect(t3Cav.meleeWeaponId).toBe('heavy_lance')
+    expect(t3Cav.baseMeleeDamage).toBe(60)
+    expect(t3Cav.finalMeleeDamage).toBe(60) // Base weapon damage, no 1.5x
 
     // Roman side identical scaling
     const t3RomanCav = getUnitCombatProfile('roman', 'cavalry', 3)
-    expect(t3RomanCav.finalMeleeDamage).toBe(67.5)
+    expect(t3RomanCav.meleeWeaponId).toBe('heavy_lance')
+    expect(t3RomanCav.finalMeleeDamage).toBe(60)
   })
 
   it('verifies Horse Archer mapping is RANGED + cavalry', () => {
@@ -181,7 +185,13 @@ describe('BattleConfig Domain & Validation', () => {
     expect(rHorseArcher.aiType).toBe(AIType.RANGED)
     expect(rHorseArcher.cavalry).toBe(true)
     expect(rHorseArcher.isUsingLance).toBe(false)
-    expect(rHorseArcher.rangedWeaponId).toBe('legionary_pilum')
+    expect(rHorseArcher.rangedWeaponId).toBe('elven_runebow')
+    expect(rHorseArcher.rangedDamage).toBe(37.5)
+
+    // Verify Roman horseArcher T1, T2, T3 bow progression
+    expect(getUnitCombatProfile('roman', 'horseArcher', 1).rangedWeaponId).toBe('wooden_shortbow')
+    expect(getUnitCombatProfile('roman', 'horseArcher', 2).rangedWeaponId).toBe('recurve_longbow')
+    expect(getUnitCombatProfile('roman', 'horseArcher', 3).rangedWeaponId).toBe('elven_runebow')
   })
 
   it('validates Presets conformity', () => {

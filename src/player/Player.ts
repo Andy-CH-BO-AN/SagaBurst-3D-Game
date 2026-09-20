@@ -34,6 +34,13 @@ import {
   getEffectiveSpeedMultiplier,
   FORWARD_SPEED_MULTIPLIER,
 } from '../movement/DirectionalMovement'
+import {
+  COMBAT_BALANCE,
+  getRangedCombatKind,
+  getRangedDamageMultiplier,
+  getRangedCooldown,
+  getBerserkerModifiers,
+} from '../combat/CombatBalance'
 
 export { positionArrowCenterFromNock, sampleBowBodyLocal } from '../world/CharacterBowVisual'
 
@@ -45,7 +52,7 @@ const GRAVITY           = -22  // units/s²
 const PLAYER_HALF_HEIGHT = 0.95
 const PLAYER_VISUAL_GROUND_OFFSET = -0.15
 
-const MAX_HP            = 100
+export const DEFAULT_PLAYER_MAX_HP = COMBAT_BALANCE.hp.playerDefault
 const MAX_STAMINA       = 100
 const STAMINA_DRAIN     = 30   // per second while sprinting
 const STAMINA_REGEN     = 15   // per second when not sprinting
@@ -94,9 +101,24 @@ export class Player {
   private velY = 0
   private onGround = false
 
-  private currentHp = MAX_HP
+  public maxHp: number = DEFAULT_PLAYER_MAX_HP
+  private currentHp: number = DEFAULT_PLAYER_MAX_HP
   private stamina = MAX_STAMINA
   private isSprinting = false
+  private pilumCooldownTimer = 0
+  private bowCooldownTimer = 0
+
+  get bowCooldown(): number { return this.bowCooldownTimer }
+  get pilumCooldown(): number { return this.pilumCooldownTimer }
+
+  setMaxHp(value: number, resetCurrent = true): void {
+    this.maxHp = value
+    if (resetCurrent) {
+      this.currentHp = value
+    } else {
+      this.currentHp = Math.min(this.currentHp, value)
+    }
+  }
 
   private isSwinging = false
   private attackHitProcessed = false
@@ -140,7 +162,7 @@ export class Player {
 
   get position(): THREE.Vector3 { return this.group.position }
   get staminaRatio(): number    { return this.stamina / MAX_STAMINA }
-  get hpRatio(): number         { return Math.max(0, this.currentHp / MAX_HP) }
+  get hpRatio(): number         { return Math.max(0, this.currentHp / this.maxHp) }
 
   get combatPosition(): THREE.Vector3 {
     if (this.isMounted && this.currentMount) {
@@ -167,6 +189,8 @@ export class Player {
   get arrowCount(): number      { return this.arrows }
   get dead(): boolean           { return this.isDead }
   get targetable(): boolean     { return !this.isDead && !this.spectatorOnly }
+  get characterFaction(): 'viking' | 'roman' { return this.visualFaction }
+  get hasShield(): boolean      { return Boolean(this.currentShieldId) }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
 
@@ -216,7 +240,7 @@ export class Player {
     this.stamina = Math.max(0, Math.min(MAX_STAMINA, value))
   }
   setHp(value: number): void {
-    this.currentHp = Math.max(0, Math.min(MAX_HP, value))
+    this.currentHp = Math.max(0, Math.min(this.maxHp, value))
   }
   setArrowCount(count: number): void {
     this.arrows = count
@@ -522,7 +546,7 @@ export class Player {
 
   isHitFrame(equippedMelee?: WeaponData): boolean {
     if (this.attackHitProcessed) return false
-    if (equippedMelee?.animationKind === 'lance') {
+    if (equippedMelee?.combatKind === 'lance') {
       return this.animator.isLanceThrustActive
     }
     return this.hitEventPending
@@ -534,10 +558,12 @@ export class Player {
   }
 
   private _meleeAction(weapon: WeaponData): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
+    if (weapon.combatKind === 'lance') {
+      return this.isMounted ? 'mountedLance' : 'lanceThrust'
+    }
     switch (weapon.animationKind) {
       case 'dagger': return 'daggerSlash'
       case 'greatsword': return 'greatswordSlash'
-      case 'lance': return this.isMounted ? 'mountedLance' : 'lanceThrust'
       default: return 'swordSlash'
     }
   }
@@ -547,7 +573,7 @@ export class Player {
     archeryMultiplier: number,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy) return
+    if (this.currentShieldId || this.bowChargeTime <= 0.1 || this.arrows <= 0 || this.animator.busy || this.bowCooldownTimer > 0) return
     this.pendingBowChargeTime = this.bowChargeTime
     const maxChargeTime = equippedRanged?.speedOrCharge ?? MAX_BOW_CHARGE_TIME
     this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.pendingBowChargeTime / maxChargeTime, 0, 1)
@@ -555,7 +581,8 @@ export class Player {
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
-    this.animator.start('bowRelease')
+    if (!this.animator.start('bowRelease')) return
+    this.bowCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'bow')
     this.bowChargeTime = 0
   }
 
@@ -565,7 +592,8 @@ export class Player {
     soundManager: SoundManager,
     equippedRanged?: WeaponData,
   ): void {
-    if (this.currentShieldId || this.arrows <= 0 || this.animator.busy || equippedRanged?.animationKind !== 'pilum') return
+    if (this.currentShieldId || this.arrows <= 0 || this.animator.busy || equippedRanged?.combatKind !== 'javelin') return
+    if (this.pilumCooldownTimer > 0) return
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
@@ -575,6 +603,7 @@ export class Player {
     // release event; only the Player launches here, so RMB-up cannot appear
     // to be the trigger after the visual throw windup.
     this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, equippedRanged)
+    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
     this.pilumReleasedOnCommit = true
     this.nockedArrowReleased = true
     this.bowVisualDrawRatio = 0
@@ -637,7 +666,7 @@ export class Player {
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
     const isPilum = equippedRanged?.animationKind === 'pilum'
-    this.animator.setEquipment(equippedMelee?.animationKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
+    this.animator.setEquipment(equippedMelee?.combatKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
@@ -679,7 +708,7 @@ export class Player {
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
-      const isLance = equippedMelee?.animationKind === 'lance'
+      const isLance = equippedMelee?.combatKind === 'lance'
       if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
         if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
           if (isLance && this.animator.busy) {
@@ -738,13 +767,29 @@ export class Player {
       this.isSprinting = false
     }
 
+    if (this.pilumCooldownTimer > 0) {
+      this.pilumCooldownTimer -= dt
+    }
+    if (this.bowCooldownTimer > 0) {
+      this.bowCooldownTimer -= dt
+    }
+
     const isMounted = Boolean(this.isMounted && this.currentMount)
+    const activeCombatKind = (this.aiming || this.animator.currentAction === 'bowAim' || this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow')
+      ? (equippedRanged?.combatKind ?? null)
+      : (equippedMelee?.combatKind ?? null)
+    const berserker = getBerserkerModifiers(
+      this.visualFaction,
+      isMounted,
+      activeCombatKind,
+      Boolean(this.currentShieldId),
+    )
     const speedMultiplier = directionalPolicy
       ? getEffectiveSpeedMultiplier(directionalPolicy, isMounted)
       : FORWARD_SPEED_MULTIPLIER
     const baseSpeed = isMounted && this.currentMount
       ? this.currentMount.baseSpeed
-      : MOVE_SPEED
+      : MOVE_SPEED * berserker.moveSpeedMultiplier
     const effectiveSpeed = isMoving
       ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
       : 0
@@ -753,16 +798,20 @@ export class Player {
       this.animator.poseBow(this.bowChargeTime / maxChargeTime, this.aimBlend)
       }
     } else if (!this.animator.busy) {
-      if (equippedMelee?.animationKind === 'lance') this.animator.poseLanceReady(this.isMounted)
+      if (equippedMelee?.combatKind === 'lance') this.animator.poseLanceReady(this.isMounted)
       else if (!isMoving || this.animator.currentAction === 'bowAim') this.animator.poseIdle()
     }
 
     this.animator.setLocomotion(effectiveSpeed, this.isMounted)
 
-    // Select locomotion before advancing the mixer. poseIdle() above restores
-    // the neutral FK/weapon state, so updating before this point would give the
-    // newly selected walk/run action no time to advance on any frame.
-    const animationEvents = this.animator.update(dt)
+    // Player Berserker attack-rate bonus only speeds up melee attack cadence/animation, never global animator.update
+    const isMeleeAttack = this.animator.currentAction === 'swordSlash'
+      || this.animator.currentAction === 'daggerSlash'
+      || this.animator.currentAction === 'greatswordSlash'
+      || this.animator.currentAction === 'lanceThrust'
+      || this.animator.currentAction === 'mountedLance'
+    const animDt = isMeleeAttack ? dt * berserker.meleeAttackRateMultiplier : dt
+    const animationEvents = this.animator.update(animDt)
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
     if (this.animator.isLanceThrustActive) {
@@ -774,10 +823,10 @@ export class Player {
       this.hasPrevLanceTip = false
     }
     if (animationEvents.projectileRelease) {
-      const playerPilumAlreadyReleased = this.pendingRangedWeapon?.animationKind === 'pilum' && this.pilumReleasedOnCommit
+      const playerPilumAlreadyReleased = this.pendingRangedWeapon?.combatKind === 'javelin' && this.pilumReleasedOnCommit
       if (playerPilumAlreadyReleased) {
         // The Player emitted on LMB; retain the event only for visual timing.
-      } else if (this.pendingRangedWeapon?.animationKind === 'pilum') {
+      } else if (this.pendingRangedWeapon?.combatKind === 'javelin') {
         this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon)
       } else {
         this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
@@ -793,7 +842,7 @@ export class Player {
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
-      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.animationKind === 'lance') {
+      if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.combatKind === 'lance') {
         this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
       }
     }
@@ -931,7 +980,7 @@ export class Player {
     const chargeRatio = chargeTime / maxChargeTime
     const speed  = THREE.MathUtils.lerp(speedMin, speedMax, chargeRatio)
     const baseDamage = THREE.MathUtils.lerp(dmgMin, dmgMax, chargeRatio)
-    const damage = Math.round(baseDamage * archeryMultiplier)
+    const damage = Math.round(baseDamage * archeryMultiplier * getRangedDamageMultiplier(getRangedCombatKind(this.pendingRangedWeapon) ?? 'bow'))
 
     const arrowOrigin = this._tmpWorldNock
     const arrowDirection = this._tmpArrowDirection
@@ -953,12 +1002,13 @@ export class Player {
     this.arrows -= 1
     const origin = this.bowGripPivot.getWorldPosition(this._tmpWorldNock)
     const direction = this._tmpArrowDirection.copy(cameraAimPoint).sub(origin).normalize()
+    const rangedKind = getRangedCombatKind(equippedRanged) ?? 'javelin'
     if (this.onFireArrow) {
       this.onFireArrow({
         origin: origin.clone(),
         direction: direction.clone(),
         speed: equippedRanged.arrowSpeedMax ?? 48,
-        damage: Math.round(equippedRanged.damageMax * archeryMultiplier),
+        damage: Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)),
         visualKind: 'pilum',
       })
     }

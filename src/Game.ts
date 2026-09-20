@@ -113,7 +113,7 @@ import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
+import { DEFAULT_MOUNT_TYPE, Mount, MountType, mountTypeFromSave } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -123,8 +123,14 @@ import { CompassUI } from './ui/CompassUI'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
-import { calculateLanceChargeDamage } from './rpg/WeaponDatabase'
+import {
+  COMBAT_BALANCE,
+  calculateLanceChargeDamage,
+  getAntiCavalryMultiplier,
+  getBerserkerModifiers,
+} from './combat/CombatBalance'
 import { WeaponPickup } from './world/WeaponPickup'
+import { resolveMountImpacts } from './combat/MountImpact'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
 
@@ -432,6 +438,7 @@ export class Game {
   // LOD & Spatial Partitioning
   private static readonly _EMPTY_NPC_LIST: NPC[] = []
   private readonly _nearbyNpcBuffer: NPC[] = []
+  private readonly _impactCandidates: NPC[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
   public readonly devGridStats = {
     queriesPerFrame: 0,
@@ -521,6 +528,9 @@ export class Game {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
     }
 
+    const initialPlayerHp = activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+    this.player.setMaxHp(initialPlayerHp, true)
+
     const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
     if (isInitialSpectator) {
       this.player.spectatorOnly = true
@@ -596,6 +606,7 @@ export class Game {
     // ── RPG Systems & Inventory ──
     this.staminaBar       = new StaminaBar()
     this.hpBar            = new HpBar()
+    this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
@@ -1020,14 +1031,19 @@ export class Game {
       spec.name,
       spec.tier,
       spec.cavalry,
+      spec.loadout,
     )
     npc.respawnEnabled = spec.respawnEnabled
+    if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
+      const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
+      const variant = horseVariantForStableKey(stableKey)
+      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, spec.x, spec.z, undefined, variant)
+      npc.mountVehicle(mount)
+      this.mounts.push(mount)
+      this._aimTargetRegistry.registerMount(mount)
+    }
     this.npcs.push(npc)
     this._aimTargetRegistry.registerNpc(npc)
-    if (npc.mount) {
-      this.mounts.push(npc.mount)
-      this._aimTargetRegistry.registerMount(npc.mount)
-    }
     return npc
   }
 
@@ -1307,7 +1323,7 @@ export class Game {
     // 1. Restore player stats, position, skills & inventory first
     this.player.setPosition(data.position.x, data.position.y, data.position.z)
     this.player.setStamina(data.stamina)
-    this.player.setHp(data.hp ?? 100)
+    this.player.setHp(data.hp ?? COMBAT_BALANCE.hp.playerDefault)
     this.player.setArrowCount(data.arrows ?? 30)
 
     if (data.skills) {
@@ -1450,15 +1466,12 @@ export class Game {
 
   // ── Shared: Lance Charge Bonus (C-5) ──
   /** Returns the final damage after applying lance charge multiplier.
-   *  Also sets skipImpactThisFrame on the player's mount if charging. */
-  private _applyLanceChargeBonus(isLance: boolean, baseDamage: number): number {
+   *  Pure — does NOT mutate mount state. Caller sets skipImpactThisFrame only on confirmed hit. */
+  private _applyLanceChargeBonus(combatKind: string | undefined, isLance: boolean, baseDamage: number): { damage: number; isCharge: boolean } {
     const mount = this.player.isMounted ? this.player.currentMount : null
     const speed = mount ? mount.movementSpeed : 0
-    const result = calculateLanceChargeDamage(isLance, speed, baseDamage)
-    if (mount && result.skipImpact) {
-      mount.skipImpactThisFrame = true
-    }
-    return result.damage
+    const result = calculateLanceChargeDamage(baseDamage, combatKind ?? (isLance ? 'lance' : 'sword'), this.player.isMounted, speed)
+    return { damage: result.damage, isCharge: result.skipImpact }
   }
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
@@ -1472,11 +1485,19 @@ export class Game {
       return
     }
 
-    let baseDamage = equippedMelee.damageMax
-    baseDamage = this._applyLanceChargeBonus(equippedMelee.isLance === true, baseDamage)
-    const damage = Math.round(baseDamage * this.skillManager.getOneHandedMultiplier())
+    const combatKind = equippedMelee.combatKind ?? (equippedMelee.isLance ? 'lance' : 'sword')
+    const baseDamage = equippedMelee.damageMax
+    const berserker = getBerserkerModifiers(
+      this.player.characterFaction,
+      this.player.isMounted,
+      combatKind,
+      this.player.hasShield
+    )
 
-    if (equippedMelee.isLance) {
+    const { damage: chargedDamage, isCharge } = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
+    const damage = Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
+
+    if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()
       const prevTipPos = this.player.hasPrevLanceTip ? this.player.prevLanceTipPos : currTipPos
       const currGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
@@ -1502,10 +1523,16 @@ export class Game {
 
           if (minDSq <= hitTolerance * hitTolerance) {
             this.player.markHitProcessed()
-            const result = damageNpc(npc, damage)
+            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
+            const finalDamage = Math.round(damage * antiCav)
+            const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
+              // Only suppress Horse Impact when the Lance charge actually landed
+              if (isCharge && this.player.currentMount) {
+                this.player.currentMount.skipImpactThisFrame = true
+              }
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter.clone())
+              this.damageNumbers.spawn(finalDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
             }
@@ -1525,10 +1552,12 @@ export class Game {
           const hitThreshold = resolveMeleeHitThreshold(baseRange, npc.isMounted)
           if (swordTipPos.distanceTo(aiCenter) <= hitThreshold) {
             this.player.markHitProcessed()
-            const result = damageNpc(npc, damage)
+            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
+            const finalDamage = Math.round(damage * antiCav)
+            const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
               this.soundManager.playHit()
-              this.damageNumbers.spawn(damage, aiCenter)
+              this.damageNumbers.spawn(finalDamage, aiCenter)
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
             }
@@ -1699,65 +1728,37 @@ export class Game {
   }
 
   private _updateImpactDamage(now: number): void {
-    const checkImpact = (mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean => {
-      if (mount.skipImpactThisFrame) return false
-      const dx = mount.group.position.x - mount.previousPosition.x
-      const dz = mount.group.position.z - mount.previousPosition.z
-      const px = targetPos.x - mount.previousPosition.x
-      const pz = targetPos.z - mount.previousPosition.z
-      const lineLenSq = dx*dx + dz*dz
-      if (lineLenSq < 0.0001) return false
-      let t = (px * dx + pz * dz) / lineLenSq
-      t = Math.max(0, Math.min(1, t))
-      const closestX = mount.previousPosition.x + t * dx
-      const closestZ = mount.previousPosition.z + t * dz
-      const distSq = (closestX - targetPos.x) ** 2 + (closestZ - targetPos.z) ** 2
-      return distSq <= (targetRadius + 1.0) ** 2
-    }
-
-    const applyImpactDamage = (mount: Mount, target: any, targetPos: THREE.Vector3, onHit: (damage: number) => void): void => {
-      if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return
-      if (mount.movementSpeed > 4 && mount.canImpact(target, now)) {
-        const damage = Math.round(8 + mount.movementSpeed * 1.5 * (mount.isSprinting ? 1.5 : 1.0))
-        onHit(damage)
-      }
-    }
-
-    for (const mount of this.mounts) {
-      if (mount.state !== MountState.CONTROLLED || mount.dead) continue
-      
-      if (mount === this.player.currentMount) {
-        for (const npc of this.npcs) {
-          if (npc.dead || npc.faction !== Faction.ENEMY) continue
-          if (checkImpact(mount, npc.combatPosition, 0.5)) {
-            applyImpactDamage(mount, npc, npc.combatPosition, (damage) => {
-              const result = damageNpc(npc, damage)
-              if (result.hitSuccess) {
-                this.soundManager.playHit()
-                this._tmpHitPos.copy(npc.combatPosition)
-                this._tmpHitPos.y += 1.0
-                this.damageNumbers.spawn(damage, this._tmpHitPos)
-                this._showEnemyHud(result.targetName, result.hpRatio)
-              }
-            })
+    resolveMountImpacts(
+      this.mounts,
+      this.player,
+      this.npcs,
+      now,
+      {
+        npcGrid: this.npcGrid,
+        candidateBuffer: this._impactCandidates,
+        onDamagePlayer: (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+        onPlayerMountHitNpc: (damage, npc, result) => {
+          this.soundManager.playHit()
+          this._tmpHitPos.copy(npc.combatPosition)
+          this._tmpHitPos.y += 1.0
+          this.damageNumbers.spawn(damage, this._tmpHitPos)
+          this._showEnemyHud(result.targetName, result.hpRatio)
+        },
+        onEnemyMountHitPlayer: (_damage, result) => {
+          this.soundManager.playHit()
+          if (result.isMountHit) {
+            this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
+          } else {
+            this.mountHud.classList.remove('visible')
           }
-        }
-      } else if (mount.riderFaction === Faction.ENEMY && this.player.targetable) {
-        if (checkImpact(mount, this.player.position, 0.38)) {
-          applyImpactDamage(mount, this.player, this.player.position, (damage) => {
-            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
-            if (result.hitSuccess) {
-              this.soundManager.playHit()
-              if (result.isMountHit) {
-                this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
-              } else {
-                this.mountHud.classList.remove('visible')
-              }
-            }
-          })
-        }
+        },
+        onNpcMountHitNpc: (_damage, attackerMount) => {
+          if (attackerMount.group.position.distanceTo(this.camera.position) < 30) {
+            this.soundManager.playHit()
+          }
+        },
       }
-    }
+    )
   }
 
   // ── Resize ──
@@ -1991,11 +1992,6 @@ export class Game {
     this._resolveEntityCollisions()
     const collisionMs = profile ? performance.now() - t0 : 0
 
-    // Reset impact flag
-    for (const mount of this.mounts) {
-      mount.skipImpactThisFrame = false
-    }
-
     // 5. Arrow / Projectile
     if (profile) t0 = performance.now()
     for (let i = this.arrows.length - 1; i >= 0; i--) {
@@ -2029,7 +2025,9 @@ export class Game {
             },
           },
         )
-      })
+      },
+      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
+    )
 
       if (!arrow.isAlive) {
         this.arrows.splice(i, 1)
@@ -2041,6 +2039,11 @@ export class Game {
     if (profile) t0 = performance.now()
     this._updateImpactDamage(this.clock.elapsedTime)
     const impactMs = profile ? performance.now() - t0 : 0
+
+    // Reset impact flag after impact checks complete for this frame
+    for (const mount of this.mounts) {
+      mount.skipImpactThisFrame = false
+    }
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)

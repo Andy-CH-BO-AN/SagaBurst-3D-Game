@@ -616,18 +616,18 @@ describe('Phase 22 humanoid asset contract', () => {
       play: vi.fn(() => true),
       seek: vi.fn(() => true),
       has: vi.fn((state) => state === 'pilumThrow'),
-      getDuration: vi.fn(() => 1.5),
+      getDuration: vi.fn(() => 0.7),
       update: vi.fn(),
       stop: vi.fn(),
     }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     expect(subject.start('pilumThrow')).toBe(true)
-    const beforeRelease = subject.update(1)
+    const beforeRelease = subject.update(0.3)
     expect(beforeRelease.projectileRelease).toBe(false)
     expect(beforeRelease.actionCompleted).toBe(false)
     expect(subject.currentAction).toBe('pilumThrow')
 
-    const events = subject.update(0.5)
+    const events = subject.update(0.4)
     expect(events.projectileRelease).toBe(true)
     expect(events.actionCompleted).toBe(true)
     expect(subject.update(2).projectileRelease).toBe(false)
@@ -983,7 +983,7 @@ describe('combat presentation regressions', () => {
     const arrow = new ArrowProjectile(scene, origin, new THREE.Vector3(0, 0, -1), 20, 10, Faction.PLAYER, true)
     const player = { dead: true } as Player
     for (let i = 0; i < 5; i++) {
-      arrow.update(0.01, player, [], [], () => undefined)
+      arrow.update(0.01, player, [], [], () => undefined, () => ({ hitSuccess: true, targetName: 'Player', hpRatio: 1, isMountHit: false, mountDied: false }))
     }
     expect(arrow.isAlive).toBe(true)
     expect(arrow.isStuck).toBe(false)

@@ -33,7 +33,7 @@ export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnim
   greatswordSlash: { windup: 0.28, active: 0.18, recovery: 0.32 },
   bowAim: { windup: 0.18, active: 0, recovery: 0 },
   bowRelease: { windup: 0.04, active: 0, recovery: 0.18 },
-  pilumThrow: { windup: 1.5, active: 0, recovery: 0 },
+  pilumThrow: { windup: 0.45, active: 0, recovery: 0.25 },
   lanceThrust: { windup: 0.12, active: 0.14, recovery: 0.16 },
   mountedLance: { windup: 0.08, active: 0.08, recovery: 0.12 },
 }

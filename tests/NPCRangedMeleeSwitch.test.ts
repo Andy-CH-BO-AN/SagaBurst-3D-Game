@@ -79,8 +79,10 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       expect((npc as any).bowPivot.visible).toBe(true)
     })
 
-    it('stays ranged at 22.0m (6m <= dist <= 22m)', () => {
-      const npc = new NPC(scene, 0, 22.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+    it('stays ranged at max distance boundary (6m <= dist <= maxDist)', () => {
+      const npc = new NPC(scene, 0, 10.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+      const maxDist = npc.maxRangedAttackDistance
+      npc.group.position.set(0, 0, maxDist)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -91,8 +93,10 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       expect(npc.arrows).toBeGreaterThan(0)
     })
 
-    it('approaches target at 22.1m (dist > 22m)', () => {
-      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+    it('approaches target beyond max distance (dist > maxDist)', () => {
+      const npc = new NPC(scene, 0, 10.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+      const maxDist = npc.maxRangedAttackDistance
+      npc.group.position.set(0, 0, maxDist + 0.1)
       npc.state = AIState.CHASE
       expect(npc.arrows).toBeGreaterThan(0)
 
@@ -103,8 +107,10 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       expect(npc.arrows).toBeGreaterThan(0)
     })
 
-    it('transitions from ATTACK to CHASE if target retreats past 22m (22.1m)', () => {
-      const npc = new NPC(scene, 0, 22.1, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+    it('transitions from ATTACK to CHASE if target retreats past max distance', () => {
+      const npc = new NPC(scene, 0, 10.0, Faction.ENEMY, 'roman', AIType.RANGED, 'FootArcher', 1, false)
+      const maxDist = npc.maxRangedAttackDistance
+      npc.group.position.set(0, 0, maxDist + 0.1)
       npc.state = AIState.ATTACK
       expect(npc.arrows).toBeGreaterThan(0)
 

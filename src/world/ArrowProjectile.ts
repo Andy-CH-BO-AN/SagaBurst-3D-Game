@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
-import { damageNpc } from '../combat/DamageRouter'
+import { damageNpc, type DamageResult } from '../combat/DamageRouter'
 import { proceduralMaterial } from './ProceduralMaterials'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
@@ -186,7 +186,8 @@ export class ArrowProjectile {
     player: Player,
     npcs: NPC[],
     obstacles: ObstacleData[],
-    onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC, isMountHit?: boolean) => void
+    onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC, isMountHit?: boolean) => void,
+    onDamagePlayer: (damage: number) => DamageResult
   ): void {
     if (!this.alive) return
 
@@ -237,16 +238,18 @@ export class ArrowProjectile {
       playerCenter.y += 1.0 // Torso height
       const dist = this.mesh.position.distanceTo(playerCenter)
       if (dist <= 0.9) {
-        if (player.isMounted && player.currentMount) {
-          const mount = player.currentMount
-          const hitSuccess = mount.takeDamage(this.damage)
-          if (hitSuccess) {
-            const mountName = `坐騎：${mount.displayName}`
-            onHitTarget(this.damage, this.mesh.position.clone(), mountName, mount.currentHp / mount.maxHp, true, undefined, true)
-            if (mount.dead) player.dismountFromMount()
-          }
-        } else {
-          onHitTarget(this.damage, this.mesh.position.clone(), 'Player', player.hpRatio, true, undefined, false)
+        const result = onDamagePlayer(this.damage)
+
+        if (result.hitSuccess) {
+          onHitTarget(
+            this.damage,
+            this.mesh.position.clone(),
+            result.targetName,
+            result.hpRatio,
+            true,
+            undefined,
+            result.isMountHit
+          )
         }
         this.destroy()
         return
