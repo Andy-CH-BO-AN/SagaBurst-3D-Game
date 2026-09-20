@@ -12,6 +12,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { HpBar } from '../ui/HpBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { SoundManager } from '../audio/SoundManager'
+import { damagePlayer } from '../combat/DamageRouter'
 
 type Subject = 'player' | 'npc'
 type Stage = 'before' | 'load' | 'hold' | 'release' | 'recovery' | 'walkBow' | 'runBow' | 'walk' | 'run'
@@ -215,7 +216,14 @@ export class GameplayBowQAPanel {
     // Advance previous projectiles first so a newly emitted arrow is visible
     // at its exact production constructor origin in the release screenshot.
     for (const projectile of this.projectiles) {
-      projectile.update(dt, this.player, [], [], () => {})
+      projectile.update(
+        dt,
+        this.player,
+        [],
+        [],
+        () => {},
+        (damage) => damagePlayer(this.player, damage, this.hp, this.inventory.equippedShield?.id ?? null)
+      )
     }
     if (this.subject === 'player') {
       this.aimTarget.copy(this.player.position).add(new THREE.Vector3(0, 0.45, 12))

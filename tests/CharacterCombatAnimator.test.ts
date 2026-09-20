@@ -983,7 +983,7 @@ describe('combat presentation regressions', () => {
     const arrow = new ArrowProjectile(scene, origin, new THREE.Vector3(0, 0, -1), 20, 10, Faction.PLAYER, true)
     const player = { dead: true } as Player
     for (let i = 0; i < 5; i++) {
-      arrow.update(0.01, player, [], [], () => undefined)
+      arrow.update(0.01, player, [], [], () => undefined, () => ({ hitSuccess: true, targetName: 'Player', hpRatio: 1, isMountHit: false, mountDied: false }))
     }
     expect(arrow.isAlive).toBe(true)
     expect(arrow.isStuck).toBe(false)

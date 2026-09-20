@@ -504,7 +504,7 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
 
       const onHit = vi.fn()
       // Step arrow right across player position (10m at 50m/s takes 0.2s)
-      arrow.update(0.2, player, [], [], onHit)
+      arrow.update(0.2, player, [], [], onHit, (damage) => damagePlayer(player, damage, { setFill: () => {} } as any, null))
 
       // Must not hit spectator player
       expect(onHit).not.toHaveBeenCalled()
@@ -530,7 +530,7 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       )
 
       const onHit = vi.fn()
-      arrow.update(0.2, player, [], [], onHit)
+      arrow.update(0.2, player, [], [], onHit, (damage) => damagePlayer(player, damage, { setFill: () => {} } as any, null))
 
       expect(onHit).toHaveBeenCalledTimes(1)
       expect(onHit).toHaveBeenCalledWith(25, expect.any(THREE.Vector3), 'Player', expect.any(Number), true, undefined, false)

@@ -108,7 +108,7 @@ import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
+import { DEFAULT_MOUNT_TYPE, Mount, MountType, mountTypeFromSave } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -121,11 +121,11 @@ import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
   calculateLanceChargeDamage,
-  calculateMountImpactDamage,
   getAntiCavalryMultiplier,
   getBerserkerModifiers,
 } from './combat/CombatBalance'
 import { WeaponPickup } from './world/WeaponPickup'
+import { resolveMountImpacts } from './combat/MountImpact'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
 
@@ -424,6 +424,7 @@ export class Game {
   // LOD & Spatial Partitioning
   private static readonly _EMPTY_NPC_LIST: NPC[] = []
   private readonly _nearbyNpcBuffer: NPC[] = []
+  private readonly _impactCandidates: NPC[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
   public readonly devGridStats = {
     queriesPerFrame: 0,
@@ -1712,67 +1713,37 @@ export class Game {
   }
 
   private _updateImpactDamage(now: number): void {
-    const checkImpact = (mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean => {
-      if (mount.skipImpactThisFrame) return false
-      const dx = mount.group.position.x - mount.previousPosition.x
-      const dz = mount.group.position.z - mount.previousPosition.z
-      const px = targetPos.x - mount.previousPosition.x
-      const pz = targetPos.z - mount.previousPosition.z
-      const lineLenSq = dx*dx + dz*dz
-      if (lineLenSq < 0.0001) return false
-      let t = (px * dx + pz * dz) / lineLenSq
-      t = Math.max(0, Math.min(1, t))
-      const closestX = mount.previousPosition.x + t * dx
-      const closestZ = mount.previousPosition.z + t * dz
-      const distSq = (closestX - targetPos.x) ** 2 + (closestZ - targetPos.z) ** 2
-      return distSq <= (targetRadius + 1.0) ** 2
-    }
-
-    const applyImpactDamage = (mount: Mount, target: any, targetPos: THREE.Vector3, onHit: (damage: number) => void): void => {
-      if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return
-      if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
-        const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
-        if (damage > 0) {
-          onHit(damage)
-        }
-      }
-    }
-
-    for (const mount of this.mounts) {
-      if (mount.state !== MountState.CONTROLLED || mount.dead) continue
-      
-      if (mount === this.player.currentMount) {
-        for (const npc of this.npcs) {
-          if (npc.dead || npc.faction !== Faction.ENEMY) continue
-          if (checkImpact(mount, npc.combatPosition, 0.5)) {
-            applyImpactDamage(mount, npc, npc.combatPosition, (damage) => {
-              const result = damageNpc(npc, damage)
-              if (result.hitSuccess) {
-                this.soundManager.playHit()
-                this._tmpHitPos.copy(npc.combatPosition)
-                this._tmpHitPos.y += 1.0
-                this.damageNumbers.spawn(damage, this._tmpHitPos)
-                this._showEnemyHud(result.targetName, result.hpRatio)
-              }
-            })
+    resolveMountImpacts(
+      this.mounts,
+      this.player,
+      this.npcs,
+      now,
+      {
+        npcGrid: this.npcGrid,
+        candidateBuffer: this._impactCandidates,
+        onDamagePlayer: (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+        onPlayerMountHitNpc: (damage, npc, result) => {
+          this.soundManager.playHit()
+          this._tmpHitPos.copy(npc.combatPosition)
+          this._tmpHitPos.y += 1.0
+          this.damageNumbers.spawn(damage, this._tmpHitPos)
+          this._showEnemyHud(result.targetName, result.hpRatio)
+        },
+        onEnemyMountHitPlayer: (_damage, result) => {
+          this.soundManager.playHit()
+          if (result.isMountHit) {
+            this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
+          } else {
+            this.mountHud.classList.remove('visible')
           }
-        }
-      } else if (mount.riderFaction === Faction.ENEMY && this.player.targetable) {
-        if (checkImpact(mount, this.player.position, 0.38)) {
-          applyImpactDamage(mount, this.player, this.player.position, (damage) => {
-            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
-            if (result.hitSuccess) {
-              this.soundManager.playHit()
-              if (result.isMountHit) {
-                this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
-              } else {
-                this.mountHud.classList.remove('visible')
-              }
-            }
-          })
-        }
+        },
+        onNpcMountHitNpc: (_damage, attackerMount) => {
+          if (attackerMount.group.position.distanceTo(this.camera.position) < 30) {
+            this.soundManager.playHit()
+          }
+        },
       }
-    }
+    )
   }
 
   // ── Resize ──
@@ -2006,11 +1977,6 @@ export class Game {
     this._resolveEntityCollisions()
     const collisionMs = profile ? performance.now() - t0 : 0
 
-    // Reset impact flag
-    for (const mount of this.mounts) {
-      mount.skipImpactThisFrame = false
-    }
-
     // 5. Arrow / Projectile
     if (profile) t0 = performance.now()
     for (let i = this.arrows.length - 1; i >= 0; i--) {
@@ -2058,6 +2024,11 @@ export class Game {
     if (profile) t0 = performance.now()
     this._updateImpactDamage(this.clock.elapsedTime)
     const impactMs = profile ? performance.now() - t0 : 0
+
+    // Reset impact flag after impact checks complete for this frame
+    for (const mount of this.mounts) {
+      mount.skipImpactThisFrame = false
+    }
 
     // Update Floating Damage numbers
     this.damageNumbers.update(dt, this.camera)

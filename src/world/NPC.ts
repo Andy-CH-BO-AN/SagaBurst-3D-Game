@@ -162,6 +162,7 @@ export class NPC {
   private alertTimer = 0
   private attackTimer = 0
   private attackHitProcessed = false
+  public pendingLanceChargeSpeed = 0
 
   private flashTimer = 0
   private respawnTimer = 0
@@ -483,6 +484,7 @@ export class NPC {
 
   /** Releases this NPC from its mount and returns it to a normal walking body. */
   dismountFromMount(): void {
+    this.pendingLanceChargeSpeed = 0
     if (!this.mount) return
     const mountPosition = this._tmpDismountPosition.copy(this.mount.group.position)
     this.mount.releaseRider()
@@ -733,6 +735,7 @@ export class NPC {
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     let animationAdvanced = false
+    const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
     const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
     this.rebuildShield()
@@ -829,6 +832,9 @@ export class NPC {
             this.state = AIState.ATTACK
             this.attackTimer = 0
             this.attackHitProcessed = false
+            if (this.isMounted && this.isUsingLance) {
+              this.pendingLanceChargeSpeed = previousMountSpeed
+            }
             break
           }
           // Approach
@@ -880,6 +886,7 @@ export class NPC {
       case AIState.ATTACK: {
         if (!targetInfo || targetInfo.isDead) {
           this.state = AIState.CHASE
+          this.pendingLanceChargeSpeed = 0
           break
         }
         
@@ -996,12 +1003,16 @@ export class NPC {
               onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
             }
           }
-          if (meleeEvents.actionCompleted) this.attackTimer = AI_ATTACK_GAP / berserker.meleeAttackRateMultiplier
+          if (meleeEvents.actionCompleted) {
+            this.attackTimer = AI_ATTACK_GAP / berserker.meleeAttackRateMultiplier
+            this.pendingLanceChargeSpeed = 0
+          }
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
             if (this.attackTimer <= 0 && !this._isTargetInMeleeRange(targetInfo.position)) {
               this.state = AIState.CHASE
+              this.pendingLanceChargeSpeed = 0
             }
           }
         }
@@ -1147,7 +1158,10 @@ export class NPC {
     let dmg = baseDamage * berserker.meleeDamageMultiplier
 
     // Lance charge (mounted)
-    const chargeResult = calculateLanceChargeDamage(baseDamage, combatKind, this.isMounted, this.mount?.movementSpeed ?? 0)
+    const chargeSpeed = Math.max(this.mount?.movementSpeed ?? 0, this.pendingLanceChargeSpeed)
+    this.pendingLanceChargeSpeed = 0
+
+    const chargeResult = calculateLanceChargeDamage(baseDamage, combatKind, this.isMounted, chargeSpeed)
     if (chargeResult.isCharge) {
       if (this.mount && chargeResult.skipImpact) {
         this.mount.skipImpactThisFrame = true
@@ -1177,12 +1191,14 @@ export class NPC {
 
   private _switchToMelee(): void {
     this.arrows = 0
+    this.pendingLanceChargeSpeed = 0
     this.swordPivot.visible = true
     this.bowPivot.visible = false
     this.animator.cancel()
   }
 
   respawn(): void {
+    this.pendingLanceChargeSpeed = 0
     if (this._isFlashing) {
       this.flashTimer = 0
       this._isFlashing = false
