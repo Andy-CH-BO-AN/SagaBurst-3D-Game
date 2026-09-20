@@ -16,8 +16,8 @@ Each faction has its own unit preset catalog. Every preset supports **T1 / T2 / 
 
 | Unit | Battlefield role |
 | --- | --- |
-| Berserker | Unshielded aggressive melee; gains dynamic Viking sword bonuses while on foot |
-| Spearman | Foot Lance unit specialized against currently mounted targets |
+| Viking Veteran | Shielded sword infantry with same-tier round shield |
+| Spearman | Foot Lance anti-cavalry unit with a same-tier sword sidearm |
 | Archer | Foot Bow unit with a fixed T1 dagger fallback |
 | Sword Cavalry | Mounted sword + round-shield unit |
 | Lancer | Mounted Lance unit built around high-speed charge attacks |
