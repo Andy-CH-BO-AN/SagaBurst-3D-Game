@@ -665,6 +665,10 @@ export class NPC {
       this.dismountFromMount()
       this.state = AIState.DEAD
       this.animator.cancel()
+      // Death owns the full presentation pose. Do not leave the active weapon
+      // attached to the hand as a rigid support under the fallen body.
+      this.swordPivot.visible = false
+      this.bowPivot.visible = false
       this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
       this.rig.animation?.setEquipmentState?.({ mounted: false })
       this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })

@@ -146,13 +146,14 @@ export class HumanoidStudioPlayback {
     this.instance.rig.animation!.stop()
     this.animator.cancel()
     this.instance.rig.animation!.setPoseLayersEnabled?.(this.equipped)
-    this.sword.visible = this.equipped && !this.state.startsWith('bow') && this.state !== 'pilumThrow'
-    this.bow.visible = this.equipped && this.state.startsWith('bow')
-    this.pilum.visible = this.equipped && this.state === 'pilumThrow'
+    const alive = this.state !== 'death'
+    this.sword.visible = this.equipped && alive && !this.state.startsWith('bow') && this.state !== 'pilumThrow'
+    this.bow.visible = this.equipped && alive && this.state.startsWith('bow')
+    this.pilum.visible = this.equipped && alive && this.state === 'pilumThrow'
     if (this.equipmentLoadout !== null) {
-      this.sword.visible = this.equipped && this.equipmentLoadout === 'sword'
-      this.lance.visible = this.equipped && this.equipmentLoadout === 'lance'
-      this.shield.visible = this.equipped && this.hasShield
+      this.sword.visible = this.equipped && alive && this.equipmentLoadout === 'sword'
+      this.lance.visible = this.equipped && alive && this.equipmentLoadout === 'lance'
+      this.shield.visible = this.equipped && alive && this.hasShield
       this.bow.visible = this.pilum.visible = false
       this.animator.setEquipment(this.lance.visible, this.shield.visible)
     }
