@@ -14,10 +14,10 @@ export const COMBAT_BALANCE = {
     playerDefault: 200,
   },
   bow: {
-    damageMultiplier: 0.5,
+    damageMultiplier: 0.7,
     attackRateMultiplier: 1.3,
     footAttackRange: 50,
-    mountedAttackRange: 15,
+    mountedAttackRange: 30,
     baseCooldown: 1.5,
   },
   javelin: {
