@@ -524,6 +524,9 @@ export class Player {
 
     if (this.currentHp <= 0) {
       this.isDead = true
+      // Player equipment can change at runtime. Preparing here is acceptable
+      // because only one player dies; the mass-NPC path is prepared ahead of time.
+      this.deathFade.prepare(this.characterVisualGroup)
       this.deathFade.start(this.group)
       if (this.isMounted) {
         this.detachFromMountOnDeath()
@@ -616,7 +619,7 @@ export class Player {
 
     if (this.isDead) {
       const hidden = this.deathFade.update(this.group, dt)
-      if (!hidden) this.animator?.update(dt)
+      if (!hidden && !this.deathFade.fading) this.animator?.update(dt)
       return
     }
     this.hitEventPending = false
