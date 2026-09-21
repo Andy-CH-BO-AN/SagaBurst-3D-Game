@@ -37,7 +37,7 @@ const ROMAN_SHORTCUTS: readonly ArmyCommandShortcut[] = [
   { key: '8', target: 'all' },
 ]
 
-export const SUBMENU_COMMANDS: readonly TacticalOrder[] = ['attack', 'defend', 'charge']
+export const SUBMENU_COMMANDS: readonly TacticalOrder[] = ['attack', 'charge', 'defend']
 
 export function getArmyCommandShortcuts(faction: CharacterFaction): readonly ArmyCommandShortcut[] {
   return faction === 'viking' ? VIKING_SHORTCUTS : ROMAN_SHORTCUTS
@@ -47,13 +47,12 @@ export function getArmyCommandShortcut(faction: CharacterFaction, key: string): 
   return getArmyCommandShortcuts(faction).find(shortcut => shortcut.key === key)?.target ?? null
 }
 
-export function getCommandFromSubmenuKey(key: string): TacticalOrder | 'formation' | 'exit' | null {
+export function getCommandFromSubmenuKey(key: string): TacticalOrder | 'formation' | null {
   switch (key) {
     case '1': return 'attack'
-    case '2': return 'defend'
-    case '3': return 'charge'
+    case '2': return 'charge'
+    case '3': return 'defend'
     case '4': return 'formation'
-    case '5': return 'exit'
     default: return null
   }
 }
@@ -110,14 +109,16 @@ export class ArmyCommandController {
   update(): void {
     if (this.formation?.isPlacementMode) {
       this.formation.updatePlacement()
-      let cancelled = false
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
-        if (this._consumeDigit(key) && key === '5') cancelled = true
+        this._consumeDigit(key)
       }
-      const confirmed = this.input.consumeKeyPress('Enter') || this.input.consumeKeyPress('NumpadEnter')
-      if (cancelled) {
+      const goBack = this.input.consumeKeyPress('KeyQ')
+      const confirmedByKey = this.input.consumeKeyE()
+      const confirmedByClick = this.input.consumeLeftClick()
+      const confirmed = confirmedByKey || confirmedByClick
+      if (goBack) {
         this.formation.cancelPlacement()
-        this._closeSubmenu()
+        this.ui.render(this._hudEntries(), true, this.selectedTarget)
       } else if (confirmed) {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
@@ -132,10 +133,18 @@ export class ArmyCommandController {
     }
 
     if (this.submenuOpen) {
+      if (this.input.consumeKeyPress('KeyQ')) {
+        for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+          this._consumeDigit(key)
+        }
+        this._closeSubmenu()
+        return
+      }
+
       let commandKey: string | null = null
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         if (!this._consumeDigit(key)) continue
-        if (commandKey === null && Number(key) <= 5) commandKey = key
+        if (commandKey === null && Number(key) <= 4) commandKey = key
       }
       if (commandKey !== null) {
         const command = getCommandFromSubmenuKey(commandKey)
@@ -143,8 +152,6 @@ export class ArmyCommandController {
           if (!this.formation || !this.selectedTarget) return
           this.formation.beginPlacement(this.selectedTarget)
           this.ui.renderPlacement(this.selectedTarget)
-        } else if (command === 'exit') {
-          this._closeSubmenu()
         } else if (command) {
           this._issue(command)
         }

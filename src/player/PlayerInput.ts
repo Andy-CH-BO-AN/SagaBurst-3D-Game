@@ -116,6 +116,7 @@ export class PlayerInput {
   consumeKeyE(): boolean {
     const val = this._keyETriggered
     this._keyETriggered = false
+    this._keyPresses.delete('KeyE')
     return val
   }
 

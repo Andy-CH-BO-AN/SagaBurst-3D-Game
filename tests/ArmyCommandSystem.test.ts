@@ -4,6 +4,7 @@ import {
   ArmyCommandController,
   getArmyCommandShortcut,
   getArmyCommandShortcuts,
+  getCommandFromSubmenuKey,
 } from '../src/battle/ArmyCommandController'
 import { armyCommandTargetLabel } from '../src/ui/ArmyCommandUI'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
@@ -22,19 +23,19 @@ import { FormationController } from '../src/battle/FormationController'
 
 function controllerHarness(npcs: any[], formation: any = null) {
   const pressed = new Set<string>()
+  const consume = (code: string) => {
+    if (!pressed.has(code)) return false
+    pressed.delete(code)
+    return true
+  }
   const input = {
-    consumeKeyPress: (code: string) => {
-      if (!pressed.has(code)) return false
-      pressed.delete(code)
-      return true
-    },
+    consumeKeyPress: consume,
+    consumeKeyE: () => consume('KeyE'),
+    consumeLeftClick: () => consume('MouseLeft'),
     press: (digit: string) => pressed.add(`Digit${digit}`),
-    pressEnter: () => pressed.add('Enter'),
-    consumeEnter: () => {
-      if (!pressed.has('Enter')) return false
-      pressed.delete('Enter')
-      return true
-    },
+    pressKey: (code: string) => pressed.add(code),
+    pressE: () => pressed.add('KeyE'),
+    clickLeft: () => pressed.add('MouseLeft'),
   }
   const ui = {
     render: vi.fn(),
@@ -137,6 +138,14 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(armyCommandTargetLabel('all')).toBe('全軍命令')
   })
 
+  it('maps command keys to Attack, Charge, Defend, and Formation', () => {
+    expect(getCommandFromSubmenuKey('1')).toBe('attack')
+    expect(getCommandFromSubmenuKey('2')).toBe('charge')
+    expect(getCommandFromSubmenuKey('3')).toBe('defend')
+    expect(getCommandFromSubmenuKey('4')).toBe('formation')
+    expect(getCommandFromSubmenuKey('5')).toBeNull()
+  })
+
   it('maps Viking and Roman shortcuts to preset ids and ALL', () => {
     expect(getArmyCommandShortcuts('viking').map(entry => entry.target)).toEqual([
       'viking_berserker', 'viking_spearman', 'viking_archer',
@@ -162,7 +171,7 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update() // Holding the key does not reselect or issue a command.
     expect(ally.setTacticalOrder).not.toHaveBeenCalled()
 
-    h.input.press('2')
+    h.input.press('3')
     h.controller.update()
     expect(ally.setTacticalOrder).toHaveBeenCalledWith('defend')
     expect(otherAlly.setTacticalOrder).not.toHaveBeenCalled()
@@ -184,13 +193,13 @@ describe('Army command keyboard mapping and filtering', () => {
 
     h.input.press('7')
     h.controller.update()
-    h.input.press('3')
+    h.input.press('2')
     h.controller.update()
     expect(ally.setTacticalOrder).toHaveBeenCalledWith('charge')
     expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
   })
 
-  it('consumes invalid submenu digits so they cannot select a group after exit', () => {
+  it('uses Q to go back from the command menu and consumes invalid submenu digits', () => {
     const h = controllerHarness([])
 
     h.input.press('2')
@@ -201,9 +210,38 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(true)
 
-    h.input.press('5')
+    h.input.pressKey('KeyQ')
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)
+    h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+  })
+
+  it('returns from formation placement to the command menu with Q', () => {
+    const formation: any = {
+      isPlacementMode: false,
+      setCompletionHandler: vi.fn(),
+      beginPlacement: vi.fn(() => { formation.isPlacementMode = true }),
+      updatePlacement: vi.fn(),
+      confirmPlacement: vi.fn(),
+      cancelPlacement: vi.fn(() => { formation.isPlacementMode = false }),
+    }
+    const h = controllerHarness([], formation)
+
+    h.input.press('7')
+    h.controller.update()
+    h.input.press('4')
+    h.controller.update()
+    expect(h.controller.isFormationPlacementMode).toBe(true)
+
+    h.input.pressKey('KeyQ')
+    h.controller.update()
+    expect(formation.cancelPlacement).toHaveBeenCalledOnce()
+    expect(h.controller.isFormationPlacementMode).toBe(false)
+    expect(h.controller.isSubmenuOpen).toBe(true)
+    expect(h.controller.selected).toBe('all')
+
+    h.input.pressKey('KeyQ')
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)
   })
@@ -213,7 +251,7 @@ describe('Army command keyboard mapping and filtering', () => {
     const h = controllerHarness([deadAlly])
     h.input.press('2')
     h.controller.update()
-    h.input.press('3')
+    h.input.press('2')
     h.controller.update()
     expect(deadAlly.setTacticalOrder).not.toHaveBeenCalled()
     expect(h.ui.showFeedback).toHaveBeenCalledWith('槍兵 → 衝鋒')
@@ -249,7 +287,7 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update()
     h.input.press('4')
     h.controller.update()
-    h.input.pressEnter()
+    h.input.pressE()
     h.controller.update()
 
     const hud = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ key: string; order: string }>
@@ -360,7 +398,7 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update()
     h.input.press('4')
     h.controller.update()
-    h.input.pressEnter()
+    h.input.clickLeft()
     h.controller.update()
     h.input.press('7')
     h.controller.update()
