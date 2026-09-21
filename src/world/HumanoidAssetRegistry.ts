@@ -177,13 +177,20 @@ function quaternionValues(eulers: THREE.Vector3[]): number[] {
 function additiveClip(
   name: string,
   duration: number,
-  tracks: Array<{ bone: string, times: number[], eulers: THREE.Vector3[] }>,
+  tracks: Array<{
+    bone: string
+    times: number[]
+    eulers?: THREE.Vector3[]
+    positions?: THREE.Vector3[]
+  }>,
 ): THREE.AnimationClip {
-  const clip = new THREE.AnimationClip(name, duration, tracks.map((track) => new THREE.QuaternionKeyframeTrack(
-    `${track.bone}.quaternion`,
-    track.times,
-    quaternionValues(track.eulers),
-  )))
+  const clip = new THREE.AnimationClip(name, duration, tracks.map((track) => track.positions
+    ? new THREE.VectorKeyframeTrack(`${track.bone}.position`, track.times, track.positions.flatMap(value => value.toArray()))
+    : new THREE.QuaternionKeyframeTrack(
+      `${track.bone}.quaternion`,
+      track.times,
+      quaternionValues(track.eulers!),
+    )))
   clip.blendMode = THREE.AdditiveAnimationBlendMode
   return clip
 }
@@ -217,8 +224,13 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
     // second time on top of that pose.
     additiveClip('mounted', 1.5, []),
     additiveClip('death', 1, [
-      { bone: 'hips', times: [0, 0.25, 1], eulers: [zero(), pose(0, 0, 0.15), pose(0, 0, 1.35)] },
-      { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1, 0, 0.1), pose(0.2, 0, 0.25)] },
+      // Pitch the body forward into a prone fall. A Z-axis roll produces a
+      // side-plank pose because the humanoid's local +Z is forward.
+      { bone: 'hips', times: [0, 0.25, 1], eulers: [zero(), pose(0.15), pose(1.35)] },
+      { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1), pose(0.25)] },
+      // The physics root stays at the character's feet. Lower the animated
+      // skeleton as it falls so the prone body settles onto that same ground.
+      { bone: 'hips', times: [0, 0.25, 1], positions: [zero(), new THREE.Vector3(0, -0.24, 0), new THREE.Vector3(0, -0.62, 0)] },
     ]),
   ]
 }

@@ -114,7 +114,6 @@ export function getDevSimpleMaterial(sourceMat: THREE.Material, isSkinned: boole
  * - Exact geometry and object counts
  * - Material-group counts and draw-call structures
  * - SkinnedMesh bindings
- * - Hit-flash damage restoration (does not revert to production PBR)
  * - Cutout alpha coverage and render-state properties
  */
 export function applyDevSimpleMaterials(npcs: NPC[], mounts: Mount[]): void {

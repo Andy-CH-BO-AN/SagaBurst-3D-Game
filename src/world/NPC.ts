@@ -162,7 +162,6 @@ export class NPC {
 
   private bodyMesh: THREE.Group
   private headMesh: THREE.Mesh
-  private headMat: THREE.MeshStandardMaterial
   private rig: CharacterRig
   private externalPelvisHeight = 0
   private animator: CharacterCombatAnimator
@@ -179,10 +178,6 @@ export class NPC {
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
 
-  private flashMat: THREE.MeshBasicMaterial
-  private _isFlashing = false
-  private _flashTargets: Array<{ mesh: THREE.Mesh; originalMat: THREE.Material | THREE.Material[] }> = []
-
   readonly maxHp: number = COMBAT_BALANCE.hp.npcDefault
   private currentHp: number = COMBAT_BALANCE.hp.npcDefault
 
@@ -192,7 +187,6 @@ export class NPC {
   private attackHitProcessed = false
   public pendingLanceChargeSpeed = 0
 
-  private flashTimer = 0
   private respawnTimer = 0
   public respawnEnabled = true
   public readonly aimCollider: THREE.Mesh
@@ -345,7 +339,6 @@ export class NPC {
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
     this.group.add(this.aimCollider)
 
-    this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
     const visualConfig = {
       faction: this.characterFaction,
       tier: this.tier,
@@ -360,7 +353,6 @@ export class NPC {
         : (() => { throw new Error(`${visualConfig.faction} humanoid assets were not preloaded`) })()
     this.bodyMesh = visual.bodyMesh as THREE.Group
     this.headMesh = visual.headMesh as THREE.Mesh
-    this.headMat = visual.headMaterial
     this.rig = visual.rig
     if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
       this.characterVisualGroup.updateWorldMatrix(true, true)
@@ -422,8 +414,6 @@ export class NPC {
     // reaches the detail children before the renderer submits those proxies.
     const humanoidLOD = this.bodyMesh.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)
     if (humanoidLOD) this.equipmentVisualLOD.followHumanoid(humanoidLOD)
-    this._initFlashTargets()
-
     this.alertSprite = this._createAlertSprite()
     this.alertSprite.position.set(0, 2.3, 0)
     this.alertSprite.visible = false
@@ -440,36 +430,8 @@ export class NPC {
     this._syncToMount()
   }
 
-  private _initFlashTargets(): void {
-    this._flashTargets = []
-    this.bodyMesh.traverse((child) => {
-      if (this.shieldPivot.getObjectById(child.id)) return
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh
-        const originalMat = (mesh.userData.originalMat ?? mesh.material) as THREE.Material | THREE.Material[]
-        mesh.userData.originalMat = originalMat
-        this._flashTargets.push({ mesh, originalMat })
-      }
-    })
-  }
-
-  private _applyDamageFlash(): void {
-    for (let i = 0; i < this._flashTargets.length; i++) {
-      this._flashTargets[i].mesh.material = this.flashMat
-    }
-    this.headMesh.material = this.flashMat
-  }
-
-  private _restoreDamageFlash(): void {
-    for (let i = 0; i < this._flashTargets.length; i++) {
-      this._flashTargets[i].mesh.material = this._flashTargets[i].originalMat
-    }
-    this.headMesh.material = this.headMat
-  }
-
   /**
    * DEV-only diagnostic hook to replace character and equipment materials with simple diagnostic materials.
-   * Updates _flashTargets and headMat so that hit flash restoration returns to simple materials.
    */
   devApplySimpleMaterials(getDiagnosticMaterial: (sourceMat: THREE.Material, isSkinned: boolean) => THREE.Material): void {
     if (!import.meta.env.DEV) return
@@ -493,15 +455,7 @@ export class NPC {
       })
     }
 
-    if (this.headMesh && (this.headMesh as THREE.Mesh).isMesh) {
-      const isSkinned = (this.headMesh as THREE.SkinnedMesh).isSkinnedMesh === true
-      this.headMat = getDiagnosticMaterial(this.headMat, isSkinned) as THREE.MeshStandardMaterial
-      this.headMesh.material = this.headMat
-    }
-
-    for (const target of this._flashTargets) {
-      target.originalMat = target.mesh.material
-    }
+    if (this.headMesh?.isMesh) replaceMaterial(this.headMesh)
   }
 
   /** Releases this NPC from its mount and returns it to a normal walking body. */
@@ -700,12 +654,6 @@ export class NPC {
     if (this.state === AIState.DEAD) return false
 
     this.currentHp = Math.max(0, this.currentHp - amount)
-    this.flashTimer = 0.15
-    if (!this._isFlashing) {
-      this._isFlashing = true
-      this._applyDamageFlash()
-    }
-
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
       this.alertTimer = 0.4
@@ -716,8 +664,10 @@ export class NPC {
       this.formationTarget = null
       this.dismountFromMount()
       this.state = AIState.DEAD
+      this.animator.cancel()
       this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
       this.rig.animation?.setEquipmentState?.({ mounted: false })
+      this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
       this.respawnTimer = RESPAWN_TIME
       this.alertSprite.visible = false
       for (const cb of this.onDeathCallbacks) cb(this)
@@ -843,16 +793,6 @@ export class NPC {
   ): void {
     if (this.state === AIState.DEAD) {
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
-      if (this._isFlashing) {
-        this.flashTimer -= dt
-        if (this.flashTimer <= 0) {
-          this.flashTimer = 0
-          this._isFlashing = false
-          this._restoreDamageFlash()
-        }
-      }
-      this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
-      this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.animator.update(dt, cameraDistance)
       if (this.respawnEnabled) {
         this.respawnTimer -= dt
@@ -878,15 +818,6 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, true)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
-
-    if (this._isFlashing) {
-      this.flashTimer -= dt
-      if (this.flashTimer <= 0) {
-        this.flashTimer = 0
-        this._isFlashing = false
-        this._restoreDamageFlash()
-      }
-    }
 
     if (this.tacticalOrder === 'formation' && this.formationTarget) {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
@@ -1148,7 +1079,7 @@ export class NPC {
             this.attackHitProcessed = false
           }
 
-          this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+          this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
           const meleeEvents = this.animator.update(dt * berserker.meleeAttackRateMultiplier, cameraDistance)
@@ -1191,7 +1122,7 @@ export class NPC {
       if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
       else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
     }
-    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted)
+    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
@@ -1443,11 +1374,6 @@ export class NPC {
   respawn(): void {
     this.formationTarget = null
     this.pendingLanceChargeSpeed = 0
-    if (this._isFlashing) {
-      this.flashTimer = 0
-      this._isFlashing = false
-      this._restoreDamageFlash()
-    }
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
     if (this.aiType === AIType.RANGED) {

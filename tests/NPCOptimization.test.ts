@@ -22,6 +22,27 @@ describe('NPC Optimization & Semantics Preservation', () => {
     expect(animatorSpy).toHaveBeenCalledWith(npc.isUsingLance, Boolean(npc.shieldId), undefined, false)
   })
 
+  it('starts the death clip once and leaves root rotation unchanged', () => {
+    const scene = new THREE.Scene()
+    const npc = new NPC(scene, 0, 80, Faction.ENEMY, 'roman', AIType.MELEE, 'TestRoman', 1, false)
+    const animation = {
+      play: vi.fn(),
+      update: vi.fn(),
+      has: vi.fn(() => false),
+      setEquipmentState: vi.fn(),
+    }
+    ;(npc as any).rig.animation = animation
+
+    npc.respawnEnabled = false
+    npc.takeDamage(9999)
+    for (let i = 0; i < 10; i++) {
+      npc.update(0.016, new Player(scene), [npc], [npc], [], null as any, () => {}, () => {}, true)
+    }
+
+    expect(animation.play.mock.calls.filter(([state]) => state === 'death')).toHaveLength(1)
+    expect(npc.group.rotation.z).toBe(0)
+  })
+
   it('dead NPCs bypass target acquisition and alive AI work during update', () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)
@@ -74,75 +95,6 @@ describe('NPC Optimization & Semantics Preservation', () => {
     expect(npc.dead).toBe(false)
     expect(npc.currentState).toBe(AIState.IDLE)
     expect(npc.hp).toBe(npc.maxHp)
-  })
-
-  it('applies damage flash, excludes shield, and restores original materials when timer expires', () => {
-    const scene = new THREE.Scene()
-    const player = new Player(scene)
-    const npc = new NPC(scene, 0, 80, Faction.ENEMY, 'roman', AIType.MELEE, 'TestRoman', 1, false)
-
-    const flashTargets = (npc as any)._flashTargets as Array<{ mesh: THREE.Mesh; originalMat: THREE.Material }>
-    expect(flashTargets.length).toBeGreaterThan(0)
-
-    // Shield meshes must not be in flashTargets
-    const shieldPivot = (npc as any).shieldPivot as THREE.Group
-    for (const target of flashTargets) {
-      expect(shieldPivot.getObjectById(target.mesh.id)).toBeUndefined()
-    }
-
-    // Capture original materials
-    const originalMaterials = flashTargets.map(t => t.mesh.material)
-
-    // Apply damage
-    npc.takeDamage(10)
-    expect((npc as any)._isFlashing).toBe(true)
-    expect((npc as any).flashTimer).toBe(0.15)
-
-    // All flash targets and headMesh should now have flashMat
-    for (const target of flashTargets) {
-      expect(target.mesh.material).toBe((npc as any).flashMat)
-    }
-    expect((npc as any).headMesh.material).toBe((npc as any).flashMat)
-
-    // Repeated hit while flashing resets timer
-    npc.update(0.05, player, [npc], [npc], [], null as any, () => {}, () => {}, true)
-    expect((npc as any).flashTimer).toBeCloseTo(0.10, 3)
-    npc.takeDamage(10)
-    expect((npc as any).flashTimer).toBe(0.15)
-    expect((npc as any)._isFlashing).toBe(true)
-
-    // Advance time past remaining flash duration (0.2s > 0.15s)
-    npc.update(0.2, player, [npc], [npc], [], null as any, () => {}, () => {}, true)
-    expect((npc as any)._isFlashing).toBe(false)
-
-    // Materials must be perfectly restored
-    for (let i = 0; i < flashTargets.length; i++) {
-      expect(flashTargets[i].mesh.material).toBe(originalMaterials[i])
-    }
-    expect((npc as any).headMesh.material).toBe((npc as any).headMat)
-  })
-
-  it('restores damage flash if NPC dies while flashing', () => {
-    const scene = new THREE.Scene()
-    const player = new Player(scene)
-    const npc = new NPC(scene, 0, 80, Faction.ENEMY, 'viking', AIType.MELEE, 'TestViking', 1, false)
-
-    const flashTargets = (npc as any)._flashTargets as Array<{ mesh: THREE.Mesh; originalMat: THREE.Material }>
-    const originalMaterials = flashTargets.map(t => t.mesh.material)
-
-    // Lethal hit
-    npc.takeDamage(9999)
-    expect(npc.dead).toBe(true)
-    expect((npc as any)._isFlashing).toBe(true)
-
-    // Update through death fast path past flash duration
-    npc.update(0.2, player, [npc], [npc], [], null as any, () => {}, () => {}, true)
-    expect((npc as any)._isFlashing).toBe(false)
-
-    // Materials must be restored even in dead state
-    for (let i = 0; i < flashTargets.length; i++) {
-      expect(flashTargets[i].mesh.material).toBe(originalMaterials[i])
-    }
   })
 
   it('eliminates per-frame Vector3.clone allocations in NPC.update and helpers', () => {
