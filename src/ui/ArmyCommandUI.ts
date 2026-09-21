@@ -24,7 +24,7 @@ export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string
   return getUnitPreset(target).nameZh
 }
 
-/** Keyboard-only army command HUD. It never owns input or mutates NPC state. */
+/** Army command HUD. It never owns input or mutates NPC state. */
 export class ArmyCommandUI {
   private readonly root: HTMLElement
   private readonly left: HTMLElement
@@ -59,7 +59,7 @@ export class ArmyCommandUI {
       title.className = 'army-command-submenu-title'
       title.textContent = armyCommandTargetLabel(selectedTarget)
       this.menu.appendChild(title)
-      for (const [key, label] of [['1', '攻擊'], ['2', '防禦'], ['3', '衝鋒'], ['4', '列陣'], ['5', '退出']]) {
+      for (const [key, label] of [['1', '攻擊'], ['2', '衝鋒'], ['3', '防禦'], ['4', '列陣'], ['Q', '上一頁']]) {
         const row = document.createElement('div')
         row.className = 'army-command-submenu-row'
         row.textContent = `[${key}] ${label}`
@@ -75,7 +75,7 @@ export class ArmyCommandUI {
     title.className = 'army-command-submenu-title'
     title.textContent = `${armyCommandTargetLabel(target).replace('命令', '')} — 列陣位置選擇`
     this.menu.appendChild(title)
-    for (const label of ['中央準星：選擇位置', '[Enter] 確認', '[5] 取消']) {
+    for (const label of ['中央準星：選擇位置', '[E] / [滑鼠左鍵] 確認', '[Q] 上一頁']) {
       const row = document.createElement('div')
       row.className = 'army-command-submenu-row'
       row.textContent = label

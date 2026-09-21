@@ -199,14 +199,15 @@ Mounted save/load preserves the player's mounted state and the mount's world pos
 | `Tab` or `I` | Open character & inventory |
 | `0` | Open game menu |
 | `1`–`7` (Viking) / `1`–`8` (Roman) | Select a friendly troop group or ALL and open the Army Command menu |
-| Army Command `1` / `2` / `3` / `4` / `5` | Attack / Defend / Charge / Formation / Exit |
-| Formation: `Enter` or `NumpadEnter` | Confirm the formation at the center-crosshair location |
-| Formation: `5` | Cancel formation placement |
+| Army Command `1` / `2` / `3` / `4` | Attack / Charge / Defend / Formation |
+| Army Command `Q` | Go back one command-menu level |
+| Formation: `E` or Left Mouse Button | Confirm the formation at the center-crosshair location |
+| Formation: `Q` | Return to the command menu |
 | `Esc` | Close UI / release pointer lock |
 
 ## 📯 Army Commands
 
-Army Command is a **keyboard-only** battlefield control system for the player's allied faction. The HUD sits around the compass and shows each troop group's current order. The default order is **Attack**.
+Army Command is a **keyboard-first** battlefield control system for the player's allied faction. The HUD sits around the compass and shows each troop group's current order. The default order is **Attack**; formation placement can be confirmed with either `E` or the left mouse button.
 
 Select a troop group with its faction shortcut, then choose an order from the command menu.
 
@@ -230,10 +231,10 @@ T1 / T2 / T3 units that belong to the same preset are commanded together.
 | Key | Order | Battlefield behavior |
 | --- | --- | --- |
 | `1` | **Attack** | Normal aggressive behavior using the unit's **current equipment stance**. Units pursue and engage enemies. |
-| `2` | **Defend** | Hold position. Units may face and attack enemies already within the valid range of their current weapon, but do not chase; mounted archers do not orbit. |
-| `3` | **Charge** | Aggressive pursuit with sprinting while stamina allows. It does not add a separate tactical damage multiplier. |
+| `2` | **Charge** | Aggressive pursuit with sprinting while stamina allows. It does not add a separate tactical damage multiplier. |
+| `3` | **Defend** | Hold position. Units may face and attack enemies already within the valid range of their current weapon, but do not chase; mounted archers do not orbit. |
 | `4` | **Formation** | Choose a destination with the center crosshair. Units move into deterministic ranks, then automatically switch to **Defend** after the active formation participants arrive. |
-| `5` | **Exit** | Close the command menu without issuing an order. |
+| `Q` | **Back** | Return to the previous command-menu level without issuing a new order. |
 
 ### Formation placement
 
@@ -241,8 +242,8 @@ After choosing **Formation**:
 
 1. Keep using the mouse to aim the center crosshair at the desired terrain position.
 2. The game displays a live formation preview.
-3. Press `Enter` or `NumpadEnter` to confirm.
-4. Press `5` to cancel. Formation placement intentionally does not use `Esc`, because `Esc` releases pointer lock.
+3. Press `E` or click the left mouse button to confirm.
+4. Press `Q` to return to the command menu. Formation placement intentionally does not use `Esc`, because `Esc` releases pointer lock.
 5. Blocked or otherwise invalid placements are rejected.
 
 A single troop group uses ranks of up to **10 units per row**. **ALL** uses up to **50 units per row**. The final row is centered, and the formation faces the camera's horizontal direction at confirmation time.
