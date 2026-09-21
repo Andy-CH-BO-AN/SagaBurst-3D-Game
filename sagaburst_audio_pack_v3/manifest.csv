@@ -1,0 +1,17 @@
+﻿source,output,before_ms,after_ms,trimmed_ms
+ElevenLabs_2026-09-21T10_06_16_羅馬指揮官_gen_sp82_s50_sb75_se50_b_m2.mp3,commands/roman/defend.wav,2456,2230,226
+ElevenLabs_2026-09-21T10_07_07_羅馬指揮官_gen_sp82_s75_sb75_se50_b_m2.mp3,commands/roman/formation.wav,2638,2475,163
+ElevenLabs_2026-09-21T10_38_43_羅馬指揮官_gen_sp96_s88_sb77_v3.mp3,commands/roman/attack.wav,1071,936,135
+ElevenLabs_2026-09-21T10_15_40_羅馬指揮官_gen_sp96_s88_sb77_v3.mp3,commands/roman/charge.wav,3396,3205,191
+ElevenLabs_2026-09-21T10_09_25_瓦良格隊長_gen_sp90_s50_sb75_se72_b_m2.mp3,commands/viking/defend.wav,2534,2435,99
+ElevenLabs_2026-09-21T10_09_40_瓦良格隊長_gen_sp90_s50_sb75_se72_b_m2.mp3,commands/viking/formation.wav,3056,2990,66
+ElevenLabs_2026-09-21T10_10_14_瓦良格隊長_gen_sp90_s24_sb75_se82_b_m2.mp3,commands/viking/attack.wav,2456,2385,71
+ElevenLabs_2026-09-21T10_13_37_瓦良格隊長_gen_sp90_s10_sb75_v3.mp3,commands/viking/charge.wav,6531,6330,201
+"Deep,_raw,_thunderou_#4-1789986048313.wav",horns/roman_charge.wav,9000,6520,2480
+Massive_Viking_war_h_#2-1789986101333.wav,horns/viking_charge.wav,9000,6745,2255
+lance_impact.wav,sfx/lance_impact.wav,2000,1085,915
+Heavy_medieval_warho_#3-1789990112060.wav,sfx/horse_impact.wav,1000,865,135
+Heavy_armored_mediev_#1-1789990803695.wav,sfx/horse_gallop.wav,5000,5000,0
+V2 rebuilt from 620355__marb7e__whooshsword_hit-armor.wav,sfx/sword_armor_hit.wav,568,568,0
+V2 rebuilt from 205938__twisted_euphoria__arrow-impact.wav,sfx/arrow_body_impact.wav,611,611,0
+536068__eminyildirim__bow-release-hit.wav,sfx/bow_release_hit.wav,190,190,0

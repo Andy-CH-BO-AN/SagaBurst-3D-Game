@@ -145,6 +145,7 @@ export class NPC {
   get staminaValue(): number { return this.stamina }
   get staminaRatio(): number { return this.stamina / MAX_STAMINA }
   get sprinting(): boolean { return this.isSprinting }
+  get currentLod(): number { return this.equipmentVisualLOD.currentLevel }
 
   get activeCombatKind(): WeaponCombatKind | null {
     if (this.hasActiveRangedWeapon && this.rangedCombatKind) {

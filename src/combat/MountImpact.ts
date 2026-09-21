@@ -62,8 +62,10 @@ export interface MountImpactOptions {
   onDamagePlayer: (damage: number) => DamageResult
   /** Side-effects for Player mount impacting an enemy NPC (damage numbers, HUD, sound). */
   onPlayerMountHitNpc?: (damage: number, npc: NPC, result: DamageResult) => void
+  onPlayerMountHitNpcAudio?: (damage: number, attackerMount: Mount, npc: NPC, result: DamageResult) => void
   /** Side-effects for Enemy mount impacting the Player (mount HP fill, hit sound). */
   onEnemyMountHitPlayer?: (damage: number, result: DamageResult) => void
+  onEnemyMountHitPlayerAudio?: (damage: number, attackerMount: Mount, result: DamageResult) => void
   /** Side-effects for NPC mount impacting a hostile NPC (sound only, NO damage numbers). */
   onNpcMountHitNpc?: (damage: number, attackerMount: Mount, targetNpc: NPC, result: DamageResult) => void
 }
@@ -105,6 +107,7 @@ export function resolveMountImpacts(
             const result = damageNpc(targetNpc, damage)
             if (result.hitSuccess) {
               options.onPlayerMountHitNpc?.(damage, targetNpc, result)
+              options.onPlayerMountHitNpcAudio?.(damage, mount, targetNpc, result)
             }
           })
         }
@@ -123,6 +126,7 @@ export function resolveMountImpacts(
           const result = options.onDamagePlayer(damage)
           if (result.hitSuccess) {
             options.onEnemyMountHitPlayer?.(damage, result)
+            options.onEnemyMountHitPlayerAudio?.(damage, mount, result)
           }
         })
       }
