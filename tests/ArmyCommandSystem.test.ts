@@ -11,7 +11,10 @@ import { Player } from '../src/player/Player'
 import { STAMINA_DRAIN, SPRINT_MULTIPLIER } from '../src/movement/MovementBalance'
 import {
   assignUnitsToSlots,
+  FORMATION_MAX_COLUMNS,
   formationRowAxis,
+  getFormationBoundaryShift,
+  generateFormationSlots,
   generateLineFormationSlots,
 } from '../src/battle/FormationMath'
 
@@ -57,6 +60,41 @@ describe('Army command keyboard mapping and filtering', () => {
     const assignments = assignUnitsToSlots(units, slots, formationRowAxis(new THREE.Vector3(0, 0, 1)), center)
     expect(assignments.map(entry => entry.unit.id)).toEqual(['left', 'middle', 'right'])
     expect(assignments.map(entry => entry.slot.x)).toEqual([-2, 0, 2])
+  })
+
+  it('uses centered rows of at most ten and preserves spacing at the boundary', () => {
+    const center = new THREE.Vector3(0, 0, 0)
+    expect(generateFormationSlots(center, new THREE.Vector3(0, 0, 1), 10)).toHaveLength(10)
+    const eleven = generateFormationSlots(center, new THREE.Vector3(0, 0, 1), 11)
+    expect(eleven.slice(0, 10).every(slot => slot.z > 0)).toBe(true)
+    expect(eleven[10].x).toBe(0)
+    expect(eleven[10].z).toBeLessThan(0)
+    expect(generateFormationSlots(center, new THREE.Vector3(0, 0, 1), 25)).toHaveLength(25)
+    expect(generateFormationSlots(center, new THREE.Vector3(0, 0, 1), 200)).toHaveLength(200)
+    expect(FORMATION_MAX_COLUMNS).toBe(10)
+
+    const boundarySlots = generateFormationSlots(new THREE.Vector3(179, 0, 0), new THREE.Vector3(0, 0, 1), 5)
+    const shift = getFormationBoundaryShift(boundarySlots, 180)
+    const shifted = boundarySlots.map(slot => slot.clone().add(shift))
+    expect(Math.max(...shifted.map(slot => slot.x))).toBe(180)
+    expect(new Set(shifted.map(slot => slot.x)).size).toBe(5)
+    expect(shifted[1].distanceTo(shifted[0])).toBeCloseTo(2)
+  })
+
+  it('assigns shuffled multi-row units deterministically by rank then row side', () => {
+    const center = new THREE.Vector3()
+    const forward = new THREE.Vector3(0, 0, 1)
+    const slots = generateFormationSlots(center, forward, 11)
+    const rowAxis = formationRowAxis(forward)
+    const units = Array.from({ length: 11 }, (_, index) => ({
+      id: `unit-${index}`,
+      position: new THREE.Vector3(index - 5, 0, index % 2 === 0 ? 4 : -4),
+    })).reverse()
+    const first = assignUnitsToSlots(units, slots, rowAxis, center, forward)
+    const second = assignUnitsToSlots([...units].reverse(), slots, rowAxis, center, forward)
+    expect(first.map(entry => entry.unit.id)).toEqual(second.map(entry => entry.unit.id))
+    expect(first.slice(0, 10)).toHaveLength(10)
+    expect(first[10].slot.x).toBe(0)
   })
 
   it('labels the submenu with the selected unit group', () => {
@@ -168,11 +206,12 @@ describe('NPC TacticalOrder and active equipment stance', () => {
     const ally = createNpc(scene, Faction.PLAYER, 'viking', 'viking_berserker', {
       meleeWeaponId: 'steel_sword', shieldId: 'round_shield_t2', mountId: null,
     }, 0)
-    ally.assignFormationTarget(42, new THREE.Vector3(0, 0, 0.2), new THREE.Vector3(0, 0, 1))
+    ally.assignFormationTarget(42, new THREE.Vector3(0, 0, -10), new THREE.Vector3(0, 0, 1))
     ally.update(0.1, player, [ally], [], [], null as any, () => {}, () => {})
     expect(ally.tacticalOrder).toBe('formation')
-    expect(ally.isFormationTargetReached(42)).toBe(true)
+    expect(ally.isFormationTargetReached(42)).toBe(false)
     expect(ally.sprinting).toBe(false)
+    expect(ally.position.z).toBeLessThan(-0.1)
 
     ally.setTacticalOrder('charge')
     expect(ally.formationCommandId).toBeNull()

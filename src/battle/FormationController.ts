@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import { Faction, NPC } from '../world/NPC'
-import { clampToPlayableWorld, getTerrainHeight } from '../world/Terrain'
+import { ObstacleData, PLAYABLE_WORLD_BOUND, clampToPlayableWorld, getTerrainHeight } from '../world/Terrain'
 import type { ArmyCommandTarget } from './ArmyCommandController'
 import {
   assignUnitsToSlots,
-  FORMATION_SLOT_SPACING,
   formationRowAxis,
-  generateLineFormationSlots,
+  generateFormationSlots,
+  getFormationBoundaryShift,
   horizontalFormationForward,
 } from './FormationMath'
 import { FormationPreview } from '../ui/FormationPreview'
@@ -14,6 +14,8 @@ import { FormationPreview } from '../ui/FormationPreview'
 export interface FormationCommandResult {
   accepted: boolean
   count: number
+  commandId: number | null
+  participants: readonly NPC[]
 }
 
 interface FormationCommand {
@@ -29,7 +31,12 @@ interface PlacementSnapshot {
   participants: NPC[]
 }
 
-export type FormationCompletionHandler = (target: ArmyCommandTarget, participants: readonly NPC[]) => void
+export type FormationCompletionHandler = (
+  commandId: number,
+  target: ArmyCommandTarget,
+  participants: readonly NPC[],
+  status: 'completed' | 'abandoned',
+) => void
 
 /** Owns placement, one-shot slot assignment, and formation command completion. */
 export class FormationController {
@@ -42,6 +49,7 @@ export class FormationController {
   private previewParticipants: NPC[] = []
   private previewValid = false
   private previewInitialized = false
+  private previewRenderedValid = false
   private previewFrame = 0
   private placementTarget: ArmyCommandTarget | null = null
   private nextCommandId = 1
@@ -53,6 +61,7 @@ export class FormationController {
     private readonly camera: THREE.PerspectiveCamera,
     private readonly npcs: readonly NPC[],
     private readonly terrainMesh: THREE.Object3D,
+    private readonly obstacles: readonly ObstacleData[],
   ) {
     this.preview = new FormationPreview(scene)
     this.raycaster.far = 500
@@ -68,6 +77,7 @@ export class FormationController {
     this.placementTarget = target
     this.previewInitialized = false
     this.previewValid = false
+    this.previewRenderedValid = false
     this.previewFrame = 0
     this.preview.clear()
     this.updatePlacement()
@@ -77,6 +87,7 @@ export class FormationController {
     this.placementTarget = null
     this.previewInitialized = false
     this.previewValid = false
+    this.previewRenderedValid = false
     this.preview.clear()
   }
 
@@ -93,34 +104,38 @@ export class FormationController {
     if (intersections.length === 0 || this.previewParticipants.length === 0) {
       this.previewValid = false
       this.previewInitialized = false
+      this.previewRenderedValid = false
       this.preview.clear()
       return
     }
 
-    const center = intersections[0].point.clone()
-    clampToPlayableWorld(center)
-    center.y = getTerrainHeight(center.x, center.z)
+    const hitCenter = intersections[0].point.clone()
+    clampToPlayableWorld(hitCenter)
+    hitCenter.y = getTerrainHeight(hitCenter.x, hitCenter.z)
     const forward = horizontalFormationForward(this.raycaster.ray.direction)
-    const slots = this.makeClampedSlots(center, forward, this.previewParticipants.length)
+    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length)
+    const blocked = formation.slots.some(slot => this.isSlotBlocked(slot))
     const changed = !this.previewInitialized
-      || center.distanceToSquared(this.previewCenter) > 0.01
+      || formation.center.distanceToSquared(this.previewCenter) > 0.01
       || forward.dot(this.previewForward) < 0.999
-      || slots.length !== this.previewSlots.length
+      || formation.slots.length !== this.previewSlots.length
+      || blocked !== !this.previewRenderedValid
 
-    this.previewValid = true
+    this.previewValid = !blocked
     if (changed) {
-      this.previewCenter.copy(center)
+      this.previewCenter.copy(formation.center)
       this.previewForward.copy(forward)
-      this.previewSlots = slots
+      this.previewSlots = formation.slots
       this.previewInitialized = true
-      this.preview.show(center, slots, true)
+      this.previewRenderedValid = !blocked
+      this.preview.show(formation.center, formation.slots, !blocked)
     }
   }
 
   confirmPlacement(): FormationCommandResult {
-    if (this.placementTarget === null) return { accepted: false, count: 0 }
+    if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
-    if (!snapshot || !this.previewValid) return { accepted: false, count: 0 }
+    if (!snapshot || !this.previewValid) return { accepted: false, count: 0, commandId: null, participants: [] }
 
     const commandId = this.nextCommandId++
     const rowAxis = formationRowAxis(snapshot.forward)
@@ -129,13 +144,14 @@ export class FormationController {
       snapshot.slots,
       rowAxis,
       snapshot.center,
+      snapshot.forward,
     )
     for (const assignment of assignments) {
       assignment.unit.npc.assignFormationTarget(commandId, assignment.slot, snapshot.forward)
     }
     this.activeCommands.push({ id: commandId, target: this.placementTarget, participants: snapshot.participants })
     this.cancelPlacement()
-    return { accepted: true, count: assignments.length }
+    return { accepted: true, count: assignments.length, commandId, participants: snapshot.participants }
   }
 
   /** Call after NPC updates so arrival is observed without adding work to every NPC frame. */
@@ -144,9 +160,12 @@ export class FormationController {
     const remaining: FormationCommand[] = []
     for (const command of this.activeCommands) {
       const active = command.participants.filter(npc => !npc.dead && npc.formationCommandId === command.id)
-      if (active.length === 0) continue
+      if (active.length === 0) {
+        this.completionHandler?.(command.id, command.target, command.participants, 'abandoned')
+        continue
+      }
       if (active.every(npc => npc.isFormationTargetReached(command.id))) {
-        this.completionHandler?.(command.target, active)
+        this.completionHandler?.(command.id, command.target, active, 'completed')
       } else {
         remaining.push(command)
       }
@@ -171,16 +190,31 @@ export class FormationController {
     return {
       center,
       forward,
-      slots: this.makeClampedSlots(center, forward, participants.length),
+      slots: this.makeFormation(center, forward, participants.length).slots,
       participants,
     }
   }
 
-  private makeClampedSlots(center: THREE.Vector3, forward: THREE.Vector3, count: number): THREE.Vector3[] {
-    return generateLineFormationSlots(center, forward, count, FORMATION_SLOT_SPACING).map(slot => {
-      clampToPlayableWorld(slot)
+  private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
+    const rawSlots = generateFormationSlots(center, forward, count)
+    const shift = getFormationBoundaryShift(rawSlots, PLAYABLE_WORLD_BOUND)
+    const shiftedCenter = center.clone().add(shift)
+    const slots = rawSlots.map(slot => slot.add(shift))
+    for (const slot of slots) {
       slot.y = getTerrainHeight(slot.x, slot.z)
-      return slot
+    }
+    return { center: shiftedCenter, slots }
+  }
+
+  private isSlotBlocked(slot: THREE.Vector3): boolean {
+    const radius = 0.5
+    const bottom = slot.y
+    const top = bottom + 2.3
+    return this.obstacles.some(obstacle => {
+      const box = obstacle.box
+      if (bottom >= box.max.y - 0.001 || top <= box.min.y + 0.001) return false
+      return slot.x + radius > box.min.x && slot.x - radius < box.max.x
+        && slot.z + radius > box.min.z && slot.z - radius < box.max.z
     })
   }
 }

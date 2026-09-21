@@ -616,7 +616,7 @@ export class Game {
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
-    const formationController = new FormationController(this.scene, this.camera, this.npcs, terrainMesh)
+    const formationController = new FormationController(this.scene, this.camera, this.npcs, terrainMesh, obstacles)
     this.armyCommandController = new ArmyCommandController(
       this.npcs,
       playerFaction,

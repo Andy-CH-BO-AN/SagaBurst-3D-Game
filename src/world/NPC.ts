@@ -1300,7 +1300,9 @@ export class NPC {
       moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
     }
 
-    this._faceDirection(target.facing)
+    // Face the travel direction while moving so directional movement does not
+    // classify a distant slot behind the final formation facing as backward.
+    this._faceDirection(moveDir)
     this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, dt)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
   }

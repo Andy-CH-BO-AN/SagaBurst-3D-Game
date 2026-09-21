@@ -73,6 +73,7 @@ export class ArmyCommandController {
   private readonly faction: CharacterFaction
   private readonly shortcuts: readonly ArmyCommandShortcut[]
   private readonly orders = new Map<UnitPresetId, TacticalOrder>()
+  private readonly formationDesiredCommandByPreset = new Map<UnitPresetId, number>()
   private selectedTarget: ArmyCommandTarget | null = null
   private submenuOpen = false
   private allOrder: TacticalOrder | 'mixed' = 'attack'
@@ -96,7 +97,9 @@ export class ArmyCommandController {
         respawned.setTacticalOrder(desired === 'formation' ? 'defend' : (desired ?? 'attack'))
       })
     }
-    this.formation?.setCompletionHandler((target, participants) => this._onFormationCompleted(target, participants))
+    this.formation?.setCompletionHandler((commandId, target, participants, status) => {
+      this._onFormationCompleted(commandId, target, participants, status)
+    })
     this.ui.render(this._hudEntries(), this.submenuOpen, this.selectedTarget)
   }
 
@@ -119,6 +122,11 @@ export class ArmyCommandController {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
           this._setDesiredOrder(this.selectedTarget, 'formation')
+          if (result.commandId !== null) {
+            for (const npc of result.participants) {
+              if (npc.presetId) this.formationDesiredCommandByPreset.set(npc.presetId, result.commandId)
+            }
+          }
           this.ui.showFeedback(`${this.selectedTarget === 'all' ? '全軍' : getUnitPreset(this.selectedTarget!).nameZh} → 列陣`)
           this._closeSubmenu()
         } else {
@@ -169,6 +177,7 @@ export class ArmyCommandController {
     const target = this.selectedTarget
     if (!target) return
 
+    this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
 
     for (const npc of this.npcs) {
@@ -197,14 +206,35 @@ export class ArmyCommandController {
     }
   }
 
-  private _onFormationCompleted(target: ArmyCommandTarget, participants: readonly NPC[]): void {
-    for (const npc of participants) {
-      npc.setTacticalOrder('defend')
-      if (npc.presetId) this.orders.set(npc.presetId, 'defend')
+  private _onFormationCompleted(
+    commandId: number,
+    target: ArmyCommandTarget,
+    participants: readonly NPC[],
+    status: 'completed' | 'abandoned',
+  ): void {
+    if (status === 'completed') {
+      for (const npc of participants) {
+        if (!npc.dead && npc.formationCommandId === commandId) npc.setTacticalOrder('defend')
+      }
+    }
+    for (const [presetId, desiredCommandId] of this.formationDesiredCommandByPreset) {
+      if (desiredCommandId !== commandId) continue
+      this.orders.set(presetId, 'defend')
+      this.formationDesiredCommandByPreset.delete(presetId)
     }
     this.allOrder = this._resolveAllOrder()
-    this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
+    if (status === 'completed' || target === 'all') {
+      this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
+    }
     this.ui.render(this._hudEntries(), false, null)
+  }
+
+  private _clearFormationDesiredOrders(target: ArmyCommandTarget): void {
+    if (target === 'all') {
+      this.formationDesiredCommandByPreset.clear()
+    } else {
+      this.formationDesiredCommandByPreset.delete(target)
+    }
   }
 
   private _resolveAllOrder(): TacticalOrder | 'mixed' {
