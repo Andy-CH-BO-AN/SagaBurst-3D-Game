@@ -164,10 +164,7 @@ export class NPC {
 
   get rangedProjectileSpeed(): number {
     const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
-    if (this.rangedCombatKind === 'bow') {
-      return weapon?.arrowSpeedMax ?? NPC_FALLBACK_PROJECTILE_SPEED
-    }
-    return NPC_FALLBACK_PROJECTILE_SPEED
+    return weapon?.arrowSpeedMax ?? NPC_FALLBACK_PROJECTILE_SPEED
   }
 
   private bodyMesh: THREE.Group
@@ -632,7 +629,7 @@ export class NPC {
     const horizontalDistanceSq = dx * dx + dz * dz
     const horizontalDistance = Math.sqrt(horizontalDistanceSq)
 
-    if (this.rangedCombatKind === 'bow' && horizontalDistance > 1e-4) {
+    if (this.rangedCombatKind && horizontalDistance > 1e-4) {
       const speed = this.rangedProjectileSpeed
       const speedSq = speed * speed
       const heightDelta = aimPoint.y - origin.y
@@ -650,7 +647,7 @@ export class NPC {
       }
     }
 
-    // Preserve the existing heuristic for pilum and unreachable fallbacks.
+    // Preserve the existing heuristic only as an unreachable/invalid-data fallback.
     aimPoint.y += horizontalDistanceSq * RANGED_AIM_LIFT_PER_METER_SQ
     return aimPoint
   }

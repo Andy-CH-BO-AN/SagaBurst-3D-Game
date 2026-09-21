@@ -18,7 +18,7 @@ export interface WeaponData {
   // For melee: swingDuration in seconds; for bow: maxChargeTime in seconds
   speedOrCharge: number
   animationKind: WeaponAnimationKind
-  // For bow: projectile speed range [speedMin, speedMax]
+  // For ranged weapons: projectile speed range [speedMin, speedMax]
   arrowSpeedMin?: number
   arrowSpeedMax?: number
   // Melee specific
@@ -125,7 +125,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.8, // Quick charge max
     animationKind: 'bow',
     arrowSpeedMin: 12,
-    arrowSpeedMax: 32,
+    arrowSpeedMax: 45,
     description: '獵人使用的簡易木弓，拉弓快但傷害較低。',
   },
   recurve_longbow: {
@@ -139,7 +139,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 1.2, // Standard baseline
     animationKind: 'bow',
     arrowSpeedMin: 18,
-    arrowSpeedMax: 48,
+    arrowSpeedMax: 55,
     description: '精心複合打造的反曲長弓，貫穿力適中。',
   },
   elven_runebow: {
@@ -210,7 +210,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.8,
     animationKind: 'pilum',
     arrowSpeedMin: 12,
-    arrowSpeedMax: 32,
+    arrowSpeedMax: 18,
     description: '木製簡易標槍。',
   },
   pilum_standard: {
@@ -223,8 +223,8 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMax: 42,
     speedOrCharge: 1.2,
     animationKind: 'pilum',
-    arrowSpeedMin: 18,
-    arrowSpeedMax: 48,
+    arrowSpeedMin: 14,
+    arrowSpeedMax: 24,
     description: '軍團制式重標槍。',
   },
   legionary_pilum: {
@@ -237,8 +237,8 @@ export const WEAPONS: Record<string, WeaponData> = {
     damageMax: 75,
     speedOrCharge: 1.8,
     animationKind: 'pilum',
-    arrowSpeedMin: 25,
-    arrowSpeedMax: 65,
+    arrowSpeedMin: 16,
+    arrowSpeedMax: 30,
     description: '帶有發光效果的精銳軍團標槍。',
   },
 }
