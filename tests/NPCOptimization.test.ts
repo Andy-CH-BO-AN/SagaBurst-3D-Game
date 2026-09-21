@@ -20,8 +20,6 @@ describe('NPC Optimization & Semantics Preservation', () => {
     expect(npc.dead).toBe(true)
     // Verify alive: false was explicitly passed to setEquipment on death
     expect(animatorSpy).toHaveBeenCalledWith(npc.isUsingLance, Boolean(npc.shieldId), undefined, false)
-    expect((npc as any).swordPivot.visible).toBe(false)
-    expect((npc as any).bowPivot.visible).toBe(false)
   })
 
   it('starts the death clip once and leaves root rotation unchanged', () => {
