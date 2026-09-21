@@ -1,6 +1,7 @@
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ArmyCommandTarget } from '../battle/ArmyCommandController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
+import { getUnitPreset } from '../battle/UnitPresetCatalog'
 
 export interface ArmyCommandHudEntry {
   key: string
@@ -14,6 +15,12 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
   defend: '防禦',
   charge: '衝鋒',
   mixed: '混合',
+}
+
+export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string {
+  if (target === 'all') return '全軍命令'
+  if (target === null) return '命令'
+  return getUnitPreset(target).nameZh
 }
 
 /** Keyboard-only army command HUD. It never owns input or mutates NPC state. */
@@ -49,7 +56,7 @@ export class ArmyCommandUI {
     if (submenuOpen) {
       const title = document.createElement('div')
       title.className = 'army-command-submenu-title'
-      title.textContent = selectedTarget === 'all' ? '全軍命令' : '命令'
+      title.textContent = armyCommandTargetLabel(selectedTarget)
       this.menu.appendChild(title)
       for (const [key, label] of [['1', '攻擊'], ['2', '防禦'], ['3', '衝鋒'], ['4', '列陣'], ['5', '退出']]) {
         const row = document.createElement('div')

@@ -5,6 +5,7 @@ import {
   getArmyCommandShortcut,
   getArmyCommandShortcuts,
 } from '../src/battle/ArmyCommandController'
+import { armyCommandTargetLabel } from '../src/ui/ArmyCommandUI'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { STAMINA_DRAIN, SPRINT_MULTIPLIER } from '../src/movement/MovementBalance'
@@ -28,6 +29,13 @@ function controllerHarness(npcs: any[]) {
 }
 
 describe('Army command keyboard mapping and filtering', () => {
+  it('labels the submenu with the selected unit group', () => {
+    expect(armyCommandTargetLabel('viking_spearman')).toBe('槍兵')
+    expect(armyCommandTargetLabel('viking_archer')).toBe('弓兵')
+    expect(armyCommandTargetLabel('viking_berserker')).toBe('維京資深戰士')
+    expect(armyCommandTargetLabel('all')).toBe('全軍命令')
+  })
+
   it('maps Viking and Roman shortcuts to preset ids and ALL', () => {
     expect(getArmyCommandShortcuts('viking').map(entry => entry.target)).toEqual([
       'viking_berserker', 'viking_spearman', 'viking_archer',
