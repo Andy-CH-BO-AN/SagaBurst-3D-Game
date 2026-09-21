@@ -121,12 +121,7 @@ export class ArmyCommandController {
       } else if (confirmed) {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
-          this._setDesiredOrder(this.selectedTarget, 'formation')
-          if (result.commandId !== null) {
-            for (const npc of result.participants) {
-              if (npc.presetId) this.formationDesiredCommandByPreset.set(npc.presetId, result.commandId)
-            }
-          }
+          this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.ui.showFeedback(`${this.selectedTarget === 'all' ? '全軍' : getUnitPreset(this.selectedTarget!).nameZh} → 列陣`)
           this._closeSubmenu()
         } else {
@@ -206,6 +201,37 @@ export class ArmyCommandController {
     }
   }
 
+  private _setFormationDesiredOrders(
+    target: ArmyCommandTarget | null,
+    participants: readonly NPC[],
+    commandId: number | null,
+  ): void {
+    if (!target || commandId === null) return
+    this._clearFormationDesiredOrders(target)
+    const participantPresets = new Set(
+      participants
+        .map(npc => npc.presetId)
+        .filter((presetId): presetId is UnitPresetId => presetId !== null),
+    )
+
+    if (target === 'all') {
+      for (const [presetId, currentOrder] of this.orders) {
+        if (participantPresets.has(presetId)) {
+          this.orders.set(presetId, 'formation')
+          this.formationDesiredCommandByPreset.set(presetId, commandId)
+        } else if (currentOrder === 'formation') {
+          // A preset with no live participant did not join this command. Do not
+          // leave it cached as formation for HUD/respawn after the command ends.
+          this.orders.set(presetId, 'defend')
+        }
+      }
+    } else {
+      this.orders.set(target, 'formation')
+      this.formationDesiredCommandByPreset.set(target, commandId)
+    }
+    this.allOrder = this._resolveAllOrder()
+  }
+
   private _onFormationCompleted(
     commandId: number,
     target: ArmyCommandTarget,
@@ -217,8 +243,12 @@ export class ArmyCommandController {
         if (!npc.dead && npc.formationCommandId === commandId) npc.setTacticalOrder('defend')
       }
     }
-    for (const [presetId, desiredCommandId] of this.formationDesiredCommandByPreset) {
-      if (desiredCommandId !== commandId) continue
+    for (const [presetId, currentOrder] of this.orders) {
+      if (currentOrder !== 'formation') continue
+      const desiredCommandId = this.formationDesiredCommandByPreset.get(presetId)
+      const belongsToCommand = desiredCommandId === commandId
+        || (target === 'all' && desiredCommandId === undefined)
+      if (!belongsToCommand) continue
       this.orders.set(presetId, 'defend')
       this.formationDesiredCommandByPreset.delete(presetId)
     }

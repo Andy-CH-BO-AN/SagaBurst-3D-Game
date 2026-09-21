@@ -1297,7 +1297,14 @@ export class NPC {
         }
       }
       if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
-      moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+      moveDir.copy(getObstacleAvoidanceDirection(
+        this.group.position,
+        moveDir,
+        this.mount ? 1 : 0.5,
+        this.mount ? 2.6 : 2.3,
+        0,
+        obstacles,
+      ))
     }
 
     // Face the travel direction while moving so directional movement does not

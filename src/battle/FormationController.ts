@@ -4,6 +4,8 @@ import { ObstacleData, PLAYABLE_WORLD_BOUND, clampToPlayableWorld, getTerrainHei
 import type { ArmyCommandTarget } from './ArmyCommandController'
 import {
   assignUnitsToSlots,
+  FORMATION_ALL_MAX_COLUMNS,
+  FORMATION_UNIT_MAX_COLUMNS,
   formationRowAxis,
   generateFormationSlots,
   getFormationBoundaryShift,
@@ -25,6 +27,7 @@ interface FormationCommand {
 }
 
 interface PlacementSnapshot {
+  target: ArmyCommandTarget
   center: THREE.Vector3
   forward: THREE.Vector3
   slots: THREE.Vector3[]
@@ -47,7 +50,6 @@ export class FormationController {
   private readonly previewForward = new THREE.Vector3(0, 0, 1)
   private previewSlots: THREE.Vector3[] = []
   private previewParticipants: NPC[] = []
-  private previewValid = false
   private previewInitialized = false
   private previewRenderedValid = false
   private previewFrame = 0
@@ -76,7 +78,6 @@ export class FormationController {
   beginPlacement(target: ArmyCommandTarget): void {
     this.placementTarget = target
     this.previewInitialized = false
-    this.previewValid = false
     this.previewRenderedValid = false
     this.previewFrame = 0
     this.preview.clear()
@@ -86,7 +87,6 @@ export class FormationController {
   cancelPlacement(): void {
     this.placementTarget = null
     this.previewInitialized = false
-    this.previewValid = false
     this.previewRenderedValid = false
     this.preview.clear()
   }
@@ -102,7 +102,6 @@ export class FormationController {
     this.raycaster.setFromCamera(this.screenCenter, this.camera)
     const intersections = this.raycaster.intersectObject(this.terrainMesh, false)
     if (intersections.length === 0 || this.previewParticipants.length === 0) {
-      this.previewValid = false
       this.previewInitialized = false
       this.previewRenderedValid = false
       this.preview.clear()
@@ -113,15 +112,14 @@ export class FormationController {
     clampToPlayableWorld(hitCenter)
     hitCenter.y = getTerrainHeight(hitCenter.x, hitCenter.z)
     const forward = horizontalFormationForward(this.raycaster.ray.direction)
-    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length)
-    const blocked = formation.slots.some(slot => this.isSlotBlocked(slot))
+    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length, this.getMaxColumns(this.placementTarget))
+    const blocked = this.isFormationBlocked(formation.slots, this.previewParticipants, formation.center, forward, this.placementTarget)
     const changed = !this.previewInitialized
       || formation.center.distanceToSquared(this.previewCenter) > 0.01
       || forward.dot(this.previewForward) < 0.999
       || formation.slots.length !== this.previewSlots.length
       || blocked !== !this.previewRenderedValid
 
-    this.previewValid = !blocked
     if (changed) {
       this.previewCenter.copy(formation.center)
       this.previewForward.copy(forward)
@@ -135,7 +133,12 @@ export class FormationController {
   confirmPlacement(): FormationCommandResult {
     if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
-    if (!snapshot || !this.previewValid) return { accepted: false, count: 0, commandId: null, participants: [] }
+    if (!snapshot) return { accepted: false, count: 0, commandId: null, participants: [] }
+    const blocked = this.isFormationBlocked(snapshot.slots, snapshot.participants, snapshot.center, snapshot.forward, snapshot.target)
+    if (blocked) {
+      this.markPreviewInvalid(snapshot)
+      return { accepted: false, count: 0, commandId: null, participants: [] }
+    }
 
     const commandId = this.nextCommandId++
     const rowAxis = formationRowAxis(snapshot.forward)
@@ -145,6 +148,7 @@ export class FormationController {
       rowAxis,
       snapshot.center,
       snapshot.forward,
+      this.getMaxColumns(snapshot.target),
     )
     for (const assignment of assignments) {
       assignment.unit.npc.assignFormationTarget(commandId, assignment.slot, snapshot.forward)
@@ -182,21 +186,22 @@ export class FormationController {
   }
 
   private resolvePlacementSnapshot(target: ArmyCommandTarget): PlacementSnapshot | null {
-    if (!this.previewValid) return null
+    if (!this.previewInitialized) return null
     const participants = this.resolveParticipants(target)
     if (participants.length === 0) return null
     const center = this.previewCenter.clone()
     const forward = this.previewForward.clone()
     return {
+      target,
       center,
       forward,
-      slots: this.makeFormation(center, forward, participants.length).slots,
+      slots: this.makeFormation(center, forward, participants.length, this.getMaxColumns(target)).slots,
       participants,
     }
   }
 
-  private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
-    const rawSlots = generateFormationSlots(center, forward, count)
+  private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number, maxColumns: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
+    const rawSlots = generateFormationSlots(center, forward, count, maxColumns)
     const shift = getFormationBoundaryShift(rawSlots, PLAYABLE_WORLD_BOUND)
     const shiftedCenter = center.clone().add(shift)
     const slots = rawSlots.map(slot => slot.add(shift))
@@ -206,15 +211,49 @@ export class FormationController {
     return { center: shiftedCenter, slots }
   }
 
-  private isSlotBlocked(slot: THREE.Vector3): boolean {
-    const radius = 0.5
+  private isFormationBlocked(
+    slots: readonly THREE.Vector3[],
+    participants: readonly NPC[],
+    center: THREE.Vector3,
+    forward: THREE.Vector3,
+    target: ArmyCommandTarget,
+  ): boolean {
+    const rowAxis = formationRowAxis(forward)
+    const assignments = assignUnitsToSlots(
+      participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
+      slots,
+      rowAxis,
+      center,
+      forward,
+      this.getMaxColumns(target),
+    )
+    return assignments.some(assignment => this.isSlotBlocked(assignment.slot, assignment.unit.npc))
+  }
+
+  private isSlotBlocked(slot: THREE.Vector3, npc: NPC): boolean {
+    const mounted = npc.isMounted
+    const radius = mounted ? 1 : 0.5
     const bottom = slot.y
-    const top = bottom + 2.3
+    const top = bottom + (mounted ? 2.6 : 2.3)
     return this.obstacles.some(obstacle => {
       const box = obstacle.box
       if (bottom >= box.max.y - 0.001 || top <= box.min.y + 0.001) return false
       return slot.x + radius > box.min.x && slot.x - radius < box.max.x
         && slot.z + radius > box.min.z && slot.z - radius < box.max.z
     })
+  }
+
+  private getMaxColumns(target: ArmyCommandTarget): number {
+    return target === 'all' ? FORMATION_ALL_MAX_COLUMNS : FORMATION_UNIT_MAX_COLUMNS
+  }
+
+  private markPreviewInvalid(snapshot: PlacementSnapshot): void {
+    this.previewCenter.copy(snapshot.center)
+    this.previewForward.copy(snapshot.forward)
+    this.previewSlots = snapshot.slots
+    this.previewParticipants = snapshot.participants
+    this.previewInitialized = true
+    this.previewRenderedValid = false
+    this.preview.show(snapshot.center, snapshot.slots, false)
   }
 }

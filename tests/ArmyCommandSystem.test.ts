@@ -11,14 +11,16 @@ import { Player } from '../src/player/Player'
 import { STAMINA_DRAIN, SPRINT_MULTIPLIER } from '../src/movement/MovementBalance'
 import {
   assignUnitsToSlots,
+  FORMATION_ALL_MAX_COLUMNS,
   FORMATION_MAX_COLUMNS,
   formationRowAxis,
   getFormationBoundaryShift,
   generateFormationSlots,
   generateLineFormationSlots,
 } from '../src/battle/FormationMath'
+import { FormationController } from '../src/battle/FormationController'
 
-function controllerHarness(npcs: any[]) {
+function controllerHarness(npcs: any[], formation: any = null) {
   const pressed = new Set<string>()
   const input = {
     consumeKeyPress: (code: string) => {
@@ -27,12 +29,19 @@ function controllerHarness(npcs: any[]) {
       return true
     },
     press: (digit: string) => pressed.add(`Digit${digit}`),
+    pressEnter: () => pressed.add('Enter'),
+    consumeEnter: () => {
+      if (!pressed.has('Enter')) return false
+      pressed.delete('Enter')
+      return true
+    },
   }
   const ui = {
     render: vi.fn(),
+    renderPlacement: vi.fn(),
     showFeedback: vi.fn(),
   }
-  const controller = new ArmyCommandController(npcs, 'viking', input as any, ui as any)
+  const controller = new ArmyCommandController(npcs, 'viking', input as any, ui as any, formation)
   return { controller, input, ui }
 }
 
@@ -78,6 +87,30 @@ describe('Army command keyboard mapping and filtering', () => {
     const shifted = boundarySlots.map(slot => slot.clone().add(shift))
     expect(Math.max(...shifted.map(slot => slot.x))).toBe(180)
     expect(new Set(shifted.map(slot => slot.x)).size).toBe(5)
+    expect(shifted[1].distanceTo(shifted[0])).toBeCloseTo(2)
+  })
+
+  it('uses fifty columns only for ALL formations and centers each final row', () => {
+    const center = new THREE.Vector3()
+    const forward = new THREE.Vector3(0, 0, 1)
+    const rowCounts = (slots: readonly THREE.Vector3[]) => [...slots.reduce((rows, slot) => {
+      const row = Math.round(slot.z * 100) / 100
+      rows.set(row, (rows.get(row) ?? 0) + 1)
+      return rows
+    }, new Map<number, number>()).values()]
+
+    expect(rowCounts(generateFormationSlots(center, forward, 25))).toEqual([10, 10, 5])
+    expect(rowCounts(generateFormationSlots(center, forward, 51, FORMATION_ALL_MAX_COLUMNS))).toEqual([50, 1])
+    expect(rowCounts(generateFormationSlots(center, forward, 120, FORMATION_ALL_MAX_COLUMNS))).toEqual([50, 50, 20])
+    expect(rowCounts(generateFormationSlots(center, forward, 200, FORMATION_ALL_MAX_COLUMNS))).toEqual([50, 50, 50, 50])
+
+    const all51 = generateFormationSlots(center, forward, 51, FORMATION_ALL_MAX_COLUMNS)
+    expect(all51[50].x).toBe(0)
+    const nearBoundary = generateFormationSlots(new THREE.Vector3(179, 0, 0), forward, 120, FORMATION_ALL_MAX_COLUMNS)
+    const shift = getFormationBoundaryShift(nearBoundary, 180)
+    const shifted = nearBoundary.map(slot => slot.clone().add(shift))
+    expect(Math.max(...shifted.map(slot => slot.x))).toBe(180)
+    expect(new Set(shifted.map(slot => `${slot.x},${slot.z}`)).size).toBe(120)
     expect(shifted[1].distanceTo(shifted[0])).toBeCloseTo(2)
   })
 
@@ -184,6 +217,62 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update()
     expect(deadAlly.setTacticalOrder).not.toHaveBeenCalled()
     expect(h.ui.showFeedback).toHaveBeenCalledWith('槍兵 → 衝鋒')
+  })
+
+  it('does not mark a missing ALL preset as formation when confirming placement', () => {
+    const spearman = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_spearman',
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    const deadArcher = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_archer',
+      dead: true,
+      setTacticalOrder: vi.fn(),
+    }
+    const formation: any = {
+      isPlacementMode: false,
+      setCompletionHandler: vi.fn(),
+      beginPlacement: vi.fn(() => { formation.isPlacementMode = true }),
+      updatePlacement: vi.fn(),
+      confirmPlacement: vi.fn(() => {
+        formation.isPlacementMode = false
+        return { accepted: true, count: 1, commandId: 7, participants: [spearman] }
+      }),
+      cancelPlacement: vi.fn(() => { formation.isPlacementMode = false }),
+    }
+    const h = controllerHarness([spearman, deadArcher], formation)
+
+    h.input.press('7')
+    h.controller.update()
+    h.input.press('4')
+    h.controller.update()
+    h.input.pressEnter()
+    h.controller.update()
+
+    const hud = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ key: string; order: string }>
+    expect(hud.find(entry => entry.key === '3')?.order).toBe('attack')
+    expect(hud.find(entry => entry.key === '2')?.order).toBe('formation')
+    expect(hud.find(entry => entry.key === '7')?.order).toBe('mixed')
+  })
+
+  it('uses the mounted collision footprint for obstacle validity', () => {
+    const obstacle = {
+      box: new THREE.Box3(new THREE.Vector3(0.6, 0, -0.5), new THREE.Vector3(0.8, 2.5, 0.5)),
+      isBarricade: false,
+    }
+    const formation = new FormationController(
+      new THREE.Scene(),
+      new THREE.PerspectiveCamera(),
+      [],
+      new THREE.Object3D(),
+      [obstacle],
+    )
+    const slot = new THREE.Vector3(0, 0, 0)
+    expect((formation as any).isSlotBlocked(slot, { isMounted: false })).toBe(false)
+    expect((formation as any).isSlotBlocked(slot, { isMounted: true })).toBe(true)
   })
 })
 

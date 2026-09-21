@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 
-export const FORMATION_MAX_COLUMNS = 10
+export const FORMATION_UNIT_MAX_COLUMNS = 10
+export const FORMATION_ALL_MAX_COLUMNS = 50
+/** Backwards-compatible alias for single-unit formation callers. */
+export const FORMATION_MAX_COLUMNS = FORMATION_UNIT_MAX_COLUMNS
 export const FORMATION_COLUMN_SPACING = 2.0
 export const FORMATION_ROW_SPACING = 2.5
 export const FORMATION_SLOT_SPACING = FORMATION_COLUMN_SPACING
@@ -28,24 +31,28 @@ export function formationRowAxis(forward: THREE.Vector3): THREE.Vector3 {
   return new THREE.Vector3(horizontal.z, 0, -horizontal.x).normalize()
 }
 
-/** Generates centered ranks, with no more than ten slots in each row. */
+/** Generates centered ranks with a caller-selected maximum row width. */
 export function generateFormationSlots(
   center: THREE.Vector3,
   forward: THREE.Vector3,
   count: number,
+  maxColumns = FORMATION_UNIT_MAX_COLUMNS,
   columnSpacing = FORMATION_COLUMN_SPACING,
   rowSpacing = FORMATION_ROW_SPACING,
 ): THREE.Vector3[] {
   if (count <= 0) return []
+  if (!Number.isInteger(maxColumns) || maxColumns < 1) {
+    throw new Error(`Formation maxColumns must be a positive integer, received ${maxColumns}`)
+  }
   const rowAxis = formationRowAxis(forward)
   const horizontal = horizontalFormationForward(forward)
-  const rowCount = Math.ceil(count / FORMATION_MAX_COLUMNS)
+  const rowCount = Math.ceil(count / maxColumns)
   const slots: THREE.Vector3[] = []
 
   for (let index = 0; index < count; index++) {
-    const rowIndex = Math.floor(index / FORMATION_MAX_COLUMNS)
-    const columnIndex = index % FORMATION_MAX_COLUMNS
-    const columnsInRow = Math.min(FORMATION_MAX_COLUMNS, count - rowIndex * FORMATION_MAX_COLUMNS)
+    const rowIndex = Math.floor(index / maxColumns)
+    const columnIndex = index % maxColumns
+    const columnsInRow = Math.min(maxColumns, count - rowIndex * maxColumns)
     const columnOffset = (columnIndex - (columnsInRow - 1) / 2) * columnSpacing
     const rowOffset = (rowIndex - (rowCount - 1) / 2) * rowSpacing
     slots.push(center.clone()
@@ -62,7 +69,7 @@ export function generateLineFormationSlots(
   count: number,
   spacing = FORMATION_COLUMN_SPACING,
 ): THREE.Vector3[] {
-  return generateFormationSlots(center, forward, count, spacing, FORMATION_ROW_SPACING)
+  return generateFormationSlots(center, forward, count, FORMATION_UNIT_MAX_COLUMNS, spacing, FORMATION_ROW_SPACING)
 }
 
 /** Returns one translation that keeps every slot inside the playable square. */
@@ -90,7 +97,11 @@ export function assignUnitsToSlots<T extends FormationUnitLike>(
   rowAxis: THREE.Vector3,
   center: THREE.Vector3,
   forward = new THREE.Vector3(0, 0, 1),
+  maxColumns = FORMATION_UNIT_MAX_COLUMNS,
 ): FormationAssignment<T>[] {
+  if (!Number.isInteger(maxColumns) || maxColumns < 1) {
+    throw new Error(`Formation maxColumns must be a positive integer, received ${maxColumns}`)
+  }
   const horizontal = horizontalFormationForward(forward)
   const sortedFront = units.map((unit, originalIndex) => ({ unit, originalIndex }))
   sortedFront.sort((left, right) => {
@@ -106,8 +117,8 @@ export function assignUnitsToSlots<T extends FormationUnitLike>(
   })
 
   const assignments: FormationAssignment<T>[] = []
-  for (let start = 0; start < sortedFront.length; start += FORMATION_MAX_COLUMNS) {
-    const row = sortedFront.slice(start, start + FORMATION_MAX_COLUMNS)
+  for (let start = 0; start < sortedFront.length; start += maxColumns) {
+    const row = sortedFront.slice(start, start + maxColumns)
     row.sort((left, right) => {
       const leftSide = left.unit.position.clone().sub(center).dot(rowAxis)
       const rightSide = right.unit.position.clone().sub(center).dot(rowAxis)
