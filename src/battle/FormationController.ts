@@ -46,14 +46,13 @@ export class FormationController {
   private readonly raycaster = new THREE.Raycaster()
   private readonly screenCenter = new THREE.Vector2(0, 0)
   private readonly preview: FormationPreview
+  private readonly previewHitCenter = new THREE.Vector3()
   private readonly previewCenter = new THREE.Vector3()
   private readonly previewForward = new THREE.Vector3(0, 0, 1)
-  private previewSlots: THREE.Vector3[] = []
   private previewParticipants: NPC[] = []
   private previewParticipantsSignature = ''
   private previewBlocked = false
   private previewInitialized = false
-  private previewRenderedValid = false
   private previewFrame = 0
   private placementTarget: ArmyCommandTarget | null = null
   private nextCommandId = 1
@@ -82,7 +81,6 @@ export class FormationController {
     this.previewParticipantsSignature = ''
     this.previewBlocked = false
     this.previewInitialized = false
-    this.previewRenderedValid = false
     this.previewFrame = 0
     this.preview.clear()
     this.updatePlacement()
@@ -93,7 +91,6 @@ export class FormationController {
     this.previewParticipantsSignature = ''
     this.previewBlocked = false
     this.previewInitialized = false
-    this.previewRenderedValid = false
     this.preview.clear()
   }
 
@@ -101,8 +98,13 @@ export class FormationController {
     if (this.placementTarget === null) return
     this.previewFrame++
     const participantsChanged = this.previewFrame % 6 === 1 || this.previewParticipants.length === 0
+    let participantCompositionChanged = false
     if (participantsChanged) {
-      this.previewParticipants = this.resolveParticipants(this.placementTarget)
+      const participants = this.resolveParticipants(this.placementTarget)
+      const signature = this.getParticipantSignature(participants)
+      participantCompositionChanged = signature !== this.previewParticipantsSignature
+      this.previewParticipants = participants
+      this.previewParticipantsSignature = signature
     }
 
     this.raycaster.setFromCamera(this.screenCenter, this.camera)
@@ -111,7 +113,6 @@ export class FormationController {
       this.previewParticipantsSignature = ''
       this.previewBlocked = false
       this.previewInitialized = false
-      this.previewRenderedValid = false
       this.preview.clear()
       return
     }
@@ -120,27 +121,25 @@ export class FormationController {
     clampToPlayableWorld(hitCenter)
     hitCenter.y = getTerrainHeight(hitCenter.x, hitCenter.z)
     const forward = horizontalFormationForward(this.raycaster.ray.direction)
-    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length, this.getMaxColumns(this.placementTarget))
-    const participantSignature = this.getParticipantSignature(this.previewParticipants)
     const geometryChanged = !this.previewInitialized
-      || formation.center.distanceToSquared(this.previewCenter) > 0.01
+      || hitCenter.distanceToSquared(this.previewHitCenter) > 0.01
       || forward.dot(this.previewForward) < 0.999
-      || formation.slots.length !== this.previewSlots.length
-    const validityChanged = geometryChanged || participantSignature !== this.previewParticipantsSignature
-    if (validityChanged) {
-      this.previewBlocked = this.isFormationBlocked(formation.slots, this.previewParticipants, formation.center, forward, this.placementTarget)
-      this.previewParticipantsSignature = participantSignature
-    }
-    const changed = geometryChanged || this.previewBlocked !== !this.previewRenderedValid
+    if (!geometryChanged && !participantCompositionChanged) return
 
-    if (changed) {
-      this.previewCenter.copy(formation.center)
-      this.previewForward.copy(forward)
-      this.previewSlots = formation.slots
-      this.previewInitialized = true
-      this.previewRenderedValid = !this.previewBlocked
-      this.preview.show(formation.center, formation.slots, !this.previewBlocked)
-    }
+    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length, this.getMaxColumns(this.placementTarget))
+    this.previewBlocked = this.isFormationBlocked(
+      formation.slots,
+      this.previewParticipants,
+      formation.center,
+      forward,
+      this.placementTarget,
+      true,
+    )
+    this.previewHitCenter.copy(hitCenter)
+    this.previewCenter.copy(formation.center)
+    this.previewForward.copy(forward)
+    this.previewInitialized = true
+    this.preview.show(formation.center, formation.slots, !this.previewBlocked)
   }
 
   confirmPlacement(): FormationCommandResult {
@@ -230,7 +229,11 @@ export class FormationController {
     center: THREE.Vector3,
     forward: THREE.Vector3,
     target: ArmyCommandTarget,
+    conservativePreview = false,
   ): boolean {
+    if (conservativePreview && target === 'all' && participants.some(npc => npc.isMounted)) {
+      return slots.some(slot => this.isSlotBlocked(slot, true))
+    }
     const rowAxis = formationRowAxis(forward)
     const assignments = assignUnitsToSlots(
       participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
@@ -243,8 +246,8 @@ export class FormationController {
     return assignments.some(assignment => this.isSlotBlocked(assignment.slot, assignment.unit.npc))
   }
 
-  private isSlotBlocked(slot: THREE.Vector3, npc: NPC): boolean {
-    const mounted = npc.isMounted
+  private isSlotBlocked(slot: THREE.Vector3, npcOrMounted: NPC | boolean): boolean {
+    const mounted = typeof npcOrMounted === 'boolean' ? npcOrMounted : npcOrMounted.isMounted
     const radius = mounted ? 1 : 0.5
     const bottom = slot.y
     const top = bottom + (mounted ? 2.6 : 2.3)
@@ -263,19 +266,16 @@ export class FormationController {
   private markPreviewInvalid(snapshot: PlacementSnapshot): void {
     this.previewCenter.copy(snapshot.center)
     this.previewForward.copy(snapshot.forward)
-    this.previewSlots = snapshot.slots
     this.previewParticipants = snapshot.participants
     this.previewParticipantsSignature = this.getParticipantSignature(snapshot.participants)
     this.previewBlocked = true
     this.previewInitialized = true
-    this.previewRenderedValid = false
     this.preview.show(snapshot.center, snapshot.slots, false)
   }
 
   private getParticipantSignature(participants: readonly NPC[]): string {
     return participants
       .map(npc => `${npc.name}:${npc.isMounted ? 'mounted' : 'foot'}`)
-      .sort()
       .join('|')
   }
 }

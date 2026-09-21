@@ -275,6 +275,33 @@ describe('Army command keyboard mapping and filtering', () => {
     expect((formation as any).isSlotBlocked(slot, { isMounted: true })).toBe(true)
   })
 
+  it('uses a conservative mounted footprint for mixed ALL preview validity', () => {
+    const obstacle = {
+      box: new THREE.Box3(new THREE.Vector3(0.6, 0, -0.5), new THREE.Vector3(0.8, 2.5, 0.5)),
+      isBarricade: false,
+    }
+    const formation = new FormationController(
+      new THREE.Scene(),
+      new THREE.PerspectiveCamera(),
+      [],
+      new THREE.Object3D(),
+      [obstacle],
+    )
+    const participants = [
+      { name: 'foot', isMounted: false, combatPosition: new THREE.Vector3(-10, 0, 0) },
+      { name: 'mounted', isMounted: true, combatPosition: new THREE.Vector3(10, 0, 0) },
+    ]
+    const slots = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0)]
+    expect((formation as any).isFormationBlocked(
+      slots,
+      participants,
+      new THREE.Vector3(),
+      new THREE.Vector3(0, 0, 1),
+      'all',
+      true,
+    )).toBe(true)
+  })
+
   it('does not rerun placement assignment when geometry and participants are unchanged', () => {
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
     camera.position.set(0, 50, 0)
@@ -294,12 +321,18 @@ describe('Army command keyboard mapping and filtering', () => {
     }))
     const formation = new FormationController(new THREE.Scene(), camera, npcs as any, terrain, [])
     const validitySpy = vi.fn(() => false)
+    const makeFormationSpy = vi.spyOn(formation as any, 'makeFormation')
+    const signatureSpy = vi.spyOn(formation as any, 'getParticipantSignature')
     ;(formation as any).isFormationBlocked = validitySpy
 
     formation.beginPlacement('all')
     expect(validitySpy).toHaveBeenCalledTimes(1)
+    expect(makeFormationSpy).toHaveBeenCalledTimes(1)
+    expect(signatureSpy).toHaveBeenCalledTimes(1)
     formation.updatePlacement()
     expect(validitySpy).toHaveBeenCalledTimes(1)
+    expect(makeFormationSpy).toHaveBeenCalledTimes(1)
+    expect(signatureSpy).toHaveBeenCalledTimes(1)
   })
 
   it('does not show a defend completion message after ALL Formation is overwritten', () => {
