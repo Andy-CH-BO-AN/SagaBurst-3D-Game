@@ -4,6 +4,7 @@ import { prewarmProjectileVisuals, createProjectileWarmupGroup } from './ArrowPr
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { createVikingHornAccessory } from './HumanoidAssetRegistry'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
+import { applyDeathFadeWarmupVariant } from './DeathFade'
 
 export class CombatRenderWarmup {
   private static warmed = false
@@ -98,16 +99,26 @@ export class CombatRenderWarmup {
       warmupCam.position.set(0, 1, 3)
       warmupCam.lookAt(0, 1, 0)
 
-      // Step A: Explicit WebGLRenderer compile pass
+      // Step A: Explicit WebGLRenderer compile pass for normal opaque combat rendering.
       renderer.compile(warmupScene, warmupCam, gameScene)
 
-      // Step B: Offscreen render pass to force buffer & texture uploads to GPU
+      // Step B: Offscreen render pass to force buffer & texture uploads to GPU.
       renderTarget = new THREE.WebGLRenderTarget(16, 16)
       prevTarget = renderer.getRenderTarget()
       renderer.setRenderTarget(renderTarget)
       renderer.render(warmupScene, warmupCam)
 
-      // 4. Mark warmed ONLY upon successful completion of compile + render pass
+      // Step C: Compile/render the pooled alpha-hash corpse fade variant now,
+      // before combat. Opacity buckets share the same shader program shape.
+      const restoreFadeMaterials = applyDeathFadeWarmupVariant(warmupScene)
+      try {
+        renderer.compile(warmupScene, warmupCam, gameScene)
+        renderer.render(warmupScene, warmupCam)
+      } finally {
+        restoreFadeMaterials()
+      }
+
+      // 4. Mark warmed ONLY upon successful completion of both render paths.
       this.warmed = true
     } catch (error) {
       if (import.meta.env?.DEV) {
