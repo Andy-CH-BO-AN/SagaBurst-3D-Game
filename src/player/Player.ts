@@ -8,6 +8,7 @@ import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
  * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
+import { DeathFadeController } from '../world/DeathFade'
 
 import type { PlayerInput } from './PlayerInput'
 import type { StaminaBar } from '../ui/StaminaBar'
@@ -136,6 +137,7 @@ export class Player {
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
+  private readonly deathFade = new DeathFadeController()
   public spectatorOnly = false
 
   onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
@@ -522,6 +524,7 @@ export class Player {
 
     if (this.currentHp <= 0) {
       this.isDead = true
+      this.deathFade.start(this.group)
       if (this.isMounted) {
         this.detachFromMountOnDeath()
       }
@@ -612,7 +615,8 @@ export class Player {
     if (this.spectatorOnly) return
 
     if (this.isDead) {
-      this.animator?.update(dt)
+      const hidden = this.deathFade.update(this.group, dt)
+      if (!hidden) this.animator?.update(dt)
       return
     }
     this.hitEventPending = false
