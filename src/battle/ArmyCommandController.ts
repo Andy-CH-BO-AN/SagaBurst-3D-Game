@@ -86,6 +86,13 @@ export class ArmyCommandController {
     for (const shortcut of this.shortcuts) {
       if (shortcut.target !== 'all') this.orders.set(shortcut.target, 'attack')
     }
+    for (const npc of this.npcs) {
+      npc.onRespawnCallbacks?.push((respawned) => {
+        if (respawned.faction !== Faction.PLAYER || respawned.dead) return
+        const desired = respawned.presetId ? this.orders.get(respawned.presetId) : undefined
+        respawned.setTacticalOrder(desired ?? 'attack')
+      })
+    }
     this.ui.render(this._hudEntries(), this.submenuOpen, this.selectedTarget)
   }
 
@@ -127,18 +134,19 @@ export class ArmyCommandController {
     const target = this.selectedTarget
     if (!target) return
 
-    for (const npc of this.npcs) {
-      if (npc.faction !== Faction.PLAYER) continue
-      if (target !== 'all' && npc.presetId !== target) continue
-      npc.setTacticalOrder(order)
-    }
-
     if (target === 'all') {
       for (const [presetId] of this.orders) this.orders.set(presetId, order)
       this.allOrder = order
     } else {
       this.orders.set(target, order)
       this.allOrder = this._resolveAllOrder()
+    }
+
+    for (const npc of this.npcs) {
+      if (npc.faction !== Faction.PLAYER) continue
+      if (target !== 'all' && npc.presetId !== target) continue
+      if (npc.dead) continue
+      npc.setTacticalOrder(order)
     }
 
     this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → ${ORDER_LABELS[order]}`)

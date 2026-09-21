@@ -325,14 +325,14 @@
       /* ── Army Command HUD (keyboard only) ── */
       #army-command-hud {
         position: absolute;
-        top: 48px;
+        top: 12px;
         left: 50%;
         transform: translateX(-50%);
-        width: min(920px, calc(100vw - 32px));
-        min-height: 66px;
-        display: flex;
-        justify-content: space-between;
-        gap: 20px;
+        width: min(1280px, calc(100vw - 32px));
+        min-height: 28px;
+        display: grid;
+        grid-template-columns: minmax(290px, 1fr) 460px minmax(290px, 1fr);
+        gap: 16px;
         color: #eadfce;
         font: 12px/1.35 'Segoe UI', sans-serif;
         text-shadow: 0 1px 3px #000;
@@ -340,7 +340,6 @@
         user-select: none;
       }
       .army-command-side {
-        width: 290px;
         display: flex;
         flex-direction: column;
         gap: 2px;
@@ -366,7 +365,10 @@
       .army-command-order.charge { color: #ff9d6b; }
       .army-command-order.mixed { color: #c6b9a6; }
       .army-command-submenu {
-        align-self: flex-start;
+        position: absolute;
+        top: 36px;
+        left: 50%;
+        transform: translateX(-50%);
         min-width: 138px;
         padding: 5px 8px;
         border: 1px solid rgba(232, 201, 106, 0.55);
@@ -394,9 +396,13 @@
       }
       .army-command-feedback.visible { opacity: 1; }
       @media (max-width: 760px) {
-        #army-command-hud { width: calc(100vw - 12px); gap: 5px; font-size: 10px; }
-        .army-command-side { width: 220px; }
+        #army-command-hud { width: calc(100vw - 12px); grid-template-columns: minmax(0, 1fr) 280px minmax(0, 1fr); gap: 5px; font-size: 10px; }
+        #compass-container { width: 280px; }
         .army-command-entry { min-width: 150px; gap: 5px; }
+      }
+      @media (min-width: 1201px) {
+        /* Keep the left command column clear of the existing top-left menu. */
+        #army-command-hud { width: min(1280px, calc(100vw - 300px)); }
       }
 
       /* ── Skill Level Up Toast ── */

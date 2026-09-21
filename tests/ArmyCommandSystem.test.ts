@@ -80,6 +80,17 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(ally.setTacticalOrder).toHaveBeenCalledWith('charge')
     expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
   })
+
+  it('updates desired state but never dispatches a command to dead NPCs', () => {
+    const deadAlly = { faction: Faction.PLAYER, presetId: 'viking_spearman', dead: true, setTacticalOrder: vi.fn() }
+    const h = controllerHarness([deadAlly])
+    h.input.press('2')
+    h.controller.update()
+    h.input.press('3')
+    h.controller.update()
+    expect(deadAlly.setTacticalOrder).not.toHaveBeenCalled()
+    expect(h.ui.showFeedback).toHaveBeenCalledWith('槍兵 → 衝鋒')
+  })
 })
 
 function createNpc(
@@ -149,6 +160,24 @@ describe('NPC TacticalOrder and active equipment stance', () => {
     expect((npc as any).arrows).toBe(arrows)
   })
 
+  it('moves a ranged Viking Archer from ATTACK to CHASE immediately on Charge', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    const archer = createNpc(scene, Faction.PLAYER, 'viking', 'viking_archer', {
+      meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null,
+    }, 0)
+    const enemy = createNpc(scene, Faction.ENEMY, 'roman', 'roman_heavy_infantry', {
+      meleeWeaponId: 'gladius_standard', shieldId: 'scutum_t2', mountId: null,
+    }, 40)
+    ;(archer as any).state = AIState.ATTACK
+    archer.setTacticalOrder('charge')
+    expect(archer.currentState).toBe(AIState.CHASE)
+    const before = archer.position.z
+    archer.update(0.1, player, [archer, enemy], [], [], null as any, () => {}, () => {})
+    expect(archer.position.z).toBeGreaterThan(before)
+    expect(archer.sprinting).toBe(true)
+  })
+
   it('does not apply Viking foot stance to Roman or Viking cavalry', () => {
     const roman = createNpc(new THREE.Scene(), Faction.PLAYER, 'roman', 'roman_spearman', {
       meleeWeaponId: 'steel_lance', shieldId: null, mountId: null,
@@ -204,5 +233,28 @@ describe('NPC defend and charge movement policy', () => {
     expect(ally.sprinting).toBe(false)
     expect(ally.position.z).toBeGreaterThan(exhaustedBefore)
     expect(ally.staminaValue).toBeGreaterThan(0)
+  })
+
+  it('keeps an active Charge sprint latched below threshold until stamina reaches zero', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    const ally = createNpc(scene, Faction.PLAYER, 'viking', 'viking_berserker', {
+      meleeWeaponId: 'steel_sword', shieldId: 'round_shield_t2', mountId: null,
+    }, 0)
+    const enemy = createNpc(scene, Faction.ENEMY, 'roman', 'roman_heavy_infantry', {
+      meleeWeaponId: 'gladius_standard', shieldId: 'scutum_t2', mountId: null,
+    }, 40)
+    ally.setTacticalOrder('charge')
+    ;(ally as any).state = AIState.CHASE
+    ;(ally as any).stamina = 11
+    for (let i = 0; i < 4; i++) {
+      ally.update(0.1, player, [ally, enemy], [], [], null as any, () => {}, () => {})
+      expect(ally.sprinting).toBe(true)
+    }
+    expect(ally.staminaValue).toBe(0)
+    const beforeNormalChase = ally.position.z
+    ally.update(0.1, player, [ally, enemy], [], [], null as any, () => {}, () => {})
+    expect(ally.sprinting).toBe(false)
+    expect(ally.position.z).toBeGreaterThan(beforeNormalChase)
   })
 })

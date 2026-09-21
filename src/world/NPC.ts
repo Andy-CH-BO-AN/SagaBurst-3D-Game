@@ -198,6 +198,7 @@ export class NPC {
   private rangedActive = false
   private stamina = MAX_STAMINA
   private isSprinting = false
+  private chargeSprintLatched = false
   private bowArrowReleased = false
   private velY = 0
   private onGround = false
@@ -607,10 +608,16 @@ export class NPC {
     this.rebuildShield()
     this.swordPivot.visible = true
     this.bowPivot.visible = false
+    if (this.state === AIState.ATTACK) {
+      this.state = AIState.CHASE
+      this.attackTimer = 0
+      this.attackHitProcessed = false
+    }
   }
 
   setTacticalOrder(order: TacticalOrder): void {
     this.tacticalOrder = order
+    if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
     else if (order === 'charge') this._enterVikingChargeStance()
   }
@@ -830,6 +837,9 @@ export class NPC {
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     this.isSprinting = false
+    if (this.tacticalOrder !== 'charge' || this.state !== AIState.CHASE) {
+      this.chargeSprintLatched = false
+    }
     let animationAdvanced = false
     const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
@@ -1228,9 +1238,16 @@ export class NPC {
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
     const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
-    const canSprint = allowSprint && policy.canSprint && this.stamina >= STAMINA_SPRINT_MIN
-    this.isSprinting = canSprint
-    const sprintMultiplier = canSprint ? SPRINT_MULTIPLIER : 1
+    if (allowSprint && policy.canSprint) {
+      if (!this.chargeSprintLatched && this.stamina >= STAMINA_SPRINT_MIN) {
+        this.chargeSprintLatched = true
+      }
+      if (this.stamina <= 0) this.chargeSprintLatched = false
+    } else {
+      this.chargeSprintLatched = false
+    }
+    this.isSprinting = this.chargeSprintLatched && this.stamina > 0
+    const sprintMultiplier = this.isSprinting ? SPRINT_MULTIPLIER : 1
     const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
