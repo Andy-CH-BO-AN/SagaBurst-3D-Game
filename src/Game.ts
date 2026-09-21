@@ -120,6 +120,8 @@ import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
 import { CompassUI } from './ui/CompassUI'
+import { ArmyCommandUI } from './ui/ArmyCommandUI'
+import { ArmyCommandController } from './battle/ArmyCommandController'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -356,6 +358,8 @@ export class Game {
   private quiverUI: QuiverUI
   private skillManager: SkillManager
   private compassUI: CompassUI
+  private armyCommandUI: ArmyCommandUI
+  private armyCommandController: ArmyCommandController
   private equipmentUI: EquipmentUI
   private soundManager: SoundManager
   private inventoryManager: InventoryManager
@@ -610,6 +614,8 @@ export class Game {
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
+    this.armyCommandUI   = new ArmyCommandUI(playerFaction)
+    this.armyCommandController = new ArmyCommandController(this.npcs, playerFaction, this.input, this.armyCommandUI)
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
 
@@ -1032,6 +1038,7 @@ export class Game {
       spec.tier,
       spec.cavalry,
       spec.loadout,
+      spec.presetId,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -1833,6 +1840,9 @@ export class Game {
 
     // Update Compass direction bar
     this.compassUI.update(currentYaw)
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player') {
+      this.armyCommandController.update()
+    }
 
     // Update Player logic (Player handles dead state internally without processing inputs)
     if (!this.isModelStudio) this.player.update(
