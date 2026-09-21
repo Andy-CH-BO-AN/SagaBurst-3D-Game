@@ -50,6 +50,11 @@ describe('external humanoid sword grip', () => {
 
     expect(finalHips.x).toBeCloseTo(1.35, 5)
     expect(finalHips.z).toBeCloseTo(0, 5)
+
+    const hipsPosition = death.tracks.find((track) => track.name === 'hips.position')!
+    expect(hipsPosition.values[hipsPosition.values.length - 3]).toBeCloseTo(0, 5)
+    expect(hipsPosition.values[hipsPosition.values.length - 2]).toBeCloseTo(-0.32, 5)
+    expect(hipsPosition.values[hipsPosition.values.length - 1]).toBeCloseTo(0, 5)
   })
 
   it('raw studio mode samples full bow legs and switching back restores the production mask', () => {
