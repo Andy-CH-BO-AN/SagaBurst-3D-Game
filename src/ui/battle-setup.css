@@ -47,7 +47,7 @@
 }
 
 .mode-section-label {
-  font-size: 11px;
+  font-size: 15px;
   letter-spacing: 0.25em;
   color: #8c7b65;
   margin-bottom: 8px;
@@ -279,12 +279,6 @@
   color: #dfd5c4;
 }
 
-.unit-sublabel {
-  font-size: 10px;
-  color: #7b6d5c;
-  display: block;
-}
-
 .stepper {
   display: flex;
   align-items: center;
@@ -463,7 +457,7 @@
 .setup-title { font-size: 42px; }
 .setup-subtitle { font-size: 11px; }
 .setup-mode-section { margin-bottom: 16px; }
-.mode-section-label small { margin-left: 7px; color: #6f6253; font-size: .85em; }
+.mode-section-label small { margin-left: 7px; color: #6f6253; font-size: 10px; }
 .mode-btn { min-width: 205px; padding: 10px 24px; }
 .mode-btn-title { font-size: 15px; }
 .mode-btn-desc { font-size: 9px; letter-spacing: .14em; }
@@ -507,7 +501,6 @@
 .faction-header { margin-bottom: 12px; padding-bottom: 10px; }
 .faction-name { font-size: 20px; }
 .unit-label { padding: 8px 0; font-size: 13px; }
-.unit-sublabel { font-size: 9px; }
 .setup-presets { margin: 18px 0 0; }
 
 .loadout-page {

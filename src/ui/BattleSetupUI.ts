@@ -100,7 +100,6 @@ export class BattleSetupUI {
               <tr class="unit-row" data-faction="${faction}" data-preset="${p.id}">
                 <td class="unit-label">
                   ${p.nameEn} <span class="unit-zh">${p.nameZh}</span>
-                  <span class="unit-sublabel">${p.description}</span>
                 </td>
                 ${([1, 2, 3] as UnitTier[]).map(t => `
                   <td>
