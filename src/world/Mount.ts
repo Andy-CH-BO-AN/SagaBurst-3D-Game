@@ -74,6 +74,10 @@ export class Mount {
   public ridePitch = 0.4
   public visualHold = false
 
+  get currentLod(): number {
+    return this.horseVisual?.lod.getCurrentLevel() ?? 0
+  }
+
   private impactTimes = new Map<object, number>()
   private wanderTimer = 0
   private wanderTarget = new THREE.Vector3()

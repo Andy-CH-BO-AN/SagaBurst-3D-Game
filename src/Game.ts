@@ -113,7 +113,7 @@ import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { DEFAULT_MOUNT_TYPE, Mount, MountType, mountTypeFromSave } from './world/Mount'
+import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -124,7 +124,7 @@ import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
 import { EquipmentUI } from './ui/EquipmentUI'
-import { SoundManager } from './audio/SoundManager'
+import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
@@ -623,6 +623,7 @@ export class Game {
       this.input,
       this.armyCommandUI,
       formationController,
+      (order) => this.soundManager.playCommanderCommand(playerFaction, order),
     )
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
@@ -1546,7 +1547,7 @@ export class Game {
               if (isCharge && this.player.currentMount) {
                 this.player.currentMount.skipImpactThisFrame = true
               }
-              this.soundManager.playHit()
+              this.soundManager.playLanceImpact(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
@@ -1571,7 +1572,7 @@ export class Game {
             const finalDamage = Math.round(damage * antiCav)
             const result = damageNpc(npc, finalDamage)
             if (result.hitSuccess) {
-              this.soundManager.playHit()
+              this.soundManager.playSwordHit(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter)
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
@@ -1585,11 +1586,23 @@ export class Game {
 
   // ── World Pickup & Mount Interaction ──
   private _updateInteractions(dt: number): void {
-    // Update Mounts
+    // Update Mounts and select a bounded set of audible gallop loops.
+    const gallopCandidates: HorseGallopCandidate[] = []
     for (const mount of this.mounts) {
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
       mount.update(dt, this.obstacles)
+      gallopCandidates.push({
+        id: mount,
+        active: mount.type === MountType.HORSE
+          && mount.state === MountState.CONTROLLED
+          && mount.movementSpeed >= 10.5
+          && !mount.dead,
+        lod: mount.currentLod,
+        distance: mount.group.position.distanceTo(this.camera.position),
+        isPlayer: mount === this.player.currentMount,
+      })
     }
+    this.soundManager.updateHorseGallopLoops(gallopCandidates)
 
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
       this.pickupPromptEl.classList.remove('visible')
@@ -1607,7 +1620,6 @@ export class Game {
         const prevMount = this.player.currentMount
         this.player.dismountFromMount()
         if (prevMount) this._aimTargetRegistry.registerMount(prevMount)
-        this.soundManager.playHit() // Placeholder sound
         this.pickupPromptEl.classList.remove('visible')
         this.mountHud.classList.remove('visible')
       }
@@ -1661,7 +1673,6 @@ export class Game {
           const count = this.inventoryManager.addWeapon(closestPickup.weaponId)
           this._showNotify(`🎒 拾取：${closestPickup.name} (數量: x${count})`)
         }
-        this.soundManager.playHit()
         closestPickup.destroy()
         
         const idx = this.pickups.indexOf(closestPickup)
@@ -1669,7 +1680,6 @@ export class Game {
 
       } else if (closestMount) {
         this._mountPlayer(closestMount)
-        this.soundManager.playHit()
       }
       this.pickupPromptEl.classList.remove('visible')
     }
@@ -1752,15 +1762,15 @@ export class Game {
         npcGrid: this.npcGrid,
         candidateBuffer: this._impactCandidates,
         onDamagePlayer: (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
-        onPlayerMountHitNpc: (damage, npc, result) => {
-          this.soundManager.playHit()
+        onPlayerMountHitNpcAudio: (damage, attackerMount, npc, result) => {
+          this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           this._tmpHitPos.copy(npc.combatPosition)
           this._tmpHitPos.y += 1.0
           this.damageNumbers.spawn(damage, this._tmpHitPos)
           this._showEnemyHud(result.targetName, result.hpRatio)
         },
-        onEnemyMountHitPlayer: (_damage, result) => {
-          this.soundManager.playHit()
+        onEnemyMountHitPlayerAudio: (_damage, attackerMount, result) => {
+          this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           if (result.isMountHit) {
             this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
           } else {
@@ -1768,9 +1778,7 @@ export class Game {
           }
         },
         onNpcMountHitNpc: (_damage, attackerMount) => {
-          if (attackerMount.group.position.distanceTo(this.camera.position) < 30) {
-            this.soundManager.playHit()
-          }
+          this.soundManager.playHorseImpact(attackerMount.currentLod, false)
         },
       }
     )
@@ -1946,7 +1954,8 @@ export class Game {
             if (!this.player.targetable) return
             const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
             if (result.hitSuccess) {
-              this.soundManager.playHit()
+              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
+              else this.soundManager.playSwordHit(npc.currentLod, true)
               if (result.isMountHit) {
                 this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
               } else {
@@ -1956,7 +1965,8 @@ export class Game {
           } else if (targetNpc) {
             const result = damageNpc(targetNpc, damage)
             if (result.hitSuccess) {
-              this.soundManager.playHit()
+              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
+              else this.soundManager.playSwordHit(npc.currentLod, false)
             }
           }
         },
@@ -1973,7 +1983,7 @@ export class Game {
             visualKind,
           )
           this.arrows.push(arrow)
-          this.soundManager.playHit() // Should ideally be a bow string sound, using hit for now
+          if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
         },
         skipBoidsAndObstacles,
         cameraDistance,
@@ -2016,7 +2026,10 @@ export class Game {
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
       arrow.update(dt, this.player, this.npcs, this.obstacles, (damage, hitPos, targetName, hpRatio, isPlayer, _npc, isMountHit) => {
-        this.soundManager.playHit()
+        const impactLod = isPlayer
+          ? (isMountHit && this.player.currentMount ? this.player.currentMount.currentLod : 0)
+          : (_npc && isMountHit && _npc.mount ? _npc.mount.currentLod : _npc?.currentLod ?? 0)
+        this.soundManager.playProjectileImpact(impactLod, arrow.isPlayerFired || isPlayer)
         if (arrow.isPlayerFired && !isPlayer) {
           this.damageNumbers.spawn(damage, hitPos)
         }

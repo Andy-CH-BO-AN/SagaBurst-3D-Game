@@ -84,6 +84,7 @@ export class ArmyCommandController {
     private readonly input: PlayerInput,
     private readonly ui: ArmyCommandUI,
     private readonly formation: FormationController | null = null,
+    private readonly onCommandIssued: ((order: TacticalOrder) => void) | null = null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -122,6 +123,7 @@ export class ArmyCommandController {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
+          this.onCommandIssued?.('formation')
           this.ui.showFeedback(`${this.selectedTarget === 'all' ? '全軍' : getUnitPreset(this.selectedTarget!).nameZh} → 列陣`)
           this._closeSubmenu()
         } else {
@@ -182,6 +184,7 @@ export class ArmyCommandController {
       npc.setTacticalOrder(order)
     }
 
+    this.onCommandIssued?.(order)
     this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → ${ORDER_LABELS[order]}`)
     this._closeSubmenu()
   }

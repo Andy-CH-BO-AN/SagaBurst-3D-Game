@@ -5,7 +5,7 @@ import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
  * The player character (capsule geometry).
  * Calibrated with getTerrainHeight(x, z) for procedural heightmap terrain.
  * Supports shared melee silhouettes with tier patterns plus three ranged geometries.
- * Triggers SoundManager audio effects for sword swings and bow releases.
+ * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
 
@@ -434,7 +434,6 @@ export class Player {
 
   private _tryTriggerMeleeAttack(
     equippedMelee: WeaponData | null | undefined,
-    soundManager: SoundManager,
     blockedAim: boolean,
     wantsBowAim = false,
   ): boolean {
@@ -452,7 +451,6 @@ export class Player {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false
-      soundManager.playSwing()
       this.meleeAttackBufferTimer = 0
       return true
     }
@@ -591,7 +589,6 @@ export class Player {
   private _startPilumThrow(
     cameraAimPoint: THREE.Vector3,
     archeryMultiplier: number,
-    soundManager: SoundManager,
     equippedRanged?: WeaponData,
   ): void {
     if (this.currentShieldId || this.arrows <= 0 || this.animator.busy || equippedRanged?.combatKind !== 'javelin') return
@@ -609,7 +606,6 @@ export class Player {
     this.pilumReleasedOnCommit = true
     this.nockedArrowReleased = true
     this.bowVisualDrawRatio = 0
-    soundManager.playBowRelease()
   }
 
   update(
@@ -691,7 +687,7 @@ export class Player {
         this.bowChargeTime = 0
         quiverUI.setChargeRatio(0)
         this.animator.posePilum(0)
-        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, soundManager, equippedRanged)
+        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
       } else {
         if (input.isLeftMouseDown && this.arrows > 0) {
           this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
@@ -712,7 +708,7 @@ export class Player {
 
       const isLance = equippedMelee?.combatKind === 'lance'
       if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
-        if (!this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)) {
           if (isLance && this.animator.busy) {
             this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
           } else {
@@ -722,7 +718,7 @@ export class Player {
       } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
         this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
         if (this.meleeAttackBufferTimer > 0) {
-          this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
+          this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
         }
       }
     }
@@ -833,10 +829,10 @@ export class Player {
       } else {
         this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
       }
-      if (!playerPilumAlreadyReleased) {
+      if (!playerPilumAlreadyReleased && this.pendingRangedWeapon?.combatKind !== 'javelin') {
         this.nockedArrowReleased = true
         this.bowVisualDrawRatio = 0
-        soundManager.playBowRelease()
+        soundManager.playBowRelease(0, true, 0)
       }
     }
     if (animationEvents.actionCompleted) {
@@ -845,7 +841,7 @@ export class Player {
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
       if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.combatKind === 'lance') {
-        this._tryTriggerMeleeAttack(equippedMelee, soundManager, blockedAim, wantsBowAim)
+        this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
       }
     }
 

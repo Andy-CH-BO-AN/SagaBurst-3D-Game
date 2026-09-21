@@ -109,7 +109,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
-    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
     expect((h.player as any).bowPivot.visible).toBe(false)
     expect((h.player as any).swordPivot.visible).toBe(false)
 
@@ -117,7 +117,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     // fires, and a fresh held pilum appears when the next aim state begins.
     h.update(input({ isRightMouseDown: true }), 1.5)
     expect(h.player.arrowCount).toBe(initialPila - 1)
-    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
     h.update(input({ isRightMouseDown: true }), 1 / 60)
     expect(h.player.isAiming).toBe(true)
     expect((h.player as any).bowPivot.visible).toBe(true)
@@ -125,7 +125,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     // RMB-up only exits aim; it cannot be a delayed or duplicate launch trigger.
     h.update(input({ isRightMouseDown: false }), 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila - 1)
-    expect(h.sounds.playBowRelease).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
   // Test 2: RMB + hold LMB -> bowDrawRatio increases smoothly over time
@@ -241,7 +241,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.swinging).toBe(true)
     expect(h.player.combatAnimationAction).toBe('lanceThrust')
-    expect(h.sounds.playSwing).toHaveBeenCalled()
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
   })
 })
 
@@ -532,19 +532,19 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     // 1. Initial attack (lanceThrust total = 0.42s)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.swinging).toBe(true)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // Advance 0.35s into the 0.42s attack (during recovery, 0.07s before completion)
     for (let t = 1 / 60; t < 0.35; t += 1 / 60) {
       h.update(input(), 1 / 60)
     }
     expect(h.player.swinging).toBe(true)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 2. Early click during recovery (within 150ms buffer window)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
     // First attack is still running, sound should NOT have been called again yet
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 3. Advance to completion (0.42s)
     for (let t = 0.35 + 1 / 60; t <= 0.42 + 1e-4; t += 1 / 60) {
@@ -552,7 +552,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
     // Buffer should have immediately triggered the second attack!
     expect(h.player.swinging).toBe(true)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(2)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
   })
 
   it('Single click never triggers two attacks', () => {
@@ -561,7 +561,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
     // Single click
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // Run through the entire attack and into idle (0.6s > 0.42s) without clicking again
     for (let t = 0; t < 0.6; t += 1 / 60) {
@@ -569,7 +569,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
 
     // Must remain exactly 1 swing, not 2
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
   })
 
@@ -579,7 +579,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
     // Frame 0: mouse down (click happens)
     h.update(input({ isLeftMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // Next 60 frames: LMB is held down (isLeftMouseDown = true, but consumeLeftClick = false)
     for (let i = 0; i < 60; i++) {
@@ -587,7 +587,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
 
     // Must not auto-repeat
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
   })
 
@@ -597,12 +597,12 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
     // 1. Initial attack
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 2. Click immediately during early windup (t = 0.03s, which is 0.39s > 0.15s before 0.42s completion)
     h.update(input(), 1 / 60)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 3. Advance to completion (0.42s) without clicking again
     for (let t = 0.05; t <= 0.50; t += 1 / 60) {
@@ -610,7 +610,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
 
     // Buffer expired, so it should cleanly return to idle without triggering a second attack
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
   })
 
@@ -623,7 +623,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     // 1. Initial lance attack
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.swinging).toBe(true)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // Advance to recovery (t = 0.35s)
     for (let t = 1 / 60; t < 0.35; t += 1 / 60) {
@@ -632,7 +632,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
     // 2. Early click during recovery to queue a buffered attack
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 3. While first attack is still in recovery (before action completes), player presses RMB to aim bow
     h.update(input({ isRightMouseDown: true }), 1 / 60)
@@ -643,7 +643,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
 
     // Second thrust must NOT have been triggered!
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
 
     // Player should now be aiming bow, and camera zooms toward 28°
@@ -662,7 +662,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     h.player.setStamina(0)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
 
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(true)
     expect(h.player.staminaValue).toBe(0)
   })
@@ -676,7 +676,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     h.player.setStamina(0)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
 
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(true)
     expect(h.player.staminaValue).toBe(0)
   })
@@ -690,7 +690,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     // 1. Start sword slash (0.48s total)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.swinging).toBe(true)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 2. Advance to sword recovery (0.40s)
     for (let t = 1 / 60; t < 0.40; t += 1 / 60) {
@@ -699,7 +699,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
     // 3. Click during recovery (sword should NOT buffer)
     h.update(input({ consumeLeftClick: () => true }), 1 / 60)
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
 
     // 4. Advance past action completion (0.50s > 0.48s)
     for (let t = 0.41; t <= 0.55; t += 1 / 60) {
@@ -707,7 +707,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     }
 
     // Sword has no buffer: stays at 1 swing, enters idle cleanly
-    expect(h.sounds.playSwing).toHaveBeenCalledTimes(1)
+    expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
   })
 })
