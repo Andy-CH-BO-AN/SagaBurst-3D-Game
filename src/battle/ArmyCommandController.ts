@@ -101,9 +101,13 @@ export class ArmyCommandController {
 
   update(): void {
     if (this.submenuOpen) {
-      for (const key of ['1', '2', '3', '4', '5']) {
+      let commandKey: string | null = null
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         if (!this._consumeDigit(key)) continue
-        const command = getCommandFromSubmenuKey(key)
+        if (commandKey === null && Number(key) <= 5) commandKey = key
+      }
+      if (commandKey !== null) {
+        const command = getCommandFromSubmenuKey(commandKey)
         if (command === 'formation') {
           this.ui.showFeedback('列陣功能尚未開放')
           this._closeSubmenu()
@@ -127,7 +131,9 @@ export class ArmyCommandController {
   }
 
   private _consumeDigit(key: string): boolean {
-    return this.input.consumeKeyPress(`Digit${key}`) || this.input.consumeKeyPress(`Numpad${key}`)
+    const digitPressed = this.input.consumeKeyPress(`Digit${key}`)
+    const numpadPressed = this.input.consumeKeyPress(`Numpad${key}`)
+    return digitPressed || numpadPressed
   }
 
   private _issue(order: TacticalOrder): void {

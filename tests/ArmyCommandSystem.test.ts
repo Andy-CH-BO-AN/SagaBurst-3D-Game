@@ -81,6 +81,24 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
   })
 
+  it('consumes invalid submenu digits so they cannot select a group after exit', () => {
+    const h = controllerHarness([])
+
+    h.input.press('2')
+    h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(true)
+
+    h.input.press('6')
+    h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(true)
+
+    h.input.press('5')
+    h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+    h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+  })
+
   it('updates desired state but never dispatches a command to dead NPCs', () => {
     const deadAlly = { faction: Faction.PLAYER, presetId: 'viking_spearman', dead: true, setTacticalOrder: vi.fn() }
     const h = controllerHarness([deadAlly])
