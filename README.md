@@ -198,7 +198,7 @@ Mounted save/load preserves the player's mounted state and the mount's world pos
 | `E` | Pick up equipment / mount horse / dismount |
 | `Tab` or `I` | Open character & inventory |
 | `0` | Open game menu |
-| `1`–`7` (Viking) / `1`–`8` (Roman) | Select a friendly troop group or ALL and open the Army Command menu |
+| Viking: `1`–`6` + `` ` `` / Roman: `1`–`7` + `` ` `` | Select a friendly troop group; `` ` `` selects ALL and opens the Army Command menu |
 | Army Command `1` / `2` / `3` / `4` | Attack / Charge / Defend / Formation |
 | Army Command `Q` | Go back one command-menu level |
 | Formation: `E` or Left Mouse Button | Confirm the formation at the center-crosshair location |
@@ -221,8 +221,8 @@ Select a troop group with its faction shortcut, then choose an order from the co
 | `4` | Sword Cavalry | `4` | Javelin Infantry |
 | `5` | Lancer | `5` | Sword Cavalry |
 | `6` | Mounted Archer | `6` | Lancer |
-| `7` | ALL | `7` | Mounted Archer |
-| — | — | `8` | ALL |
+| — | — | `7` | Mounted Archer |
+| `` ` `` | ALL | `` ` `` | ALL |
 
 T1 / T2 / T3 units that belong to the same preset are commanded together.
 

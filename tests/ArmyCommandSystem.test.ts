@@ -33,6 +33,7 @@ function controllerHarness(npcs: any[], formation: any = null) {
     consumeKeyE: () => consume('KeyE'),
     consumeLeftClick: () => consume('MouseLeft'),
     press: (digit: string) => pressed.add(`Digit${digit}`),
+    pressAll: () => pressed.add('Backquote'),
     pressKey: (code: string) => pressed.add(code),
     pressE: () => pressed.add('KeyE'),
     clickLeft: () => pressed.add('MouseLeft'),
@@ -155,8 +156,10 @@ describe('Army command keyboard mapping and filtering', () => {
       'roman_heavy_infantry', 'roman_spearman', 'roman_archer', 'roman_javelin_infantry',
       'roman_sword_cavalry', 'roman_lancer', 'roman_horse_archer', 'all',
     ])
-    expect(getArmyCommandShortcut('viking', '7')).toBe('all')
-    expect(getArmyCommandShortcut('roman', '8')).toBe('all')
+    expect(getArmyCommandShortcut('viking', '`')).toBe('all')
+    expect(getArmyCommandShortcut('roman', '`')).toBe('all')
+    expect(getArmyCommandShortcut('viking', '7')).toBeNull()
+    expect(getArmyCommandShortcut('roman', '8')).toBeNull()
   })
 
   it('uses edge-triggered submenu flow, filters to PLAYER faction, and leaves enemies alone', () => {
@@ -184,14 +187,14 @@ describe('Army command keyboard mapping and filtering', () => {
     const enemy = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
     const h = controllerHarness([ally, enemy])
 
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('4')
     h.controller.update()
     expect(ally.setTacticalOrder).not.toHaveBeenCalled()
     expect(h.controller.isSubmenuOpen).toBe(true)
 
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('2')
     h.controller.update()
@@ -228,7 +231,7 @@ describe('Army command keyboard mapping and filtering', () => {
     }
     const h = controllerHarness([], formation)
 
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('4')
     h.controller.update()
@@ -283,7 +286,7 @@ describe('Army command keyboard mapping and filtering', () => {
     }
     const h = controllerHarness([spearman, deadArcher], formation)
 
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('4')
     h.controller.update()
@@ -293,7 +296,7 @@ describe('Army command keyboard mapping and filtering', () => {
     const hud = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ key: string; order: string }>
     expect(hud.find(entry => entry.key === '3')?.order).toBe('attack')
     expect(hud.find(entry => entry.key === '2')?.order).toBe('formation')
-    expect(hud.find(entry => entry.key === '7')?.order).toBe('mixed')
+    expect(hud.find(entry => entry.key === '`')?.order).toBe('mixed')
   })
 
   it('uses the mounted collision footprint for obstacle validity', () => {
@@ -394,13 +397,13 @@ describe('Army command keyboard mapping and filtering', () => {
     }
     const h = controllerHarness([participant], formation)
 
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('4')
     h.controller.update()
     h.input.clickLeft()
     h.controller.update()
-    h.input.press('7')
+    h.input.pressAll()
     h.controller.update()
     h.input.press('3')
     h.controller.update()
