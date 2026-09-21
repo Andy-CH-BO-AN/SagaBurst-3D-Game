@@ -503,8 +503,6 @@ export class NPC {
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
     this.equipmentVisualLOD.register('shield', this.shieldPivot)
-    // Precompute shared fade buckets while equipment changes, never on the death frame.
-    this.deathFade.prepare(this.characterVisualGroup)
   }
 
   private _syncActiveMeleeEquipment(): void {
@@ -827,7 +825,7 @@ export class NPC {
     if (this.state === AIState.DEAD) {
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
       const hidden = this.deathFade.update(this.group, dt)
-      if (!hidden && !this.deathFade.fading) this.animator.update(dt, cameraDistance)
+      if (!hidden) this.animator.update(dt, cameraDistance)
       if (this.respawnEnabled) {
         this.respawnTimer -= dt
         if (this.respawnTimer <= 0) {
