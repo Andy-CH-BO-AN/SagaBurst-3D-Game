@@ -80,6 +80,7 @@ describe('Permanent Player Death & Spectator Camera', () => {
       expect(player.hp).toBe(0)
       expect(deathCallback).toHaveBeenCalledTimes(1)
       expect(mockHpBar.setFill).toHaveBeenCalledWith(0)
+      expect(player.group.rotation.z).toBe(0)
 
       // Subsequent damage to dead player should return false and not fire callback again
       const extraHit = player.takeDamage(50, mockHpBar)
@@ -108,6 +109,7 @@ describe('Permanent Player Death & Spectator Camera', () => {
 
       expect(player.dead).toBe(true)
       expect(player.hp).toBe(0)
+      expect(player.group.rotation.z).toBe(0)
       // Coordinates remain near death point (20, 30), NOT reset to spawn (0, 0)
       expect(player.position.x).toBeCloseTo(20, 0)
       expect(player.position.z).toBeCloseTo(30, 0)

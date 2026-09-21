@@ -70,7 +70,7 @@ describe('正式 GLB 的固定握劍契約', () => {
       animator.poseIdle(); animator.cancel()
       expect(rig.right.wrist.quaternion.angleTo(wristBefore)).toBeLessThan(1e-5)
       for (const speed of [0, 2, 4, 0, 2, 0]) {
-        animator.setLocomotion(speed)
+        animator.setLocomotion(speed, false, speed === 4)
         for (let frame = 0; frame < 30; frame++) {
           animator.update(1 / 60); gltf.scene.updateMatrixWorld(true)
           pivot.updateMatrix()
@@ -84,7 +84,7 @@ describe('正式 GLB 的固定握劍契約', () => {
       const play = vi.spyOn(controller, 'play')
       for (const [speed, state] of [[0, 'idle'], [2, 'walk'], [4, 'run']] as const) {
         animator.start('swordSlash')
-        animator.setLocomotion(speed)
+        animator.setLocomotion(speed, false, state === 'run')
         expect(animator.update(.252).hitActiveStarted).toBe(true)
         const completion = animator.update(.228)
         expect(completion.actionCompleted).toBe(true)

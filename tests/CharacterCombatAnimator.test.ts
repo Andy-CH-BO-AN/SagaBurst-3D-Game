@@ -566,7 +566,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(events.hitActiveStarted).toBe(true)
   })
 
-  it('selects walk, run and mounted mixer states without changing combat actions', () => {
+  it('selects locomotion from explicit sprint and mounted state without changing combat actions', () => {
     const rig = characterRig()
     const play = vi.fn()
     rig.animation = {
@@ -579,12 +579,14 @@ describe('Phase 22 humanoid asset contract', () => {
     }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     play.mockClear()
-    subject.setLocomotion(3, false)
-    subject.setLocomotion(12, false)
-    subject.setLocomotion(0, true)
-    expect(play).toHaveBeenNthCalledWith(1, 'walk', { fadeSeconds: 0.14, loop: true, timeScale: 1.5 })
+    subject.setLocomotion(8, false, false)
+    subject.setLocomotion(16, false, true)
+    subject.setLocomotion(0, false, false)
+    subject.setLocomotion(16, true, true)
+    expect(play).toHaveBeenNthCalledWith(1, 'walk', { fadeSeconds: 0.14, loop: true, timeScale: 2 })
     expect(play).toHaveBeenNthCalledWith(2, 'run', { fadeSeconds: 0.14, loop: true, timeScale: 2.2 })
-    expect(play).toHaveBeenNthCalledWith(3, 'mounted', { fadeSeconds: 0.14, loop: true, timeScale: 1 })
+    expect(play).toHaveBeenNthCalledWith(3, 'idle', { fadeSeconds: 0.14, loop: true, timeScale: 1 })
+    expect(play).toHaveBeenNthCalledWith(4, 'mounted', { fadeSeconds: 0.14, loop: true, timeScale: 1 })
     expect(subject.currentAction).toBe('idle')
   })
 
@@ -1027,7 +1029,7 @@ describe('combat presentation regressions', () => {
     expect(camera.position.distanceTo(before)).toBeCloseTo(0)
   })
 
-  it('preserves upgraded weapon and shield materials for flash restoration', () => {
+  it('preserves upgraded weapon and shield materials', () => {
     const root = new THREE.Group()
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),

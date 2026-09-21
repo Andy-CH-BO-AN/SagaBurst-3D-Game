@@ -88,9 +88,9 @@ export class CharacterCombatAnimator {
     this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive })
   }
 
-  setLocomotion(speed: number, mounted = false): void {
+  setLocomotion(speed: number, mounted = false, sprinting = false): void {
     setSwordMountedAttachment(this.meleePivot, mounted)
-    const state = mounted ? 'mounted' : speed > 3 ? 'run' : speed > 0.1 ? 'walk' : 'idle'
+    const state = mounted ? 'mounted' : speed <= 0.1 ? 'idle' : sprinting ? 'run' : 'walk'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
       : state === 'run'

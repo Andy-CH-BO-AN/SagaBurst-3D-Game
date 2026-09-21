@@ -74,18 +74,12 @@ export interface ArrowLaunchEvent {
 export class Player {
   readonly group: THREE.Group
 
-  private hitFlashMat: THREE.MeshBasicMaterial
-  private bodyMesh!: THREE.Group
-  private headMesh!: THREE.Mesh
-  private headMat!: THREE.MeshStandardMaterial
   private characterVisualGroup: THREE.Group
   private externalPelvisHeight = 0
   private usesExternalForwardAdapter = false
   private rig!: CharacterRig
   private animator!: CharacterCombatAnimator
   private currentArmorTier: 1 | 2 | 3 = 2
-
-  private flashTimer = 0
 
   // 3D Weapon Pivots & Models
   private swordPivot!: THREE.Group
@@ -252,7 +246,6 @@ export class Player {
     this.group = new THREE.Group()
     this.group.name = 'player'
 
-    this.hitFlashMat = new THREE.MeshBasicMaterial({ color: 0xff3333 })
     this.characterVisualGroup = new THREE.Group()
     // The collision capsule centre rests 0.95m above terrain while the visual
     // boot sole is authored at -0.8m. Lower only the render rig by the 0.15m
@@ -309,9 +302,6 @@ export class Player {
     // by mounts and movement. Keep the render adapter unrotated; group yaw is
     // therefore the actual desired world heading.
     this.characterVisualGroup.rotation.y = 0
-    this.bodyMesh = parts.bodyMesh
-    this.headMesh = parts.headMesh
-    this.headMat = parts.headMaterial
     this.rig = parts.rig
     this.externalPelvisHeight = 0
     if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
@@ -528,7 +518,6 @@ export class Player {
     }
 
     this.currentHp = Math.max(0, this.currentHp - amount)
-    this.flashTimer = 0.2
     hpBar.setFill(this.hpRatio)
 
     if (this.currentHp <= 0) {
@@ -622,25 +611,7 @@ export class Player {
   ): void {
     if (this.spectatorOnly) return
 
-    if (this.flashTimer > 0) {
-      this.flashTimer -= dt
-      this.bodyMesh.traverse((child) => {
-        if (this.shieldPivot.getObjectById(child.id)) return
-        if ((child as THREE.Mesh).isMesh) (child as THREE.Mesh).material = this.hitFlashMat
-      })
-      this.headMesh.material = this.hitFlashMat
-    } else {
-      this.bodyMesh.traverse((child) => {
-        if (this.shieldPivot.getObjectById(child.id)) return
-        if ((child as THREE.Mesh).isMesh && child.userData.originalMat) {
-          (child as THREE.Mesh).material = child.userData.originalMat
-        }
-      })
-      this.headMesh.material = this.headMat
-    }
-
     if (this.isDead) {
-      this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.animator?.update(dt)
       return
     }
@@ -800,7 +771,7 @@ export class Player {
       else if (!isMoving || this.animator.currentAction === 'bowAim') this.animator.poseIdle()
     }
 
-    this.animator.setLocomotion(effectiveSpeed, this.isMounted)
+    this.animator.setLocomotion(effectiveSpeed, this.isMounted, this.isSprinting)
 
     // Player Berserker attack-rate bonus only speeds up melee attack cadence/animation, never global animator.update
     const isMeleeAttack = this.animator.currentAction === 'swordSlash'

@@ -60,12 +60,13 @@ export class HumanoidStudioPlayback {
     animation.setSwordHandShape?.(false)
     animation.setPoseLayersEnabled?.(mode === 'current' || mode === 'gameplay')
     const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
+    const sprinting = motion === 'run'
     if (mode === 'gameplay') {
       // Exercise the same charge / locomotion / release ordering as Player/NPC.
       const ratio = this.state === 'bowLoad' ? time : 1
       for (let i = 0; i < 12; i++) {
         this.animator.poseBow(ratio)
-        this.animator.setLocomotion(speed)
+        this.animator.setLocomotion(speed, false, sprinting)
         this.animator.update(1 / 60)
       }
       if (this.state === 'bowRelease') {
@@ -74,7 +75,7 @@ export class HumanoidStudioPlayback {
         const duration = (profile.windup + profile.active + profile.recovery) * time
         for (let elapsed = 0; elapsed < duration;) {
           const dt = Math.min(1 / 60, duration - elapsed)
-          this.animator.setLocomotion(speed)
+          this.animator.setLocomotion(speed, false, sprinting)
           this.animator.update(dt)
           elapsed += dt
         }
@@ -121,15 +122,16 @@ export class HumanoidStudioPlayback {
   sampleEquipment(time: number, mounted: boolean, motion: 'idle' | 'walk' | 'run' = 'idle', attack = false): void {
     this.reset()
     const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
+    const sprinting = motion === 'run'
     this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield)
-    this.animator.setLocomotion(speed, mounted)
+    this.animator.setLocomotion(speed, mounted, sprinting)
     this.animator.update(0.2)
     if (attack) this.animator.start(this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
     const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
     const end = time * duration
     for (let elapsed = 0; elapsed < end - 1e-9;) {
       const dt = Math.min(1 / 120, end - elapsed)
-      this.animator.setLocomotion(speed, mounted)
+      this.animator.setLocomotion(speed, mounted, sprinting)
       this.animator.update(dt)
       elapsed += dt
     }
@@ -163,7 +165,7 @@ export class HumanoidStudioPlayback {
     if (this.equipped && this.equipmentLoadout !== null) {
       const mounted = this.state === 'mounted' || this.state === 'mountedLance'
       this.animator.setEquipment(this.lance.visible, this.shield.visible)
-      this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted)
+      this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted, this.state === 'run')
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash') && !this.animator.busy) {
         this.animator.start(this.lance.visible ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
       }
@@ -172,7 +174,7 @@ export class HumanoidStudioPlayback {
       if (!this.started) animation.play(this.state, { fadeSeconds: 0, loop: true })
       animation.update(dt)
     } else if (this.state === 'idle' || this.state === 'walk' || this.state === 'run') {
-      this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0)
+      this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, false, this.state === 'run')
       this.animator.update(dt)
     } else if (this.state === 'bowLoad' || this.state === 'bowHold') {
       const ratio = this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2
