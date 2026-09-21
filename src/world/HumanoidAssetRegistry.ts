@@ -230,7 +230,7 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
       { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1), pose(0.25)] },
       // The physics root stays at the character's feet. Lower the animated
       // skeleton as it falls so the prone body settles onto that same ground.
-      { bone: 'hips', times: [0, 0.25, 1], positions: [zero(), new THREE.Vector3(0, -0.12, 0), new THREE.Vector3(0, -0.32, 0)] },
+      { bone: 'hips', times: [0, 0.25, 1], positions: [zero(), new THREE.Vector3(0, -0.24, 0), new THREE.Vector3(0, -0.62, 0)] },
     ]),
   ]
 }
