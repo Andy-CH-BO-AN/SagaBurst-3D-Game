@@ -122,6 +122,7 @@ import { SkillManager } from './rpg/SkillManager'
 import { CompassUI } from './ui/CompassUI'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
+import { FormationController } from './battle/FormationController'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -615,7 +616,14 @@ export class Game {
     this.skillManager     = new SkillManager()
     this.compassUI        = new CompassUI()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
-    this.armyCommandController = new ArmyCommandController(this.npcs, playerFaction, this.input, this.armyCommandUI)
+    const formationController = new FormationController(this.scene, this.camera, this.npcs, terrainMesh, obstacles)
+    this.armyCommandController = new ArmyCommandController(
+      this.npcs,
+      playerFaction,
+      this.input,
+      this.armyCommandUI,
+      formationController,
+    )
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
 
@@ -1973,6 +1981,7 @@ export class Game {
       )
       npcLoopIndex++
     }
+    this.armyCommandController.postUpdate()
     const npcUpdateMs = profile ? performance.now() - t0 : 0
     if (profile) {
       this.devGridStats.queriesPerFrame = devQueriesCount

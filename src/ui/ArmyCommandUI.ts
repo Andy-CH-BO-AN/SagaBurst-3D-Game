@@ -14,6 +14,7 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
   attack: '攻擊',
   defend: '防禦',
   charge: '衝鋒',
+  formation: '列陣',
   mixed: '混合',
 }
 
@@ -64,6 +65,21 @@ export class ArmyCommandUI {
         row.textContent = `[${key}] ${label}`
         this.menu.appendChild(row)
       }
+    }
+  }
+
+  renderPlacement(target: ArmyCommandTarget): void {
+    this.menu.replaceChildren()
+    this.menu.classList.add('visible')
+    const title = document.createElement('div')
+    title.className = 'army-command-submenu-title'
+    title.textContent = `${armyCommandTargetLabel(target).replace('命令', '')} — 列陣位置選擇`
+    this.menu.appendChild(title)
+    for (const label of ['中央準星：選擇位置', '[Enter] 確認', '[5] 取消']) {
+      const row = document.createElement('div')
+      row.className = 'army-command-submenu-row'
+      row.textContent = label
+      this.menu.appendChild(row)
     }
   }
 
