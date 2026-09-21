@@ -41,22 +41,24 @@ import {
   getRangedCooldown,
   getBerserkerModifiers,
 } from '../combat/CombatBalance'
+import {
+  MAX_STAMINA,
+  SPRINT_MULTIPLIER,
+  STAMINA_DRAIN,
+  STAMINA_REGEN,
+  STAMINA_SPRINT_MIN,
+} from '../movement/MovementBalance'
 
 export { positionArrowCenterFromNock, sampleBowBodyLocal } from '../world/CharacterBowVisual'
 
 // ── Tuning constants ──
 const MOVE_SPEED        = 8    // units/s walk
-const SPRINT_MULTIPLIER = 2.0  // walk × this = sprint speed
 const JUMP_VELOCITY     = 9    // units/s upward
 const GRAVITY           = -22  // units/s²
 const PLAYER_HALF_HEIGHT = 0.95
 const PLAYER_VISUAL_GROUND_OFFSET = -0.15
 
 export const DEFAULT_PLAYER_MAX_HP = COMBAT_BALANCE.hp.playerDefault
-const MAX_STAMINA       = 100
-const STAMINA_DRAIN     = 30   // per second while sprinting
-const STAMINA_REGEN     = 15   // per second when not sprinting
-const STAMINA_SPRINT_MIN = 10  // must have at least this much to start sprint
 const MELEE_ATTACK_BUFFER_WINDOW = 0.15 // 150ms input buffer window for early attack clicks
 
 const PLAYER_RADIUS = 0.38

@@ -22,6 +22,7 @@ export class PlayerInput {
   isLocked = false
 
   private _keyETriggered = false
+  private readonly _keyPresses = new Set<string>()
 
   private _syncPointerLockState(): void {
     this.isLocked = (typeof document !== "undefined" && document.pointerLockElement !== null) || this.allowUnlockedInput
@@ -29,6 +30,7 @@ export class PlayerInput {
 
   constructor() {
     window.addEventListener('keydown', (e) => {
+      if (!this.keys[e.code]) this._keyPresses.add(e.code)
       this.keys[e.code] = true
       if (e.code === 'KeyE') {
         this._keyETriggered = true
@@ -115,6 +117,13 @@ export class PlayerInput {
     const val = this._keyETriggered
     this._keyETriggered = false
     return val
+  }
+
+  /** Returns true once for each physical key-down edge. Key repeat is ignored. */
+  consumeKeyPress(code: string): boolean {
+    if (!this._keyPresses.has(code)) return false
+    this._keyPresses.delete(code)
+    return true
   }
 
   /** Returns and resets accumulated mouse delta. */

@@ -322,6 +322,83 @@
         pointer-events: none;
       }
 
+      /* ── Army Command HUD (keyboard only) ── */
+      #army-command-hud {
+        position: absolute;
+        top: 48px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(920px, calc(100vw - 32px));
+        min-height: 66px;
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        color: #eadfce;
+        font: 12px/1.35 'Segoe UI', sans-serif;
+        text-shadow: 0 1px 3px #000;
+        pointer-events: none;
+        user-select: none;
+      }
+      .army-command-side {
+        width: 290px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .army-command-side.right { align-items: flex-end; }
+      .army-command-entry {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        min-width: 190px;
+        padding: 2px 7px;
+        background: rgba(12, 12, 14, 0.58);
+        border-left: 2px solid rgba(232, 201, 106, 0.35);
+      }
+      .army-command-side.right .army-command-entry {
+        border-left: 0;
+        border-right: 2px solid rgba(232, 201, 106, 0.35);
+        text-align: right;
+      }
+      .army-command-label { color: rgba(255,255,255,0.88); }
+      .army-command-order { color: #e8c96a; font-weight: 700; }
+      .army-command-order.defend { color: #8fd3ff; }
+      .army-command-order.charge { color: #ff9d6b; }
+      .army-command-order.mixed { color: #c6b9a6; }
+      .army-command-submenu {
+        align-self: flex-start;
+        min-width: 138px;
+        padding: 5px 8px;
+        border: 1px solid rgba(232, 201, 106, 0.55);
+        border-radius: 4px;
+        background: rgba(12, 12, 14, 0.88);
+        opacity: 0;
+        visibility: hidden;
+      }
+      .army-command-submenu.visible { opacity: 1; visibility: visible; }
+      .army-command-submenu-title { color: #e8c96a; font-weight: 700; margin-bottom: 2px; }
+      .army-command-submenu-row { white-space: nowrap; }
+      .army-command-feedback {
+        position: absolute;
+        top: 72px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 5px 13px;
+        border: 1px solid rgba(232, 201, 106, 0.55);
+        border-radius: 4px;
+        background: rgba(12, 12, 14, 0.88);
+        color: #e8c96a;
+        opacity: 0;
+        transition: opacity 0.15s;
+        white-space: nowrap;
+      }
+      .army-command-feedback.visible { opacity: 1; }
+      @media (max-width: 760px) {
+        #army-command-hud { width: calc(100vw - 12px); gap: 5px; font-size: 10px; }
+        .army-command-side { width: 220px; }
+        .army-command-entry { min-width: 150px; gap: 5px; }
+      }
+
       /* ── Skill Level Up Toast ── */
       #levelup-toast {
         position: absolute;

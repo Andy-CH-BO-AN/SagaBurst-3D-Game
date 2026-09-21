@@ -36,7 +36,15 @@ import {
   getBerserkerModifiers,
   calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
-import type { UnitLoadout } from '../battle/UnitPresetCatalog'
+import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
+import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import {
+  MAX_STAMINA,
+  SPRINT_MULTIPLIER,
+  STAMINA_DRAIN,
+  STAMINA_REGEN,
+  STAMINA_SPRINT_MIN,
+} from '../movement/MovementBalance'
 import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 
 export enum AIState {
@@ -94,8 +102,13 @@ export class NPC {
   readonly aiType: AIType
   readonly name: string
   readonly tier: 1 | 2 | 3
+  readonly presetId?: UnitPresetId
 
-  public readonly meleeDamage: number
+  private _meleeDamageOverride: number | undefined
+  get meleeDamage(): number {
+    return this._meleeDamageOverride ?? WEAPONS[this.meleeWeaponId ?? '']?.damageMax ?? 20
+  }
+  set meleeDamage(value: number) { this._meleeDamageOverride = value }
   public readonly rangedDamage: number
   public readonly generatedAsCavalry: boolean
   public mount: Mount | null = null
@@ -104,6 +117,7 @@ export class NPC {
   public meleeWeaponId: string | null = 'steel_sword'
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
+  public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
@@ -116,8 +130,12 @@ export class NPC {
   }
 
   get hasActiveRangedWeapon(): boolean {
-    return Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
+    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
   }
+
+  get staminaValue(): number { return this.stamina }
+  get staminaRatio(): number { return this.stamina / MAX_STAMINA }
+  get sprinting(): boolean { return this.isSprinting }
 
   get activeCombatKind(): WeaponCombatKind | null {
     if (this.hasActiveRangedWeapon && this.rangedCombatKind) {
@@ -177,6 +195,9 @@ export class NPC {
   private currentWaypointIdx = 0
 
   private arrows: number = 0
+  private rangedActive = false
+  private stamina = MAX_STAMINA
+  private isSprinting = false
   private bowArrowReleased = false
   private velY = 0
   private onGround = false
@@ -243,6 +264,7 @@ export class NPC {
     tier: 1 | 2 | 3,
     cavalry?: boolean,
     loadout?: UnitLoadout,
+    presetId?: UnitPresetId,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -252,6 +274,7 @@ export class NPC {
     this.name = name
     this.tier = tier
     this.loadout = loadout
+    this.presetId = presetId
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -260,7 +283,6 @@ export class NPC {
       this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
       this.shieldId = loadout.shieldId ?? null
       const meleeData = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
-      this.meleeDamage = meleeData?.damageMax ?? 20
       this.isUsingLance = meleeData?.combatKind === 'lance'
       const baseRangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
       const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
@@ -277,16 +299,14 @@ export class NPC {
 
       this.meleeWeaponId = combatProfile.meleeWeaponId
       this.rangedWeaponId = combatProfile.rangedWeaponId
-      this.meleeDamage = combatProfile.finalMeleeDamage
       this.rangedDamage = combatProfile.rangedDamage ?? 0
       this.isUsingLance = combatProfile.isUsingLance
       this.shieldId = combatProfile.shieldId
       this.arrows = this.aiType === AIType.RANGED ? 30 : 0
     }
 
-    if (this.isUsingLance) {
-      this.meleeAttackRadius = 3.9
-    }
+    this.rangedActive = Boolean(this.rangedWeaponId)
+    this._syncActiveMeleeEquipment()
 
     // Calibrate waypoints to terrain height
     const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
@@ -364,21 +384,7 @@ export class NPC {
 
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
 
-    this.swordTipLocal.copy(
-      WeaponMeshFactory.buildNpcMelee(
-        this.characterFaction,
-        this.aiType === AIType.RANGED ? 1 : this.tier,
-        this.isUsingLance,
-        this.swordGripPivot,
-        this.meleeWeaponId ?? undefined,
-      ),
-    )
-    this.swordGripPivot.position.set(0, 0, 0)
-    this.swordGripPivot.rotation.set(0, 0, 0)
-    if (this.rig.equipmentGripFrames && this.isUsingLance) applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
-    if (this.rig.swordGripFrame && !this.isUsingLance) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
-    }
+    this._rebuildActiveMeleeVisual()
     polishWeaponMaterials(this.swordPivot)
     polishWeaponMaterials(this.bowPivot)
 
@@ -518,6 +524,95 @@ export class NPC {
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
     this.equipmentVisualLOD.register('shield', this.shieldPivot)
+  }
+
+  private _syncActiveMeleeEquipment(): void {
+    const weapon = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : undefined
+    this.isUsingLance = weapon?.combatKind === 'lance'
+    this.meleeAttackRadius = weapon?.range ?? (this.isUsingLance ? 3.9 : 1.8)
+  }
+
+  private _rebuildActiveMeleeVisual(): void {
+    this.animator?.cancel()
+    while (this.swordGripPivot.children.length > 0) {
+      this.swordGripPivot.remove(this.swordGripPivot.children[0])
+    }
+    this.swordTipLocal.copy(
+      WeaponMeshFactory.buildNpcMelee(
+        this.characterFaction,
+        this.aiType === AIType.RANGED ? 1 : this.tier,
+        this.isUsingLance,
+        this.swordGripPivot,
+        this.meleeWeaponId ?? undefined,
+      ),
+    )
+    this.swordGripPivot.position.set(0, 0, 0)
+    this.swordGripPivot.rotation.set(0, 0, 0)
+    delete this.swordPivot.userData.equipmentAttachmentOwned
+    if (this.rig.equipmentGripFrames && this.isUsingLance) {
+      applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
+    } else if (this.rig.swordGripFrame) {
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+    }
+    polishWeaponMaterials(this.swordPivot)
+    this.equipmentVisualLOD.register(this.isUsingLance ? 'lance' : 'sword', this.swordGripPivot)
+  }
+
+  private _setActiveMeleeWeapon(weaponId: string | null): void {
+    if (this.meleeWeaponId === weaponId) {
+      this._syncActiveMeleeEquipment()
+      return
+    }
+    this.meleeWeaponId = weaponId
+    this._meleeDamageOverride = undefined
+    this._syncActiveMeleeEquipment()
+    this._rebuildActiveMeleeVisual()
+  }
+
+  private _cancelEquipmentCombatState(): void {
+    this.animator.cancel()
+    this.bowArrowReleased = false
+    this.attackTimer = 0
+    this.attackHitProcessed = false
+    this.pendingLanceChargeSpeed = 0
+    this.bowVisual?.hideArrow()
+  }
+
+  private _isVikingFootSpecialist(): boolean {
+    return this.characterFaction === 'viking'
+      && !this.generatedAsCavalry
+      && (this.presetId === 'viking_berserker' || this.presetId === 'viking_spearman' || this.presetId === 'viking_archer')
+  }
+
+  private _restoreVikingDefensiveStance(): void {
+    if (!this._isVikingFootSpecialist() || !this.loadout) return
+    this._cancelEquipmentCombatState()
+    this._setActiveMeleeWeapon(this.loadout.meleeWeaponId ?? null)
+    this.shieldId = this.loadout.shieldId ?? null
+    this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+  }
+
+  private _enterVikingChargeStance(): void {
+    if (!this._isVikingFootSpecialist() || !this.loadout) return
+    this._cancelEquipmentCombatState()
+    const chargeWeapon = this.presetId === 'viking_spearman'
+      ? (this.loadout.secondaryMeleeWeaponId ?? this.loadout.meleeWeaponId ?? null)
+      : (this.loadout.meleeWeaponId ?? null)
+    this._setActiveMeleeWeapon(chargeWeapon)
+    this.shieldId = null
+    this.rangedActive = false
+    this.rebuildShield()
+    this.swordPivot.visible = true
+    this.bowPivot.visible = false
+  }
+
+  setTacticalOrder(order: TacticalOrder): void {
+    this.tacticalOrder = order
+    if (order === 'defend') this._restoreVikingDefensiveStance()
+    else if (order === 'charge') this._enterVikingChargeStance()
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -734,6 +829,7 @@ export class NPC {
 
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
+    this.isSprinting = false
     let animationAdvanced = false
     const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
@@ -772,7 +868,9 @@ export class NPC {
     } else switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
-        this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
+        if (this.tacticalOrder !== 'defend') {
+          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
+        }
 
         if (targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
@@ -791,7 +889,12 @@ export class NPC {
 
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
-          this.state = AIState.CHASE
+          if (this.tacticalOrder === 'defend') {
+            this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
+            this.attackTimer = 0
+          } else {
+            this.state = AIState.CHASE
+          }
         }
         break
       }
@@ -800,6 +903,12 @@ export class NPC {
         this.alertSprite.visible = false
         if (!targetInfo || targetInfo.isDead) {
           this.state = AIState.IDLE
+          break
+        }
+
+        if (this.tacticalOrder === 'defend') {
+          this.animator.cancel()
+          this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
           break
         }
 
@@ -875,7 +984,7 @@ export class NPC {
         this._faceTarget(targetInfo.position)
 
         // Move towards target / charge + separation
-        this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+        this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt, this.tacticalOrder === 'charge')
         
         // Keep chase movement inside the shared playable world boundary.
         clampToPlayableWorld(this.group.position)
@@ -892,6 +1001,13 @@ export class NPC {
         
         const dist = this.combatPosition.distanceTo(targetInfo.position)
 
+        if (this.tacticalOrder === 'defend' && !this._isTargetInDefendRange(targetInfo.position)) {
+          this.animator.cancel()
+          this.pendingLanceChargeSpeed = 0
+          this.state = AIState.ALERT
+          break
+        }
+
         // Ranged NPCs (both foot and mounted) draw swords and commit to melee when enemy gets close (< 6m)
         if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
@@ -902,7 +1018,7 @@ export class NPC {
         // Target retreated beyond max ranged attack distance, approach in CHASE
         if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
           this.animator.cancel()
-          this.state = AIState.CHASE
+          this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
           break
         }
 
@@ -911,7 +1027,7 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
         // Mounted Archers orbit target while attacking within 6m <= dist <= maxRangedAttackDistance
-        if (this.isMounted && this.hasActiveRangedWeapon) {
+        if (this.isMounted && this.hasActiveRangedWeapon && this.tacticalOrder !== 'defend') {
           const moveDir = this._tmpMoveDir
           // Orbit target
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
@@ -1020,6 +1136,12 @@ export class NPC {
       }
     }
 
+    if (this.isSprinting) {
+      this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
+    } else {
+      this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt)
+    }
+
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     if (!this.animator.busy && !animationAdvanced) {
       if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
@@ -1097,7 +1219,7 @@ export class NPC {
     }
   }
 
-  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number): void {
+  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {
     if (direction.lengthSq() <= 0.0001) return
     direction.normalize()
 
@@ -1106,7 +1228,10 @@ export class NPC {
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
     const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
-    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier
+    const canSprint = allowSprint && policy.canSprint && this.stamina >= STAMINA_SPRINT_MIN
+    this.isSprinting = canSprint
+    const sprintMultiplier = canSprint ? SPRINT_MULTIPLIER : 1
+    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -1176,6 +1301,16 @@ export class NPC {
     return Math.round(dmg)
   }
 
+  private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
+    if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN) {
+      this._switchToMelee()
+    }
+    if (this.hasActiveRangedWeapon) {
+      return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
+    }
+    return this._isTargetInMeleeRange(targetPos)
+  }
+
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
     if (this.isUsingLance) {
       const facingYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
@@ -1189,8 +1324,9 @@ export class NPC {
     return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
   }
 
-  private _switchToMelee(): void {
-    this.arrows = 0
+  private _switchToMelee(consumeRemainingAmmo = true): void {
+    if (consumeRemainingAmmo) this.arrows = 0
+    this.rangedActive = false
     this.pendingLanceChargeSpeed = 0
     this.swordPivot.visible = true
     this.bowPivot.visible = false
@@ -1208,10 +1344,12 @@ export class NPC {
     this.currentHp = this.maxHp
     if (this.aiType === AIType.RANGED) {
       this.arrows = 1
+      this.rangedActive = Boolean(this.rangedWeaponId)
       this.swordPivot.visible = !this.hasActiveRangedWeapon
       this.bowPivot.visible = this.hasActiveRangedWeapon
     } else {
       this.arrows = 0
+      this.rangedActive = false
       this.swordPivot.visible = true
       this.bowPivot.visible = false
     }
