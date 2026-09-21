@@ -23,7 +23,7 @@ const VIKING_SHORTCUTS: readonly ArmyCommandShortcut[] = [
   { key: '4', target: 'viking_sword_cavalry' },
   { key: '5', target: 'viking_lancer' },
   { key: '6', target: 'viking_horse_archer' },
-  { key: '7', target: 'all' },
+  { key: '`', target: 'all' },
 ]
 
 const ROMAN_SHORTCUTS: readonly ArmyCommandShortcut[] = [
@@ -34,7 +34,7 @@ const ROMAN_SHORTCUTS: readonly ArmyCommandShortcut[] = [
   { key: '5', target: 'roman_sword_cavalry' },
   { key: '6', target: 'roman_lancer' },
   { key: '7', target: 'roman_horse_archer' },
-  { key: '8', target: 'all' },
+  { key: '`', target: 'all' },
 ]
 
 export const SUBMENU_COMMANDS: readonly TacticalOrder[] = ['attack', 'charge', 'defend']
@@ -113,6 +113,7 @@ export class ArmyCommandController {
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         this._consumeDigit(key)
       }
+      this.input.consumeKeyPress('Backquote')
       const goBack = this.input.consumeKeyPress('KeyQ')
       const confirmedByKey = this.input.consumeKeyE()
       const confirmedByClick = this.input.consumeLeftClick()
@@ -139,6 +140,7 @@ export class ArmyCommandController {
         for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
           this._consumeDigit(key)
         }
+        this.input.consumeKeyPress('Backquote')
         this._closeSubmenu()
         return
       }
@@ -148,6 +150,7 @@ export class ArmyCommandController {
         if (!this._consumeDigit(key)) continue
         if (commandKey === null && Number(key) <= 4) commandKey = key
       }
+      this.input.consumeKeyPress('Backquote')
       if (commandKey !== null) {
         const command = getCommandFromSubmenuKey(commandKey)
         if (command === 'formation') {
@@ -163,12 +166,17 @@ export class ArmyCommandController {
     }
 
     for (const shortcut of this.shortcuts) {
-      if (!this._consumeDigit(shortcut.key)) continue
+      if (!this._consumeShortcutKey(shortcut.key)) continue
       this.selectedTarget = shortcut.target
       this.submenuOpen = true
       this.ui.render(this._hudEntries(), true, this.selectedTarget)
       return
     }
+  }
+
+  private _consumeShortcutKey(key: string): boolean {
+    if (key === '`') return this.input.consumeKeyPress('Backquote')
+    return this._consumeDigit(key)
   }
 
   private _consumeDigit(key: string): boolean {
