@@ -22,33 +22,38 @@ export class DeathFadeController {
   private elapsed = 0
   private active = false
   private finished = false
+  private prepared = false
   private materials: FadeMaterialState[] = []
 
   start(root: THREE.Object3D): void {
     this.elapsed = 0
     this.active = true
     this.finished = false
-    this.materials = []
     root.visible = true
 
-    root.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh) return
+    if (!this.prepared) {
+      root.traverse((object) => {
+        const mesh = object as THREE.Mesh
+        if (!mesh.isMesh) return
 
-      const sourceMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-      const clonedMaterials = sourceMaterials.map((source) => {
-        const material = source.clone()
-        this.materials.push({
-          material,
-          opacity: material.opacity,
-          transparent: material.transparent,
-          depthWrite: material.depthWrite,
+        const sourceMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        const clonedMaterials = sourceMaterials.map((source) => {
+          const material = source.clone()
+          this.materials.push({
+            material,
+            opacity: material.opacity,
+            transparent: material.transparent,
+            depthWrite: material.depthWrite,
+          })
+          return material
         })
-        return material
-      })
 
-      mesh.material = Array.isArray(mesh.material) ? clonedMaterials : clonedMaterials[0]
-    })
+        mesh.material = Array.isArray(mesh.material) ? clonedMaterials : clonedMaterials[0]
+      })
+      this.prepared = true
+    } else {
+      this.restoreMaterials()
+    }
   }
 
   update(root: THREE.Object3D, dt: number): boolean {
@@ -79,17 +84,19 @@ export class DeathFadeController {
   }
 
   reset(root: THREE.Object3D): void {
+    this.restoreMaterials()
+    this.elapsed = 0
+    this.active = false
+    this.finished = false
+    root.visible = true
+  }
+
+  private restoreMaterials(): void {
     for (const state of this.materials) {
       state.material.opacity = state.opacity
       state.material.transparent = state.transparent
       state.material.depthWrite = state.depthWrite
       state.material.needsUpdate = true
     }
-
-    this.elapsed = 0
-    this.active = false
-    this.finished = false
-    this.materials = []
-    root.visible = true
   }
 }
