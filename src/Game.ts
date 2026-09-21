@@ -1976,7 +1976,7 @@ export class Game {
             this.scene,
             origin,
             direction,
-            visualKind === 'arrow' ? npc.rangedProjectileSpeed : 20.0, // Bow uses weapon speed; pilum unchanged
+            npc.rangedProjectileSpeed, // Player and NPC share WeaponDatabase projectile speed
             npc.rangedDamage, // Arrow damage
             npc.faction,
             false,
