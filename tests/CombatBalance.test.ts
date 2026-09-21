@@ -32,10 +32,10 @@ describe('CombatBalance SSOT & Pure Functions', () => {
     })
 
     it('defines Bow and Javelin balance rules', () => {
-      expect(COMBAT_BALANCE.bow.damageMultiplier).toBe(0.5)
+      expect(COMBAT_BALANCE.bow.damageMultiplier).toBe(0.7)
       expect(COMBAT_BALANCE.bow.attackRateMultiplier).toBe(1.3)
       expect(COMBAT_BALANCE.bow.footAttackRange).toBe(50)
-      expect(COMBAT_BALANCE.bow.mountedAttackRange).toBe(15)
+      expect(COMBAT_BALANCE.bow.mountedAttackRange).toBe(30)
 
       expect(COMBAT_BALANCE.javelin.damageMultiplier).toBe(1.5)
       expect(COMBAT_BALANCE.javelin.attackRateMultiplier).toBe(0.7)
@@ -77,13 +77,13 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
     it('getNpcRangedAttackRange returns correct foot and mounted ranges', () => {
       expect(getNpcRangedAttackRange('bow', false)).toBe(50)
-      expect(getNpcRangedAttackRange('bow', true)).toBe(15)
+      expect(getNpcRangedAttackRange('bow', true)).toBe(30)
       expect(getNpcRangedAttackRange('javelin', false)).toBe(30)
       expect(getNpcRangedAttackRange('javelin', true)).toBe(15)
     })
 
-    it('getRangedDamageMultiplier returns 0.5 for bow and 1.5 for javelin', () => {
-      expect(getRangedDamageMultiplier('bow')).toBe(0.5)
+    it('getRangedDamageMultiplier returns 0.7 for bow and 1.5 for javelin', () => {
+      expect(getRangedDamageMultiplier('bow')).toBe(0.7)
       expect(getRangedDamageMultiplier('javelin')).toBe(1.5)
     })
 
@@ -316,14 +316,14 @@ describe('CombatBalance SSOT & Pure Functions', () => {
   })
 
   describe('J. Runtime Instances & Active Combat State', () => {
-    it('initializes NPC with T2 Bow loadout to rangedDamage === 21', () => {
+    it('initializes NPC with T2 Bow loadout using the authoritative bow multiplier', () => {
       const scene = new THREE.Scene()
       const bowNpc = new NPC(
         scene, 0, 0, Faction.ENEMY, 'roman', AIType.RANGED, 'TestArcher', 2, false,
         { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null }
       )
-      // recurve_longbow damageMax 42 * bow damageMultiplier 0.5 = 21
-      expect(bowNpc.rangedDamage).toBe(21)
+      const expectedDamage = WEAPONS.recurve_longbow.damageMax * COMBAT_BALANCE.bow.damageMultiplier
+      expect(bowNpc.rangedDamage).toBeCloseTo(expectedDamage)
     })
 
     it('initializes NPC with T2 Javelin loadout to rangedDamage === 63', () => {
@@ -422,7 +422,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
   })
 
   describe('K. Enemy Projectiles Damaging Player Integration', () => {
-    it('1. Unmounted Player, no shield takes 21 damage from T2 enemy bow projectile (200 -> 179), and repeated hits trigger death flow', () => {
+    it('1. Unmounted Player, no shield takes authoritative T2 bow damage and repeated hits trigger death flow', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene, 'viking')
       player.position.set(0, 0, 0)
@@ -431,13 +431,14 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       player.onPlayerDeath = onDeath
 
       const onHitTarget = vi.fn()
-      // T2 Bow projectile with 21 damage
+      const t2BowDamage = WEAPONS.recurve_longbow.damageMax * COMBAT_BALANCE.bow.damageMultiplier
+      const expectedHp = 200 - t2BowDamage
       const arrow = new ArrowProjectile(
         scene,
         new THREE.Vector3(0, 1.0, 0.5),
         new THREE.Vector3(0, 0, -1),
         10,
-        21,
+        t2BowDamage,
         Faction.ENEMY,
         false,
         'arrow'
@@ -452,17 +453,17 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         (damage) => damagePlayer(player, damage, mockHpBar, null)
       )
 
-      expect(player.currentHp).toBe(179)
+      expect(player.currentHp).toBeCloseTo(expectedHp)
       expect(onHitTarget).toHaveBeenCalledWith(
-        21,
+        t2BowDamage,
         expect.any(THREE.Vector3),
         'Player',
-        179 / 200,
+        expectedHp / 200,
         true,
         undefined,
         false
       )
-      expect(mockHpBar.setFill).toHaveBeenCalledWith(179 / 200)
+      expect(mockHpBar.setFill).toHaveBeenCalledWith(expectedHp / 200)
       expect(player.dead).toBe(false)
       expect(onDeath).not.toHaveBeenCalled()
 
