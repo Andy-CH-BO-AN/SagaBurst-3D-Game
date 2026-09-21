@@ -69,6 +69,8 @@ export enum AIType {
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
+const PROJECTILE_GRAVITY = 9.8
+const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
 
 const CHASE_SPEED      = 4.8
 const FORMATION_MOVE_SPEED = CHASE_SPEED
@@ -158,6 +160,14 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (!kind) return 22.0
     return getNpcRangedAttackRange(kind, this.isMounted)
+  }
+
+  get rangedProjectileSpeed(): number {
+    const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    if (this.rangedCombatKind === 'bow') {
+      return weapon?.arrowSpeedMax ?? NPC_FALLBACK_PROJECTILE_SPEED
+    }
+    return NPC_FALLBACK_PROJECTILE_SPEED
   }
 
   private bodyMesh: THREE.Group
@@ -620,6 +630,27 @@ export class NPC {
     const dx = aimPoint.x - origin.x
     const dz = aimPoint.z - origin.z
     const horizontalDistanceSq = dx * dx + dz * dz
+    const horizontalDistance = Math.sqrt(horizontalDistanceSq)
+
+    if (this.rangedCombatKind === 'bow' && horizontalDistance > 1e-4) {
+      const speed = this.rangedProjectileSpeed
+      const speedSq = speed * speed
+      const heightDelta = aimPoint.y - origin.y
+      const discriminant = speedSq * speedSq
+        - PROJECTILE_GRAVITY * (
+          PROJECTILE_GRAVITY * horizontalDistanceSq
+          + 2 * heightDelta * speedSq
+        )
+
+      if (discriminant >= 0) {
+        const tanTheta = (speedSq - Math.sqrt(discriminant))
+          / (PROJECTILE_GRAVITY * horizontalDistance)
+        aimPoint.y = origin.y + horizontalDistance * tanTheta
+        return aimPoint
+      }
+    }
+
+    // Preserve the existing heuristic for pilum and unreachable fallbacks.
     aimPoint.y += horizontalDistanceSq * RANGED_AIM_LIFT_PER_METER_SQ
     return aimPoint
   }
