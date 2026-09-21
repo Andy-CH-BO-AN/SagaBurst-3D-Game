@@ -81,7 +81,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '維京資深戰士',
     nameEn: 'Viking Veteran',
-    description: '經驗豐富的維京近戰步兵，持同階長劍與圓盾，攻守均衡。',
+    description: '經驗豐富的維京近戰步兵，平時持同階長劍與圓盾穩健作戰；聽到衝鋒號後會卸下盾牌，化身狂戰士投入近戰。',
     traits: ['shield_defense'],
     tierLoadouts: {
       1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: null },
@@ -94,7 +94,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '槍兵',
     nameEn: 'Spearman',
-    description: '徒步長槍兵，專精剋制騎兵，並攜帶同階長劍作為備用近戰武器。',
+    description: '徒步長槍兵，專精剋制騎兵，並攜帶同階長劍作為備用武器；聽到衝鋒號後會收起長槍、拔劍化身狂戰士。',
     traits: ['lance_anti_cavalry'],
     tierLoadouts: {
       1: { meleeWeaponId: 'hunting_spear', secondaryMeleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null },
@@ -107,7 +107,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '弓兵',
     nameEn: 'Archer',
-    description: '諾德長弓手，擅長長距離射擊，近身以短匕自衛。',
+    description: '諾德長弓手，擅長長距離射擊，近身以短匕自衛；聽到衝鋒號後會放下弓箭、拔出短匕，化身狂戰士衝入近戰。',
     traits: ['bow_fire'],
     tierLoadouts: {
       1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: null },
