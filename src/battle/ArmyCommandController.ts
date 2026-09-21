@@ -7,6 +7,7 @@ import {
 } from './UnitPresetCatalog'
 import type { TacticalOrder } from './TacticalOrder'
 import { ArmyCommandUI, type ArmyCommandHudEntry } from '../ui/ArmyCommandUI'
+import type { FormationController } from './FormationController'
 
 export type ArmyCommandTarget = UnitPresetId | 'all'
 
@@ -61,6 +62,7 @@ const ORDER_LABELS: Record<TacticalOrder, string> = {
   attack: '攻擊',
   defend: '防禦',
   charge: '衝鋒',
+  formation: '列陣',
 }
 
 export function tacticalOrderLabel(order: TacticalOrder | 'mixed'): string {
@@ -80,6 +82,7 @@ export class ArmyCommandController {
     faction: CharacterFaction,
     private readonly input: PlayerInput,
     private readonly ui: ArmyCommandUI,
+    private readonly formation: FormationController | null = null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -90,16 +93,41 @@ export class ArmyCommandController {
       npc.onRespawnCallbacks?.push((respawned) => {
         if (respawned.faction !== Faction.PLAYER || respawned.dead) return
         const desired = respawned.presetId ? this.orders.get(respawned.presetId) : undefined
-        respawned.setTacticalOrder(desired ?? 'attack')
+        respawned.setTacticalOrder(desired === 'formation' ? 'defend' : (desired ?? 'attack'))
       })
     }
+    this.formation?.setCompletionHandler((target, participants) => this._onFormationCompleted(target, participants))
     this.ui.render(this._hudEntries(), this.submenuOpen, this.selectedTarget)
   }
 
   get isSubmenuOpen(): boolean { return this.submenuOpen }
   get selected(): ArmyCommandTarget | null { return this.selectedTarget }
+  get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
 
   update(): void {
+    if (this.formation?.isPlacementMode) {
+      this.formation.updatePlacement()
+      let cancelled = false
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+        if (this._consumeDigit(key) && key === '5') cancelled = true
+      }
+      const confirmed = this.input.consumeKeyPress('Enter') || this.input.consumeKeyPress('NumpadEnter')
+      if (cancelled) {
+        this.formation.cancelPlacement()
+        this._closeSubmenu()
+      } else if (confirmed) {
+        const result = this.formation.confirmPlacement()
+        if (result.accepted) {
+          this._setDesiredOrder(this.selectedTarget, 'formation')
+          this.ui.showFeedback(`${this.selectedTarget === 'all' ? '全軍' : getUnitPreset(this.selectedTarget!).nameZh} → 列陣`)
+          this._closeSubmenu()
+        } else {
+          this.ui.showFeedback('無法在此處列陣')
+        }
+      }
+      return
+    }
+
     if (this.submenuOpen) {
       let commandKey: string | null = null
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
@@ -109,8 +137,9 @@ export class ArmyCommandController {
       if (commandKey !== null) {
         const command = getCommandFromSubmenuKey(commandKey)
         if (command === 'formation') {
-          this.ui.showFeedback('列陣功能尚未開放')
-          this._closeSubmenu()
+          if (!this.formation || !this.selectedTarget) return
+          this.formation.beginPlacement(this.selectedTarget)
+          this.ui.renderPlacement(this.selectedTarget)
         } else if (command === 'exit') {
           this._closeSubmenu()
         } else if (command) {
@@ -140,13 +169,7 @@ export class ArmyCommandController {
     const target = this.selectedTarget
     if (!target) return
 
-    if (target === 'all') {
-      for (const [presetId] of this.orders) this.orders.set(presetId, order)
-      this.allOrder = order
-    } else {
-      this.orders.set(target, order)
-      this.allOrder = this._resolveAllOrder()
-    }
+    this._setDesiredOrder(target, order)
 
     for (const npc of this.npcs) {
       if (npc.faction !== Faction.PLAYER) continue
@@ -157,6 +180,31 @@ export class ArmyCommandController {
 
     this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → ${ORDER_LABELS[order]}`)
     this._closeSubmenu()
+  }
+
+  postUpdate(): void {
+    this.formation?.updateCompletion()
+  }
+
+  private _setDesiredOrder(target: ArmyCommandTarget | null, order: TacticalOrder): void {
+    if (!target) return
+    if (target === 'all') {
+      for (const [presetId] of this.orders) this.orders.set(presetId, order)
+      this.allOrder = order
+    } else {
+      this.orders.set(target, order)
+      this.allOrder = this._resolveAllOrder()
+    }
+  }
+
+  private _onFormationCompleted(target: ArmyCommandTarget, participants: readonly NPC[]): void {
+    for (const npc of participants) {
+      npc.setTacticalOrder('defend')
+      if (npc.presetId) this.orders.set(npc.presetId, 'defend')
+    }
+    this.allOrder = this._resolveAllOrder()
+    this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
+    this.ui.render(this._hudEntries(), false, null)
   }
 
   private _resolveAllOrder(): TacticalOrder | 'mixed' {

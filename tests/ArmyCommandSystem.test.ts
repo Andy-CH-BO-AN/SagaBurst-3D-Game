@@ -9,6 +9,11 @@ import { armyCommandTargetLabel } from '../src/ui/ArmyCommandUI'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { STAMINA_DRAIN, SPRINT_MULTIPLIER } from '../src/movement/MovementBalance'
+import {
+  assignUnitsToSlots,
+  formationRowAxis,
+  generateLineFormationSlots,
+} from '../src/battle/FormationMath'
 
 function controllerHarness(npcs: any[]) {
   const pressed = new Set<string>()
@@ -29,6 +34,31 @@ function controllerHarness(npcs: any[]) {
 }
 
 describe('Army command keyboard mapping and filtering', () => {
+  it('generates a centered single row and rotates its row axis with facing', () => {
+    const center = new THREE.Vector3(10, 0, 20)
+    const slots = generateLineFormationSlots(center, new THREE.Vector3(0, 0, 1), 5, 2)
+    expect(slots.map(slot => [slot.x, slot.z])).toEqual([
+      [6, 20], [8, 20], [10, 20], [12, 20], [14, 20],
+    ])
+    expect(formationRowAxis(new THREE.Vector3(0, 0, 1)).x).toBe(1)
+    expect(formationRowAxis(new THREE.Vector3(0, 0, 1)).y).toBe(0)
+    expect(formationRowAxis(new THREE.Vector3(0, 0, 1)).z).toBeCloseTo(0)
+    expect(generateLineFormationSlots(center, new THREE.Vector3(1, 0, 0), 1, 2)[0]).toEqual(center)
+  })
+
+  it('assigns shuffled units left-to-right by projection with a stable tie-break', () => {
+    const center = new THREE.Vector3()
+    const slots = generateLineFormationSlots(center, new THREE.Vector3(0, 0, 1), 3, 2)
+    const units = [
+      { id: 'right', position: new THREE.Vector3(4, 0, 0) },
+      { id: 'left', position: new THREE.Vector3(-4, 0, 0) },
+      { id: 'middle', position: new THREE.Vector3(0, 0, 0) },
+    ]
+    const assignments = assignUnitsToSlots(units, slots, formationRowAxis(new THREE.Vector3(0, 0, 1)), center)
+    expect(assignments.map(entry => entry.unit.id)).toEqual(['left', 'middle', 'right'])
+    expect(assignments.map(entry => entry.slot.x)).toEqual([-2, 0, 2])
+  })
+
   it('labels the submenu with the selected unit group', () => {
     expect(armyCommandTargetLabel('viking_spearman')).toBe('槍兵')
     expect(armyCommandTargetLabel('viking_archer')).toBe('弓兵')
@@ -69,7 +99,7 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(h.controller.isSubmenuOpen).toBe(false)
   })
 
-  it('ALL commands every player-faction NPC and formation is a placeholder', () => {
+  it('ALL commands every player-faction NPC while formation is handled by its placement controller', () => {
     const ally = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
     const enemy = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
     const h = controllerHarness([ally, enemy])
@@ -79,7 +109,7 @@ describe('Army command keyboard mapping and filtering', () => {
     h.input.press('4')
     h.controller.update()
     expect(ally.setTacticalOrder).not.toHaveBeenCalled()
-    expect(h.ui.showFeedback).toHaveBeenCalledWith('列陣功能尚未開放')
+    expect(h.controller.isSubmenuOpen).toBe(true)
 
     h.input.press('7')
     h.controller.update()
@@ -132,6 +162,23 @@ function createNpc(
 }
 
 describe('NPC TacticalOrder and active equipment stance', () => {
+  it('moves to a formation target without sprinting and clears it on overwrite', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    const ally = createNpc(scene, Faction.PLAYER, 'viking', 'viking_berserker', {
+      meleeWeaponId: 'steel_sword', shieldId: 'round_shield_t2', mountId: null,
+    }, 0)
+    ally.assignFormationTarget(42, new THREE.Vector3(0, 0, 0.2), new THREE.Vector3(0, 0, 1))
+    ally.update(0.1, player, [ally], [], [], null as any, () => {}, () => {})
+    expect(ally.tacticalOrder).toBe('formation')
+    expect(ally.isFormationTargetReached(42)).toBe(true)
+    expect(ally.sprinting).toBe(false)
+
+    ally.setTacticalOrder('charge')
+    expect(ally.formationCommandId).toBeNull()
+    expect(ally.tacticalOrder).toBe('charge')
+  })
+
   it('defaults to Attack and performs Viking Veteran Charge -> Attack -> Defend transitions', () => {
     const npc = createNpc(new THREE.Scene(), Faction.PLAYER, 'viking', 'viking_berserker', {
       meleeWeaponId: 'steel_sword', shieldId: 'round_shield_t2', mountId: null,

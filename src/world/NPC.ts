@@ -38,6 +38,7 @@ import {
 } from '../combat/CombatBalance'
 import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
   MAX_STAMINA,
   SPRINT_MULTIPLIER,
@@ -70,6 +71,7 @@ const RANGED_ATTACK_MIN = 6.0
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 
 const CHASE_SPEED      = 4.8
+const FORMATION_MOVE_SPEED = CHASE_SPEED
 const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
@@ -118,6 +120,13 @@ export class NPC {
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
+
+  private formationTarget: {
+    commandId: number
+    position: THREE.Vector3
+    facing: THREE.Vector3
+    reached: boolean
+  } | null = null
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
@@ -245,6 +254,11 @@ export class NPC {
   get combatPosition(): THREE.Vector3 { return this.mount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+  get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
+
+  isFormationTargetReached(commandId: number): boolean {
+    return this.formationTarget?.commandId === commandId && this.formationTarget.reached
+  }
 
   getWeaponTipPosition(): THREE.Vector3 {
     return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
@@ -616,10 +630,24 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
+    this.formationTarget = null
     this.tacticalOrder = order
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
     else if (order === 'charge') this._enterVikingChargeStance()
+  }
+
+  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
+    if (this.dead) return
+    this._cancelEquipmentCombatState()
+    this.tacticalOrder = 'formation'
+    this.formationTarget = {
+      commandId,
+      position: target.clone(),
+      facing: facing.clone().setY(0).normalize(),
+      reached: false,
+    }
+    this.state = AIState.CHASE
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -684,6 +712,7 @@ export class NPC {
     }
 
     if (this.currentHp <= 0) {
+      this.formationTarget = null
       this.dismountFromMount()
       this.state = AIState.DEAD
       this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
@@ -858,13 +887,16 @@ export class NPC {
       }
     }
 
-    if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
-    const targetInfo = this._getTarget(dt, player, allNPCs)
-    if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
+    if (this.tacticalOrder === 'formation' && this.formationTarget) {
+      this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
+    } else {
+      if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
+      const targetInfo = this._getTarget(dt, player, allNPCs)
+      if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
 
-    // Releasing the projectile does not end the imported release clip. Keep its
-    // recovery, even if this was the last arrow or the target disappears.
-    if (recoveringBow) {
+      // Releasing the projectile does not end the imported release clip. Keep its
+      // recovery, even if this was the last arrow or the target disappears.
+      if (recoveringBow) {
       if (import.meta.env.DEV && _collector) { var _tAnimBowRec = performance.now() }
       const events = this.animator.update(dt, cameraDistance)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
@@ -1144,6 +1176,7 @@ export class NPC {
         }
         break
       }
+      }
     }
 
     if (this.isSprinting) {
@@ -1229,6 +1262,49 @@ export class NPC {
     }
   }
 
+  private _updateFormationMovement(
+    dt: number,
+    nearbyNPCs: NPC[],
+    obstacles: ObstacleData[],
+    skipBoidsAndObstacles: boolean,
+  ): void {
+    const target = this.formationTarget
+    if (!target) return
+
+    this.alertSprite.visible = false
+    const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
+    moveDir.y = 0
+    const distance = moveDir.length()
+    if (distance <= FORMATION_ARRIVAL_DISTANCE) {
+      target.reached = true
+      this._faceDirection(target.facing)
+      this.state = AIState.IDLE
+      return
+    }
+    moveDir.normalize()
+
+    if (!skipBoidsAndObstacles) {
+      this._tmpSep.set(0, 0, 0)
+      let sepCount = 0
+      for (const other of nearbyNPCs) {
+        if (other === this || other.dead) continue
+        const separationDistance = this.combatPosition.distanceTo(other.combatPosition)
+        if (separationDistance < NPC_SEPARATION_RADIUS) {
+          this._tmpPush.copy(this.group.position).sub(other.position)
+          this._tmpPush.y = 0
+          this._tmpSep.add(this._tmpPush.normalize().multiplyScalar(1.5 / Math.max(0.1, separationDistance)))
+          sepCount++
+        }
+      }
+      if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
+      moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+    }
+
+    this._faceDirection(target.facing)
+    this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, dt)
+    clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
+  }
+
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {
     if (direction.lengthSq() <= 0.0001) return
     direction.normalize()
@@ -1285,10 +1361,14 @@ export class NPC {
     const dir = this._tmpFaceDir.copy(targetPos).sub(this.group.position)
     dir.y = 0
     if (dir.lengthSq() > 0.001) {
-      const targetAngle = Math.atan2(dir.x, dir.z)
-      this.group.rotation.y = targetAngle
-      if (this.mount) this.mount.group.rotation.y = targetAngle
+      this._faceDirection(dir)
     }
+  }
+
+  private _faceDirection(direction: THREE.Vector3): void {
+    const targetAngle = Math.atan2(direction.x, direction.z)
+    this.group.rotation.y = targetAngle
+    if (this.mount) this.mount.group.rotation.y = targetAngle
   }
 
   /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
@@ -1351,6 +1431,7 @@ export class NPC {
   }
 
   respawn(): void {
+    this.formationTarget = null
     this.pendingLanceChargeSpeed = 0
     if (this._isFlashing) {
       this.flashTimer = 0
