@@ -217,8 +217,10 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
     // second time on top of that pose.
     additiveClip('mounted', 1.5, []),
     additiveClip('death', 1, [
-      { bone: 'hips', times: [0, 0.25, 1], eulers: [zero(), pose(0, 0, 0.15), pose(0, 0, 1.35)] },
-      { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1, 0, 0.1), pose(0.2, 0, 0.25)] },
+      // Pitch the body forward into a prone fall. A Z-axis roll produces a
+      // side-plank pose because the humanoid's local +Z is forward.
+      { bone: 'hips', times: [0, 0.25, 1], eulers: [zero(), pose(0.15), pose(1.35)] },
+      { bone: 'spine', times: [0, 0.25, 1], eulers: [zero(), pose(0.1), pose(0.25)] },
     ]),
   ]
 }

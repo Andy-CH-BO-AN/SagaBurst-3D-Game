@@ -41,6 +41,17 @@ import { DEFAULT_SAVE, SaveManager } from '../src/save/SaveManager'
 import horseRuntimeManifest from '../public/models/mounts/v1/horse/manifest.json'
 
 describe('external humanoid sword grip', () => {
+  it('uses forward pitch for the death pose instead of a side roll', () => {
+    const death = createProjectAnimationClips().find((clip) => clip.name === 'death')!
+    const hips = death.tracks.find((track) => track.name === 'hips.quaternion')!
+    const finalHips = new THREE.Euler().setFromQuaternion(
+      new THREE.Quaternion().fromArray(hips.values as ArrayLike<number>, hips.values.length - 4),
+    )
+
+    expect(finalHips.x).toBeCloseTo(1.35, 5)
+    expect(finalHips.z).toBeCloseTo(0, 5)
+  })
+
   it('raw studio mode samples full bow legs and switching back restores the production mask', () => {
     const root = new THREE.Group(), leg = new THREE.Bone()
     leg.name = 'upper_leg_r'; root.add(leg)
