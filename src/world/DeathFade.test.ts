@@ -2,91 +2,43 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 
 import {
-  applyDeathFadeWarmupVariant,
   DeathFadeController,
-  DEATH_FADE_TOTAL_SECONDS,
+  DEATH_DESPAWN_DELAY_SECONDS,
 } from './DeathFade'
 
-function makeCharacter(sharedMaterial: THREE.Material): {
-  root: THREE.Group
-  mesh: THREE.Mesh
-} {
-  const root = new THREE.Group()
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), sharedMaterial)
-  mesh.castShadow = true
-  root.add(mesh)
-  return { root, mesh }
-}
-
 describe('DeathFadeController', () => {
-  it('keeps death start allocation-free and uses shared fade variants across actors', () => {
-    const sharedMaterial = new THREE.MeshBasicMaterial({ opacity: 1 })
-    const a = makeCharacter(sharedMaterial)
-    const b = makeCharacter(sharedMaterial)
-    const fadeA = new DeathFadeController()
-    const fadeB = new DeathFadeController()
+  it('keeps the actor visible for 3 seconds, then hides the whole root without changing materials', () => {
+    const root = new THREE.Group()
+    const material = new THREE.MeshBasicMaterial({ opacity: 0.8 })
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material)
+    const weapon = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1, 0.1), material)
+    body.add(weapon)
+    root.add(body)
 
-    fadeA.prepare(a.root)
-    fadeB.prepare(b.root)
+    const death = new DeathFadeController()
+    death.start(root)
 
-    fadeA.start(a.root)
-    fadeB.start(b.root)
+    death.update(root, DEATH_DESPAWN_DELAY_SECONDS - 0.01)
+    expect(root.visible).toBe(true)
+    expect(body.material).toBe(material)
+    expect(weapon.material).toBe(material)
+    expect(material.opacity).toBe(0.8)
 
-    // start() must not swap/clone materials on the death frame.
-    expect(a.mesh.material).toBe(sharedMaterial)
-    expect(b.mesh.material).toBe(sharedMaterial)
-
-    fadeA.update(a.root, 2.25)
-    fadeB.update(b.root, 2.25)
-
-    // Both actors reuse the same prebuilt bucket material instead of cloning
-    // one material per corpse.
-    expect(a.mesh.material).not.toBe(sharedMaterial)
-    expect(a.mesh.material).toBe(b.mesh.material)
-    expect((a.mesh.material as THREE.Material).alphaHash).toBe(true)
-    expect((a.mesh.material as THREE.Material).transparent).toBe(false)
-    expect(a.mesh.castShadow).toBe(false)
-    expect(sharedMaterial.opacity).toBe(1)
+    death.update(root, 0.01)
+    expect(root.visible).toBe(false)
+    expect(body.material).toBe(material)
+    expect(weapon.material).toBe(material)
   })
 
-  it('changes only material references while fading and hides the root at 3 seconds', () => {
-    const source = new THREE.MeshBasicMaterial({ opacity: 0.8 })
-    const { root, mesh } = makeCharacter(source)
-    const fade = new DeathFadeController()
-    fade.prepare(root)
-    fade.start(root)
+  it('shows the actor again when reset for respawn', () => {
+    const root = new THREE.Group()
+    const death = new DeathFadeController()
 
-    fade.update(root, 2.25)
-    const firstBucket = mesh.material as THREE.Material
-    const firstBucketVersion = firstBucket.version
-
-    fade.update(root, 0.375)
-    const laterBucket = mesh.material as THREE.Material
-
-    expect(laterBucket).not.toBe(firstBucket)
-    expect(laterBucket.opacity).toBeLessThan(firstBucket.opacity)
-    expect(firstBucket.version).toBe(firstBucketVersion)
-    expect(source.version).toBe(0)
-
-    fade.update(root, DEATH_FADE_TOTAL_SECONDS - 2.625)
+    death.start(root)
+    death.update(root, DEATH_DESPAWN_DELAY_SECONDS)
     expect(root.visible).toBe(false)
 
-    fade.reset(root)
+    death.reset(root)
     expect(root.visible).toBe(true)
-    expect(mesh.material).toBe(source)
-    expect(mesh.castShadow).toBe(true)
-  })
-
-  it('prepares the alpha-hash shader variant for render warmup and restores originals', () => {
-    const source = new THREE.MeshStandardMaterial({ color: 0xff0000 })
-    const { root, mesh } = makeCharacter(source)
-
-    const restore = applyDeathFadeWarmupVariant(root)
-
-    expect(mesh.material).not.toBe(source)
-    expect((mesh.material as THREE.Material).alphaHash).toBe(true)
-
-    restore()
-    expect(mesh.material).toBe(source)
   })
 })
