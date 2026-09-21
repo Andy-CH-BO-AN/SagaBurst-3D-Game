@@ -253,7 +253,7 @@ export class ArmyCommandController {
       this.formationDesiredCommandByPreset.delete(presetId)
     }
     this.allOrder = this._resolveAllOrder()
-    if (status === 'completed' || target === 'all') {
+    if (status === 'completed') {
       this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
     }
     this.ui.render(this._hudEntries(), false, null)

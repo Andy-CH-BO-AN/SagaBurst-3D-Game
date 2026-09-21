@@ -274,6 +274,69 @@ describe('Army command keyboard mapping and filtering', () => {
     expect((formation as any).isSlotBlocked(slot, { isMounted: false })).toBe(false)
     expect((formation as any).isSlotBlocked(slot, { isMounted: true })).toBe(true)
   })
+
+  it('does not rerun placement assignment when geometry and participants are unchanged', () => {
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
+    camera.position.set(0, 50, 0)
+    camera.lookAt(0, 0, 0)
+    camera.updateProjectionMatrix()
+    camera.updateMatrixWorld(true)
+    const terrain = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial())
+    terrain.rotation.x = -Math.PI / 2
+    terrain.updateMatrixWorld(true)
+    const npcs = Array.from({ length: 200 }, (_, index) => ({
+      name: `npc-${index}`,
+      faction: Faction.PLAYER,
+      dead: false,
+      presetId: 'viking_berserker',
+      isMounted: false,
+      combatPosition: new THREE.Vector3(index % 20, 0, Math.floor(index / 20)),
+    }))
+    const formation = new FormationController(new THREE.Scene(), camera, npcs as any, terrain, [])
+    const validitySpy = vi.fn(() => false)
+    ;(formation as any).isFormationBlocked = validitySpy
+
+    formation.beginPlacement('all')
+    expect(validitySpy).toHaveBeenCalledTimes(1)
+    formation.updatePlacement()
+    expect(validitySpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show a defend completion message after ALL Formation is overwritten', () => {
+    const participant = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_spearman',
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    let completionHandler: ((commandId: number, target: string, participants: any[], status: string) => void) | undefined
+    const formation: any = {
+      isPlacementMode: false,
+      setCompletionHandler: vi.fn((handler) => { completionHandler = handler }),
+      beginPlacement: vi.fn(() => { formation.isPlacementMode = true }),
+      updatePlacement: vi.fn(),
+      confirmPlacement: vi.fn(() => {
+        formation.isPlacementMode = false
+        return { accepted: true, count: 1, commandId: 12, participants: [participant] }
+      }),
+      cancelPlacement: vi.fn(() => { formation.isPlacementMode = false }),
+    }
+    const h = controllerHarness([participant], formation)
+
+    h.input.press('7')
+    h.controller.update()
+    h.input.press('4')
+    h.controller.update()
+    h.input.pressEnter()
+    h.controller.update()
+    h.input.press('7')
+    h.controller.update()
+    h.input.press('3')
+    h.controller.update()
+
+    completionHandler?.(12, 'all', [participant], 'abandoned')
+    expect(h.ui.showFeedback).not.toHaveBeenCalledWith('全軍 → 防禦')
+  })
 })
 
 function createNpc(

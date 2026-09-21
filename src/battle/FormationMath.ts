@@ -103,14 +103,18 @@ export function assignUnitsToSlots<T extends FormationUnitLike>(
     throw new Error(`Formation maxColumns must be a positive integer, received ${maxColumns}`)
   }
   const horizontal = horizontalFormationForward(forward)
-  const sortedFront = units.map((unit, originalIndex) => ({ unit, originalIndex }))
+  const sortedFront = units.map((unit, originalIndex) => {
+    const relative = unit.position.clone().sub(center)
+    return {
+      unit,
+      originalIndex,
+      depth: relative.dot(horizontal),
+      side: relative.dot(rowAxis),
+    }
+  })
   sortedFront.sort((left, right) => {
-    const leftDepth = left.unit.position.clone().sub(center).dot(horizontal)
-    const rightDepth = right.unit.position.clone().sub(center).dot(horizontal)
-    if (leftDepth !== rightDepth) return rightDepth - leftDepth
-    const leftSide = left.unit.position.clone().sub(center).dot(rowAxis)
-    const rightSide = right.unit.position.clone().sub(center).dot(rowAxis)
-    if (leftSide !== rightSide) return leftSide - rightSide
+    if (left.depth !== right.depth) return right.depth - left.depth
+    if (left.side !== right.side) return left.side - right.side
     if (left.unit.id < right.unit.id) return -1
     if (left.unit.id > right.unit.id) return 1
     return left.originalIndex - right.originalIndex
@@ -120,9 +124,7 @@ export function assignUnitsToSlots<T extends FormationUnitLike>(
   for (let start = 0; start < sortedFront.length; start += maxColumns) {
     const row = sortedFront.slice(start, start + maxColumns)
     row.sort((left, right) => {
-      const leftSide = left.unit.position.clone().sub(center).dot(rowAxis)
-      const rightSide = right.unit.position.clone().sub(center).dot(rowAxis)
-      if (leftSide !== rightSide) return leftSide - rightSide
+      if (left.side !== right.side) return left.side - right.side
       if (left.unit.id < right.unit.id) return -1
       if (left.unit.id > right.unit.id) return 1
       return left.originalIndex - right.originalIndex
