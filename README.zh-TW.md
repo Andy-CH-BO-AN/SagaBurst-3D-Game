@@ -16,8 +16,8 @@ Viking 與 Roman 每方都可以配置 **1–200 名 AI 士兵**，雙方兵力�
 
 | 兵種 | 戰場定位 |
 | --- | --- |
-| Berserker 狂戰士 | 無盾高侵略性近戰；徒步持 Sword 時可取得動態 Viking 加成 |
-| Spearman 槍兵 | 徒步 Lance 兵種，專門剋制「當下仍在騎乘」的目標 |
+| Viking Veteran 維京資深戰士 | 持同階 Sword + Viking 圓盾的攻守均衡步兵 |
+| Spearman 槍兵 | 徒步 Lance 反騎兵，並攜帶同階 Sword 作為備用近戰武器 |
 | Archer 弓兵 | 徒步 Bow 單位，固定使用 T1 匕首作為近戰備援 |
 | Sword Cavalry 刀騎兵 | 騎乘 Sword + Viking 圓盾 |
 | Lancer 槍騎兵 | 以高速 Lance Charge 為核心的騎兵 |

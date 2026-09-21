@@ -58,6 +58,7 @@ export type UnitPresetTrait =
 
 export interface UnitLoadout {
   meleeWeaponId?: string | null
+  secondaryMeleeWeaponId?: string | null
   rangedWeaponId?: string | null
   shieldId?: string | null
   mountId?: string | null
@@ -78,14 +79,14 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
   viking_berserker: {
     id: 'viking_berserker',
     faction: 'viking',
-    nameZh: '狂戰士',
-    nameEn: 'Berserker',
-    description: '諾德狂戰士，捨棄盾牌專注極致攻速與破壞力。',
-    traits: ['berserker'],
+    nameZh: '維京資深戰士',
+    nameEn: 'Viking Veteran',
+    description: '經驗豐富的維京近戰步兵，持同階長劍與圓盾，攻守均衡。',
+    traits: ['shield_defense'],
     tierLoadouts: {
-      1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null },
-      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: null, mountId: null },
-      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: null, mountId: null },
+      1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: null },
+      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: null },
+      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: null },
     },
   },
   viking_spearman: {
@@ -93,12 +94,12 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '槍兵',
     nameEn: 'Spearman',
-    description: '徒步長槍兵，專精剋制騎兵。落馬騎兵亦能發揮反騎效果。',
+    description: '徒步長槍兵，專精剋制騎兵，並攜帶同階長劍作為備用近戰武器。',
     traits: ['lance_anti_cavalry'],
     tierLoadouts: {
-      1: { meleeWeaponId: 'hunting_spear', rangedWeaponId: null, shieldId: null, mountId: null },
-      2: { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: null, mountId: null },
-      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: null },
+      1: { meleeWeaponId: 'hunting_spear', secondaryMeleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null },
+      2: { meleeWeaponId: 'steel_lance', secondaryMeleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: null, mountId: null },
+      3: { meleeWeaponId: 'heavy_lance', secondaryMeleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: null, mountId: null },
     },
   },
   viking_archer: {
