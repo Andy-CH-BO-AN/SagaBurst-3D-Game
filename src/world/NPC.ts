@@ -5,6 +5,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
  * Calibrated with getTerrainHeight(x, z) for procedural heightmap terrain.
  */
 import * as THREE from 'three'
+import { DeathFadeController } from './DeathFade'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
@@ -195,6 +196,7 @@ export class NPC {
   public pendingLanceChargeSpeed = 0
 
   private respawnTimer = 0
+  private readonly deathFade = new DeathFadeController()
   public respawnEnabled = true
   public readonly aimCollider: THREE.Mesh
   public readonly onDeathCallbacks: Array<(npc: NPC) => void> = []
@@ -692,6 +694,7 @@ export class NPC {
       this.formationTarget = null
       this.dismountFromMount()
       this.state = AIState.DEAD
+      this.deathFade.start(this.group)
       this.animator.cancel()
       this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
       this.rig.animation?.setEquipmentState?.({ mounted: false })
@@ -821,7 +824,8 @@ export class NPC {
   ): void {
     if (this.state === AIState.DEAD) {
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
-      this.animator.update(dt, cameraDistance)
+      const hidden = this.deathFade.update(this.group, dt)
+      if (!hidden) this.animator.update(dt, cameraDistance)
       if (this.respawnEnabled) {
         this.respawnTimer -= dt
         if (this.respawnTimer <= 0) {
@@ -1400,6 +1404,7 @@ export class NPC {
   }
 
   respawn(): void {
+    this.deathFade.reset(this.group)
     this.formationTarget = null
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
