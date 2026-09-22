@@ -5,7 +5,7 @@
 import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import { getTerrainHeight, type ObstacleData } from './Terrain'
+import { getTerrainHeight, obstacleContainsProjectilePoint, type ObstacleData } from './Terrain'
 import { damageNpc, type DamageResult } from '../combat/DamageRouter'
 import { proceduralMaterial } from './ProceduralMaterials'
 import type { DamageableObstacle } from './DamageableObstacle'
@@ -238,7 +238,7 @@ export class ArrowProjectile {
           : 'roman'
 
       for (const obs of obstacles) {
-        if (!obs.box.containsPoint(this.mesh.position)) continue
+        if (!obstacleContainsProjectilePoint(obs, this.mesh.position)) continue
 
         const damageable = obs.damageable
         if (
