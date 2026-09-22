@@ -6,6 +6,7 @@
 import * as THREE from 'three'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
+import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
 
 export const TERRAIN_SIZE = 400
 export const PLAYABLE_WORLD_BOUND = 180
@@ -84,6 +85,26 @@ export interface ObstacleData {
    * while arrows/javelins can physically pass between the visible timbers.
    */
   projectileBoxes?: readonly THREE.Box3[]
+}
+
+const obstacleCollisionIndexes = new WeakMap<
+  ObstacleData[],
+  ObstacleCollisionSpatialIndex
+>()
+
+function getLocalCollisionObstacles(
+  obstacles: ObstacleData[],
+  x: number,
+  z: number,
+  radius: number,
+): readonly ObstacleData[] {
+  let index = obstacleCollisionIndexes.get(obstacles)
+  if (!index) {
+    index = new ObstacleCollisionSpatialIndex()
+    obstacleCollisionIndexes.set(obstacles, index)
+  }
+  index.sync(obstacles)
+  return index.queryNear(x, z, radius)
 }
 
 export interface TerrainResult {
@@ -501,7 +522,13 @@ export function resolveEntityCollision(
     const targetZ = pos.z + offsetZ
     const b = pos.y - bottomOffset
     const t = b + height
-    for (const obs of obstacles) {
+    const candidates = getLocalCollisionObstacles(
+      obstacles,
+      targetX,
+      targetZ,
+      radius,
+    )
+    for (const obs of candidates) {
       if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
       if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
           targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) {
@@ -558,7 +585,14 @@ export function resolveObstacleCollision(
     x + radius > box.min.x && x - radius < box.max.x &&
     z + radius > box.min.z && z - radius < box.max.z
 
-  for (const obstacle of obstacles) {
+  const candidates = getLocalCollisionObstacles(
+    obstacles,
+    position.x,
+    position.z,
+    radius,
+  )
+
+  for (const obstacle of candidates) {
     const box = obstacle.box
 
     // A descending entity lands on the obstacle's top surface.
