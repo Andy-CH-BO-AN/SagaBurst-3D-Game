@@ -1553,61 +1553,87 @@ export class NPC {
 
       case AIState.ATTACK: {
         if (!targetInfo || targetInfo.isDead) {
+          this._clearSiegeFallback()
           this.state = AIState.CHASE
           this.pendingLanceChargeSpeed = 0
           break
         }
-        
-        const dist = this.combatPosition.distanceTo(targetInfo.position)
 
-        if (this.tacticalOrder === 'defend' && !this._isTargetInDefendRange(targetInfo.position)) {
+        const siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+        const attackTargetPosition = siegeObstacle
+          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+          : targetInfo.position
+        const dist = siegeObstacle
+          ? this._distanceToObstacleXZ(siegeObstacle)
+          : this.combatPosition.distanceTo(targetInfo.position)
+
+        if (
+          !siegeObstacle
+          && this.tacticalOrder === 'defend'
+          && !this._isTargetInDefendRange(targetInfo.position)
+        ) {
           this.animator.cancel()
           this.pendingLanceChargeSpeed = 0
           this.state = AIState.ALERT
           break
         }
 
-        // Ranged NPCs (both foot and mounted) draw swords and commit to melee when enemy gets close (< 6m)
-        if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+        // Human target got too close: ranged units draw melee as before.
+        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
           this.state = AIState.CHASE
           break
         }
 
-        // Target retreated beyond max ranged attack distance, approach in CHASE
         if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
           this.animator.cancel()
           this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
           break
         }
 
+        // A human that becomes blocked again is no longer a viable shot.
+        if (
+          !siegeObstacle
+          && this.hasActiveRangedWeapon
+          && this._findRangedLineBlocker(targetInfo.position, obstacles) !== null
+        ) {
+          this.animator.cancel()
+          this.state = AIState.CHASE
+          break
+        }
+
         if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
-        this._faceTarget(targetInfo.position)
+        this._faceTarget(attackTargetPosition)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
-        // Mounted Archers orbit target while attacking within 6m <= dist <= maxRangedAttackDistance
-        if (this.isMounted && this.hasActiveRangedWeapon && this.tacticalOrder !== 'defend') {
+        // Mounted ranged units orbit humans, but hold position while deliberately
+        // attacking a structure fallback.
+        if (
+          !siegeObstacle
+          && this.isMounted
+          && this.hasActiveRangedWeapon
+          && this.tacticalOrder !== 'defend'
+        ) {
           const moveDir = this._tmpMoveDir
-          // Orbit target
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
           moveDir.y = 0
           if (moveDir.lengthSq() > 0.001) {
-             moveDir.normalize()
-             if (!skipBoidsAndObstacles) {
-               if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
-               moveDir.copy(getObstacleAvoidanceDirection(
-                 this.combatPosition,
-                 moveDir,
-                 this._movementObstacleRadius(),
-                 this._movementObstacleHeight(),
-                 0,
-                 obstacles,
-               ))
-               if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
-             }
-             if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
-             this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
-             if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
+            moveDir.normalize()
+            if (!skipBoidsAndObstacles) {
+              if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
+              moveDir.copy(getObstacleAvoidanceDirection(
+                this.combatPosition,
+                moveDir,
+                this._movementObstacleRadius(),
+                this._movementObstacleHeight(),
+                0,
+                obstacles,
+              ))
+              if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
+            }
+            if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
+            this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+            if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
           }
         }
 
@@ -1639,13 +1665,13 @@ export class NPC {
           if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
           const rangedEvents = this.animator.update(dt, cameraDistance)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
-          if (isBow) this._updateBowVisual(progress, targetInfo.position)
+          if (isBow) this._updateBowVisual(progress, attackTargetPosition)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
           if (shouldFire) {
             const origin = this._tmpRangedOrigin
             const dir = this._tmpRangedDirection
-            const aimPoint = this._getElevatedRangedAimPoint(targetInfo.position)
+            const aimPoint = this._getElevatedRangedAimPoint(attackTargetPosition)
             if (isBow && this.bowVisual) {
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
@@ -1665,7 +1691,12 @@ export class NPC {
             }
           }
         } else {
-          const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
+          const berserker = getBerserkerModifiers(
+            this.characterFaction,
+            this.isMounted,
+            this.activeCombatKind,
+            Boolean(this.shieldId),
+          )
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction())
             this.attackHitProcessed = false
@@ -1674,17 +1705,37 @@ export class NPC {
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const meleeEvents = this.animator.update(dt * berserker.meleeAttackRateMultiplier, cameraDistance)
+          const meleeEvents = this.animator.update(
+            dt * berserker.meleeAttackRateMultiplier,
+            cameraDistance,
+          )
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
           animationAdvanced = true
+
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
-            if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
+            if (siegeObstacle) {
+              if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
+                this.attackHitProcessed = true
+                const finalDamage = Math.round(
+                  this.meleeDamage * berserker.meleeDamageMultiplier,
+                )
+                const result = siegeObstacle.damageable!.takeDamage(finalDamage)
+                if (result.destroyed) {
+                  this._clearSiegeFallback()
+                  this.state = AIState.CHASE
+                  this.pendingLanceChargeSpeed = 0
+                }
+              }
+            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
               this.attackHitProcessed = true
-              const targetIsMounted = targetInfo.isPlayer ? Boolean(player?.isMounted) : Boolean(targetInfo.npc?.isMounted)
+              const targetIsMounted = targetInfo.isPlayer
+                ? Boolean(player?.isMounted)
+                : Boolean(targetInfo.npc?.isMounted)
               const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
               onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
             }
           }
+
           if (meleeEvents.actionCompleted) {
             this.attackTimer = AI_ATTACK_GAP / berserker.meleeAttackRateMultiplier
             this.pendingLanceChargeSpeed = 0
@@ -1692,7 +1743,10 @@ export class NPC {
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
-            if (this.attackTimer <= 0 && !this._isTargetInMeleeRange(targetInfo.position)) {
+            const stillInRange = siegeObstacle
+              ? this._isObstacleInMeleeRange(siegeObstacle)
+              : this._isTargetInMeleeRange(targetInfo.position)
+            if (this.attackTimer <= 0 && !stillInRange) {
               this.state = AIState.CHASE
               this.pendingLanceChargeSpeed = 0
             }
