@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
-  NAV_PATH_REQUESTS_PER_FRAME,
+  NAV_PATH_NODE_EXPANSIONS_PER_FRAME,
   NavigationWorld,
 } from './NavigationWorld'
 import type { ObstacleData } from '../world/Terrain'
@@ -46,12 +46,18 @@ describe('NavigationWorld', () => {
     ).toBe(false)
   })
 
-  it('rejects disconnected regions before spending an A star request', () => {
+  it('rejects disconnected regions before spending node-expansion budget', () => {
     const world = new NavigationWorld()
     world.rebuild([
       obstacle(-1, -180, 1, 180),
     ])
     world.beginFrame()
+
+    const internals = world as unknown as {
+      remainingPathNodeBudget: number
+    }
+    expect(internals.remainingPathNodeBudget)
+      .toBe(NAV_PATH_NODE_EXPANSIONS_PER_FRAME)
 
     expect(
       world.queryPath(
@@ -60,15 +66,8 @@ describe('NavigationWorld', () => {
       ).status,
     ).toBe('unreachable')
 
-    // The disconnected query above must not consume the frame A* budget.
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
-      expect(
-        world.queryPath(
-          new THREE.Vector3(-10, 0, -40 + i * 4),
-          new THREE.Vector3(-20, 0, -40 + i * 4),
-        ).status,
-      ).toBe('path')
-    }
+    expect(internals.remainingPathNodeBudget)
+      .toBe(NAV_PATH_NODE_EXPANSIONS_PER_FRAME)
   })
 
   it('shares one cached A star path across the same 2x2 nav-cell groups', () => {
@@ -78,6 +77,10 @@ describe('NavigationWorld', () => {
     ])
     world.beginFrame()
 
+    const internals = world as unknown as {
+      remainingPathNodeBudget: number
+    }
+
     // Both starts are inside the same 4m macro group, and both goals are too.
     expect(
       world.queryPath(
@@ -85,6 +88,8 @@ describe('NavigationWorld', () => {
         new THREE.Vector3(8.5, 0, -4.5),
       ).status,
     ).toBe('path')
+    const remainingAfterFirst = internals.remainingPathNodeBudget
+
     expect(
       world.queryPath(
         new THREE.Vector3(-7.1, 0, -3.1),
@@ -92,54 +97,73 @@ describe('NavigationWorld', () => {
       ).status,
     ).toBe('path')
 
-    // The shared second query must not consume another A* slot, so there is
-    // still room for one different group this frame.
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8.5, 0, 4.5),
-        new THREE.Vector3(8.5, 0, 4.5),
-      ).status,
-    ).toBe('path')
-
-    // A third unique group is now over the frame budget.
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8.5, 0, 12.5),
-        new THREE.Vector3(8.5, 0, 12.5),
-      ).status,
-    ).toBe('pending')
+    // Cache hit must spend no additional search nodes.
+    expect(internals.remainingPathNodeBudget).toBe(remainingAfterFirst)
   })
 
-  it('caps expensive connected A star searches per frame', () => {
+  it('time-slices one long A star search across frame budgets', () => {
     const world = new NavigationWorld()
+    world.rebuild([])
+    world.beginFrame()
+
+    const start = new THREE.Vector3(-150, 0, 0)
+    const goal = new THREE.Vector3(150, 0, 0)
+    const internals = world as unknown as {
+      remainingPathNodeBudget: number
+      activePathKey: string | null
+    }
+
+    expect(world.queryPath(start, goal).status).toBe('pending')
+    expect(internals.remainingPathNodeBudget).toBe(0)
+    expect(internals.activePathKey).not.toBeNull()
+
+    world.beginFrame()
+
+    expect(world.queryPath(start, goal).status).toBe('path')
+    expect(internals.activePathKey).toBeNull()
+  })
+
+  it('queues a second path while a long search owns the current frame budget', () => {
+    const world = new NavigationWorld()
+    world.rebuild([])
+    world.beginFrame()
+
+    const firstStart = new THREE.Vector3(-150, 0, -40)
+    const firstGoal = new THREE.Vector3(150, 0, -40)
+    const secondStart = new THREE.Vector3(-150, 0, 40)
+    const secondGoal = new THREE.Vector3(150, 0, 40)
+
+    expect(world.queryPath(firstStart, firstGoal).status).toBe('pending')
+    expect(world.queryPath(secondStart, secondGoal).status).toBe('pending')
+
+    const internals = world as unknown as {
+      pendingPathRequests: Map<string, unknown>
+    }
+    expect(internals.pendingPathRequests.size).toBe(1)
+
+    world.beginFrame()
+    expect(world.queryPath(firstStart, firstGoal).status).toBe('path')
+    expect(world.queryPath(secondStart, secondGoal).status).toBe('pending')
+
+    world.beginFrame()
+    expect(world.queryPath(secondStart, secondGoal).status).toBe('path')
+  })
+
+  it('cancels an unfinished search when topology changes', () => {
+    const world = new NavigationWorld()
+    world.rebuild([])
+    world.beginFrame()
+
+    const start = new THREE.Vector3(-150, 0, 0)
+    const goal = new THREE.Vector3(150, 0, 0)
+    expect(world.queryPath(start, goal).status).toBe('pending')
+
     world.rebuild([
-      obstacle(-1, -8, 1, 8),
+      obstacle(-1, -180, 1, 180),
     ])
     world.beginFrame()
 
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
-      expect(
-        world.queryPath(
-          new THREE.Vector3(-8, 0, -4 + i * 4),
-          new THREE.Vector3(8, 0, -4 + i * 4),
-        ).status,
-      ).toBe('path')
-    }
-
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8, 0, 4),
-        new THREE.Vector3(8, 0, 4),
-      ).status,
-    ).toBe('pending')
-
-    world.beginFrame()
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8, 0, 4),
-        new THREE.Vector3(8, 0, 4),
-      ).status,
-    ).toBe('path')
+    expect(world.queryPath(start, goal).status).toBe('unreachable')
   })
 
   it('reconnects components after a wall breach', () => {
