@@ -6,12 +6,14 @@ export type DamageableObstacleKind =
   | 'palisade'
   | 'gate'
   | 'chevaux_de_frise'
+  | 'tent'
 
 export const DAMAGEABLE_OBSTACLE_HP: Readonly<Record<DamageableObstacleKind, number>> = {
   tree: 180,
   palisade: 260,
   gate: 520,
   chevaux_de_frise: 160,
+  tent: 120,
 }
 
 export interface DamageableObstacleOptions {
@@ -27,6 +29,7 @@ export const DAMAGEABLE_OBSTACLE_NAMES: Readonly<Record<DamageableObstacleKind, 
   palisade: 'Palisade',
   gate: 'Gate',
   chevaux_de_frise: 'Chevaux-de-frise',
+  tent: 'Tent',
 }
 
 export interface DamageableObstacleHitResult {
