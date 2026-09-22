@@ -250,7 +250,7 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 
 export class Game {
   static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
-    const query = startupQuery
+    const query = new URLSearchParams(window.location.search)
     const activeProbe = getActiveRenderProbe(query)
     const perfNoShadow = activeProbe === 'no-shadow'
     const perfHalfResolution = activeProbe === 'half-resolution'
@@ -511,7 +511,7 @@ export class Game {
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
-    const query = new URLSearchParams(window.location.search)
+    const query = startupQuery
     this.isDevCombat = query.has('devcombat')
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = query.get('devmodels')
