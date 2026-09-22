@@ -65,6 +65,58 @@ describe('SpatialGrid getNearbyInto & Reusable Buffer', () => {
   })
 })
 
+describe('SpatialGrid findNearest', () => {
+  it('expands across cells, filters candidates, and returns the nearest match', () => {
+    const grid = new SpatialGrid<TestEntity>(20)
+    const ignored = new TestEntity('ignored', new THREE.Vector3(2, 0, 0))
+    const near = new TestEntity('near', new THREE.Vector3(21, 0, 0))
+    const far = new TestEntity('far', new THREE.Vector3(65, 0, 0))
+
+    grid.insert(ignored)
+    grid.insert(near)
+    grid.insert(far)
+
+    const result = grid.findNearest(
+      new THREE.Vector3(0, 0, 0),
+      entity => entity.id !== 'ignored',
+    )
+
+    expect(result).toBe(near)
+  })
+
+  it('preserves insertion order for equal-distance candidates', () => {
+    const grid = new SpatialGrid<TestEntity>(20)
+    const first = new TestEntity('first', new THREE.Vector3(21, 0, 0))
+    const second = new TestEntity('second', new THREE.Vector3(-21, 0, 0))
+
+    grid.insert(first)
+    grid.insert(second)
+
+    expect(grid.findNearest(new THREE.Vector3(0, 0, 0))).toBe(first)
+  })
+
+  it('stops expanding once unvisited cells cannot contain a closer entity', () => {
+    const grid = new SpatialGrid<TestEntity>(20)
+    const near = new TestEntity('near', new THREE.Vector3(1, 0, 1))
+    const far = new TestEntity('far', new THREE.Vector3(150, 0, 150))
+    grid.insert(near)
+    grid.insert(far)
+
+    const visited: string[] = []
+    const result = grid.findNearest(
+      new THREE.Vector3(0, 0, 0),
+      entity => {
+        visited.push(entity.id)
+        return true
+      },
+    )
+
+    expect(result).toBe(near)
+    expect(visited).toContain('near')
+    expect(visited).not.toContain('far')
+  })
+})
+
 describe('NPC Separation & Query Range Contracts', () => {
   it('exports valid separation radius and query radius constants', () => {
     expect(NPC_SEPARATION_RADIUS).toBe(1.2)

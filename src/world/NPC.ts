@@ -7,6 +7,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 import * as THREE from 'three'
 import { DeathFadeController } from './DeathFade'
 import type { Player } from '../player/Player'
+import type { SpatialGrid } from './SpatialGrid'
 import type { HpBar } from '../ui/HpBar'
 import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
@@ -723,8 +724,8 @@ export class NPC {
     return false
   }
 
-  private _acquireTarget(player: Player, allNPCs: NPC[]): void {
-    const target = this._findTarget(player, allNPCs)
+  private _acquireTarget(player: Player, allNPCs: NPC[], hostileNpcGrid: SpatialGrid<NPC> | null): void {
+    const target = this._findTarget(player, allNPCs, hostileNpcGrid)
     if (target === null) {
       this._cachedTargetIsPlayer = false
       this._cachedTargetNpc = null
@@ -738,22 +739,23 @@ export class NPC {
     dt: number,
     player: Player,
     allNPCs: NPC[],
+    hostileNpcGrid: SpatialGrid<NPC> | null = null,
   ): { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null {
     if (!this._targetAcquisitionInitialized) {
       this._targetAcquisitionInitialized = true
-      this._acquireTarget(player, allNPCs)
+      this._acquireTarget(player, allNPCs, hostileNpcGrid)
       this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
     } else {
       const hadTarget = this._cachedTargetIsPlayer || this._cachedTargetNpc !== null
       const targetValid = this._isCachedTargetValid(player)
 
       if (hadTarget && !targetValid) {
-        this._acquireTarget(player, allNPCs)
+        this._acquireTarget(player, allNPCs, hostileNpcGrid)
         this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
       } else {
         this._targetReacquireTimer -= dt
         if (this._targetReacquireTimer <= 0) {
-          this._acquireTarget(player, allNPCs)
+          this._acquireTarget(player, allNPCs, hostileNpcGrid)
           this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
           while (this._targetReacquireTimer <= 0) {
             this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
@@ -780,11 +782,15 @@ export class NPC {
     return null
   }
 
-  private _findTarget(player: Player, allNPCs: NPC[]): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
+  private _findTarget(
+    player: Player,
+    allNPCs: NPC[],
+    hostileNpcGrid: SpatialGrid<NPC> | null = null,
+  ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     let closestTarget = null
     let closestDistSq = Infinity
 
-    // Check Player
+    // Check Player separately because Player is not stored in the NPC spatial grids.
     if (this.faction === Faction.ENEMY && player.targetable) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const dSq = this.combatPosition.distanceToSquared(playerPos)
@@ -794,14 +800,29 @@ export class NPC {
       }
     }
 
-    // Check NPCs
-    for (let i = 0; i < allNPCs.length; i++) {
-      const npc = allNPCs[i]
-      if (npc === this || npc.dead || npc.faction === this.faction) continue
-      const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
-      if (dSq < closestDistSq) {
-        closestDistSq = dSq
-        closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
+    if (hostileNpcGrid) {
+      // Production path: the supplied grid contains only the opposing faction.
+      const npc = hostileNpcGrid.findNearest(
+        this.combatPosition,
+        candidate => !candidate.dead && candidate.faction !== this.faction,
+      )
+      if (npc) {
+        const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
+        if (dSq < closestDistSq) {
+          closestDistSq = dSq
+          closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
+        }
+      }
+    } else {
+      // Compatibility fallback for isolated tests/dev callers that do not own a grid.
+      for (let i = 0; i < allNPCs.length; i++) {
+        const npc = allNPCs[i]
+        if (npc === this || npc.dead || npc.faction === this.faction) continue
+        const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
+        if (dSq < closestDistSq) {
+          closestDistSq = dSq
+          closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
+        }
       }
     }
 
@@ -820,7 +841,8 @@ export class NPC {
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
-    _collector: NpcSubphaseCollector | null = null
+    _collector: NpcSubphaseCollector | null = null,
+    hostileNpcGrid: SpatialGrid<NPC> | null = null,
   ): void {
     if (this.state === AIState.DEAD) {
       if (import.meta.env.DEV && _collector) { var _tDead = performance.now() }
@@ -855,7 +877,7 @@ export class NPC {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
-      const targetInfo = this._getTarget(dt, player, allNPCs)
+      const targetInfo = this._getTarget(dt, player, allNPCs, hostileNpcGrid)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
 
       // Releasing the projectile does not end the imported release clip. Keep its

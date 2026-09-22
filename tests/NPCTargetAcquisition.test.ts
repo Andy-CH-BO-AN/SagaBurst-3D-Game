@@ -3,11 +3,20 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { NPC, Faction, AIType, AIState, TARGET_REACQUIRE_INTERVAL, computeDeterministicPhase } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
+import { SpatialGrid } from '../src/world/SpatialGrid'
 
 describe('NPC Target Acquisition Caching & Staggered Reacquisition', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
+
+  function buildHostileGrid(npc: NPC, npcs: NPC[]): SpatialGrid<NPC> {
+    const grid = new SpatialGrid<NPC>(20)
+    for (const candidate of npcs) {
+      if (!candidate.dead && candidate.faction !== npc.faction) grid.insert(candidate)
+    }
+    return grid
+  }
 
   function updateNpc(npc: NPC, player: Player, npcs: NPC[], dt = 0.016) {
     npc.update(
@@ -20,8 +29,33 @@ describe('NPC Target Acquisition Caching & Staggered Reacquisition', () => {
       () => {},
       () => {},
       true,
+      0,
+      null,
+      buildHostileGrid(npc, npcs),
     )
   }
+
+  it('uses the hostile-only spatial grid and matches brute-force nearest-target selection', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    player.setPosition(0, 0, -100)
+
+    const npc = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'VikingGrid', 1, false)
+    const friendlyNear = new NPC(scene, 0, 1, Faction.PLAYER, 'viking', AIType.MELEE, 'FriendlyNear', 1, false)
+    const enemyFar = new NPC(scene, 0, 45, Faction.ENEMY, 'roman', AIType.MELEE, 'EnemyFar', 1, false)
+    const enemyNear = new NPC(scene, 21, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'EnemyNear', 1, false)
+    const allNPCs = [npc, friendlyNear, enemyFar, enemyNear]
+    const hostileGrid = buildHostileGrid(npc, allNPCs)
+    const nearestSpy = vi.spyOn(hostileGrid, 'findNearest')
+
+    const spatialTarget = (npc as any)._findTarget(player, allNPCs, hostileGrid)
+    const bruteForceTarget = (npc as any)._findTarget(player, allNPCs, null)
+
+    expect(nearestSpy).toHaveBeenCalledTimes(1)
+    expect(spatialTarget?.npc).toBe(enemyNear)
+    expect(spatialTarget?.npc).toBe(bruteForceTarget?.npc)
+    expect(spatialTarget?.npc).not.toBe(friendlyNear)
+  })
 
   it('performs immediate target acquisition on first update and initializes staggered phase timer', () => {
     const scene = new THREE.Scene()
