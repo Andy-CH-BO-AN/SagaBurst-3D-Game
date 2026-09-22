@@ -17,7 +17,7 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
   backDistance: 180,
   halfWidth: 44,
   gateWidth: 8,
-  stakeLineDistance: 129,
+  stakeLineDistance: 102,
 } as const
 
 export interface CampaignOutpostPlacement {
