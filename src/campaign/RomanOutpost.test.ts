@@ -24,19 +24,24 @@ describe('RomanOutpost', () => {
     expect(gateObstacle!.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(ROMAN_OUTPOST_LAYOUT.frontZ)
   })
 
-  it('removes destroyed structures from collision and hit-mesh collections', () => {
+  it('removes destroyed structures from the shared live collision collections', () => {
     const scene = new THREE.Scene()
-    const outpost = createRomanOutpost(scene)
-    const obstacleCount = outpost.obstacles.length
-    const meshCount = outpost.obstacleMeshes.length
+    const sharedObstacles: ReturnType<typeof createRomanOutpost>['obstacles'] = []
+    const sharedObstacleMeshes: ReturnType<typeof createRomanOutpost>['obstacleMeshes'] = []
+    const outpost = createRomanOutpost(scene, {
+      obstacles: sharedObstacles,
+      obstacleMeshes: sharedObstacleMeshes,
+    })
+    const obstacleCount = sharedObstacles.length
+    const meshCount = sharedObstacleMeshes.length
     const gateHitMeshCount = outpost.gate.hitMeshes.length
 
     outpost.gate.takeDamage(outpost.gate.maxHp)
 
     expect(outpost.gate.destroyed).toBe(true)
-    expect(outpost.obstacles).toHaveLength(obstacleCount - 1)
-    expect(outpost.obstacleMeshes).toHaveLength(meshCount - gateHitMeshCount)
-    expect(outpost.obstacles.some(obstacle => obstacle.damageable === outpost.gate)).toBe(false)
+    expect(sharedObstacles).toHaveLength(obstacleCount - 1)
+    expect(sharedObstacleMeshes).toHaveLength(meshCount - gateHitMeshCount)
+    expect(sharedObstacles.some(obstacle => obstacle.damageable === outpost.gate)).toBe(false)
   })
 
   it('keeps tents and campfires decorative rather than collision obstacles', () => {
