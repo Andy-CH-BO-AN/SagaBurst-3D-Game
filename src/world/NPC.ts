@@ -899,7 +899,6 @@ export class NPC {
     return Boolean(
       damageable
       && !damageable.destroyed
-      && damageable.isDamageableBy(this.characterFaction),
     )
   }
 
