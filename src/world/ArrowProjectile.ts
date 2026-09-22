@@ -231,21 +231,17 @@ export class ArrowProjectile {
 
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
-      const attackerFaction = this.shooterFaction === Faction.PLAYER
-        ? player.characterFaction
-        : player.characterFaction === 'roman'
-          ? 'viking'
-          : 'roman'
-
       for (const obs of obstacles) {
         if (!obstacleContainsProjectilePoint(obs, this.mesh.position)) continue
 
         const damageable = obs.damageable
-        if (
-          damageable
+        const canDamageObstacle = damageable
           && !damageable.destroyed
-          && damageable.isDamageableBy(attackerFaction)
-        ) {
+          && (
+            !this.isPlayerFired
+            || damageable.isDamageableBy(player.characterFaction)
+          )
+        if (canDamageObstacle) {
           const result = damageable.takeDamage(this.damage)
           if (result.appliedDamage > 0) {
             onHitObstacle?.(
