@@ -653,6 +653,7 @@ export class NPC {
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
     this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this.tacticalOrder = order
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
@@ -662,6 +663,7 @@ export class NPC {
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
     if (this.dead) return
     this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
     this.tacticalOrder = 'formation'
     this.formationTarget = {
@@ -752,6 +754,7 @@ export class NPC {
     if (this.currentHp <= 0) {
       this.formationTarget = null
       this._clearObstacleDetour()
+      this._clearSiegeFallback()
       this.dismountFromMount()
       this.state = AIState.DEAD
       this.deathFade.start(this.group)
@@ -1150,6 +1153,7 @@ export class NPC {
       || previousNpc !== this._cachedTargetNpc
     ) {
       this._clearObstacleDetour()
+      this._clearSiegeFallback()
     }
   }
 
@@ -1191,8 +1195,13 @@ export class NPC {
 
       if (hadTarget && !targetValid) {
         // Invalid targets are never delayed by the AI LOD cadence.
+        this._rangedVisibleTargetHoldFrames = 0
         this._acquireTarget(player, allNPCs, hostileNpcGrid)
         this._scheduleTargetReacquire(player, true)
+      } else if (targetValid && this._rangedVisibleTargetHoldFrames > 0) {
+        // A visible alternate target should not immediately snap back to the
+        // nearer but wall-blocked target on the next reacquisition frame.
+        this._rangedVisibleTargetHoldFrames -= 1
       } else {
         const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
 
@@ -1909,6 +1918,8 @@ export class NPC {
   respawn(): void {
     this.deathFade.reset(this.group)
     this.formationTarget = null
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
@@ -1934,6 +1945,7 @@ export class NPC {
     this.alertSprite.visible = false
     this._cachedTargetIsPlayer = false
     this._cachedTargetNpc = null
+    this._rangedVisibleTargetHoldFrames = 0
     this._targetAcquisitionInitialized = false
     this._targetReacquireTimer = 0
     for (const cb of this.onRespawnCallbacks) cb(this)
