@@ -106,6 +106,7 @@ import {
   PRESET_SCENARIO_G,
   PRESET_SCENARIO_H,
   PRESET_SCENARIO_I,
+  PRESET_SCENARIO_J,
 } from './battle/BattleConfig'
 import {
   getActiveRenderProbe,
@@ -489,10 +490,15 @@ export class Game {
 
     // ── World ──
     const startupQuery = new URLSearchParams(window.location.search)
+    const startupDevCombat = startupQuery.get('devcombat')?.toLowerCase() ?? null
+    const isRomanDefenseDevScenario = import.meta.env.DEV
+      && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
     const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
-    const previewOutpostFaction = previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
-      ? previewOutpostQuery
-      : null
+    const previewOutpostFaction = isRomanDefenseDevScenario
+      ? 'roman'
+      : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+        ? previewOutpostQuery
+        : null
 
     createSky(this.scene, resolveShadowMapSize(startupQuery))
     const {
@@ -542,11 +548,13 @@ export class Game {
 
     // ── Player & Input ──
     const playerFaction = battleConfig?.playerFaction
-      ?? (previewOutpostFaction === 'roman'
-        ? 'viking'
-        : previewOutpostFaction === 'viking'
-          ? 'roman'
-          : 'viking')
+      ?? (isRomanDefenseDevScenario
+        ? 'roman'
+        : previewOutpostFaction === 'roman'
+          ? 'viking'
+          : previewOutpostFaction === 'viking'
+            ? 'roman'
+            : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
     this.player = new Player(this.scene, playerFaction)
@@ -594,6 +602,8 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_H
       } else if (devVal === 'i' || devVal === 'scenarioi') {
         scenarioConfig = PRESET_SCENARIO_I
+      } else if (devVal === 'j' || devVal === 'scenarioj') {
+        scenarioConfig = PRESET_SCENARIO_J
       }
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
@@ -616,7 +626,11 @@ export class Game {
         const placement = getCampaignOutpostPlacement(previewOutpostFaction)
         return {
           x: placement.centerX,
-          z: placement.frontZ - Math.sign(placement.frontZ) * 11,
+          // Scenario J is a Roman defense test, so place the player behind the
+          // front gate. Other outpost previews keep the historical attacker-side spawn.
+          z: isRomanDefenseDevScenario
+            ? placement.frontZ + Math.sign(placement.frontZ) * 11
+            : placement.frontZ - Math.sign(placement.frontZ) * 11,
         }
       })()
       : damageableTreePreview
@@ -663,9 +677,18 @@ export class Game {
     // ── Combat & Enemies ──
     if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
-      // DEV combat is a controllable test battlefield: both armies hold their
-      // starting ground until a command or nearby threat gives them work.
-      for (const npc of this.npcs) npc.setTacticalOrder('defend')
+      if (isRomanDefenseDevScenario) {
+        // Siege scenario J starts immediately: Roman defenders hold the fort,
+        // while Viking attackers advance and let Breach Proxy choose the gate.
+        for (const npc of this.npcs) {
+          npc.setTacticalOrder(
+            npc.characterFaction === 'roman' ? 'defend' : 'attack',
+          )
+        }
+      } else {
+        // Other DEV combat scenarios remain controllable test battlefields.
+        for (const npc of this.npcs) npc.setTacticalOrder('defend')
+      }
       if (this.activeRenderProbe === 'simple-material') {
         applyDevSimpleMaterials(this.npcs, this.mounts)
       }
