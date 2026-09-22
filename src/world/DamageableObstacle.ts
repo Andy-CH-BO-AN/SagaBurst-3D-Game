@@ -7,6 +7,13 @@ export type DamageableObstacleKind =
   | 'gate'
   | 'chevaux_de_frise'
 
+export const DAMAGEABLE_OBSTACLE_HP: Readonly<Record<DamageableObstacleKind, number>> = {
+  tree: 180,
+  palisade: 260,
+  gate: 520,
+  chevaux_de_frise: 160,
+}
+
 export interface DamageableObstacleOptions {
   kind: DamageableObstacleKind
   maxHp: number
