@@ -63,7 +63,6 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import {
   getSiegeFallbackDelay,
   isFortificationKind,
-  selectFortificationBreachTarget,
 } from '../combat/SiegePolicy'
 
 export enum AIState {
@@ -297,7 +296,6 @@ export class NPC {
   // NPCs never run a global "find a structure to attack" scan.
   private _siegeCandidateObstacle: ObstacleData | null = null
   private _siegeTargetObstacle: ObstacleData | null = null
-  private _siegeTargetMode: 'fallback' | 'fortification' | null = null
   private _siegeBlockedElapsed = 0
   private readonly _siegeProgressAnchor = new THREE.Vector3()
   private readonly _tmpSiegeTarget = new THREE.Vector3()
@@ -904,7 +902,6 @@ export class NPC {
   private _clearSiegeFallback(): void {
     this._siegeCandidateObstacle = null
     this._siegeTargetObstacle = null
-    this._siegeTargetMode = null
     this._siegeBlockedElapsed = 0
     this._siegeProgressAnchor.copy(this.combatPosition)
   }
@@ -930,27 +927,44 @@ export class NPC {
       : NPC_SIEGE_FOOT_PROGRESS_DISTANCE
   }
 
-  private _activateFortificationBreach(
+  private _activateDirectFortification(
     blocker: ObstacleData | null,
-    obstacles: ObstacleData[],
   ): boolean {
-    const breachTarget = selectFortificationBreachTarget(
-      this.characterFaction,
-      this.combatPosition,
-      blocker,
-      obstacles,
-    )
-    if (!breachTarget) return false
+    if (
+      !this._isAttackableObstacle(blocker)
+      || !isFortificationKind(blocker.damageable!.kind)
+    ) {
+      return false
+    }
 
     this._siegeCandidateObstacle = null
-    this._siegeTargetObstacle = breachTarget
-    this._siegeTargetMode = 'fortification'
+    this._siegeTargetObstacle = blocker
     this._siegeBlockedElapsed = 0
     this._siegeProgressAnchor.copy(this.combatPosition)
     this._clearObstacleDetour()
     this.attackTimer = 0
     this.attackHitProcessed = false
     return true
+  }
+
+  private _findDirectFortificationBlocker(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    const blocker = findBlockingObstacleAlongPath(
+      this.combatPosition,
+      humanTarget,
+      this._movementObstacleRadius(),
+      this._movementObstacleHeight(),
+      0,
+      obstacles,
+    )
+    return (
+      this._isAttackableObstacle(blocker)
+      && isFortificationKind(blocker.damageable!.kind)
+    )
+      ? blocker
+      : null
   }
 
   private _distanceToObstacleXZ(obstacle: ObstacleData): number {
@@ -1022,12 +1036,10 @@ export class NPC {
       return
     }
 
-    // Enemy fortifications are deliberate breach targets, not generic clutter.
-    // Do not waste several seconds trying to walk the whole perimeter while
-    // defenders shoot from inside. Nearby attackers converge on the cached gate;
-    // flankers may open a local wall instead.
+    // Enemy fortifications are immediate direct blockers. Unlike trees/tents,
+    // they never wait for a "stuck" timer.
     if (isFortificationKind(blocker.damageable!.kind)) {
-      this._activateFortificationBreach(blocker, obstacles)
+      this._activateDirectFortification(blocker)
       return
     }
 
@@ -1061,7 +1073,6 @@ export class NPC {
       >= getSiegeFallbackDelay(blocker.damageable!.kind)
     ) {
       this._siegeTargetObstacle = blocker
-      this._siegeTargetMode = 'fallback'
       this._siegeCandidateObstacle = null
       this._siegeBlockedElapsed = 0
       this._siegeProgressAnchor.copy(this.combatPosition)
@@ -1075,7 +1086,7 @@ export class NPC {
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
   ): ObstacleData | null {
-    let siegeTarget = this._siegeTargetObstacle
+    const siegeTarget = this._siegeTargetObstacle
     if (!this._isAttackableObstacle(siegeTarget)) {
       this._clearSiegeFallback()
       return null
@@ -1090,46 +1101,30 @@ export class NPC {
       obstacles,
     )
 
-    // Once the human becomes directly reachable, people immediately regain
-    // priority over every structure.
     if (blocker === null) {
+      // Route to the human is open again: immediately stop attacking structures.
       this._clearSiegeFallback()
       return null
     }
 
-    if (this._siegeTargetMode === 'fortification') {
-      const breachPoint = this._getObstacleAttackPoint(
-        siegeTarget,
-        this._tmpSiegeTarget,
-      )
-      const prerequisite = findBlockingObstacleAlongPath(
-        this.combatPosition,
-        breachPoint,
-        this._movementObstacleRadius(),
-        this._movementObstacleHeight(),
-        0,
-        obstacles,
-        this._detourLookAhead() * 2,
-      )
-
-      // If another enemy defensive work physically blocks the selected breach
-      // point (for example chevaux-de-frise in front of the gate), clear that
-      // prerequisite first instead of walking into it forever.
+    if (isFortificationKind(siegeTarget.damageable!.kind)) {
+      // Keep the rule local and deterministic: attack whichever hostile
+      // fortification is currently the first blocker on the route to the human.
       if (
-        prerequisite
-        && prerequisite !== siegeTarget
-        && this._isAttackableObstacle(prerequisite)
-        && isFortificationKind(prerequisite.damageable!.kind)
+        this._isAttackableObstacle(blocker)
+        && isFortificationKind(blocker.damageable!.kind)
       ) {
-        this._siegeTargetObstacle = prerequisite
-        siegeTarget = prerequisite
+        this._siegeTargetObstacle = blocker
+        return blocker
       }
 
-      return siegeTarget
+      this._clearSiegeFallback()
+      return null
     }
 
     if (blocker !== siegeTarget) {
-      // Non-fortification destruction remains a local navigation fallback only.
+      // Trees/tents/campfires only remain targets while they are still the
+      // exact local navigation blocker that caused the delayed fallback.
       this._clearSiegeFallback()
       return null
     }
