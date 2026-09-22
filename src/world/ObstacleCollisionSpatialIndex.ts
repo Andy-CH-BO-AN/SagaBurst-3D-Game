@@ -15,6 +15,7 @@ export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
 export class ObstacleCollisionSpatialIndex {
   private readonly cells = new Map<string, number[]>()
   private readonly queryBuffer: ObstacleData[] = []
+  private readonly queryIndices: number[] = []
   private obstacles: readonly ObstacleData[] = []
   private seenStamp = new Uint32Array(0)
   private queryStamp = 0
@@ -57,6 +58,7 @@ export class ObstacleCollisionSpatialIndex {
     radius: number,
   ): readonly ObstacleData[] {
     this.queryBuffer.length = 0
+    this.queryIndices.length = 0
     if (this.obstacles.length === 0) return this.queryBuffer
 
     const minCellX = Math.floor(
@@ -83,9 +85,26 @@ export class ObstacleCollisionSpatialIndex {
           const obstacleIndex = cell[i]
           if (this.seenStamp[obstacleIndex] === stamp) continue
           this.seenStamp[obstacleIndex] = stamp
-          this.queryBuffer.push(this.obstacles[obstacleIndex])
+          this.queryIndices.push(obstacleIndex)
         }
       }
+    }
+
+    // Preserve the original shared obstacle-array order. Collision push-out can
+    // be order-sensitive when an actor touches two adjacent boxes, so the broad
+    // phase must only remove impossible obstacles, never reorder candidates.
+    for (let i = 1; i < this.queryIndices.length; i++) {
+      const value = this.queryIndices[i]
+      let j = i - 1
+      while (j >= 0 && this.queryIndices[j] > value) {
+        this.queryIndices[j + 1] = this.queryIndices[j]
+        j--
+      }
+      this.queryIndices[j + 1] = value
+    }
+
+    for (let i = 0; i < this.queryIndices.length; i++) {
+      this.queryBuffer.push(this.obstacles[this.queryIndices[i]])
     }
 
     return this.queryBuffer
