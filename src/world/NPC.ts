@@ -9,7 +9,17 @@ import { DeathFadeController } from './DeathFade'
 import type { Player } from '../player/Player'
 import type { SpatialGrid } from './SpatialGrid'
 import type { HpBar } from '../ui/HpBar'
-import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import {
+  clampToPlayableWorld,
+  findBlockingObstacleAlongPath,
+  findObstacleDetourPlan,
+  getObstacleAvoidanceDirection,
+  getTerrainHeight,
+  ObstacleData,
+  resolveObstacleCollision,
+  type ObstacleDetourPlan,
+  type ObstacleDetourSide,
+} from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
@@ -79,6 +89,16 @@ const FORMATION_MOVE_SPEED = CHASE_SPEED
 const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
+
+const NPC_FOOT_OBSTACLE_RADIUS = 0.5
+const NPC_FOOT_OBSTACLE_HEIGHT = 2.3
+const NPC_MOUNTED_OBSTACLE_RADIUS = 1.0
+const NPC_MOUNTED_OBSTACLE_HEIGHT = 2.6
+const NPC_DETOUR_FOOT_LOOKAHEAD = 5.0
+const NPC_DETOUR_MOUNTED_LOOKAHEAD = 8.0
+const NPC_DETOUR_STUCK_SECONDS = 0.75
+const NPC_DETOUR_FOOT_PROGRESS_DISTANCE = 0.25
+const NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE = 0.45
 
 export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
 export const TARGET_REACQUIRE_MID_DISTANCE = 100
@@ -257,6 +277,12 @@ export class NPC {
   private _targetReacquireFramesRemaining: number = 0
   private _targetReacquireIntervalFrames: number = TARGET_REACQUIRE_FAR_FRAMES
   private readonly _initialStaggerPhase: number
+  private readonly _detourWaypoint = new THREE.Vector3()
+  private readonly _detourProgressAnchor = new THREE.Vector3()
+  private _detourActive = false
+  private _detourObstacle: ObstacleData | null = null
+  private _detourSide: ObstacleDetourSide = 1
+  private _detourStuckElapsed = 0
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -608,6 +634,7 @@ export class NPC {
 
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
+    this._clearObstacleDetour()
     this.tacticalOrder = order
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
@@ -616,6 +643,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
     if (this.dead) return
+    this._clearObstacleDetour()
     this._cancelEquipmentCombatState()
     this.tacticalOrder = 'formation'
     this.formationTarget = {
@@ -705,6 +733,7 @@ export class NPC {
 
     if (this.currentHp <= 0) {
       this.formationTarget = null
+      this._clearObstacleDetour()
       this.dismountFromMount()
       this.state = AIState.DEAD
       this.deathFade.start(this.group)
@@ -717,6 +746,133 @@ export class NPC {
       for (const cb of this.onDeathCallbacks) cb(this)
     }
     return true
+  }
+
+  private _movementObstacleRadius(): number {
+    return this.isMounted ? NPC_MOUNTED_OBSTACLE_RADIUS : NPC_FOOT_OBSTACLE_RADIUS
+  }
+
+  private _movementObstacleHeight(): number {
+    return this.isMounted ? NPC_MOUNTED_OBSTACLE_HEIGHT : NPC_FOOT_OBSTACLE_HEIGHT
+  }
+
+  private _detourLookAhead(): number {
+    return this.isMounted ? NPC_DETOUR_MOUNTED_LOOKAHEAD : NPC_DETOUR_FOOT_LOOKAHEAD
+  }
+
+  private _detourProgressDistance(): number {
+    return this.isMounted ? NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE : NPC_DETOUR_FOOT_PROGRESS_DISTANCE
+  }
+
+  private _clearObstacleDetour(): void {
+    this._detourActive = false
+    this._detourObstacle = null
+    this._detourStuckElapsed = 0
+  }
+
+  private _activateObstacleDetour(plan: ObstacleDetourPlan): void {
+    this._detourActive = true
+    this._detourObstacle = plan.obstacle
+    this._detourSide = plan.side
+    this._detourWaypoint.copy(plan.waypoint)
+    this._detourProgressAnchor.copy(this.combatPosition)
+    this._detourStuckElapsed = 0
+  }
+
+  private _applyPersistentObstacleDetour(
+    moveDir: THREE.Vector3,
+    target: THREE.Vector3,
+    dt: number,
+    obstacles: ObstacleData[],
+  ): void {
+    const position = this.combatPosition
+    const radius = this._movementObstacleRadius()
+    const height = this._movementObstacleHeight()
+    const lookAhead = this._detourLookAhead()
+    const arrivalDistance = this.isMounted ? 1.1 : 0.65
+
+    if (this._detourActive) {
+      // Stop following the old waypoint as soon as its obstacle is no longer the
+      // first blocker on the direct route. A different farther obstacle will get
+      // its own detour only when it enters local look-ahead range.
+      const directBlocker = findBlockingObstacleAlongPath(
+        position,
+        target,
+        radius,
+        height,
+        0,
+        obstacles,
+      )
+      if (directBlocker !== this._detourObstacle) {
+        this._clearObstacleDetour()
+      } else {
+        const progressDistance = this._detourProgressDistance()
+        if (position.distanceToSquared(this._detourProgressAnchor) >= progressDistance * progressDistance) {
+          this._detourProgressAnchor.copy(position)
+          this._detourStuckElapsed = 0
+        } else {
+          this._detourStuckElapsed += dt
+        }
+
+        // No meaningful progress while detouring: explicitly try the opposite side.
+        if (this._detourStuckElapsed >= NPC_DETOUR_STUCK_SECONDS) {
+          const alternateSide: ObstacleDetourSide = this._detourSide === 1 ? -1 : 1
+          const alternatePlan = findObstacleDetourPlan(
+            position,
+            target,
+            radius,
+            height,
+            0,
+            obstacles,
+            alternateSide,
+            lookAhead * 2,
+          )
+          if (alternatePlan) {
+            this._activateObstacleDetour(alternatePlan)
+          } else {
+            this._clearObstacleDetour()
+          }
+        }
+
+        if (
+          this._detourActive
+          && position.distanceToSquared(this._detourWaypoint) <= arrivalDistance * arrivalDistance
+        ) {
+          const nextPlan = findObstacleDetourPlan(
+            position,
+            target,
+            radius,
+            height,
+            0,
+            obstacles,
+            this._detourSide,
+            lookAhead,
+          )
+          if (nextPlan) this._activateObstacleDetour(nextPlan)
+          else this._clearObstacleDetour()
+        }
+      }
+    }
+
+    if (!this._detourActive) {
+      const plan = findObstacleDetourPlan(
+        position,
+        target,
+        radius,
+        height,
+        0,
+        obstacles,
+        undefined,
+        lookAhead,
+      )
+      if (plan) this._activateObstacleDetour(plan)
+    }
+
+    if (this._detourActive) {
+      moveDir.copy(this._detourWaypoint).sub(position)
+      moveDir.y = 0
+      if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
+    }
   }
 
   private _getPlayerPosition(player: Player, out: THREE.Vector3): THREE.Vector3 {
@@ -737,6 +893,8 @@ export class NPC {
   }
 
   private _acquireTarget(player: Player, allNPCs: NPC[], hostileNpcGrid: SpatialGrid<NPC> | null): void {
+    const previousIsPlayer = this._cachedTargetIsPlayer
+    const previousNpc = this._cachedTargetNpc
     const target = this._findTarget(player, allNPCs, hostileNpcGrid)
     if (target === null) {
       this._cachedTargetIsPlayer = false
@@ -744,6 +902,13 @@ export class NPC {
     } else {
       this._cachedTargetIsPlayer = target.isPlayer
       this._cachedTargetNpc = target.npc ?? null
+    }
+
+    if (
+      previousIsPlayer !== this._cachedTargetIsPlayer
+      || previousNpc !== this._cachedTargetNpc
+    ) {
+      this._clearObstacleDetour()
     }
   }
 
@@ -974,11 +1139,13 @@ export class NPC {
       case AIState.CHASE: {
         this.alertSprite.visible = false
         if (!targetInfo || targetInfo.isDead) {
+          this._clearObstacleDetour()
           this.state = AIState.IDLE
           break
         }
 
         if (this.tacticalOrder === 'defend') {
+          this._clearObstacleDetour()
           this.animator.cancel()
           this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
           break
@@ -986,6 +1153,7 @@ export class NPC {
 
         const dist = this.combatPosition.distanceTo(targetInfo.position)
         if (dist > DETECTION_RADIUS * 1.5) {
+          this._clearObstacleDetour()
           this.state = AIState.IDLE
           break
         }
@@ -1000,6 +1168,7 @@ export class NPC {
         if (this.hasActiveRangedWeapon) {
           // Ranged behavior
           if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
+            this._clearObstacleDetour()
             this.state = AIState.ATTACK
             this.attackTimer = 0
             break
@@ -1010,6 +1179,7 @@ export class NPC {
         } else {
           // Melee behavior
           if (this._isTargetInMeleeRange(targetInfo.position)) {
+            this._clearObstacleDetour()
             this.state = AIState.ATTACK
             this.attackTimer = 0
             this.attackHitProcessed = false
@@ -1025,8 +1195,13 @@ export class NPC {
         moveDir.y = 0
         moveDir.normalize()
 
-        // Boid separation & Obstacles
+        // Persistent detour chooses a stable waypoint for both infantry and cavalry.
+        // Separation and the existing short-range steering remain as local avoidance.
         if (!skipBoidsAndObstacles) {
+          if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
+          this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
+          if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+
           if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
           this._tmpSep.set(0, 0, 0)
           let sepCount = 0
@@ -1046,9 +1221,16 @@ export class NPC {
           }
           if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
 
-          if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
-          moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+          const obstacleRadius = this._movementObstacleRadius()
+          const obstacleHeight = this._movementObstacleHeight()
+          moveDir.copy(getObstacleAvoidanceDirection(
+            this.combatPosition,
+            moveDir,
+            obstacleRadius,
+            obstacleHeight,
+            0,
+            obstacles,
+          ))
         }
 
         // Face target before applying directional movement
@@ -1108,7 +1290,14 @@ export class NPC {
              moveDir.normalize()
              if (!skipBoidsAndObstacles) {
                if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
-               moveDir.copy(getObstacleAvoidanceDirection(this.group.position, moveDir, 0.5, 2.3, 0, obstacles))
+               moveDir.copy(getObstacleAvoidanceDirection(
+                 this.combatPosition,
+                 moveDir,
+                 this._movementObstacleRadius(),
+                 this._movementObstacleHeight(),
+                 0,
+                 obstacles,
+               ))
                if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
              }
              if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
@@ -1285,7 +1474,14 @@ export class NPC {
       dir.y = 0
       dir.normalize()
       if (!skipBoidsAndObstacles) {
-        dir.copy(getObstacleAvoidanceDirection(this.group.position, dir, 0.5, 2.3, 0, obstacles))
+        dir.copy(getObstacleAvoidanceDirection(
+          this.combatPosition,
+          dir,
+          this._movementObstacleRadius(),
+          this._movementObstacleHeight(),
+          0,
+          obstacles,
+        ))
       }
       this._faceTarget(target)
       this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
