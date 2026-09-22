@@ -94,7 +94,7 @@ describe('CampaignOutpost', () => {
     }
   })
 
-  it('renders palisades as spaced stakes while keeping continuous collision boxes', () => {
+  it('renders palisades as spaced stakes while keeping continuous actor collision', () => {
     const scene = new THREE.Scene()
     const outpost = createCampaignOutpost(scene, 'roman')
     const palisades = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'palisade')
@@ -110,6 +110,7 @@ describe('CampaignOutpost', () => {
       const obstacle = outpost.obstacles.find(candidate => candidate.damageable === palisade)
       expect(obstacle).toBeDefined()
       expect(obstacle!.box.getSize(new THREE.Vector3()).length()).toBeGreaterThan(1)
+      expect(obstacle!.projectileBoxes?.length).toBeGreaterThan(2)
     }
   })
 
