@@ -4,6 +4,8 @@
  * Exports getTerrainHeight(x, z) to calibrate all 3D entity & obstacle positions.
  */
 import * as THREE from 'three'
+import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
+import type { CharacterFaction } from './CharacterVisuals'
 
 export const TERRAIN_SIZE = 400
 export const PLAYABLE_WORLD_BOUND = 180
@@ -13,10 +15,50 @@ export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
   [18, -22], [-28, 18], [40, -5], [-12, 35], [25, 15],
 ]
 
+export const FORTIFIED_CAMP_HILL = {
+  centerAbsZ: 144,
+  radiusX: 22,
+  radiusZ: 18,
+  flatTopRatio: 0.35,
+  height: 3.5,
+} as const
+
+/**
+ * Smooth raised center shared by the Roman/Viking campaign camp locations.
+ * This is part of the battlefield terrain itself, so movement and visuals use
+ * the same getTerrainHeight() result without a separate collision platform.
+ */
+export function getFortifiedCampHeightOffset(
+  x: number,
+  z: number,
+  faction: CharacterFaction,
+): number {
+  const centerZ = faction === 'roman'
+    ? -FORTIFIED_CAMP_HILL.centerAbsZ
+    : FORTIFIED_CAMP_HILL.centerAbsZ
+  const normalizedX = x / FORTIFIED_CAMP_HILL.radiusX
+  const normalizedZ = (z - centerZ) / FORTIFIED_CAMP_HILL.radiusZ
+  const radius = Math.hypot(normalizedX, normalizedZ)
+
+  if (radius >= 1) return 0
+  if (radius <= FORTIFIED_CAMP_HILL.flatTopRatio) return FORTIFIED_CAMP_HILL.height
+
+  const t = (radius - FORTIFIED_CAMP_HILL.flatTopRatio)
+    / (1 - FORTIFIED_CAMP_HILL.flatTopRatio)
+  const smooth = t * t * (3 - 2 * t)
+  return FORTIFIED_CAMP_HILL.height * (1 - smooth)
+}
+
 /** Keeps actors on the rendered terrain while leaving a 20m safety margin at each edge. */
 export function clampToPlayableWorld(position: THREE.Vector3): void {
   position.x = THREE.MathUtils.clamp(position.x, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
   position.z = THREE.MathUtils.clamp(position.z, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
+}
+
+let activeFortifiedCampFaction: CharacterFaction | null = null
+
+export interface TerrainOptions {
+  fortifiedCampFaction?: CharacterFaction | null
 }
 
 /**
@@ -25,18 +67,30 @@ export function clampToPlayableWorld(position: THREE.Vector3): void {
 export function getTerrainHeight(x: number, z: number): number {
   const h1 = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 2.5
   const h2 = Math.sin(x * 0.09 + 1.2) * Math.cos(z * 0.08 + 0.5) * 1.2
-  return h1 + h2
+  const campOffset = activeFortifiedCampFaction
+    ? getFortifiedCampHeightOffset(x, z, activeFortifiedCampFaction)
+    : 0
+  return h1 + h2 + campOffset
 }
 
 export interface ObstacleData {
   box: THREE.Box3
   isBarricade: boolean
+  damageable?: DamageableObstacle
 }
 
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
   obstacles: ObstacleData[]
   obstacleMeshes: THREE.Object3D[]
+  damageableObstacles: DamageableObstacle[]
+}
+
+export function removeObstacleData(obstacles: ObstacleData[], obstacle: ObstacleData): boolean {
+  const index = obstacles.indexOf(obstacle)
+  if (index < 0) return false
+  obstacles.splice(index, 1)
+  return true
 }
 
 export interface ObstacleCollisionResult {
@@ -451,7 +505,11 @@ export function resolveObstacleCollision(
   return { velocityY, onGround }
 }
 
-export function createTerrain(scene: THREE.Scene): TerrainResult {
+export function createTerrain(
+  scene: THREE.Scene,
+  options: TerrainOptions = {},
+): TerrainResult {
+  activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
   // 400x400 Plane with 128x128 subdivisions for smooth hill curves
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 128, 128)
   geometry.rotateX(-Math.PI / 2)
@@ -480,37 +538,62 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
   const obstacles: ObstacleData[] = []
   const obstacleMeshes: THREE.Object3D[] = []
+  const damageableObstacles: DamageableObstacle[] = []
 
-  // ── Pine trees (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
+  // ── Pine trees (damageable, but AI destruction policy is implemented separately) ──
   const treeTrunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-  const treeLeafMat  = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  const treeLeafMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
+  const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
+  trunkGeo.computeBoundingSphere()
+  leavesGeo.computeBoundingSphere()
 
-  TERRAIN_TREE_POSITIONS.forEach(([tx, tz]) => {
+  TERRAIN_TREE_POSITIONS.forEach(([tx, tz], index) => {
     const terrainY = getTerrainHeight(tx, tz)
+    const root = new THREE.Group()
+    root.name = `damageable-tree-${index + 1}`
 
-    const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
-    trunkGeo.computeBoundingSphere()
     const trunk = new THREE.Mesh(trunkGeo, treeTrunkMat)
     trunk.position.set(tx, terrainY + 1, tz)
     trunk.castShadow = true
-    scene.add(trunk)
-    obstacleMeshes.push(trunk)
+    root.add(trunk)
 
-    const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
-    leavesGeo.computeBoundingSphere()
     const leaves = new THREE.Mesh(leavesGeo, treeLeafMat)
     leaves.position.set(tx, terrainY + 4, tz)
     leaves.castShadow = true
-    scene.add(leaves)
-    obstacleMeshes.push(leaves)
+    root.add(leaves)
 
-    // Trunk collision box calibrated to terrain height
+    scene.add(root)
+    obstacleMeshes.push(trunk, leaves)
+
     const box = new THREE.Box3(
       new THREE.Vector3(tx - 0.4, terrainY, tz - 0.4),
-      new THREE.Vector3(tx + 0.4, terrainY + 6, tz + 0.4)
+      new THREE.Vector3(tx + 0.4, terrainY + 6, tz + 0.4),
     )
-    obstacles.push({ box, isBarricade: false })
+    const damageable = new DamageableObstacle({
+      kind: 'tree',
+      maxHp: DAMAGEABLE_OBSTACLE_HP.tree,
+      root,
+      hitMeshes: [trunk, leaves],
+      ownerFaction: null,
+    })
+    const obstacle: ObstacleData = {
+      box,
+      isBarricade: false,
+      damageable,
+    }
+
+    damageable.onDestroyed(() => {
+      removeObstacleData(obstacles, obstacle)
+      for (const mesh of damageable.hitMeshes) {
+        const meshIndex = obstacleMeshes.indexOf(mesh)
+        if (meshIndex >= 0) obstacleMeshes.splice(meshIndex, 1)
+      }
+    })
+
+    obstacles.push(obstacle)
+    damageableObstacles.push(damageable)
   })
 
-  return { terrainMesh, obstacles, obstacleMeshes }
+  return { terrainMesh, obstacles, obstacleMeshes, damageableObstacles }
 }

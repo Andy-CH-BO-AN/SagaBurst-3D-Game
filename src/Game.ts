@@ -11,7 +11,7 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -122,6 +122,7 @@ import { SkillManager } from './rpg/SkillManager'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
+import { createCampaignOutpost, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -421,6 +422,10 @@ export class Game {
   private readonly _tmpPlayerForward = new THREE.Vector3()
   private readonly _tmpToTarget = new THREE.Vector3()
   private readonly _tmpAiCenter = new THREE.Vector3()
+  private readonly _tmpMeleeObstacleRay = new THREE.Ray()
+  private readonly _tmpMeleeObstacleBox = new THREE.Box3()
+  private readonly _tmpMeleeObstacleDirection = new THREE.Vector3()
+  private readonly _tmpMeleeObstacleHitPoint = new THREE.Vector3()
 
   private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
     this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
@@ -471,16 +476,52 @@ export class Game {
     this._aimRaycaster.layers.enable(AIM_RAYCAST_LAYER)
 
     // ── World ──
-    createSky(this.scene, resolveShadowMapSize(new URLSearchParams(window.location.search)))
-    const { terrainMesh, obstacles, obstacleMeshes } = createTerrain(this.scene)
+    const startupQuery = new URLSearchParams(window.location.search)
+    const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
+    const previewOutpostFaction = previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+      ? previewOutpostQuery
+      : null
+
+    createSky(this.scene, resolveShadowMapSize(startupQuery))
+    const {
+      terrainMesh,
+      obstacles,
+      obstacleMeshes,
+      damageableObstacles,
+    } = createTerrain(this.scene, {
+      fortifiedCampFaction: previewOutpostFaction,
+    })
+
+    // DEV-only visual/collision preview until Campaign runtime owns outpost creation.
+    if (previewOutpostFaction) {
+      const outpost = createCampaignOutpost(
+        this.scene,
+        previewOutpostFaction,
+        { obstacles, obstacleMeshes },
+      )
+      damageableObstacles.push(...outpost.damageableObstacles)
+    }
+
     this.obstacles = obstacles
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
     for (const obstacleMesh of obstacleMeshes) {
       this._aimTargetRegistry.addStaticTarget(obstacleMesh)
     }
+    for (const damageable of damageableObstacles) {
+      damageable.onDestroyed(() => {
+        for (const hitMesh of damageable.hitMeshes) {
+          this._aimTargetRegistry.removeStaticTarget(hitMesh)
+        }
+      })
+    }
 
     // ── Player & Input ──
-    const playerFaction = battleConfig?.playerFaction ?? 'viking'
+    const playerFaction = battleConfig?.playerFaction
+      ?? (previewOutpostFaction === 'roman'
+        ? 'viking'
+        : previewOutpostFaction === 'viking'
+          ? 'roman'
+          : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
     this.player = new Player(this.scene, playerFaction)
@@ -488,7 +529,7 @@ export class Game {
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
-    const query = new URLSearchParams(window.location.search)
+    const query = startupQuery
     this.isDevCombat = query.has('devcombat')
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = query.get('devmodels')
@@ -544,6 +585,22 @@ export class Game {
       this.player.group.visible = false
     }
 
+    const damageableTreePreview = import.meta.env.DEV && startupQuery.get('damageabletest') === 'tree'
+    const previewPlayerSpawn = previewOutpostFaction
+      ? (() => {
+        const placement = getCampaignOutpostPlacement(previewOutpostFaction)
+        return {
+          x: placement.centerX,
+          z: placement.frontZ - Math.sign(placement.frontZ) * 11,
+        }
+      })()
+      : damageableTreePreview
+        ? {
+          x: TERRAIN_TREE_POSITIONS[0][0],
+          z: TERRAIN_TREE_POSITIONS[0][1] + 4,
+        }
+        : null
+
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
     this.spectatorController = new SpectatorCameraController(this.camera)
@@ -555,7 +612,7 @@ export class Game {
       this.camera.lookAt(0, initY, -1)
       this.spectatorController.initFromCamera(this.camera)
     } else {
-      const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
+      const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const terrainY = getTerrainHeight(playerSpawn.x, playerSpawn.z)
       this.player.group.position.set(playerSpawn.x, terrainY + 0.95, playerSpawn.z)
       this.player.spawnX = playerSpawn.x
@@ -594,8 +651,8 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && shouldCreateStartingHorse(activeBattleConfig)) {
-      const playerSpawn = battlePlan?.playerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
+    if (!this.isModelStudio && !previewPlayerSpawn && shouldCreateStartingHorse(activeBattleConfig)) {
+      const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
         DEFAULT_MOUNT_TYPE,
@@ -1491,7 +1548,47 @@ export class Game {
     return { damage: result.damage, isCharge: result.skipImpact }
   }
 
-  // ── Melee Combat Hit Detection (Player Sword -> Enemies) ──
+  private _tryDamageObstacleWithMelee(
+    gripPosition: THREE.Vector3,
+    tipPosition: THREE.Vector3,
+    damage: number,
+  ): boolean {
+    const direction = this._tmpMeleeObstacleDirection.subVectors(tipPosition, gripPosition)
+    const segmentLength = direction.length()
+    if (segmentLength < 1e-6) return false
+    direction.multiplyScalar(1 / segmentLength)
+    this._tmpMeleeObstacleRay.set(gripPosition, direction)
+
+    for (const obstacle of this.obstacles) {
+      const damageable = obstacle.damageable
+      if (
+        !damageable
+        || damageable.destroyed
+        || !damageable.isDamageableBy(this.player.characterFaction)
+      ) {
+        continue
+      }
+
+      this._tmpMeleeObstacleBox.copy(obstacle.box).expandByScalar(0.45)
+      const hitPoint = this._tmpMeleeObstacleRay.intersectBox(
+        this._tmpMeleeObstacleBox,
+        this._tmpMeleeObstacleHitPoint,
+      )
+      if (!hitPoint || hitPoint.distanceTo(gripPosition) > segmentLength) continue
+
+      const result = damageable.takeDamage(damage)
+      if (result.appliedDamage <= 0) continue
+
+      this.player.markHitProcessed()
+      this.damageNumbers.spawn(Math.round(result.appliedDamage), hitPoint.clone())
+      this._showEnemyHud(damageable.displayName, result.hpRatio)
+      return true
+    }
+
+    return false
+  }
+
+  // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) return
     const equippedMelee = this.inventoryManager.equippedMelee
@@ -1521,6 +1618,7 @@ export class Game {
       const playerPos = this.player.combatPosition
       const playerForward = this._tmpPlayerForward.set(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))
 
+      let hitNpc = false
       for (const npc of this.npcs) {
         if (!npc.dead && npc.faction === Faction.ENEMY) {
           const aiCenter = this._tmpAiCenter.copy(npc.combatPosition)
@@ -1553,9 +1651,14 @@ export class Game {
               this._showEnemyHud(result.targetName, result.hpRatio)
               this.skillManager.addXp('oneHanded', 45, this.soundManager)
             }
+            hitNpc = true
             break
           }
         }
+      }
+
+      if (!hitNpc) {
+        this._tryDamageObstacleWithMelee(currGripPos, currTipPos, damage)
       }
       this.player.updatePrevLanceTip()
     } else {
@@ -1582,6 +1685,9 @@ export class Game {
           }
         }
       }
+
+      const swordGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
+      this._tryDamageObstacleWithMelee(swordGripPos, swordTipPos, damage)
     }
   }
 
@@ -2066,7 +2172,12 @@ export class Game {
           },
         )
       },
-      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
+      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+      (damage, hitPos, obstacle, hpRatio) => {
+        if (!arrow.isPlayerFired) return
+        this.damageNumbers.spawn(Math.round(damage), hitPos)
+        this._showEnemyHud(obstacle.displayName, hpRatio)
+      },
     )
 
       if (!arrow.isAlive) {
