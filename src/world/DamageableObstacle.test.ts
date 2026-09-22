@@ -53,6 +53,26 @@ describe('DamageableObstacle', () => {
     expect(obstacle.currentHp).toBe(DAMAGEABLE_OBSTACLE_HP.gate)
   })
 
+  it('allows neutral obstacles and enemy-owned structures but rejects friendly structures', () => {
+    const neutralTree = new DamageableObstacle({
+      kind: 'tree',
+      maxHp: DAMAGEABLE_OBSTACLE_HP.tree,
+      root: new THREE.Group(),
+      ownerFaction: null,
+    })
+    const romanGate = new DamageableObstacle({
+      kind: 'gate',
+      maxHp: DAMAGEABLE_OBSTACLE_HP.gate,
+      root: new THREE.Group(),
+      ownerFaction: 'roman',
+    })
+
+    expect(neutralTree.isDamageableBy('roman')).toBe(true)
+    expect(neutralTree.isDamageableBy('viking')).toBe(true)
+    expect(romanGate.isDamageableBy('roman')).toBe(false)
+    expect(romanGate.isDamageableBy('viking')).toBe(true)
+  })
+
   it('rejects invalid maximum HP', () => {
     expect(() => new DamageableObstacle({
       kind: 'palisade',
