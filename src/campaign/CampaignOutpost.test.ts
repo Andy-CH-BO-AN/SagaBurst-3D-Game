@@ -20,12 +20,15 @@ describe('CampaignOutpost', () => {
       expect(outpost.damageableObstacles.every(obstacle => obstacle.ownerFaction === defenderFaction)).toBe(true)
       expect(outpost.obstacles.length).toBe(outpost.damageableObstacles.length)
       expect(outpost.damageableObstacles.length).toBeGreaterThan(20)
-      expect(outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'tent')).toHaveLength(3)
-      expect(outpost.obstacles.filter(obstacle => !obstacle.isBarricade)).toHaveLength(3)
+      expect(outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'tent')).toHaveLength(10)
+      expect(outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'campfire')).toHaveLength(2)
+      expect(outpost.obstacles.filter(obstacle => !obstacle.isBarricade)).toHaveLength(12)
 
       const placement = getCampaignOutpostPlacement(defenderFaction)
       expect(placement.halfWidth).toBe(44)
       expect(placement.halfWidth * 2).toBe(88)
+      expect(Math.abs(placement.backZ - placement.frontZ)).toBe(72)
+      expect(Math.abs(placement.backZ)).toBeLessThanOrEqual(180)
       const gateObstacle = outpost.obstacles.find(obstacle => obstacle.damageable === outpost.gate)
       expect(gateObstacle).toBeDefined()
       expect(gateObstacle!.box.min.x).toBeCloseTo(-placement.gateWidth / 2)
@@ -56,20 +59,39 @@ describe('CampaignOutpost', () => {
     expect(sharedObstacles.some(obstacle => obstacle.damageable === outpost.gate)).toBe(false)
   })
 
-  it('makes tents damageable while campfires remain decorative', () => {
+  it('uses ten large damageable tents and keeps the gate-to-lookout corridor clear', () => {
     const scene = new THREE.Scene()
     const outpost = createCampaignOutpost(scene, 'viking')
     const tents = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'tent')
-    const campfireNames = outpost.root.children
-      .map(child => child.name)
-      .filter(name => name.includes('campfire'))
 
-    expect(tents).toHaveLength(3)
+    expect(tents).toHaveLength(10)
     expect(tents.every(tent => tent.ownerFaction === 'viking')).toBe(true)
-    expect(campfireNames).toHaveLength(2)
-    expect(
-      outpost.damageableObstacles.some(obstacle => obstacle.root.name.includes('campfire')),
-    ).toBe(false)
+
+    for (const tent of tents) {
+      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === tent)
+      expect(obstacle).toBeDefined()
+      const size = obstacle!.box.getSize(new THREE.Vector3())
+      const center = obstacle!.box.getCenter(new THREE.Vector3())
+      expect(size.x).toBeGreaterThanOrEqual(7)
+      expect(size.y).toBeGreaterThanOrEqual(3.5)
+      expect(Math.abs(center.x)).toBeGreaterThanOrEqual(24)
+    }
+  })
+
+  it('makes campfires damageable small obstacles', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'roman')
+    const campfires = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'campfire')
+
+    expect(campfires).toHaveLength(2)
+    expect(campfires.every(campfire => campfire.ownerFaction === 'roman')).toBe(true)
+    for (const campfire of campfires) {
+      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === campfire)
+      expect(obstacle).toBeDefined()
+      const size = obstacle!.box.getSize(new THREE.Vector3())
+      expect(size.x).toBeLessThanOrEqual(2)
+      expect(size.z).toBeLessThanOrEqual(2)
+    }
   })
 
   it('renders palisades as spaced stakes while keeping continuous collision boxes', () => {
