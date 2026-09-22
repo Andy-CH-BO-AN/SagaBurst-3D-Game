@@ -14,6 +14,33 @@ export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
   [18, -22], [-28, 18], [40, -5], [-12, 35], [25, 15],
 ]
 
+export const FORTIFIED_CAMP_HILL = {
+  centerAbsZ: 153,
+  radiusX: 22,
+  radiusZ: 15,
+  flatTopRatio: 0.35,
+  height: 3.5,
+} as const
+
+/**
+ * Smooth raised center shared by the Roman/Viking campaign camp locations.
+ * This is part of the battlefield terrain itself, so movement and visuals use
+ * the same getTerrainHeight() result without a separate collision platform.
+ */
+export function getFortifiedCampHeightOffset(x: number, z: number): number {
+  const normalizedX = x / FORTIFIED_CAMP_HILL.radiusX
+  const normalizedZ = (Math.abs(z) - FORTIFIED_CAMP_HILL.centerAbsZ) / FORTIFIED_CAMP_HILL.radiusZ
+  const radius = Math.hypot(normalizedX, normalizedZ)
+
+  if (radius >= 1) return 0
+  if (radius <= FORTIFIED_CAMP_HILL.flatTopRatio) return FORTIFIED_CAMP_HILL.height
+
+  const t = (radius - FORTIFIED_CAMP_HILL.flatTopRatio)
+    / (1 - FORTIFIED_CAMP_HILL.flatTopRatio)
+  const smooth = t * t * (3 - 2 * t)
+  return FORTIFIED_CAMP_HILL.height * (1 - smooth)
+}
+
 /** Keeps actors on the rendered terrain while leaving a 20m safety margin at each edge. */
 export function clampToPlayableWorld(position: THREE.Vector3): void {
   position.x = THREE.MathUtils.clamp(position.x, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
@@ -26,7 +53,7 @@ export function clampToPlayableWorld(position: THREE.Vector3): void {
 export function getTerrainHeight(x: number, z: number): number {
   const h1 = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 2.5
   const h2 = Math.sin(x * 0.09 + 1.2) * Math.cos(z * 0.08 + 0.5) * 1.2
-  return h1 + h2
+  return h1 + h2 + getFortifiedCampHeightOffset(x, z)
 }
 
 export interface ObstacleData {
