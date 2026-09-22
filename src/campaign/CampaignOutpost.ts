@@ -13,12 +13,35 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
-  frontZ: -135,
-  backZ: -171,
+  frontDistance: 135,
+  backDistance: 171,
   halfWidth: 22,
   gateWidth: 8,
-  stakeLineZ: -129,
+  stakeLineDistance: 129,
 } as const
+
+export interface CampaignOutpostPlacement {
+  centerX: number
+  frontZ: number
+  backZ: number
+  halfWidth: number
+  gateWidth: number
+  stakeLineZ: number
+}
+
+export function getCampaignOutpostPlacement(
+  defenderFaction: CharacterFaction,
+): CampaignOutpostPlacement {
+  const zSign = defenderFaction === 'roman' ? -1 : 1
+  return {
+    centerX: CAMPAIGN_OUTPOST_LAYOUT.centerX,
+    frontZ: CAMPAIGN_OUTPOST_LAYOUT.frontDistance * zSign,
+    backZ: CAMPAIGN_OUTPOST_LAYOUT.backDistance * zSign,
+    halfWidth: CAMPAIGN_OUTPOST_LAYOUT.halfWidth,
+    gateWidth: CAMPAIGN_OUTPOST_LAYOUT.gateWidth,
+    stakeLineZ: CAMPAIGN_OUTPOST_LAYOUT.stakeLineDistance * zSign,
+  }
+}
 
 export interface CampaignOutpostCollections {
   obstacles: ObstacleData[]
@@ -151,7 +174,8 @@ export function createCampaignOutpost(
     })
   }
 
-  const { frontZ, backZ, halfWidth, gateWidth, stakeLineZ } = CAMPAIGN_OUTPOST_LAYOUT
+  const zSign = defenderFaction === 'roman' ? -1 : 1
+  const { frontZ, backZ, halfWidth, gateWidth, stakeLineZ } = getCampaignOutpostPlacement(defenderFaction)
   const frontSideSpan = halfWidth - gateWidth / 2
   const frontSegmentLength = frontSideSpan / 3
 
@@ -169,10 +193,10 @@ export function createCampaignOutpost(
     }
   }
 
-  const sideSegmentDepth = (frontZ - backZ) / 5
+  const sideSegmentDepth = (backZ - frontZ) / 5
   for (const side of [-1, 1] as const) {
     for (let i = 0; i < 5; i++) {
-      const z = frontZ - sideSegmentDepth * (i + 0.5)
+      const z = frontZ + sideSegmentDepth * (i + 0.5)
       createPalisadeSegment(
         `campaign-side-palisade-${side < 0 ? 'left' : 'right'}-${i + 1}`,
         side * halfWidth,
@@ -278,9 +302,9 @@ export function createCampaignOutpost(
     root.add(tent)
   }
 
-  createTent('campaign-outpost-tent-1', -12, -159, Math.PI / 4)
-  createTent('campaign-outpost-tent-2', 12, -159, -Math.PI / 4)
-  createTent('campaign-outpost-tent-3', -12, -150, Math.PI / 4)
+  createTent('campaign-outpost-tent-1', -12, 159 * zSign, Math.PI / 4)
+  createTent('campaign-outpost-tent-2', 12, 159 * zSign, -Math.PI / 4)
+  createTent('campaign-outpost-tent-3', -12, 150 * zSign, Math.PI / 4)
 
   const createCampfire = (name: string, x: number, z: number): void => {
     const terrainY = getTerrainHeight(x, z)
@@ -309,8 +333,8 @@ export function createCampaignOutpost(
     root.add(fireRoot)
   }
 
-  createCampfire('campaign-outpost-campfire-1', 8, -151)
-  createCampfire('campaign-outpost-campfire-2', 8, -164)
+  createCampfire('campaign-outpost-campfire-1', 8, 151 * zSign)
+  createCampfire('campaign-outpost-campfire-2', 8, 164 * zSign)
 
   return {
     root,
