@@ -971,6 +971,66 @@ export class NPC {
     return this._isAttackableObstacle(blocker) ? blocker : null
   }
 
+  /**
+   * Picks a stable breach proxy when the real human target lives in another
+   * navigation component. Gates are the canonical breach point; if a map has
+   * no live enemy gate, fall back to the shortest palisade breach candidate.
+   *
+   * Cost is geometric only. HP/DPS is intentionally not part of routing.
+   */
+  private _findSiegeProxyObstacle(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    let bestGate: ObstacleData | null = null
+    let bestGateCost = Infinity
+    let bestPalisade: ObstacleData | null = null
+    let bestPalisadeCost = Infinity
+
+    for (const obstacle of obstacles) {
+      const damageable = obstacle.damageable
+      if (
+        !damageable
+        || damageable.destroyed
+        || !obstacle.isBarricade
+        || !damageable.isDamageableBy(this.characterFaction)
+      ) continue
+      if (damageable.kind !== 'gate' && damageable.kind !== 'palisade') continue
+
+      const closestX = THREE.MathUtils.clamp(
+        this.combatPosition.x,
+        obstacle.box.min.x,
+        obstacle.box.max.x,
+      )
+      const closestZ = THREE.MathUtils.clamp(
+        this.combatPosition.z,
+        obstacle.box.min.z,
+        obstacle.box.max.z,
+      )
+      const centerX = (obstacle.box.min.x + obstacle.box.max.x) * 0.5
+      const centerZ = (obstacle.box.min.z + obstacle.box.max.z) * 0.5
+      const cost = Math.hypot(
+        this.combatPosition.x - closestX,
+        this.combatPosition.z - closestZ,
+      ) + Math.hypot(
+        humanTarget.x - centerX,
+        humanTarget.z - centerZ,
+      )
+
+      if (damageable.kind === 'gate') {
+        if (cost < bestGateCost) {
+          bestGate = obstacle
+          bestGateCost = cost
+        }
+      } else if (cost < bestPalisadeCost) {
+        bestPalisade = obstacle
+        bestPalisadeCost = cost
+      }
+    }
+
+    return bestGate ?? bestPalisade
+  }
+
   private _distanceToObstacleXZ(obstacle: ObstacleData): number {
     const position = this.combatPosition
     const closestX = THREE.MathUtils.clamp(position.x, obstacle.box.min.x, obstacle.box.max.x)
@@ -1513,22 +1573,51 @@ export class NPC {
         }
 
         const dist = Math.sqrt(distSq)
+
+        // Melee attackers whose human target is in another static navigation
+        // component first route to a breach proxy instead of walking directly
+        // into an arbitrary wall segment. Ranged units keep their independent
+        // ballistic target/shot logic.
+        let siegeProxyObstacle: ObstacleData | null = null
+        let navigationGoal = targetInfo.position
+        if (
+          !skipBoidsAndObstacles
+          && !this.hasActiveRangedWeapon
+          && navigationWorld
+          && !navigationWorld.areConnected(this.combatPosition, targetInfo.position)
+        ) {
+          siegeProxyObstacle = this._findSiegeProxyObstacle(
+            targetInfo.position,
+            obstacles,
+          )
+          if (siegeProxyObstacle) {
+            this._siegeTargetObstacle = siegeProxyObstacle
+            navigationGoal = this._getObstacleAttackPoint(
+              siegeProxyObstacle,
+              this._tmpSiegeTarget,
+            )
+          }
+        }
+
         const navigationRoute = !skipBoidsAndObstacles
           ? this._resolveNavigationMoveTarget(
-            targetInfo.position,
+            navigationGoal,
             obstacles,
             navigationWorld,
           )
           : 'direct'
-        if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
+        if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(navigationGoal)
 
-        // A normal walkable route always wins over obstacle combat.
-        if (navigationRoute !== 'unreachable') {
+        // A normal route to the real human target always wins over obstacle
+        // combat. A route to a breach proxy intentionally keeps that proxy
+        // active until the structure is destroyed and components reconnect.
+        if (navigationRoute !== 'unreachable' && !siegeProxyObstacle) {
           this._clearSiegeFallback()
         }
-        let siegeObstacle = navigationRoute === 'unreachable'
-          ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
-          : null
+        let siegeObstacle = siegeProxyObstacle
+          ?? (navigationRoute === 'unreachable'
+            ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+            : null)
 
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
@@ -1554,11 +1643,13 @@ export class NPC {
         }
 
         const moveDir = this._tmpMoveDir
-        const movementTarget = siegeObstacle
-          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
-          : navigationRoute === 'unreachable'
-            ? targetInfo.position
-            : this._tmpNavigationTarget
+        const movementTarget = siegeProxyObstacle && navigationRoute !== 'unreachable'
+          ? this._tmpNavigationTarget
+          : siegeObstacle
+            ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+            : navigationRoute === 'unreachable'
+              ? targetInfo.position
+              : this._tmpNavigationTarget
 
         if (siegeObstacle) {
           const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
@@ -1648,8 +1739,8 @@ export class NPC {
         if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
 
         // A* path following replaces corner detours whenever a global route exists.
-        // Keep the old local detour only as a no-route fallback until breach A*
-        // is introduced in the next PR.
+        // Disconnected melee attackers route to a breach proxy; the old local
+        // detour remains only as a true no-route fallback.
         if (!skipBoidsAndObstacles) {
           if (
             !siegeObstacle
