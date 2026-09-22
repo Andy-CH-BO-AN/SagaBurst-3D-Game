@@ -80,9 +80,20 @@ const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
 const RESPAWN_TIME     = 10.0
 
-export const TARGET_REACQUIRE_INTERVAL = 0.1
+export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
+export const TARGET_REACQUIRE_MID_DISTANCE = 100
+export const TARGET_REACQUIRE_NEAR_FRAMES = 2
+export const TARGET_REACQUIRE_MID_FRAMES = 8
+export const TARGET_REACQUIRE_FAR_FRAMES = 16
 export const NPC_SEPARATION_RADIUS = 1.2
 export const NPC_NEIGHBOR_QUERY_RADIUS = 2.0
+
+export function getTargetReacquireFrameInterval(distance: number | null): number {
+  if (distance === null || !Number.isFinite(distance)) return TARGET_REACQUIRE_FAR_FRAMES
+  if (distance <= TARGET_REACQUIRE_NEAR_DISTANCE) return TARGET_REACQUIRE_NEAR_FRAMES
+  if (distance <= TARGET_REACQUIRE_MID_DISTANCE) return TARGET_REACQUIRE_MID_FRAMES
+  return TARGET_REACQUIRE_FAR_FRAMES
+}
 
 export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: string): number {
   let hash = 2166136261 >>> 0
@@ -243,7 +254,8 @@ export class NPC {
   private _cachedTargetIsPlayer: boolean = false
   private _cachedTargetNpc: NPC | null = null
   private _targetAcquisitionInitialized: boolean = false
-  private _targetReacquireTimer: number = 0
+  private _targetReacquireFramesRemaining: number = 0
+  private _targetReacquireIntervalFrames: number = TARGET_REACQUIRE_FAR_FRAMES
   private readonly _initialStaggerPhase: number
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
@@ -735,8 +747,30 @@ export class NPC {
     }
   }
 
+  private _getCachedTargetDistance(player: Player): number | null {
+    if (this._cachedTargetIsPlayer && player.targetable && !player.dead) {
+      return this.combatPosition.distanceTo(this._getPlayerPosition(player, this._tmpTargetPosition))
+    }
+    if (this._cachedTargetNpc !== null && !this._cachedTargetNpc.dead) {
+      return this.combatPosition.distanceTo(this._cachedTargetNpc.combatPosition)
+    }
+    return null
+  }
+
+  private _staggeredTargetReacquireDelay(intervalFrames: number): number {
+    return 1 + Math.floor(this._initialStaggerPhase * intervalFrames)
+  }
+
+  private _scheduleTargetReacquire(player: Player, staggered: boolean): void {
+    const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
+    this._targetReacquireIntervalFrames = intervalFrames
+    this._targetReacquireFramesRemaining = staggered
+      ? this._staggeredTargetReacquireDelay(intervalFrames)
+      : intervalFrames
+  }
+
   private _getTarget(
-    dt: number,
+    _dt: number,
     player: Player,
     allNPCs: NPC[],
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
@@ -744,22 +778,32 @@ export class NPC {
     if (!this._targetAcquisitionInitialized) {
       this._targetAcquisitionInitialized = true
       this._acquireTarget(player, allNPCs, hostileNpcGrid)
-      this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
+      this._scheduleTargetReacquire(player, true)
     } else {
       const hadTarget = this._cachedTargetIsPlayer || this._cachedTargetNpc !== null
       const targetValid = this._isCachedTargetValid(player)
 
       if (hadTarget && !targetValid) {
+        // Invalid targets are never delayed by the AI LOD cadence.
         this._acquireTarget(player, allNPCs, hostileNpcGrid)
-        this._targetReacquireTimer = this._initialStaggerPhase * TARGET_REACQUIRE_INTERVAL
+        this._scheduleTargetReacquire(player, true)
       } else {
-        this._targetReacquireTimer -= dt
-        if (this._targetReacquireTimer <= 0) {
+        const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
+
+        // Moving into a closer band raises AI decision frequency immediately.
+        // Moving farther away does not postpone an already-scheduled near-term scan.
+        if (intervalFrames < this._targetReacquireIntervalFrames) {
+          this._targetReacquireFramesRemaining = Math.min(
+            this._targetReacquireFramesRemaining,
+            intervalFrames,
+          )
+        }
+        this._targetReacquireIntervalFrames = intervalFrames
+        this._targetReacquireFramesRemaining -= 1
+
+        if (this._targetReacquireFramesRemaining <= 0) {
           this._acquireTarget(player, allNPCs, hostileNpcGrid)
-          this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
-          while (this._targetReacquireTimer <= 0) {
-            this._targetReacquireTimer += TARGET_REACQUIRE_INTERVAL
-          }
+          this._scheduleTargetReacquire(player, false)
         }
       }
     }
