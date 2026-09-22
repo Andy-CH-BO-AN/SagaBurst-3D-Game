@@ -18,6 +18,11 @@ export interface NavigationCell {
   z: number
 }
 
+export type NavigationGridSearchResult =
+  | { status: 'path'; path: NavigationCell[]; expandedNodes: number }
+  | { status: 'pending'; expandedNodes: number }
+  | { status: 'unreachable'; expandedNodes: number }
+
 class MinHeap {
   private readonly indices: number[] = []
   private readonly gScores: number[] = []
@@ -119,6 +124,10 @@ export class NavigationGrid {
   private readonly closedRun: Uint32Array
   private readonly open = new MinHeap()
   private searchRunId = 0
+  private activeSearchRunId = 0
+  private activeGoalIndex = -1
+  private activeGoalX = -1
+  private activeGoalZ = -1
 
   constructor(options: NavigationGridOptions) {
     const cellSize = options.cellSize ?? DEFAULT_NAV_CELL_SIZE
@@ -287,17 +296,45 @@ export class NavigationGrid {
   }
 
   findPathCells(start: NavigationCell, goal: NavigationCell): NavigationCell[] | null {
-    if (!this.isInside(start) || !this.isInside(goal)) return null
+    let result = this.startPathSearchCells(start, goal)
+    while (result.status === 'pending') {
+      result = this.stepPathSearch(Number.MAX_SAFE_INTEGER)
+    }
+    return result.status === 'path' ? result.path : null
+  }
+
+  startPathSearchCells(
+    start: NavigationCell,
+    goal: NavigationCell,
+  ): NavigationGridSearchResult {
+    this.cancelPathSearch()
+
+    if (!this.isInside(start) || !this.isInside(goal)) {
+      return { status: 'unreachable', expandedNodes: 0 }
+    }
+
     // The world-space actor may be physically outside an obstacle while its
     // coarse 2m cell overlaps that obstacle. Allow A* to escape the start cell;
     // the goal must still be genuinely walkable.
-    if (this.isBlocked(goal)) return null
+    if (this.isBlocked(goal)) {
+      return { status: 'unreachable', expandedNodes: 0 }
+    }
 
     const startIndex = this._index(start.x, start.z)
     const goalIndex = this._index(goal.x, goal.z)
-    if (startIndex === goalIndex) return [{ ...start }]
+    if (startIndex === goalIndex) {
+      return {
+        status: 'path',
+        path: [{ ...start }],
+        expandedNodes: 0,
+      }
+    }
 
     const runId = this._beginSearchRun()
+    this.activeSearchRunId = runId
+    this.activeGoalIndex = goalIndex
+    this.activeGoalX = goal.x
+    this.activeGoalZ = goal.z
     this.seenRun[startIndex] = runId
     this.gScore[startIndex] = 0
     this.cameFrom[startIndex] = -1
@@ -307,17 +344,33 @@ export class NavigationGrid {
       this._heuristic(start.x, start.z, goal.x, goal.z),
     )
 
-    while (this.open.size > 0) {
+    return { status: 'pending', expandedNodes: 0 }
+  }
+
+  stepPathSearch(maxExpandedNodes: number): NavigationGridSearchResult {
+    const runId = this.activeSearchRunId
+    if (runId === 0 || this.activeGoalIndex < 0) {
+      return { status: 'unreachable', expandedNodes: 0 }
+    }
+
+    const maxNodes = Math.max(1, Math.floor(maxExpandedNodes))
+    let expandedNodes = 0
+
+    while (this.open.size > 0 && expandedNodes < maxNodes) {
       const currentIndex = this.open.popIndex()
       const currentG = this.open.lastPoppedG
+      expandedNodes++
+
       if (this.closedRun[currentIndex] === runId) continue
       if (
         this.seenRun[currentIndex] !== runId
         || currentG > this.gScore[currentIndex] + COST_EPSILON
       ) continue
 
-      if (currentIndex === goalIndex) {
-        return this._reconstructPath(currentIndex)
+      if (currentIndex === this.activeGoalIndex) {
+        const path = this._reconstructPath(currentIndex)
+        this.cancelPathSearch()
+        return { status: 'path', path, expandedNodes }
       }
 
       this.closedRun[currentIndex] = runId
@@ -356,12 +409,25 @@ export class NavigationGrid {
         this.open.push(
           nextIndex,
           tentativeG,
-          tentativeG + this._heuristic(nextX, nextZ, goal.x, goal.z),
+          tentativeG + this._heuristic(nextX, nextZ, this.activeGoalX, this.activeGoalZ),
         )
       }
     }
 
-    return null
+    if (this.open.size === 0) {
+      this.cancelPathSearch()
+      return { status: 'unreachable', expandedNodes }
+    }
+
+    return { status: 'pending', expandedNodes }
+  }
+
+  cancelPathSearch(): void {
+    this.activeSearchRunId = 0
+    this.activeGoalIndex = -1
+    this.activeGoalX = -1
+    this.activeGoalZ = -1
+    this.open.clear()
   }
 
   pathToWorld(cells: readonly NavigationCell[], y = 0): THREE.Vector3[] {
