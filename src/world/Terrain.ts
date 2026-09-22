@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
+import type { CharacterFaction } from './CharacterVisuals'
 
 export const TERRAIN_SIZE = 400
 export const PLAYABLE_WORLD_BOUND = 180
@@ -27,9 +28,16 @@ export const FORTIFIED_CAMP_HILL = {
  * This is part of the battlefield terrain itself, so movement and visuals use
  * the same getTerrainHeight() result without a separate collision platform.
  */
-export function getFortifiedCampHeightOffset(x: number, z: number): number {
+export function getFortifiedCampHeightOffset(
+  x: number,
+  z: number,
+  faction: CharacterFaction,
+): number {
+  const centerZ = faction === 'roman'
+    ? -FORTIFIED_CAMP_HILL.centerAbsZ
+    : FORTIFIED_CAMP_HILL.centerAbsZ
   const normalizedX = x / FORTIFIED_CAMP_HILL.radiusX
-  const normalizedZ = (Math.abs(z) - FORTIFIED_CAMP_HILL.centerAbsZ) / FORTIFIED_CAMP_HILL.radiusZ
+  const normalizedZ = (z - centerZ) / FORTIFIED_CAMP_HILL.radiusZ
   const radius = Math.hypot(normalizedX, normalizedZ)
 
   if (radius >= 1) return 0
@@ -47,13 +55,22 @@ export function clampToPlayableWorld(position: THREE.Vector3): void {
   position.z = THREE.MathUtils.clamp(position.z, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
 }
 
+let activeFortifiedCampFaction: CharacterFaction | null = null
+
+export interface TerrainOptions {
+  fortifiedCampFaction?: CharacterFaction | null
+}
+
 /**
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
 export function getTerrainHeight(x: number, z: number): number {
   const h1 = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 2.5
   const h2 = Math.sin(x * 0.09 + 1.2) * Math.cos(z * 0.08 + 0.5) * 1.2
-  return h1 + h2 + getFortifiedCampHeightOffset(x, z)
+  const campOffset = activeFortifiedCampFaction
+    ? getFortifiedCampHeightOffset(x, z, activeFortifiedCampFaction)
+    : 0
+  return h1 + h2 + campOffset
 }
 
 export interface ObstacleData {
@@ -488,7 +505,11 @@ export function resolveObstacleCollision(
   return { velocityY, onGround }
 }
 
-export function createTerrain(scene: THREE.Scene): TerrainResult {
+export function createTerrain(
+  scene: THREE.Scene,
+  options: TerrainOptions = {},
+): TerrainResult {
+  activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
   // 400x400 Plane with 128x128 subdivisions for smooth hill curves
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 128, 128)
   geometry.rotateX(-Math.PI / 2)
