@@ -294,7 +294,7 @@ export class NPC {
   private _siegeCandidateObstacle: ObstacleData | null = null
   private _siegeTargetObstacle: ObstacleData | null = null
   private _siegeBlockedElapsed = 0
-  private _siegeBestTargetDistance = Infinity
+  private readonly _siegeProgressAnchor = new THREE.Vector3()
   private readonly _tmpSiegeTarget = new THREE.Vector3()
   private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
@@ -900,13 +900,13 @@ export class NPC {
     this._siegeCandidateObstacle = null
     this._siegeTargetObstacle = null
     this._siegeBlockedElapsed = 0
-    this._siegeBestTargetDistance = Infinity
+    this._siegeProgressAnchor.copy(this.combatPosition)
   }
 
   private _resetSiegeCandidate(): void {
     this._siegeCandidateObstacle = null
     this._siegeBlockedElapsed = 0
-    this._siegeBestTargetDistance = Infinity
+    this._siegeProgressAnchor.copy(this.combatPosition)
   }
 
   private _isAttackableObstacle(obstacle: ObstacleData | null): obstacle is ObstacleData {
@@ -993,24 +993,26 @@ export class NPC {
       return
     }
 
-    const targetDistance = this.combatPosition.distanceTo(humanTarget)
     if (this._siegeCandidateObstacle === null) {
       this._siegeCandidateObstacle = blocker
       this._siegeBlockedElapsed = 0
-      this._siegeBestTargetDistance = targetDistance
+      this._siegeProgressAnchor.copy(this.combatPosition)
       return
     }
 
     // Adjacent palisade segments may become the current blocker while an NPC
-    // walks along the same closed perimeter. Keep the blocked-time streak, but
-    // always attack the blocker that is actually in front of the NPC now.
+    // walks along the same closed perimeter. Track the blocker actually in front,
+    // but decide "stuck" from physical movement rather than distance-to-enemy.
+    // Lateral movement around a wall is valid navigation progress even when it
+    // temporarily does not reduce straight-line distance to the human target.
     this._siegeCandidateObstacle = blocker
 
     const progressDistance = this._siegeProgressDistance()
-    if (targetDistance <= this._siegeBestTargetDistance - progressDistance) {
-      // Meaningful progress toward the human target proves navigation is still
-      // working, so destruction remains unnecessary.
-      this._siegeBestTargetDistance = targetDistance
+    if (
+      this.combatPosition.distanceToSquared(this._siegeProgressAnchor)
+      >= progressDistance * progressDistance
+    ) {
+      this._siegeProgressAnchor.copy(this.combatPosition)
       this._siegeBlockedElapsed = 0
       return
     }
@@ -1023,7 +1025,7 @@ export class NPC {
       this._siegeTargetObstacle = blocker
       this._siegeCandidateObstacle = null
       this._siegeBlockedElapsed = 0
-      this._siegeBestTargetDistance = Infinity
+      this._siegeProgressAnchor.copy(this.combatPosition)
       this._clearObstacleDetour()
       this.attackTimer = 0
       this.attackHitProcessed = false
