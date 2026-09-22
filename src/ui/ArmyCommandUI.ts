@@ -7,7 +7,6 @@ export interface ArmyCommandHudEntry {
   key: string
   label: string
   order: TacticalOrder | 'mixed'
-  side: 'left' | 'right'
 }
 
 const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
@@ -27,8 +26,7 @@ export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string
 /** Army command HUD. It never owns input or mutates NPC state. */
 export class ArmyCommandUI {
   private readonly root: HTMLElement
-  private readonly left: HTMLElement
-  private readonly right: HTMLElement
+  private readonly commands: HTMLElement
   private readonly menu: HTMLElement
   private readonly feedback: HTMLElement
   private feedbackTimer: number | null = null
@@ -37,21 +35,20 @@ export class ArmyCommandUI {
     this.root = document.createElement('div')
     this.root.id = 'army-command-hud'
     this.root.dataset.faction = faction
-    this.left = document.createElement('div')
-    this.left.className = 'army-command-side left'
-    this.right = document.createElement('div')
-    this.right.className = 'army-command-side right'
+    this.commands = document.createElement('div')
+    this.commands.className = 'army-command-row'
     this.menu = document.createElement('div')
     this.menu.className = 'army-command-submenu'
     this.feedback = document.createElement('div')
     this.feedback.className = 'army-command-feedback'
-    this.root.append(this.left, this.menu, this.right, this.feedback)
+    this.root.append(this.commands, this.menu, this.feedback)
     document.getElementById('hud')?.appendChild(this.root)
   }
 
   render(entries: readonly ArmyCommandHudEntry[], submenuOpen: boolean, selectedTarget: ArmyCommandTarget | null): void {
-    this._renderEntries(this.left, entries.filter(entry => entry.side === 'left'))
-    this._renderEntries(this.right, entries.filter(entry => entry.side === 'right'))
+    const allEntry = entries.find(entry => entry.key === '`')
+    const unitEntries = entries.filter(entry => entry.key !== '`')
+    this._renderEntries(this.commands, allEntry ? [allEntry, ...unitEntries] : unitEntries)
     this.menu.replaceChildren()
     this.menu.classList.toggle('visible', submenuOpen)
     if (submenuOpen) {
