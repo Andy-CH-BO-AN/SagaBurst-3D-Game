@@ -11,7 +11,7 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -114,6 +114,7 @@ import {
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
+import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
@@ -451,6 +452,7 @@ export class Game {
   private static readonly _EMPTY_NPC_LIST: NPC[] = []
   private readonly _nearbyNpcBuffer: NPC[] = []
   private readonly _impactCandidates: NPC[] = []
+  private readonly _entityCollisionBroadPhase = new EntityCollisionBroadPhase()
   private npcGrid = new SpatialGrid<NPC>(20)
   private readonly npcFactionGrids: Record<Faction, SpatialGrid<NPC>> = {
     [Faction.PLAYER]: new SpatialGrid<NPC>(20),
@@ -1846,11 +1848,7 @@ export class Game {
       })
     }
 
-    for (let i = 0; i < bodies.length; i++) {
-      for (let j = i + 1; j < bodies.length; j++) {
-        resolveEntityCollision(bodies[i], bodies[j], this.obstacles)
-      }
-    }
+    this._entityCollisionBroadPhase.resolve(bodies, this.obstacles)
 
     // Direction A post-validation fallback
     for (const body of bodies) {
