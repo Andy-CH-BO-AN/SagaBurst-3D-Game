@@ -109,6 +109,7 @@ describe('NPC siege proxy routing', () => {
     expect(selected).toBe(wall)
 
     ;(attacker as any)._siegeTargetObstacle = selected
+    ;(attacker as any)._siegeTargetUsesProxy = true
     attacker.position.set(35, attacker.position.y, 0)
 
     expect(
