@@ -422,8 +422,10 @@ export class Game {
   private readonly _tmpPlayerForward = new THREE.Vector3()
   private readonly _tmpToTarget = new THREE.Vector3()
   private readonly _tmpAiCenter = new THREE.Vector3()
-  private readonly _tmpMeleeObstacleLine = new THREE.Line3()
+  private readonly _tmpMeleeObstacleRay = new THREE.Ray()
   private readonly _tmpMeleeObstacleBox = new THREE.Box3()
+  private readonly _tmpMeleeObstacleDirection = new THREE.Vector3()
+  private readonly _tmpMeleeObstacleHitPoint = new THREE.Vector3()
 
   private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
     this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
@@ -1542,7 +1544,11 @@ export class Game {
     tipPosition: THREE.Vector3,
     damage: number,
   ): boolean {
-    this._tmpMeleeObstacleLine.set(gripPosition, tipPosition)
+    const direction = this._tmpMeleeObstacleDirection.subVectors(tipPosition, gripPosition)
+    const segmentLength = direction.length()
+    if (segmentLength < 1e-6) return false
+    direction.multiplyScalar(1 / segmentLength)
+    this._tmpMeleeObstacleRay.set(gripPosition, direction)
 
     for (const obstacle of this.obstacles) {
       const damageable = obstacle.damageable
@@ -1555,13 +1561,17 @@ export class Game {
       }
 
       this._tmpMeleeObstacleBox.copy(obstacle.box).expandByScalar(0.45)
-      if (!this._tmpMeleeObstacleBox.intersectsLine(this._tmpMeleeObstacleLine)) continue
+      const hitPoint = this._tmpMeleeObstacleRay.intersectBox(
+        this._tmpMeleeObstacleBox,
+        this._tmpMeleeObstacleHitPoint,
+      )
+      if (!hitPoint || hitPoint.distanceTo(gripPosition) > segmentLength) continue
 
       const result = damageable.takeDamage(damage)
       if (result.appliedDamage <= 0) continue
 
       this.player.markHitProcessed()
-      this.damageNumbers.spawn(Math.round(result.appliedDamage), tipPosition.clone())
+      this.damageNumbers.spawn(Math.round(result.appliedDamage), hitPoint.clone())
       this._showEnemyHud(damageable.displayName, result.hpRatio)
       return true
     }
