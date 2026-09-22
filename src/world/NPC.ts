@@ -893,6 +893,229 @@ export class NPC {
     }
   }
 
+  private _clearSiegeFallback(): void {
+    this._siegeCandidateObstacle = null
+    this._siegeTargetObstacle = null
+    this._siegeBlockedElapsed = 0
+  }
+
+  private _resetSiegeCandidate(): void {
+    this._siegeCandidateObstacle = null
+    this._siegeBlockedElapsed = 0
+  }
+
+  private _isAttackableObstacle(obstacle: ObstacleData | null): obstacle is ObstacleData {
+    const damageable = obstacle?.damageable
+    return Boolean(
+      damageable
+      && !damageable.destroyed
+      && damageable.isDamageableBy(this.characterFaction),
+    )
+  }
+
+  private _siegeProgressDistance(): number {
+    return this.isMounted
+      ? NPC_SIEGE_MOUNTED_PROGRESS_DISTANCE
+      : NPC_SIEGE_FOOT_PROGRESS_DISTANCE
+  }
+
+  private _distanceToObstacleXZ(obstacle: ObstacleData): number {
+    const position = this.combatPosition
+    const closestX = THREE.MathUtils.clamp(position.x, obstacle.box.min.x, obstacle.box.max.x)
+    const closestZ = THREE.MathUtils.clamp(position.z, obstacle.box.min.z, obstacle.box.max.z)
+    return Math.hypot(position.x - closestX, position.z - closestZ)
+  }
+
+  private _getObstacleAttackPoint(obstacle: ObstacleData, out: THREE.Vector3): THREE.Vector3 {
+    const projectileBoxes = obstacle.projectileBoxes
+    if (this.hasActiveRangedWeapon && projectileBoxes && projectileBoxes.length > 0) {
+      let closestDistSq = Infinity
+      for (const box of projectileBoxes) {
+        box.getCenter(this._tmpSiegeCandidateCenter)
+        const distSq = this.combatPosition.distanceToSquared(this._tmpSiegeCandidateCenter)
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq
+          out.copy(this._tmpSiegeCandidateCenter)
+        }
+      }
+      return out
+    }
+
+    obstacle.box.clampPoint(this.combatPosition, out)
+    out.y = (obstacle.box.min.y + obstacle.box.max.y) * 0.5
+    return out
+  }
+
+  private _isObstacleInMeleeRange(obstacle: ObstacleData, extraReach = 0): boolean {
+    return this._distanceToObstacleXZ(obstacle) <= this.meleeAttackRadius + extraReach
+  }
+
+  private _findRangedLineBlocker(
+    target: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    if (this.bowVisual) this.bowVisual.getNockPosition(this._tmpRangedOrigin)
+    else this._tmpRangedOrigin.copy(this.combatPosition).setY(this.combatPosition.y + 1.25)
+
+    this._tmpRangedLosTarget.copy(target)
+    this._tmpRangedLosTarget.y += 1.2
+    return findBlockingProjectileObstacleAlongPath(
+      this._tmpRangedOrigin,
+      this._tmpRangedLosTarget,
+      obstacles,
+    )
+  }
+
+  private _updateSiegeFallback(
+    humanTarget: THREE.Vector3,
+    dt: number,
+    obstacles: ObstacleData[],
+  ): void {
+    if (this._siegeTargetObstacle) return
+
+    const blocker = findBlockingObstacleAlongPath(
+      this.combatPosition,
+      humanTarget,
+      this._movementObstacleRadius(),
+      this._movementObstacleHeight(),
+      0,
+      obstacles,
+      this._detourLookAhead() * 2,
+    )
+
+    if (!this._isAttackableObstacle(blocker)) {
+      this._resetSiegeCandidate()
+      return
+    }
+
+    if (this._siegeCandidateObstacle !== blocker) {
+      this._siegeCandidateObstacle = blocker
+      this._siegeBlockedElapsed = 0
+      this._siegeProgressAnchor.copy(this.combatPosition)
+      return
+    }
+
+    const progressDistance = this._siegeProgressDistance()
+    if (
+      this.combatPosition.distanceToSquared(this._siegeProgressAnchor)
+      >= progressDistance * progressDistance
+    ) {
+      // Real movement around the blocker means navigation is still working.
+      this._siegeProgressAnchor.copy(this.combatPosition)
+      this._siegeBlockedElapsed = 0
+      return
+    }
+
+    this._siegeBlockedElapsed += dt
+    if (
+      this._siegeBlockedElapsed
+      >= getSiegeFallbackDelay(blocker.damageable!.kind)
+    ) {
+      this._siegeTargetObstacle = blocker
+      this._siegeCandidateObstacle = null
+      this._siegeBlockedElapsed = 0
+      this._clearObstacleDetour()
+      this.attackTimer = 0
+      this.attackHitProcessed = false
+    }
+  }
+
+  private _getActiveSiegeObstacle(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    const siegeTarget = this._siegeTargetObstacle
+    if (!this._isAttackableObstacle(siegeTarget)) {
+      this._clearSiegeFallback()
+      return null
+    }
+
+    const blocker = findBlockingObstacleAlongPath(
+      this.combatPosition,
+      humanTarget,
+      this._movementObstacleRadius(),
+      this._movementObstacleHeight(),
+      0,
+      obstacles,
+    )
+    if (blocker !== siegeTarget) {
+      // The human is reachable again: structures immediately lose priority.
+      this._clearSiegeFallback()
+      return null
+    }
+
+    return siegeTarget
+  }
+
+  private _trySwitchToVisibleRangedTarget(
+    player: Player,
+    allNPCs: NPC[],
+    hostileNpcGrid: SpatialGrid<NPC> | null,
+    obstacles: ObstacleData[],
+  ): boolean {
+    const range = this.maxRangedAttackDistance
+    const minRangeSq = RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
+    const maxRangeSq = range * range
+    let bestIsPlayer = false
+    let bestNpc: NPC | null = null
+    let bestDistSq = Infinity
+
+    if (
+      this.faction === Faction.ENEMY
+      && !this._cachedTargetIsPlayer
+      && player.targetable
+      && !player.dead
+    ) {
+      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+      const distSq = this.combatPosition.distanceToSquared(playerPos)
+      if (
+        distSq >= minRangeSq
+        && distSq <= maxRangeSq
+        && this._findRangedLineBlocker(playerPos, obstacles) === null
+      ) {
+        bestIsPlayer = true
+        bestDistSq = distSq
+      }
+    }
+
+    const considerNpc = (candidate: NPC): void => {
+      if (
+        candidate === this
+        || candidate.dead
+        || candidate.faction === this.faction
+        || candidate === this._cachedTargetNpc
+      ) return
+
+      const distSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
+      if (distSq < minRangeSq || distSq > maxRangeSq || distSq >= bestDistSq) return
+      if (this._findRangedLineBlocker(candidate.combatPosition, obstacles) !== null) return
+
+      bestIsPlayer = false
+      bestNpc = candidate
+      bestDistSq = distSq
+    }
+
+    if (hostileNpcGrid) {
+      hostileNpcGrid.getNearbyInto(
+        this.combatPosition,
+        range,
+        this._rangedTargetCandidates,
+      )
+      for (const candidate of this._rangedTargetCandidates) considerNpc(candidate)
+    } else {
+      for (const candidate of allNPCs) considerNpc(candidate)
+    }
+
+    if (!bestIsPlayer && bestNpc === null) return false
+
+    this._cachedTargetIsPlayer = bestIsPlayer
+    this._cachedTargetNpc = bestNpc
+    this._rangedVisibleTargetHoldFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
+    return true
+  }
+
   private _getPlayerPosition(player: Player, out: THREE.Vector3): THREE.Vector3 {
     if (player.isMounted && player.currentMount) {
       return out.copy(player.currentMount.group.position)
