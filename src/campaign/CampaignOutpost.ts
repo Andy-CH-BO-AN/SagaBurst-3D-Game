@@ -15,7 +15,7 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
   frontDistance: 135,
   backDistance: 171,
-  halfWidth: 22,
+  halfWidth: 44,
   gateWidth: 8,
   stakeLineDistance: 129,
 } as const
@@ -93,6 +93,7 @@ export function createCampaignOutpost(
   const stoneMaterial = new THREE.MeshLambertMaterial({ color: 0x6d6b63 })
 
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
+  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, 3.4, 6)
   const stakePole = new THREE.CylinderGeometry(0.1, 0.13, 3.4, 6)
   const tentGeometry = new THREE.ConeGeometry(2.7, 2.2, 4)
   const fireLogGeometry = new THREE.CylinderGeometry(0.12, 0.12, 1.15, 6)
@@ -138,37 +139,72 @@ export function createCampaignOutpost(
     widthX: number,
     depthZ: number,
   ): DamageableObstacle => {
-    const terrainY = getTerrainHeight(x, z)
     const pieceRoot = new THREE.Group()
     pieceRoot.name = name
 
-    const wall = new THREE.Mesh(unitBox, woodMaterial)
-    wall.position.set(x, terrainY + 1.65, z)
-    wall.scale.set(widthX, 3.3, depthZ)
-    wall.castShadow = true
-    wall.receiveShadow = true
-    pieceRoot.add(wall)
-
-    const brace = new THREE.Mesh(unitBox, darkWoodMaterial)
-    brace.position.set(x, terrainY + 1.25, z)
-    brace.scale.set(
-      Math.max(0.18, widthX > depthZ ? widthX : 0.18),
-      0.22,
-      Math.max(0.18, depthZ >= widthX ? depthZ : 0.18),
+    // Keep collision continuous, but render the wall as spaced timber stakes so
+    // defenders/attackers remain visible through the palisade.
+    const horizontal = widthX >= depthZ
+    const length = horizontal ? widthX : depthZ
+    const spacing = 0.72
+    const stakeCount = Math.max(2, Math.floor(length / spacing))
+    const actualSpacing = length / stakeCount
+    const stakes = new THREE.InstancedMesh(
+      palisadeStakeGeometry,
+      woodMaterial,
+      stakeCount,
     )
-    brace.castShadow = true
-    pieceRoot.add(brace)
+    stakes.name = `${name}-stakes`
+    stakes.castShadow = true
+    stakes.receiveShadow = true
+
+    const matrix = new THREE.Matrix4()
+    let minTerrainY = Infinity
+    let maxTerrainY = -Infinity
+    for (let i = 0; i < stakeCount; i++) {
+      const offset = -length / 2 + actualSpacing * (i + 0.5)
+      const stakeX = horizontal ? x + offset : x
+      const stakeZ = horizontal ? z : z + offset
+      const terrainY = getTerrainHeight(stakeX, stakeZ)
+      minTerrainY = Math.min(minTerrainY, terrainY)
+      maxTerrainY = Math.max(maxTerrainY, terrainY)
+      matrix.makeTranslation(stakeX, terrainY + 1.7, stakeZ)
+      stakes.setMatrixAt(i, matrix)
+    }
+    stakes.instanceMatrix.needsUpdate = true
+    pieceRoot.add(stakes)
+
+    const centerTerrainY = getTerrainHeight(x, z)
+    const lowerRail = new THREE.Mesh(unitBox, darkWoodMaterial)
+    lowerRail.position.set(x, centerTerrainY + 1.15, z)
+    lowerRail.scale.set(
+      horizontal ? widthX : 0.16,
+      0.16,
+      horizontal ? 0.16 : depthZ,
+    )
+    lowerRail.castShadow = true
+    pieceRoot.add(lowerRail)
+
+    const upperRail = new THREE.Mesh(unitBox, darkWoodMaterial)
+    upperRail.position.set(x, centerTerrainY + 2.15, z)
+    upperRail.scale.set(
+      horizontal ? widthX : 0.16,
+      0.16,
+      horizontal ? 0.16 : depthZ,
+    )
+    upperRail.castShadow = true
+    pieceRoot.add(upperRail)
 
     root.add(pieceRoot)
 
     const box = new THREE.Box3(
-      new THREE.Vector3(x - widthX / 2, terrainY, z - depthZ / 2),
-      new THREE.Vector3(x + widthX / 2, terrainY + 3.4, z + depthZ / 2),
+      new THREE.Vector3(x - widthX / 2, minTerrainY, z - depthZ / 2),
+      new THREE.Vector3(x + widthX / 2, maxTerrainY + 3.5, z + depthZ / 2),
     )
     return registerDamageablePiece({
       kind: 'palisade',
       root: pieceRoot,
-      hitMeshes: [wall, brace],
+      hitMeshes: [stakes, lowerRail, upperRail],
       box,
       isBarricade: true,
     })
@@ -253,7 +289,7 @@ export function createCampaignOutpost(
     isBarricade: true,
   })
 
-  const stakeXs = [-18, -13, -8, 8, 13, 18]
+  const stakeXs = [-40, -32, -24, -16, -10, 10, 16, 24, 32, 40]
   for (const [index, x] of stakeXs.entries()) {
     const z = stakeLineZ + (index % 2 === 0 ? -0.8 : 0.8)
     const terrainY = getTerrainHeight(x, z)
@@ -291,15 +327,34 @@ export function createCampaignOutpost(
     })
   }
 
-  const createTent = (name: string, x: number, z: number, rotationY: number): void => {
+  const createTent = (
+    name: string,
+    x: number,
+    z: number,
+    rotationY: number,
+  ): DamageableObstacle => {
     const terrainY = getTerrainHeight(x, z)
+    const tentRoot = new THREE.Group()
+    tentRoot.name = name
+
     const tent = new THREE.Mesh(tentGeometry, canvasMaterial)
-    tent.name = name
     tent.position.set(x, terrainY + 1.1, z)
     tent.rotation.y = rotationY
     tent.castShadow = true
     tent.receiveShadow = true
-    root.add(tent)
+    tentRoot.add(tent)
+    root.add(tentRoot)
+
+    return registerDamageablePiece({
+      kind: 'tent',
+      root: tentRoot,
+      hitMeshes: [tent],
+      box: new THREE.Box3(
+        new THREE.Vector3(x - 2.5, terrainY, z - 2.5),
+        new THREE.Vector3(x + 2.5, terrainY + 2.4, z + 2.5),
+      ),
+      isBarricade: false,
+    })
   }
 
   createTent('campaign-outpost-tent-1', -12, 159 * zSign, Math.PI / 4)
