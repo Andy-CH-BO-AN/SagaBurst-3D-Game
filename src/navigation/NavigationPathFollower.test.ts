@@ -108,44 +108,37 @@ describe('NavigationPathFollower', () => {
     ).toBe('path')
   })
 
-  it('returns pending when the global per-frame A star budget is exhausted', () => {
+  it('returns pending while a long A star route continues into the next frame', () => {
     const world = new NavigationWorld()
-    world.rebuild([
-      obstacle(-1, -8, 1, 8),
-    ])
+    world.rebuild([])
     world.beginFrame()
 
-    const first = new NavigationPathFollower()
-    const second = new NavigationPathFollower()
-    const third = new NavigationPathFollower()
+    const follower = new NavigationPathFollower()
     const out = new THREE.Vector3()
+    const start = new THREE.Vector3(-150, 0, 0)
+    const goal = new THREE.Vector3(150, 0, 0)
 
     expect(
-      first.resolveMoveTarget(
-        new THREE.Vector3(-8, 0, -4),
-        new THREE.Vector3(8, 0, -4),
-        world,
-        true,
-        out,
-      ),
-    ).toBe('path')
-    expect(
-      second.resolveMoveTarget(
-        new THREE.Vector3(-8, 0, 0),
-        new THREE.Vector3(8, 0, 0),
-        world,
-        true,
-        out,
-      ),
-    ).toBe('path')
-    expect(
-      third.resolveMoveTarget(
-        new THREE.Vector3(-8, 0, 4),
-        new THREE.Vector3(8, 0, 4),
+      follower.resolveMoveTarget(
+        start,
+        goal,
         world,
         true,
         out,
       ),
     ).toBe('pending')
+
+    world.beginFrame()
+
+    expect(
+      follower.resolveMoveTarget(
+        start,
+        goal,
+        world,
+        true,
+        out,
+      ),
+    ).toBe('path')
+    expect(out.equals(goal)).toBe(false)
   })
 })
