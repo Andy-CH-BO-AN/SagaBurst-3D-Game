@@ -52,6 +52,238 @@ export interface EntityCollisionBody {
   anchored?: boolean
 }
 
+export type ObstacleDetourSide = -1 | 1
+
+export interface ObstacleDetourPlan {
+  obstacle: ObstacleData
+  waypoint: THREE.Vector3
+  side: ObstacleDetourSide
+}
+
+const OBSTACLE_DETOUR_MARGIN = 0.35
+const SEGMENT_EPSILON = 1e-6
+
+function verticallyOverlapsObstacle(
+  positionY: number,
+  height: number,
+  bottomOffset: number,
+  box: THREE.Box3,
+): boolean {
+  const bottomY = positionY - bottomOffset
+  const topY = bottomY + height
+  return bottomY < box.max.y - 0.001 && topY > box.min.y + 0.001
+}
+
+function segmentEntryFractionExpandedBox(
+  startX: number,
+  startZ: number,
+  endX: number,
+  endZ: number,
+  box: THREE.Box3,
+  padding: number,
+): number | null {
+  const minX = box.min.x - padding
+  const maxX = box.max.x + padding
+  const minZ = box.min.z - padding
+  const maxZ = box.max.z + padding
+  const dx = endX - startX
+  const dz = endZ - startZ
+
+  let tMin = 0
+  let tMax = 1
+
+  if (Math.abs(dx) < SEGMENT_EPSILON) {
+    if (startX < minX || startX > maxX) return null
+  } else {
+    let tx1 = (minX - startX) / dx
+    let tx2 = (maxX - startX) / dx
+    if (tx1 > tx2) [tx1, tx2] = [tx2, tx1]
+    tMin = Math.max(tMin, tx1)
+    tMax = Math.min(tMax, tx2)
+    if (tMin > tMax) return null
+  }
+
+  if (Math.abs(dz) < SEGMENT_EPSILON) {
+    if (startZ < minZ || startZ > maxZ) return null
+  } else {
+    let tz1 = (minZ - startZ) / dz
+    let tz2 = (maxZ - startZ) / dz
+    if (tz1 > tz2) [tz1, tz2] = [tz2, tz1]
+    tMin = Math.max(tMin, tz1)
+    tMax = Math.min(tMax, tz2)
+    if (tMin > tMax) return null
+  }
+
+  return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null
+}
+
+function segmentBlockedByObstacle(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacle: ObstacleData,
+): boolean {
+  if (!verticallyOverlapsObstacle(start.y, height, bottomOffset, obstacle.box)) return false
+  return segmentEntryFractionExpandedBox(
+    start.x,
+    start.z,
+    end.x,
+    end.z,
+    obstacle.box,
+    radius,
+  ) !== null
+}
+
+/**
+ * Returns the closest obstacle intersecting the actor's XZ travel corridor.
+ * maxDistance lets callers use this as a cheap local look-ahead while keeping
+ * full line-of-sight checks available with the default Infinity.
+ */
+export function findBlockingObstacleAlongPath(
+  position: THREE.Vector3,
+  target: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+  maxDistance: number = Infinity,
+): ObstacleData | null {
+  const dx = target.x - position.x
+  const dz = target.z - position.z
+  const distance = Math.hypot(dx, dz)
+  if (distance < SEGMENT_EPSILON) return null
+
+  const scale = Number.isFinite(maxDistance) && distance > maxDistance
+    ? maxDistance / distance
+    : 1
+  const endX = position.x + dx * scale
+  const endZ = position.z + dz * scale
+
+  let closest: ObstacleData | null = null
+  let closestFraction = Infinity
+
+  for (const obstacle of obstacles) {
+    if (!verticallyOverlapsObstacle(position.y, height, bottomOffset, obstacle.box)) continue
+    const entry = segmentEntryFractionExpandedBox(
+      position.x,
+      position.z,
+      endX,
+      endZ,
+      obstacle.box,
+      radius,
+    )
+    if (entry !== null && entry < closestFraction) {
+      closestFraction = entry
+      closest = obstacle
+    }
+  }
+
+  return closest
+}
+
+export function isObstaclePathClear(
+  position: THREE.Vector3,
+  target: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+): boolean {
+  return findBlockingObstacleAlongPath(
+    position,
+    target,
+    radius,
+    height,
+    bottomOffset,
+    obstacles,
+  ) === null
+}
+
+/**
+ * Builds one persistent detour waypoint around the nearest blocking obstacle.
+ * The waypoint is chosen from inflated box corners. If one corner cannot see
+ * the target yet (for example a long wall), the caller can keep the chosen side
+ * and request another waypoint after reaching the first corner.
+ */
+export function findObstacleDetourPlan(
+  position: THREE.Vector3,
+  target: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+  preferredSide?: ObstacleDetourSide,
+  maxLookAhead: number = Infinity,
+): ObstacleDetourPlan | null {
+  const obstacle = findBlockingObstacleAlongPath(
+    position,
+    target,
+    radius,
+    height,
+    bottomOffset,
+    obstacles,
+    maxLookAhead,
+  )
+  if (!obstacle) return null
+
+  const dx = target.x - position.x
+  const dz = target.z - position.z
+  const length = Math.hypot(dx, dz)
+  if (length < SEGMENT_EPSILON) return null
+  const dirX = dx / length
+  const dirZ = dz / length
+
+  const clearance = radius + OBSTACLE_DETOUR_MARGIN
+  const box = obstacle.box
+  const corners: readonly [number, number][] = [
+    [box.min.x - clearance, box.min.z - clearance],
+    [box.min.x - clearance, box.max.z + clearance],
+    [box.max.x + clearance, box.min.z - clearance],
+    [box.max.x + clearance, box.max.z + clearance],
+  ]
+
+  const choose = (sideFilter?: ObstacleDetourSide): ObstacleDetourPlan | null => {
+    let best: ObstacleDetourPlan | null = null
+    let bestCost = Infinity
+
+    for (const [x, z] of corners) {
+      const toWaypointX = x - position.x
+      const toWaypointZ = z - position.z
+      const cross = dirX * toWaypointZ - dirZ * toWaypointX
+      const side: ObstacleDetourSide = cross >= 0 ? 1 : -1
+      if (sideFilter !== undefined && side !== sideFilter) continue
+
+      const waypoint = new THREE.Vector3(x, position.y, z)
+      if (segmentBlockedByObstacle(position, waypoint, radius, height, bottomOffset, obstacle)) {
+        continue
+      }
+
+      const firstLeg = Math.hypot(toWaypointX, toWaypointZ)
+      const secondLeg = Math.hypot(target.x - x, target.z - z)
+      const targetVisible = !segmentBlockedByObstacle(
+        waypoint,
+        target,
+        radius,
+        height,
+        bottomOffset,
+        obstacle,
+      )
+      const cost = firstLeg + secondLeg + (targetVisible ? 0 : 5)
+
+      if (cost < bestCost) {
+        bestCost = cost
+        best = { obstacle, waypoint, side }
+      }
+    }
+
+    return best
+  }
+
+  return choose(preferredSide) ?? choose()
+}
+
 /** Returns a direction that steers around an obstacle directly ahead. */
 export function getObstacleAvoidanceDirection(
   position: THREE.Vector3,
