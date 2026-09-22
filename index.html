@@ -280,18 +280,29 @@
         left: 140px;
         right: 16px;
         min-height: 34px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+        align-items: start;
+        gap: 18px;
         color: #eadfce;
         font: 14px/1.4 'Segoe UI', sans-serif;
         text-shadow: 0 1px 3px #000;
         pointer-events: none;
         user-select: none;
       }
-      .army-command-row {
+      .army-command-all,
+      .army-command-side {
         display: flex;
         flex-direction: row;
         flex-wrap: wrap;
         align-items: center;
         gap: 7px;
+      }
+      .army-command-all { grid-column: 1; }
+      .army-command-side.left { grid-column: 2; }
+      .army-command-side.right {
+        grid-column: 3;
+        justify-content: flex-end;
       }
       .army-command-entry {
         display: flex;
@@ -314,7 +325,8 @@
       .army-command-submenu {
         position: absolute;
         top: 44px;
-        left: 0;
+        left: 50%;
+        transform: translateX(-50%);
         min-width: 160px;
         padding: 8px 10px;
         border: 1px solid rgba(232, 201, 106, 0.55);
@@ -330,7 +342,8 @@
       .army-command-feedback {
         position: absolute;
         top: 86px;
-        left: 0;
+        left: 50%;
+        transform: translateX(-50%);
         padding: 6px 14px;
         border: 1px solid rgba(232, 201, 106, 0.55);
         border-radius: 4px;
@@ -346,12 +359,20 @@
           top: 58px;
           left: 12px;
           right: 12px;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 6px;
           font-size: 12px;
         }
-        .army-command-row { gap: 5px; }
+        .army-command-all { grid-column: 1; }
+        .army-command-side.left,
+        .army-command-side.right {
+          grid-column: 2;
+          justify-content: flex-start;
+        }
+        .army-command-side.right { margin-top: 5px; }
         .army-command-entry { gap: 6px; padding: 5px 8px; }
-        .army-command-submenu { top: 82px; font-size: 12px; }
-        .army-command-feedback { top: 122px; }
+        .army-command-submenu { top: 94px; font-size: 12px; }
+        .army-command-feedback { top: 134px; }
       }
 
       /* ── Skill Level Up Toast ── */
