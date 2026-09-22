@@ -61,14 +61,12 @@ export const ROMAN_CAMPAIGN_RULES = {
   playerCountsAsOriginalDefender: true,
   initialRomanOrder: 'defend' as TacticalOrder,
   victoryRequiresVikingElimination: true,
-  lockDefeatWhenOriginalRomanForceEliminated: true,
+  lockDefeatWhenPlayerAndOriginalDefendersEliminated: true,
   continueSimulationAfterDefeat: true,
 } as const
 
-const ZERO_TIER_COUNTS: TierCounts = { 1: 0, 2: 0, 3: 0 }
-
 function tierCounts(t1: number, t2: number, t3: number): TierCounts {
-  return { ...ZERO_TIER_COUNTS, 1: t1, 2: t2, 3: t3 }
+  return { 1: t1, 2: t2, 3: t3 }
 }
 
 /**
