@@ -483,9 +483,7 @@ export class Game {
 
     // DEV-only visual/collision preview until Campaign runtime owns outpost creation.
     if (import.meta.env.DEV && startupQuery.has('romanoutpost')) {
-      const outpost = createRomanOutpost(this.scene)
-      obstacles.push(...outpost.obstacles)
-      obstacleMeshes.push(...outpost.obstacleMeshes)
+      const outpost = createRomanOutpost(this.scene, { obstacles, obstacleMeshes })
       damageableObstacles.push(...outpost.damageableObstacles)
     }
 
