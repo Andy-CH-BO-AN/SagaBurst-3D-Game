@@ -22,6 +22,13 @@ export interface DamageableObstacleOptions {
   ownerFaction?: CharacterFaction | null
 }
 
+export const DAMAGEABLE_OBSTACLE_NAMES: Readonly<Record<DamageableObstacleKind, string>> = {
+  tree: 'Tree',
+  palisade: 'Palisade',
+  gate: 'Gate',
+  chevaux_de_frise: 'Chevaux-de-frise',
+}
+
 export interface DamageableObstacleHitResult {
   appliedDamage: number
   remainingHp: number
@@ -70,6 +77,14 @@ export class DamageableObstacle {
 
   get destroyed(): boolean {
     return this._destroyed
+  }
+
+  get displayName(): string {
+    return DAMAGEABLE_OBSTACLE_NAMES[this.kind]
+  }
+
+  isDamageableBy(attackerFaction: CharacterFaction): boolean {
+    return this.ownerFaction === null || this.ownerFaction !== attackerFaction
   }
 
   takeDamage(amount: number): DamageableObstacleHitResult {
