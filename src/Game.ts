@@ -126,6 +126,11 @@ import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
+import {
+  applyCampaignBreachOrders,
+  isCampaignGateOccupied,
+  type CampaignGateController,
+} from './campaign/CampaignGate'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -356,6 +361,7 @@ export class Game {
   private mounts: Mount[] = []
 
   private obstacles: ObstacleData[] = []
+  private previewCampaignGate: CampaignGateController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager: SaveManager
@@ -506,6 +512,18 @@ export class Game {
         { obstacles, obstacleMeshes },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
+      this.previewCampaignGate = outpost.gateController
+      outpost.breachController.onBreach(() => {
+        const attackerFaction = outpost.gateController.attackerFaction
+        const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
+        this.soundManager.playCommanderCommand(attackerFaction, 'charge')
+        this._showNotify(
+          `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
+          + `${result.attackerChargeCount} charge / ${result.attackerAttackCount} ranged｜`
+          + `守軍 ${result.defenderAttackCount} → attack`,
+          3500,
+        )
+      })
     }
 
     this.obstacles = obstacles
@@ -1316,6 +1334,34 @@ export class Game {
     }
 
     window.addEventListener('keydown', (e) => {
+      if (import.meta.env.DEV && this.previewCampaignGate && e.code === 'KeyG') {
+        e.preventDefault()
+        const gate = this.previewCampaignGate
+        const wasOpen = gate.state === 'open'
+        const actorPositions: THREE.Vector3[] = []
+
+        if (!this.player.dead && !this.player.spectatorOnly) {
+          actorPositions.push(this.player.combatPosition)
+        }
+        for (const npc of this.npcs) {
+          if (!npc.dead) actorPositions.push(npc.combatPosition)
+        }
+        for (const mount of this.mounts) {
+          if (!mount.dead) actorPositions.push(mount.group.position)
+        }
+
+        const occupied = wasOpen
+          && isCampaignGateOccupied(gate.collisionBox, actorPositions)
+        const changed = gate.toggle(occupied)
+
+        if (!changed && occupied) {
+          this._showNotify('🚪 門口有人或馬，無法關門')
+        } else {
+          this._showNotify(`🚪 Gate: ${gate.state.toUpperCase()}`)
+        }
+        return
+      }
+
       if (!this.isMountStudio && (e.code === 'Digit0' || e.code === 'Numpad0')) {
         if (this.player.dead || this.controlMode === 'spectator') return
         e.preventDefault()
