@@ -477,19 +477,22 @@ export class Game {
 
     // ── World ──
     const startupQuery = new URLSearchParams(window.location.search)
+    const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
+    const previewOutpostFaction = previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+      ? previewOutpostQuery
+      : null
+
     createSky(this.scene, resolveShadowMapSize(startupQuery))
     const {
       terrainMesh,
       obstacles,
       obstacleMeshes,
       damageableObstacles,
-    } = createTerrain(this.scene)
+    } = createTerrain(this.scene, {
+      fortifiedCampFaction: previewOutpostFaction,
+    })
 
     // DEV-only visual/collision preview until Campaign runtime owns outpost creation.
-    const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
-    const previewOutpostFaction = previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
-      ? previewOutpostQuery
-      : null
     if (previewOutpostFaction) {
       const outpost = createCampaignOutpost(
         this.scene,
