@@ -8,6 +8,7 @@ import type { Player } from '../player/Player'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
 import { damageNpc, type DamageResult } from '../combat/DamageRouter'
 import { proceduralMaterial } from './ProceduralMaterials'
+import type { DamageableObstacle } from './DamageableObstacle'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
@@ -187,7 +188,13 @@ export class ArrowProjectile {
     npcs: NPC[],
     obstacles: ObstacleData[],
     onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC, isMountHit?: boolean) => void,
-    onDamagePlayer: (damage: number) => DamageResult
+    onDamagePlayer: (damage: number) => DamageResult,
+    onHitObstacle?: (
+      damage: number,
+      hitPos: THREE.Vector3,
+      obstacle: DamageableObstacle,
+      hpRatio: number,
+    ) => void,
   ): void {
     if (!this.alive) return
 
@@ -222,13 +229,36 @@ export class ArrowProjectile {
       return
     }
 
-    // ── Hit Detection 2: Obstacles (Rocks / Trees / Barricades) ──
+    // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
+      const attackerFaction = this.shooterFaction === Faction.PLAYER
+        ? player.characterFaction
+        : player.characterFaction === 'roman'
+          ? 'viking'
+          : 'roman'
+
       for (const obs of obstacles) {
-        if (obs.box.containsPoint(this.mesh.position)) {
-          this.stuck = true
-          return
+        if (!obs.box.containsPoint(this.mesh.position)) continue
+
+        const damageable = obs.damageable
+        if (
+          damageable
+          && !damageable.destroyed
+          && damageable.isDamageableBy(attackerFaction)
+        ) {
+          const result = damageable.takeDamage(this.damage)
+          if (result.appliedDamage > 0) {
+            onHitObstacle?.(
+              result.appliedDamage,
+              this.mesh.position.clone(),
+              damageable,
+              result.hpRatio,
+            )
+          }
         }
+
+        this.stuck = true
+        return
       }
     }
 
