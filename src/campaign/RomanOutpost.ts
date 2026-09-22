@@ -19,6 +19,11 @@ export const ROMAN_OUTPOST_LAYOUT = {
   stakeLineZ: -129,
 } as const
 
+export interface RomanOutpostCollections {
+  obstacles: ObstacleData[]
+  obstacleMeshes: THREE.Object3D[]
+}
+
 export interface RomanOutpostResult {
   root: THREE.Group
   obstacles: ObstacleData[]
@@ -41,13 +46,19 @@ interface DamageablePieceOptions {
  * Custom Battle does not call this builder. Campaign runtime can opt into the
  * outpost without changing the existing shared map or battle spawner.
  */
-export function createRomanOutpost(scene: THREE.Scene): RomanOutpostResult {
+export function createRomanOutpost(
+  scene: THREE.Scene,
+  collections?: RomanOutpostCollections,
+): RomanOutpostResult {
   const root = new THREE.Group()
   root.name = 'roman-campaign-outpost'
   scene.add(root)
 
-  const obstacles: ObstacleData[] = []
-  const obstacleMeshes: THREE.Object3D[] = []
+  // Campaign runtime should pass the same arrays used by NPC navigation and
+  // projectile collision. This guarantees destruction removes the live obstacle
+  // rather than only mutating a detached copy.
+  const obstacles = collections?.obstacles ?? []
+  const obstacleMeshes = collections?.obstacleMeshes ?? []
   const damageableObstacles: DamageableObstacle[] = []
 
   const woodMaterial = new THREE.MeshLambertMaterial({ color: 0x76502b })
