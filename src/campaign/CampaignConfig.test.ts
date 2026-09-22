@@ -12,7 +12,7 @@ function sumTierCounts(counts: TierCounts): number {
   return counts[1] + counts[2] + counts[3]
 }
 
-function sumPresetCounts(counts: Record<string, number>): number {
+function sumPresetCounts(counts: Readonly<Record<string, number>>): number {
   return Object.values(counts).reduce((sum, count) => sum + count, 0)
 }
 
@@ -33,7 +33,7 @@ describe('Roman Campaign configuration', () => {
     expect(ROMAN_CAMPAIGN_RULES.playerCountsAsOriginalDefender).toBe(true)
     expect(ROMAN_CAMPAIGN_RULES.initialRomanOrder).toBe('defend')
     expect(ROMAN_CAMPAIGN_RULES.victoryRequiresVikingElimination).toBe(true)
-    expect(ROMAN_CAMPAIGN_RULES.lockDefeatWhenOriginalRomanForceEliminated).toBe(true)
+    expect(ROMAN_CAMPAIGN_RULES.lockDefeatWhenPlayerAndOriginalDefendersEliminated).toBe(true)
     expect(ROMAN_CAMPAIGN_RULES.continueSimulationAfterDefeat).toBe(true)
   })
 
