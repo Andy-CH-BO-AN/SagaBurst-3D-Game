@@ -443,6 +443,10 @@ export class Game {
   private readonly _nearbyNpcBuffer: NPC[] = []
   private readonly _impactCandidates: NPC[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
+  private readonly npcFactionGrids: Record<Faction, SpatialGrid<NPC>> = {
+    [Faction.PLAYER]: new SpatialGrid<NPC>(20),
+    [Faction.ENEMY]: new SpatialGrid<NPC>(20),
+  }
   public readonly devGridStats = {
     queriesPerFrame: 0,
     returnedNeighborsAvg: 0,
@@ -1874,8 +1878,12 @@ export class Game {
     // 1. NPC Grid Build
     if (profile) t0 = performance.now()
     this.npcGrid.clear()
+    this.npcFactionGrids[Faction.PLAYER].clear()
+    this.npcFactionGrids[Faction.ENEMY].clear()
     for (const npc of this.npcs) {
-      if (npc.hp > 0) this.npcGrid.insert(npc)
+      if (npc.hp <= 0) continue
+      this.npcGrid.insert(npc)
+      this.npcFactionGrids[npc.faction].insert(npc)
     }
     const npcGridMs = profile ? performance.now() - t0 : 0
 
@@ -1936,6 +1944,10 @@ export class Game {
         }
       }
 
+      const hostileNpcGrid = npc.faction === Faction.PLAYER
+        ? this.npcFactionGrids[Faction.ENEMY]
+        : this.npcFactionGrids[Faction.PLAYER]
+
       npc.update(
         dt, 
         this.player,
@@ -1982,7 +1994,8 @@ export class Game {
         },
         skipBoidsAndObstacles,
         cameraDistance,
-        collector
+        collector,
+        hostileNpcGrid,
       )
       npcLoopIndex++
     }
