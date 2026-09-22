@@ -87,6 +87,20 @@ describe('NavigationGrid', () => {
     expect(path!.every(cell => !grid.isBlocked(cell))).toBe(true)
   })
 
+  it('can escape a blocked coarse start cell when a walkable route exists', () => {
+    const grid = createGrid()
+    grid.setBlocked({ x: 1, z: 1 }, true)
+
+    const path = grid.findPathCells(
+      { x: 1, z: 1 },
+      { x: 4, z: 1 },
+    )
+
+    expect(path).not.toBeNull()
+    expect(path![0]).toEqual({ x: 1, z: 1 })
+    expect(path!.at(-1)).toEqual({ x: 4, z: 1 })
+  })
+
   it('returns null when a full barrier makes the target unreachable', () => {
     const grid = createGrid()
 

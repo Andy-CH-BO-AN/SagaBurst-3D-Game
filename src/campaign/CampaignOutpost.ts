@@ -20,6 +20,14 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
   stakeLineDistance: 102,
 } as const
 
+// Canonical humanoid heights are 1.86m Viking / 1.78m Roman.
+// Keep the defender palisade 0.40m below the matching archer height so
+// defenders can visually and physically shoot over it without firing gaps.
+export const CAMPAIGN_PALISADE_HEIGHT = {
+  viking: 1.46,
+  roman: 1.38,
+} as const
+
 export interface CampaignOutpostPlacement {
   centerX: number
   frontZ: number
@@ -94,7 +102,8 @@ export function createCampaignOutpost(
   const stoneMaterial = new THREE.MeshLambertMaterial({ color: 0x6d6b63 })
 
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
-  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, 3.4, 6)
+  const palisadeHeight = CAMPAIGN_PALISADE_HEIGHT[defenderFaction]
+  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, palisadeHeight, 6)
   const stakePole = new THREE.CylinderGeometry(0.1, 0.13, 3.4, 6)
   const tentGeometry = new THREE.ConeGeometry(4.0, 3.6, 4)
   const fireLogGeometry = new THREE.CylinderGeometry(0.12, 0.12, 1.15, 6)
@@ -144,12 +153,13 @@ export function createCampaignOutpost(
     const pieceRoot = new THREE.Group()
     pieceRoot.name = name
 
-    // Keep collision continuous, but render the wall as spaced timber stakes so
-    // defenders/attackers remain visible through the palisade.
+    // Render the palisade as tightly packed timber stakes. Actor collision and
+    // projectile collision both use the same continuous obstacle volume, so
+    // there are no visual/projectile gaps that can make ranged LoS flicker.
     const horizontal = widthX >= depthZ
     const length = horizontal ? widthX : depthZ
-    const spacing = 0.72
-    const stakeCount = Math.max(2, Math.floor(length / spacing))
+    const spacing = 0.20
+    const stakeCount = Math.max(2, Math.ceil(length / spacing))
     const actualSpacing = length / stakeCount
     const stakes = new THREE.InstancedMesh(
       palisadeStakeGeometry,
@@ -161,7 +171,6 @@ export function createCampaignOutpost(
     stakes.receiveShadow = true
 
     const matrix = new THREE.Matrix4()
-    const projectileBoxes: THREE.Box3[] = []
     let minTerrainY = Infinity
     let maxTerrainY = -Infinity
     for (let i = 0; i < stakeCount; i++) {
@@ -171,51 +180,38 @@ export function createCampaignOutpost(
       const terrainY = getTerrainHeight(stakeX, stakeZ)
       minTerrainY = Math.min(minTerrainY, terrainY)
       maxTerrainY = Math.max(maxTerrainY, terrainY)
-      matrix.makeTranslation(stakeX, terrainY + 1.7, stakeZ)
+      matrix.makeTranslation(stakeX, terrainY + palisadeHeight / 2, stakeZ)
       stakes.setMatrixAt(i, matrix)
-      projectileBoxes.push(new THREE.Box3(
-        new THREE.Vector3(stakeX - 0.17, terrainY, stakeZ - 0.17),
-        new THREE.Vector3(stakeX + 0.17, terrainY + 3.4, stakeZ + 0.17),
-      ))
     }
     stakes.instanceMatrix.needsUpdate = true
     pieceRoot.add(stakes)
 
     const centerTerrainY = getTerrainHeight(x, z)
     const lowerRail = new THREE.Mesh(unitBox, darkWoodMaterial)
-    lowerRail.position.set(x, centerTerrainY + 1.15, z)
+    lowerRail.position.set(x, centerTerrainY + palisadeHeight * 0.42, z)
     lowerRail.scale.set(
       horizontal ? widthX : 0.16,
-      0.16,
+      0.14,
       horizontal ? 0.16 : depthZ,
     )
     lowerRail.castShadow = true
     pieceRoot.add(lowerRail)
 
     const upperRail = new THREE.Mesh(unitBox, darkWoodMaterial)
-    upperRail.position.set(x, centerTerrainY + 2.15, z)
+    upperRail.position.set(x, centerTerrainY + palisadeHeight * 0.76, z)
     upperRail.scale.set(
       horizontal ? widthX : 0.16,
-      0.16,
+      0.14,
       horizontal ? 0.16 : depthZ,
     )
     upperRail.castShadow = true
     pieceRoot.add(upperRail)
 
-    const railHalfX = horizontal ? widthX / 2 : 0.12
-    const railHalfZ = horizontal ? 0.12 : depthZ / 2
-    for (const railY of [centerTerrainY + 1.15, centerTerrainY + 2.15]) {
-      projectileBoxes.push(new THREE.Box3(
-        new THREE.Vector3(x - railHalfX, railY - 0.1, z - railHalfZ),
-        new THREE.Vector3(x + railHalfX, railY + 0.1, z + railHalfZ),
-      ))
-    }
-
     root.add(pieceRoot)
 
     const box = new THREE.Box3(
       new THREE.Vector3(x - widthX / 2, minTerrainY, z - depthZ / 2),
-      new THREE.Vector3(x + widthX / 2, maxTerrainY + 3.5, z + depthZ / 2),
+      new THREE.Vector3(x + widthX / 2, maxTerrainY + palisadeHeight, z + depthZ / 2),
     )
     return registerDamageablePiece({
       kind: 'palisade',
@@ -223,7 +219,6 @@ export function createCampaignOutpost(
       hitMeshes: [stakes, lowerRail, upperRail],
       box,
       isBarricade: true,
-      projectileBoxes,
     })
   }
 
@@ -277,20 +272,20 @@ export function createCampaignOutpost(
   gateRoot.name = `campaign-outpost-gate-${defenderFaction}`
 
   const leftGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  leftGate.position.set(-gateWidth / 4, gateTerrainY + 1.65, frontZ)
-  leftGate.scale.set(gateWidth / 2, 3.3, 0.9)
+  leftGate.position.set(-gateWidth / 4, gateTerrainY + palisadeHeight / 2, frontZ)
+  leftGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
   leftGate.castShadow = true
   gateRoot.add(leftGate)
 
   const rightGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  rightGate.position.set(gateWidth / 4, gateTerrainY + 1.65, frontZ)
-  rightGate.scale.set(gateWidth / 2, 3.3, 0.9)
+  rightGate.position.set(gateWidth / 4, gateTerrainY + palisadeHeight / 2, frontZ)
+  rightGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
   rightGate.castShadow = true
   gateRoot.add(rightGate)
 
   const gateTop = new THREE.Mesh(unitBox, woodMaterial)
-  gateTop.position.set(0, gateTerrainY + 3.45, frontZ)
-  gateTop.scale.set(gateWidth + 0.8, 0.3, 1.05)
+  gateTop.position.set(0, gateTerrainY + palisadeHeight - 0.07, frontZ)
+  gateTop.scale.set(gateWidth + 0.8, 0.14, 1.05)
   gateTop.castShadow = true
   gateRoot.add(gateTop)
 
@@ -301,7 +296,7 @@ export function createCampaignOutpost(
     hitMeshes: [leftGate, rightGate, gateTop],
     box: new THREE.Box3(
       new THREE.Vector3(-gateWidth / 2, gateTerrainY, frontZ - 0.45),
-      new THREE.Vector3(gateWidth / 2, gateTerrainY + 3.6, frontZ + 0.45),
+      new THREE.Vector3(gateWidth / 2, gateTerrainY + palisadeHeight, frontZ + 0.45),
     ),
     isBarricade: true,
   })

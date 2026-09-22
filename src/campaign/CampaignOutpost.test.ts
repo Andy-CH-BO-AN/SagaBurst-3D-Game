@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../world/Terrain'
 import {
+  CAMPAIGN_PALISADE_HEIGHT,
   createCampaignOutpost,
   getCampaignOutpostPlacement,
 } from './CampaignOutpost'
@@ -33,6 +34,8 @@ describe('CampaignOutpost', () => {
       expect(gateObstacle).toBeDefined()
       expect(gateObstacle!.box.min.x).toBeCloseTo(-placement.gateWidth / 2)
       expect(gateObstacle!.box.max.x).toBeCloseTo(placement.gateWidth / 2)
+      expect(gateObstacle!.box.getSize(new THREE.Vector3()).y)
+        .toBeCloseTo(CAMPAIGN_PALISADE_HEIGHT[defenderFaction])
       expect(gateObstacle!.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(placement.frontZ)
       expect(Math.sign(placement.frontZ)).toBe(defenderFaction === 'roman' ? -1 : 1)
       expect(Math.abs(placement.backZ)).toBeGreaterThan(Math.abs(placement.frontZ))
@@ -94,25 +97,31 @@ describe('CampaignOutpost', () => {
     }
   })
 
-  it('renders palisades as spaced stakes while keeping continuous actor collision', () => {
-    const scene = new THREE.Scene()
-    const outpost = createCampaignOutpost(scene, 'roman')
-    const palisades = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'palisade')
+  it.each(['roman', 'viking'] as const)(
+    'renders %s palisades as solid low timber walls for both actor and projectile collision',
+    defenderFaction => {
+      const scene = new THREE.Scene()
+      const outpost = createCampaignOutpost(scene, defenderFaction)
+      const palisades = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'palisade')
 
-    expect(palisades.length).toBeGreaterThan(0)
-    expect(
-      palisades.every(palisade =>
-        palisade.root.children.some(child => child instanceof THREE.InstancedMesh),
-      ),
-    ).toBe(true)
+      expect(palisades.length).toBeGreaterThan(0)
 
-    for (const palisade of palisades) {
-      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === palisade)
-      expect(obstacle).toBeDefined()
-      expect(obstacle!.box.getSize(new THREE.Vector3()).length()).toBeGreaterThan(1)
-      expect(obstacle!.projectileBoxes?.length).toBeGreaterThan(2)
-    }
-  })
+      for (const palisade of palisades) {
+        const stakes = palisade.root.children.find(
+          child => child instanceof THREE.InstancedMesh,
+        ) as THREE.InstancedMesh | undefined
+        expect(stakes).toBeDefined()
+        expect(
+          (stakes!.geometry as THREE.CylinderGeometry).parameters.height,
+        ).toBeCloseTo(CAMPAIGN_PALISADE_HEIGHT[defenderFaction])
+
+        const obstacle = outpost.obstacles.find(candidate => candidate.damageable === palisade)
+        expect(obstacle).toBeDefined()
+        expect(obstacle!.box.getSize(new THREE.Vector3()).length()).toBeGreaterThan(1)
+        expect(obstacle!.projectileBoxes).toBeUndefined()
+      }
+    },
+  )
 
   it('adds a smooth raised lookout hill at both campaign camp centers', () => {
     expect(getFortifiedCampHeightOffset(0, -FORTIFIED_CAMP_HILL.centerAbsZ, 'roman'))

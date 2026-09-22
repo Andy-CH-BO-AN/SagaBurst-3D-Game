@@ -84,11 +84,13 @@ export class ArmyCommandController {
     private readonly ui: ArmyCommandUI,
     private readonly formation: FormationController | null = null,
     private readonly onCommandIssued: ((order: TacticalOrder) => void) | null = null,
+    initialOrder: TacticalOrder = 'attack',
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
+    this.allOrder = initialOrder
     for (const shortcut of this.shortcuts) {
-      if (shortcut.target !== 'all') this.orders.set(shortcut.target, 'attack')
+      if (shortcut.target !== 'all') this.orders.set(shortcut.target, initialOrder)
     }
     for (const npc of this.npcs) {
       npc.onRespawnCallbacks?.push((respawned) => {
