@@ -12,7 +12,7 @@ export type NavigationPathQueryResult =
   | { status: 'pending' }
   | { status: 'unreachable' }
 
-export const NAV_PATH_REQUESTS_PER_FRAME = 2
+export const NAV_PATH_NODE_EXPANSIONS_PER_FRAME = 128
 export const NAV_PATH_GROUP_CELLS = 2
 
 const COMPONENT_NEIGHBORS: readonly [number, number][] = [
@@ -26,13 +26,20 @@ const COMPONENT_NEIGHBORS: readonly [number, number][] = [
   [-1, -1],
 ]
 
+interface PendingPathRequest {
+  startCell: NavigationCell
+  goalCell: NavigationCell
+}
+
 export class NavigationWorld {
   readonly grid: NavigationGrid
 
   private _revision = 0
   private obstacleCount = -1
   private componentIds: Int32Array
-  private pathRequestsThisFrame = 0
+  private remainingPathNodeBudget = 0
+  private activePathKey: string | null = null
+  private readonly pendingPathRequests = new Map<string, PendingPathRequest>()
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
 
   constructor() {
@@ -51,7 +58,8 @@ export class NavigationWorld {
   }
 
   beginFrame(): void {
-    this.pathRequestsThisFrame = 0
+    this.remainingPathNodeBudget = NAV_PATH_NODE_EXPANSIONS_PER_FRAME
+    this._processPathBudget()
   }
 
   /**
@@ -70,6 +78,9 @@ export class NavigationWorld {
       this.grid.setBlockedBox(obstacle.box, true)
     }
     this._rebuildComponents()
+    this.grid.cancelPathSearch()
+    this.activePathKey = null
+    this.pendingPathRequests.clear()
     this.sharedPathCache.clear()
     this.obstacleCount = obstacles.length
     this._revision++
@@ -108,16 +119,71 @@ export class NavigationWorld {
         : { status: 'unreachable' }
     }
 
-    if (this.pathRequestsThisFrame >= NAV_PATH_REQUESTS_PER_FRAME) {
-      return { status: 'pending' }
+    if (
+      cacheKey !== this.activePathKey
+      && !this.pendingPathRequests.has(cacheKey)
+    ) {
+      this.pendingPathRequests.set(cacheKey, { startCell, goalCell })
     }
-    this.pathRequestsThisFrame++
 
-    const path = this.grid.findPathCells(startCell, goalCell)
-    this.sharedPathCache.set(cacheKey, path)
-    return path
-      ? { status: 'path', path }
-      : { status: 'unreachable' }
+    // queryPath may be called after beginFrame() while budget still remains.
+    // Spend only the shared node budget; long searches stay pending and resume
+    // next frame instead of completing synchronously.
+    this._processPathBudget()
+
+    if (this.sharedPathCache.has(cacheKey)) {
+      const cached = this.sharedPathCache.get(cacheKey) ?? null
+      return cached
+        ? { status: 'path', path: cached }
+        : { status: 'unreachable' }
+    }
+
+    return { status: 'pending' }
+  }
+
+  private _processPathBudget(): void {
+    while (this.remainingPathNodeBudget > 0) {
+      if (this.activePathKey === null) {
+        const next = this.pendingPathRequests.entries().next()
+        if (next.done) return
+
+        const [cacheKey, request] = next.value
+        this.pendingPathRequests.delete(cacheKey)
+        this.activePathKey = cacheKey
+
+        const started = this.grid.startPathSearchCells(
+          request.startCell,
+          request.goalCell,
+        )
+        if (started.status === 'path') {
+          this.sharedPathCache.set(cacheKey, started.path)
+          this.activePathKey = null
+          continue
+        }
+        if (started.status === 'unreachable') {
+          this.sharedPathCache.set(cacheKey, null)
+          this.activePathKey = null
+          continue
+        }
+      }
+
+      const cacheKey = this.activePathKey
+      if (cacheKey === null) continue
+
+      const result = this.grid.stepPathSearch(this.remainingPathNodeBudget)
+      this.remainingPathNodeBudget = Math.max(
+        0,
+        this.remainingPathNodeBudget - result.expandedNodes,
+      )
+
+      if (result.status === 'pending') return
+
+      this.sharedPathCache.set(
+        cacheKey,
+        result.status === 'path' ? result.path : null,
+      )
+      this.activePathKey = null
+    }
   }
 
   areConnected(
