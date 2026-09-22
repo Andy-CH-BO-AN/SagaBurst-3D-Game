@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
-  CAMPAIGN_OUTPOST_LAYOUT,
   createCampaignOutpost,
+  getCampaignOutpostPlacement,
 } from './CampaignOutpost'
 
 describe('CampaignOutpost', () => {
@@ -21,11 +21,14 @@ describe('CampaignOutpost', () => {
       expect(outpost.damageableObstacles.length).toBeGreaterThan(20)
       expect(outpost.obstacles.every(obstacle => obstacle.isBarricade)).toBe(true)
 
+      const placement = getCampaignOutpostPlacement(defenderFaction)
       const gateObstacle = outpost.obstacles.find(obstacle => obstacle.damageable === outpost.gate)
       expect(gateObstacle).toBeDefined()
-      expect(gateObstacle!.box.min.x).toBeCloseTo(-CAMPAIGN_OUTPOST_LAYOUT.gateWidth / 2)
-      expect(gateObstacle!.box.max.x).toBeCloseTo(CAMPAIGN_OUTPOST_LAYOUT.gateWidth / 2)
-      expect(gateObstacle!.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(CAMPAIGN_OUTPOST_LAYOUT.frontZ)
+      expect(gateObstacle!.box.min.x).toBeCloseTo(-placement.gateWidth / 2)
+      expect(gateObstacle!.box.max.x).toBeCloseTo(placement.gateWidth / 2)
+      expect(gateObstacle!.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(placement.frontZ)
+      expect(Math.sign(placement.frontZ)).toBe(defenderFaction === 'roman' ? -1 : 1)
+      expect(Math.abs(placement.backZ)).toBeGreaterThan(Math.abs(placement.frontZ))
     },
   )
 
