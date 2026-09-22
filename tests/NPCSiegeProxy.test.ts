@@ -88,6 +88,41 @@ describe('NPC siege proxy routing', () => {
     ).toBe(wall)
   })
 
+  it('places the breach navigation goal on the attacker side of the wall', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'roman')
+    const navigationWorld = new NavigationWorld()
+    navigationWorld.sync(outpost.obstacles)
+
+    const attacker = new NPC(
+      scene,
+      0,
+      -100,
+      Faction.PLAYER,
+      'viking',
+      AIType.MELEE,
+      'Attacker',
+      1,
+      false,
+    )
+    const target = new THREE.Vector3(0, 0, -128)
+    const proxy = (attacker as any)._findSiegeProxyObstacle(
+      target,
+      outpost.obstacles,
+    ) as ObstacleData | null
+
+    expect(proxy?.damageable?.kind).toBe('gate')
+
+    const approach = (attacker as any)._getSiegeApproachPoint(
+      proxy,
+      new THREE.Vector3(),
+    ) as THREE.Vector3
+
+    expect(
+      navigationWorld.areConnected(attacker.combatPosition, approach),
+    ).toBe(true)
+  })
+
   it('keeps the selected breach stable while it remains attackable', () => {
     const scene = new THREE.Scene()
     const attacker = new NPC(
