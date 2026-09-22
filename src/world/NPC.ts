@@ -293,6 +293,7 @@ export class NPC {
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
   private readonly _navigationPath = new NavigationPathFollower()
+  private readonly _siegeNavigationPath = new NavigationPathFollower()
   private readonly _tmpNavigationTarget = new THREE.Vector3()
 
   // Temporary destructible blocker target. NPCs never scan for structures;
@@ -903,12 +904,14 @@ export class NPC {
 
   private _clearNavigationPath(): void {
     this._navigationPath.clear()
+    this._siegeNavigationPath.clear()
   }
 
   private _resolveNavigationMoveTarget(
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
     navigationWorld: NavigationWorld | null,
+    pathFollower: NavigationPathFollower = this._navigationPath,
   ): NavigationRouteKind {
     if (!navigationWorld) {
       this._tmpNavigationTarget.copy(humanTarget)
@@ -924,7 +927,7 @@ export class NPC {
       obstacles,
     )
 
-    return this._navigationPath.resolveMoveTarget(
+    return pathFollower.resolveMoveTarget(
       this.combatPosition,
       humanTarget,
       navigationWorld,
@@ -935,6 +938,7 @@ export class NPC {
 
   private _clearSiegeFallback(): void {
     this._siegeTargetObstacle = null
+    this._siegeNavigationPath.clear()
   }
 
   private _isAttackableObstacle(obstacle: ObstacleData | null): obstacle is ObstacleData {
@@ -969,6 +973,72 @@ export class NPC {
       this._detourLookAhead() * 2,
     )
     return this._isAttackableObstacle(blocker) ? blocker : null
+  }
+
+  /**
+   * Chooses a stable breach point when the real human target is in another
+   * navigation component. Gate and palisade candidates compete by travel cost
+   * weighted by remaining structural HP: gates keep their intended advantage,
+   * while a much closer or already-damaged wall can become the better breach.
+   */
+  private _findSiegeProxyObstacle(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    if (
+      this._siegeTargetObstacle
+      && this._isAttackableObstacle(this._siegeTargetObstacle)
+      && this._siegeTargetObstacle.isBarricade
+      && (
+        this._siegeTargetObstacle.damageable!.kind === 'gate'
+        || this._siegeTargetObstacle.damageable!.kind === 'palisade'
+      )
+      && this._siegeTargetObstacle.damageable!.isDamageableBy(this.characterFaction)
+    ) {
+      return this._siegeTargetObstacle
+    }
+
+    let best: ObstacleData | null = null
+    let bestScore = Infinity
+
+    for (const obstacle of obstacles) {
+      const damageable = obstacle.damageable
+      if (
+        !damageable
+        || damageable.destroyed
+        || !obstacle.isBarricade
+        || !damageable.isDamageableBy(this.characterFaction)
+        || (damageable.kind !== 'gate' && damageable.kind !== 'palisade')
+      ) continue
+
+      const closestX = THREE.MathUtils.clamp(
+        this.combatPosition.x,
+        obstacle.box.min.x,
+        obstacle.box.max.x,
+      )
+      const closestZ = THREE.MathUtils.clamp(
+        this.combatPosition.z,
+        obstacle.box.min.z,
+        obstacle.box.max.z,
+      )
+      const centerX = (obstacle.box.min.x + obstacle.box.max.x) * 0.5
+      const centerZ = (obstacle.box.min.z + obstacle.box.max.z) * 0.5
+      const travelCost = Math.hypot(
+        this.combatPosition.x - closestX,
+        this.combatPosition.z - closestZ,
+      ) + Math.hypot(
+        humanTarget.x - centerX,
+        humanTarget.z - centerZ,
+      )
+      const score = travelCost * damageable.currentHp
+
+      if (score < bestScore) {
+        best = obstacle
+        bestScore = score
+      }
+    }
+
+    return best
   }
 
   private _distanceToObstacleXZ(obstacle: ObstacleData): number {
@@ -1513,7 +1583,11 @@ export class NPC {
         }
 
         const dist = Math.sqrt(distSq)
-        const navigationRoute = !skipBoidsAndObstacles
+
+        // Query the real human target first. NavigationWorld rejects disconnected
+        // components before spending an A* request, so connected combat keeps the
+        // existing single navigation query.
+        let navigationRoute = !skipBoidsAndObstacles
           ? this._resolveNavigationMoveTarget(
             targetInfo.position,
             obstacles,
@@ -1522,13 +1596,47 @@ export class NPC {
           : 'direct'
         if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
 
-        // A normal walkable route always wins over obstacle combat.
-        if (navigationRoute !== 'unreachable') {
+        // Disconnected melee attackers route to a breach proxy using a dedicated
+        // path follower, so human-target and breach-target progress do not
+        // overwrite each other. Ranged units keep the existing ballistic logic.
+        let siegeProxyObstacle: ObstacleData | null = null
+        if (
+          !skipBoidsAndObstacles
+          && navigationRoute === 'unreachable'
+          && !this.hasActiveRangedWeapon
+          && navigationWorld
+        ) {
+          siegeProxyObstacle = this._findSiegeProxyObstacle(
+            targetInfo.position,
+            obstacles,
+          )
+          if (siegeProxyObstacle) {
+            this._siegeTargetObstacle = siegeProxyObstacle
+            const proxyTarget = this._getObstacleAttackPoint(
+              siegeProxyObstacle,
+              this._tmpSiegeTarget,
+            )
+            navigationRoute = this._resolveNavigationMoveTarget(
+              proxyTarget,
+              obstacles,
+              navigationWorld,
+              this._siegeNavigationPath,
+            )
+          }
+        } else {
+          this._siegeNavigationPath.clear()
+        }
+
+        // A normal route to the real human target always wins. A route to a
+        // breach proxy intentionally keeps that structure active until it is
+        // destroyed or topology reconnects the real target.
+        if (navigationRoute !== 'unreachable' && !siegeProxyObstacle) {
           this._clearSiegeFallback()
         }
-        let siegeObstacle = navigationRoute === 'unreachable'
-          ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
-          : null
+        let siegeObstacle = siegeProxyObstacle
+          ?? (navigationRoute === 'unreachable'
+            ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+            : null)
 
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
@@ -1554,11 +1662,13 @@ export class NPC {
         }
 
         const moveDir = this._tmpMoveDir
-        const movementTarget = siegeObstacle
-          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
-          : navigationRoute === 'unreachable'
-            ? targetInfo.position
-            : this._tmpNavigationTarget
+        const movementTarget = siegeProxyObstacle && navigationRoute !== 'unreachable'
+          ? this._tmpNavigationTarget
+          : siegeObstacle
+            ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+            : navigationRoute === 'unreachable'
+              ? targetInfo.position
+              : this._tmpNavigationTarget
 
         if (siegeObstacle) {
           const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
@@ -1648,8 +1758,8 @@ export class NPC {
         if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
 
         // A* path following replaces corner detours whenever a global route exists.
-        // Keep the old local detour only as a no-route fallback until breach A*
-        // is introduced in the next PR.
+        // Disconnected melee attackers use the selected breach proxy; persistent
+        // detour remains only as the true no-route fallback.
         if (!skipBoidsAndObstacles) {
           if (
             !siegeObstacle
