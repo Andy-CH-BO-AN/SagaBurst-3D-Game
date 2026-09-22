@@ -13,8 +13,8 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
-  frontDistance: 135,
-  backDistance: 171,
+  frontDistance: 108,
+  backDistance: 180,
   halfWidth: 44,
   gateWidth: 8,
   stakeLineDistance: 129,
@@ -95,7 +95,7 @@ export function createCampaignOutpost(
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
   const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, 3.4, 6)
   const stakePole = new THREE.CylinderGeometry(0.1, 0.13, 3.4, 6)
-  const tentGeometry = new THREE.ConeGeometry(2.7, 2.2, 4)
+  const tentGeometry = new THREE.ConeGeometry(4.0, 3.6, 4)
   const fireLogGeometry = new THREE.CylinderGeometry(0.12, 0.12, 1.15, 6)
   const flameGeometry = new THREE.ConeGeometry(0.35, 0.9, 8)
   const stoneGeometry = new THREE.DodecahedronGeometry(0.22, 0)
@@ -338,7 +338,7 @@ export function createCampaignOutpost(
     tentRoot.name = name
 
     const tent = new THREE.Mesh(tentGeometry, canvasMaterial)
-    tent.position.set(x, terrainY + 1.1, z)
+    tent.position.set(x, terrainY + 1.8, z)
     tent.rotation.y = rotationY
     tent.castShadow = true
     tent.receiveShadow = true
@@ -350,21 +350,45 @@ export function createCampaignOutpost(
       root: tentRoot,
       hitMeshes: [tent],
       box: new THREE.Box3(
-        new THREE.Vector3(x - 2.5, terrainY, z - 2.5),
-        new THREE.Vector3(x + 2.5, terrainY + 2.4, z + 2.5),
+        new THREE.Vector3(x - 3.7, terrainY, z - 3.7),
+        new THREE.Vector3(x + 3.7, terrainY + 3.8, z + 3.7),
       ),
       isBarricade: false,
     })
   }
 
-  createTent('campaign-outpost-tent-1', -12, 159 * zSign, Math.PI / 4)
-  createTent('campaign-outpost-tent-2', 12, 159 * zSign, -Math.PI / 4)
-  createTent('campaign-outpost-tent-3', -12, 150 * zSign, Math.PI / 4)
+  // Keep the gate -> central lookout corridor open for infantry formations and
+  // mounted deployment. Tents live on the two side lanes only.
+  const tentLayout: readonly [number, number, number][] = [
+    [-28, 124, Math.PI / 4],
+    [ 28, 124, -Math.PI / 4],
+    [-36, 136, Math.PI / 4],
+    [ 36, 136, -Math.PI / 4],
+    [-28, 150, Math.PI / 4],
+    [ 28, 150, -Math.PI / 4],
+    [-36, 162, Math.PI / 4],
+    [ 36, 162, -Math.PI / 4],
+    [-28, 174, Math.PI / 4],
+    [ 28, 174, -Math.PI / 4],
+  ]
+  tentLayout.forEach(([x, absZ, rotationY], index) => {
+    createTent(
+      `campaign-outpost-tent-${index + 1}`,
+      x,
+      absZ * zSign,
+      rotationY,
+    )
+  })
 
-  const createCampfire = (name: string, x: number, z: number): void => {
+  const createCampfire = (
+    name: string,
+    x: number,
+    z: number,
+  ): DamageableObstacle => {
     const terrainY = getTerrainHeight(x, z)
     const fireRoot = new THREE.Group()
     fireRoot.name = name
+    const hitMeshes: THREE.Object3D[] = []
 
     for (let i = 0; i < 3; i++) {
       const log = new THREE.Mesh(fireLogGeometry, darkWoodMaterial)
@@ -372,6 +396,7 @@ export function createCampaignOutpost(
       log.rotation.z = Math.PI / 2
       log.rotation.y = (Math.PI / 3) * i
       fireRoot.add(log)
+      hitMeshes.push(log)
     }
 
     for (let i = 0; i < 8; i++) {
@@ -379,17 +404,29 @@ export function createCampaignOutpost(
       const stone = new THREE.Mesh(stoneGeometry, stoneMaterial)
       stone.position.set(x + Math.cos(angle) * 0.7, terrainY + 0.14, z + Math.sin(angle) * 0.7)
       fireRoot.add(stone)
+      hitMeshes.push(stone)
     }
 
     const flame = new THREE.Mesh(flameGeometry, emberMaterial)
     flame.position.set(x, terrainY + 0.55, z)
     fireRoot.add(flame)
+    hitMeshes.push(flame)
 
     root.add(fireRoot)
+    return registerDamageablePiece({
+      kind: 'campfire',
+      root: fireRoot,
+      hitMeshes,
+      box: new THREE.Box3(
+        new THREE.Vector3(x - 0.9, terrainY, z - 0.9),
+        new THREE.Vector3(x + 0.9, terrainY + 1.0, z + 0.9),
+      ),
+      isBarricade: false,
+    })
   }
 
-  createCampfire('campaign-outpost-campfire-1', 8, 151 * zSign)
-  createCampfire('campaign-outpost-campfire-2', 8, 164 * zSign)
+  createCampfire('campaign-outpost-campfire-1', -16, 156 * zSign)
+  createCampfire('campaign-outpost-campfire-2', 16, 156 * zSign)
 
   return {
     root,
