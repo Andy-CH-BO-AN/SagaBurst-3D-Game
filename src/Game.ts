@@ -122,7 +122,7 @@ import { SkillManager } from './rpg/SkillManager'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
-import { createRomanOutpost } from './campaign/RomanOutpost'
+import { createCampaignOutpost } from './campaign/CampaignOutpost'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -482,8 +482,13 @@ export class Game {
     } = createTerrain(this.scene)
 
     // DEV-only visual/collision preview until Campaign runtime owns outpost creation.
-    if (import.meta.env.DEV && startupQuery.has('romanoutpost')) {
-      const outpost = createRomanOutpost(this.scene, { obstacles, obstacleMeshes })
+    const previewOutpostFaction = startupQuery.get('campaignoutpost')
+    if (import.meta.env.DEV && (previewOutpostFaction === 'roman' || previewOutpostFaction === 'viking')) {
+      const outpost = createCampaignOutpost(
+        this.scene,
+        previewOutpostFaction,
+        { obstacles, obstacleMeshes },
+      )
       damageableObstacles.push(...outpost.damageableObstacles)
     }
 
