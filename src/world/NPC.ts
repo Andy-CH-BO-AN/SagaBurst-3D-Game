@@ -13,6 +13,7 @@ import {
   clampToPlayableWorld,
   findBlockingObstacleAlongPath,
   findBlockingProjectileObstacleAlongPath,
+  findDamageableBlockerWithoutDetour,
   findObstacleDetourPlan,
   getObstacleAvoidanceDirection,
   getTerrainHeight,
@@ -916,7 +917,7 @@ export class NPC {
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
   ): ObstacleData | null {
-    const blocker = findBlockingObstacleAlongPath(
+    return findDamageableBlockerWithoutDetour(
       this.combatPosition,
       humanTarget,
       this._movementObstacleRadius(),
@@ -925,7 +926,6 @@ export class NPC {
       obstacles,
       this._detourLookAhead() * 2,
     )
-    return this._isAttackableObstacle(blocker) ? blocker : null
   }
 
   private _distanceToObstacleXZ(obstacle: ObstacleData): number {
@@ -984,22 +984,14 @@ export class NPC {
       return null
     }
 
-    const blocker = findBlockingObstacleAlongPath(
-      this.combatPosition,
-      humanTarget,
-      this._movementObstacleRadius(),
-      this._movementObstacleHeight(),
-      0,
-      obstacles,
-      this._detourLookAhead() * 2,
-    )
-
-    if (!this._isAttackableObstacle(blocker)) {
+    const blocker = this._findDirectDamageableBlocker(humanTarget, obstacles)
+    if (!blocker) {
+      // A detour is available now (for example another unit opened a gap), so
+      // immediately stop attacking the obstacle and return to navigation.
       this._clearSiegeFallback()
       return null
     }
 
-    // Always attack the first currently blocking destructible obstacle.
     this._siegeTargetObstacle = blocker
     return blocker
   }
@@ -1375,8 +1367,8 @@ export class NPC {
           this._switchToMelee()
         }
 
-        // Simple melee obstacle rule:
-        // human target -> first local destructible blocker -> attack it immediately.
+        // Navigation gets first refusal. Only attack a destructible blocker
+        // when the existing local detour planner cannot produce a route around it.
         if (!skipBoidsAndObstacles && !siegeObstacle && !this.hasActiveRangedWeapon) {
           const directObstacle = this._findDirectDamageableBlocker(
             targetInfo.position,
@@ -1437,19 +1429,25 @@ export class NPC {
               break
             }
 
-            if (this._isAttackableObstacle(rangedBlocker)) {
-              this._activateDirectObstacle(rangedBlocker)
-              siegeObstacle = rangedBlocker
-              const obstacleDistance = this._distanceToObstacleXZ(rangedBlocker)
+            const unavoidableObstacle = this._findDirectDamageableBlocker(
+              targetInfo.position,
+              obstacles,
+            )
+            if (unavoidableObstacle) {
+              this._activateDirectObstacle(unavoidableObstacle)
+              siegeObstacle = unavoidableObstacle
+              const obstacleDistance = this._distanceToObstacleXZ(unavoidableObstacle)
               if (obstacleDistance <= this.maxRangedAttackDistance) {
                 this.state = AIState.ATTACK
                 this.attackTimer = 0
                 break
               }
               moveDir.copy(
-                this._getObstacleAttackPoint(rangedBlocker, this._tmpSiegeTarget),
+                this._getObstacleAttackPoint(unavoidableObstacle, this._tmpSiegeTarget),
               ).sub(this.combatPosition)
             } else {
+              // There is a navigation route around the LOS blocker; reposition
+              // instead of wasting shots on a destructible obstacle.
               moveDir.copy(targetInfo.position).sub(this.combatPosition)
             }
           } else {
@@ -1473,8 +1471,8 @@ export class NPC {
         moveDir.y = 0
         if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
 
-        // Damageable blockers are handled immediately above. Only
-        // non-damageable obstacles use persistent detour / avoidance.
+        // Persistent detour applies to damageable and non-damageable obstacles.
+        // Destruction is only selected above when no detour plan exists.
         if (!skipBoidsAndObstacles) {
           if (!siegeObstacle) {
             if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
