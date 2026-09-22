@@ -119,7 +119,6 @@ import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
-import { CompassUI } from './ui/CompassUI'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
@@ -358,7 +357,6 @@ export class Game {
   private hpBar: HpBar
   private quiverUI: QuiverUI
   private skillManager: SkillManager
-  private compassUI: CompassUI
   private armyCommandUI: ArmyCommandUI
   private armyCommandController: ArmyCommandController
   private equipmentUI: EquipmentUI
@@ -614,7 +612,6 @@ export class Game {
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
-    this.compassUI        = new CompassUI()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     const formationController = new FormationController(this.scene, this.camera, this.npcs, terrainMesh, obstacles)
     this.armyCommandController = new ArmyCommandController(
@@ -1854,8 +1851,6 @@ export class Game {
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
-    // Update Compass direction bar
-    this.compassUI.update(currentYaw)
     if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player') {
       this.armyCommandController.update()
     }

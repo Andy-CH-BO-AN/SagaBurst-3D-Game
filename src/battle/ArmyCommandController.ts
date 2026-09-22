@@ -305,7 +305,6 @@ export class ArmyCommandController {
         key: shortcut.key,
         label,
         order: isAll ? this.allOrder : (this.orders.get(shortcut.target as UnitPresetId) ?? 'attack'),
-        side: isAll || Number(shortcut.key) > (this.faction === 'viking' ? 3 : 4) ? 'right' : 'left',
       }
     })
   }
