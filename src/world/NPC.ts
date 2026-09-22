@@ -302,6 +302,7 @@ export class NPC {
   private _siegeTargetObstacle: ObstacleData | null = null
   private _siegeTargetUsesProxy = false
   private readonly _tmpSiegeTarget = new THREE.Vector3()
+  private readonly _tmpSiegeApproachTarget = new THREE.Vector3()
   private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
   private readonly _tmpRangedArcPrevious = new THREE.Vector3()
@@ -1046,6 +1047,31 @@ export class NPC {
     return best
   }
 
+  /**
+   * Returns a navigation goal on the attacker's side of the obstacle rather
+   * than on the Box3 boundary. The extra 0.25m keeps the goal outside the
+   * actor-radius-expanded collision corridor, so the 2m navigation grid cannot
+   * project the breach goal onto the opposite side of a thin wall.
+   */
+  private _getSiegeApproachPoint(
+    obstacle: ObstacleData,
+    out: THREE.Vector3,
+  ): THREE.Vector3 {
+    obstacle.box.clampPoint(this.combatPosition, out)
+    const dx = this.combatPosition.x - out.x
+    const dz = this.combatPosition.z - out.z
+    const distance = Math.hypot(dx, dz)
+
+    if (distance > 1e-6) {
+      const clearance = this._movementObstacleRadius() + 0.25
+      out.x += dx / distance * clearance
+      out.z += dz / distance * clearance
+    }
+
+    out.y = this.combatPosition.y
+    return out
+  }
+
   private _distanceToObstacleXZ(obstacle: ObstacleData): number {
     const position = this.combatPosition
     const closestX = THREE.MathUtils.clamp(position.x, obstacle.box.min.x, obstacle.box.max.x)
@@ -1618,9 +1644,9 @@ export class NPC {
           if (siegeProxyObstacle) {
             this._siegeTargetObstacle = siegeProxyObstacle
             this._siegeTargetUsesProxy = true
-            const proxyTarget = this._getObstacleAttackPoint(
+            const proxyTarget = this._getSiegeApproachPoint(
               siegeProxyObstacle,
-              this._tmpSiegeTarget,
+              this._tmpSiegeApproachTarget,
             )
             navigationRoute = this._resolveNavigationMoveTarget(
               proxyTarget,
