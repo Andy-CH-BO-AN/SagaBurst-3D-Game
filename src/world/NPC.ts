@@ -296,9 +296,11 @@ export class NPC {
   private readonly _siegeNavigationPath = new NavigationPathFollower()
   private readonly _tmpNavigationTarget = new THREE.Vector3()
 
-  // Temporary destructible blocker target. NPCs never scan for structures;
-  // they only react to the first blocker on the route to their human target.
+  // Temporary destructible blocker / breach target. Direct obstacle combat
+  // reacts to route blockers; disconnected melee attackers may select a
+  // gate/palisade breach proxy from the shared obstacle list.
   private _siegeTargetObstacle: ObstacleData | null = null
+  private _siegeTargetUsesProxy = false
   private readonly _tmpSiegeTarget = new THREE.Vector3()
   private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
@@ -938,6 +940,7 @@ export class NPC {
 
   private _clearSiegeFallback(): void {
     this._siegeTargetObstacle = null
+    this._siegeTargetUsesProxy = false
     this._siegeNavigationPath.clear()
   }
 
@@ -953,6 +956,7 @@ export class NPC {
     if (!this._isAttackableObstacle(blocker)) return false
 
     this._siegeTargetObstacle = blocker
+    this._siegeTargetUsesProxy = false
     this._clearObstacleDetour()
     this.attackTimer = 0
     this.attackHitProcessed = false
@@ -986,7 +990,8 @@ export class NPC {
     obstacles: ObstacleData[],
   ): ObstacleData | null {
     if (
-      this._siegeTargetObstacle
+      this._siegeTargetUsesProxy
+      && this._siegeTargetObstacle
       && this._isAttackableObstacle(this._siegeTargetObstacle)
       && this._siegeTargetObstacle.isBarricade
       && (
@@ -1612,6 +1617,7 @@ export class NPC {
           )
           if (siegeProxyObstacle) {
             this._siegeTargetObstacle = siegeProxyObstacle
+            this._siegeTargetUsesProxy = true
             const proxyTarget = this._getObstacleAttackPoint(
               siegeProxyObstacle,
               this._tmpSiegeTarget,
@@ -1841,7 +1847,17 @@ export class NPC {
             )
             : 'unreachable'
           if (navigationRoute === 'unreachable') {
-            siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+            if (this._siegeTargetUsesProxy) {
+              // Keep attacking the selected breach point even when it is not
+              // directly between this NPC and the human target. This matters
+              // for side-wall breaches selected by adaptive routing.
+              siegeObstacle = this._isAttackableObstacle(this._siegeTargetObstacle)
+                ? this._siegeTargetObstacle
+                : null
+              if (!siegeObstacle) this._clearSiegeFallback()
+            } else {
+              siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+            }
           } else {
             // Another unit may have opened a route while this NPC was attacking.
             // Stop hitting the obstacle and return to chase/path following.
