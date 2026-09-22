@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../world/Terrain'
 import {
@@ -18,6 +18,8 @@ describe('CampaignOutpost', () => {
       expect(outpost.root.name).toBe(`campaign-outpost-${defenderFaction}`)
       expect(outpost.gate.kind).toBe('gate')
       expect(outpost.gate.ownerFaction).toBe(defenderFaction)
+      expect(outpost.gateController.state).toBe('closed')
+      expect(outpost.breachController.breached).toBe(false)
       expect(outpost.damageableObstacles.every(obstacle => obstacle.ownerFaction === defenderFaction)).toBe(true)
       expect(outpost.obstacles.length).toBe(outpost.damageableObstacles.length)
       expect(outpost.damageableObstacles.length).toBeGreaterThan(20)
@@ -41,6 +43,45 @@ describe('CampaignOutpost', () => {
       expect(Math.abs(placement.backZ)).toBeGreaterThan(Math.abs(placement.frontZ))
     },
   )
+
+  it('treats gate opening or perimeter destruction as one shared breach', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'roman')
+    const onBreach = vi.fn()
+    outpost.breachController.onBreach(onBreach)
+
+    outpost.gateController.open()
+    expect(outpost.breachController.breached).toBe(true)
+    expect(onBreach).toHaveBeenCalledTimes(1)
+
+    const palisade = outpost.damageableObstacles.find(
+      obstacle => obstacle.kind === 'palisade',
+    )
+    expect(palisade).toBeDefined()
+    palisade!.destroy()
+
+    expect(onBreach).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a destroyed palisade as a breach even when the gate stays closed', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'viking')
+    const onBreach = vi.fn()
+    outpost.breachController.onBreach(onBreach)
+
+    const palisades = outpost.damageableObstacles.filter(
+      obstacle => obstacle.kind === 'palisade',
+    )
+    expect(palisades.length).toBeGreaterThan(1)
+
+    palisades[0].destroy()
+    expect(outpost.gateController.state).toBe('closed')
+    expect(outpost.breachController.breached).toBe(true)
+    expect(onBreach).toHaveBeenCalledTimes(1)
+
+    palisades[1].destroy()
+    expect(onBreach).toHaveBeenCalledTimes(1)
+  })
 
   it('removes destroyed structures from the shared live collision collections', () => {
     const scene = new THREE.Scene()
