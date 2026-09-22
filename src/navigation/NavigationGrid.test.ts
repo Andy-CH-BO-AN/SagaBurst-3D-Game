@@ -227,6 +227,62 @@ describe('NavigationGrid', () => {
     expect(internals.closedRun[0]).toBe(0)
   })
 
+  it('pauses and resumes one A star search by expanded-node budget', () => {
+    const grid = createGrid()
+
+    const started = grid.startPathSearchCells(
+      { x: 0, z: 0 },
+      { x: 9, z: 9 },
+    )
+    expect(started.status).toBe('pending')
+
+    const firstSlice = grid.stepPathSearch(2)
+    expect(firstSlice.status).toBe('pending')
+    expect(firstSlice.expandedNodes).toBeLessThanOrEqual(2)
+
+    let result = firstSlice
+    let slices = 1
+    while (result.status === 'pending' && slices < 20) {
+      result = grid.stepPathSearch(2)
+      slices++
+    }
+
+    expect(result.status).toBe('path')
+    if (result.status === 'path') {
+      expect(result.path[0]).toEqual({ x: 0, z: 0 })
+      expect(result.path.at(-1)).toEqual({ x: 9, z: 9 })
+    }
+    expect(slices).toBeGreaterThan(1)
+  })
+
+  it('can cancel an unfinished A star search before starting another one', () => {
+    const grid = createGrid()
+
+    grid.startPathSearchCells(
+      { x: 0, z: 0 },
+      { x: 9, z: 9 },
+    )
+    expect(grid.stepPathSearch(1).status).toBe('pending')
+
+    grid.cancelPathSearch()
+
+    const replacement = grid.startPathSearchCells(
+      { x: 0, z: 9 },
+      { x: 9, z: 0 },
+    )
+    expect(replacement.status).toBe('pending')
+
+    let result = replacement
+    while (result.status === 'pending') {
+      result = grid.stepPathSearch(100)
+    }
+    expect(result.status).toBe('path')
+    if (result.status === 'path') {
+      expect(result.path[0]).toEqual({ x: 0, z: 9 })
+      expect(result.path.at(-1)).toEqual({ x: 9, z: 0 })
+    }
+  })
+
   it('returns null for world positions outside the navigation bounds', () => {
     const grid = createGrid()
 
