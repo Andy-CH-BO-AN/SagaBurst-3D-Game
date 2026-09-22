@@ -58,10 +58,18 @@ async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
   const isDevCombat = query.has('devcombat')
   const isDevModels = query.has('devmodels')
+  const isDamageableTest = import.meta.env.DEV && query.has('damageabletest')
+  const isCampaignOutpostPreview = import.meta.env.DEV && query.has('campaignoutpost')
 
   // 1. Highest priority: Developer scene modes (bypass setup UI)
   // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
-  if (isDevCombat || isDevModels || (import.meta.env.DEV && query.has('devbowqa'))) {
+  if (
+    isDevCombat
+    || isDevModels
+    || isDamageableTest
+    || isCampaignOutpostPreview
+    || (import.meta.env.DEV && query.has('devbowqa'))
+  ) {
     await launchGame()
     return
   }
