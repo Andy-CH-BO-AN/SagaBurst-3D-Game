@@ -12,6 +12,7 @@ import type { HpBar } from '../ui/HpBar'
 import {
   clampToPlayableWorld,
   findBlockingObstacleAlongPath,
+  findBlockingProjectileObstacleAlongPath,
   findObstacleDetourPlan,
   getObstacleAvoidanceDirection,
   getTerrainHeight,
@@ -59,6 +60,7 @@ import {
   STAMINA_SPRINT_MIN,
 } from '../movement/MovementBalance'
 import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
+import { getSiegeFallbackDelay } from '../combat/SiegePolicy'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -99,6 +101,9 @@ const NPC_DETOUR_MOUNTED_LOOKAHEAD = 8.0
 const NPC_DETOUR_STUCK_SECONDS = 0.75
 const NPC_DETOUR_FOOT_PROGRESS_DISTANCE = 0.25
 const NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE = 0.45
+const NPC_SIEGE_FOOT_PROGRESS_DISTANCE = 0.85
+const NPC_SIEGE_MOUNTED_PROGRESS_DISTANCE = 1.35
+const NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES = 24
 
 export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
 export const TARGET_REACQUIRE_MID_DISTANCE = 100
@@ -283,6 +288,19 @@ export class NPC {
   private _detourObstacle: ObstacleData | null = null
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
+
+  // Siege fallback state. These fields only track the current path blocker;
+  // NPCs never run a global "find a structure to attack" scan.
+  private _siegeCandidateObstacle: ObstacleData | null = null
+  private _siegeTargetObstacle: ObstacleData | null = null
+  private _siegeBlockedElapsed = 0
+  private readonly _siegeProgressAnchor = new THREE.Vector3()
+  private readonly _tmpSiegeTarget = new THREE.Vector3()
+  private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
+  private readonly _tmpRangedLosTarget = new THREE.Vector3()
+  private readonly _rangedTargetCandidates: NPC[] = []
+  private _rangedVisibleTargetHoldFrames = 0
+
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
