@@ -11,7 +11,7 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveEntityCollision, resolveObstacleCollision } from './world/Terrain'
 import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -582,6 +582,7 @@ export class Game {
       this.player.group.visible = false
     }
 
+    const damageableTreePreview = import.meta.env.DEV && startupQuery.get('damageabletest') === 'tree'
     const previewPlayerSpawn = previewOutpostFaction
       ? (() => {
         const placement = getCampaignOutpostPlacement(previewOutpostFaction)
@@ -590,7 +591,12 @@ export class Game {
           z: placement.frontZ - Math.sign(placement.frontZ) * 11,
         }
       })()
-      : null
+      : damageableTreePreview
+        ? {
+          x: TERRAIN_TREE_POSITIONS[0][0],
+          z: TERRAIN_TREE_POSITIONS[0][1] + 4,
+        }
+        : null
 
     // ── Camera controller ──
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
@@ -642,7 +648,7 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && shouldCreateStartingHorse(activeBattleConfig)) {
+    if (!this.isModelStudio && !previewPlayerSpawn && shouldCreateStartingHorse(activeBattleConfig)) {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
