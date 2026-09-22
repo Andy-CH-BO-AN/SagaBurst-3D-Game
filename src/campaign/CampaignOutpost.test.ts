@@ -92,11 +92,18 @@ describe('CampaignOutpost', () => {
   })
 
   it('adds a smooth raised lookout hill at both campaign camp centers', () => {
-    expect(getFortifiedCampHeightOffset(0, -FORTIFIED_CAMP_HILL.centerAbsZ))
+    expect(getFortifiedCampHeightOffset(0, -FORTIFIED_CAMP_HILL.centerAbsZ, 'roman'))
       .toBeCloseTo(FORTIFIED_CAMP_HILL.height)
-    expect(getFortifiedCampHeightOffset(0, FORTIFIED_CAMP_HILL.centerAbsZ))
+    expect(getFortifiedCampHeightOffset(0, FORTIFIED_CAMP_HILL.centerAbsZ, 'viking'))
       .toBeCloseTo(FORTIFIED_CAMP_HILL.height)
-    expect(getFortifiedCampHeightOffset(FORTIFIED_CAMP_HILL.radiusX + 1, -FORTIFIED_CAMP_HILL.centerAbsZ))
+    expect(getFortifiedCampHeightOffset(0, FORTIFIED_CAMP_HILL.centerAbsZ, 'roman'))
       .toBe(0)
+    expect(
+      getFortifiedCampHeightOffset(
+        FORTIFIED_CAMP_HILL.radiusX + 1,
+        -FORTIFIED_CAMP_HILL.centerAbsZ,
+        'roman',
+      ),
+    ).toBe(0)
   })
 })
