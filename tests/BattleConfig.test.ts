@@ -22,6 +22,7 @@ import {
   PRESET_SCENARIO_G,
   PRESET_SCENARIO_H,
   PRESET_SCENARIO_I,
+  PRESET_SCENARIO_J,
   BattleConfig,
 } from '../src/battle/BattleConfig'
 
@@ -245,6 +246,15 @@ describe('BattleConfig Domain & Validation', () => {
     expect(calculateArmyTotal(PRESET_DEVCOMBAT.viking)).toBe(50)
     expect(calculateArmyTotal(PRESET_DEVCOMBAT.roman)).toBe(50)
     expect(PRESET_DEVCOMBAT.rules.includeCamps).toBe(false)
+
+    expect(validateBattleConfig(PRESET_SCENARIO_J).valid).toBe(true)
+    expect(PRESET_SCENARIO_J.playerFaction).toBe('roman')
+    expect(calculateArmyTotal(PRESET_SCENARIO_J.roman)).toBe(50)
+    expect(calculateArmyTotal(PRESET_SCENARIO_J.viking)).toBe(100)
+    expect(PRESET_SCENARIO_J.rules).toEqual({
+      respawnEnabled: false,
+      includeCamps: false,
+    })
 
     // 200v200 DEV presets use an explicit benchmark validator while production now also permits 200/side.
     for (const preset of [PRESET_SCENARIO_G, PRESET_SCENARIO_H, PRESET_SCENARIO_I]) {

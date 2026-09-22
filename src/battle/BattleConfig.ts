@@ -666,6 +666,22 @@ export const PRESET_SCENARIO_I: BattleConfig = definePreset({
   rules: { respawnEnabled: false, includeCamps: false },
 })
 
+/** Developer siege scenario J: Roman player + 50 defenders vs 100 Viking attackers. */
+export const PRESET_SCENARIO_J: BattleConfig = definePreset({
+  mode: 'formation',
+  playerFaction: 'roman',
+  viking: {
+    viking_berserker: { 1: 0, 2: 50, 3: 0 },
+    viking_spearman: { 1: 0, 2: 25, 3: 0 },
+    viking_archer: { 1: 0, 2: 25, 3: 0 },
+  },
+  roman: {
+    roman_heavy_infantry: { 1: 0, 2: 25, 3: 0 },
+    roman_javelin_infantry: { 1: 0, 2: 25, 3: 0 },
+  },
+  rules: { respawnEnabled: false, includeCamps: false },
+})
+
 /** Developer performance scenario (?devcombat): 50v50 cavalry, no camps. */
 export const PRESET_DEVCOMBAT: BattleConfig = definePreset({
   mode: 'formation',

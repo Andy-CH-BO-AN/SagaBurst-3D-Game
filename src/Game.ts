@@ -106,6 +106,7 @@ import {
   PRESET_SCENARIO_G,
   PRESET_SCENARIO_H,
   PRESET_SCENARIO_I,
+  PRESET_SCENARIO_J,
 } from './battle/BattleConfig'
 import {
   getActiveRenderProbe,
@@ -126,6 +127,11 @@ import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
+import {
+  applyCampaignBreachOrders,
+  isCampaignGateOccupied,
+  type CampaignGateController,
+} from './campaign/CampaignGate'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -356,6 +362,7 @@ export class Game {
   private mounts: Mount[] = []
 
   private obstacles: ObstacleData[] = []
+  private previewCampaignGate: CampaignGateController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager: SaveManager
@@ -483,10 +490,15 @@ export class Game {
 
     // ── World ──
     const startupQuery = new URLSearchParams(window.location.search)
+    const startupDevCombat = startupQuery.get('devcombat')?.toLowerCase() ?? null
+    const isRomanDefenseDevScenario = import.meta.env.DEV
+      && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
     const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
-    const previewOutpostFaction = previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
-      ? previewOutpostQuery
-      : null
+    const previewOutpostFaction = isRomanDefenseDevScenario
+      ? 'roman'
+      : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+        ? previewOutpostQuery
+        : null
 
     createSky(this.scene, resolveShadowMapSize(startupQuery))
     const {
@@ -506,6 +518,18 @@ export class Game {
         { obstacles, obstacleMeshes },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
+      this.previewCampaignGate = outpost.gateController
+      outpost.breachController.onBreach(() => {
+        const attackerFaction = outpost.gateController.attackerFaction
+        const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
+        this.soundManager.playCommanderCommand(attackerFaction, 'charge')
+        this._showNotify(
+          `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
+          + `${result.attackerChargeCount} charge / ${result.attackerAttackCount} ranged｜`
+          + `守軍 ${result.defenderAttackCount} → attack`,
+          3500,
+        )
+      })
     }
 
     this.obstacles = obstacles
@@ -524,11 +548,13 @@ export class Game {
 
     // ── Player & Input ──
     const playerFaction = battleConfig?.playerFaction
-      ?? (previewOutpostFaction === 'roman'
-        ? 'viking'
-        : previewOutpostFaction === 'viking'
-          ? 'roman'
-          : 'viking')
+      ?? (isRomanDefenseDevScenario
+        ? 'roman'
+        : previewOutpostFaction === 'roman'
+          ? 'viking'
+          : previewOutpostFaction === 'viking'
+            ? 'roman'
+            : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
     this.player = new Player(this.scene, playerFaction)
@@ -576,6 +602,8 @@ export class Game {
         scenarioConfig = PRESET_SCENARIO_H
       } else if (devVal === 'i' || devVal === 'scenarioi') {
         scenarioConfig = PRESET_SCENARIO_I
+      } else if (devVal === 'j' || devVal === 'scenarioj') {
+        scenarioConfig = PRESET_SCENARIO_J
       }
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
@@ -598,7 +626,11 @@ export class Game {
         const placement = getCampaignOutpostPlacement(previewOutpostFaction)
         return {
           x: placement.centerX,
-          z: placement.frontZ - Math.sign(placement.frontZ) * 11,
+          // Scenario J is a Roman defense test, so place the player behind the
+          // front gate. Other outpost previews keep the historical attacker-side spawn.
+          z: isRomanDefenseDevScenario
+            ? placement.frontZ + Math.sign(placement.frontZ) * 11
+            : placement.frontZ - Math.sign(placement.frontZ) * 11,
         }
       })()
       : damageableTreePreview
@@ -645,9 +677,18 @@ export class Game {
     // ── Combat & Enemies ──
     if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
-      // DEV combat is a controllable test battlefield: both armies hold their
-      // starting ground until a command or nearby threat gives them work.
-      for (const npc of this.npcs) npc.setTacticalOrder('defend')
+      if (isRomanDefenseDevScenario) {
+        // Siege scenario J starts immediately: Roman defenders hold the fort,
+        // while Viking attackers advance and let Breach Proxy choose the gate.
+        for (const npc of this.npcs) {
+          npc.setTacticalOrder(
+            npc.characterFaction === 'roman' ? 'defend' : 'attack',
+          )
+        }
+      } else {
+        // Other DEV combat scenarios remain controllable test battlefields.
+        for (const npc of this.npcs) npc.setTacticalOrder('defend')
+      }
       if (this.activeRenderProbe === 'simple-material') {
         applyDevSimpleMaterials(this.npcs, this.mounts)
       }
@@ -1316,6 +1357,34 @@ export class Game {
     }
 
     window.addEventListener('keydown', (e) => {
+      if (import.meta.env.DEV && this.previewCampaignGate && e.code === 'KeyG') {
+        e.preventDefault()
+        const gate = this.previewCampaignGate
+        const wasOpen = gate.state === 'open'
+        const actorPositions: THREE.Vector3[] = []
+
+        if (!this.player.dead && !this.player.spectatorOnly) {
+          actorPositions.push(this.player.combatPosition)
+        }
+        for (const npc of this.npcs) {
+          if (!npc.dead) actorPositions.push(npc.combatPosition)
+        }
+        for (const mount of this.mounts) {
+          if (!mount.dead) actorPositions.push(mount.group.position)
+        }
+
+        const occupied = wasOpen
+          && isCampaignGateOccupied(gate.collisionBox, actorPositions)
+        const changed = gate.toggle(occupied)
+
+        if (!changed && occupied) {
+          this._showNotify('🚪 門口有人或馬，無法關門')
+        } else {
+          this._showNotify(`🚪 Gate: ${gate.state.toUpperCase()}`)
+        }
+        return
+      }
+
       if (!this.isMountStudio && (e.code === 'Digit0' || e.code === 'Numpad0')) {
         if (this.player.dead || this.controlMode === 'spectator') return
         e.preventDefault()

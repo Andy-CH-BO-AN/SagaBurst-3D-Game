@@ -7,6 +7,7 @@ import {
   CAMP_HORSE_Z,
   CAMP_PICKUP_Z,
   VIKING_PLAYER_SPAWN,
+  ROMAN_PLAYER_SPAWN,
   PLAYER_SAFE_CLEARANCE,
   SCATTER_TREE_EXCLUSION_RADIUS,
 } from '../src/battle/BattleSpawner'
@@ -19,6 +20,7 @@ import {
   PRESET_50V50,
   PRESET_100V100,
   PRESET_DEVCOMBAT,
+  PRESET_SCENARIO_J,
 } from '../src/battle/BattleConfig'
 
 function verifyPlanInvariants(plan: BattleSpawnPlan): void {
@@ -107,6 +109,27 @@ describe('BattleSpawner Deterministic Formation', () => {
 
     // All units must be cavalry/mounted
     expect(plan.npcSpecs.every(s => s.cavalry)).toBe(true)
+  })
+
+  it('builds scenario J as Roman 50 defenders vs Viking 100 attackers', () => {
+    const plan = BattleSpawner.createSpawnPlan(PRESET_SCENARIO_J)
+    expect(plan.npcSpecs).toHaveLength(150)
+    expect(plan.playerSpawn).toEqual({
+      x: ROMAN_PLAYER_SPAWN.x,
+      z: ROMAN_PLAYER_SPAWN.z,
+    })
+
+    const romanAllies = plan.npcSpecs.filter(
+      spec => spec.characterFaction === 'roman' && spec.faction === Faction.PLAYER,
+    )
+    const vikingEnemies = plan.npcSpecs.filter(
+      spec => spec.characterFaction === 'viking' && spec.faction === Faction.ENEMY,
+    )
+
+    expect(romanAllies).toHaveLength(50)
+    expect(vikingEnemies).toHaveLength(100)
+    expect(plan.pickupSpecs).toHaveLength(0)
+    expect(plan.horseSpecs).toHaveLength(0)
   })
 
   it('handles Extreme Composition: 100 Infantry per side within X/Z bounds', () => {
