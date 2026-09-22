@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../world/Terrain'
 import {
   createCampaignOutpost,
   getCampaignOutpostPlacement,
@@ -19,9 +20,12 @@ describe('CampaignOutpost', () => {
       expect(outpost.damageableObstacles.every(obstacle => obstacle.ownerFaction === defenderFaction)).toBe(true)
       expect(outpost.obstacles.length).toBe(outpost.damageableObstacles.length)
       expect(outpost.damageableObstacles.length).toBeGreaterThan(20)
-      expect(outpost.obstacles.every(obstacle => obstacle.isBarricade)).toBe(true)
+      expect(outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'tent')).toHaveLength(3)
+      expect(outpost.obstacles.filter(obstacle => !obstacle.isBarricade)).toHaveLength(3)
 
       const placement = getCampaignOutpostPlacement(defenderFaction)
+      expect(placement.halfWidth).toBe(44)
+      expect(placement.halfWidth * 2).toBe(88)
       const gateObstacle = outpost.obstacles.find(obstacle => obstacle.damageable === outpost.gate)
       expect(gateObstacle).toBeDefined()
       expect(gateObstacle!.box.min.x).toBeCloseTo(-placement.gateWidth / 2)
@@ -52,18 +56,47 @@ describe('CampaignOutpost', () => {
     expect(sharedObstacles.some(obstacle => obstacle.damageable === outpost.gate)).toBe(false)
   })
 
-  it('keeps tents and campfires decorative rather than collision obstacles', () => {
+  it('makes tents damageable while campfires remain decorative', () => {
     const scene = new THREE.Scene()
     const outpost = createCampaignOutpost(scene, 'viking')
-    const decorativeNames = outpost.root.children
+    const tents = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'tent')
+    const campfireNames = outpost.root.children
       .map(child => child.name)
-      .filter(name => name.includes('tent') || name.includes('campfire'))
+      .filter(name => name.includes('campfire'))
 
-    expect(decorativeNames).toHaveLength(5)
+    expect(tents).toHaveLength(3)
+    expect(tents.every(tent => tent.ownerFaction === 'viking')).toBe(true)
+    expect(campfireNames).toHaveLength(2)
     expect(
-      outpost.damageableObstacles.some(obstacle =>
-        obstacle.root.name.includes('tent') || obstacle.root.name.includes('campfire'),
-      ),
+      outpost.damageableObstacles.some(obstacle => obstacle.root.name.includes('campfire')),
     ).toBe(false)
+  })
+
+  it('renders palisades as spaced stakes while keeping continuous collision boxes', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'roman')
+    const palisades = outpost.damageableObstacles.filter(obstacle => obstacle.kind === 'palisade')
+
+    expect(palisades.length).toBeGreaterThan(0)
+    expect(
+      palisades.every(palisade =>
+        palisade.root.children.some(child => child instanceof THREE.InstancedMesh),
+      ),
+    ).toBe(true)
+
+    for (const palisade of palisades) {
+      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === palisade)
+      expect(obstacle).toBeDefined()
+      expect(obstacle!.box.getSize(new THREE.Vector3()).length()).toBeGreaterThan(1)
+    }
+  })
+
+  it('adds a smooth raised lookout hill at both campaign camp centers', () => {
+    expect(getFortifiedCampHeightOffset(0, -FORTIFIED_CAMP_HILL.centerAbsZ))
+      .toBeCloseTo(FORTIFIED_CAMP_HILL.height)
+    expect(getFortifiedCampHeightOffset(0, FORTIFIED_CAMP_HILL.centerAbsZ))
+      .toBeCloseTo(FORTIFIED_CAMP_HILL.height)
+    expect(getFortifiedCampHeightOffset(FORTIFIED_CAMP_HILL.radiusX + 1, -FORTIFIED_CAMP_HILL.centerAbsZ))
+      .toBe(0)
   })
 })
