@@ -293,6 +293,7 @@ export class NPC {
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
   private readonly _navigationPath = new NavigationPathFollower()
+  private readonly _siegeNavigationPath = new NavigationPathFollower()
   private readonly _tmpNavigationTarget = new THREE.Vector3()
 
   // Temporary destructible blocker target. NPCs never scan for structures;
@@ -903,12 +904,14 @@ export class NPC {
 
   private _clearNavigationPath(): void {
     this._navigationPath.clear()
+    this._siegeNavigationPath.clear()
   }
 
   private _resolveNavigationMoveTarget(
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
     navigationWorld: NavigationWorld | null,
+    pathFollower: NavigationPathFollower = this._navigationPath,
   ): NavigationRouteKind {
     if (!navigationWorld) {
       this._tmpNavigationTarget.copy(humanTarget)
@@ -924,7 +927,7 @@ export class NPC {
       obstacles,
     )
 
-    return this._navigationPath.resolveMoveTarget(
+    return pathFollower.resolveMoveTarget(
       this.combatPosition,
       humanTarget,
       navigationWorld,
@@ -1574,17 +1577,27 @@ export class NPC {
 
         const dist = Math.sqrt(distSq)
 
-        // Melee attackers whose human target is in another static navigation
-        // component first route to a breach proxy instead of walking directly
-        // into an arbitrary wall segment. Ranged units keep their independent
-        // ballistic target/shot logic.
+        // Query the real human target first. Disconnected-component queries
+        // are rejected by NavigationWorld before spending an A* request, so the
+        // normal connected case keeps exactly one navigation query.
+        let navigationRoute = !skipBoidsAndObstacles
+          ? this._resolveNavigationMoveTarget(
+            targetInfo.position,
+            obstacles,
+            navigationWorld,
+          )
+          : 'direct'
+        if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
+
+        // Only disconnected melee attackers switch to a breach proxy. Use a
+        // dedicated path follower so the human route and breach route do not
+        // overwrite each other's cached progress every frame.
         let siegeProxyObstacle: ObstacleData | null = null
-        let navigationGoal = targetInfo.position
         if (
           !skipBoidsAndObstacles
+          && navigationRoute === 'unreachable'
           && !this.hasActiveRangedWeapon
           && navigationWorld
-          && !navigationWorld.areConnected(this.combatPosition, targetInfo.position)
         ) {
           siegeProxyObstacle = this._findSiegeProxyObstacle(
             targetInfo.position,
@@ -1592,21 +1605,20 @@ export class NPC {
           )
           if (siegeProxyObstacle) {
             this._siegeTargetObstacle = siegeProxyObstacle
-            navigationGoal = this._getObstacleAttackPoint(
+            const proxyTarget = this._getObstacleAttackPoint(
               siegeProxyObstacle,
               this._tmpSiegeTarget,
             )
+            navigationRoute = this._resolveNavigationMoveTarget(
+              proxyTarget,
+              obstacles,
+              navigationWorld,
+              this._siegeNavigationPath,
+            )
           }
+        } else {
+          this._siegeNavigationPath.clear()
         }
-
-        const navigationRoute = !skipBoidsAndObstacles
-          ? this._resolveNavigationMoveTarget(
-            navigationGoal,
-            obstacles,
-            navigationWorld,
-          )
-          : 'direct'
-        if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(navigationGoal)
 
         // A normal route to the real human target always wins over obstacle
         // combat. A route to a breach proxy intentionally keeps that proxy
