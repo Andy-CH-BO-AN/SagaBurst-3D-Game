@@ -229,10 +229,10 @@ export function createCampaignOutpost(
     }
   }
 
-  const sideSegmentDepth = (backZ - frontZ) / 5
+  const sideSegmentDepth = Math.abs(backZ - frontZ) / 5
   for (const side of [-1, 1] as const) {
     for (let i = 0; i < 5; i++) {
-      const z = frontZ + sideSegmentDepth * (i + 0.5)
+      const z = frontZ + zSign * sideSegmentDepth * (i + 0.5)
       createPalisadeSegment(
         `campaign-side-palisade-${side < 0 ? 'left' : 'right'}-${i + 1}`,
         side * halfWidth,
