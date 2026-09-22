@@ -50,6 +50,22 @@ describe('NavigationGrid', () => {
     expect(grid.isBlocked({ x: 4, z: 5 })).toBe(false)
   })
 
+  it('uses diagonal movement for the shortest unobstructed route', () => {
+    const grid = createGrid()
+
+    const path = grid.findPathCells(
+      { x: 1, z: 1 },
+      { x: 4, z: 4 },
+    )
+
+    expect(path).toEqual([
+      { x: 1, z: 1 },
+      { x: 2, z: 2 },
+      { x: 3, z: 3 },
+      { x: 4, z: 4 },
+    ])
+  })
+
   it('finds a shortest walkable route around a wall through its gap', () => {
     const grid = createGrid()
 
