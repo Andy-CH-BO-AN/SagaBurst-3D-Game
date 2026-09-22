@@ -4,6 +4,7 @@
  * Exports getTerrainHeight(x, z) to calibrate all 3D entity & obstacle positions.
  */
 import * as THREE from 'three'
+import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 
 export const TERRAIN_SIZE = 400
 export const PLAYABLE_WORLD_BOUND = 180
@@ -31,12 +32,21 @@ export function getTerrainHeight(x: number, z: number): number {
 export interface ObstacleData {
   box: THREE.Box3
   isBarricade: boolean
+  damageable?: DamageableObstacle
 }
 
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
   obstacles: ObstacleData[]
   obstacleMeshes: THREE.Object3D[]
+  damageableObstacles: DamageableObstacle[]
+}
+
+export function removeObstacleData(obstacles: ObstacleData[], obstacle: ObstacleData): boolean {
+  const index = obstacles.indexOf(obstacle)
+  if (index < 0) return false
+  obstacles.splice(index, 1)
+  return true
 }
 
 export interface ObstacleCollisionResult {
@@ -480,37 +490,62 @@ export function createTerrain(scene: THREE.Scene): TerrainResult {
 
   const obstacles: ObstacleData[] = []
   const obstacleMeshes: THREE.Object3D[] = []
+  const damageableObstacles: DamageableObstacle[] = []
 
-  // ── Pine trees (Phase 0~5 hardcoded positions calibrated with getTerrainHeight) ──
+  // ── Pine trees (damageable, but AI destruction policy is implemented separately) ──
   const treeTrunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-  const treeLeafMat  = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  const treeLeafMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
+  const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
+  trunkGeo.computeBoundingSphere()
+  leavesGeo.computeBoundingSphere()
 
-  TERRAIN_TREE_POSITIONS.forEach(([tx, tz]) => {
+  TERRAIN_TREE_POSITIONS.forEach(([tx, tz], index) => {
     const terrainY = getTerrainHeight(tx, tz)
+    const root = new THREE.Group()
+    root.name = `damageable-tree-${index + 1}`
 
-    const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
-    trunkGeo.computeBoundingSphere()
     const trunk = new THREE.Mesh(trunkGeo, treeTrunkMat)
     trunk.position.set(tx, terrainY + 1, tz)
     trunk.castShadow = true
-    scene.add(trunk)
-    obstacleMeshes.push(trunk)
+    root.add(trunk)
 
-    const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
-    leavesGeo.computeBoundingSphere()
     const leaves = new THREE.Mesh(leavesGeo, treeLeafMat)
     leaves.position.set(tx, terrainY + 4, tz)
     leaves.castShadow = true
-    scene.add(leaves)
-    obstacleMeshes.push(leaves)
+    root.add(leaves)
 
-    // Trunk collision box calibrated to terrain height
+    scene.add(root)
+    obstacleMeshes.push(trunk, leaves)
+
     const box = new THREE.Box3(
       new THREE.Vector3(tx - 0.4, terrainY, tz - 0.4),
-      new THREE.Vector3(tx + 0.4, terrainY + 6, tz + 0.4)
+      new THREE.Vector3(tx + 0.4, terrainY + 6, tz + 0.4),
     )
-    obstacles.push({ box, isBarricade: false })
+    const damageable = new DamageableObstacle({
+      kind: 'tree',
+      maxHp: DAMAGEABLE_OBSTACLE_HP.tree,
+      root,
+      hitMeshes: [trunk, leaves],
+      ownerFaction: null,
+    })
+    const obstacle: ObstacleData = {
+      box,
+      isBarricade: false,
+      damageable,
+    }
+
+    damageable.onDestroyed(() => {
+      removeObstacleData(obstacles, obstacle)
+      for (const mesh of damageable.hitMeshes) {
+        const meshIndex = obstacleMeshes.indexOf(mesh)
+        if (meshIndex >= 0) obstacleMeshes.splice(meshIndex, 1)
+      }
+    })
+
+    obstacles.push(obstacle)
+    damageableObstacles.push(damageable)
   })
 
-  return { terrainMesh, obstacles, obstacleMeshes }
+  return { terrainMesh, obstacles, obstacleMeshes, damageableObstacles }
 }
