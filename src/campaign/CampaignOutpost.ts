@@ -62,6 +62,7 @@ interface DamageablePieceOptions {
   hitMeshes: readonly THREE.Object3D[]
   box: THREE.Box3
   isBarricade: boolean
+  projectileBoxes?: readonly THREE.Box3[]
 }
 
 /**
@@ -119,6 +120,7 @@ export function createCampaignOutpost(
       box: options.box,
       isBarricade: options.isBarricade,
       damageable,
+      projectileBoxes: options.projectileBoxes,
     }
 
     damageable.onDestroyed(() => {
@@ -159,6 +161,7 @@ export function createCampaignOutpost(
     stakes.receiveShadow = true
 
     const matrix = new THREE.Matrix4()
+    const projectileBoxes: THREE.Box3[] = []
     let minTerrainY = Infinity
     let maxTerrainY = -Infinity
     for (let i = 0; i < stakeCount; i++) {
@@ -170,6 +173,10 @@ export function createCampaignOutpost(
       maxTerrainY = Math.max(maxTerrainY, terrainY)
       matrix.makeTranslation(stakeX, terrainY + 1.7, stakeZ)
       stakes.setMatrixAt(i, matrix)
+      projectileBoxes.push(new THREE.Box3(
+        new THREE.Vector3(stakeX - 0.17, terrainY, stakeZ - 0.17),
+        new THREE.Vector3(stakeX + 0.17, terrainY + 3.4, stakeZ + 0.17),
+      ))
     }
     stakes.instanceMatrix.needsUpdate = true
     pieceRoot.add(stakes)
@@ -195,6 +202,15 @@ export function createCampaignOutpost(
     upperRail.castShadow = true
     pieceRoot.add(upperRail)
 
+    const railHalfX = horizontal ? widthX / 2 : 0.12
+    const railHalfZ = horizontal ? 0.12 : depthZ / 2
+    for (const railY of [centerTerrainY + 1.15, centerTerrainY + 2.15]) {
+      projectileBoxes.push(new THREE.Box3(
+        new THREE.Vector3(x - railHalfX, railY - 0.1, z - railHalfZ),
+        new THREE.Vector3(x + railHalfX, railY + 0.1, z + railHalfZ),
+      ))
+    }
+
     root.add(pieceRoot)
 
     const box = new THREE.Box3(
@@ -207,6 +223,7 @@ export function createCampaignOutpost(
       hitMeshes: [stakes, lowerRail, upperRail],
       box,
       isBarricade: true,
+      projectileBoxes,
     })
   }
 

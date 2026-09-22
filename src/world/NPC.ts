@@ -12,6 +12,7 @@ import type { HpBar } from '../ui/HpBar'
 import {
   clampToPlayableWorld,
   findBlockingObstacleAlongPath,
+  findBlockingProjectileObstacleAlongPath,
   findObstacleDetourPlan,
   getObstacleAvoidanceDirection,
   getTerrainHeight,
@@ -99,6 +100,7 @@ const NPC_DETOUR_MOUNTED_LOOKAHEAD = 8.0
 const NPC_DETOUR_STUCK_SECONDS = 0.75
 const NPC_DETOUR_FOOT_PROGRESS_DISTANCE = 0.25
 const NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE = 0.45
+const NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES = 24
 
 export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
 export const TARGET_REACQUIRE_MID_DISTANCE = 100
@@ -283,6 +285,16 @@ export class NPC {
   private _detourObstacle: ObstacleData | null = null
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
+
+  // Temporary destructible blocker target. NPCs never scan for structures;
+  // they only react to the first blocker on the route to their human target.
+  private _siegeTargetObstacle: ObstacleData | null = null
+  private readonly _tmpSiegeTarget = new THREE.Vector3()
+  private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
+  private readonly _tmpRangedLosTarget = new THREE.Vector3()
+  private readonly _rangedTargetCandidates: NPC[] = []
+  private _rangedVisibleTargetHoldFrames = 0
+
   private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
@@ -635,6 +647,7 @@ export class NPC {
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
     this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this.tacticalOrder = order
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
@@ -644,6 +657,7 @@ export class NPC {
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
     if (this.dead) return
     this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
     this.tacticalOrder = 'formation'
     this.formationTarget = {
@@ -734,6 +748,7 @@ export class NPC {
     if (this.currentHp <= 0) {
       this.formationTarget = null
       this._clearObstacleDetour()
+      this._clearSiegeFallback()
       this.dismountFromMount()
       this.state = AIState.DEAD
       this.deathFade.start(this.group)
@@ -875,6 +890,189 @@ export class NPC {
     }
   }
 
+  private _clearSiegeFallback(): void {
+    this._siegeTargetObstacle = null
+  }
+
+  private _isAttackableObstacle(obstacle: ObstacleData | null): obstacle is ObstacleData {
+    const damageable = obstacle?.damageable
+    return Boolean(
+      damageable
+      && !damageable.destroyed
+    )
+  }
+
+  private _activateDirectObstacle(blocker: ObstacleData | null): boolean {
+    if (!this._isAttackableObstacle(blocker)) return false
+
+    this._siegeTargetObstacle = blocker
+    this._clearObstacleDetour()
+    this.attackTimer = 0
+    this.attackHitProcessed = false
+    return true
+  }
+
+  private _findDirectDamageableBlocker(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    const blocker = findBlockingObstacleAlongPath(
+      this.combatPosition,
+      humanTarget,
+      this._movementObstacleRadius(),
+      this._movementObstacleHeight(),
+      0,
+      obstacles,
+      this._detourLookAhead() * 2,
+    )
+    return this._isAttackableObstacle(blocker) ? blocker : null
+  }
+
+  private _distanceToObstacleXZ(obstacle: ObstacleData): number {
+    const position = this.combatPosition
+    const closestX = THREE.MathUtils.clamp(position.x, obstacle.box.min.x, obstacle.box.max.x)
+    const closestZ = THREE.MathUtils.clamp(position.z, obstacle.box.min.z, obstacle.box.max.z)
+    return Math.hypot(position.x - closestX, position.z - closestZ)
+  }
+
+  private _getObstacleAttackPoint(obstacle: ObstacleData, out: THREE.Vector3): THREE.Vector3 {
+    const projectileBoxes = obstacle.projectileBoxes
+    if (this.hasActiveRangedWeapon && projectileBoxes && projectileBoxes.length > 0) {
+      let closestDistSq = Infinity
+      for (const box of projectileBoxes) {
+        box.getCenter(this._tmpSiegeCandidateCenter)
+        const distSq = this.combatPosition.distanceToSquared(this._tmpSiegeCandidateCenter)
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq
+          out.copy(this._tmpSiegeCandidateCenter)
+        }
+      }
+      return out
+    }
+
+    obstacle.box.clampPoint(this.combatPosition, out)
+    out.y = (obstacle.box.min.y + obstacle.box.max.y) * 0.5
+    return out
+  }
+
+  private _isObstacleInMeleeRange(obstacle: ObstacleData, extraReach = 0): boolean {
+    return this._distanceToObstacleXZ(obstacle) <= this.meleeAttackRadius + extraReach
+  }
+
+  private _findRangedLineBlocker(
+    target: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    if (this.bowVisual) this.bowVisual.getNockPosition(this._tmpRangedOrigin)
+    else this._tmpRangedOrigin.copy(this.combatPosition).setY(this.combatPosition.y + 1.25)
+
+    this._tmpRangedLosTarget.copy(target)
+    this._tmpRangedLosTarget.y += 1.2
+    return findBlockingProjectileObstacleAlongPath(
+      this._tmpRangedOrigin,
+      this._tmpRangedLosTarget,
+      obstacles,
+    )
+  }
+
+  private _getActiveSiegeObstacle(
+    humanTarget: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): ObstacleData | null {
+    if (!this._isAttackableObstacle(this._siegeTargetObstacle)) {
+      this._clearSiegeFallback()
+      return null
+    }
+
+    const blocker = findBlockingObstacleAlongPath(
+      this.combatPosition,
+      humanTarget,
+      this._movementObstacleRadius(),
+      this._movementObstacleHeight(),
+      0,
+      obstacles,
+      this._detourLookAhead() * 2,
+    )
+
+    if (!this._isAttackableObstacle(blocker)) {
+      this._clearSiegeFallback()
+      return null
+    }
+
+    // Always attack the first currently blocking destructible obstacle.
+    this._siegeTargetObstacle = blocker
+    return blocker
+  }
+
+  private _trySwitchToVisibleRangedTarget(
+    player: Player,
+    allNPCs: NPC[],
+    hostileNpcGrid: SpatialGrid<NPC> | null,
+    obstacles: ObstacleData[],
+  ): boolean {
+    const range = this.maxRangedAttackDistance
+    const minRangeSq = RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
+    const maxRangeSq = range * range
+    let bestIsPlayer = false
+    let bestNpc: NPC | null = null
+    let bestDistSq = Infinity
+
+    if (
+      this.faction === Faction.ENEMY
+      && !this._cachedTargetIsPlayer
+      && player.targetable
+      && !player.dead
+    ) {
+      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+      const distSq = this.combatPosition.distanceToSquared(playerPos)
+      if (
+        distSq >= minRangeSq
+        && distSq <= maxRangeSq
+        && this._findRangedLineBlocker(playerPos, obstacles) === null
+      ) {
+        bestIsPlayer = true
+        bestDistSq = distSq
+      }
+    }
+
+    const considerNpc = (candidate: NPC): void => {
+      if (
+        candidate === this
+        || candidate.dead
+        || candidate.faction === this.faction
+        || candidate === this._cachedTargetNpc
+      ) return
+
+      const distSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
+      if (distSq < minRangeSq || distSq > maxRangeSq || distSq >= bestDistSq) return
+      if (this._findRangedLineBlocker(candidate.combatPosition, obstacles) !== null) return
+
+      bestIsPlayer = false
+      bestNpc = candidate
+      bestDistSq = distSq
+    }
+
+    if (hostileNpcGrid) {
+      hostileNpcGrid.getNearbyInto(
+        this.combatPosition,
+        range,
+        this._rangedTargetCandidates,
+      )
+      for (const candidate of this._rangedTargetCandidates) considerNpc(candidate)
+    } else {
+      for (const candidate of allNPCs) considerNpc(candidate)
+    }
+
+    if (!bestIsPlayer && bestNpc === null) return false
+
+    this._cachedTargetIsPlayer = bestIsPlayer
+    this._cachedTargetNpc = bestNpc
+    this._rangedVisibleTargetHoldFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
+    return true
+  }
+
   private _getPlayerPosition(player: Player, out: THREE.Vector3): THREE.Vector3 {
     if (player.isMounted && player.currentMount) {
       return out.copy(player.currentMount.group.position)
@@ -909,6 +1107,7 @@ export class NPC {
       || previousNpc !== this._cachedTargetNpc
     ) {
       this._clearObstacleDetour()
+      this._clearSiegeFallback()
     }
   }
 
@@ -950,8 +1149,13 @@ export class NPC {
 
       if (hadTarget && !targetValid) {
         // Invalid targets are never delayed by the AI LOD cadence.
+        this._rangedVisibleTargetHoldFrames = 0
         this._acquireTarget(player, allNPCs, hostileNpcGrid)
         this._scheduleTargetReacquire(player, true)
+      } else if (targetValid && this._rangedVisibleTargetHoldFrames > 0) {
+        // A visible alternate target should not immediately snap back to the
+        // nearer but wall-blocked target on the next reacquisition frame.
+        this._rangedVisibleTargetHoldFrames -= 1
       } else {
         const intervalFrames = getTargetReacquireFrameInterval(this._getCachedTargetDistance(player))
 
@@ -1140,46 +1344,121 @@ export class NPC {
         this.alertSprite.visible = false
         if (!targetInfo || targetInfo.isDead) {
           this._clearObstacleDetour()
+          this._clearSiegeFallback()
           this.state = AIState.IDLE
           break
         }
 
         if (this.tacticalOrder === 'defend') {
           this._clearObstacleDetour()
+          this._clearSiegeFallback()
           this.animator.cancel()
-          this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
+          this.state = this._isTargetInDefendRange(targetInfo.position)
+            ? AIState.ATTACK
+            : AIState.ALERT
           break
         }
 
         const dist = this.combatPosition.distanceTo(targetInfo.position)
         if (dist > DETECTION_RADIUS * 1.5) {
           this._clearObstacleDetour()
+          this._clearSiegeFallback()
           this.state = AIState.IDLE
           break
         }
 
-        // Ranged NPCs (both foot and mounted) switch to melee when enemy gets close (< 6m)
-        if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+        let siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+
+        // Ranged units only draw melee against a genuinely close human target.
+        // A wall between them and that human remains a navigation/siege problem.
+        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
         }
 
-        const moveDir = this._tmpMoveDir
+        // Simple melee obstacle rule:
+        // human target -> first local destructible blocker -> attack it immediately.
+        if (!skipBoidsAndObstacles && !siegeObstacle && !this.hasActiveRangedWeapon) {
+          const directObstacle = this._findDirectDamageableBlocker(
+            targetInfo.position,
+            obstacles,
+          )
+          if (directObstacle && this._activateDirectObstacle(directObstacle)) {
+            siegeObstacle = directObstacle
+          }
+        }
 
-        if (this.hasActiveRangedWeapon) {
-          // Ranged behavior
-          if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
+        const moveDir = this._tmpMoveDir
+        const movementTarget = siegeObstacle
+          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+          : targetInfo.position
+
+        if (siegeObstacle) {
+          const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
+          if (this.hasActiveRangedWeapon) {
+            if (obstacleDistance <= this.maxRangedAttackDistance) {
+              this._clearObstacleDetour()
+              this.state = AIState.ATTACK
+              this.attackTimer = 0
+              break
+            }
+          } else if (this._isObstacleInMeleeRange(siegeObstacle, 0.35)) {
             this._clearObstacleDetour()
             this.state = AIState.ATTACK
             this.attackTimer = 0
+            this.attackHitProcessed = false
             break
+          }
+
+          moveDir.copy(movementTarget).sub(this.combatPosition)
+        } else if (this.hasActiveRangedWeapon) {
+          if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
+            const rangedBlocker = this._findRangedLineBlocker(targetInfo.position, obstacles)
+            if (rangedBlocker === null) {
+              // Enemy first: if the current human is actually shootable, never
+              // spend an arrow on a wall/tree instead.
+              this._clearObstacleDetour()
+              this._clearSiegeFallback()
+              this.state = AIState.ATTACK
+              this.attackTimer = 0
+              break
+            }
+
+            // Current human is blocked. Prefer another visible human before any
+            // structure becomes a fallback target.
+            if (
+              this._trySwitchToVisibleRangedTarget(
+                player,
+                allNPCs,
+                hostileNpcGrid,
+                obstacles,
+              )
+            ) {
+              this.state = AIState.CHASE
+              break
+            }
+
+            if (this._isAttackableObstacle(rangedBlocker)) {
+              this._activateDirectObstacle(rangedBlocker)
+              siegeObstacle = rangedBlocker
+              const obstacleDistance = this._distanceToObstacleXZ(rangedBlocker)
+              if (obstacleDistance <= this.maxRangedAttackDistance) {
+                this.state = AIState.ATTACK
+                this.attackTimer = 0
+                break
+              }
+              moveDir.copy(
+                this._getObstacleAttackPoint(rangedBlocker, this._tmpSiegeTarget),
+              ).sub(this.combatPosition)
+            } else {
+              moveDir.copy(targetInfo.position).sub(this.combatPosition)
+            }
           } else {
-            // Approach when dist > maxRangedAttackDistance
-            moveDir.copy(targetInfo.position).sub(this.group.position)
+            moveDir.copy(targetInfo.position).sub(this.combatPosition)
           }
         } else {
-          // Melee behavior
           if (this._isTargetInMeleeRange(targetInfo.position)) {
             this._clearObstacleDetour()
+            this._clearSiegeFallback()
             this.state = AIState.ATTACK
             this.attackTimer = 0
             this.attackHitProcessed = false
@@ -1188,19 +1467,20 @@ export class NPC {
             }
             break
           }
-          // Approach
-          moveDir.copy(targetInfo.position).sub(this.group.position)
+          moveDir.copy(targetInfo.position).sub(this.combatPosition)
         }
 
         moveDir.y = 0
-        moveDir.normalize()
+        if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
 
-        // Persistent detour chooses a stable waypoint for both infantry and cavalry.
-        // Separation and the existing short-range steering remain as local avoidance.
+        // Damageable blockers are handled immediately above. Only
+        // non-damageable obstacles use persistent detour / avoidance.
         if (!skipBoidsAndObstacles) {
-          if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
-          this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
-          if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+          if (!siegeObstacle) {
+            if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
+            this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
+            if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+          }
 
           if (import.meta.env.DEV && _collector) { var _tSep = performance.now() }
           this._tmpSep.set(0, 0, 0)
@@ -1221,26 +1501,30 @@ export class NPC {
           }
           if (import.meta.env.DEV && _collector) { _collector.endPhase('separation', _tSep!) }
 
-          const obstacleRadius = this._movementObstacleRadius()
-          const obstacleHeight = this._movementObstacleHeight()
-          moveDir.copy(getObstacleAvoidanceDirection(
-            this.combatPosition,
-            moveDir,
-            obstacleRadius,
-            obstacleHeight,
-            0,
-            obstacles,
-          ))
+          // Once a structure has become the explicit fallback target, do not
+          // steer away from that same structure. Collision keeps the attacker at
+          // its edge and the next frame transitions into melee/ranged attack.
+          if (!siegeObstacle) {
+            moveDir.copy(getObstacleAvoidanceDirection(
+              this.combatPosition,
+              moveDir,
+              this._movementObstacleRadius(),
+              this._movementObstacleHeight(),
+              0,
+              obstacles,
+            ))
+          }
         }
 
-        // Face target before applying directional movement
         if (import.meta.env.DEV && _collector) { var _tMvF = performance.now() }
-        this._faceTarget(targetInfo.position)
+        this._faceTarget(movementTarget)
+        this._moveByDirection(
+          moveDir,
+          this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+          dt,
+          this.tacticalOrder === 'charge' && !siegeObstacle,
+        )
 
-        // Move towards target / charge + separation
-        this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt, this.tacticalOrder === 'charge')
-        
-        // Keep chase movement inside the shared playable world boundary.
         clampToPlayableWorld(this.group.position)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
         break
@@ -1248,61 +1532,87 @@ export class NPC {
 
       case AIState.ATTACK: {
         if (!targetInfo || targetInfo.isDead) {
+          this._clearSiegeFallback()
           this.state = AIState.CHASE
           this.pendingLanceChargeSpeed = 0
           break
         }
-        
-        const dist = this.combatPosition.distanceTo(targetInfo.position)
 
-        if (this.tacticalOrder === 'defend' && !this._isTargetInDefendRange(targetInfo.position)) {
+        const siegeObstacle = this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+        const attackTargetPosition = siegeObstacle
+          ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
+          : targetInfo.position
+        const dist = siegeObstacle
+          ? this._distanceToObstacleXZ(siegeObstacle)
+          : this.combatPosition.distanceTo(targetInfo.position)
+
+        if (
+          !siegeObstacle
+          && this.tacticalOrder === 'defend'
+          && !this._isTargetInDefendRange(targetInfo.position)
+        ) {
           this.animator.cancel()
           this.pendingLanceChargeSpeed = 0
           this.state = AIState.ALERT
           break
         }
 
-        // Ranged NPCs (both foot and mounted) draw swords and commit to melee when enemy gets close (< 6m)
-        if (this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+        // Human target got too close: ranged units draw melee as before.
+        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
           this._switchToMelee()
           this.state = AIState.CHASE
           break
         }
 
-        // Target retreated beyond max ranged attack distance, approach in CHASE
         if (this.hasActiveRangedWeapon && dist > this.maxRangedAttackDistance) {
           this.animator.cancel()
           this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
           break
         }
 
+        // A human that becomes blocked again is no longer a viable shot.
+        if (
+          !siegeObstacle
+          && this.hasActiveRangedWeapon
+          && this._findRangedLineBlocker(targetInfo.position, obstacles) !== null
+        ) {
+          this.animator.cancel()
+          this.state = AIState.CHASE
+          break
+        }
+
         if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
-        this._faceTarget(targetInfo.position)
+        this._faceTarget(attackTargetPosition)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
-        // Mounted Archers orbit target while attacking within 6m <= dist <= maxRangedAttackDistance
-        if (this.isMounted && this.hasActiveRangedWeapon && this.tacticalOrder !== 'defend') {
+        // Mounted ranged units orbit humans, but hold position while deliberately
+        // attacking a structure fallback.
+        if (
+          !siegeObstacle
+          && this.isMounted
+          && this.hasActiveRangedWeapon
+          && this.tacticalOrder !== 'defend'
+        ) {
           const moveDir = this._tmpMoveDir
-          // Orbit target
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
           moveDir.y = 0
           if (moveDir.lengthSq() > 0.001) {
-             moveDir.normalize()
-             if (!skipBoidsAndObstacles) {
-               if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
-               moveDir.copy(getObstacleAvoidanceDirection(
-                 this.combatPosition,
-                 moveDir,
-                 this._movementObstacleRadius(),
-                 this._movementObstacleHeight(),
-                 0,
-                 obstacles,
-               ))
-               if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
-             }
-             if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
-             this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
-             if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
+            moveDir.normalize()
+            if (!skipBoidsAndObstacles) {
+              if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
+              moveDir.copy(getObstacleAvoidanceDirection(
+                this.combatPosition,
+                moveDir,
+                this._movementObstacleRadius(),
+                this._movementObstacleHeight(),
+                0,
+                obstacles,
+              ))
+              if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
+            }
+            if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
+            this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+            if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
           }
         }
 
@@ -1334,13 +1644,13 @@ export class NPC {
           if (import.meta.env.DEV && _collector) { var _tAnimAtk = performance.now() }
           const rangedEvents = this.animator.update(dt, cameraDistance)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimAtk!) }
-          if (isBow) this._updateBowVisual(progress, targetInfo.position)
+          if (isBow) this._updateBowVisual(progress, attackTargetPosition)
           animationAdvanced = true
           const shouldFire = rangedEvents.projectileRelease
           if (shouldFire) {
             const origin = this._tmpRangedOrigin
             const dir = this._tmpRangedDirection
-            const aimPoint = this._getElevatedRangedAimPoint(targetInfo.position)
+            const aimPoint = this._getElevatedRangedAimPoint(attackTargetPosition)
             if (isBow && this.bowVisual) {
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
@@ -1360,7 +1670,12 @@ export class NPC {
             }
           }
         } else {
-          const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
+          const berserker = getBerserkerModifiers(
+            this.characterFaction,
+            this.isMounted,
+            this.activeCombatKind,
+            Boolean(this.shieldId),
+          )
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction())
             this.attackHitProcessed = false
@@ -1369,17 +1684,37 @@ export class NPC {
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const meleeEvents = this.animator.update(dt * berserker.meleeAttackRateMultiplier, cameraDistance)
+          const meleeEvents = this.animator.update(
+            dt * berserker.meleeAttackRateMultiplier,
+            cameraDistance,
+          )
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
           animationAdvanced = true
+
           if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
-            if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
+            if (siegeObstacle) {
+              if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
+                this.attackHitProcessed = true
+                const finalDamage = Math.round(
+                  this.meleeDamage * berserker.meleeDamageMultiplier,
+                )
+                const result = siegeObstacle.damageable!.takeDamage(finalDamage)
+                if (result.destroyed) {
+                  this._clearSiegeFallback()
+                  this.state = AIState.CHASE
+                  this.pendingLanceChargeSpeed = 0
+                }
+              }
+            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
               this.attackHitProcessed = true
-              const targetIsMounted = targetInfo.isPlayer ? Boolean(player?.isMounted) : Boolean(targetInfo.npc?.isMounted)
+              const targetIsMounted = targetInfo.isPlayer
+                ? Boolean(player?.isMounted)
+                : Boolean(targetInfo.npc?.isMounted)
               const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
               onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
             }
           }
+
           if (meleeEvents.actionCompleted) {
             this.attackTimer = AI_ATTACK_GAP / berserker.meleeAttackRateMultiplier
             this.pendingLanceChargeSpeed = 0
@@ -1387,7 +1722,10 @@ export class NPC {
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
-            if (this.attackTimer <= 0 && !this._isTargetInMeleeRange(targetInfo.position)) {
+            const stillInRange = siegeObstacle
+              ? this._isObstacleInMeleeRange(siegeObstacle)
+              : this._isTargetInMeleeRange(targetInfo.position)
+            if (this.attackTimer <= 0 && !stillInRange) {
               this.state = AIState.CHASE
               this.pendingLanceChargeSpeed = 0
             }
@@ -1668,6 +2006,8 @@ export class NPC {
   respawn(): void {
     this.deathFade.reset(this.group)
     this.formationTarget = null
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
@@ -1693,6 +2033,7 @@ export class NPC {
     this.alertSprite.visible = false
     this._cachedTargetIsPlayer = false
     this._cachedTargetNpc = null
+    this._rangedVisibleTargetHoldFrames = 0
     this._targetAcquisitionInitialized = false
     this._targetReacquireTimer = 0
     for (const cb of this.onRespawnCallbacks) cb(this)

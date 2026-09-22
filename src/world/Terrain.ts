@@ -74,9 +74,16 @@ export function getTerrainHeight(x: number, z: number): number {
 }
 
 export interface ObstacleData {
+  /** Continuous body/nav collision volume. */
   box: THREE.Box3
   isBarricade: boolean
   damageable?: DamageableObstacle
+  /**
+   * Optional projectile-specific solid volumes.
+   * Used by see-through palisades so actors cannot squeeze through stake gaps,
+   * while arrows/javelins can physically pass between the visible timbers.
+   */
+  projectileBoxes?: readonly THREE.Box3[]
 }
 
 export interface TerrainResult {
@@ -169,6 +176,91 @@ function segmentEntryFractionExpandedBox(
   }
 
   return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null
+}
+
+
+function segmentEntryFractionBox3D(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  box: THREE.Box3,
+): number | null {
+  let tMin = 0
+  let tMax = 1
+
+  const axisEntry = (
+    startValue: number,
+    delta: number,
+    minValue: number,
+    maxValue: number,
+  ): boolean => {
+    if (Math.abs(delta) < SEGMENT_EPSILON) {
+      return startValue >= minValue && startValue <= maxValue
+    }
+
+    let t1 = (minValue - startValue) / delta
+    let t2 = (maxValue - startValue) / delta
+    if (t1 > t2) [t1, t2] = [t2, t1]
+    tMin = Math.max(tMin, t1)
+    tMax = Math.min(tMax, t2)
+    return tMin <= tMax
+  }
+
+  if (!axisEntry(start.x, end.x - start.x, box.min.x, box.max.x)) return null
+  if (!axisEntry(start.y, end.y - start.y, box.min.y, box.max.y)) return null
+  if (!axisEntry(start.z, end.z - start.z, box.min.z, box.max.z)) return null
+
+  return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null
+}
+
+export function obstacleContainsProjectilePoint(
+  obstacle: ObstacleData,
+  point: THREE.Vector3,
+): boolean {
+  const boxes = obstacle.projectileBoxes
+  if (!boxes || boxes.length === 0) return obstacle.box.containsPoint(point)
+  for (const box of boxes) {
+    if (box.containsPoint(point)) return true
+  }
+  return false
+}
+
+/**
+ * Finds the first physical projectile blocker along a 3D segment.
+ *
+ * Navigation continues to use the continuous obstacle box; projectile LOS uses
+ * projectileBoxes when present so a palisade's visible gaps are real firing gaps.
+ */
+export function findBlockingProjectileObstacleAlongPath(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  obstacles: readonly ObstacleData[],
+): ObstacleData | null {
+  let closest: ObstacleData | null = null
+  let closestFraction = Infinity
+
+  for (const obstacle of obstacles) {
+    // Cheap broad phase first. Detailed palisade stake/rail tests only run when
+    // the shot segment actually crosses that obstacle's navigation envelope.
+    const coarseEntry = segmentEntryFractionBox3D(start, end, obstacle.box)
+    if (coarseEntry === null || coarseEntry >= closestFraction) continue
+
+    const boxes = obstacle.projectileBoxes
+    if (!boxes || boxes.length === 0) {
+      closestFraction = coarseEntry
+      closest = obstacle
+      continue
+    }
+
+    for (const box of boxes) {
+      const entry = segmentEntryFractionBox3D(start, end, box)
+      if (entry !== null && entry < closestFraction) {
+        closestFraction = entry
+        closest = obstacle
+      }
+    }
+  }
+
+  return closest
 }
 
 function segmentBlockedByObstacle(
