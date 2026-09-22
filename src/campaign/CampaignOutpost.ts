@@ -10,6 +10,7 @@ import {
   type DamageableObstacleKind,
 } from '../world/DamageableObstacle'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import { CampaignBreachController, CampaignGateController } from './CampaignGate'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
@@ -62,6 +63,8 @@ export interface CampaignOutpostResult {
   obstacleMeshes: THREE.Object3D[]
   damageableObstacles: DamageableObstacle[]
   gate: DamageableObstacle
+  gateController: CampaignGateController
+  breachController: CampaignBreachController
 }
 
 interface DamageablePieceOptions {
@@ -94,6 +97,7 @@ export function createCampaignOutpost(
   const obstacles = collections?.obstacles ?? []
   const obstacleMeshes = collections?.obstacleMeshes ?? []
   const damageableObstacles: DamageableObstacle[] = []
+  const breachController = new CampaignBreachController()
 
   const woodMaterial = new THREE.MeshLambertMaterial({ color: 0x76502b })
   const darkWoodMaterial = new THREE.MeshLambertMaterial({ color: 0x4d321d })
@@ -213,13 +217,17 @@ export function createCampaignOutpost(
       new THREE.Vector3(x - widthX / 2, minTerrainY, z - depthZ / 2),
       new THREE.Vector3(x + widthX / 2, maxTerrainY + palisadeHeight, z + depthZ / 2),
     )
-    return registerDamageablePiece({
+    const palisade = registerDamageablePiece({
       kind: 'palisade',
       root: pieceRoot,
       hitMeshes: [stakes, lowerRail, upperRail],
       box,
       isBarricade: true,
     })
+    palisade.onDestroyed(() => {
+      breachController.trigger()
+    })
+    return palisade
   }
 
   const zSign = defenderFaction === 'roman' ? -1 : 1
@@ -271,34 +279,65 @@ export function createCampaignOutpost(
   const gateRoot = new THREE.Group()
   gateRoot.name = `campaign-outpost-gate-${defenderFaction}`
 
+  // Each leaf is parented to its outer hinge so OPEN can rotate the real
+  // geometry away from the breach instead of only removing collision.
+  const leftGateHinge = new THREE.Group()
+  leftGateHinge.name = 'campaign-gate-left-hinge'
+  leftGateHinge.position.set(-gateWidth / 2, gateTerrainY, frontZ)
+  gateRoot.add(leftGateHinge)
+
   const leftGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  leftGate.position.set(-gateWidth / 4, gateTerrainY + palisadeHeight / 2, frontZ)
+  leftGate.position.set(gateWidth / 4, palisadeHeight / 2, 0)
   leftGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
   leftGate.castShadow = true
-  gateRoot.add(leftGate)
+  leftGateHinge.add(leftGate)
+
+  const leftGateTop = new THREE.Mesh(unitBox, woodMaterial)
+  leftGateTop.position.set(gateWidth / 4, palisadeHeight - 0.07, 0)
+  leftGateTop.scale.set(gateWidth / 2, 0.14, 1.05)
+  leftGateTop.castShadow = true
+  leftGateHinge.add(leftGateTop)
+
+  const rightGateHinge = new THREE.Group()
+  rightGateHinge.name = 'campaign-gate-right-hinge'
+  rightGateHinge.position.set(gateWidth / 2, gateTerrainY, frontZ)
+  gateRoot.add(rightGateHinge)
 
   const rightGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  rightGate.position.set(gateWidth / 4, gateTerrainY + palisadeHeight / 2, frontZ)
+  rightGate.position.set(-gateWidth / 4, palisadeHeight / 2, 0)
   rightGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
   rightGate.castShadow = true
-  gateRoot.add(rightGate)
+  rightGateHinge.add(rightGate)
 
-  const gateTop = new THREE.Mesh(unitBox, woodMaterial)
-  gateTop.position.set(0, gateTerrainY + palisadeHeight - 0.07, frontZ)
-  gateTop.scale.set(gateWidth + 0.8, 0.14, 1.05)
-  gateTop.castShadow = true
-  gateRoot.add(gateTop)
+  const rightGateTop = new THREE.Mesh(unitBox, woodMaterial)
+  rightGateTop.position.set(-gateWidth / 4, palisadeHeight - 0.07, 0)
+  rightGateTop.scale.set(gateWidth / 2, 0.14, 1.05)
+  rightGateTop.castShadow = true
+  rightGateHinge.add(rightGateTop)
 
   root.add(gateRoot)
   const gate = registerDamageablePiece({
     kind: 'gate',
     root: gateRoot,
-    hitMeshes: [leftGate, rightGate, gateTop],
+    hitMeshes: [leftGate, leftGateTop, rightGate, rightGateTop],
     box: new THREE.Box3(
       new THREE.Vector3(-gateWidth / 2, gateTerrainY, frontZ - 0.45),
       new THREE.Vector3(gateWidth / 2, gateTerrainY + palisadeHeight, frontZ + 0.45),
     ),
     isBarricade: true,
+  })
+  const gateObstacle = obstacles.find(obstacle => obstacle.damageable === gate)
+  if (!gateObstacle) throw new Error('Campaign gate obstacle registration failed')
+
+  const gateController = new CampaignGateController({
+    defenderFaction,
+    damageable: gate,
+    obstacle: gateObstacle,
+    obstacles,
+    leftHinge: leftGateHinge,
+    rightHinge: rightGateHinge,
+    openRotationY: zSign * Math.PI / 2,
+    breachController,
   })
 
   const stakeXs = [-40, -32, -24, -16, -10, 10, 16, 24, 32, 40]
@@ -446,5 +485,7 @@ export function createCampaignOutpost(
     obstacleMeshes,
     damageableObstacles,
     gate,
+    gateController,
+    breachController,
   }
 }
