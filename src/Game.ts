@@ -16,6 +16,8 @@ import { Player } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
+import { NavigationWorld } from './navigation/NavigationWorld'
+import { ChaseTargetCoordinator } from './navigation/ChaseTargetCoordinator'
 
 export type PlayerControlMode = 'player' | 'spectator'
 
@@ -353,6 +355,8 @@ export class Game {
   private mounts: Mount[] = []
 
   private obstacles: ObstacleData[] = []
+  private readonly navigationWorld = new NavigationWorld()
+  private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager: SaveManager
   private staminaBar: StaminaBar
   private hpBar: HpBar
@@ -503,6 +507,7 @@ export class Game {
     }
 
     this.obstacles = obstacles
+    this.navigationWorld.sync(this.obstacles)
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
     for (const obstacleMesh of obstacleMeshes) {
       this._aimTargetRegistry.addStaticTarget(obstacleMesh)
@@ -638,6 +643,9 @@ export class Game {
     // ── Combat & Enemies ──
     if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
+      // DEV combat is a controllable test battlefield: both armies hold their
+      // starting ground until a command or nearby threat gives them work.
+      for (const npc of this.npcs) npc.setTacticalOrder('defend')
       if (this.activeRenderProbe === 'simple-material') {
         applyDevSimpleMaterials(this.npcs, this.mounts)
       }
@@ -682,6 +690,7 @@ export class Game {
       this.armyCommandUI,
       formationController,
       (order) => this.soundManager.playCommanderCommand(playerFaction, order),
+      this.isDevCombat ? 'defend' : 'attack',
     )
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
@@ -1981,6 +1990,13 @@ export class Game {
 
     this.battleController?.update(this.npcs)
 
+    // Keep A* topology in sync with destroyed/opened/closed world obstacles.
+    // This is O(1) on stable frames and rebuilds only when the shared obstacle
+    // collection changes.
+    this.navigationWorld.sync(this.obstacles)
+    this.navigationWorld.beginFrame()
+    this.chaseTargetCoordinator.beginFrame()
+
     // 1. NPC Grid Build
     if (profile) t0 = performance.now()
     this.npcGrid.clear()
@@ -2102,6 +2118,8 @@ export class Game {
         cameraDistance,
         collector,
         hostileNpcGrid,
+        this.navigationWorld,
+        this.chaseTargetCoordinator,
       )
       npcLoopIndex++
     }

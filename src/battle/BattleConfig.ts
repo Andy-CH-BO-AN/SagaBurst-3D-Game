@@ -550,14 +550,14 @@ export const PRESET_200V200: BattleConfig = definePreset({
   rules: { respawnEnabled: false, includeCamps: true },
 })
 
-/** Developer performance scenario A: 50v50 Infantry */
+/** Developer diagnostic scenario A: 50v50 foot archers. */
 export const PRESET_SCENARIO_A: BattleConfig = definePreset({
   mode: 'formation',
   viking: {
-    viking_berserker: { 1: 20, 2: 20, 3: 10 },
+    viking_archer: { 1: 20, 2: 20, 3: 10 },
   },
   roman: {
-    roman_heavy_infantry: { 1: 20, 2: 20, 3: 10 },
+    roman_archer: { 1: 20, 2: 20, 3: 10 },
   },
   rules: { respawnEnabled: false, includeCamps: false },
 })

@@ -134,10 +134,14 @@ export class NavigationGrid {
   }
 
   cellToWorld(cell: NavigationCell, y = 0): THREE.Vector3 {
+    return this.cellToWorldInto(cell, new THREE.Vector3(), y)
+  }
+
+  cellToWorldInto(cell: NavigationCell, out: THREE.Vector3, y = 0): THREE.Vector3 {
     if (!this.isInside(cell)) {
       throw new Error(`NavigationGrid cell out of bounds: ${cell.x},${cell.z}`)
     }
-    return new THREE.Vector3(
+    return out.set(
       this.minX + (cell.x + 0.5) * this.cellSize,
       y,
       this.minZ + (cell.z + 0.5) * this.cellSize,
@@ -145,8 +149,60 @@ export class NavigationGrid {
   }
 
   isBlocked(cell: NavigationCell): boolean {
-    if (!this.isInside(cell)) return true
-    return this.blocked[this._index(cell.x, cell.z)] !== 0
+    return this.isBlockedXZ(cell.x, cell.z)
+  }
+
+  isBlockedXZ(x: number, z: number): boolean {
+    if (x < 0 || x >= this.width || z < 0 || z >= this.height) return true
+    return this.blocked[this._index(x, z)] !== 0
+  }
+
+  findNearestWalkableCell(
+    position: Pick<THREE.Vector3, 'x' | 'z'>,
+    maxRadiusCells = 3,
+  ): NavigationCell | null {
+    const origin = this.worldToCell(position)
+    if (!origin) return null
+    if (!this.isBlocked(origin)) return origin
+
+    let best: NavigationCell | null = null
+    let bestDistSq = Infinity
+    const maxRadius = Math.max(1, Math.floor(maxRadiusCells))
+
+    for (let radius = 1; radius <= maxRadius; radius++) {
+      const minX = Math.max(0, origin.x - radius)
+      const maxX = Math.min(this.width - 1, origin.x + radius)
+      const minZ = Math.max(0, origin.z - radius)
+      const maxZ = Math.min(this.height - 1, origin.z + radius)
+
+      for (let z = minZ; z <= maxZ; z++) {
+        for (let x = minX; x <= maxX; x++) {
+          if (
+            x !== minX
+            && x !== maxX
+            && z !== minZ
+            && z !== maxZ
+          ) continue
+
+          const candidate = { x, z }
+          if (this.isBlocked(candidate)) continue
+
+          const centerX = this.minX + (x + 0.5) * this.cellSize
+          const centerZ = this.minZ + (z + 0.5) * this.cellSize
+          const dx = centerX - position.x
+          const dz = centerZ - position.z
+          const distSq = dx * dx + dz * dz
+          if (distSq < bestDistSq) {
+            bestDistSq = distSq
+            best = candidate
+          }
+        }
+      }
+
+      if (best) return best
+    }
+
+    return null
   }
 
   setBlocked(cell: NavigationCell, blocked: boolean): void {
@@ -196,7 +252,10 @@ export class NavigationGrid {
 
   findPathCells(start: NavigationCell, goal: NavigationCell): NavigationCell[] | null {
     if (!this.isInside(start) || !this.isInside(goal)) return null
-    if (this.isBlocked(start) || this.isBlocked(goal)) return null
+    // The world-space actor may be physically outside an obstacle while its
+    // coarse 2m cell overlaps that obstacle. Allow A* to escape the start cell;
+    // the goal must still be genuinely walkable.
+    if (this.isBlocked(goal)) return null
 
     const startIndex = this._index(start.x, start.z)
     const goalIndex = this._index(goal.x, goal.z)
