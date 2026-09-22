@@ -239,9 +239,17 @@ export function findBlockingProjectileObstacleAlongPath(
   let closestFraction = Infinity
 
   for (const obstacle of obstacles) {
-    const boxes = obstacle.projectileBoxes?.length
-      ? obstacle.projectileBoxes
-      : [obstacle.box]
+    // Cheap broad phase first. Detailed palisade stake/rail tests only run when
+    // the shot segment actually crosses that obstacle's navigation envelope.
+    const coarseEntry = segmentEntryFractionBox3D(start, end, obstacle.box)
+    if (coarseEntry === null || coarseEntry >= closestFraction) continue
+
+    const boxes = obstacle.projectileBoxes
+    if (!boxes || boxes.length === 0) {
+      closestFraction = coarseEntry
+      closest = obstacle
+      continue
+    }
 
     for (const box of boxes) {
       const entry = segmentEntryFractionBox3D(start, end, box)
