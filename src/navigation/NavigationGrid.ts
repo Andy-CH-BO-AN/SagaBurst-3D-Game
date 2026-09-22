@@ -18,53 +18,77 @@ export interface NavigationCell {
   z: number
 }
 
-interface OpenNode {
-  index: number
-  g: number
-  f: number
-}
-
 class MinHeap {
-  private readonly data: OpenNode[] = []
+  private readonly indices: number[] = []
+  private readonly gScores: number[] = []
+  private readonly fScores: number[] = []
+  private _size = 0
+  private _lastPoppedG = 0
 
   get size(): number {
-    return this.data.length
+    return this._size
   }
 
-  push(node: OpenNode): void {
-    this.data.push(node)
-    let index = this.data.length - 1
+  get lastPoppedG(): number {
+    return this._lastPoppedG
+  }
+
+  clear(): void {
+    this._size = 0
+  }
+
+  push(indexValue: number, gValue: number, fValue: number): void {
+    let index = this._size++
 
     while (index > 0) {
       const parent = (index - 1) >> 1
-      if (this.data[parent].f <= node.f) break
-      this.data[index] = this.data[parent]
+      if (this.fScores[parent] <= fValue) break
+
+      this.indices[index] = this.indices[parent]
+      this.gScores[index] = this.gScores[parent]
+      this.fScores[index] = this.fScores[parent]
       index = parent
     }
-    this.data[index] = node
+
+    this.indices[index] = indexValue
+    this.gScores[index] = gValue
+    this.fScores[index] = fValue
   }
 
-  pop(): OpenNode | null {
-    if (this.data.length === 0) return null
+  popIndex(): number {
+    if (this._size === 0) return -1
 
-    const root = this.data[0]
-    const last = this.data.pop()!
-    if (this.data.length === 0) return root
+    const rootIndex = this.indices[0]
+    this._lastPoppedG = this.gScores[0]
+    this._size--
+
+    if (this._size === 0) return rootIndex
+
+    const lastIndex = this.indices[this._size]
+    const lastG = this.gScores[this._size]
+    const lastF = this.fScores[this._size]
 
     let index = 0
     while (true) {
       const left = index * 2 + 1
-      if (left >= this.data.length) break
+      if (left >= this._size) break
+
       const right = left + 1
-      const smaller = right < this.data.length && this.data[right].f < this.data[left].f
+      const smaller = right < this._size && this.fScores[right] < this.fScores[left]
         ? right
         : left
-      if (this.data[smaller].f >= last.f) break
-      this.data[index] = this.data[smaller]
+      if (this.fScores[smaller] >= lastF) break
+
+      this.indices[index] = this.indices[smaller]
+      this.gScores[index] = this.gScores[smaller]
+      this.fScores[index] = this.fScores[smaller]
       index = smaller
     }
-    this.data[index] = last
-    return root
+
+    this.indices[index] = lastIndex
+    this.gScores[index] = lastG
+    this.fScores[index] = lastF
+    return rootIndex
   }
 }
 
@@ -89,6 +113,12 @@ export class NavigationGrid {
   readonly height: number
 
   private readonly blocked: Uint8Array
+  private readonly gScore: Float64Array
+  private readonly cameFrom: Int32Array
+  private readonly seenRun: Uint32Array
+  private readonly closedRun: Uint32Array
+  private readonly open = new MinHeap()
+  private searchRunId = 0
 
   constructor(options: NavigationGridOptions) {
     const cellSize = options.cellSize ?? DEFAULT_NAV_CELL_SIZE
@@ -106,7 +136,13 @@ export class NavigationGrid {
     this.cellSize = cellSize
     this.width = Math.ceil((this.maxX - this.minX) / this.cellSize)
     this.height = Math.ceil((this.maxZ - this.minZ) / this.cellSize)
-    this.blocked = new Uint8Array(this.width * this.height)
+
+    const cellCount = this.width * this.height
+    this.blocked = new Uint8Array(cellCount)
+    this.gScore = new Float64Array(cellCount)
+    this.cameFrom = new Int32Array(cellCount)
+    this.seenRun = new Uint32Array(cellCount)
+    this.closedRun = new Uint32Array(cellCount)
   }
 
   get cellCount(): number {
@@ -261,62 +297,67 @@ export class NavigationGrid {
     const goalIndex = this._index(goal.x, goal.z)
     if (startIndex === goalIndex) return [{ ...start }]
 
-    const gScore = new Float64Array(this.cellCount)
-    gScore.fill(Infinity)
-    const cameFrom = new Int32Array(this.cellCount)
-    cameFrom.fill(-1)
-    const closed = new Uint8Array(this.cellCount)
-    const open = new MinHeap()
+    const runId = this._beginSearchRun()
+    this.seenRun[startIndex] = runId
+    this.gScore[startIndex] = 0
+    this.cameFrom[startIndex] = -1
+    this.open.push(
+      startIndex,
+      0,
+      this._heuristic(start.x, start.z, goal.x, goal.z),
+    )
 
-    gScore[startIndex] = 0
-    open.push({
-      index: startIndex,
-      g: 0,
-      f: this._heuristic(start.x, start.z, goal.x, goal.z),
-    })
+    while (this.open.size > 0) {
+      const currentIndex = this.open.popIndex()
+      const currentG = this.open.lastPoppedG
+      if (this.closedRun[currentIndex] === runId) continue
+      if (
+        this.seenRun[currentIndex] !== runId
+        || currentG > this.gScore[currentIndex] + COST_EPSILON
+      ) continue
 
-    while (open.size > 0) {
-      const current = open.pop()!
-      if (closed[current.index]) continue
-      if (current.g > gScore[current.index] + COST_EPSILON) continue
-
-      if (current.index === goalIndex) {
-        return this._reconstructPath(cameFrom, current.index)
+      if (currentIndex === goalIndex) {
+        return this._reconstructPath(currentIndex)
       }
 
-      closed[current.index] = 1
-      const currentCell = this._cellFromIndex(current.index)
+      this.closedRun[currentIndex] = runId
+      const currentX = currentIndex % this.width
+      const currentZ = Math.floor(currentIndex / this.width)
 
       for (const [dx, dz, moveCost] of NEIGHBORS) {
-        const nextX = currentCell.x + dx
-        const nextZ = currentCell.z + dz
+        const nextX = currentX + dx
+        const nextZ = currentZ + dz
         if (!this._inside(nextX, nextZ)) continue
 
         const nextIndex = this._index(nextX, nextZ)
-        if (closed[nextIndex] || this.blocked[nextIndex]) continue
+        if (this.closedRun[nextIndex] === runId || this.blocked[nextIndex]) continue
 
         // Do not let a diagonal step squeeze through two touching blocked cells.
         if (
           dx !== 0
           && dz !== 0
           && (
-            this.blocked[this._index(currentCell.x + dx, currentCell.z)]
-            || this.blocked[this._index(currentCell.x, currentCell.z + dz)]
+            this.blocked[this._index(currentX + dx, currentZ)]
+            || this.blocked[this._index(currentX, currentZ + dz)]
           )
         ) {
           continue
         }
 
-        const tentativeG = current.g + moveCost
-        if (tentativeG + COST_EPSILON >= gScore[nextIndex]) continue
+        const tentativeG = currentG + moveCost
+        if (
+          this.seenRun[nextIndex] === runId
+          && tentativeG + COST_EPSILON >= this.gScore[nextIndex]
+        ) continue
 
-        cameFrom[nextIndex] = current.index
-        gScore[nextIndex] = tentativeG
-        open.push({
-          index: nextIndex,
-          g: tentativeG,
-          f: tentativeG + this._heuristic(nextX, nextZ, goal.x, goal.z),
-        })
+        this.seenRun[nextIndex] = runId
+        this.cameFrom[nextIndex] = currentIndex
+        this.gScore[nextIndex] = tentativeG
+        this.open.push(
+          nextIndex,
+          tentativeG,
+          tentativeG + this._heuristic(nextX, nextZ, goal.x, goal.z),
+        )
       }
     }
 
@@ -327,13 +368,28 @@ export class NavigationGrid {
     return cells.map(cell => this.cellToWorld(cell, y))
   }
 
-  private _reconstructPath(cameFrom: Int32Array, goalIndex: number): NavigationCell[] {
+  private _beginSearchRun(): number {
+    // Uint32 stamps avoid O(cellCount) clears for gScore/cameFrom/closed on every
+    // A* request. The full stamp arrays are cleared only after ~4.29B searches.
+    if (this.searchRunId === 0xffffffff) {
+      this.seenRun.fill(0)
+      this.closedRun.fill(0)
+      this.searchRunId = 1
+    } else {
+      this.searchRunId++
+    }
+
+    this.open.clear()
+    return this.searchRunId
+  }
+
+  private _reconstructPath(goalIndex: number): NavigationCell[] {
     const reversed: NavigationCell[] = []
     let current = goalIndex
 
     while (current >= 0) {
       reversed.push(this._cellFromIndex(current))
-      current = cameFrom[current]
+      current = this.cameFrom[current]
     }
 
     reversed.reverse()
