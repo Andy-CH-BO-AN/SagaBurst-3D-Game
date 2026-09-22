@@ -16,9 +16,9 @@ export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
 ]
 
 export const FORTIFIED_CAMP_HILL = {
-  centerAbsZ: 153,
+  centerAbsZ: 144,
   radiusX: 22,
-  radiusZ: 15,
+  radiusZ: 18,
   flatTopRatio: 0.35,
   height: 3.5,
 } as const
