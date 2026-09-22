@@ -430,6 +430,46 @@ export function findObstacleDetourPlan(
   return choose(preferredSide) ?? choose()
 }
 
+/**
+ * Returns the first destructible blocker only when local detour planning cannot
+ * produce a waypoint around it.
+ *
+ * This keeps obstacle combat as a fallback: if a route around the blocker is
+ * available, callers should keep using persistent detour instead of attacking.
+ */
+export function findDamageableBlockerWithoutDetour(
+  position: THREE.Vector3,
+  target: THREE.Vector3,
+  radius: number,
+  height: number,
+  bottomOffset: number,
+  obstacles: ObstacleData[],
+  maxLookAhead: number = Infinity,
+): ObstacleData | null {
+  const blocker = findBlockingObstacleAlongPath(
+    position,
+    target,
+    radius,
+    height,
+    bottomOffset,
+    obstacles,
+    maxLookAhead,
+  )
+  if (!blocker?.damageable || blocker.damageable.destroyed) return null
+
+  const detour = findObstacleDetourPlan(
+    position,
+    target,
+    radius,
+    height,
+    bottomOffset,
+    obstacles,
+    undefined,
+    maxLookAhead,
+  )
+  return detour ? null : blocker
+}
+
 /** Returns a direction that steers around an obstacle directly ahead. */
 export function getObstacleAvoidanceDirection(
   position: THREE.Vector3,
