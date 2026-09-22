@@ -39,6 +39,13 @@ describe('DamageableObstacle', () => {
     expect(onDestroyed).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps palisade walls tougher than the gate breach point', () => {
+    expect(DAMAGEABLE_OBSTACLE_HP.palisade)
+      .toBeGreaterThan(DAMAGEABLE_OBSTACLE_HP.gate)
+    expect(DAMAGEABLE_OBSTACLE_HP.palisade).toBe(780)
+    expect(DAMAGEABLE_OBSTACLE_HP.gate).toBe(520)
+  })
+
   it('ignores invalid or non-positive damage', () => {
     const obstacle = new DamageableObstacle({
       kind: 'gate',

@@ -11,7 +11,9 @@ export type DamageableObstacleKind =
 
 export const DAMAGEABLE_OBSTACLE_HP: Readonly<Record<DamageableObstacleKind, number>> = {
   tree: 180,
-  palisade: 260,
+  // Palisade wall sections are deliberately tougher than the gate so the
+  // intended breach point is also the cheaper structure to destroy.
+  palisade: 780,
   gate: 520,
   chevaux_de_frise: 160,
   tent: 120,
