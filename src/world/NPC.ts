@@ -1503,6 +1503,19 @@ export class NPC {
           this._switchToMelee()
         }
 
+        // Simple melee siege rule:
+        // human target -> first direct blocker -> hostile fortification => attack it.
+        // No gate search, no route-cost comparison, no "stuck" delay.
+        if (!skipBoidsAndObstacles && !siegeObstacle && !this.hasActiveRangedWeapon) {
+          const directFortification = this._findDirectFortificationBlocker(
+            targetInfo.position,
+            obstacles,
+          )
+          if (directFortification && this._activateDirectFortification(directFortification)) {
+            siegeObstacle = directFortification
+          }
+        }
+
         const moveDir = this._tmpMoveDir
         const movementTarget = siegeObstacle
           ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
@@ -1574,9 +1587,9 @@ export class NPC {
         moveDir.y = 0
         if (moveDir.lengthSq() > 0.0001) moveDir.normalize()
 
-        // Navigation always gets first refusal. Siege eligibility only accrues
-        // while the same direct blocker remains and the NPC makes no meaningful
-        // movement for several seconds (trees require twice as long).
+        // Enemy fortifications were already handled above for melee units.
+        // Navigation-first + delayed destruction here is only for ordinary
+        // obstacles such as trees, tents, and campfires.
         if (!skipBoidsAndObstacles) {
           if (!siegeObstacle) {
             if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
