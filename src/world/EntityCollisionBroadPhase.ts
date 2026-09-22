@@ -41,6 +41,7 @@ export class EntityCollisionBroadPhase {
         const candidateIndex = this._findNextCandidate(
           body,
           nextCandidateIndex,
+          bodies,
         )
         if (candidateIndex < 0) break
 
@@ -81,6 +82,7 @@ export class EntityCollisionBroadPhase {
   private _findNextCandidate(
     body: EntityCollisionBody,
     minimumIndex: number,
+    bodies: readonly EntityCollisionBody[],
   ): number {
     const queryRadius = body.radius + this.maxRadius
     const minCellX = Math.floor(
@@ -106,6 +108,13 @@ export class EntityCollisionBroadPhase {
         for (let i = 0; i < cell.length; i++) {
           const candidateIndex = cell[i]
           if (candidateIndex < minimumIndex) continue
+
+          const candidate = bodies[candidateIndex]
+          const dx = body.position.x - candidate.position.x
+          const dz = body.position.z - candidate.position.z
+          const minDistance = body.radius + candidate.radius
+          if (dx * dx + dz * dz >= minDistance * minDistance) continue
+
           if (nextIndex < 0 || candidateIndex < nextIndex) {
             nextIndex = candidateIndex
           }
