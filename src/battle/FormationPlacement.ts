@@ -14,33 +14,58 @@ export interface FormationPlacement {
   slots: THREE.Vector3[]
 }
 
-type FormationFactory = (center: THREE.Vector3) => FormationPlacement
-type FormationValidator = (formation: FormationPlacement) => boolean
-
 const FORMATION_SEARCH_OFFSETS: readonly FormationSearchOffset[] = buildSearchOffsets()
 
-/** Finds the nearest usable formation while keeping offsets in formation-local axes. */
-export function findNearestValidFormation(
-  requestedCenter: THREE.Vector3,
+/** Preserve clear slots; find a nearby free position only for each blocked unit. */
+export function resolveFormationSlots<T>(
+  idealSlots: readonly THREE.Vector3[],
   forward: THREE.Vector3,
-  makeFormation: FormationFactory,
-  isFormationUsable: FormationValidator,
-): FormationPlacement | null {
+  unitsBySlot: readonly T[],
+  radiusOf: (unit: T) => number,
+  isSlotUsable: (slot: THREE.Vector3, unit: T) => boolean,
+  terrainHeight: (x: number, z: number) => number,
+  playableBound: number,
+): THREE.Vector3[] | null {
+  if (idealSlots.length !== unitsBySlot.length) return null
+  const resolved = idealSlots.map(slot => slot.clone())
+  const occupied: number[] = []
+  const blocked: number[] = []
+  for (let index = 0; index < idealSlots.length; index++) {
+    if (isSlotUsable(idealSlots[index], unitsBySlot[index])) occupied.push(index)
+    else blocked.push(index)
+  }
+  if (blocked.length === 0) return resolved
+
   const rowAxis = formationRowAxis(forward)
   const formationForward = horizontalFormationForward(forward)
-
-  for (const offset of FORMATION_SEARCH_OFFSETS) {
-    const candidateCenter = requestedCenter.clone()
-      .addScaledVector(rowAxis, offset.lateral)
-      .addScaledVector(formationForward, offset.forward)
-    const formation = makeFormation(candidateCenter)
-    if (isFormationUsable(formation)) return formation
+  for (const index of blocked) {
+    const radius = radiusOf(unitsBySlot[index])
+    let placed = false
+    for (const offset of FORMATION_SEARCH_OFFSETS) {
+      const candidate = idealSlots[index].clone()
+        .addScaledVector(rowAxis, offset.lateral)
+        .addScaledVector(formationForward, offset.forward)
+      if (Math.abs(candidate.x) > playableBound || Math.abs(candidate.z) > playableBound) continue
+      candidate.y = terrainHeight(candidate.x, candidate.z)
+      if (!isSlotUsable(candidate, unitsBySlot[index])) continue
+      if (occupied.some(other => {
+        const minDistance = radius + radiusOf(unitsBySlot[other])
+        const dx = candidate.x - resolved[other].x
+        const dz = candidate.z - resolved[other].z
+        return dx * dx + dz * dz < minDistance * minDistance - 0.0001
+      })) continue
+      resolved[index] = candidate
+      occupied.push(index)
+      placed = true
+      break
+    }
+    if (!placed) return null
   }
-  return null
+  return resolved
 }
 
 function buildSearchOffsets(): readonly FormationSearchOffset[] {
-  const offsets: FormationSearchOffset[] = [{ lateral: 0, forward: 0 }]
+  const offsets: FormationSearchOffset[] = []
   for (let lateral = -FORMATION_SEARCH_MAX_RADIUS; lateral <= FORMATION_SEARCH_MAX_RADIUS; lateral += FORMATION_SEARCH_STEP) {
     for (let forward = -FORMATION_SEARCH_MAX_RADIUS; forward <= FORMATION_SEARCH_MAX_RADIUS; forward += FORMATION_SEARCH_STEP) {
       if (lateral === 0 && forward === 0) continue

@@ -20,15 +20,15 @@ import {
   generateLineFormationSlots,
 } from '../src/battle/FormationMath'
 import { FormationController } from '../src/battle/FormationController'
-import { findNearestValidFormation } from '../src/battle/FormationPlacement'
-import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../src/world/Terrain'
+import { resolveFormationSlots } from '../src/battle/FormationPlacement'
+import { createTerrain, getTerrainHeight, PLAYABLE_WORLD_BOUND, TERRAIN_TREE_POSITIONS } from '../src/world/Terrain'
 
 function placementHarness(obstacles: Array<{ box: THREE.Box3; isBarricade: boolean }>, participants: any[]) {
   const formation = new FormationController(
     new THREE.Scene(), new THREE.PerspectiveCamera(), participants, new THREE.Object3D(), obstacles,
   )
-  const solve = (center: THREE.Vector3, target: any = 'viking_spearman', preview = false) =>
-    (formation as any).findNearestPlacement(center, new THREE.Vector3(0, 0, 1), participants, target, preview) as
+  const solve = (center: THREE.Vector3, target: any = 'viking_spearman') =>
+    (formation as any).resolvePlacement(center, new THREE.Vector3(0, 0, 1), participants, target) as
       | { center: THREE.Vector3; slots: THREE.Vector3[] }
       | null
   return { formation, solve }
@@ -70,42 +70,39 @@ function controllerHarness(npcs: any[], formation: any = null) {
 }
 
 describe('Army command keyboard mapping and filtering', () => {
-  it('uses the requested center directly when the formation is usable', () => {
-    const requestedCenter = new THREE.Vector3(12, 0, -8)
-    const makeFormation = vi.fn((center: THREE.Vector3) => ({ center: center.clone(), slots: [center.clone()] }))
-    const placement = findNearestValidFormation(
-      requestedCenter,
-      new THREE.Vector3(0, 0, 1),
-      makeFormation,
-      () => true,
-    )
+  it('keeps every ideal slot when no obstacle blocks it', () => {
+    const center = new THREE.Vector3(12, getTerrainHeight(12, -8), -8)
+    const participants = [placementParticipant('left', -1), placementParticipant('right', 1)]
+    const { formation, solve } = placementHarness([], participants)
+    const make = vi.spyOn(formation as any, 'makeFormation')
+    const placement = solve(center)
 
-    expect(placement?.center).toEqual(requestedCenter)
-    expect(makeFormation).toHaveBeenCalledOnce()
-  })
-
-  it('finds the nearest deterministic local-axis candidate and stops early', () => {
-    const requestedCenter = new THREE.Vector3()
-    const forward = new THREE.Vector3(1, 0, 0)
-    const checked: Array<[number, number]> = []
-    const placement = findNearestValidFormation(
-      requestedCenter,
-      forward,
-      center => ({ center: center.clone(), slots: [center.clone()] }),
-      formation => {
-        checked.push([formation.center.x, formation.center.z])
-        return formation.center.distanceTo(new THREE.Vector3(0, 0, 2)) < 0.001
-      },
-    )
-
-    expect(placement?.center).toEqual(new THREE.Vector3(0, 0, 2))
-    expect(checked).toEqual([
-      [0, 0],
-      [0, 2],
+    expect(placement?.center).toEqual(center)
+    expect(placement?.slots).toEqual([
+      new THREE.Vector3(11, getTerrainHeight(11, -8), -8),
+      new THREE.Vector3(13, getTerrainHeight(13, -8), -8),
     ])
+    expect(make).toHaveBeenCalledOnce()
   })
 
-  it('relocates a blocked formation to the nearest legal slots, deterministically', () => {
+  it('finds the nearest deterministic free position in formation-local axes', () => {
+    const ideal = [new THREE.Vector3(0, 0, 0)]
+    const checked: Array<[number, number]> = []
+    const resolve = () => resolveFormationSlots(
+      ideal, new THREE.Vector3(1, 0, 0), [false], () => 0.5,
+      slot => {
+        checked.push([slot.x, slot.z])
+        return slot.z === 2
+      },
+      () => 0, 180,
+    )
+
+    expect(resolve()?.[0]).toEqual(new THREE.Vector3(0, 0, 2))
+    expect(checked).toEqual([[0, 0], [0, 2]])
+    expect(resolve()?.[0]).toEqual(new THREE.Vector3(0, 0, 2))
+  })
+
+  it('moves only the blocked unit while preserving the formation center and clear slot', () => {
     const center = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
     const participants = [placementParticipant('a', -1), placementParticipant('b', 1)]
     const { solve } = placementHarness([blockingBox(-1.2, -0.8, -0.2, 0.2)], participants)
@@ -113,23 +110,61 @@ describe('Army command keyboard mapping and filtering', () => {
     const second = solve(center)
 
     expect(first).not.toBeNull()
-    expect(first?.center.equals(center)).toBe(false)
-    expect(first?.center.distanceToSquared(center)).toBeCloseTo(4)
+    expect(first?.center).toEqual(center)
     expect(first?.slots).toEqual(second?.slots)
-    expect(first?.slots.every(slot => Math.abs(slot.x) >= 1)).toBe(true)
+    expect(first?.slots[1].x).toBe(1)
+    expect(first?.slots[1].z).toBe(0)
+    expect(first?.slots[0].equals(new THREE.Vector3(-1, getTerrainHeight(-1, 0), 0))).toBe(false)
+    expect(first?.slots[0].distanceToSquared(first!.slots[1])).toBeGreaterThanOrEqual(1)
   })
 
-  it('keeps a relocated formation inside the boundary with whole-slot spacing', () => {
+  it('moves two blocked units to distinct free slots without shifting their neighbors', () => {
+    const center = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
+    const participants = Array.from({ length: 5 }, (_, index) => placementParticipant(`p-${index}`, index - 2))
+    const { solve } = placementHarness([blockingBox(-2.2, 0.3, -0.5, 0.5)], participants)
+    const placement = solve(center)
+    const ideal = [-4, -2, 0, 2, 4]
+
+    expect(placement?.center).toEqual(center)
+    expect([0, 3, 4].map(index => placement?.slots[index].x)).toEqual([-4, 2, 4])
+    expect([0, 3, 4].every(index => placement?.slots[index].z === 0)).toBe(true)
+    expect([1, 2].every(index => placement?.slots[index].x !== ideal[index] || placement?.slots[index].z !== 0)).toBe(true)
+    expect(new Set(placement?.slots.map(slot => `${slot.x},${slot.z}`)).size).toBe(5)
+    for (let left = 0; left < 5; left++) for (let right = left + 1; right < 5; right++) {
+      const dx = placement!.slots[left].x - placement!.slots[right].x
+      const dz = placement!.slots[left].z - placement!.slots[right].z
+      expect(dx * dx + dz * dz).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('routes just the center slot around a real terrain pine tree', () => {
+    const [treeX, treeZ] = TERRAIN_TREE_POSITIONS[0]
+    const { obstacles } = createTerrain(new THREE.Scene())
+    const participants = Array.from({ length: 5 }, (_, index) => placementParticipant(`p-${index}`, index - 2))
+    const { formation, solve } = placementHarness(obstacles, participants)
+    const center = new THREE.Vector3(treeX, getTerrainHeight(treeX, treeZ), treeZ)
+    const ideal = (formation as any).makeFormation(center, new THREE.Vector3(0, 0, 1), 5, 10).slots as THREE.Vector3[]
+    const placement = solve(center)
+
+    expect(placement?.center).toEqual(center)
+    expect(placement?.slots.filter((slot, index) => !slot.equals(ideal[index]))).toHaveLength(1)
+    expect(placement?.slots[2].equals(ideal[2])).toBe(false)
+    expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
+  })
+
+  it('keeps clear slots and whole-formation boundary shift when one edge slot is blocked', () => {
     const center = new THREE.Vector3(179, getTerrainHeight(179, 0), 0)
     const participants = Array.from({ length: 5 }, (_, index) => placementParticipant(`p-${index}`, index))
     const { solve } = placementHarness([blockingBox(171.7, 172.3, -0.5, 0.5)], participants)
     const placement = solve(center)
 
     expect(placement).not.toBeNull()
-    expect(placement?.center.z).not.toBe(0)
+    expect(placement?.center.x).toBe(176)
+    expect(placement?.center.z).toBe(0)
     expect(placement?.slots.every(slot => Math.abs(slot.x) <= PLAYABLE_WORLD_BOUND && Math.abs(slot.z) <= PLAYABLE_WORLD_BOUND)).toBe(true)
     expect(new Set(placement?.slots.map(slot => `${slot.x},${slot.z}`)).size).toBe(5)
-    expect(placement?.slots.slice(1).every((slot, index) => slot.x - placement.slots[index].x === 2)).toBe(true)
+    expect(placement?.slots.slice(1).map(slot => slot.x)).toEqual([174, 176, 178, 180])
+    expect(placement?.slots[0].x).toBe(170)
   })
 
   it('uses the mounted footprint to continue past a foot-only valid candidate', () => {
@@ -138,27 +173,27 @@ describe('Army command keyboard mapping and filtering', () => {
     const foot = placementHarness([obstacle], [placementParticipant('foot', 0)])
     const mounted = placementHarness([obstacle], [placementParticipant('mount', 0, true)])
 
-    expect(foot.solve(center)?.center.x).toBe(0)
-    expect(mounted.solve(center)?.center.x).not.toBe(0)
+    expect(foot.solve(center)?.slots[0].x).toBe(0)
+    expect(mounted.solve(center)?.center.x).toBe(0)
+    expect(mounted.solve(center)?.slots[0].x).not.toBe(0)
   })
 
-  it('keeps mixed ALL preview conservative and confirm validation assignment-aware', () => {
+  it('uses per-assignment footprints in mixed ALL so a clear foot slot stays put', () => {
     const center = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
     const participants = [placementParticipant('foot', -10), placementParticipant('mount', 10, true)]
     const { solve } = placementHarness([blockingBox(-0.3, -0.1, -0.5, 0.5)], participants)
 
-    expect(solve(center, 'all', true)?.center.equals(center)).toBe(false)
-    expect(solve(center, 'all', false)?.center.equals(center)).toBe(true)
+    expect(solve(center, 'all')?.center.equals(center)).toBe(true)
+    expect(solve(center, 'all')?.slots.map(slot => slot.x)).toEqual([-1, 1])
   })
 
-  it('rejects only after checking the full nearby radius', () => {
-    const center = new THREE.Vector3()
+  it('rejects only after checking the full local radius for a blocked slot', () => {
+    const slot = new THREE.Vector3()
     const checked: number[] = []
-    const placement = findNearestValidFormation(
-      center,
-      new THREE.Vector3(0, 0, 1),
-      candidate => ({ center: candidate, slots: [candidate] }),
-      formation => { checked.push(formation.center.distanceToSquared(center)); return false },
+    const placement = resolveFormationSlots(
+      [slot], new THREE.Vector3(0, 0, 1), [false], () => 0.5,
+      candidate => { checked.push(candidate.distanceToSquared(slot)); return false },
+      () => 0, 180,
     )
 
     expect(placement).toBeNull()
@@ -195,8 +230,11 @@ describe('Army command keyboard mapping and filtering', () => {
     const preview = vi.spyOn((formation as any).preview, 'show')
 
     formation.beginPlacement('viking_spearman')
-    expect(preview.mock.calls.at(-1)?.[1]).toHaveLength(11)
-    expect((formation as any).previewCenter.equals(requested)).toBe(false)
+    const shown = preview.mock.calls.at(-1)?.[1] as THREE.Vector3[]
+    expect(shown).toHaveLength(11)
+    expect((formation as any).previewCenter.equals(requested)).toBe(true)
+    const ideal = (formation as any).makeFormation(requested, (formation as any).previewForward, 11, 10).slots as THREE.Vector3[]
+    expect(shown.filter((slot, index) => !slot.equals(ideal[index]))).toHaveLength(1)
 
     participants[10].dead = true
     const result = formation.confirmPlacement()
@@ -211,7 +249,7 @@ describe('Army command keyboard mapping and filtering', () => {
     const participants = [placementParticipant('foot', -10), placementParticipant('mount', 10, true)]
     const formation = new FormationController(
       new THREE.Scene(), new THREE.PerspectiveCamera(), participants as any, new THREE.Object3D(),
-      [blockingBox(-0.3, -0.1, -0.5, 0.5)],
+      [blockingBox(1.4, 1.6, -0.5, 0.5)],
     )
     const requested = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: requested }])
@@ -220,7 +258,9 @@ describe('Army command keyboard mapping and filtering', () => {
     formation.beginPlacement('all')
     const shownSlots = (preview.mock.calls.at(-1)?.[1] as THREE.Vector3[]).map(slot => `${slot.x},${slot.z}`)
     expect(shownSlots).toHaveLength(2)
-    expect((formation as any).previewCenter.equals(requested)).toBe(false)
+    expect((formation as any).previewCenter.equals(requested)).toBe(true)
+    expect(shownSlots).toContain('-1,0')
+    expect(shownSlots).not.toContain('1,0')
 
     expect(formation.confirmPlacement().accepted).toBe(true)
     const commandedSlots = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
@@ -249,12 +289,13 @@ describe('Army command keyboard mapping and filtering', () => {
     )
     const requested = new THREE.Vector3(0, getTerrainHeight(0, 0), 0)
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: requested }])
-    const solve = vi.spyOn(formation as any, 'findNearestPlacement')
+    const solve = vi.spyOn(formation as any, 'resolvePlacement')
     const make = vi.spyOn(formation as any, 'makeFormation')
     const show = vi.spyOn((formation as any).preview, 'show')
 
     formation.beginPlacement('viking_spearman')
-    expect((formation as any).previewCenter.equals(requested)).toBe(false)
+    expect((formation as any).previewCenter.equals(requested)).toBe(true)
+    expect((show.mock.calls.at(-1)?.[1] as THREE.Vector3[])[0].x).not.toBe(0)
     const counts = [solve.mock.calls.length, make.mock.calls.length, show.mock.calls.length]
     formation.updatePlacement()
     expect([solve.mock.calls.length, make.mock.calls.length, show.mock.calls.length]).toEqual(counts)
@@ -528,33 +569,6 @@ describe('Army command keyboard mapping and filtering', () => {
     expect((formation as any).isSlotBlocked(slot, { isMounted: true })).toBe(true)
   })
 
-  it('uses a conservative mounted footprint for mixed ALL preview validity', () => {
-    const obstacle = {
-      box: new THREE.Box3(new THREE.Vector3(0.6, 0, -0.5), new THREE.Vector3(0.8, 2.5, 0.5)),
-      isBarricade: false,
-    }
-    const formation = new FormationController(
-      new THREE.Scene(),
-      new THREE.PerspectiveCamera(),
-      [],
-      new THREE.Object3D(),
-      [obstacle],
-    )
-    const participants = [
-      { name: 'foot', isMounted: false, combatPosition: new THREE.Vector3(-10, 0, 0) },
-      { name: 'mounted', isMounted: true, combatPosition: new THREE.Vector3(10, 0, 0) },
-    ]
-    const slots = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0)]
-    expect((formation as any).isFormationBlocked(
-      slots,
-      participants,
-      new THREE.Vector3(),
-      new THREE.Vector3(0, 0, 1),
-      'all',
-      true,
-    )).toBe(true)
-  })
-
   it('does not rerun placement assignment when geometry and participants are unchanged', () => {
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
     camera.position.set(0, 50, 0)
@@ -573,17 +587,16 @@ describe('Army command keyboard mapping and filtering', () => {
       combatPosition: new THREE.Vector3(index % 20, 0, Math.floor(index / 20)),
     }))
     const formation = new FormationController(new THREE.Scene(), camera, npcs as any, terrain, [])
-    const validitySpy = vi.fn(() => false)
+    const solveSpy = vi.spyOn(formation as any, 'resolvePlacement')
     const makeFormationSpy = vi.spyOn(formation as any, 'makeFormation')
     const signatureSpy = vi.spyOn(formation as any, 'getParticipantSignature')
-    ;(formation as any).isFormationBlocked = validitySpy
 
     formation.beginPlacement('all')
-    expect(validitySpy).toHaveBeenCalledTimes(1)
+    expect(solveSpy).toHaveBeenCalledTimes(1)
     expect(makeFormationSpy).toHaveBeenCalledTimes(1)
     expect(signatureSpy).toHaveBeenCalledTimes(1)
     formation.updatePlacement()
-    expect(validitySpy).toHaveBeenCalledTimes(1)
+    expect(solveSpy).toHaveBeenCalledTimes(1)
     expect(makeFormationSpy).toHaveBeenCalledTimes(1)
     expect(signatureSpy).toHaveBeenCalledTimes(1)
   })
