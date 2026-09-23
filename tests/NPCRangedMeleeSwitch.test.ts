@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
@@ -20,7 +20,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     player.setPosition(0, 0, 0)
   })
 
-  function updateNpc(npc: NPC, dt = 0.016) {
+  function updateNpc(npc: NPC, dt = 0.016, onFireArrow = () => {}) {
     player.group.position.y = npc.combatPosition.y
     npc.update(
       dt,
@@ -30,10 +30,52 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       [],
       null as any,
       () => {},
-      () => {},
+      onFireArrow,
       true, // skipBoidsAndObstacles
     )
   }
+
+  it('NPC pilum releases once and completes recovery before switching an empty loadout to melee', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'PilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 1
+    updateNpc(npc, 0)
+    const animator = (npc as any).animator
+    const cancel = vi.spyOn(animator, 'cancel')
+    const projectiles = vi.fn()
+    ;(npc as any).attackTimer = 10
+
+    updateNpc(npc, 0.44, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+
+    updateNpc(npc, 0.02, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(projectiles.mock.calls[0][2]).toBe('pilum')
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect((npc as any).bowPivot.visible).toBe(false)
+    expect(npc.currentState).toBe(AIState.ATTACK)
+    expect(cancel).not.toHaveBeenCalled()
+
+    updateNpc(npc, 0.15, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(npc.currentState).toBe(AIState.ATTACK)
+
+    updateNpc(npc, 0.10, projectiles)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect(npc.currentState).toBe(AIState.CHASE)
+    expect((npc as any).swordPivot.visible).toBe(true)
+    expect((npc as any).bowPivot.visible).toBe(false)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(cancel).not.toHaveBeenCalled()
+  })
 
   function createMountedNpc(
     x: number,

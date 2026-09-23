@@ -145,10 +145,14 @@ export class CharacterCombatAnimator {
     const profile = COMBAT_ANIMATION_PROFILES[this.action]
     const previous = this.elapsed
     this.elapsed += dt
-    const total = Math.round((profile.windup + profile.active + profile.recovery) * 1e9) / 1e9
+    const importedPilumDuration = this.action === 'pilumThrow' && this.ownership === 'clip'
+      ? this.rig.animation?.getDuration('pilumThrow')
+      : undefined
+    const total = Math.round((importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
-      if (previous < profile.windup && this.elapsed >= profile.windup) {
+      const releaseTime = importedPilumDuration ?? profile.windup
+      if (previous < releaseTime && this.elapsed >= releaseTime) {
         this.events.projectileRelease = true
       }
       if (this.ownership === 'procedural') {

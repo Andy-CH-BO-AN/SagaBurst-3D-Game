@@ -133,7 +133,7 @@ export class Player {
   private pendingBowChargeTime = 0
   private pendingArcheryMultiplier = 1
   private pendingRangedWeapon?: WeaponData
-  private pilumReleasedOnCommit = false
+  private pilumProjectileReleased = false
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
@@ -418,7 +418,7 @@ export class Player {
     this.meleeAttackBufferTimer = 0
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
-    this.pilumReleasedOnCommit = false
+    this.pilumProjectileReleased = false
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
@@ -589,15 +589,7 @@ export class Player {
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
     if (!this.animator.start('pilumThrow')) return
-
-    // Player input commits a pilum on LMB. NPCs keep their shared animator
-    // release event; only the Player launches here, so RMB-up cannot appear
-    // to be the trigger after the visual throw windup.
-    this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, equippedRanged)
-    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
-    this.pilumReleasedOnCommit = true
-    this.nockedArrowReleased = true
-    this.bowVisualDrawRatio = 0
+    this.pilumProjectileReleased = false
   }
 
   update(
@@ -699,9 +691,9 @@ export class Player {
     }
 
     const rangedActionActive = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    const showingHeldPilum = this.animator.currentAction === 'pilumThrow' && !this.pilumReleasedOnCommit
+    const showingHeldPilum = this.animator.currentAction === 'pilumThrow' && !this.pilumProjectileReleased
     const showingRanged =
-      (this.aiming && !(isPilum && this.pilumReleasedOnCommit))
+      (this.aiming && !(isPilum && this.pilumProjectileReleased))
       || this.animator.currentAction === 'bowRelease'
       || showingHeldPilum
     const hidingMeleeForRanged = this.aiming || rangedActionActive
@@ -796,22 +788,24 @@ export class Player {
       this.hasPrevLanceTip = false
     }
     if (animationEvents.projectileRelease) {
-      const playerPilumAlreadyReleased = this.pendingRangedWeapon?.combatKind === 'javelin' && this.pilumReleasedOnCommit
-      if (playerPilumAlreadyReleased) {
-        // The Player emitted on LMB; retain the event only for visual timing.
-      } else if (this.pendingRangedWeapon?.combatKind === 'javelin') {
+      if (this.pendingRangedWeapon?.combatKind === 'javelin') {
         this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon)
+        this.pilumProjectileReleased = true
+        this.pilumCooldownTimer = getRangedCooldown('javelin')
+        this.nockedArrowReleased = true
+        this.bowVisualDrawRatio = 0
+        this.bowPivot.visible = false
       } else {
         this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
       }
-      if (!playerPilumAlreadyReleased && this.pendingRangedWeapon?.combatKind !== 'javelin') {
+      if (this.pendingRangedWeapon?.combatKind !== 'javelin') {
         this.nockedArrowReleased = true
         this.bowVisualDrawRatio = 0
         soundManager.playBowRelease(0, true, 0)
       }
     }
     if (animationEvents.actionCompleted) {
-      this.pilumReleasedOnCommit = false
+      this.pilumProjectileReleased = false
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false

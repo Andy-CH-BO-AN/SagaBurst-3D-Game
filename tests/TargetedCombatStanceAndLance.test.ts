@@ -92,7 +92,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.bowDrawRatio).toBe(0)
   })
 
-  it('RMB 瞄準時按 LMB 立即投出標槍，放開 RMB 不會延後或重複投擲', () => {
+  it('Player pilum releases at the animation event and remains active through recovery', () => {
     const h = createPlayerHarness({
       meleeWeaponId: 'steel_sword',
       rangedWeaponId: 'pilum_standard',
@@ -103,28 +103,41 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true }), 1 / 60)
     expect(h.player.isAiming).toBe(true)
     const initialPila = h.player.arrowCount
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
 
-    // LMB is the commit point: the pilum launches immediately and the held
-    // mesh disappears so there is never a held pilum plus a flying pilum.
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
-    expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect(h.player.arrowCount).toBe(initialPila)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((h.player as any).bowPivot.visible).toBe(true)
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
-    expect((h.player as any).bowPivot.visible).toBe(false)
     expect((h.player as any).swordPivot.visible).toBe(false)
 
-    // Keep RMB held through the visual follow-through. No duplicate projectile
-    // fires, and a fresh held pilum appears when the next aim state begins.
-    h.update(input({ isRightMouseDown: true }), 1.5)
-    expect(h.player.arrowCount).toBe(initialPila - 1)
-    expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
-    h.update(input({ isRightMouseDown: true }), 1 / 60)
-    expect(h.player.isAiming).toBe(true)
+    // The legacy procedural fallback releases at 0.45s; imported GLBs use
+    // their canonical 1.5s duration, covered by the animator asset test.
+    h.update(input({ isRightMouseDown: true }), 0.40)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect(h.player.arrowCount).toBe(initialPila)
     expect((h.player as any).bowPivot.visible).toBe(true)
+
+    h.update(input({ isRightMouseDown: true }), 0.06)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(projectiles.mock.calls[0][0].visualKind).toBe('pilum')
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(false)
+
+    h.update(input({ isRightMouseDown: true }), 0.20)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    h.update(input({ isRightMouseDown: true }), 0.10)
+    expect(h.player.combatAnimationAction).toBe('idle')
 
     // RMB-up only exits aim; it cannot be a delayed or duplicate launch trigger.
     h.update(input({ isRightMouseDown: false }), 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(projectiles).toHaveBeenCalledTimes(1)
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
