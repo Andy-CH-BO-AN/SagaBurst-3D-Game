@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { createHumanoidRigAdapter, MixerController } from '../src/world/HumanoidAssetRegistry'
-import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
 
 const ROOT = new URL('../public/models/characters/v2/', import.meta.url)
 const CLIPS = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
@@ -155,28 +154,6 @@ describe('humanoid embedded animation asset contract', () => {
     expect(samples[1].arm.angleTo(samples[2].arm)).toBeLessThan(0.01)
     expect(samples[0].drawHand.distanceTo(samples[1].drawHand)).toBeLessThan(0.01)
     expect(samples[1].drawHand.distanceTo(samples[2].drawHand)).toBeLessThan(0.01)
-    controller.stop()
-  })
-
-  it.each(
-    (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
-  )('%s LOD%s equipped bowLoad runtime follows charge at 0%, 50%, and 100%', (faction, lod) => {
-    const asset = readGlbAsset(faction, lod)
-    const { root, rig, controller } = runtimeFixture(asset, ['idle', 'bowLoad', 'bowHold'])
-    const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
-    const samples = [0, 0.5, 1].map(ratio => {
-      subject.poseBow(ratio)
-      subject.update(1 / 60)
-      root.updateMatrixWorld(true)
-      return {
-        arm: rig.right.shoulder.quaternion.clone(),
-        drawHand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
-      }
-    })
-    expect(samples[0].arm.angleTo(samples[1].arm)).toBeGreaterThan(0.1)
-    expect(samples[1].arm.angleTo(samples[2].arm)).toBeGreaterThan(0.1)
-    expect(samples[0].drawHand.distanceTo(samples[1].drawHand)).toBeGreaterThan(0.05)
-    expect(samples[1].drawHand.distanceTo(samples[2].drawHand)).toBeGreaterThan(0.05)
     controller.stop()
   })
 

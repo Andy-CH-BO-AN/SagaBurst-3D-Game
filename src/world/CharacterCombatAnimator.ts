@@ -50,8 +50,6 @@ export class CharacterCombatAnimator {
   private action: CombatAction = 'idle'
   private ownership: 'clip' | 'procedural' = 'procedural'
   private elapsed = 0
-  private bowChargeRatio = 0
-  private bowAimBlend = 1
   private shieldGuardEnabled = false
   private lanceEquipped = false
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
@@ -140,15 +138,7 @@ export class CharacterCombatAnimator {
     // Only visual evaluation is distance-throttled; action timers run every frame.
     this.rig.animation?.update(dt, cameraDistance)
 
-    if (this.action === 'bowAim') {
-      if (this.ownership === 'clip') {
-        // Keep imported locomotion/body evaluation, then layer the existing
-        // charge-driven FK pose because shipped bowLoad tracks are static.
-        this.applyBowPose(this.bowChargeRatio, this.bowAimBlend)
-      }
-      return this.events
-    }
-    if (this.action === 'idle') {
+    if (this.action === 'idle' || this.action === 'bowAim') {
       return this.events
     }
 
@@ -222,8 +212,6 @@ export class CharacterCombatAnimator {
     if (this.busy || this.shieldGuardEnabled) return
     this.rig.animation?.setEquipmentState?.({ action: 'bowAim' })
     this.action = 'bowAim'
-    this.bowChargeRatio = clamp01(chargeRatio)
-    this.bowAimBlend = clamp01(aimBlend)
     const imported = this.rig.animation?.has('bowLoad') && this.rig.animation.has('bowHold')
     this.ownership = imported ? 'clip' : 'procedural'
     if (imported) {
