@@ -4,7 +4,10 @@ import {
   NAV_PATH_REQUESTS_PER_FRAME,
   NavigationWorld,
 } from './NavigationWorld'
-import type { ObstacleData } from '../world/Terrain'
+import {
+  PLAYABLE_WORLD_BOUND,
+  type ObstacleData,
+} from '../world/Terrain'
 
 function obstacle(
   minX: number,
@@ -49,7 +52,7 @@ describe('NavigationWorld', () => {
   it('rejects disconnected regions before spending an A star request', () => {
     const world = new NavigationWorld()
     world.rebuild([
-      obstacle(-1, -180, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
     ])
     world.beginFrame()
 
@@ -146,7 +149,7 @@ describe('NavigationWorld', () => {
     const world = new NavigationWorld()
 
     world.rebuild([
-      obstacle(-1, -180, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
     ])
     expect(
       world.areConnected(
@@ -156,8 +159,8 @@ describe('NavigationWorld', () => {
     ).toBe(false)
 
     world.rebuild([
-      obstacle(-1, -180, 1, -6),
-      obstacle(-1, 6, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, -6),
+      obstacle(-1, 6, 1, PLAYABLE_WORLD_BOUND),
     ])
     expect(
       world.areConnected(

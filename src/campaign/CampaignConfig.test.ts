@@ -34,9 +34,9 @@ describe('Defense Campaign configuration', () => {
     expect(DEFENSE_CAMPAIGN_RULES.playerConsumesDeploymentSlot).toBe(false)
     expect(DEFENSE_CAMPAIGN_RULES.playerCountsAsOriginalDefender).toBe(true)
     expect(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder).toBe('defend')
-    expect(DEFENSE_CAMPAIGN_RULES.victoryRequiresAttackerElimination).toBe(true)
     expect(DEFENSE_CAMPAIGN_RULES.lockDefeatWhenPlayerAndOriginalDefendersEliminated).toBe(true)
     expect(DEFENSE_CAMPAIGN_RULES.continueSimulationAfterDefeat).toBe(true)
+    expect(DEFENSE_CAMPAIGN_RULES.finishAfterReinforcementWhenEitherSideEliminated).toBe(true)
   })
 
   it('resolves the same campaign roles for both factions', () => {

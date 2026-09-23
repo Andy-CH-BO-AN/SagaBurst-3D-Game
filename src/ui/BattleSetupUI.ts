@@ -39,6 +39,7 @@ export class BattleSetupUI {
   private activeReferenceSubTab: 'balance' | 'viking' | 'roman' | 'weapons' | 'shields' = 'balance'
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
+  private onBackCallback: (() => void) | null = null
 
   constructor(initialConfig?: BattleConfig) {
     this.config = initialConfig
@@ -63,8 +64,13 @@ export class BattleSetupUI {
     }
   }
 
-  mount(parent: HTMLElement = document.body, onStart: (config: BattleConfig) => void): void {
+  mount(
+    parent: HTMLElement = document.body,
+    onStart: (config: BattleConfig) => void,
+    onBack?: () => void,
+  ): void {
     this.onStartCallback = onStart
+    this.onBackCallback = onBack ?? null
     this.container = document.createElement('div')
     this.container.id = 'battle-setup-container'
     this.container.innerHTML = this._generateHtml()
@@ -379,6 +385,7 @@ export class BattleSetupUI {
     `
 
     return `
+      <button type="button" class="setup-back-btn" id="battle-setup-back">← 上一頁</button>
       <div class="setup-header">
         <h1 class="setup-title">SAGABURST</h1>
         <div class="setup-subtitle">CUSTOM BATTLE CONFIGURATION</div>
@@ -477,6 +484,10 @@ export class BattleSetupUI {
 
   private _bindEvents(): void {
     if (!this.container) return
+
+    this.container.querySelector('#battle-setup-back')?.addEventListener('click', () => {
+      this.onBackCallback?.()
+    })
 
     // Stepper buttons
     this.container.querySelectorAll('.btn-inc').forEach(btn => {

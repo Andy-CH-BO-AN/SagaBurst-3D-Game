@@ -58,6 +58,11 @@ export interface DefenseCampaignStageConfig {
   reinforcement: CampaignReinforcementConfig
 }
 
+export const DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING = {
+  /** Relief cavalry appears behind the attacking army, then rides into battle. */
+  distanceFromCenter: 250,
+} as const
+
 export const DEFENSE_CAMPAIGN_TIMINGS = {
   /** Attacker army does not exist during this deployment window. */
   deploymentSeconds: 60,
@@ -69,9 +74,11 @@ export const DEFENSE_CAMPAIGN_RULES = {
   playerConsumesDeploymentSlot: false,
   playerCountsAsOriginalDefender: true,
   initialDefenderOrder: 'defend' as TacticalOrder,
-  victoryRequiresAttackerElimination: true,
+  /** Applies only before the reinforcement wave has actually spawned. */
   lockDefeatWhenPlayerAndOriginalDefendersEliminated: true,
   continueSimulationAfterDefeat: true,
+  /** Terminal elimination is evaluated only after the reinforcement wave exists. */
+  finishAfterReinforcementWhenEitherSideEliminated: true,
 } as const
 
 export const CAMPAIGN_ROLE_PRESETS: Readonly<
