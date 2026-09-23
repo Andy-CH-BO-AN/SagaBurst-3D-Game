@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
+import { getRangedCooldown } from '../src/combat/CombatBalance'
 import {
   BACKWARD_SPEED_MULTIPLIER,
   FORWARD_SPEED_MULTIPLIER,
@@ -75,6 +76,38 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     expect((npc as any).bowPivot.visible).toBe(false)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('schedules an imported pilumThrow from its canonical 1.5s clip duration', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'ImportedPilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 2
+    ;(npc as any).rig.animation = {
+      has: (state: string) => state === 'pilumThrow',
+      getDuration: (state: string) => state === 'pilumThrow' ? 1.5 : undefined,
+      play: () => true,
+      update: () => {},
+      setEquipmentState: () => {},
+    }
+    ;(npc as any).attackTimer = getRangedCooldown('javelin') - 1.5
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0.016, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    updateNpc(npc, 1.483, projectiles)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+
+    updateNpc(npc, 0.001, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect(npc.currentState).toBe(AIState.CHASE)
+    expect(npc.arrows).toBe(1)
   })
 
   function createMountedNpc(

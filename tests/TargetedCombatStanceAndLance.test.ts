@@ -7,6 +7,7 @@ import { ThirdPersonCamera } from '../src/camera/ThirdPersonCamera'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../src/world/CharacterCombatAnimator'
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
+import { getRangedCooldown } from '../src/combat/CombatBalance'
 
 const input = (values = {}) => ({
   keys: {},
@@ -108,6 +109,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
 
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect(h.player.pilumCooldown).toBeCloseTo(getRangedCooldown('javelin') - 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila)
     expect(projectiles).not.toHaveBeenCalled()
     expect((h.player as any).bowPivot.visible).toBe(true)
@@ -123,6 +125,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
 
     h.update(input({ isRightMouseDown: true }), 0.06)
     expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.pilumCooldown).toBeCloseTo(getRangedCooldown('javelin') - 0.46 - 1 / 60)
     expect(projectiles.mock.calls[0][0].visualKind).toBe('pilum')
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')

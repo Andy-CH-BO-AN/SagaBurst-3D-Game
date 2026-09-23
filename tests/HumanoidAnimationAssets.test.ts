@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { createHumanoidRigAdapter, MixerController } from '../src/world/HumanoidAssetRegistry'
+import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
+import { normalizeBowHandClips, prepareBowGripShape } from '../src/world/CanonicalBowGripPose'
+// @ts-expect-error diagnostic loader has no declaration; it parses the same embedded GLB via Three's GLTFLoader.
+import { loadCharacter } from '../tools/humanoid-diagnostics/measure-hands.mjs'
 
 const ROOT = new URL('../public/models/characters/v2/', import.meta.url)
 const CLIPS = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
@@ -100,80 +104,62 @@ function clipDuration(document: GlbDocument, name: string): number {
   return Math.max(...clip.samplers.map((sampler) => document.accessors[sampler.input].max?.[0] ?? 0))
 }
 
-function runtimeFixture(asset: GlbAsset, clipNames: string[]) {
-  const nodes = asset.document.nodes.map((node, index) => {
-    const bone = new THREE.Bone()
-    bone.name = node.name ?? `node-${index}`
-    if (node.translation) bone.position.fromArray(node.translation)
-    if (node.rotation) bone.quaternion.fromArray(node.rotation)
-    if (node.scale) bone.scale.fromArray(node.scale)
-    return bone
-  })
-  const childNodes = new Set<number>()
-  asset.document.nodes.forEach((node, index) => node.children?.forEach(child => {
-    nodes[index].add(nodes[child])
-    childNodes.add(child)
-  }))
-  const root = new THREE.Group()
-  nodes.forEach((node, index) => { if (!childNodes.has(index)) root.add(node) })
-  const clips = clipNames.map(name => {
-    const source = asset.document.animations.find(animation => animation.name === name)!
-    const tracks = source.channels.map(channel => {
-      const sampler = source.samplers[channel.sampler]
-      const times = readAccessor(asset, sampler.input).flat()
-      const values = readAccessor(asset, sampler.output).flat()
-      const path = channel.target.path === 'rotation' ? 'quaternion' : channel.target.path
-      return path === 'quaternion'
-        ? new THREE.QuaternionKeyframeTrack(`${asset.document.nodes[channel.target.node].name}.${path}`, times, values)
-        : new THREE.VectorKeyframeTrack(`${asset.document.nodes[channel.target.node].name}.${path}`, times, values)
-    })
-    return new THREE.AnimationClip(name, -1, tracks)
-  })
-  const controller = new MixerController([new THREE.AnimationMixer(root)], [clips])
-  const rig = createHumanoidRigAdapter(root, controller)
-  return { root, rig, controller }
+async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = false) {
+  const gltf = await loadCharacter(faction, lod)
+  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+  const data = manifest.handGripFrames.left
+  const frame = Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key,
+    Array.isArray(value) ? new THREE.Vector3(...value as [number, number, number]) : value,
+  ])) as any
+  const reference = bow && lod > 0 ? await loadCharacter(faction, 0) : undefined
+  if (bow) {
+    if (reference) prepareBowGripShape(reference.scene, frame)
+    prepareBowGripShape(gltf.scene, frame, reference?.scene)
+  }
+  const clips = bow ? normalizeBowHandClips(gltf.scene, gltf.animations) : gltf.animations
+  const mixer = new THREE.AnimationMixer(gltf.scene)
+  const controller = new MixerController([mixer], [clips], [gltf.animations])
+  const rig = createHumanoidRigAdapter(gltf.scene, controller)
+  const animator = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+  return { root: gltf.scene, rig, controller, animator }
 }
 
 describe('humanoid embedded animation asset contract', () => {
   it.each(
     (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
-  )('%s LOD%s packaged bowLoad has no meaningful arm or draw-hand motion at 0%, 50%, and 100%', (faction, lod) => {
-    const asset = readGlbAsset(faction, lod)
-    const { root, rig, controller } = runtimeFixture(asset, ['idle', 'bowLoad', 'bowHold'])
-    const samples = [0, 0.5, 1].map(ratio => {
-      controller.seek('bowLoad', ratio)
+  )('%s LOD%s equipped bowLoad retains the imported arm pose at 0%, 50%, and 100%', async (faction, lod) => {
+    const { root, rig, controller, animator } = await runtimeFixture(faction, lod, true)
+    const sample = (ratio: number, equipped: boolean) => {
+      controller.setPoseLayersEnabled(equipped)
+      animator.cancel()
+      for (let i = 0; i < 30; i++) {
+        animator.poseBow(ratio)
+        animator.update(1 / 60)
+      }
       root.updateMatrixWorld(true)
       return {
-        arm: rig.left.shoulder.quaternion.clone(),
+        arm: rig.right.elbow.quaternion.clone(),
         drawHand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
+        bowHand: rig.left.handSocket.getWorldPosition(new THREE.Vector3()),
       }
-    })
-    // These are sampled from the shipped GLB tracks through THREE.AnimationMixer.
-    // Allow tiny quantization noise, but reject any movement large enough to read as a draw.
-    expect(samples[0].arm.angleTo(samples[1].arm)).toBeLessThan(0.01)
-    expect(samples[1].arm.angleTo(samples[2].arm)).toBeLessThan(0.01)
-    expect(samples[0].drawHand.distanceTo(samples[1].drawHand)).toBeLessThan(0.01)
-    expect(samples[1].drawHand.distanceTo(samples[2].drawHand)).toBeLessThan(0.01)
+    }
+    const samples = [0, 0.5, 1].map(ratio => sample(ratio, true))
+    const rawSamples = [0, 0.5, 1].map(ratio => sample(ratio, false))
+    for (let i = 0; i < samples.length; i++) {
+      expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
+      expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
+      expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
+    }
     controller.stop()
   })
 
   it.each(
     (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
-  )('%s LOD%s packaged pilumThrow has identical throwing-arm samples at 0%, 50%, and 100%', (faction, lod) => {
-    const asset = readGlbAsset(faction, lod)
-    const { root, rig, controller } = runtimeFixture(asset, ['idle', 'pilumThrow'])
-    const samples = [0, 0.5, 1].map(ratio => {
-      controller.seek('pilumThrow', ratio)
-      root.updateMatrixWorld(true)
-      return {
-        arm: rig.right.shoulder.quaternion.clone(),
-        hand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
-      }
-    })
-    expect(samples[0].arm.angleTo(samples[1].arm)).toBeLessThan(1e-5)
-    expect(samples[1].arm.angleTo(samples[2].arm)).toBeLessThan(1e-5)
-    expect(samples[0].hand.distanceTo(samples[1].hand)).toBeLessThan(1e-5)
-    expect(samples[1].hand.distanceTo(samples[2].hand)).toBeLessThan(1e-5)
+  )('%s LOD%s imported pilumThrow remains available at canonical duration in the runtime mixer', async (faction, lod) => {
+    const { root, rig, controller, animator } = await runtimeFixture(faction, lod)
+    expect(controller.has('pilumThrow')).toBe(true)
+    expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
     controller.stop()
   })
 

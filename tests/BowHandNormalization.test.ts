@@ -3,13 +3,12 @@ import * as THREE from 'three'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { describe, it, expect } from 'vitest'
 import { normalizeBowHandClips, prepareBowGripShape } from '../src/world/CanonicalBowGripPose'
-import { applyBowAttachment, DEFAULT_BOW_GRIP_PROFILE } from '../src/world/BowAttachmentContract'
-import { deriveDrawHandFrame } from '../src/world/BowDrawHand'
+import { DEFAULT_BOW_GRIP_PROFILE } from '../src/world/BowAttachmentContract'
 // @ts-expect-error diagnostic GLB loader strips textures for CPU-only checks
 import { loadCharacter } from '../tools/humanoid-diagnostics/measure-hands.mjs'
 
 describe('actual asset bow hand normalization', () => {
-  for (const faction of ['viking', 'roman']) for (const lod of [0, 1, 2]) it(`${faction} LOD${lod}: preserves imported arm joint trajectories and keeps the wrist in its neutral bind frame`, async () => {
+  for (const faction of ['viking', 'roman']) for (const lod of [0, 1, 2]) it(`${faction} LOD${lod}: leaves imported bow arm trajectories unchanged`, async () => {
     const gltf = await loadCharacter(faction, lod)
     const sourceRoot = clone(gltf.scene)
     const sourceMixer = new THREE.AnimationMixer(sourceRoot)
@@ -24,15 +23,10 @@ describe('actual asset bow hand normalization', () => {
       wristCenter: new THREE.Vector3(...data.wristCenter),
     }
     const reference = lod > 0 ? await loadCharacter(faction, 0) : undefined
-    const rightFrame = deriveDrawHandFrame(sourceRoot, frame)
-    const shaftOffsets = new Map([frame, rightFrame].map((f, i) => {
-      const sourceHand = sourceRoot.getObjectByName(i === 0 ? 'hand_l' : 'hand_r')!
-      return [sourceHand.parent!.name, f.wristCenter!.clone().applyQuaternion(sourceHand.quaternion)] as const
-    }))
     if (reference) prepareBowGripShape(reference.scene, frame)
     prepareBowGripShape(gltf.scene, frame, reference?.scene)
-    const clips = normalizeBowHandClips(gltf.scene, gltf.animations, frame)
-    const withoutFingerShapes = normalizeBowHandClips(sourceRoot, gltf.animations, frame)
+    const clips = normalizeBowHandClips(gltf.scene, gltf.animations)
+    const withoutFingerShapes = normalizeBowHandClips(sourceRoot, gltf.animations)
     for (const clip of clips.filter(c => c.name.startsWith('bow'))) {
       const unshaped = withoutFingerShapes.find(c => c.name === clip.name)!
       for (const track of clip.tracks.filter(t => /^(upper_arm|lower_arm|hand_)/.test(t.name))) {
@@ -48,15 +42,7 @@ describe('actual asset bow hand normalization', () => {
         expect(normalized.tracks.filter(t => t.name === track.name)).toHaveLength(1)
       }
     }
-    const hand = gltf.scene.getObjectByName('hand_l') as THREE.Bone
-    const socket = gltf.scene.getObjectByName('socket_hand_l') as THREE.Bone
-    const pivotInForearm = frame.wristCenter.clone().applyQuaternion(hand.quaternion).add(hand.position)
-    const neutral = hand.quaternion.clone()
-    socket.userData.handGripFrame = frame
-    const bow = new THREE.Group()
-    socket.add(bow)
-    applyBowAttachment(socket, bow)
-    const attach = bow.matrix.clone()
+    const armBones = ['upper_arm_l', 'lower_arm_l', 'hand_l', 'upper_arm_r', 'lower_arm_r', 'hand_r']
     const mixer = new THREE.AnimationMixer(gltf.scene)
     for (const clip of clips.filter(c => c.name.startsWith('bow'))) {
       const action = mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1)
@@ -70,22 +56,17 @@ describe('actual asset bow hand normalization', () => {
         sourceMixer.setTime(t * clip.duration)
         sourceRoot.updateMatrixWorld(true)
         gltf.scene.updateMatrixWorld(true)
-        const actual = hand.localToWorld(frame.wristCenter.clone())
-        const expected = hand.parent!.localToWorld(pivotInForearm.clone())
-        expect(actual.distanceTo(expected)).toBeLessThan(5e-5)
-        expect(hand.quaternion.clone().normalize().angleTo(neutral.clone().normalize())).toBeLessThan(1e-4)
-        const sourceLower = sourceRoot.getObjectByName('lower_arm_l')!
-        expect(actual.distanceTo(sourceLower.localToWorld(pivotInForearm.clone())), `${clip.name} ${t} source wrist`).toBeLessThan(5e-5)
-        for (const name of ['upper_arm_l', 'lower_arm_l', 'upper_arm_r', 'lower_arm_r']) {
-          const offset = shaftOffsets.get(name) ?? new THREE.Vector3()
-          const position = gltf.scene.getObjectByName(name)!.localToWorld(offset.clone())
-          expect(position.distanceTo(sourceRoot.getObjectByName(name)!.localToWorld(offset.clone()))).toBeLessThan(5e-5)
+        for (const name of armBones) {
+          const actual = gltf.scene.getObjectByName(name)!
+          const expected = sourceRoot.getObjectByName(name)!
+          expect(actual.position.distanceTo(expected.position), `${clip.name} ${t} ${name} position`).toBeLessThan(5e-5)
+          expect(actual.quaternion.angleTo(expected.quaternion), `${clip.name} ${t} ${name} rotation`).toBeLessThan(0.001)
         }
-        expect(bow.matrix.equals(attach)).toBe(true)
       }
       action.stop()
       sourceAction.stop()
     }
+    const hand = gltf.scene.getObjectByName('hand_l') as THREE.Bone
     gltf.scene.updateMatrixWorld(true)
     let closest = Infinity
     let detail: unknown

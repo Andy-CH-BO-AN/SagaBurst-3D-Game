@@ -693,7 +693,7 @@ export class HumanoidAssetRegistry {
       }
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
-      const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
+      const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations) : level.animations)
       let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
       if (faction === 'roman') {
         if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {

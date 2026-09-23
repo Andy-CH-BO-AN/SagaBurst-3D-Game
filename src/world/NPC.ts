@@ -1843,7 +1843,7 @@ export class NPC {
           const rangedKind = this.rangedCombatKind ?? 'bow'
           const cooldown = getRangedCooldown(rangedKind)
           const isBow = rangedKind === 'bow'
-          const windup = isBow ? 0.04 : 0.45
+          const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / cooldown)
@@ -1887,10 +1887,11 @@ export class NPC {
             if (!isBow) this.bowPivot.visible = false
             if (isBow && !rangedEvents.actionCompleted) {
               this.bowArrowReleased = true
-            } else if (rangedEvents.actionCompleted) {
-              if (this.arrows === 0) this._switchToMelee(true, !isBow)
-              this.state = AIState.CHASE
             }
+          }
+          if (!isBow && rangedEvents.actionCompleted) {
+            if (this.arrows === 0) this._switchToMelee(true, true)
+            this.state = AIState.CHASE
           }
         } else {
           const berserker = getBerserkerModifiers(

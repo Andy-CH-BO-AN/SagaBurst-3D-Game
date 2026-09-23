@@ -590,6 +590,7 @@ export class Player {
     this.pendingRangedWeapon = equippedRanged
     if (!this.animator.start('pilumThrow')) return
     this.pilumProjectileReleased = false
+    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
   }
 
   update(
@@ -791,7 +792,6 @@ export class Player {
       if (this.pendingRangedWeapon?.combatKind === 'javelin') {
         this._firePilum(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon)
         this.pilumProjectileReleased = true
-        this.pilumCooldownTimer = getRangedCooldown('javelin')
         this.nockedArrowReleased = true
         this.bowVisualDrawRatio = 0
         this.bowPivot.visible = false
