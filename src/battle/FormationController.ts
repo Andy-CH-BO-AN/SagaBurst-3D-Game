@@ -11,6 +11,8 @@ import {
   getFormationBoundaryShift,
   horizontalFormationForward,
 } from './FormationMath'
+import { findNearestValidFormation } from './FormationPlacement'
+import type { FormationPlacement } from './FormationPlacement'
 import { FormationPreview } from '../ui/FormationPreview'
 
 export interface FormationCommandResult {
@@ -126,29 +128,29 @@ export class FormationController {
       || forward.dot(this.previewForward) < 0.999
     if (!geometryChanged && !participantCompositionChanged) return
 
-    const formation = this.makeFormation(hitCenter, forward, this.previewParticipants.length, this.getMaxColumns(this.placementTarget))
-    this.previewBlocked = this.isFormationBlocked(
-      formation.slots,
-      this.previewParticipants,
-      formation.center,
+    let placement = this.findNearestPlacement(hitCenter, forward, this.previewParticipants, this.placementTarget, true)
+    if (!placement && this.placementTarget === 'all' && this.previewParticipants.some(npc => npc.isMounted)) {
+      placement = this.findNearestPlacement(hitCenter, forward, this.previewParticipants, this.placementTarget, false)
+    }
+    const formation = placement ?? this.makeFormation(
+      hitCenter,
       forward,
-      this.placementTarget,
-      true,
+      this.previewParticipants.length,
+      this.getMaxColumns(this.placementTarget),
     )
+    this.previewBlocked = placement === null
     this.previewHitCenter.copy(hitCenter)
     this.previewCenter.copy(formation.center)
     this.previewForward.copy(forward)
     this.previewInitialized = true
-    this.preview.show(formation.center, formation.slots, !this.previewBlocked)
+    this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
   confirmPlacement(): FormationCommandResult {
     if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
-    if (!snapshot) return { accepted: false, count: 0, commandId: null, participants: [] }
-    const blocked = this.isFormationBlocked(snapshot.slots, snapshot.participants, snapshot.center, snapshot.forward, snapshot.target)
-    if (blocked) {
-      this.markPreviewInvalid(snapshot)
+    if (!snapshot) {
+      this.markCurrentPlacementInvalid()
       return { accepted: false, count: 0, commandId: null, participants: [] }
     }
 
@@ -201,15 +203,44 @@ export class FormationController {
     if (!this.previewInitialized) return null
     const participants = this.resolveParticipants(target)
     if (participants.length === 0) return null
-    const center = this.previewCenter.clone()
     const forward = this.previewForward.clone()
+    const compositionUnchanged = this.getParticipantSignature(participants) === this.previewParticipantsSignature
+    const shown = compositionUnchanged && !this.previewBlocked
+      ? this.makeFormation(this.previewCenter, forward, participants.length, this.getMaxColumns(target))
+      : null
+    const placement = shown && !this.isFormationBlocked(shown.slots, participants, shown.center, forward, target)
+      ? shown
+      : this.findNearestPlacement(this.previewHitCenter, forward, participants, target, false)
+    if (!placement) return null
     return {
       target,
-      center,
+      center: placement.center,
       forward,
-      slots: this.makeFormation(center, forward, participants.length, this.getMaxColumns(target)).slots,
+      slots: placement.slots,
       participants,
     }
+  }
+
+  private findNearestPlacement(
+    requestedCenter: THREE.Vector3,
+    forward: THREE.Vector3,
+    participants: readonly NPC[],
+    target: ArmyCommandTarget,
+    conservativePreview: boolean,
+  ): FormationPlacement | null {
+    return findNearestValidFormation(
+      requestedCenter,
+      forward,
+      candidateCenter => this.makeFormation(candidateCenter, forward, participants.length, this.getMaxColumns(target)),
+      formation => !this.isFormationBlocked(
+        formation.slots,
+        participants,
+        formation.center,
+        forward,
+        target,
+        conservativePreview,
+      ),
+    )
   }
 
   private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number, maxColumns: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
@@ -263,14 +294,26 @@ export class FormationController {
     return target === 'all' ? FORMATION_ALL_MAX_COLUMNS : FORMATION_UNIT_MAX_COLUMNS
   }
 
-  private markPreviewInvalid(snapshot: PlacementSnapshot): void {
-    this.previewCenter.copy(snapshot.center)
-    this.previewForward.copy(snapshot.forward)
-    this.previewParticipants = snapshot.participants
-    this.previewParticipantsSignature = this.getParticipantSignature(snapshot.participants)
+  private markCurrentPlacementInvalid(): void {
+    if (this.placementTarget === null || !this.previewInitialized) return
+    const participants = this.resolveParticipants(this.placementTarget)
+    if (participants.length === 0) {
+      this.previewInitialized = false
+      this.preview.clear()
+      return
+    }
+    const formation = this.makeFormation(
+      this.previewHitCenter,
+      this.previewForward,
+      participants.length,
+      this.getMaxColumns(this.placementTarget),
+    )
+    this.previewCenter.copy(formation.center)
+    this.previewParticipants = participants
+    this.previewParticipantsSignature = this.getParticipantSignature(participants)
     this.previewBlocked = true
     this.previewInitialized = true
-    this.preview.show(snapshot.center, snapshot.slots, false)
+    this.preview.show(formation.center, formation.slots, false)
   }
 
   private getParticipantSignature(participants: readonly NPC[]): string {
