@@ -8,8 +8,8 @@ import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle
 import type { CharacterFaction } from './CharacterVisuals'
 import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
 
-export const TERRAIN_SIZE = 400
-export const PLAYABLE_WORLD_BOUND = 180
+export const TERRAIN_SIZE = 640
+export const PLAYABLE_WORLD_BOUND = 300
 
 /** Hardcoded pine tree positions calibrated with getTerrainHeight. */
 export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
@@ -636,7 +636,6 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
-  // 400x400 Plane with 128x128 subdivisions for smooth hill curves
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 128, 128)
   geometry.rotateX(-Math.PI / 2)
 

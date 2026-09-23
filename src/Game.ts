@@ -132,6 +132,17 @@ import {
   isCampaignGateOccupied,
   type CampaignGateController,
 } from './campaign/CampaignGate'
+import {
+  createDefenseCampaignWaveConfig,
+  positionDefenseCampaignReinforcements,
+  type DefenseCampaignLaunchConfig,
+} from './campaign/DefenseCampaignLaunch'
+import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
+import {
+  DEFENSE_CAMPAIGN_RULES,
+  opposingCampaignFaction,
+} from './campaign/CampaignConfig'
+import { DefenseCampaignHUD } from './ui/DefenseCampaignHUD'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
@@ -258,7 +269,11 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 }
 
 export class Game {
-  static async create(container: HTMLElement, battleConfig?: BattleConfig): Promise<Game | GameplayBowQAPanel> {
+  static async create(
+    container: HTMLElement,
+    battleConfig?: BattleConfig,
+    campaignConfig?: DefenseCampaignLaunchConfig,
+  ): Promise<Game | GameplayBowQAPanel> {
     const query = new URLSearchParams(window.location.search)
     const activeProbe = getActiveRenderProbe(query)
     const perfNoShadow = activeProbe === 'no-shadow'
@@ -285,12 +300,12 @@ export class Game {
       }
       if (legacyQa) {
         await HorseAssetRegistry.preload(renderer)
-        const game = new Game(renderer, battleConfig)
+        const game = new Game(renderer, battleConfig, campaignConfig)
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         return game
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer)])
-      const game = new Game(renderer, battleConfig)
+      const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       return game
     } catch (error) {
@@ -355,6 +370,14 @@ export class Game {
   }
 
   private battleController: BattleController | null = null
+  private readonly defenseCampaignConfig: DefenseCampaignLaunchConfig | null
+  private defenseCampaignRuntime: DefenseCampaignRuntime | null = null
+  private defenseCampaignHud: DefenseCampaignHUD | null = null
+  private campaignOriginalDefenders: NPC[] = []
+  private campaignReinforcementSpawned = false
+  private campaignSpawnQueue: NpcSpawnSpec[] = []
+  private campaignSpawnQueueIndex = 0
+  private campaignSpawnWave: 'attackers' | 'reinforcement' | null = null
   private npcs: NPC[] = []
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
@@ -470,8 +493,13 @@ export class Game {
     returnedNeighborsAvg: 0,
   }
 
-  constructor(renderer: THREE.WebGLRenderer, battleConfig?: BattleConfig) {
+  constructor(
+    renderer: THREE.WebGLRenderer,
+    battleConfig?: BattleConfig,
+    campaignConfig?: DefenseCampaignLaunchConfig,
+  ) {
     this.renderer = renderer
+    this.defenseCampaignConfig = campaignConfig ?? null
 
     // ── Scene ──
     this.scene = new THREE.Scene()
@@ -494,11 +522,12 @@ export class Game {
     const isRomanDefenseDevScenario = import.meta.env.DEV
       && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
     const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
-    const previewOutpostFaction = isRomanDefenseDevScenario
-      ? 'roman'
-      : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
-        ? previewOutpostQuery
-        : null
+    const previewOutpostFaction = campaignConfig?.defenderFaction
+      ?? (isRomanDefenseDevScenario
+        ? 'roman'
+        : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+          ? previewOutpostQuery
+          : null)
 
     createSky(this.scene, resolveShadowMapSize(startupQuery))
     const {
@@ -510,7 +539,7 @@ export class Game {
       fortifiedCampFaction: previewOutpostFaction,
     })
 
-    // DEV-only visual/collision preview until Campaign runtime owns outpost creation.
+    // Defense Campaign owns the same faction-neutral outpost used by DEV preview.
     if (previewOutpostFaction) {
       const outpost = createCampaignOutpost(
         this.scene,
@@ -547,7 +576,8 @@ export class Game {
     }
 
     // ── Player & Input ──
-    const playerFaction = battleConfig?.playerFaction
+    const playerFaction = campaignConfig?.defenderFaction
+      ?? battleConfig?.playerFaction
       ?? (isRomanDefenseDevScenario
         ? 'roman'
         : previewOutpostFaction === 'roman'
@@ -580,7 +610,10 @@ export class Game {
     // Resolve BattleSpawnPlan if applicable
     let battlePlan: BattleSpawnPlan | null = null
     let activeBattleConfig: BattleConfig | undefined = battleConfig
-    if (this.isDevCombat) {
+    if (campaignConfig) {
+      activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
+      battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
+    } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
       let scenarioConfig = PRESET_DEVCOMBAT
@@ -675,7 +708,20 @@ export class Game {
     this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Combat & Enemies ──
-    if (this.isDevCombat && battlePlan) {
+    if (campaignConfig && battlePlan) {
+      const spawned = this._executeBattleSpawnPlan(battlePlan)
+      this.campaignOriginalDefenders = spawned.filter(
+        npc => npc.characterFaction === campaignConfig.defenderFaction,
+      )
+      for (const npc of this.campaignOriginalDefenders) {
+        npc.setTacticalOrder(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+      }
+      this.defenseCampaignRuntime = new DefenseCampaignRuntime()
+      this.defenseCampaignHud = new DefenseCampaignHUD(
+        campaignConfig.stageId,
+        campaignConfig.defenderFaction,
+      )
+    } else if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
       if (isRomanDefenseDevScenario) {
         // Siege scenario J starts immediately: Roman defenders hold the fort,
@@ -702,7 +748,11 @@ export class Game {
       this.battleController.initCounts(this.npcs)
     }
 
-    if (!this.isModelStudio && !previewPlayerSpawn && shouldCreateStartingHorse(activeBattleConfig)) {
+    if (
+      !this.isModelStudio
+      && (!previewPlayerSpawn || Boolean(campaignConfig))
+      && shouldCreateStartingHorse(activeBattleConfig)
+    ) {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
@@ -733,10 +783,10 @@ export class Game {
       this.armyCommandUI,
       formationController,
       (order) => this.soundManager.playCommanderCommand(playerFaction, order),
-      this.isDevCombat ? 'defend' : 'attack',
+      campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
     )
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = new InventoryManager(battleConfig?.playerLoadout)
+    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout)
 
 
     // ── Save Manager ──
@@ -1173,9 +1223,10 @@ export class Game {
     return npc
   }
 
-  private _executeBattleSpawnPlan(plan: BattleSpawnPlan): void {
+  private _executeBattleSpawnPlan(plan: BattleSpawnPlan): NPC[] {
+    const spawned: NPC[] = []
     for (const spec of plan.npcSpecs) {
-      this._spawnNpc(spec)
+      spawned.push(this._spawnNpc(spec))
     }
     for (const p of plan.pickupSpecs) {
       this.pickups.push(new WeaponPickup(this.scene, p.weaponId, p.x, p.z, p.isArrowPack, p.arrowQuantity))
@@ -1186,6 +1237,152 @@ export class Game {
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)
     }
+    return spawned
+  }
+
+  private _campaignFactionAlive(faction: 'roman' | 'viking'): number {
+    let alive = 0
+    for (const npc of this.npcs) {
+      if (!npc.dead && npc.characterFaction === faction) alive++
+    }
+    return alive
+  }
+
+  private _queueDefenseCampaignWave(wave: 'attackers' | 'reinforcement'): number {
+    const campaign = this.defenseCampaignConfig
+    if (!campaign) return 0
+    if (this.campaignSpawnWave !== null) return 0
+
+    const config = createDefenseCampaignWaveConfig(campaign, wave)
+    const plan = BattleSpawner.createSpawnPlan(config)
+
+    if (wave === 'reinforcement') {
+      positionDefenseCampaignReinforcements(
+        plan.npcSpecs,
+        campaign.defenderFaction,
+      )
+    }
+
+    this.campaignSpawnQueue = plan.npcSpecs
+    this.campaignSpawnQueueIndex = 0
+    this.campaignSpawnWave = wave
+    return plan.npcSpecs.length
+  }
+
+  /**
+   * Campaign waves are intentionally materialized one NPC per render frame.
+   * This spreads expensive character / mount / weapon setup across frames
+   * instead of freezing the game by constructing a whole wave at once.
+   */
+  private _spawnNextDefenseCampaignNpc(): void {
+    const wave = this.campaignSpawnWave
+    if (!wave) return
+
+    const spec = this.campaignSpawnQueue[this.campaignSpawnQueueIndex]
+    if (!spec) {
+      this.campaignSpawnQueue = []
+      this.campaignSpawnQueueIndex = 0
+      this.campaignSpawnWave = null
+      return
+    }
+
+    const npc = this._spawnNpc(spec)
+    npc.setTacticalOrder('attack')
+    this.campaignSpawnQueueIndex++
+
+    if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
+      if (wave === 'reinforcement') {
+        // Terminal elimination becomes authoritative only after the entire
+        // relief wave exists in the battlefield, not after its first rider.
+        this.campaignReinforcementSpawned = true
+        this._showNotify(`🐎 援軍全數抵達：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
+      }
+
+      this.campaignSpawnQueue = []
+      this.campaignSpawnQueueIndex = 0
+      this.campaignSpawnWave = null
+    }
+  }
+
+  private _showDefenseCampaignResult(
+    result: 'victory' | 'defeat',
+    allowObserve = false,
+  ): void {
+    if (!this.defenseCampaignHud) return
+    this.defenseCampaignHud.showResult(
+      result,
+      () => {
+        window.location.reload()
+      },
+      () => this._returnToHome(),
+      allowObserve,
+    )
+  }
+
+  private _returnToHome(): void {
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+    try {
+      sessionStorage.removeItem('sagaburst_campaign_config')
+      sessionStorage.removeItem('sagaburst_battle_config')
+    } catch (error) {
+      console.warn('Failed to clear launch session state:', error)
+    }
+    window.location.href = window.location.pathname
+  }
+
+  private _updateDefenseCampaign(dt: number): void {
+    const campaign = this.defenseCampaignConfig
+    const runtime = this.defenseCampaignRuntime
+    const hud = this.defenseCampaignHud
+    if (!campaign || !runtime || !hud) return
+
+    // Spawn at most one queued campaign NPC per render frame.
+    this._spawnNextDefenseCampaignNpc()
+
+    const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
+    const originalDefendersAlive = this.campaignOriginalDefenders.filter(
+      npc => !npc.dead,
+    ).length
+    const defendersAliveBefore = this._campaignFactionAlive(campaign.defenderFaction)
+    const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
+
+    const events = runtime.update(dt, {
+      playerDead: this.player.dead,
+      originalDefendersAlive,
+      defendersAlive: defendersAliveBefore,
+      attackersAlive: attackersAliveBefore,
+      reinforcementSpawned: this.campaignReinforcementSpawned,
+    })
+
+    for (const event of events) {
+      if (event === 'assault_started') {
+        const queued = this._queueDefenseCampaignWave('attackers')
+        this.soundManager.playCommanderCommand(attackerFaction, 'attack')
+        this._showNotify(`⚔️ 敵軍開始進攻：${queued} 人進場中`, 3000)
+      } else if (event === 'reinforcement_due') {
+        const queued = this._queueDefenseCampaignWave('reinforcement')
+        this.soundManager.playCommanderCommand(campaign.defenderFaction, 'attack')
+        this._showNotify(`🐎 援軍開始抵達：${queued} 名刀騎兵`, 3500)
+      } else if (event === 'defeat') {
+        this._showDefenseCampaignResult('defeat', true)
+      } else if (event === 'battle_victory') {
+        this._showDefenseCampaignResult('victory')
+      } else if (event === 'battle_defeat') {
+        this._showDefenseCampaignResult('defeat')
+      }
+    }
+
+    const defenderAlive = this._campaignFactionAlive(campaign.defenderFaction)
+    const attackersAlive = this._campaignFactionAlive(attackerFaction)
+    hud.update(
+      runtime.getSnapshot(),
+      defenderAlive,
+      attackersAlive,
+      campaign.defenderFaction,
+      this.campaignReinforcementSpawned,
+    )
   }
 
   // ── Pointer Lock ──
@@ -1297,65 +1494,8 @@ export class Game {
     }, 5000)
   }
 
-  // ── Keyboard Shortcuts & Top-Left Menu ──
+  // ── Keyboard Shortcuts ──
   private _setupShortcuts(): void {
-    const gameMenu = document.getElementById('game-menu')
-    const menuBtn  = document.getElementById('menu-btn')
-    const menuSave = document.getElementById('menu-save')
-    const menuLoad = document.getElementById('menu-load')
-    const menuInv  = document.getElementById('menu-inventory')
-
-    if (gameMenu) {
-      gameMenu.addEventListener('mousedown', (e) => {
-        e.stopPropagation() // Stop lock-overlay mousedown handler from triggering pointer lock
-      })
-      gameMenu.addEventListener('click', (e) => {
-        e.stopPropagation() // Stop lock-overlay click handler from triggering pointer lock
-      })
-      gameMenu.addEventListener('mouseenter', () => {
-        if (document.pointerLockElement) {
-          document.exitPointerLock()
-        }
-      })
-    }
-
-    if (menuBtn) {
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (gameMenu) gameMenu.classList.toggle('open')
-        if (document.pointerLockElement) {
-          document.exitPointerLock()
-        }
-      })
-    }
-
-    if (menuSave) {
-      menuSave.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (gameMenu) gameMenu.classList.remove('open')
-        if (this.player.dead || this.controlMode === 'spectator') return
-        this._saveGame()
-      })
-    }
-
-    if (menuLoad) {
-      menuLoad.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (gameMenu) gameMenu.classList.remove('open')
-        if (this.player.dead || this.controlMode === 'spectator') return
-        this._loadGame()
-      })
-    }
-
-    if (menuInv) {
-      menuInv.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (gameMenu) gameMenu.classList.remove('open')
-        if (this.player.dead || this.controlMode === 'spectator') return
-        this.equipmentUI.toggle(this.skillManager, this.inventoryManager)
-      })
-    }
-
     window.addEventListener('keydown', (e) => {
       if (import.meta.env.DEV && this.previewCampaignGate && e.code === 'KeyG') {
         e.preventDefault()
@@ -1385,17 +1525,6 @@ export class Game {
         return
       }
 
-      if (!this.isMountStudio && (e.code === 'Digit0' || e.code === 'Numpad0')) {
-        if (this.player.dead || this.controlMode === 'spectator') return
-        e.preventDefault()
-        if (gameMenu) {
-          gameMenu.classList.toggle('open')
-          if (gameMenu.classList.contains('open') && document.pointerLockElement) {
-            document.exitPointerLock()
-          }
-        }
-      }
-
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
         if (this.player.dead || this.controlMode === 'spectator') return
@@ -1411,7 +1540,6 @@ export class Game {
         }
       }
       if (e.code === 'Escape') {
-        if (gameMenu) gameMenu.classList.remove('open')
         if (this.equipmentUI.visible) {
           e.preventDefault()
           this.equipmentUI.close()
@@ -1596,11 +1724,6 @@ export class Game {
       document.getElementById('crosshair')?.classList.add('hidden')
       document.getElementById('aim-reticle')?.classList.add('hidden')
 
-      // Disable menu actions in spectator mode
-      document.getElementById('menu-save')?.classList.add('disabled')
-      document.getElementById('menu-load')?.classList.add('disabled')
-      document.getElementById('menu-inventory')?.classList.add('disabled')
-      document.getElementById('game-menu')?.classList.remove('open')
     }
   }
 
@@ -2055,6 +2178,7 @@ export class Game {
       this.skillManager.getArcheryMultiplier()
     )
 
+    this._updateDefenseCampaign(dt)
     this.battleController?.update(this.npcs)
 
     // Keep A* topology in sync with destroyed/opened/closed world obstacles.

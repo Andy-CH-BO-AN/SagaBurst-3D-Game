@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
+  clampToPlayableWorld,
   findBlockingProjectileObstacleAlongPath,
   obstacleContainsProjectilePoint,
+  PLAYABLE_WORLD_BOUND,
+  TERRAIN_SIZE,
   type ObstacleData,
 } from './Terrain'
 
@@ -45,5 +48,18 @@ describe('projectile obstacle geometry', () => {
 
     expect(throughGap).toBeNull()
     expect(throughStake).toBe(obstacle)
+  })
+})
+
+
+describe('playable world bounds', () => {
+  it('uses the shared 300m actor bound on a 640m terrain', () => {
+    expect(PLAYABLE_WORLD_BOUND).toBe(300)
+    expect(TERRAIN_SIZE).toBe(640)
+
+    const position = new THREE.Vector3(450, 0, -410)
+    clampToPlayableWorld(position)
+    expect(position.x).toBe(300)
+    expect(position.z).toBe(-300)
   })
 })

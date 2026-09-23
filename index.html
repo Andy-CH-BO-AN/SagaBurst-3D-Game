@@ -196,12 +196,6 @@
         pointer-events: none !important;
       }
 
-      .menu-item.disabled {
-        opacity: 0.35;
-        pointer-events: none !important;
-        cursor: not-allowed;
-      }
-
       /* ── Enemy HUD (top-center) ── */
       #enemy-hud {
         position: absolute;
@@ -630,63 +624,6 @@
       /* Default Crosshair (hidden when aiming) */
       #crosshair.hidden { opacity: 0; }
 
-      /* ── Top-Left Menu Dropdown ── */
-      #game-menu {
-        position: fixed;
-        top: 14px;
-        left: 16px;
-        z-index: 999999;
-        pointer-events: all;
-      }
-      #menu-btn {
-        background: rgba(14, 12, 10, 0.92);
-        border: 1px solid rgba(232, 201, 106, 0.8);
-        border-radius: 6px;
-        color: #e8c96a;
-        padding: 6px 14px;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        cursor: pointer;
-        backdrop-filter: blur(6px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6);
-        transition: background 0.15s, border-color 0.15s;
-      }
-      #menu-btn:hover {
-        background: rgba(232, 201, 106, 0.3);
-        border-color: #e8c96a;
-      }
-      #menu-dropdown {
-        position: absolute;
-        top: 36px;
-        left: 0;
-        width: 180px;
-        background: rgba(18, 16, 14, 0.96);
-        border: 1.5px solid #e8c96a;
-        border-radius: 6px;
-        padding: 6px 0;
-        display: none;
-        flex-direction: column;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.9);
-      }
-      #game-menu.open #menu-dropdown,
-      #game-menu:hover #menu-dropdown {
-        display: flex;
-      }
-      .menu-item {
-        padding: 8px 16px;
-        font-size: 13px;
-        font-weight: 600;
-        color: #e8e0d0;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-      }
-      .menu-item:hover {
-        background: rgba(232, 201, 106, 0.2);
-        color: #e8c96a;
-      }
-
       /* Click-to-lock overlay */
       #lock-overlay {
         position: absolute;
@@ -815,7 +752,7 @@
       </div>
 
       <div id="controls-hint">
-        WASD 移動 &nbsp;|&nbsp; Shift 衝刺 &nbsp;|&nbsp; E 拾取裝備 &nbsp;|&nbsp; 左鍵 揮劍 &nbsp;|&nbsp; 右鍵+左鍵 射箭 &nbsp;|&nbsp; 0 鍵/左上選單 存/讀檔 &nbsp;|&nbsp; Tab 角色背包
+        WASD 移動 &nbsp;|&nbsp; Shift 衝刺 &nbsp;|&nbsp; E 拾取裝備 &nbsp;|&nbsp; 左鍵 揮劍 &nbsp;|&nbsp; 右鍵+左鍵 射箭 &nbsp;|&nbsp; Tab 角色背包
       </div>
     </div>
 
@@ -823,16 +760,6 @@
       <h1 style="font-size: 2.8rem; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 12px; text-shadow: 0 0 30px rgba(200,160,80,0.9); color: #e8c96a;">SAGABURST</h1>
       <p id="lock-overlay-prompt" style="font-size: 1.25rem; font-weight: 600; color: #f1e2ce; letter-spacing: 0.12em; margin-bottom: 8px;">點擊進入戰鬥 ｜ CLICK TO ENTER BATTLE</p>
       <p id="lock-overlay-sub" style="font-size: 0.85rem; color: rgba(255,255,255,0.6); letter-spacing: 0.08em;">(按 ESC 暫停 / 釋放游標)</p>
-    </div>
-
-    <!-- Top-Left Menu Dropdown (placed after lock-overlay to float above everything) -->
-    <div id="game-menu">
-      <button id="menu-btn">☰ 選單 Menu ▾</button>
-      <div id="menu-dropdown">
-        <div id="menu-save" class="menu-item">💾 儲存進度 Save</div>
-        <div id="menu-load" class="menu-item">📂 載入進度 Load</div>
-        <div id="menu-inventory" class="menu-item">🎒 角色與背包 (Tab)</div>
-      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
