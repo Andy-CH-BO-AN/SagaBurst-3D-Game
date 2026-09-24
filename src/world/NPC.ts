@@ -657,6 +657,7 @@ export class NPC {
 
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
+    this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this.tacticalOrder = order
@@ -667,6 +668,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
     if (this.dead) return
+    this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
@@ -1404,7 +1406,7 @@ export class NPC {
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
     if (this.tacticalOrder === 'formation' && this.formationTarget) {
-      this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
+      this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
       const targetInfo = this._getTarget(
@@ -2034,6 +2036,7 @@ export class NPC {
     nearbyNPCs: NPC[],
     obstacles: ObstacleData[],
     skipBoidsAndObstacles: boolean,
+    navigationWorld: NavigationWorld | null,
   ): void {
     const target = this.formationTarget
     if (!target) return
@@ -2050,6 +2053,18 @@ export class NPC {
     }
     moveDir.normalize()
 
+    const navigationRoute = !skipBoidsAndObstacles
+      ? this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
+      : 'direct'
+    if (navigationRoute === 'path') {
+      moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'pending' || navigationRoute === 'unreachable') {
+      this._applyPersistentObstacleDetour(moveDir, target.position, dt, obstacles)
+    } else {
+      this._clearObstacleDetour()
+    }
+
     if (!skipBoidsAndObstacles) {
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
@@ -2064,14 +2079,16 @@ export class NPC {
         }
       }
       if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
-      moveDir.copy(getObstacleAvoidanceDirection(
-        this.group.position,
-        moveDir,
-        this.mount ? 1 : 0.5,
-        this.mount ? 2.6 : 2.3,
-        0,
-        obstacles,
-      ))
+      if (navigationRoute !== 'path') {
+        moveDir.copy(getObstacleAvoidanceDirection(
+          this.group.position,
+          moveDir,
+          this.mount ? 1 : 0.5,
+          this.mount ? 2.6 : 2.3,
+          0,
+          obstacles,
+        ))
+      }
     }
 
     // Face the travel direction while moving so directional movement does not

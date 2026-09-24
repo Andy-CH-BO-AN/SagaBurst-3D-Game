@@ -19,13 +19,25 @@ import {
   generateFormationSlots,
   generateLineFormationSlots,
 } from '../src/battle/FormationMath'
-import { FormationController } from '../src/battle/FormationController'
+import { FormationController, type FormationRegion } from '../src/battle/FormationController'
 import { resolveFormationSlots } from '../src/battle/FormationPlacement'
 import { createTerrain, getTerrainHeight, PLAYABLE_WORLD_BOUND, TERRAIN_TREE_POSITIONS } from '../src/world/Terrain'
+import { createCampaignOutpost, getCampaignOutpostPlacement } from '../src/campaign/CampaignOutpost'
+import { NavigationWorld } from '../src/navigation/NavigationWorld'
 
-function placementHarness(obstacles: Array<{ box: THREE.Box3; isBarricade: boolean }>, participants: any[]) {
+function romanRegion(): FormationRegion {
+  const placement = getCampaignOutpostPlacement('roman')
+  return {
+    minX: placement.centerX - placement.halfWidth,
+    maxX: placement.centerX + placement.halfWidth,
+    minZ: Math.min(placement.frontZ, placement.backZ),
+    maxZ: Math.max(placement.frontZ, placement.backZ),
+  }
+}
+
+function placementHarness(obstacles: Array<{ box: THREE.Box3; isBarricade: boolean }>, participants: any[], navigation: NavigationWorld | null = null, region: FormationRegion | null = null) {
   const formation = new FormationController(
-    new THREE.Scene(), new THREE.PerspectiveCamera(), participants, new THREE.Object3D(), obstacles,
+    new THREE.Scene(), new THREE.PerspectiveCamera(), participants, new THREE.Object3D(), obstacles, navigation, region,
   )
   const solve = (center: THREE.Vector3, target: any = 'viking_spearman') =>
     (formation as any).resolvePlacement(center, new THREE.Vector3(0, 0, 1), participants, target) as
@@ -152,19 +164,183 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
   })
 
+  it.each(['tent', 'campfire', 'palisade', 'gate'] as const)(
+    'keeps formation slots clear of a real campaign %s', kind => {
+      const scene = new THREE.Scene()
+      const terrain = createTerrain(scene)
+      const outpost = createCampaignOutpost(scene, 'roman', terrain)
+      const navigation = new NavigationWorld()
+      navigation.sync(outpost.obstacles)
+      const piece = outpost.damageableObstacles.find(obstacle => obstacle.kind === kind)!
+      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === piece)!
+      const center = obstacle.box.getCenter(new THREE.Vector3())
+      center.y = getTerrainHeight(center.x, center.z)
+      const participants = Array.from({ length: 5 }, (_, index) => {
+        const npc = placementParticipant(`p-${index}`, index - 2)
+        npc.combatPosition.z = -140
+        return npc
+      })
+      const { formation, solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+      const placement = solve(center)
+
+      expect(placement, kind).not.toBeNull()
+      expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
+      expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
+    },
+  )
+
+  it('keeps all slots on the Roman defenders side of the outpost wall', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 5 }, (_, index) => {
+      const npc = placementParticipant(`roman-${index}`, -30 + index)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const { solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+    const center = new THREE.Vector3(-44, getTerrainHeight(-44, -140), -140)
+    const placement = solve(center, 'all')
+
+    expect(placement).not.toBeNull()
+    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
+  })
+
+  it.each([
+    ['inside', -140],
+    ['outside', -80],
+  ] as const)('keeps a group entirely %s the closed gate', (_side, originZ) => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 5 }, (_, index) => {
+      const npc = placementParticipant(`p-${index}`, index - 2)
+      npc.combatPosition.z = originZ
+      return npc
+    })
+    const { solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+    const placement = solve(new THREE.Vector3(0, getTerrainHeight(0, -108), -108), 'all')
+
+    expect(placement).not.toBeNull()
+    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
+  })
+
+  it('rechecks the gate side if the gate closes between preview and confirmation', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    outpost.gateController.open()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 5 }, (_, index) => {
+      const npc = placementParticipant(`p-${index}`, index - 2)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const formation = new FormationController(scene, new THREE.PerspectiveCamera(), participants as any,
+      terrain.terrainMesh, outpost.obstacles, navigation, romanRegion())
+    const center = new THREE.Vector3(0, getTerrainHeight(0, -104), -104)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
+    formation.beginPlacement('all')
+    expect((formation as any).previewBlocked).toBe(false)
+
+    outpost.gateController.close()
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(false)
+    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 0)).toBe(true)
+  })
+
+  it.each([
+    ['inside', -16, -156, true],
+    ['outside', 0, -104, false],
+  ] as const)('keeps every slot %s the outpost when the gate is open', (_side, x, z, inside) => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    outpost.gateController.open()
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 50 }, (_, index) => {
+      const npc = placementParticipant(`roman-${index}`, index - 25)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const { solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+    const placement = solve(new THREE.Vector3(x, getTerrainHeight(x, z), z), 'all')
+
+    expect(placement).not.toBeNull()
+    expect(placement?.slots.every(slot => (
+      slot.x > -44 && slot.x < 44 && slot.z > -180 && slot.z < -108
+    ) === inside)).toBe(true)
+  })
+
+  it.each([
+    ['campfire', -16, -156],
+    ['side wall', -44, -140],
+  ] as const)('keeps all 50 Roman defenders together near the %s', (_name, x, z) => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 50 }, (_, index) => {
+      const npc = placementParticipant(`roman-${index}`, index - 25)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const { formation, solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+    const placement = solve(new THREE.Vector3(x, getTerrainHeight(x, z), z), 'all')
+
+    expect(placement).not.toBeNull()
+    expect(placement?.slots).toHaveLength(50)
+    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
+    expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
+  })
+
+  it('confirms the same narrowed formation shown to all 50 defenders near a campfire', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 50 }, (_, index) => {
+      const npc = placementParticipant(`roman-${index}`, index - 25)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const formation = new FormationController(scene, new THREE.PerspectiveCamera(), participants as any,
+      terrain.terrainMesh, outpost.obstacles, navigation, romanRegion())
+    const center = new THREE.Vector3(-16, getTerrainHeight(-16, -156), -156)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
+    const preview = vi.spyOn((formation as any).preview, 'show')
+
+    formation.beginPlacement('all')
+    const shown = preview.mock.calls.at(-1)?.[1] as THREE.Vector3[]
+    expect((formation as any).previewColumns).toBeLessThan(FORMATION_ALL_MAX_COLUMNS)
+    expect(formation.confirmPlacement().accepted).toBe(true)
+    const assigned = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
+    expect(assigned.map(slot => `${slot.x},${slot.z}`).sort())
+      .toEqual(shown.map(slot => `${slot.x},${slot.z}`).sort())
+  })
+
   it('keeps clear slots and whole-formation boundary shift when one edge slot is blocked', () => {
-    const center = new THREE.Vector3(179, getTerrainHeight(179, 0), 0)
+    const edge = PLAYABLE_WORLD_BOUND - 1
+    const center = new THREE.Vector3(edge, getTerrainHeight(edge, 0), 0)
     const participants = Array.from({ length: 5 }, (_, index) => placementParticipant(`p-${index}`, index))
-    const { solve } = placementHarness([blockingBox(171.7, 172.3, -0.5, 0.5)], participants)
+    const { solve } = placementHarness([blockingBox(edge - 7.3, edge - 6.7, -0.5, 0.5)], participants)
     const placement = solve(center)
 
     expect(placement).not.toBeNull()
-    expect(placement?.center.x).toBe(176)
+    expect(placement?.center.x).toBe(PLAYABLE_WORLD_BOUND - 4)
     expect(placement?.center.z).toBe(0)
     expect(placement?.slots.every(slot => Math.abs(slot.x) <= PLAYABLE_WORLD_BOUND && Math.abs(slot.z) <= PLAYABLE_WORLD_BOUND)).toBe(true)
     expect(new Set(placement?.slots.map(slot => `${slot.x},${slot.z}`)).size).toBe(5)
-    expect(placement?.slots.slice(1).map(slot => slot.x)).toEqual([174, 176, 178, 180])
-    expect(placement?.slots[0].x).toBe(170)
+    expect(placement?.slots.slice(1).map(slot => slot.x)).toEqual([PLAYABLE_WORLD_BOUND - 6, PLAYABLE_WORLD_BOUND - 4, PLAYABLE_WORLD_BOUND - 2, PLAYABLE_WORLD_BOUND])
+    expect(placement?.slots[0].x).toBe(PLAYABLE_WORLD_BOUND - 10)
   })
 
   it('uses the mounted footprint to continue past a foot-only valid candidate', () => {
@@ -652,6 +828,26 @@ function createNpc(
 }
 
 describe('NPC TacticalOrder and active equipment stance', () => {
+  it('follows the navigation waypoint instead of running straight through an obstacle toward a formation slot', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    const ally = createNpc(scene, Faction.PLAYER, 'viking', 'viking_berserker', {
+      meleeWeaponId: 'steel_sword', shieldId: 'round_shield_t2', mountId: null,
+    }, 0)
+    ally.assignFormationTarget(51, new THREE.Vector3(0, 0, -10), new THREE.Vector3(0, 0, 1))
+    const route = vi.spyOn(ally as any, '_resolveNavigationMoveTarget').mockImplementation(() => {
+      ;(ally as any)._tmpNavigationTarget.set(5, 0, 0)
+      return 'path'
+    })
+
+    ally.update(0.1, player, [ally], [], [blockingBox(-1, 1, -6, -4)] as any,
+      null as any, () => {}, () => {}, false, 0, null, null, new NavigationWorld())
+
+    expect(route).toHaveBeenCalledOnce()
+    expect(ally.position.x).toBeGreaterThan(0.1)
+    expect(ally.position.z).toBeCloseTo(0)
+  })
+
   it('moves to a formation target without sprinting and clears it on overwrite', () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)

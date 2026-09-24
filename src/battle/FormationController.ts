@@ -14,12 +14,20 @@ import {
 import { resolveFormationSlots } from './FormationPlacement'
 import type { FormationPlacement } from './FormationPlacement'
 import { FormationPreview } from '../ui/FormationPreview'
+import type { NavigationWorld } from '../navigation/NavigationWorld'
 
 export interface FormationCommandResult {
   accepted: boolean
   count: number
   commandId: number | null
   participants: readonly NPC[]
+}
+
+export interface FormationRegion {
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
 }
 
 interface FormationCommand {
@@ -33,6 +41,7 @@ interface PlacementSnapshot {
   center: THREE.Vector3
   forward: THREE.Vector3
   slots: THREE.Vector3[]
+  columns: number
   participants: NPC[]
 }
 
@@ -52,11 +61,13 @@ export class FormationController {
   private readonly previewCenter = new THREE.Vector3()
   private readonly previewForward = new THREE.Vector3(0, 0, 1)
   private previewSlots: THREE.Vector3[] = []
+  private previewColumns = 0
   private previewParticipants: NPC[] = []
   private previewParticipantsSignature = ''
   private previewBlocked = false
   private previewInitialized = false
   private previewFrame = 0
+  private previewTopologyRevision = -1
   private placementTarget: ArmyCommandTarget | null = null
   private nextCommandId = 1
   private activeCommands: FormationCommand[] = []
@@ -68,6 +79,8 @@ export class FormationController {
     private readonly npcs: readonly NPC[],
     private readonly terrainMesh: THREE.Object3D,
     private readonly obstacles: readonly ObstacleData[],
+    private readonly navigationWorld: NavigationWorld | null = null,
+    private readonly region: FormationRegion | null = null,
   ) {
     this.preview = new FormationPreview(scene)
     this.raycaster.far = 500
@@ -101,6 +114,7 @@ export class FormationController {
 
   updatePlacement(): void {
     if (this.placementTarget === null) return
+    this.navigationWorld?.sync(this.obstacles)
     this.previewFrame++
     const participantsChanged = this.previewFrame % 6 === 1 || this.previewParticipants.length === 0
     let participantCompositionChanged = false
@@ -130,6 +144,7 @@ export class FormationController {
     const geometryChanged = !this.previewInitialized
       || hitCenter.distanceToSquared(this.previewHitCenter) > 0.01
       || forward.dot(this.previewForward) < 0.999
+      || this.previewTopologyRevision !== (this.navigationWorld?.revision ?? -1)
     if (!geometryChanged && !participantCompositionChanged) return
 
     const placement = this.resolvePlacement(hitCenter, forward, this.previewParticipants, this.placementTarget)
@@ -143,13 +158,16 @@ export class FormationController {
     this.previewHitCenter.copy(hitCenter)
     this.previewCenter.copy(formation.center)
     this.previewForward.copy(forward)
+    this.previewTopologyRevision = this.navigationWorld?.revision ?? -1
     this.previewSlots = placement?.slots ?? []
+    this.previewColumns = placement?.columns ?? 0
     this.previewInitialized = true
     this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
   confirmPlacement(): FormationCommandResult {
     if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
+    this.navigationWorld?.sync(this.obstacles)
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
     if (!snapshot) {
       this.markCurrentPlacementInvalid()
@@ -164,7 +182,7 @@ export class FormationController {
       rowAxis,
       snapshot.center,
       snapshot.forward,
-      this.getMaxColumns(snapshot.target),
+      snapshot.columns,
     )
     for (const assignment of assignments) {
       assignment.unit.npc.assignFormationTarget(commandId, assignment.slot, snapshot.forward)
@@ -208,9 +226,9 @@ export class FormationController {
     const forward = this.previewForward.clone()
     const compositionUnchanged = this.getParticipantSignature(participants) === this.previewParticipantsSignature
     const shown = compositionUnchanged && !this.previewBlocked
-      ? { center: this.previewCenter.clone(), slots: this.previewSlots.map(slot => slot.clone()) }
+      ? { center: this.previewCenter.clone(), slots: this.previewSlots.map(slot => slot.clone()), columns: this.previewColumns }
       : null
-    const placement = shown && this.areSlotsUsable(shown.slots, participants, shown.center, forward, target)
+    const placement = shown && this.areSlotsUsable(shown.slots, participants, shown.center, forward, shown.columns)
       ? shown
       : this.resolvePlacement(this.previewHitCenter, forward, participants, target)
     if (!placement) return null
@@ -219,6 +237,7 @@ export class FormationController {
       center: placement.center,
       forward,
       slots: placement.slots,
+      columns: placement.columns,
       participants,
     }
   }
@@ -229,25 +248,36 @@ export class FormationController {
     participants: readonly NPC[],
     target: ArmyCommandTarget,
   ): FormationPlacement | null {
-    const formation = this.makeFormation(requestedCenter, forward, participants.length, this.getMaxColumns(target))
-    const assignments = assignUnitsToSlots(
-      participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
-      formation.slots,
-      formationRowAxis(forward),
-      formation.center,
-      forward,
-      this.getMaxColumns(target),
-    )
-    const slots = resolveFormationSlots(
-      formation.slots,
-      forward,
-      assignments.map(assignment => assignment.unit.npc),
-      npc => npc.isMounted ? 1 : 0.5,
-      (slot, npc) => !this.isSlotBlocked(slot, npc),
-      getTerrainHeight,
-      PLAYABLE_WORLD_BOUND,
-    )
-    return slots ? { center: formation.center, slots } : null
+    const component = this.getFormationComponent(participants)
+    const inside = this.getFormationRegionSide(requestedCenter, participants)
+    const maxColumns = this.getMaxColumns(target)
+    const widths = target === 'all'
+      ? [maxColumns, 25, 10].filter((columns, index) => index === 0 || columns < participants.length)
+      : [maxColumns]
+    for (const columns of widths) {
+      const formation = this.makeFormation(requestedCenter, forward, participants.length, columns)
+      const assignments = assignUnitsToSlots(
+        participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
+        formation.slots,
+        formationRowAxis(forward),
+        formation.center,
+        forward,
+        columns,
+      )
+      const slots = resolveFormationSlots(
+        formation.slots,
+        forward,
+        assignments.map(assignment => assignment.unit.npc),
+        npc => npc.isMounted ? 1 : 0.5,
+        (slot, npc) => !this.isSlotBlocked(slot, npc)
+          && this.isInFormationComponent(slot, component)
+          && this.isInFormationRegion(slot, inside),
+        getTerrainHeight,
+        PLAYABLE_WORLD_BOUND,
+      )
+      if (slots) return { center: formation.center, slots, columns }
+    }
+    return null
   }
 
   private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number, maxColumns: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
@@ -266,9 +296,11 @@ export class FormationController {
     participants: readonly NPC[],
     center: THREE.Vector3,
     forward: THREE.Vector3,
-    target: ArmyCommandTarget,
+    columns: number,
   ): boolean {
     if (slots.length !== participants.length) return false
+    const component = this.getFormationComponent(participants)
+    const inside = this.getFormationRegionSide(this.previewHitCenter, participants)
     const rowAxis = formationRowAxis(forward)
     const assignments = assignUnitsToSlots(
       participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
@@ -276,11 +308,13 @@ export class FormationController {
       rowAxis,
       center,
       forward,
-      this.getMaxColumns(target),
+      columns,
     )
     for (let index = 0; index < assignments.length; index++) {
       const { slot, unit } = assignments[index]
-      if (Math.abs(slot.x) > PLAYABLE_WORLD_BOUND || Math.abs(slot.z) > PLAYABLE_WORLD_BOUND || this.isSlotBlocked(slot, unit.npc)) return false
+      if (Math.abs(slot.x) > PLAYABLE_WORLD_BOUND || Math.abs(slot.z) > PLAYABLE_WORLD_BOUND
+        || this.isSlotBlocked(slot, unit.npc) || !this.isInFormationComponent(slot, component)
+        || !this.isInFormationRegion(slot, inside)) return false
       const radius = unit.npc.isMounted ? 1 : 0.5
       for (let other = 0; other < index; other++) {
         const otherRadius = assignments[other].unit.npc.isMounted ? 1 : 0.5
@@ -290,6 +324,56 @@ export class FormationController {
       }
     }
     return true
+  }
+
+  private getFormationComponent(participants: readonly NPC[]): number {
+    if (!this.navigationWorld) return -1
+    const counts = new Map<number, number>()
+    let chosen = -1
+    let most = 0
+    for (const npc of participants) {
+      const component = this.navigationWorld.componentAt(npc.combatPosition)
+      if (component < 0) continue
+      const count = (counts.get(component) ?? 0) + 1
+      counts.set(component, count)
+      if (count > most) { chosen = component; most = count }
+    }
+    return chosen
+  }
+
+  private isInFormationComponent(slot: THREE.Vector3, component: number): boolean {
+    if (!this.navigationWorld) return true
+    if (component < 0) return false
+    const cell = this.navigationWorld.grid.worldToCell(slot)
+    return Boolean(cell && !this.navigationWorld.grid.isBlocked(cell)
+      && this.navigationWorld.componentAt(slot) === component)
+  }
+
+  private regionSide(position: THREE.Vector3): boolean | null {
+    if (!this.region) return null
+    const { minX, maxX, minZ, maxZ } = this.region
+    if ((position.z >= minZ - 0.5 && position.z <= maxZ + 0.5
+      && (Math.abs(position.x - minX) < 0.5 || Math.abs(position.x - maxX) < 0.5))
+      || (position.x >= minX - 0.5 && position.x <= maxX + 0.5
+        && (Math.abs(position.z - minZ) < 0.5 || Math.abs(position.z - maxZ) < 0.5))) return null
+    return position.x > minX && position.x < maxX && position.z > minZ && position.z < maxZ
+  }
+
+  private getFormationRegionSide(center: THREE.Vector3, participants: readonly NPC[]): boolean | null {
+    if (!this.region) return null
+    const side = this.regionSide(center)
+    if (side !== null) return side
+    let inside = 0
+    let outside = 0
+    for (const npc of participants) {
+      if (this.regionSide(npc.combatPosition)) inside++
+      else outside++
+    }
+    return inside >= outside
+  }
+
+  private isInFormationRegion(slot: THREE.Vector3, inside: boolean | null): boolean {
+    return inside === null || this.regionSide(slot) === inside
   }
 
   private isSlotBlocked(slot: THREE.Vector3, npcOrMounted: NPC | boolean): boolean {

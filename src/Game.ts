@@ -775,7 +775,16 @@ export class Game {
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
-    const formationController = new FormationController(this.scene, this.camera, this.npcs, terrainMesh, obstacles)
+    const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
+    const formationRegion = outpostPlacement ? {
+      minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
+      maxX: outpostPlacement.centerX + outpostPlacement.halfWidth,
+      minZ: Math.min(outpostPlacement.frontZ, outpostPlacement.backZ),
+      maxZ: Math.max(outpostPlacement.frontZ, outpostPlacement.backZ),
+    } : null
+    const formationController = new FormationController(
+      this.scene, this.camera, this.npcs, terrainMesh, obstacles, this.navigationWorld, formationRegion,
+    )
     this.armyCommandController = new ArmyCommandController(
       this.npcs,
       playerFaction,
