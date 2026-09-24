@@ -5,6 +5,7 @@ import { getUnitPreset } from '../battle/UnitPresetCatalog'
 
 export interface ArmyCommandHudEntry {
   key: string
+  target: ArmyCommandTarget
   label: string
   order: TacticalOrder | 'mixed'
   side: 'left' | 'right'
@@ -27,10 +28,8 @@ export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string
 /** Army command HUD. It never owns input or mutates NPC state. */
 export class ArmyCommandUI {
   private readonly root: HTMLElement
-  private readonly all: HTMLElement
-  private readonly left: HTMLElement
-  private readonly right: HTMLElement
-  private readonly menu: HTMLElement
+  private readonly targets: HTMLElement
+  private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
   private feedbackTimer: number | null = null
 
@@ -38,54 +37,93 @@ export class ArmyCommandUI {
     this.root = document.createElement('div')
     this.root.id = 'army-command-hud'
     this.root.dataset.faction = faction
-    this.all = document.createElement('div')
-    this.all.className = 'army-command-all'
-    this.left = document.createElement('div')
-    this.left.className = 'army-command-side left'
-    this.right = document.createElement('div')
-    this.right.className = 'army-command-side right'
-    this.menu = document.createElement('div')
-    this.menu.className = 'army-command-submenu'
+    this.targets = document.createElement('div')
+    this.targets.className = 'army-command-targets'
+    this.commands = document.createElement('div')
+    this.commands.className = 'army-command-commands'
     this.feedback = document.createElement('div')
     this.feedback.className = 'army-command-feedback'
-    this.root.append(this.all, this.left, this.right, this.menu, this.feedback)
+    this.root.append(this.targets, this.commands, this.feedback)
     document.getElementById('hud')?.appendChild(this.root)
   }
 
-  render(entries: readonly ArmyCommandHudEntry[], submenuOpen: boolean, selectedTarget: ArmyCommandTarget | null): void {
-    const allEntry = entries.find(entry => entry.key === '`')
-    this._renderEntries(this.all, allEntry ? [allEntry] : [])
-    this._renderEntries(this.left, entries.filter(entry => entry.key !== '`' && entry.side === 'left'))
-    this._renderEntries(this.right, entries.filter(entry => entry.key !== '`' && entry.side === 'right'))
-    this.menu.replaceChildren()
-    this.menu.classList.toggle('visible', submenuOpen)
-    if (submenuOpen) {
-      const title = document.createElement('div')
-      title.className = 'army-command-submenu-title'
-      title.textContent = armyCommandTargetLabel(selectedTarget)
-      this.menu.appendChild(title)
-      for (const [key, label] of [['1', '攻擊'], ['2', '衝鋒'], ['3', '防禦'], ['4', '列陣'], ['Q', '上一頁']]) {
-        const row = document.createElement('div')
-        row.className = 'army-command-submenu-row'
-        row.textContent = `[${key}] ${label}`
-        this.menu.appendChild(row)
-      }
+  render(
+    entries: readonly ArmyCommandHudEntry[],
+    submenuOpen: boolean,
+    selectedTarget: ArmyCommandTarget | null,
+    highlightedTarget: ArmyCommandTarget | null = null,
+    highlightedCommandIndex = 0,
+  ): void {
+    this.targets.classList.toggle('hidden', submenuOpen)
+    this.commands.classList.toggle('visible', submenuOpen)
+
+    if (!submenuOpen) {
+      const allEntry = entries.find(entry => entry.key === '`')
+      const ordered = [
+        ...(allEntry ? [allEntry] : []),
+        ...entries.filter(entry => entry.key !== '`'),
+      ]
+      this._renderEntries(this.targets, ordered, highlightedTarget)
+      this.commands.replaceChildren()
+      return
     }
+
+    this.commands.replaceChildren()
+    const title = document.createElement('div')
+    title.className = 'army-command-panel-title'
+    title.textContent = armyCommandTargetLabel(selectedTarget)
+    this.commands.appendChild(title)
+
+    const actions: ReadonlyArray<[string, string, TacticalOrder]> = [
+      ['1', '攻擊', 'attack'],
+      ['2', '衝鋒', 'charge'],
+      ['3', '防禦', 'defend'],
+      ['4', '列陣', 'formation'],
+    ]
+    actions.forEach(([key, label, order], index) => {
+      const row = document.createElement('div')
+      row.className = `army-command-entry army-command-action ${order}`
+      row.classList.toggle('highlighted', index === highlightedCommandIndex)
+      const commandLabel = document.createElement('span')
+      commandLabel.className = 'army-command-label'
+      commandLabel.textContent = `[${key}]`
+      const state = document.createElement('span')
+      state.className = `army-command-order ${order}`
+      state.textContent = label
+      row.append(commandLabel, state)
+      this.commands.appendChild(row)
+    })
+
+    const back = document.createElement('div')
+    back.className = 'army-command-back-hint'
+    back.textContent = '[`] 上一頁'
+    this.commands.appendChild(back)
   }
 
   renderPlacement(target: ArmyCommandTarget): void {
-    this.menu.replaceChildren()
-    this.menu.classList.add('visible')
+    this.targets.classList.add('hidden')
+    this.commands.classList.add('visible')
+    this.commands.replaceChildren()
+
     const title = document.createElement('div')
-    title.className = 'army-command-submenu-title'
-    title.textContent = `${armyCommandTargetLabel(target).replace('命令', '')} — 列陣位置選擇`
-    this.menu.appendChild(title)
-    for (const label of ['中央準星：選擇位置', '[E] / [滑鼠左鍵] 確認', '[Q] 上一頁']) {
+    title.className = 'army-command-panel-title'
+    title.textContent = `${armyCommandTargetLabel(target).replace('命令', '')} — 列陣位置`
+    this.commands.appendChild(title)
+
+    for (const label of ['中央準星：選擇位置', '[E] / [左鍵] / [中鍵] 確認']) {
       const row = document.createElement('div')
-      row.className = 'army-command-submenu-row'
-      row.textContent = label
-      this.menu.appendChild(row)
+      row.className = 'army-command-entry army-command-placement'
+      const text = document.createElement('span')
+      text.className = 'army-command-label'
+      text.textContent = label
+      row.appendChild(text)
+      this.commands.appendChild(row)
     }
+
+    const back = document.createElement('div')
+    back.className = 'army-command-back-hint'
+    back.textContent = '[`] 上一頁'
+    this.commands.appendChild(back)
   }
 
   showFeedback(message: string): void {
@@ -98,11 +136,16 @@ export class ArmyCommandUI {
     }, 1600)
   }
 
-  private _renderEntries(container: HTMLElement, entries: readonly ArmyCommandHudEntry[]): void {
+  private _renderEntries(
+    container: HTMLElement,
+    entries: readonly ArmyCommandHudEntry[],
+    highlightedTarget: ArmyCommandTarget | null,
+  ): void {
     container.replaceChildren()
     for (const entry of entries) {
       const row = document.createElement('div')
       row.className = 'army-command-entry'
+      row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
       label.className = 'army-command-label'
       label.textContent = `[${entry.key}] ${entry.label}`

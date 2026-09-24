@@ -38,6 +38,7 @@ const ROMAN_SHORTCUTS: readonly ArmyCommandShortcut[] = [
 ]
 
 export const SUBMENU_COMMANDS: readonly TacticalOrder[] = ['attack', 'charge', 'defend']
+const WHEEL_COMMANDS: readonly TacticalOrder[] = ['attack', 'charge', 'defend', 'formation']
 
 export function getArmyCommandShortcuts(faction: CharacterFaction): readonly ArmyCommandShortcut[] {
   return faction === 'viking' ? VIKING_SHORTCUTS : ROMAN_SHORTCUTS
@@ -75,6 +76,10 @@ export class ArmyCommandController {
   private readonly formationDesiredCommandByPreset = new Map<UnitPresetId, number>()
   private selectedTarget: ArmyCommandTarget | null = null
   private submenuOpen = false
+  private highlightedTarget: ArmyCommandTarget | null = null
+  private highlightedCommandIndex = 0
+  private readonly seenPresetIds = new Set<UnitPresetId>()
+  private rosterSignature = ''
   private allOrder: TacticalOrder | 'mixed' = 'attack'
 
   constructor(
@@ -102,7 +107,8 @@ export class ArmyCommandController {
     this.formation?.setCompletionHandler((commandId, target, participants, status) => {
       this._onFormationCompleted(commandId, target, participants, status)
     })
-    this.ui.render(this._hudEntries(), this.submenuOpen, this.selectedTarget)
+    this._syncRosterSelection()
+    this._renderUi()
   }
 
   get isSubmenuOpen(): boolean { return this.submenuOpen }
@@ -110,19 +116,29 @@ export class ArmyCommandController {
   get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
 
   update(): void {
+    const rosterChanged = this._syncRosterSelection()
+    if (rosterChanged && !this.submenuOpen && !this.formation?.isPlacementMode) {
+      this._renderUi()
+    }
+
     if (this.formation?.isPlacementMode) {
       this.formation.updatePlacement()
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         this._consumeDigit(key)
       }
-      this.input.consumeKeyPress('Backquote')
-      const goBack = this.input.consumeKeyPress('KeyQ')
+      while (this.input.consumeWheelStep() !== 0) {
+        // Do not let stale wheel navigation leak out of placement mode.
+      }
+
+      const goBack = this.input.consumeKeyPress('Backquote')
       const confirmedByKey = this.input.consumeKeyE()
       const confirmedByClick = this.input.consumeLeftClick()
-      const confirmed = confirmedByKey || confirmedByClick
+      const confirmedByMiddle = this.input.consumeMiddleClick()
+      const confirmed = confirmedByKey || confirmedByClick || confirmedByMiddle
+
       if (goBack) {
         this.formation.cancelPlacement()
-        this.ui.render(this._hudEntries(), true, this.selectedTarget)
+        this._renderUi()
       } else if (confirmed) {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
@@ -138,12 +154,25 @@ export class ArmyCommandController {
     }
 
     if (this.submenuOpen) {
-      if (this.input.consumeKeyPress('KeyQ')) {
+      if (this.input.consumeKeyPress('Backquote')) {
         for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
           this._consumeDigit(key)
         }
-        this.input.consumeKeyPress('Backquote')
+        this.input.consumeMiddleClick()
         this._closeSubmenu()
+        return
+      }
+
+      let wheelChanged = false
+      let wheelStep: -1 | 0 | 1
+      while ((wheelStep = this.input.consumeWheelStep()) !== 0) {
+        this._moveCommandHighlight(wheelStep)
+        wheelChanged = true
+      }
+      if (wheelChanged) this._renderUi()
+
+      if (this.input.consumeMiddleClick()) {
+        this._selectHighlightedCommand()
         return
       }
 
@@ -152,8 +181,8 @@ export class ArmyCommandController {
         if (!this._consumeDigit(key)) continue
         if (commandKey === null && Number(key) <= 4) commandKey = key
       }
-      this.input.consumeKeyPress('Backquote')
       if (commandKey !== null) {
+        this.highlightedCommandIndex = Number(commandKey) - 1
         const command = getCommandFromSubmenuKey(commandKey)
         if (command === 'formation') {
           if (!this.formation || !this.selectedTarget) return
@@ -162,18 +191,63 @@ export class ArmyCommandController {
         } else if (command) {
           this._issue(command)
         }
-        return
       }
       return
     }
 
-    for (const shortcut of this.shortcuts) {
-      if (!this._consumeShortcutKey(shortcut.key)) continue
-      this.selectedTarget = shortcut.target
-      this.submenuOpen = true
-      this.ui.render(this._hudEntries(), true, this.selectedTarget)
+    let targetChanged = false
+    let wheelStep: -1 | 0 | 1
+    while ((wheelStep = this.input.consumeWheelStep()) !== 0) {
+      this._moveTargetHighlight(wheelStep)
+      targetChanged = true
+    }
+    if (targetChanged) this._renderUi()
+
+    if (this.input.consumeMiddleClick()) {
+      if (this.highlightedTarget) this._openSubmenu(this.highlightedTarget)
       return
     }
+
+    for (const shortcut of this._availableShortcuts()) {
+      if (!this._consumeShortcutKey(shortcut.key)) continue
+      this._openSubmenu(shortcut.target)
+      return
+    }
+  }
+
+  private _openSubmenu(target: ArmyCommandTarget): void {
+    this.selectedTarget = target
+    if (target !== 'all') this.highlightedTarget = target
+    this.highlightedCommandIndex = 0
+    this.submenuOpen = true
+    this._renderUi()
+  }
+
+  private _selectHighlightedCommand(): void {
+    const command = WHEEL_COMMANDS[this.highlightedCommandIndex]
+    if (!command) return
+    if (command === 'formation') {
+      if (!this.formation || !this.selectedTarget) return
+      this.formation.beginPlacement(this.selectedTarget)
+      this.ui.renderPlacement(this.selectedTarget)
+      return
+    }
+    this._issue(command)
+  }
+
+  private _moveTargetHighlight(direction: -1 | 1): void {
+    const targets = this._wheelTargets()
+    if (targets.length === 0) return
+    const currentIndex = Math.max(0, targets.indexOf(this.highlightedTarget ?? targets[0]))
+    const nextIndex = Math.max(0, Math.min(targets.length - 1, currentIndex + direction))
+    this.highlightedTarget = targets[nextIndex]
+  }
+
+  private _moveCommandHighlight(direction: -1 | 1): void {
+    this.highlightedCommandIndex = Math.max(
+      0,
+      Math.min(WHEEL_COMMANDS.length - 1, this.highlightedCommandIndex + direction),
+    )
   }
 
   private _consumeShortcutKey(key: string): boolean {
@@ -276,7 +350,7 @@ export class ArmyCommandController {
     if (status === 'completed') {
       this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
     }
-    this.ui.render(this._hudEntries(), false, null)
+    this._renderUi()
   }
 
   private _clearFormationDesiredOrders(target: ArmyCommandTarget): void {
@@ -294,21 +368,77 @@ export class ArmyCommandController {
   }
 
   private _closeSubmenu(): void {
+    const previousTarget = this.selectedTarget
+    if (previousTarget && previousTarget !== 'all') {
+      this.highlightedTarget = previousTarget
+    }
     this.submenuOpen = false
     this.selectedTarget = null
-    this.ui.render(this._hudEntries(), false, null)
+    this.highlightedCommandIndex = 0
+    this._syncRosterSelection()
+    this._renderUi()
+  }
+
+  private _renderUi(): void {
+    this.ui.render(
+      this._hudEntries(),
+      this.submenuOpen,
+      this.selectedTarget,
+      this.highlightedTarget,
+      this.highlightedCommandIndex,
+    )
+  }
+
+  private _availableShortcuts(): readonly ArmyCommandShortcut[] {
+    return this.shortcuts.filter(shortcut =>
+      shortcut.target === 'all' || this.seenPresetIds.has(shortcut.target as UnitPresetId),
+    )
+  }
+
+  private _wheelTargets(): ArmyCommandTarget[] {
+    const unitTargets = this._availableShortcuts()
+      .filter(shortcut => shortcut.target !== 'all')
+      .map(shortcut => shortcut.target)
+    return ['all', ...unitTargets]
+  }
+
+  private _syncRosterSelection(): boolean {
+    for (const npc of this.npcs) {
+      if (npc.faction !== Faction.PLAYER || !npc.presetId) continue
+      this.seenPresetIds.add(npc.presetId)
+    }
+
+    const available = this._availableShortcuts()
+    const signature = available
+      .filter(shortcut => shortcut.target !== 'all')
+      .map(shortcut => shortcut.target)
+      .join('|')
+    const targets = this._wheelTargets()
+    let changed = signature !== this.rosterSignature
+    this.rosterSignature = signature
+
+    if (!this.highlightedTarget || !targets.includes(this.highlightedTarget)) {
+      // Keep the first actual unit highlighted by default, while allowing
+      // scrolling upward from it to reach ALL.
+      const firstUnitTarget = available.find(shortcut => shortcut.target !== 'all')?.target
+      this.highlightedTarget = firstUnitTarget ?? 'all'
+      changed = true
+    }
+    return changed
   }
 
   private _hudEntries(): ArmyCommandHudEntry[] {
-    return this.shortcuts.map(shortcut => {
+    return this._availableShortcuts().map(shortcut => {
       const isAll = shortcut.target === 'all'
       const label = isAll ? '全軍' : getUnitPreset(shortcut.target as UnitPresetId).nameZh
       return {
         key: shortcut.key,
+        target: shortcut.target,
         label,
         order: isAll ? this.allOrder : (this.orders.get(shortcut.target as UnitPresetId) ?? 'attack'),
         side: isAll || Number(shortcut.key) <= (this.faction === 'viking' ? 3 : 4) ? 'left' : 'right',
       }
     })
   }
+
 }

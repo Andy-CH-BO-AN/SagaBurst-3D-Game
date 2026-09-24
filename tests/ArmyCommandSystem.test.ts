@@ -62,15 +62,30 @@ function controllerHarness(npcs: any[], formation: any = null) {
     pressed.delete(code)
     return true
   }
+  let wheelSteps = 0
   const input = {
     consumeKeyPress: consume,
     consumeKeyE: () => consume('KeyE'),
     consumeLeftClick: () => consume('MouseLeft'),
+    consumeMiddleClick: () => consume('MouseMiddle'),
+    consumeWheelStep: () => {
+      if (wheelSteps > 0) {
+        wheelSteps--
+        return 1
+      }
+      if (wheelSteps < 0) {
+        wheelSteps++
+        return -1
+      }
+      return 0
+    },
     press: (digit: string) => pressed.add(`Digit${digit}`),
     pressAll: () => pressed.add('Backquote'),
     pressKey: (code: string) => pressed.add(code),
     pressE: () => pressed.add('KeyE'),
     clickLeft: () => pressed.add('MouseLeft'),
+    clickMiddle: () => pressed.add('MouseMiddle'),
+    wheel: (steps: number) => { wheelSteps += steps },
   }
   const ui = {
     render: vi.fn(),
@@ -591,6 +606,114 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(getArmyCommandShortcut('roman', '8')).toBeNull()
   })
 
+  it('shows only unit presets that actually entered the battle, plus ALL', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const enemyArcher = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
+    const h = controllerHarness([spearman, enemyArcher])
+
+    const entries = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ target: string }>
+    expect(entries.map(entry => entry.target)).toEqual(['viking_spearman', 'all'])
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
+  })
+
+  it('adds a newly spawned friendly preset to the command roster', () => {
+    const npcs: any[] = [
+      { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() },
+    ]
+    const h = controllerHarness(npcs)
+    npcs.push({ faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() })
+
+    h.controller.update()
+
+    const entries = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ target: string }>
+    expect(entries.map(entry => entry.target)).toEqual([
+      'viking_spearman',
+      'viking_archer',
+      'all',
+    ])
+  })
+
+  it('keeps a preset in the command roster after it has entered battle once', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
+    const npcs: any[] = [spearman, archer]
+    const h = controllerHarness(npcs)
+
+    npcs.splice(1, 1)
+    h.controller.update()
+
+    const entries = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ target: string }>
+    expect(entries.map(entry => entry.target)).toContain('viking_archer')
+  })
+
+  it('includes ALL in wheel navigation and confirms it with middle-click', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
+    const h = controllerHarness([spearman, archer])
+
+    // Preserve the first actual unit as the default highlight.
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
+
+    // ALL sits immediately before the first unit in wheel order.
+    h.input.wheel(-1)
+    h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('all')
+
+    h.input.clickMiddle()
+    h.controller.update()
+    expect(h.controller.selected).toBe('all')
+
+    // Attack is highlighted by default; middle click applies it to the whole army.
+    h.input.clickMiddle()
+    h.controller.update()
+    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('attack')
+    expect(archer.setTacticalOrder).toHaveBeenCalledWith('attack')
+    expect(h.controller.isSubmenuOpen).toBe(false)
+  })
+
+  it('uses wheel highlight and middle-click to select a unit then issue a command', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
+    const h = controllerHarness([spearman, archer])
+
+    // First present unit is highlighted by default; wheel down selects the next.
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
+    h.input.wheel(1)
+    h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_archer')
+
+    // Middle click enters that unit's command panel with Attack highlighted.
+    h.input.clickMiddle()
+    h.controller.update()
+    expect(h.controller.selected).toBe('viking_archer')
+    expect(h.ui.render.mock.calls.at(-1)?.[4]).toBe(0)
+
+    // Scroll down twice: Attack -> Charge -> Defend, then middle click confirms.
+    h.input.wheel(2)
+    h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)?.[4]).toBe(2)
+
+    h.input.clickMiddle()
+    h.controller.update()
+    expect(archer.setTacticalOrder).toHaveBeenCalledWith('defend')
+    expect(spearman.setTacticalOrder).not.toHaveBeenCalled()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+  })
+
+  it('clamps wheel selection at the first and last visible option', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
+    const h = controllerHarness([spearman, archer])
+
+    h.input.wheel(-3)
+    h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('all')
+
+    h.input.wheel(10)
+    h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_archer')
+  })
+
   it('uses edge-triggered submenu flow, filters to PLAYER faction, and leaves enemies alone', () => {
     const ally = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
     const enemy = { faction: Faction.ENEMY, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
@@ -625,14 +748,17 @@ describe('Army command keyboard mapping and filtering', () => {
 
     h.input.pressAll()
     h.controller.update()
+    h.input.pressAll()
+    h.controller.update()
     h.input.press('2')
     h.controller.update()
     expect(ally.setTacticalOrder).toHaveBeenCalledWith('charge')
     expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
   })
 
-  it('uses Q to go back from the command menu and consumes invalid submenu digits', () => {
-    const h = controllerHarness([])
+  it('uses Backquote to go back from the command menu and consumes invalid submenu digits', () => {
+    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
+    const h = controllerHarness([spearman])
 
     h.input.press('2')
     h.controller.update()
@@ -644,12 +770,16 @@ describe('Army command keyboard mapping and filtering', () => {
 
     h.input.pressKey('KeyQ')
     h.controller.update()
+    expect(h.controller.isSubmenuOpen).toBe(true)
+
+    h.input.pressAll()
+    h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)
   })
 
-  it('returns from formation placement to the command menu with Q', () => {
+  it('returns from formation placement to the command menu with Backquote', () => {
     const formation: any = {
       isPlacementMode: false,
       setCompletionHandler: vi.fn(),
@@ -666,14 +796,14 @@ describe('Army command keyboard mapping and filtering', () => {
     h.controller.update()
     expect(h.controller.isFormationPlacementMode).toBe(true)
 
-    h.input.pressKey('KeyQ')
+    h.input.pressAll()
     h.controller.update()
     expect(formation.cancelPlacement).toHaveBeenCalledOnce()
     expect(h.controller.isFormationPlacementMode).toBe(false)
     expect(h.controller.isSubmenuOpen).toBe(true)
     expect(h.controller.selected).toBe('all')
 
-    h.input.pressKey('KeyQ')
+    h.input.pressAll()
     h.controller.update()
     expect(h.controller.isSubmenuOpen).toBe(false)
   })

@@ -24,6 +24,11 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
 // Canonical humanoid heights are 1.86m Viking / 1.78m Roman.
 // Keep the defender palisade 0.40m below the matching archer height so
 // defenders can visually and physically shoot over it without firing gaps.
+export const CAMPAIGN_STRUCTURE_HP_MULTIPLIER = {
+  palisade: 2,
+  gate: 2,
+} as const
+
 export const CAMPAIGN_PALISADE_HEIGHT = {
   viking: 1.46,
   roman: 1.38,
@@ -124,7 +129,10 @@ export function createCampaignOutpost(
   const registerDamageablePiece = (options: DamageablePieceOptions): DamageableObstacle => {
     const damageable = new DamageableObstacle({
       kind: options.kind,
-      maxHp: DAMAGEABLE_OBSTACLE_HP[options.kind],
+      maxHp: DAMAGEABLE_OBSTACLE_HP[options.kind]
+        * (options.kind === 'palisade' || options.kind === 'gate'
+          ? CAMPAIGN_STRUCTURE_HP_MULTIPLIER[options.kind]
+          : 1),
       root: options.root,
       hitMeshes: options.hitMeshes,
       ownerFaction: defenderFaction,

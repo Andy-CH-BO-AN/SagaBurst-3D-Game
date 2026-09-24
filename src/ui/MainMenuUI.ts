@@ -3,6 +3,7 @@ import './battle-setup.css'
 export interface MainMenuActions {
   onCustomBattle: () => void
   onCampaign: () => void
+  onReference: () => void
 }
 
 export class MainMenuUI {
@@ -18,7 +19,7 @@ export class MainMenuUI {
     container.innerHTML = `
       <div class="setup-header">
         <h1 class="setup-title">SAGABURST</h1>
-        <div class="setup-subtitle">CHOOSE YOUR BATTLE</div>
+        <div class="setup-subtitle">CHOOSE YOUR MODE</div>
       </div>
 
       <div class="main-menu-grid">
@@ -32,6 +33,11 @@ export class MainMenuUI {
           <span>CAMPAIGN</span>
           <small>率領軍隊守住前哨站，逐關迎戰更強敵軍</small>
         </button>
+        <button type="button" class="main-menu-card reference" id="main-menu-reference">
+          <strong>兵種與武器</strong>
+          <span>UNITS & WEAPONS</span>
+          <small>查看兵種特性、戰鬥數值、武器與盾牌資料</small>
+        </button>
       </div>
     `
     parent.appendChild(container)
@@ -39,6 +45,7 @@ export class MainMenuUI {
 
     container.querySelector('#main-menu-custom')?.addEventListener('click', actions.onCustomBattle)
     container.querySelector('#main-menu-campaign')?.addEventListener('click', actions.onCampaign)
+    container.querySelector('#main-menu-reference')?.addEventListener('click', actions.onReference)
   }
 
   destroy(): void {

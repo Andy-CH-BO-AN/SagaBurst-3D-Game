@@ -23,6 +23,7 @@ import {
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
   getDefenseCampaignStage,
+  getDefenseDeploymentBaseUsed,
   isCampaignStageId,
   opposingCampaignFaction,
   resolveCampaignRolePreset,
@@ -173,6 +174,25 @@ export function validateDefenseCampaignLaunchConfig(
           `T${tier} total ${tierTotals[tier]} exceeds capacity ${stage.defenderDeployment.tierCapacity[tier]}`,
         )
       }
+    }
+
+    const upperTierPoolCap = stage.defenderDeployment.upperTierPoolCap
+    if (upperTierPoolCap !== null && tierTotals[2] + tierTotals[3] > upperTierPoolCap) {
+      errors.push(
+        `T2+T3 total ${tierTotals[2] + tierTotals[3]} exceeds shared capacity ${upperTierPoolCap}`,
+      )
+    }
+
+    const baseUsed = getDefenseDeploymentBaseUsed(
+      stage.defenderDeployment,
+      tierTotals,
+    )
+    if (baseUsed > stage.defenderDeployment.baseMaxUnits) {
+      errors.push(
+        `Base defender pool ${baseUsed} exceeds ${stage.defenderDeployment.baseMaxUnits}; `
+        + `only T${stage.defenderDeployment.bonusTier} can use the `
+        + `${stage.defenderDeployment.bonusSlots} bonus slots`,
+      )
     }
 
     const cap = stage.defenderDeployment.cavalryCap

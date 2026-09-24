@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { BattleSetupUI } from '../src/ui/BattleSetupUI'
+import { BattleReferenceUI } from '../src/ui/BattleReferenceUI'
 import { COMBAT_BALANCE } from '../src/combat/CombatBalance'
-import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { getUnitPresetsForFaction } from '../src/battle/UnitPresetCatalog'
 
-describe('BattleSetupUI 3 Tabs & Player HP', () => {
+describe('Battle setup and standalone reference UI', () => {
   class MockElement {
     private _id = ''
     get id(): string { return this._id }
@@ -93,6 +93,12 @@ describe('BattleSetupUI 3 Tabs & Player HP', () => {
       }
       traverse(this)
       return results
+    }
+    querySelector(selector: string): MockElement | null {
+      if (selector.startsWith('#')) {
+        return domRegistry.get(selector.slice(1)) ?? null
+      }
+      return this.querySelectorAll(selector)[0] ?? null
     }
     setAttribute(_name: string, _val: string) {}
   }
@@ -183,91 +189,59 @@ describe('BattleSetupUI 3 Tabs & Player HP', () => {
     delete (globalThis as any).HTMLButtonElement
   })
 
-  it('renders all 3 tabs: army, reference, loadout', () => {
+  it('renders only Army and Player Loadout tabs in Custom Battle', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})
 
     const armyTab = domRegistry.get('setup-tab-army')
-    const referenceTab = domRegistry.get('setup-tab-reference')
     const loadoutTab = domRegistry.get('setup-tab-loadout')
 
     expect(armyTab).toBeDefined()
-    expect(referenceTab).toBeDefined()
     expect(loadoutTab).toBeDefined()
+    expect(domRegistry.get('setup-tab-reference')).toBeUndefined()
+    expect(domRegistry.get('setup-reference-panel')).toBeUndefined()
+    expect(armyTab?.classList.contains('active')).toBe(true)
 
+    ui.destroy()
+  })
+
+  it('switches cleanly between Army and Player Loadout', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    const armyTab = domRegistry.get('setup-tab-army')
+    const loadoutTab = domRegistry.get('setup-tab-loadout')
     const armyPanel = domRegistry.get('setup-army-panel')
-    const referencePanel = domRegistry.get('setup-reference-panel')
     const loadoutPanel = domRegistry.get('setup-loadout-panel')
 
-    expect(armyPanel).toBeDefined()
-    expect(referencePanel).toBeDefined()
-    expect(loadoutPanel).toBeDefined()
+    loadoutTab?.click()
+    expect(loadoutTab?.classList.contains('active')).toBe(true)
+    expect(loadoutPanel?.classList.contains('active')).toBe(true)
+    expect(armyPanel?.classList.contains('active')).toBe(false)
 
-    // By default, army tab and panel are active
+    armyTab?.click()
     expect(armyTab?.classList.contains('active')).toBe(true)
     expect(armyPanel?.classList.contains('active')).toBe(true)
-    expect(referenceTab?.classList.contains('active')).toBe(false)
-    expect(referencePanel?.classList.contains('active')).toBe(false)
-    expect(loadoutTab?.classList.contains('active')).toBe(false)
     expect(loadoutPanel?.classList.contains('active')).toBe(false)
 
     ui.destroy()
   })
 
-  it('switches between tabs cleanly on click', () => {
-    const ui = new BattleSetupUI()
-    ui.mount(container, () => {})
-
-    const armyTab = domRegistry.get('setup-tab-army')
-    const referenceTab = domRegistry.get('setup-tab-reference')
-    const loadoutTab = domRegistry.get('setup-tab-loadout')
-    const armyPanel = domRegistry.get('setup-army-panel')
-    const referencePanel = domRegistry.get('setup-reference-panel')
-    const loadoutPanel = domRegistry.get('setup-loadout-panel')
-
-    // Click reference tab
-    referenceTab?.click()
-    expect(referenceTab?.classList.contains('active')).toBe(true)
-    expect(referencePanel?.classList.contains('active')).toBe(true)
-    expect(armyTab?.classList.contains('active')).toBe(false)
-    expect(armyPanel?.classList.contains('active')).toBe(false)
-
-    // Click loadout tab
-    loadoutTab?.click()
-    expect(loadoutTab?.classList.contains('active')).toBe(true)
-    expect(loadoutPanel?.classList.contains('active')).toBe(true)
-    expect(referenceTab?.classList.contains('active')).toBe(false)
-    expect(referencePanel?.classList.contains('active')).toBe(false)
-
-    // Click army tab back
-    armyTab?.click()
-    expect(armyTab?.classList.contains('active')).toBe(true)
-    expect(armyPanel?.classList.contains('active')).toBe(true)
-    expect(loadoutTab?.classList.contains('active')).toBe(false)
-
-    ui.destroy()
-  })
-
-  it('initializes Player HP input to 200 and allows customization (1–9999)', () => {
+  it('initializes Player HP and clamps customization to 1–9999', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})
 
     const hpInput = domRegistry.get('player-hp-input') as MockElement
-    expect(hpInput).toBeDefined()
     expect(hpInput.value).toBe(String(COMBAT_BALANCE.hp.playerDefault))
-    expect((ui as any).config.playerHp).toBe(COMBAT_BALANCE.hp.playerDefault)
 
-    // Change value to 500
     hpInput.value = '500'
     hpInput.dispatchEvent({ type: 'input' })
     expect((ui as any).config.playerHp).toBe(500)
 
-    // Clamp value to 9999 max
     hpInput.value = '15000'
     hpInput.dispatchEvent({ type: 'input' })
     expect((ui as any).config.playerHp).toBe(9999)
 
-    // Clamp value to 1 min
     hpInput.value = '-10'
     hpInput.dispatchEvent({ type: 'input' })
     expect((ui as any).config.playerHp).toBe(1)
@@ -275,7 +249,7 @@ describe('BattleSetupUI 3 Tabs & Player HP', () => {
     ui.destroy()
   })
 
-  it('includes hunting_spear, steel_lance, and heavy_lance in loadout options', () => {
+  it('keeps all lance options in Player Loadout', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})
 
@@ -287,79 +261,53 @@ describe('BattleSetupUI 3 Tabs & Player HP', () => {
     ui.destroy()
   })
 
-  it('renders dynamic reference content matching COMBAT_BALANCE and presets', () => {
-    const ui = new BattleSetupUI()
+  it('renders SSOT unit and combat data on the standalone home reference screen', () => {
+    const ui = new BattleReferenceUI()
     ui.mount(container, () => {})
 
-    const html = (domRegistry.get('battle-setup-container') as any).innerHTML
-
-    // Checks that SSOT balance values are present
+    const html = (domRegistry.get('battle-reference-container') as any).innerHTML
     expect(html).toContain(String(COMBAT_BALANCE.hp.npcDefault))
     expect(html).toContain(String(COMBAT_BALANCE.hp.playerDefault))
     expect(html).toContain(String(COMBAT_BALANCE.bow.damageMultiplier))
     expect(html).toContain(String(COMBAT_BALANCE.bow.footAttackRange))
     expect(html).toContain(String(COMBAT_BALANCE.lance.unmountedVsMountedDamageMultiplier))
-    expect(html).toContain(String(COMBAT_BALANCE.berserker.moveSpeedMultiplier))
 
-    // Checks that archetypes from UnitPresetCatalog are rendered
-    const vikingPresets = getUnitPresetsForFaction('viking')
-    for (const p of vikingPresets) {
-      expect(html).toContain(p.nameZh)
+    for (const preset of getUnitPresetsForFaction('viking')) {
+      expect(html).toContain(preset.nameZh)
     }
 
     ui.destroy()
   })
 
-  it('provides compact sub-tabs inside Tab 2 and toggles subpanels cleanly', () => {
-    const ui = new BattleSetupUI()
+  it('keeps five reference sub-tabs and switches them independently', () => {
+    const ui = new BattleReferenceUI()
     ui.mount(container, () => {})
 
     const subBtns = container.querySelectorAll('.ref-subtab-btn')
     expect(subBtns.length).toBe(5)
+    const balanceBtn = subBtns.find((button: any) => button.dataset.refSubtab === 'balance')
+    const weaponsBtn = subBtns.find((button: any) => button.dataset.refSubtab === 'weapons')
+    const panels = container.querySelectorAll('.ref-subpanel')
+    const balancePanel = panels.find((panel: any) => panel.dataset.refSubpanel === 'balance')
+    const weaponsPanel = panels.find((panel: any) => panel.dataset.refSubpanel === 'weapons')
 
-    const balanceBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'balance')
-    const vikingBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'viking')
-    const romanBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'roman')
-    const weaponsBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'weapons')
-    const shieldsBtn = subBtns.find((b: any) => b.dataset.refSubtab === 'shields')
-
-    expect(balanceBtn).toBeDefined()
-    expect(vikingBtn).toBeDefined()
-    expect(romanBtn).toBeDefined()
-    expect(weaponsBtn).toBeDefined()
-    expect(shieldsBtn).toBeDefined()
-
-    const subPanels = container.querySelectorAll('.ref-subpanel')
-    expect(subPanels.length).toBe(5)
-
-    const balancePanel = subPanels.find((p: any) => p.dataset.refSubpanel === 'balance')
-    const weaponsPanel = subPanels.find((p: any) => p.dataset.refSubpanel === 'weapons')
-
-    // Initial subtab is balance
     expect(balanceBtn?.classList.contains('active')).toBe(true)
     expect(balancePanel?.classList.contains('active')).toBe(true)
-    expect(weaponsBtn?.classList.contains('active')).toBe(false)
-    expect(weaponsPanel?.classList.contains('active')).toBe(false)
 
-    // Click weapons subtab
     weaponsBtn?.click()
     expect(weaponsBtn?.classList.contains('active')).toBe(true)
     expect(weaponsPanel?.classList.contains('active')).toBe(true)
     expect(balanceBtn?.classList.contains('active')).toBe(false)
-    expect(balancePanel?.classList.contains('active')).toBe(false)
 
     ui.destroy()
   })
 
-  it('removes technical IDs from weapons and shields reference tables and cards', () => {
-    const ui = new BattleSetupUI()
+  it('does not expose technical ids in the standalone reference tables', () => {
+    const ui = new BattleReferenceUI()
     ui.mount(container, () => {})
 
-    const html = (domRegistry.get('battle-setup-container') as any).innerHTML
-
-    // ID column header should not exist
+    const html = (domRegistry.get('battle-reference-container') as any).innerHTML
     expect(html).not.toContain('<th>ID</th>')
-    // Technical IDs should not be wrapped in code blocks in reference tables
     expect(html).not.toContain('<code>rusty_dagger</code>')
     expect(html).not.toContain('<code>round_shield_t1</code>')
     expect(html).not.toContain('<code>steel_lance</code>')

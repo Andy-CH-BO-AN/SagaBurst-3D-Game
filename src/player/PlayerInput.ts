@@ -13,6 +13,8 @@ export class PlayerInput {
   isRightMouseDown = false
   private _leftClickTriggered = false
   private _leftClickReleased = false
+  private _middleClickTriggered = false
+  private _wheelSteps = 0
 
   // Accumulated mouse deltas since last consume()
   private _dx = 0
@@ -55,6 +57,13 @@ export class PlayerInput {
           }
         }
       }
+      if (e.button === 1) {
+        // Middle click is reserved for Army Command confirmation while locked.
+        if (this.isLocked) {
+          e.preventDefault()
+          this._middleClickTriggered = true
+        }
+      }
       if (e.button === 2) {
         // Browser automation cannot hold pointer-lock mouse buttons.  In the
         // explicit ?nolock QA mode, each right click toggles aim so the real
@@ -76,6 +85,14 @@ export class PlayerInput {
         if (!this.allowUnlockedInput) this.isRightMouseDown = false
       }
     })
+
+    window.addEventListener('wheel', (e) => {
+      if (!this.isLocked || e.deltaY === 0) return
+      // One physical wheel direction becomes one deterministic selection step.
+      // Clamp queued steps so trackpads cannot accumulate an unbounded backlog.
+      e.preventDefault()
+      this._wheelSteps = Math.max(-8, Math.min(8, this._wheelSteps + Math.sign(e.deltaY)))
+    }, { passive: false })
 
     // Prevent context menu from popping up on right-click
     window.addEventListener('contextmenu', (e) => {
@@ -110,6 +127,29 @@ export class PlayerInput {
     const val = this._leftClickReleased
     this._leftClickReleased = false
     return val
+  }
+
+  /** Returns true once for a locked middle-click, then resets the flag. */
+  consumeMiddleClick(): boolean {
+    const val = this._middleClickTriggered
+    this._middleClickTriggered = false
+    return val
+  }
+
+  /**
+   * Returns one queued wheel selection step.
+   * -1 = wheel up / previous, +1 = wheel down / next.
+   */
+  consumeWheelStep(): -1 | 0 | 1 {
+    if (this._wheelSteps > 0) {
+      this._wheelSteps--
+      return 1
+    }
+    if (this._wheelSteps < 0) {
+      this._wheelSteps++
+      return -1
+    }
+    return 0
   }
 
   /** Returns true if E key was pressed since last check, then resets flag. */

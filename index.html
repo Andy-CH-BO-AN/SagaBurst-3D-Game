@@ -269,104 +269,133 @@
 
       /* ── Army Command HUD ── */
       #army-command-hud {
-        position: absolute;
-        top: 12px;
-        left: 140px;
-        right: 16px;
-        min-height: 34px;
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
-        align-items: start;
-        gap: 18px;
+        position: fixed;
+        inset: 0;
+        z-index: 935;
         color: #eadfce;
-        font: 14px/1.4 'Segoe UI', sans-serif;
+        font: 15px/1.35 'Segoe UI', sans-serif;
         text-shadow: 0 1px 3px #000;
         pointer-events: none;
         user-select: none;
       }
-      .army-command-all,
-      .army-command-side {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 7px;
+      .army-command-targets,
+      .army-command-commands {
+        position: absolute;
+        top: 18px;
+        width: clamp(300px, 20vw, 390px);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+        gap: 8px;
       }
-      .army-command-all { grid-column: 1; }
-      .army-command-side.left { grid-column: 2; }
-      .army-command-side.right {
-        grid-column: 3;
-        justify-content: flex-end;
+      .army-command-targets {
+        right: calc(50% + 300px);
+      }
+      .army-command-targets.hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+      .army-command-commands {
+        left: calc(50% + 300px);
+        opacity: 0;
+        visibility: hidden;
+      }
+      .army-command-commands.visible {
+        opacity: 1;
+        visibility: visible;
       }
       .army-command-entry {
+        min-height: 42px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 9px;
-        padding: 6px 10px;
-        background: rgba(12, 12, 14, 0.68);
-        border: 1px solid rgba(232, 201, 106, 0.28);
-        border-left: 3px solid rgba(232, 201, 106, 0.58);
-        border-radius: 4px;
+        gap: 10px;
+        padding: 9px 12px;
+        background: rgba(12, 12, 14, 0.82);
+        border: 1px solid rgba(232, 201, 106, 0.32);
+        border-left: 4px solid rgba(232, 201, 106, 0.7);
+        border-radius: 5px;
+        box-sizing: border-box;
         white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(0,0,0,.38);
       }
-      .army-command-label { color: rgba(255,255,255,0.92); }
-      .army-command-order { color: #e8c96a; font-weight: 700; }
+      .army-command-action {
+        min-height: 48px;
+        font-size: 16px;
+      }
+      .army-command-entry {
+        transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
+      }
+      .army-command-entry.highlighted {
+        transform: translateY(-5px) scale(1.025);
+        background: rgba(52, 43, 25, .96);
+        border-color: rgba(255, 220, 118, .92);
+        border-left-color: #ffe08a;
+        box-shadow: 0 8px 22px rgba(0,0,0,.62), 0 0 14px rgba(232,201,106,.22);
+      }
+      .army-command-label { color: rgba(255,255,255,0.94); font-weight: 650; }
+      .army-command-order { color: #e8c96a; font-weight: 800; }
       .army-command-order.defend { color: #8fd3ff; }
       .army-command-order.charge { color: #ff9d6b; }
       .army-command-order.formation { color: #73e6a2; }
       .army-command-order.mixed { color: #c6b9a6; }
-      .army-command-submenu {
-        position: absolute;
-        top: 44px;
-        left: 50%;
-        transform: translateX(-50%);
-        min-width: 160px;
-        padding: 8px 10px;
-        border: 1px solid rgba(232, 201, 106, 0.55);
-        border-radius: 4px;
-        background: rgba(12, 12, 14, 0.9);
-        font-size: 14px;
-        opacity: 0;
-        visibility: hidden;
+      .army-command-panel-title {
+        grid-column: 1 / -1;
+        padding: 7px 2px 3px;
+        color: #e8c96a;
+        font-size: 16px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-align: center;
       }
-      .army-command-submenu.visible { opacity: 1; visibility: visible; }
-      .army-command-submenu-title { color: #e8c96a; font-weight: 700; margin-bottom: 4px; }
-      .army-command-submenu-row { white-space: nowrap; }
+      .army-command-back-hint {
+        grid-column: 1 / -1;
+        color: rgba(255,255,255,.68);
+        font-size: 13px;
+        text-align: center;
+      }
+      .army-command-placement {
+        grid-column: 1 / -1;
+        justify-content: center;
+      }
       .army-command-feedback {
         position: absolute;
-        top: 86px;
+        top: 136px;
         left: 50%;
         transform: translateX(-50%);
-        padding: 6px 14px;
+        padding: 8px 16px;
         border: 1px solid rgba(232, 201, 106, 0.55);
-        border-radius: 4px;
-        background: rgba(12, 12, 14, 0.88);
+        border-radius: 5px;
+        background: rgba(12, 12, 14, 0.9);
         color: #e8c96a;
+        font-size: 15px;
         opacity: 0;
         transition: opacity 0.15s;
         white-space: nowrap;
       }
       .army-command-feedback.visible { opacity: 1; }
-      @media (max-width: 760px) {
-        #army-command-hud {
-          top: 58px;
-          left: 12px;
-          right: 12px;
-          grid-template-columns: auto minmax(0, 1fr);
-          gap: 6px;
-          font-size: 12px;
+      @media (max-width: 1280px) {
+        .army-command-targets {
+          right: calc(50% + 245px);
         }
-        .army-command-all { grid-column: 1; }
-        .army-command-side.left,
-        .army-command-side.right {
-          grid-column: 2;
-          justify-content: flex-start;
+        .army-command-commands {
+          left: calc(50% + 245px);
         }
-        .army-command-side.right { margin-top: 5px; }
-        .army-command-entry { gap: 6px; padding: 5px 8px; }
-        .army-command-submenu { top: 94px; font-size: 12px; }
-        .army-command-feedback { top: 134px; }
+        .army-command-targets,
+        .army-command-commands {
+          width: 280px;
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 900px) {
+        .army-command-targets,
+        .army-command-commands {
+          top: 92px;
+          left: 18px;
+          right: auto;
+          width: min(360px, calc(100vw - 36px));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .army-command-feedback { top: 220px; }
       }
 
       /* ── Skill Level Up Toast ── */
@@ -623,6 +652,40 @@
 
       /* Default Crosshair (hidden when aiming) */
       #crosshair.hidden { opacity: 0; }
+
+      /* 2K+ readability: scale persistent gameplay HUD without crowding 1080p. */
+      @media (min-width: 2000px) {
+        #vital-bars {
+          bottom: 34px;
+          left: 32px;
+          width: 260px;
+          gap: 9px;
+        }
+        .bar-label { font-size: 13px; }
+        .bar-track { height: 11px; }
+        #controls-hint {
+          bottom: 30px;
+          padding: 13px 26px;
+          font-size: 16px;
+        }
+        #enemy-hud { width: 360px; }
+        #enemy-name { font-size: 16px; }
+        #enemy-hp-bar { height: 15px; }
+        #mount-hud {
+          width: 320px;
+          padding: 10px 18px;
+          font-size: 16px;
+        }
+        #mount-hp-bar { height: 13px; }
+        #quiver-hud {
+          bottom: 34px;
+          right: 34px;
+        }
+        #arrow-count-box {
+          padding: 9px 18px;
+          font-size: 18px;
+        }
+      }
 
       /* Click-to-lock overlay */
       #lock-overlay {

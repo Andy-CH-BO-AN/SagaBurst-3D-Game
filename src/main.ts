@@ -8,6 +8,7 @@ import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
 import { MainMenuUI } from './ui/MainMenuUI'
 import { CampaignSetupUI } from './ui/CampaignSetupUI'
+import { BattleReferenceUI } from './ui/BattleReferenceUI'
 import {
   validateDefenseCampaignLaunchConfig,
   type DefenseCampaignLaunchConfig,
@@ -174,6 +175,14 @@ async function bootstrap(): Promise<void> {
             showHome()
           },
         )
+      },
+      onReference: () => {
+        menu.destroy()
+        const referenceUI = new BattleReferenceUI()
+        referenceUI.mount(document.body, () => {
+          referenceUI.destroy()
+          showHome()
+        })
       },
     })
   }

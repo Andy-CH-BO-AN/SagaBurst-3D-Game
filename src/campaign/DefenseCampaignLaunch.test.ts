@@ -87,6 +87,54 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(viking.viking.viking_sword_cavalry?.[1]).toBe(50)
   })
 
+  it('allows the full Stage 1 70-defender mix with 20 T1 bonus slots', () => {
+    const config = launch('roman')
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 20, 2: 40, 3: 10 },
+    }
+
+    expect(calculateArmyTotal(config.defenderArmy)).toBe(70)
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+  })
+
+  it('rejects the 21st T1 defender in Stage 1', () => {
+    const config = launch('roman')
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 21, 2: 39, 3: 10 },
+    }
+
+    const result = validateDefenseCampaignLaunchConfig(config)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(error => error.includes('T1 total 21 exceeds capacity 20'))).toBe(true)
+  })
+
+  it('rejects using Stage 1 T1 bonus slots for extra T2/T3 defenders', () => {
+    const config = launch('roman')
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 0, 2: 50, 3: 10 },
+    }
+
+    const result = validateDefenseCampaignLaunchConfig(config)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(error => error.includes('T2+T3 total 60 exceeds shared capacity 50'))).toBe(true)
+  })
+
+  it('allows up to 10 T3 defenders in Stage 1 and rejects the 11th', () => {
+    const valid = launch('roman')
+    valid.defenderArmy = {
+      roman_heavy_infantry: { 1: 0, 2: 40, 3: 10 },
+    }
+    expect(validateDefenseCampaignLaunchConfig(valid).valid).toBe(true)
+
+    const invalid = launch('roman')
+    invalid.defenderArmy = {
+      roman_heavy_infantry: { 1: 0, 2: 39, 3: 11 },
+    }
+    const result = validateDefenseCampaignLaunchConfig(invalid)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(error => error.includes('T3 total 11 exceeds capacity 10'))).toBe(true)
+  })
+
   it('rejects cavalry over the Stage 1 cap', () => {
     const config = launch('roman')
     config.defenderArmy = {

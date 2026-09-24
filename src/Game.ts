@@ -1356,19 +1356,23 @@ export class Game {
     ).length
     const defendersAliveBefore = this._campaignFactionAlive(campaign.defenderFaction)
     const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
+    const pendingAttackers = this.campaignSpawnWave === 'attackers'
+      ? Math.max(0, this.campaignSpawnQueue.length - this.campaignSpawnQueueIndex)
+      : 0
 
     const events = runtime.update(dt, {
       playerDead: this.player.dead,
       originalDefendersAlive,
       defendersAlive: defendersAliveBefore,
-      attackersAlive: attackersAliveBefore,
+      // The assault wave is frame-spawned. Pending attackers still count as
+      // remaining enemies so a temporary zero on the field cannot end the battle.
+      attackersAlive: attackersAliveBefore + pendingAttackers,
       reinforcementSpawned: this.campaignReinforcementSpawned,
     })
 
     for (const event of events) {
       if (event === 'assault_started') {
         const queued = this._queueDefenseCampaignWave('attackers')
-        this.soundManager.playCommanderCommand(attackerFaction, 'attack')
         this._showNotify(`⚔️ 敵軍開始進攻：${queued} 人進場中`, 3000)
       } else if (event === 'reinforcement_due') {
         const queued = this._queueDefenseCampaignWave('reinforcement')
@@ -1377,6 +1381,11 @@ export class Game {
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)
       } else if (event === 'battle_victory') {
+        if (this.campaignSpawnWave === 'reinforcement') {
+          this.campaignSpawnQueue = []
+          this.campaignSpawnQueueIndex = 0
+          this.campaignSpawnWave = null
+        }
         this._showDefenseCampaignResult('victory')
       } else if (event === 'battle_defeat') {
         this._showDefenseCampaignResult('defeat')

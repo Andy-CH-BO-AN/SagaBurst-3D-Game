@@ -1,7 +1,8 @@
 /* ── Battle Setup UI Styles (SagaBurst Dark Medieval) ── */
 #battle-setup-container,
 #main-menu-container,
-#campaign-setup-container {
+#campaign-setup-container,
+#battle-reference-container {
   position: fixed;
   inset: 0;
   z-index: 10000;
@@ -469,6 +470,13 @@
   background: #333;
 }
 
+/* ── Long setup / reference screens ── */
+#campaign-setup-container,
+#battle-reference-container {
+  justify-content: flex-start;
+  padding: 44px 28px 36px;
+}
+
 /* ── Custom battle menu composition ── */
 #battle-setup-container {
   justify-content: flex-start;
@@ -920,10 +928,14 @@
 /* ── Main Menu / Campaign ── */
 .main-menu-grid,
 .campaign-faction-grid {
-  width: min(860px, 100%);
+  width: min(1180px, 100%);
   display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
   gap: 22px;
+}
+.campaign-faction-grid {
+  width: min(860px, 100%);
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
 }
 .main-menu-card,
 .campaign-faction-card {
@@ -967,6 +979,7 @@
   font: 12px/1.6 'Segoe UI', sans-serif;
 }
 .main-menu-card.campaign { border-top: 3px solid #d4af37; }
+.main-menu-card.reference { border-top: 3px solid #8d724a; }
 .campaign-faction-card.roman { border-top: 3px solid #e74c3c; }
 .campaign-faction-card.viking { border-top: 3px solid #3498db; }
 
@@ -1016,14 +1029,14 @@
 .campaign-stage-card small { color: #756858; font-size: 10px; letter-spacing: .15em; }
 
 .campaign-stage-summary {
-  width: min(1040px, 100%);
+  width: min(1180px, 100%);
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   margin-bottom: 16px;
 }
 .campaign-stage-summary > div {
-  padding: 10px;
+  padding: 14px 12px;
   text-align: center;
   background: rgba(20,16,13,.82);
   border: 1px solid #453a2e;
@@ -1033,20 +1046,20 @@
   display: block;
   margin-bottom: 4px;
   color: #776958;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: .12em;
 }
-.campaign-stage-summary b { color: #e3ceb0; font-size: 13px; }
+.campaign-stage-summary b { color: #e3ceb0; font-size: 16px; }
 
 .campaign-setup-layout {
-  width: min(1040px, 100%);
+  width: min(1180px, 100%);
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, .8fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr);
+  gap: 22px;
 }
 .campaign-army-editor,
 .campaign-rules-card {
-  padding: 18px;
+  padding: 22px;
   background: rgba(18,15,13,.9);
   border: 1px solid #4a3e31;
   border-radius: 8px;
@@ -1055,39 +1068,66 @@
 .campaign-rules-card h2 {
   margin: 0 0 14px;
   color: #e5c386;
-  font-size: 17px;
+  font-size: 20px;
   letter-spacing: .12em;
 }
-.campaign-army-editor h2 small { color: #756858; font-size: 9px; }
+.campaign-army-editor h2 small { color: #756858; font-size: 11px; }
 .campaign-unit-row {
-  min-height: 54px;
+  min-height: 68px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 14px;
-  padding: 8px 0;
+  padding: 11px 0;
   border-top: 1px solid rgba(255,255,255,.06);
 }
 .campaign-unit-name { display: flex; flex-direction: column; gap: 2px; }
-.campaign-unit-name b { color: #ddd0bd; font-size: 13px; }
+.campaign-unit-name b { color: #ddd0bd; font-size: 16px; }
 .campaign-unit-name span,
-.campaign-unit-name small { color: #756b5e; font-size: 9px; letter-spacing: .08em; }
+.campaign-unit-name small { color: #756b5e; font-size: 11px; letter-spacing: .08em; }
+.campaign-tier-controls {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+}
+.campaign-tier-control {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px;
+}
+.campaign-tier-label {
+  min-width: 24px;
+  color: #d8bc79;
+  font: 800 12px 'Segoe UI', sans-serif;
+  letter-spacing: .08em;
+}
+.campaign-tier-control .campaign-stepper button { width: 36px; }
+.campaign-tier-control .campaign-stepper input { width: 56px; }
 .campaign-stepper { display: flex; align-items: center; gap: 5px; }
 .campaign-stepper button,
 .campaign-stepper input {
-  height: 32px;
+  height: 40px;
   color: #ded2be;
   background: #211a14;
   border: 1px solid #574a3a;
   border-radius: 4px;
-  font: 13px inherit;
+  font: 16px inherit;
 }
-.campaign-stepper button { width: 32px; cursor: pointer; }
-.campaign-stepper input { width: 58px; text-align: center; }
+.campaign-stepper button { width: 40px; cursor: pointer; }
+.campaign-stepper button:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+  border-color: #3f372f;
+  color: #6d6256;
+}
+.campaign-stepper input { width: 70px; text-align: center; }
 .campaign-rules-card p {
   margin: 0 0 10px;
   color: #a99c8a;
-  font: 12px/1.55 'Segoe UI', sans-serif;
+  font: 14px/1.6 'Segoe UI', sans-serif;
 }
 .campaign-rules-card hr { border: 0; border-top: 1px solid #43382d; margin: 15px 0; }
 .campaign-mounted-toggle {
@@ -1095,11 +1135,11 @@
   align-items: center;
   gap: 8px;
   color: #d1c4b2;
-  font: 12px 'Segoe UI', sans-serif;
+  font: 14px 'Segoe UI', sans-serif;
 }
 .campaign-actions {
-  width: min(1040px, 100%);
-  margin-top: 18px;
+  width: min(1180px, 100%);
+  margin-top: 20px;
   display: flex;
   justify-content: center;
   gap: 12px;
@@ -1127,43 +1167,68 @@
 /* ── Defense Campaign Runtime HUD ── */
 #defense-campaign-hud {
   position: fixed;
-  top: 14px;
+  top: 18px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 920;
-  min-width: 430px;
-  padding: 9px 18px 10px;
+  min-width: min(560px, calc(100vw - 36px));
+  padding: 14px 24px 15px;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   grid-template-areas:
-    "stage phase timer"
-    "counts counts counts";
-  gap: 5px 16px;
+    "stage phase"
+    "counts counts";
+  gap: 8px 22px;
   align-items: center;
   color: #ded2be;
-  background: rgba(14, 11, 9, .88);
-  border: 1px solid rgba(212,175,55,.38);
-  border-radius: 6px;
-  box-shadow: 0 5px 18px rgba(0,0,0,.65);
+  background: rgba(14, 11, 9, .9);
+  border: 1px solid rgba(212,175,55,.45);
+  border-radius: 7px;
+  box-shadow: 0 7px 22px rgba(0,0,0,.7);
   font-family: 'Cinzel', Georgia, serif;
   pointer-events: none;
 }
-.campaign-hud-stage { grid-area: stage; color: #e5c386; font-size: 11px; letter-spacing: .12em; }
-.campaign-hud-phase { grid-area: phase; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.campaign-hud-timer { grid-area: timer; color: #b5a791; font: 11px 'Segoe UI', sans-serif; }
+.campaign-hud-stage {
+  grid-area: stage;
+  color: #e5c386;
+  font-size: clamp(13px, .8vw, 17px);
+  letter-spacing: .12em;
+}
+.campaign-hud-phase {
+  grid-area: phase;
+  text-align: center;
+  font-size: clamp(15px, .9vw, 19px);
+  font-weight: 800;
+  letter-spacing: .08em;
+}
 .campaign-hud-counts {
   grid-area: counts;
   display: flex;
   justify-content: center;
-  gap: 18px;
-  padding-top: 5px;
-  border-top: 1px solid rgba(255,255,255,.06);
-  font-size: 12px;
-  font-weight: 700;
+  gap: 26px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  font-size: clamp(14px, .85vw, 18px);
+  font-weight: 800;
 }
 .campaign-hud-counts .roman { color: #e96b5c; }
 .campaign-hud-counts .viking { color: #64a9d8; }
-.campaign-hud-vs { color: #766b5e; font-size: 10px; }
+.campaign-hud-vs { color: #8a7b69; font-size: .85em; }
+
+#defense-campaign-countdown {
+  position: fixed;
+  top: 116px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 921;
+  color: #ff5b4d;
+  font: 800 clamp(26px, 1.7vw, 38px)/1.1 'Segoe UI', sans-serif;
+  letter-spacing: .04em;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0,0,0,.95), 0 0 14px rgba(255,70,55,.22);
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 #campaign-result-modal {
   position: fixed;
@@ -1210,25 +1275,57 @@
 .campaign-result-actions button:hover { border-color: #d4af37; color: #f0d39c; }
 
 @media (max-width: 620px) {
-  #defense-campaign-hud { min-width: 0; width: calc(100vw - 24px); top: 54px; }
+  #defense-campaign-hud {
+    min-width: 0;
+    width: calc(100vw - 24px);
+    top: 54px;
+    padding: 11px 14px;
+  }
+  #defense-campaign-countdown {
+    top: 152px;
+    font-size: 24px;
+  }
 }
 
 
 .campaign-loadout-field {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 64px 1fr;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
   color: #9f917f;
-  font: 11px 'Segoe UI', sans-serif;
+  font: 13px 'Segoe UI', sans-serif;
 }
 .campaign-loadout-field select {
   min-width: 0;
-  padding: 6px 7px;
+  padding: 9px 10px;
   color: #ddd0bd;
   background: #211a14;
   border: 1px solid #574a3a;
   border-radius: 4px;
-  font: 11px 'Segoe UI', sans-serif;
+  font: 13px 'Segoe UI', sans-serif;
+}
+
+
+#battle-reference-container .reference-page {
+  width: min(1180px, 100%);
+}
+#battle-reference-container .reference-panel-heading h2 {
+  font-size: 24px;
+}
+#battle-reference-container .reference-subtabs-nav {
+  margin-bottom: 18px;
+}
+
+
+@media (max-width: 760px) {
+  .campaign-unit-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .campaign-tier-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
