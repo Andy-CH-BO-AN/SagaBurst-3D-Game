@@ -131,11 +131,10 @@ interface HumanoidTemplate {
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
 }
 
-const LOD0_MOTION_CLIP_NAMES = new Set(['bowLoad', 'bowHold', 'bowRelease', 'pilumThrow'])
+const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
 
-/** Some LOD0 exports contain only a static pose for these ranged actions. Reuse
- * the existing authored LOD1 tracks on the same named rig bones; do not invent
- * replacement poses or modify the source GLBs. */
+/** Roman LOD0 pilumThrow is a static export. Reuse its authored LOD1 tracks
+ * on the same named rig bones; preserve LOD0 Bow trajectories and source GLBs. */
 export function resolveHumanoidAnimationClips(levelClips: THREE.AnimationClip[][]): THREE.AnimationClip[][] {
   const lod1ByName = new Map((levelClips[1] ?? []).map(clip => [clip.name, clip]))
   return levelClips.map((clips, index) => index === 0

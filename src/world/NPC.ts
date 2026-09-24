@@ -1438,7 +1438,10 @@ export class NPC {
         const origin = this._tmpRangedOrigin
         const direction = this._tmpRangedDirection
         origin.copy(this.bowGripPivot.getWorldPosition(origin))
-        direction.copy(this.pendingPilumTarget).sub(origin).normalize()
+        const aimPoint = targetInfo
+          ? this._getElevatedRangedAimPoint(targetInfo.position)
+          : this.pendingPilumTarget
+        direction.copy(aimPoint).sub(origin).normalize()
         onFireArrow(origin, direction, 'pilum')
         this.bowPivot.visible = false
         this.arrows -= 1

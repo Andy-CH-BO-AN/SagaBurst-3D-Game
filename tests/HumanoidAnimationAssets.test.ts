@@ -133,6 +133,19 @@ async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = fa
 }
 
 describe('humanoid embedded animation asset contract', () => {
+  it('preserves source LOD0 Bow clips and substitutes only the static Roman pilumThrow', async () => {
+    const levels = await Promise.all([0, 1, 2].map(index => loadCharacter('roman', index)))
+    const resolved = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+    const rawLod0 = new Map(levels[0].animations.map(clip => [clip.name, clip]))
+    const lod1 = new Map(levels[1].animations.map(clip => [clip.name, clip]))
+    const productionLod0 = new Map(resolved[0].map(clip => [clip.name, clip]))
+
+    for (const name of ['bowLoad', 'bowHold', 'bowRelease']) {
+      expect(productionLod0.get(name)).toBe(rawLod0.get(name))
+    }
+    expect(productionLod0.get('pilumThrow')).toBe(lod1.get('pilumThrow'))
+  })
+
   it.each(
     (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
   )('%s LOD%s equipped bowLoad retains the imported arm pose at 0%, 50%, and 100%', async (faction, lod) => {
@@ -160,21 +173,11 @@ describe('humanoid embedded animation asset contract', () => {
     const rawBowLoadMotion = rawSamples.slice(1).reduce((sum, pose, index) => sum
       + pose.arm.angleTo(rawSamples[index].arm)
       + pose.drawHand.distanceTo(rawSamples[index].drawHand), 0)
-    if (lod === 0) {
-      // Production intentionally uses the authored LOD1 ranged tracks while
-      // raw diagnostics expose the distinct source LOD0 animation.
-      expect(rawBowLoadMotion).toBeGreaterThan(0.1)
-      expect(samples[1].arm.angleTo(rawSamples[1].arm)
-        + samples[1].drawHand.distanceTo(rawSamples[1].drawHand)).toBeGreaterThan(0.1)
-    } else {
-      expect(rawBowLoadMotion).toBeGreaterThan(0.1)
-    }
+    expect(rawBowLoadMotion).toBeGreaterThan(0.1)
     for (let i = 0; i < samples.length; i++) {
-      if (lod > 0) {
-        expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
-        expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
-        expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
-      }
+      expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
+      expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
+      expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
     }
     controller.stop()
   })
