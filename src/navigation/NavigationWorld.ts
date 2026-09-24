@@ -133,6 +133,12 @@ export class NavigationWorld {
     return startComponent >= 0 && startComponent === goalComponent
   }
 
+  /** Component of a walkable position; blocked NPC spawn points may snap nearby. */
+  componentAt(position: { x: number; z: number }): number {
+    const cell = this.grid.findNearestWalkableCell(position, 2)
+    return cell ? this._componentId(cell) : -1
+  }
+
   private _componentId(cell: NavigationCell): number {
     return this.componentIds[cell.z * this.grid.width + cell.x]
   }

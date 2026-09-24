@@ -12,6 +12,7 @@ interface FormationSearchOffset {
 export interface FormationPlacement {
   center: THREE.Vector3
   slots: THREE.Vector3[]
+  columns: number
 }
 
 const FORMATION_SEARCH_OFFSETS: readonly FormationSearchOffset[] = buildSearchOffsets()
