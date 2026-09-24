@@ -83,6 +83,26 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(config.viking.viking_horse_archer?.[2]).toBe(10)
   })
 
+  it('splits Roman Stage 1 ranged attackers evenly between archers and javelin infantry', () => {
+    const config = createDefenseCampaignWaveConfig(launch('viking', true), 'attackers')
+
+    expect(config.roman.roman_archer?.[2]).toBe(10)
+    expect(config.roman.roman_javelin_infantry?.[2]).toBe(10)
+    expect(config.roman.roman_heavy_infantry?.[2]).toBe(40)
+    expect(config.roman.roman_sword_cavalry?.[2]).toBe(20)
+    expect(config.roman.roman_lancer?.[2]).toBe(10)
+    expect(config.roman.roman_horse_archer?.[2]).toBe(10)
+    expect(calculateArmyTotal(config.roman)).toBe(100)
+  })
+
+  it('keeps the Roman ranged split 50/50 inside each mixed attacker tier', () => {
+    const config = createDefenseCampaignWaveConfig(launch('viking', true, 4), 'attackers')
+
+    expect(config.roman.roman_archer).toEqual({ 1: 0, 2: 10, 3: 3 })
+    expect(config.roman.roman_javelin_infantry).toEqual({ 1: 0, 2: 10, 3: 3 })
+    expect(calculateArmyTotal(config.roman)).toBe(130)
+  })
+
   it('builds 50 T1 sword-cavalry reinforcements for either defender faction', () => {
     const roman = createDefenseCampaignWaveConfig(launch('roman', true), 'reinforcement')
     const viking = createDefenseCampaignWaveConfig(launch('viking', true), 'reinforcement')
@@ -273,6 +293,29 @@ describe('Defense Campaign Stage 1 launch config', () => {
       expect(calculateArmyTotal(attackers.viking), `Stage ${stageId}`).toBe(
         expectedTotals[stageId - 1],
       )
+    }
+  })
+
+  it('builds valid Roman attacker waves for all nine stages with an even ranged split', () => {
+    const expectedTotals = [100, 110, 120, 130, 140, 150, 160, 180, 200]
+
+    for (let stageId = 1; stageId <= 9; stageId++) {
+      const config = launch(
+        'viking',
+        true,
+        stageId as DefenseCampaignLaunchConfig['stageId'],
+      )
+      const attackers = createDefenseCampaignWaveConfig(config, 'attackers')
+
+      expect(calculateArmyTotal(attackers.roman), `Stage ${stageId}`).toBe(
+        expectedTotals[stageId - 1],
+      )
+      for (const tier of [1, 2, 3] as const) {
+        expect(
+          attackers.roman.roman_archer?.[tier],
+          `Stage ${stageId} T${tier} Roman archers`,
+        ).toBe(attackers.roman.roman_javelin_infantry?.[tier])
+      }
     }
   })
 

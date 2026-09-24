@@ -117,6 +117,16 @@ export function resolveCampaignRolePreset(
   return CAMPAIGN_ROLE_PRESETS[faction][role]
 }
 
+export function resolveCampaignAttackerRolePresets(
+  faction: CampaignFaction,
+  role: CampaignUnitRole,
+): readonly UnitPresetId[] {
+  if (faction === 'roman' && role === 'ranged') {
+    return ['roman_archer', 'roman_javelin_infantry']
+  }
+  return [resolveCampaignRolePreset(faction, role)]
+}
+
 export function opposingCampaignFaction(faction: CampaignFaction): CampaignFaction {
   return faction === 'roman' ? 'viking' : 'roman'
 }
@@ -130,7 +140,7 @@ function tierCounts(t1: number, t2: number, t3: number): TierCounts {
  * 40% frontline, 20% ranged, 20% sword cavalry, 10% lancer, 10% horse archer.
  *
  * Faction resolution is deferred:
- * - Roman ranged -> Javelin Infantry
+ * - Roman ranged -> 50% Archer + 50% Javelin Infantry
  * - Viking ranged -> Archer
  */
 function attackerRoleCounts(totalUnits: number): CampaignRoleCounts {
