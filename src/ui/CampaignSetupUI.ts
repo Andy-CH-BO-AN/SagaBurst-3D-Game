@@ -222,7 +222,7 @@ export class CampaignSetupUI {
 
         <aside class="campaign-rules-card">
           <h2>STAGE 1</h2>
-          <p>守軍最多 <b>${stage.defenderDeployment.maxUnits} 人</b>；Stage 1 新增的 20 個名額為 <b>T1 capacity</b>，並保留最多 <b>${stage.defenderDeployment.tierCapacity[3]} 名 T3</b>。</p>
+          <p>守軍最多 <b>${stage.defenderDeployment.maxUnits} 人</b>；Stage 1 額外 <b>${stage.defenderDeployment.bonusSlots} 個 T1 名額</b>，並保留最多 <b>${stage.defenderDeployment.tierCapacity[3]} 名 T3</b>。</p>
           <p>敵軍於部署結束後開始進攻。</p>
           <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} 刀騎兵</b>援軍。</p>
           <p>玩家與原始守軍全滅只會鎖定敗北，戰場仍繼續運作。</p>

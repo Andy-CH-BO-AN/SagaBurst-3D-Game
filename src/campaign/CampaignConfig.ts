@@ -159,10 +159,11 @@ function defenseStage(
   attackerTotal: number,
   attackerTiers: TierCounts,
   reinforcementTier: UnitTier,
+  bonusSlots = DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
 ): DefenseCampaignStageConfig {
   const tierCapacity = {
     ...baseTierCapacity,
-    [bonusTier]: baseTierCapacity[bonusTier] + DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
+    [bonusTier]: baseTierCapacity[bonusTier] + bonusSlots,
   } as TierCounts
 
   return {
@@ -170,9 +171,9 @@ function defenseStage(
     defenderDeployment: {
       baseMaxUnits,
       bonusTier,
-      bonusSlots: DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
+      bonusSlots,
       upperTierPoolCap: bonusTier === 1 ? baseTierCapacity[2] : null,
-      maxUnits: baseMaxUnits + DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
+      maxUnits: baseMaxUnits + bonusSlots,
       tierCapacity,
       cavalryCap,
     },
@@ -192,8 +193,8 @@ function defenseStage(
 /**
  * Shared Defense Campaign progression for either defender faction.
  *
- * - Every stage gains 20 additional defender slots.
- * - Stages 1-3 add those 20 slots as T1 capacity.
+ * - Stage 1 gains 30 additional T1 defender slots.
+ * - Stages 2-3 add 20 slots as T1 capacity.
  * - Stages 4-6 add those 20 slots as T2 capacity.
  * - Stages 7-9 add those 20 slots as T3 capacity.
  * - Existing T3 unlocks and cavalry-cap progression remain additive.
@@ -204,7 +205,7 @@ function defenseStage(
  *   S6 = 30 T2 + 120 T3
  */
 export const DEFENSE_CAMPAIGN_STAGES: readonly DefenseCampaignStageConfig[] = [
-  defenseStage(1, 50, tierCounts(0, 50, 10), 1, 10, 100, tierCounts(0, 100, 0), 1),
+  defenseStage(1, 50, tierCounts(0, 50, 10), 1, 10, 100, tierCounts(0, 100, 0), 1, 30),
   defenseStage(2, 55, tierCounts(5, 50, 10), 1, 10, 110, tierCounts(0, 110, 0), 1),
   defenseStage(3, 60, tierCounts(5, 55, 10), 1, 10, 120, tierCounts(0, 120, 0), 1),
 

@@ -126,7 +126,11 @@ import { SkillManager } from './rpg/SkillManager'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
-import { createCampaignOutpost, getCampaignOutpostPlacement } from './campaign/CampaignOutpost'
+import {
+  createCampaignOutpost,
+  getCampaignDefenderFacingYaw,
+  getCampaignOutpostPlacement,
+} from './campaign/CampaignOutpost'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
@@ -713,7 +717,12 @@ export class Game {
       this.campaignOriginalDefenders = spawned.filter(
         npc => npc.characterFaction === campaignConfig.defenderFaction,
       )
+      const defenderFacingYaw = getCampaignDefenderFacingYaw(campaignConfig.defenderFaction)
       for (const npc of this.campaignOriginalDefenders) {
+        // NPC models default to +Z. Campaign forts mirror across Z, so Viking
+        // defenders must be rotated toward their -Z front gate at spawn.
+        npc.group.rotation.y = defenderFacingYaw
+        if (npc.mount) npc.mount.group.rotation.y = defenderFacingYaw
         npc.setTacticalOrder(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
       }
       this.defenseCampaignRuntime = new DefenseCampaignRuntime()
