@@ -15,7 +15,7 @@ export class DefenseCampaignHUD {
   private resultShown = false
 
   constructor(
-    stageId: number,
+    private readonly stageId: number,
     defenderFaction: CampaignFaction,
   ) {
     const root = document.createElement('div')
@@ -39,7 +39,7 @@ export class DefenseCampaignHUD {
     this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
-    this.stageEl.textContent = String(stageId)
+    this.stageEl.textContent = String(this.stageId)
   }
 
   update(
@@ -83,6 +83,7 @@ export class DefenseCampaignHUD {
     onReplay: () => void,
     onHome: () => void,
     allowObserve = false,
+    onNext?: () => void,
   ): void {
     if (this.resultShown) return
     this.resultShown = true
@@ -92,19 +93,25 @@ export class DefenseCampaignHUD {
     const modal = document.createElement('div')
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
+    const victoryMessage = this.stageId < 9
+      ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`
+      : '敵軍已全數殲滅，Defense Campaign 全部通關。'
     modal.innerHTML = `
       <div class="campaign-result-card">
         <h1 class="${victory ? 'victory' : 'defeat'}">${victory ? 'VICTORY' : 'DEFEAT'}</h1>
         <p>${
           victory
-            ? '敵軍已全數殲滅，前哨站守住了。'
+            ? victoryMessage
             : allowObserve
               ? '玩家與原始守軍全滅。戰場仍會繼續模擬。'
               : '守方已全數陣亡，戰役結束。'
         }</p>
         <div class="campaign-result-actions">
           ${!victory && allowObserve ? '<button type="button" id="campaign-result-observe">繼續觀戰</button>' : ''}
-          <button type="button" id="campaign-result-replay">重玩 STAGE 1</button>
+          ${victory && onNext
+            ? `<button type="button" id="campaign-result-next">下一關 STAGE ${this.stageId + 1} →</button>`
+            : ''}
+          <button type="button" id="campaign-result-replay">重玩 STAGE ${this.stageId}</button>
           <button type="button" id="campaign-result-home">回首頁</button>
         </div>
       </div>
@@ -115,6 +122,7 @@ export class DefenseCampaignHUD {
       modal.remove()
       this.resultShown = false
     })
+    modal.querySelector('#campaign-result-next')?.addEventListener('click', () => onNext?.())
     modal.querySelector('#campaign-result-replay')?.addEventListener('click', onReplay)
     modal.querySelector('#campaign-result-home')?.addEventListener('click', onHome)
   }

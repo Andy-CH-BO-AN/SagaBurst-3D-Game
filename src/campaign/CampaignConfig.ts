@@ -28,7 +28,7 @@ export type TierCounts = Readonly<Record<UnitTier, number>>
 export type CampaignRoleCounts = Readonly<Record<CampaignUnitRole, number>>
 
 export interface DefenseDeploymentRules {
-  /** Original deployment pool before the chapter-specific +20 bonus slots. */
+  /** Original deployment pool before the chapter-specific bonus slots. */
   baseMaxUnits: number
   /** Chapter-specific tier that receives the extra deployment slots. */
   bonusTier: UnitTier
@@ -148,7 +148,7 @@ function attackerRoleCounts(totalUnits: number): CampaignRoleCounts {
   }
 }
 
-export const DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS = 20
+export const DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS = 30
 
 function defenseStage(
   id: CampaignStageId,
@@ -193,10 +193,10 @@ function defenseStage(
 /**
  * Shared Defense Campaign progression for either defender faction.
  *
- * - Stage 1 gains 30 additional T1 defender slots.
- * - Stages 2-3 add 20 slots as T1 capacity.
- * - Stages 4-6 add those 20 slots as T2 capacity.
- * - Stages 7-9 add those 20 slots as T3 capacity.
+ * - Every stage gains 30 chapter-specific bonus defender slots.
+ * - Stages 1-3 add those slots as T1 capacity.
+ * - Stages 4-6 add those slots as T2 capacity.
+ * - Stages 7-9 add those slots as T3 capacity.
  * - Existing T3 unlocks and cavalry-cap progression remain additive.
  *
  * Attacker T3 mix for stages 4-6 is explicit so balance changes remain data-only:
@@ -205,7 +205,7 @@ function defenseStage(
  *   S6 = 30 T2 + 120 T3
  */
 export const DEFENSE_CAMPAIGN_STAGES: readonly DefenseCampaignStageConfig[] = [
-  defenseStage(1, 50, tierCounts(0, 50, 10), 1, 10, 100, tierCounts(0, 100, 0), 1, 30),
+  defenseStage(1, 50, tierCounts(0, 50, 10), 1, 10, 100, tierCounts(0, 100, 0), 1),
   defenseStage(2, 55, tierCounts(5, 50, 10), 1, 10, 110, tierCounts(0, 110, 0), 1),
   defenseStage(3, 60, tierCounts(5, 55, 10), 1, 10, 120, tierCounts(0, 120, 0), 1),
 

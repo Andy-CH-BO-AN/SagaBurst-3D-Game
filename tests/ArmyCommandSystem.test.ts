@@ -24,6 +24,7 @@ import { resolveFormationSlots } from '../src/battle/FormationPlacement'
 import { createTerrain, getTerrainHeight, PLAYABLE_WORLD_BOUND, TERRAIN_TREE_POSITIONS } from '../src/world/Terrain'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../src/campaign/CampaignOutpost'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
+import type { TacticalOrder } from '../src/battle/TacticalOrder'
 
 function romanRegion(): FormationRegion {
   const placement = getCampaignOutpostPlacement('roman')
@@ -55,7 +56,11 @@ function blockingBox(minX: number, maxX: number, minZ: number, maxZ: number) {
   return { box: new THREE.Box3(new THREE.Vector3(minX, -10, minZ), new THREE.Vector3(maxX, 10, maxZ)), isBarricade: false }
 }
 
-function controllerHarness(npcs: any[], formation: any = null) {
+function controllerHarness(
+  npcs: any[],
+  formation: any = null,
+  canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
+) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
     if (!pressed.has(code)) return false
@@ -92,7 +97,16 @@ function controllerHarness(npcs: any[], formation: any = null) {
     renderPlacement: vi.fn(),
     showFeedback: vi.fn(),
   }
-  const controller = new ArmyCommandController(npcs, 'viking', input as any, ui as any, formation)
+  const controller = new ArmyCommandController(
+    npcs,
+    'viking',
+    input as any,
+    ui as any,
+    formation,
+    null,
+    'attack',
+    canIssueOrder,
+  )
   return { controller, input, ui }
 }
 
@@ -604,6 +618,39 @@ describe('Army command keyboard mapping and filtering', () => {
     expect(getArmyCommandShortcut('roman', '`')).toBe('all')
     expect(getArmyCommandShortcut('viking', '7')).toBeNull()
     expect(getArmyCommandShortcut('roman', '8')).toBeNull()
+  })
+
+  it('ignores Attack and Charge while campaign command gating says no enemy exists', () => {
+    const spearman = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_spearman',
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    const h = controllerHarness(
+      [spearman],
+      null,
+      order => order !== 'attack' && order !== 'charge',
+    )
+
+    h.input.pressAll()
+    h.controller.update()
+    h.input.press('1')
+    h.controller.update()
+    expect(spearman.setTacticalOrder).not.toHaveBeenCalled()
+    expect(h.ui.showFeedback).toHaveBeenCalledWith('部署階段：敵軍尚未進場')
+
+    h.input.pressAll()
+    h.controller.update()
+    h.input.press('2')
+    h.controller.update()
+    expect(spearman.setTacticalOrder).not.toHaveBeenCalled()
+
+    h.input.pressAll()
+    h.controller.update()
+    h.input.press('3')
+    h.controller.update()
+    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('defend')
   })
 
   it('shows only unit presets that actually entered the battle, plus ALL', () => {
