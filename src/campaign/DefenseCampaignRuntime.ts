@@ -96,6 +96,26 @@ export class DefenseCampaignRuntime {
     }
 
     this.assaultElapsed += Math.max(0, dt)
+    const defenderSideAlive = state.defendersAlive + (state.playerDead ? 0 : 1)
+
+    // Destroying the entire attacking army is an immediate terminal result.
+    // Do this before reinforcement scheduling so a clean win never queues relief.
+    if (state.attackersAlive <= 0) {
+      this.battleFinished = true
+      if (
+        this.result === 'defeat'
+        || (state.reinforcementSpawned && defenderSideAlive <= 0)
+      ) {
+        // Preserve an already locked defeat and the existing simultaneous-wipe
+        // rule where the defender side reaching zero remains a defeat.
+        this.result = 'defeat'
+        events.push('battle_defeat')
+      } else {
+        this.result = 'victory'
+        events.push('battle_victory')
+      }
+      return events
+    }
 
     if (
       !this.reinforcementTriggered
@@ -106,25 +126,13 @@ export class DefenseCampaignRuntime {
     }
 
     if (
-      DEFENSE_CAMPAIGN_RULES.finishAfterReinforcementWhenEitherSideEliminated
+      DEFENSE_CAMPAIGN_RULES.finishDefenderEliminationAfterReinforcement
       && state.reinforcementSpawned
+      && defenderSideAlive <= 0
     ) {
-      const defenderSideAlive = state.defendersAlive + (state.playerDead ? 0 : 1)
-
-      if (defenderSideAlive <= 0) {
-        this.battleFinished = true
-        this.result = 'defeat'
-        events.push('battle_defeat')
-      } else if (state.attackersAlive <= 0) {
-        this.battleFinished = true
-        if (this.result === 'defeat') {
-          // A defeat locked before reinforcements arrived remains authoritative.
-          events.push('battle_defeat')
-        } else {
-          this.result = 'victory'
-          events.push('battle_victory')
-        }
-      }
+      this.battleFinished = true
+      this.result = 'defeat'
+      events.push('battle_defeat')
     }
 
     return events

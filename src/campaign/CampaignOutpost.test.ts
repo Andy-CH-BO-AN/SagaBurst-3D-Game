@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../world/Terrain'
+import { DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
 import {
   CAMPAIGN_PALISADE_HEIGHT,
+  CAMPAIGN_STRUCTURE_HP_MULTIPLIER,
   createCampaignOutpost,
   getCampaignOutpostPlacement,
 } from './CampaignOutpost'
@@ -41,6 +43,29 @@ describe('CampaignOutpost', () => {
       expect(gateObstacle!.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(placement.frontZ)
       expect(Math.sign(placement.frontZ)).toBe(defenderFaction === 'roman' ? -1 : 1)
       expect(Math.abs(placement.backZ)).toBeGreaterThan(Math.abs(placement.frontZ))
+    },
+  )
+
+  it.each(['roman', 'viking'] as const)(
+    'doubles %s campaign palisade and gate HP without changing geometry',
+    defenderFaction => {
+      const scene = new THREE.Scene()
+      const outpost = createCampaignOutpost(scene, defenderFaction)
+      const palisade = outpost.damageableObstacles.find(
+        obstacle => obstacle.kind === 'palisade',
+      )
+
+      expect(palisade?.maxHp).toBe(
+        DAMAGEABLE_OBSTACLE_HP.palisade * CAMPAIGN_STRUCTURE_HP_MULTIPLIER.palisade,
+      )
+      expect(outpost.gate.maxHp).toBe(
+        DAMAGEABLE_OBSTACLE_HP.gate * CAMPAIGN_STRUCTURE_HP_MULTIPLIER.gate,
+      )
+
+      const gateObstacle = outpost.obstacles.find(
+        obstacle => obstacle.damageable === outpost.gate,
+      )
+      expect(gateObstacle?.box.getSize(new THREE.Vector3()).z).toBeCloseTo(0.9)
     },
   )
 

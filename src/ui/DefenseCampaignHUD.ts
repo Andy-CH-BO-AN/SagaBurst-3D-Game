@@ -23,7 +23,6 @@ export class DefenseCampaignHUD {
     root.innerHTML = `
       <div class="campaign-hud-stage">STAGE <span data-stage></span></div>
       <div class="campaign-hud-phase" data-phase></div>
-      <div class="campaign-hud-timer" data-timer></div>
       <div class="campaign-hud-counts">
         <span class="${defenderFaction}" data-defender></span>
         <span class="campaign-hud-vs">VS</span>
@@ -34,7 +33,10 @@ export class DefenseCampaignHUD {
     this.root = root
     this.stageEl = root.querySelector('[data-stage]')!
     this.phaseEl = root.querySelector('[data-phase]')!
-    this.timerEl = root.querySelector('[data-timer]')!
+    const timer = document.createElement('div')
+    timer.id = 'defense-campaign-countdown'
+    document.body.appendChild(timer)
+    this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
     this.stageEl.textContent = String(stageId)
@@ -119,6 +121,7 @@ export class DefenseCampaignHUD {
 
   destroy(): void {
     this.root.remove()
+    this.timerEl.remove()
     document.getElementById('campaign-result-modal')?.remove()
   }
 }

@@ -25,18 +25,15 @@ import {
   attachArmyAliases,
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
-import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
   getUnitPresetsForFaction,
-  getTraitDescription,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
 
 export class BattleSetupUI {
   private config: BattleConfig
-  private activeTab: 'army' | 'reference' | 'loadout' = 'army'
-  private activeReferenceSubTab: 'balance' | 'viking' | 'roman' | 'weapons' | 'shields' = 'balance'
+  private activeTab: 'army' | 'loadout' = 'army'
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
@@ -145,187 +142,6 @@ export class BattleSetupUI {
       </section>
     `
 
-    const renderReferencePanel = () => {
-      const vikingPresets = getUnitPresetsForFaction('viking')
-      const romanPresets = getUnitPresetsForFaction('roman')
-
-      const renderPresetList = (presets: typeof vikingPresets) => `
-        <div class="reference-preset-grid">
-          ${presets.map(p => {
-            const hasShield = Object.values(p.tierLoadouts).some(l => !!l.shieldId)
-            const isMounted = Object.values(p.tierLoadouts).some(l => !!l.mountId)
-            return `
-              <div class="reference-preset-card">
-                <div class="reference-preset-header">
-                  <h4 class="reference-preset-title">${p.nameZh} <span class="reference-preset-en">${p.nameEn}</span></h4>
-                  <div class="reference-preset-badges">
-                    <span class="reference-badge ${hasShield ? 'badge-shield' : 'badge-neutral'}">${hasShield ? '持盾' : '無盾'}</span>
-                    <span class="reference-badge ${isMounted ? 'badge-mounted' : 'badge-neutral'}">${isMounted ? '騎乘' : '步兵'}</span>
-                  </div>
-                </div>
-                <p class="reference-preset-desc">${p.description}</p>
-                <div class="reference-preset-traits">
-                  ${p.traits.map(t => `<div class="reference-trait-badge">${getTraitDescription(t)}</div>`).join('')}
-                </div>
-                <div class="reference-tiers">
-                  ${([1, 2, 3] as UnitTier[]).map(t => {
-                    const l = p.tierLoadouts[t]
-                    const meleeName = l.meleeWeaponId ? (WEAPONS[l.meleeWeaponId]?.name ?? l.meleeWeaponId) : '無'
-                    const rangedName = l.rangedWeaponId ? (WEAPONS[l.rangedWeaponId]?.name ?? l.rangedWeaponId) : null
-                    const shieldName = l.shieldId ? (ARMORS[l.shieldId]?.name ?? l.shieldId) : null
-                    return `
-                      <div class="reference-tier-row">
-                        <span class="ref-tier-tag">T${t}</span>
-                        <div class="ref-tier-equip-list">
-                          <span class="ref-equip-item">近戰: <b>${meleeName}</b></span>
-                          ${rangedName ? `<span class="ref-equip-item">遠程: <b>${rangedName}</b></span>` : ''}
-                          ${shieldName ? `<span class="ref-equip-item">盾牌: <b>${shieldName}</b></span>` : ''}
-                        </div>
-                      </div>
-                    `
-                  }).join('')}
-                </div>
-              </div>
-            `
-          }).join('')}
-        </div>
-      `
-
-      return `
-        <div id="setup-reference-panel" class="setup-tab-panel reference-page">
-          <div class="reference-panel-heading">
-            <h2>兵種與戰鬥數值參考</h2><span>UNITS &amp; COMBAT BALANCE</span>
-          </div>
-
-          <div class="reference-subtabs-nav">
-            <button type="button" class="ref-subtab-btn ${this.activeReferenceSubTab === 'balance' ? 'active' : ''}" data-ref-subtab="balance">戰鬥數值</button>
-            <button type="button" class="ref-subtab-btn ${this.activeReferenceSubTab === 'viking' ? 'active' : ''}" data-ref-subtab="viking">維京兵種</button>
-            <button type="button" class="ref-subtab-btn ${this.activeReferenceSubTab === 'roman' ? 'active' : ''}" data-ref-subtab="roman">羅馬兵種</button>
-            <button type="button" class="ref-subtab-btn ${this.activeReferenceSubTab === 'weapons' ? 'active' : ''}" data-ref-subtab="weapons">武器</button>
-            <button type="button" class="ref-subtab-btn ${this.activeReferenceSubTab === 'shields' ? 'active' : ''}" data-ref-subtab="shields">盾牌</button>
-          </div>
-
-          <div class="reference-subpanels-container">
-            <!-- 1. 戰鬥數值 -->
-            <div id="ref-subpanel-balance" class="ref-subpanel ${this.activeReferenceSubTab === 'balance' ? 'active' : ''}" data-ref-subpanel="balance">
-              <div class="balance-rules-grid">
-                <div class="balance-rule-card">
-                  <h4>基礎生命值 Base HP</h4>
-                  <p>NPC 預設 HP: <b>${COMBAT_BALANCE.hp.npcDefault}</b></p>
-                  <p>玩家預設 HP: <b>${COMBAT_BALANCE.hp.playerDefault}</b></p>
-                </div>
-                <div class="balance-rule-card">
-                  <h4>弓箭 Bow</h4>
-                  <p>傷害倍率: <b>×${COMBAT_BALANCE.bow.damageMultiplier}</b></p>
-                  <p>攻速倍率: <b>×${COMBAT_BALANCE.bow.attackRateMultiplier}</b> (冷卻約 ${(COMBAT_BALANCE.bow.baseCooldown / COMBAT_BALANCE.bow.attackRateMultiplier).toFixed(2)}s)</p>
-                  <p>步兵射程: <b>${COMBAT_BALANCE.bow.footAttackRange}m</b> | 騎兵射程: <b>${COMBAT_BALANCE.bow.mountedAttackRange}m</b></p>
-                </div>
-                <div class="balance-rule-card">
-                  <h4>標槍 Javelin</h4>
-                  <p>傷害倍率: <b>×${COMBAT_BALANCE.javelin.damageMultiplier}</b></p>
-                  <p>攻速倍率: <b>×${COMBAT_BALANCE.javelin.attackRateMultiplier}</b> (冷卻約 ${(COMBAT_BALANCE.javelin.baseCooldown / COMBAT_BALANCE.javelin.attackRateMultiplier).toFixed(2)}s)</p>
-                  <p>步兵射程: <b>${COMBAT_BALANCE.javelin.footAttackRange}m</b> | 騎兵射程: <b>${COMBAT_BALANCE.javelin.mountedAttackRange}m</b></p>
-                </div>
-                <div class="balance-rule-card">
-                  <h4>長槍 Lance</h4>
-                  <p>步兵反騎: <b>×${COMBAT_BALANCE.lance.unmountedVsMountedDamageMultiplier}</b> (徒步持槍 vs 騎乘目標)</p>
-                  <p>騎槍衝刺: <b>×${COMBAT_BALANCE.lance.mountedChargeDamageMultiplier}</b> (騎乘持槍且速度 &gt; ${COMBAT_BALANCE.lance.mountedChargeSpeedThreshold}m/s)</p>
-                  <p>一般近戰: <b>依武器基礎傷害</b> (無普通 ×1.5 疊加)</p>
-                </div>
-                <div class="balance-rule-card">
-                  <h4>狂戰士 Berserker</h4>
-                  <p>觸發條件: <b>維京 + 步兵 + 單手劍 + 無盾</b></p>
-                  <p>移動速度: <b>×${COMBAT_BALANCE.berserker.moveSpeedMultiplier}</b></p>
-                  <p>近戰傷害: <b>×${COMBAT_BALANCE.berserker.meleeDamageMultiplier}</b></p>
-                  <p>近戰攻速: <b>×${COMBAT_BALANCE.berserker.meleeAttackRateMultiplier}</b></p>
-                </div>
-                <div class="balance-rule-card">
-                  <h4>戰馬撞擊 Mount Impact</h4>
-                  <p>最低起撞速度: <b>${COMBAT_BALANCE.mountImpact.minSpeed}m/s</b></p>
-                  <p>撞擊傷害: <b>${COMBAT_BALANCE.mountImpact.baseDamage}</b> + 速度 × <b>${COMBAT_BALANCE.mountImpact.speedDamageMultiplier}</b></p>
-                  <p>衝刺撞擊加成: <b>×${COMBAT_BALANCE.mountImpact.sprintDamageMultiplier}</b></p>
-                  <p>同一目標冷卻: <b>${COMBAT_BALANCE.mountImpact.sameTargetCooldown}s</b></p>
-                </div>
-              </div>
-            </div>
-
-            <!-- 2. 維京兵種 -->
-            <div id="ref-subpanel-viking" class="ref-subpanel ${this.activeReferenceSubTab === 'viking' ? 'active' : ''}" data-ref-subpanel="viking">
-              ${renderPresetList(vikingPresets)}
-            </div>
-
-            <!-- 3. 羅馬兵種 -->
-            <div id="ref-subpanel-roman" class="ref-subpanel ${this.activeReferenceSubTab === 'roman' ? 'active' : ''}" data-ref-subpanel="roman">
-              ${renderPresetList(romanPresets)}
-            </div>
-
-            <!-- 4. 武器 -->
-            <div id="ref-subpanel-weapons" class="ref-subpanel ${this.activeReferenceSubTab === 'weapons' ? 'active' : ''}" data-ref-subpanel="weapons">
-              <table class="reference-weapons-table">
-                <thead>
-                  <tr>
-                    <th>名稱</th>
-                    <th>階級</th>
-                    <th>類型</th>
-                    <th>基礎傷害</th>
-                    <th>攻擊距離 / 遠程資訊</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${Object.values(WEAPONS).map(w => {
-                    const rangeInfo = w.range
-                      ? `${w.range}m`
-                      : (w.combatKind === 'bow'
-                        ? `步兵 ${COMBAT_BALANCE.bow.footAttackRange}m / 騎兵 ${COMBAT_BALANCE.bow.mountedAttackRange}m`
-                        : (w.combatKind === 'javelin'
-                          ? `步兵 ${COMBAT_BALANCE.javelin.footAttackRange}m / 騎兵 ${COMBAT_BALANCE.javelin.mountedAttackRange}m`
-                          : '—'))
-                    const typeLabel = w.combatKind === 'sword' ? '單手劍 Sword'
-                      : w.combatKind === 'lance' ? '長槍 Lance'
-                      : w.combatKind === 'bow' ? '弓箭 Bow'
-                      : '標槍 Javelin'
-                    return `
-                      <tr>
-                        <td><b>${w.name}</b></td>
-                        <td><span class="ref-tier-badge tier-${w.tier}">T${w.tier}</span></td>
-                        <td>${typeLabel}</td>
-                        <td><b>${w.damageMin === w.damageMax ? w.damageMax : `${w.damageMin}-${w.damageMax}`}</b></td>
-                        <td>${rangeInfo}</td>
-                      </tr>
-                    `
-                  }).join('')}
-                </tbody>
-              </table>
-            </div>
-
-            <!-- 5. 盾牌 -->
-            <div id="ref-subpanel-shields" class="ref-subpanel ${this.activeReferenceSubTab === 'shields' ? 'active' : ''}" data-ref-subpanel="shields">
-              <table class="reference-weapons-table">
-                <thead>
-                  <tr>
-                    <th>名稱</th>
-                    <th>階級</th>
-                    <th>減傷</th>
-                    <th>簡短說明</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${Object.values(ARMORS).map(a => `
-                    <tr>
-                      <td><b>${a.name}</b></td>
-                      <td><span class="ref-tier-badge tier-${a.tier}">T${a.tier}</span></td>
-                      <td><b>${Math.round(a.damageReduction * 100)}%</b></td>
-                      <td>${a.description}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `
-    }
-
     const renderLoadoutPanel = () => `
       <div id="setup-loadout-panel" class="setup-tab-panel loadout-page">
         <div class="loadout-panel-heading">
@@ -421,7 +237,6 @@ export class BattleSetupUI {
 
       <div class="setup-tabs" role="tablist" aria-label="Battle setup sections">
         <button type="button" id="setup-tab-army" class="setup-tab" role="tab"><b>軍隊配置</b><small>ARMY SETUP</small></button>
-        <button type="button" id="setup-tab-reference" class="setup-tab" role="tab"><b>兵種與數值</b><small>UNITS &amp; REFERENCE</small></button>
         <button type="button" id="setup-tab-loadout" class="setup-tab" role="tab"><b>玩家裝備</b><small>PLAYER LOADOUT</small></button>
       </div>
       <div id="setup-army-panel" class="setup-tab-panel">
@@ -467,7 +282,6 @@ export class BattleSetupUI {
         </div>
 
       </div>
-      ${renderReferencePanel()}
       ${renderLoadoutPanel()}
 
       <div id="validation-msg" class="setup-validation-msg"></div>
@@ -558,23 +372,9 @@ export class BattleSetupUI {
       this.activeTab = 'army'
       this._refreshView()
     })
-    document.getElementById('setup-tab-reference')?.addEventListener('click', () => {
-      this.activeTab = 'reference'
-      this._refreshView()
-    })
     document.getElementById('setup-tab-loadout')?.addEventListener('click', () => {
       this.activeTab = 'loadout'
       this._refreshView()
-    })
-
-    this.container?.querySelectorAll('.ref-subtab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const sub = (btn as HTMLElement).dataset.refSubtab as any
-        if (sub) {
-          this.activeReferenceSubTab = sub
-          this._refreshReferenceSubTabs()
-        }
-      })
     })
 
     const hpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
@@ -798,18 +598,14 @@ export class BattleSetupUI {
 
     const loadout = this.config.playerLoadout
     const armyPanel = document.getElementById('setup-army-panel')
-    const referencePanel = document.getElementById('setup-reference-panel')
     const loadoutPanel = document.getElementById('setup-loadout-panel')
     const armyTab = document.getElementById('setup-tab-army')
-    const referenceTab = document.getElementById('setup-tab-reference')
     const loadoutTab = document.getElementById('setup-tab-loadout')
 
     armyPanel?.classList.toggle('active', this.activeTab === 'army')
-    referencePanel?.classList.toggle('active', this.activeTab === 'reference')
     loadoutPanel?.classList.toggle('active', this.activeTab === 'loadout')
 
     armyTab?.classList.toggle('active', this.activeTab === 'army')
-    referenceTab?.classList.toggle('active', this.activeTab === 'reference')
     loadoutTab?.classList.toggle('active', this.activeTab === 'loadout')
 
     if (loadout) {
@@ -828,19 +624,7 @@ export class BattleSetupUI {
         el.setAttribute?.('aria-checked', String(selected))
       })
     }
-
-    this._refreshReferenceSubTabs()
   }
 
-  private _refreshReferenceSubTabs(): void {
-    if (!this.container) return
-    this.container.querySelectorAll('.ref-subtab-btn').forEach(btn => {
-      const el = btn as HTMLElement
-      el.classList.toggle('active', el.dataset.refSubtab === this.activeReferenceSubTab)
-    })
-    this.container.querySelectorAll('.ref-subpanel').forEach(panel => {
-      const el = panel as HTMLElement
-      el.classList.toggle('active', el.dataset.refSubpanel === this.activeReferenceSubTab)
-    })
-  }
+
 }

@@ -28,11 +28,21 @@ export type TierCounts = Readonly<Record<UnitTier, number>>
 export type CampaignRoleCounts = Readonly<Record<CampaignUnitRole, number>>
 
 export interface DefenseDeploymentRules {
-  /** Maximum number of defender NPCs. The player does not consume a slot. */
+  /** Original deployment pool before the chapter-specific +20 bonus slots. */
+  baseMaxUnits: number
+  /** Chapter-specific tier that receives the extra deployment slots. */
+  bonusTier: UnitTier
+  bonusSlots: number
+  /**
+   * Shared T2+T3 pool for early stages. null when individual tier caps and
+   * maxUnits already fully enforce the chapter bonus rule.
+   */
+  upperTierPoolCap: number | null
+  /** Maximum number of defender NPCs after applying the bonus slots. */
   maxUnits: number
   /**
-   * Per-tier slot capacity. Total capacity may exceed maxUnits in later stages so
-   * the player can mix tiers while still respecting the stage total.
+   * Per-tier capacity after applying the chapter bonus.
+   * The base pool rule still prevents bonus slots from leaking into other tiers.
    */
   tierCapacity: TierCounts
   /** Mounted defender NPC cap. null means unrestricted. */
@@ -67,7 +77,7 @@ export const DEFENSE_CAMPAIGN_TIMINGS = {
   /** Attacker army does not exist during this deployment window. */
   deploymentSeconds: 60,
   /** Measured from the start of the assault, not from scene load. */
-  reinforcementDelaySeconds: 180,
+  reinforcementDelaySeconds: 120,
 } as const
 
 export const DEFENSE_CAMPAIGN_RULES = {
@@ -77,8 +87,8 @@ export const DEFENSE_CAMPAIGN_RULES = {
   /** Applies only before the reinforcement wave has actually spawned. */
   lockDefeatWhenPlayerAndOriginalDefendersEliminated: true,
   continueSimulationAfterDefeat: true,
-  /** Terminal elimination is evaluated only after the reinforcement wave exists. */
-  finishAfterReinforcementWhenEitherSideEliminated: true,
+  /** Defender-side elimination becomes terminal only after the reinforcement wave exists. */
+  finishDefenderEliminationAfterReinforcement: true,
 } as const
 
 export const CAMPAIGN_ROLE_PRESETS: Readonly<
@@ -138,19 +148,31 @@ function attackerRoleCounts(totalUnits: number): CampaignRoleCounts {
   }
 }
 
+export const DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS = 20
+
 function defenseStage(
   id: CampaignStageId,
-  maxUnits: number,
-  tierCapacity: TierCounts,
+  baseMaxUnits: number,
+  baseTierCapacity: TierCounts,
+  bonusTier: UnitTier,
   cavalryCap: number | null,
   attackerTotal: number,
   attackerTiers: TierCounts,
   reinforcementTier: UnitTier,
 ): DefenseCampaignStageConfig {
+  const tierCapacity = {
+    ...baseTierCapacity,
+    [bonusTier]: baseTierCapacity[bonusTier] + DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
+  } as TierCounts
+
   return {
     id,
     defenderDeployment: {
-      maxUnits,
+      baseMaxUnits,
+      bonusTier,
+      bonusSlots: DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
+      upperTierPoolCap: bonusTier === 1 ? baseTierCapacity[2] : null,
+      maxUnits: baseMaxUnits + DEFENSE_CAMPAIGN_BONUS_DEFENDER_SLOTS,
       tierCapacity,
       cavalryCap,
     },
@@ -170,9 +192,11 @@ function defenseStage(
 /**
  * Shared Defense Campaign progression for either defender faction.
  *
- * - Stages 1-3: defender deployment grows while attacker numbers rise.
- * - Stages 4-6: defenders stay at 60 and progressively unlock T3 slots.
- * - Stages 7-9: defenders are fully T3-capable and cavalry restrictions open up.
+ * - Every stage gains 20 additional defender slots.
+ * - Stages 1-3 add those 20 slots as T1 capacity.
+ * - Stages 4-6 add those 20 slots as T2 capacity.
+ * - Stages 7-9 add those 20 slots as T3 capacity.
+ * - Existing T3 unlocks and cavalry-cap progression remain additive.
  *
  * Attacker T3 mix for stages 4-6 is explicit so balance changes remain data-only:
  *   S4 = 100 T2 + 30 T3
@@ -180,18 +204,26 @@ function defenseStage(
  *   S6 = 30 T2 + 120 T3
  */
 export const DEFENSE_CAMPAIGN_STAGES: readonly DefenseCampaignStageConfig[] = [
-  defenseStage(1, 50, tierCounts(0, 50, 0), 10, 100, tierCounts(0, 100, 0), 1),
-  defenseStage(2, 55, tierCounts(5, 50, 0), 10, 110, tierCounts(0, 110, 0), 1),
-  defenseStage(3, 60, tierCounts(5, 55, 0), 10, 120, tierCounts(0, 120, 0), 1),
+  defenseStage(1, 50, tierCounts(0, 50, 10), 1, 10, 100, tierCounts(0, 100, 0), 1),
+  defenseStage(2, 55, tierCounts(5, 50, 10), 1, 10, 110, tierCounts(0, 110, 0), 1),
+  defenseStage(3, 60, tierCounts(5, 55, 10), 1, 10, 120, tierCounts(0, 120, 0), 1),
 
-  defenseStage(4, 60, tierCounts(0, 60, 10), 10, 130, tierCounts(0, 100, 30), 2),
-  defenseStage(5, 60, tierCounts(0, 60, 30), 10, 140, tierCounts(0, 70, 70), 2),
-  defenseStage(6, 60, tierCounts(0, 60, 60), 10, 150, tierCounts(0, 30, 120), 2),
+  defenseStage(4, 60, tierCounts(0, 60, 10), 2, 10, 130, tierCounts(0, 100, 30), 2),
+  defenseStage(5, 60, tierCounts(0, 60, 30), 2, 10, 140, tierCounts(0, 70, 70), 2),
+  defenseStage(6, 60, tierCounts(0, 60, 60), 2, 10, 150, tierCounts(0, 30, 120), 2),
 
-  defenseStage(7, 60, tierCounts(0, 60, 60), 20, 160, tierCounts(0, 0, 160), 3),
-  defenseStage(8, 60, tierCounts(0, 60, 60), 40, 180, tierCounts(0, 0, 180), 3),
-  defenseStage(9, 60, tierCounts(0, 60, 60), null, 200, tierCounts(0, 0, 200), 3),
+  defenseStage(7, 60, tierCounts(0, 60, 60), 3, 20, 160, tierCounts(0, 0, 160), 3),
+  defenseStage(8, 60, tierCounts(0, 60, 60), 3, 40, 180, tierCounts(0, 0, 180), 3),
+  defenseStage(9, 60, tierCounts(0, 60, 60), 3, null, 200, tierCounts(0, 0, 200), 3),
 ]
+
+export function getDefenseDeploymentBaseUsed(
+  rules: DefenseDeploymentRules,
+  tierTotals: TierCounts,
+): number {
+  const bonusUsed = Math.min(tierTotals[rules.bonusTier], rules.bonusSlots)
+  return tierTotals[1] + tierTotals[2] + tierTotals[3] - bonusUsed
+}
 
 export function isCampaignStageId(value: number): value is CampaignStageId {
   return Number.isInteger(value) && value >= 1 && value <= DEFENSE_CAMPAIGN_STAGES.length

@@ -10,8 +10,8 @@ function state(overrides: Partial<{
 }> = {}) {
   return {
     playerDead: false,
-    originalDefendersAlive: 50,
-    defendersAlive: 50,
+    originalDefendersAlive: 70,
+    defendersAlive: 70,
     attackersAlive: 0,
     reinforcementSpawned: false,
     ...overrides,
@@ -29,11 +29,11 @@ describe('DefenseCampaignRuntime', () => {
     expect(runtime.getSnapshot().activePhase).toBe('assault')
   })
 
-  it('triggers reinforcement once after 180 assault seconds', () => {
+  it('triggers reinforcement once after 120 assault seconds', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
 
-    expect(runtime.update(179.9, state({
+    expect(runtime.update(119.9, state({
       originalDefendersAlive: 40,
       defendersAlive: 40,
       attackersAlive: 100,
@@ -53,27 +53,43 @@ describe('DefenseCampaignRuntime', () => {
     }))).toEqual([])
   })
 
-  it('does not finish even if a faction reaches zero before reinforcements spawn', () => {
+  it('wins immediately when attackers are eliminated before reinforcements spawn', () => {
     const runtime = new DefenseCampaignRuntime()
-    runtime.update(60, state())
+    runtime.update(60, state({ attackersAlive: 100 }))
 
     expect(runtime.update(30, state({
       defendersAlive: 10,
       attackersAlive: 0,
       reinforcementSpawned: false,
-    }))).toEqual([])
+    }))).toEqual(['battle_victory'])
+    expect(runtime.getSnapshot().phase).toBe('victory')
+    expect(runtime.getSnapshot().reinforcementTriggered).toBe(false)
 
-    expect(runtime.update(150, state({
+    // A finished battle never reaches the scheduled reinforcement event later.
+    expect(runtime.update(90, state({
       defendersAlive: 10,
       attackersAlive: 0,
       reinforcementSpawned: false,
-    }))).toEqual(['reinforcement_due'])
+    }))).toEqual([])
+    expect(runtime.getSnapshot().reinforcementTriggered).toBe(false)
+  })
+
+  it('prefers immediate victory over reinforcement scheduling at the 120-second boundary', () => {
+    const runtime = new DefenseCampaignRuntime()
+    runtime.update(60, state({ attackersAlive: 100 }))
+
+    expect(runtime.update(120, state({
+      defendersAlive: 12,
+      attackersAlive: 0,
+      reinforcementSpawned: false,
+    }))).toEqual(['battle_victory'])
+    expect(runtime.getSnapshot().reinforcementTriggered).toBe(false)
   })
 
   it('finishes after reinforcements spawn when attackers have no living units', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
-    runtime.update(180, state({ attackersAlive: 100 }))
+    runtime.update(120, state({ attackersAlive: 100 }))
 
     expect(runtime.update(0.016, state({
       defendersAlive: 60,
@@ -91,7 +107,7 @@ describe('DefenseCampaignRuntime', () => {
   it('does not lock defeat when player dies after reinforcements spawned and defenders remain', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
-    runtime.update(180, state({ attackersAlive: 100 }))
+    runtime.update(120, state({ attackersAlive: 100 }))
 
     expect(runtime.update(0.016, state({
       playerDead: true,
@@ -106,7 +122,7 @@ describe('DefenseCampaignRuntime', () => {
   it('shows victory when the player dies after reinforcements arrive but surviving defenders later win', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
-    runtime.update(180, state({ attackersAlive: 100 }))
+    runtime.update(120, state({ attackersAlive: 100 }))
 
     // Player dies after relief has arrived, but cavalry are still alive.
     expect(runtime.update(0.016, state({
@@ -132,7 +148,7 @@ describe('DefenseCampaignRuntime', () => {
   it('finishes after reinforcements spawn when the entire defender side is gone', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
-    runtime.update(180, state({ attackersAlive: 100 }))
+    runtime.update(120, state({ attackersAlive: 100 }))
 
     expect(runtime.update(0.016, state({
       playerDead: true,
@@ -147,7 +163,7 @@ describe('DefenseCampaignRuntime', () => {
   it('counts the living player as part of the defender side', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state())
-    runtime.update(180, state({ attackersAlive: 100 }))
+    runtime.update(120, state({ attackersAlive: 100 }))
 
     expect(runtime.update(0.016, state({
       playerDead: false,
@@ -176,7 +192,7 @@ describe('DefenseCampaignRuntime', () => {
       defendersAlive: 0,
     }))).toEqual(['assault_started'])
 
-    expect(runtime.update(180, state({
+    expect(runtime.update(120, state({
       playerDead: true,
       originalDefendersAlive: 0,
       defendersAlive: 0,
