@@ -45,6 +45,7 @@ export class CharacterBowVisual {
 
   private readonly tmpBodyPoint = new THREE.Vector3()
   private readonly tmpWorldNock = new THREE.Vector3()
+  private readonly tmpRestNock = new THREE.Vector3()
   private readonly tmpLocalDirection = new THREE.Vector3()
   private readonly tmpWorldQuaternion = new THREE.Quaternion()
   private drawContact?: THREE.Object3D
@@ -110,7 +111,8 @@ export class CharacterBowVisual {
 
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
-    this.nockPosition.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015, 0.12 + THREE.MathUtils.clamp(drawRatio, 0, 1) * 0.45)
+    const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
+    this.nockPosition.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
     if (this.actionPivot.parent?.userData.handGripFrame) {
       if (!this.drawContact) {
         let ancestor: THREE.Object3D | null = this.actionPivot.parent
@@ -122,7 +124,13 @@ export class CharacterBowVisual {
       }
       if (arrowVisible && this.drawContact) {
         this.drawContact.getWorldPosition(this.tmpWorldNock)
-        this.gripPivot.worldToLocal(this.nockPosition.copy(this.tmpWorldNock))
+        this.gripPivot.worldToLocal(this.tmpWorldNock)
+        this.tmpRestNock.set(
+          DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007,
+          DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015,
+          0.12,
+        )
+        this.nockPosition.copy(this.tmpRestNock).lerp(this.tmpWorldNock, ratio)
       } else this.nockPosition.z = .12
     }
     this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))

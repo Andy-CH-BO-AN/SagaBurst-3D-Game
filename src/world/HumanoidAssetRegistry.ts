@@ -126,8 +126,21 @@ function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefin
 interface HumanoidTemplate {
   manifest: HumanoidAssetManifest
   levels: GLTF[]
+  animationClips?: THREE.AnimationClip[][]
   bowClips?: THREE.AnimationClip[][]
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
+}
+
+const LOD0_MOTION_CLIP_NAMES = new Set(['bowLoad', 'bowHold', 'bowRelease', 'pilumThrow'])
+
+/** Some LOD0 exports contain only a static pose for these ranged actions. Reuse
+ * the existing authored LOD1 tracks on the same named rig bones; do not invent
+ * replacement poses or modify the source GLBs. */
+export function resolveHumanoidAnimationClips(levelClips: THREE.AnimationClip[][]): THREE.AnimationClip[][] {
+  const lod1ByName = new Map((levelClips[1] ?? []).map(clip => [clip.name, clip]))
+  return levelClips.map((clips, index) => index === 0
+    ? clips.map(clip => LOD0_MOTION_CLIP_NAMES.has(clip.name) ? lod1ByName.get(clip.name) ?? clip : clip)
+    : clips)
 }
 
 export interface HumanoidCharacterInstance {
@@ -693,7 +706,8 @@ export class HumanoidAssetRegistry {
       }
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
-      const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations) : level.animations)
+      const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+      const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
       let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
       if (faction === 'roman') {
         if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
@@ -704,7 +718,7 @@ export class HumanoidAssetRegistry {
           )
         }
       }
-      this.templates.set(faction, { manifest, levels, bowClips, romanLod2Consolidation })
+      this.templates.set(faction, { manifest, levels, animationClips, bowClips, romanLod2Consolidation })
     }))
   }
 
@@ -805,8 +819,9 @@ export class HumanoidAssetRegistry {
       }
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
+      const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
-      for (const clip of gltf.animations) clips.set(clip.name, clip)
+      for (const clip of animations) clips.set(clip.name, clip)
       clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       rawClipsPerLevel.push([...clips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
