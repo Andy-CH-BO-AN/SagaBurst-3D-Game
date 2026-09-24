@@ -25,14 +25,22 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
 // Keep the defender palisade 0.40m below the matching archer height so
 // defenders can visually and physically shoot over it without firing gaps.
 export const CAMPAIGN_STRUCTURE_HP_MULTIPLIER = {
-  palisade: 2,
-  gate: 2,
+  palisade: 4,
+  gate: 4,
 } as const
 
 export const CAMPAIGN_PALISADE_HEIGHT = {
   viking: 1.46,
   roman: 1.38,
 } as const
+
+export function getCampaignDefenderFacingYaw(
+  defenderFaction: CharacterFaction,
+): number {
+  // Campaign outposts mirror across Z. Roman defenders at -Z face +Z toward
+  // the front gate; Viking defenders at +Z face -Z.
+  return defenderFaction === 'roman' ? 0 : Math.PI
+}
 
 export interface CampaignOutpostPlacement {
   centerX: number

@@ -6,6 +6,7 @@ import {
   CAMPAIGN_PALISADE_HEIGHT,
   CAMPAIGN_STRUCTURE_HP_MULTIPLIER,
   createCampaignOutpost,
+  getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
 } from './CampaignOutpost'
 
@@ -47,7 +48,7 @@ describe('CampaignOutpost', () => {
   )
 
   it.each(['roman', 'viking'] as const)(
-    'doubles %s campaign palisade and gate HP without changing geometry',
+    'quadruples %s campaign palisade and gate HP without changing geometry',
     defenderFaction => {
       const scene = new THREE.Scene()
       const outpost = createCampaignOutpost(scene, defenderFaction)
@@ -68,6 +69,11 @@ describe('CampaignOutpost', () => {
       expect(gateObstacle?.box.getSize(new THREE.Vector3()).z).toBeCloseTo(0.9)
     },
   )
+
+  it('faces Roman and Viking defenders toward their mirrored front gates', () => {
+    expect(getCampaignDefenderFacingYaw('roman')).toBe(0)
+    expect(getCampaignDefenderFacingYaw('viking')).toBe(Math.PI)
+  })
 
   it('treats gate opening or perimeter destruction as one shared breach', () => {
     const scene = new THREE.Scene()
