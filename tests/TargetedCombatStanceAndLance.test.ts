@@ -144,6 +144,38 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
+  it('keeps the held pilum hidden after an imported clip releases and completes on the same frame', () => {
+    const h = createPlayerHarness({
+      meleeWeaponId: 'steel_sword',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+    })
+    h.update(input())
+    ;(h.player as any).rig.animation = {
+      has: (state: string) => state === 'pilumThrow',
+      getDuration: () => 1.5,
+      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(),
+    }
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    h.update(input({ isRightMouseDown: true }), 0.74)
+    h.update(input({ isRightMouseDown: true }), 0.74)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((h.player as any).bowPivot.visible).toBe(true)
+
+    h.update(input({ isRightMouseDown: true }), 0.01)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.combatAnimationAction).toBe('idle')
+    expect((h.player as any).bowPivot.visible).toBe(false)
+    h.update(input({ isRightMouseDown: true }))
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect((h.player as any).bowPivot.visible).toBe(false)
+  })
+
   // Test 2: RMB + hold LMB -> bowDrawRatio increases smoothly over time
   it('RMB + hold LMB -> bowDrawRatio increases smoothly; release LMB -> shoots arrow', () => {
     const h = createPlayerHarness()

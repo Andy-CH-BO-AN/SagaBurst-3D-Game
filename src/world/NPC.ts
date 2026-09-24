@@ -1862,7 +1862,7 @@ export class NPC {
           } else {
             if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
               this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
-              this.animator.start('pilumThrow')
+              if (this.animator.start('pilumThrow')) this.bowPivot.visible = true
             }
           }
 

@@ -78,6 +78,31 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     expect(cancel).not.toHaveBeenCalled()
   })
 
+  it('equips a fresh held pilum only when the next NPC throw starts', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'PilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_standard', shieldId: null, mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 2
+    updateNpc(npc, 0)
+    ;(npc as any).attackTimer = 10
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0.46, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect((npc as any).bowPivot.visible).toBe(false)
+    updateNpc(npc, 0.25, projectiles)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect((npc as any).bowPivot.visible).toBe(false)
+
+    npc.state = AIState.ATTACK
+    ;(npc as any).attackTimer = 10
+    updateNpc(npc, 0.01, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect((npc as any).bowPivot.visible).toBe(true)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+  })
+
   it('aims an in-flight pilum at the target position at release time', () => {
     const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'MovingTargetPilumThrower', 2, false, {
       meleeWeaponId: 'gladius_rusty',

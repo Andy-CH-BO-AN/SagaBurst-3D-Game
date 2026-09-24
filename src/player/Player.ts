@@ -805,7 +805,8 @@ export class Player {
       }
     }
     if (animationEvents.actionCompleted) {
-      this.pilumProjectileReleased = false
+      // A canonical pilum clip releases on its completion frame. Keep the
+      // thrown pilum hidden until the next throw explicitly equips another.
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false

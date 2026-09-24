@@ -133,14 +133,29 @@ async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = fa
 }
 
 describe('humanoid embedded animation asset contract', () => {
-  it('preserves source LOD0 Bow clips and substitutes only the static Roman pilumThrow', async () => {
+  it.each(['viking', 'roman'] as const)('%s LOD0 source bowLoad has no effective draw-arm motion', faction => {
+    const asset = readGlbAsset(faction, 0)
+    const clip = asset.document.animations.find(animation => animation.name === 'bowLoad')!
+    for (const name of ['upper_arm_r', 'lower_arm_r', 'hand_r']) {
+      const channel = clip.channels.find(candidate => asset.document.nodes[candidate.target.node]?.name === name && candidate.target.path === 'rotation')!
+      const sampler = clip.samplers[channel.sampler]
+      const times = readAccessor(asset, sampler.input)
+      const values = readAccessor(asset, sampler.output)
+      expect(times).toHaveLength(2)
+      const start = new THREE.Quaternion().fromArray(values[0])
+      const end = new THREE.Quaternion().fromArray(values[1])
+      expect(start.angleTo(end)).toBeLessThan(0.01)
+    }
+  })
+  it('keeps LOD0 bowHold/release source poses and only completes the static bowLoad trajectory', async () => {
     const levels = await Promise.all([0, 1, 2].map(index => loadCharacter('roman', index)))
     const resolved = resolveHumanoidAnimationClips(levels.map(level => level.animations))
     const rawLod0 = new Map(levels[0].animations.map(clip => [clip.name, clip]))
     const lod1 = new Map(levels[1].animations.map(clip => [clip.name, clip]))
     const productionLod0 = new Map(resolved[0].map(clip => [clip.name, clip]))
 
-    for (const name of ['bowLoad', 'bowHold', 'bowRelease']) {
+    expect(productionLod0.get('bowLoad')).not.toBe(rawLod0.get('bowLoad'))
+    for (const name of ['bowHold', 'bowRelease']) {
       expect(productionLod0.get(name)).toBe(rawLod0.get(name))
     }
     expect(productionLod0.get('pilumThrow')).toBe(lod1.get('pilumThrow'))
@@ -148,7 +163,7 @@ describe('humanoid embedded animation asset contract', () => {
 
   it.each(
     (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
-  )('%s LOD%s equipped bowLoad retains the imported arm pose at 0%, 50%, and 100%', async (faction, lod) => {
+  )('%s LOD%s equipped bowLoad moves at 0%, 50%, and 100% while preserving authored endpoints', async (faction, lod) => {
     const { root, rig, controller, animator } = await runtimeFixture(faction, lod, true)
     const sample = (ratio: number, equipped: boolean) => {
       controller.setPoseLayersEnabled(equipped)
@@ -166,6 +181,12 @@ describe('humanoid embedded animation asset contract', () => {
     }
     const samples = [0, 0.5, 1].map(ratio => sample(ratio, true))
     const rawSamples = [0, 0.5, 1].map(ratio => sample(ratio, false))
+    const firstHalfMotion = samples[1].arm.angleTo(samples[0].arm)
+      + samples[1].drawHand.distanceTo(samples[0].drawHand)
+    const secondHalfMotion = samples[2].arm.angleTo(samples[1].arm)
+      + samples[2].drawHand.distanceTo(samples[1].drawHand)
+    expect(firstHalfMotion, `${faction} LOD${lod} bowLoad 0%→50% motion`).toBeGreaterThan(0.03)
+    expect(secondHalfMotion, `${faction} LOD${lod} bowLoad 50%→100% motion`).toBeGreaterThan(0.02)
     const bowLoadMotion = samples.slice(1).reduce((sum, pose, index) => sum
       + pose.arm.angleTo(samples[index].arm)
       + pose.drawHand.distanceTo(samples[index].drawHand), 0)
@@ -175,9 +196,21 @@ describe('humanoid embedded animation asset contract', () => {
       + pose.drawHand.distanceTo(rawSamples[index].drawHand), 0)
     expect(rawBowLoadMotion).toBeGreaterThan(0.1)
     for (let i = 0; i < samples.length; i++) {
+      if (lod === 0 && i === 1) {
+        expect(samples[i].arm.angleTo(rawSamples[i].arm)
+          + samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeGreaterThan(0.1)
+        continue
+      }
       expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
       expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
       expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
+    }
+    if (lod === 0) {
+      const almostFull = sample(0.99, true)
+      const full = sample(1, true)
+      expect(almostFull.arm.angleTo(full.arm)).toBeLessThan(0.1)
+      expect(almostFull.drawHand.distanceTo(full.drawHand)).toBeLessThan(0.1)
+      expect(almostFull.bowHand.distanceTo(full.bowHand)).toBeLessThan(0.1)
     }
     controller.stop()
   })
