@@ -13,6 +13,12 @@ import {
   validateDefenseCampaignLaunchConfig,
   type DefenseCampaignLaunchConfig,
 } from './campaign/DefenseCampaignLaunch'
+import {
+  DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
+  isDefenseCampaignStageUnlocked,
+  parseDefenseCampaignSetupTarget,
+  type DefenseCampaignSetupTarget,
+} from './campaign/CampaignProgress'
 
 if (import.meta.env.DEV) void import('./debug/EquipmentRenderCensus')
 if (import.meta.env.DEV) void import('./debug/MainPassCensus')
@@ -92,10 +98,13 @@ async function bootstrap(): Promise<void> {
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateDefenseCampaignLaunchConfig(parsed)
-      if (validation.valid) {
+      if (
+        validation.valid
+        && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)
+      ) {
         savedCampaign = parsed
       } else {
-        console.warn('Invalid sessionStorage campaign config, clearing:', validation.errors)
+        console.warn('Invalid or locked sessionStorage campaign config, clearing:', validation.errors)
         sessionStorage.removeItem('sagaburst_campaign_config')
       }
     }
@@ -132,8 +141,50 @@ async function bootstrap(): Promise<void> {
     return
   }
 
+  let requestedCampaignSetup: DefenseCampaignSetupTarget | null = null
+  try {
+    const raw = sessionStorage.getItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+    sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+    if (raw) {
+      const parsed = parseDefenseCampaignSetupTarget(JSON.parse(raw))
+      if (
+        parsed
+        && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)
+      ) {
+        requestedCampaignSetup = parsed
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse next campaign setup target:', err)
+    sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+  }
+
   // 3. Official entry: choose Custom Battle or Campaign first.
-  const showHome = (): void => {
+  let showHome: () => void
+
+  const showCampaignSetup = (initialTarget?: DefenseCampaignSetupTarget): void => {
+    const campaignUI = new CampaignSetupUI()
+    campaignUI.mount(
+      document.body,
+      async (config) => {
+        try {
+          sessionStorage.removeItem('sagaburst_battle_config')
+          sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+          sessionStorage.setItem('sagaburst_campaign_config', JSON.stringify(config))
+        } catch (e) {
+          console.warn('sessionStorage set error', e)
+        }
+        await launchGame(undefined, config)
+      },
+      () => {
+        campaignUI.destroy()
+        showHome()
+      },
+      initialTarget,
+    )
+  }
+
+  showHome = (): void => {
     const menu = new MainMenuUI()
     menu.mount(document.body, {
       onCustomBattle: () => {
@@ -144,6 +195,7 @@ async function bootstrap(): Promise<void> {
           async (config) => {
             try {
               sessionStorage.removeItem('sagaburst_campaign_config')
+              sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
               sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
             } catch (e) {
               console.warn('sessionStorage set error', e)
@@ -158,23 +210,7 @@ async function bootstrap(): Promise<void> {
       },
       onCampaign: () => {
         menu.destroy()
-        const campaignUI = new CampaignSetupUI()
-        campaignUI.mount(
-          document.body,
-          async (config) => {
-            try {
-              sessionStorage.removeItem('sagaburst_battle_config')
-              sessionStorage.setItem('sagaburst_campaign_config', JSON.stringify(config))
-            } catch (e) {
-              console.warn('sessionStorage set error', e)
-            }
-            await launchGame(undefined, config)
-          },
-          () => {
-            campaignUI.destroy()
-            showHome()
-          },
-        )
+        showCampaignSetup()
       },
       onReference: () => {
         menu.destroy()
@@ -187,7 +223,11 @@ async function bootstrap(): Promise<void> {
     })
   }
 
-  showHome()
+  if (requestedCampaignSetup) {
+    showCampaignSetup(requestedCampaignSetup)
+  } else {
+    showHome()
+  }
 }
 
 void bootstrap()

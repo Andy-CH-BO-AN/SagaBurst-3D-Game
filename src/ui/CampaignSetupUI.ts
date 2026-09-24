@@ -3,8 +3,14 @@ import {
   DEFENSE_CAMPAIGN_TIMINGS,
   getDefenseCampaignStage,
   getDefenseDeploymentBaseUsed,
+  isCampaignStageId,
   type CampaignFaction,
+  type CampaignStageId,
 } from '../campaign/CampaignConfig'
+import {
+  getDefenseCampaignUnlockedStage,
+  type DefenseCampaignSetupTarget,
+} from '../campaign/CampaignProgress'
 import {
   createDefaultDefenseArmy,
   createDefaultDefensePlayerLoadout,
@@ -32,6 +38,7 @@ export class CampaignSetupUI {
   private container: HTMLElement | null = null
   private screen: CampaignSetupScreen = 'faction'
   private defenderFaction: CampaignFaction | null = null
+  private stageId: CampaignStageId = 1
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
   private onStartCallback: ((config: DefenseCampaignLaunchConfig) => void) | null = null
@@ -41,10 +48,31 @@ export class CampaignSetupUI {
     parent: HTMLElement = document.body,
     onStart: (config: DefenseCampaignLaunchConfig) => void,
     onBack: () => void,
+    initialTarget?: DefenseCampaignSetupTarget,
   ): void {
     this.destroy()
     this.onStartCallback = onStart
     this.onBackCallback = onBack
+    this.screen = 'faction'
+    this.defenderFaction = null
+    this.stageId = 1
+    this.defenderArmy = {}
+    this.playerLoadout = null
+
+    if (
+      initialTarget
+      && initialTarget.stageId <= getDefenseCampaignUnlockedStage(initialTarget.defenderFaction)
+    ) {
+      this.defenderFaction = initialTarget.defenderFaction
+      this.stageId = initialTarget.stageId
+      this.defenderArmy = createDefaultDefenseArmy(
+        initialTarget.defenderFaction,
+        initialTarget.stageId,
+      )
+      this.playerLoadout = createDefaultDefensePlayerLoadout(initialTarget.defenderFaction)
+      this.screen = 'setup'
+    }
+
     this.container = document.createElement('div')
     this.container.id = 'campaign-setup-container'
     parent.appendChild(this.container)
@@ -100,7 +128,8 @@ export class CampaignSetupUI {
         const faction = button.dataset.faction
         if (faction !== 'roman' && faction !== 'viking') return
         this.defenderFaction = faction
-        this.defenderArmy = createDefaultDefenseArmy(faction, 1)
+        this.stageId = 1
+        this.defenderArmy = createDefaultDefenseArmy(faction, this.stageId)
         this.playerLoadout = createDefaultDefensePlayerLoadout(faction)
         this.screen = 'stage'
         this._render()
@@ -114,17 +143,20 @@ export class CampaignSetupUI {
   private _renderStageSelect(): void {
     if (!this.container || !this.defenderFaction) return
     const factionLabel = this.defenderFaction === 'roman' ? '羅馬防守' : '維京防守'
+    const unlockedStage = getDefenseCampaignUnlockedStage(this.defenderFaction)
     const stageCards = Array.from({ length: 9 }, (_, index) => {
-      const stage = index + 1
-      const playable = stage === 1
+      const stageId = (index + 1) as CampaignStageId
+      const playable = stageId <= unlockedStage
+      const stage = getDefenseCampaignStage(stageId)
+      const attackerTiers = this._attackerTierLabel(stage.attackerArmy.tierCounts)
       return `
         <button type="button"
           class="campaign-stage-card ${playable ? 'playable' : 'locked'}"
-          data-stage="${stage}"
+          data-stage="${stageId}"
           ${playable ? '' : 'disabled'}>
-          <b>STAGE ${stage}</b>
-          <span>${playable ? '前哨站防衛' : '尚未開放'}</span>
-          <small>${playable ? 'OUTPOST DEFENSE' : 'COMING SOON'}</small>
+          <b>STAGE ${stageId}</b>
+          <span>${playable ? `敵軍 ${stage.attackerArmy.totalUnits} · ${attackerTiers}` : '尚未解鎖'}</span>
+          <small>${playable ? 'OUTPOST DEFENSE' : `CLEAR STAGE ${stageId - 1}`}</small>
         </button>
       `
     }).join('')
@@ -138,9 +170,15 @@ export class CampaignSetupUI {
       </div>
     `
 
-    this.container.querySelector('[data-stage="1"]')?.addEventListener('click', () => {
-      this.screen = 'setup'
-      this._render()
+    this.container.querySelectorAll<HTMLElement>('[data-stage]:not([disabled])').forEach(button => {
+      button.addEventListener('click', () => {
+        const value = Number(button.dataset.stage)
+        if (!isCampaignStageId(value)) return
+        this.stageId = value
+        this.defenderArmy = createDefaultDefenseArmy(this.defenderFaction!, this.stageId)
+        this.screen = 'setup'
+        this._render()
+      })
     })
     const backToFaction = () => {
       this.screen = 'faction'
@@ -152,7 +190,7 @@ export class CampaignSetupUI {
 
   private _renderStageSetup(): void {
     if (!this.container || !this.defenderFaction) return
-    const stage = getDefenseCampaignStage(1)
+    const stage = getDefenseCampaignStage(this.stageId)
     const presets = getUnitPresetsForFaction(this.defenderFaction)
     const total = this._armyTotal()
     const mounted = this._mountedTotal()
@@ -164,6 +202,9 @@ export class CampaignSetupUI {
     const tier1Total = this._tierTotal(1)
     const tier2Total = this._tierTotal(2)
     const tier3Total = this._tierTotal(3)
+    const tierRuleText = stage.defenderDeployment.upperTierPoolCap !== null
+      ? `T1 ≤ ${stage.defenderDeployment.tierCapacity[1]} · T2+T3 ≤ ${stage.defenderDeployment.upperTierPoolCap} · T3 ≤ ${stage.defenderDeployment.tierCapacity[3]}`
+      : `T1 ≤ ${stage.defenderDeployment.tierCapacity[1]} · T2 ≤ ${stage.defenderDeployment.tierCapacity[2]} · T3 ≤ ${stage.defenderDeployment.tierCapacity[3]}`
     const rows = presets.map(preset => {
       const counts = this.defenderArmy[preset.id] ?? { 1: 0, 2: 0, 3: 0 }
       const mountedUnit = Boolean(preset.tierLoadouts[2].mountId || preset.tierLoadouts[3].mountId)
@@ -204,14 +245,14 @@ export class CampaignSetupUI {
     }).join('')
 
     this.container.innerHTML = `
-      ${this._renderHeader('DEFENSE CAMPAIGN · STAGE 1')}
+      ${this._renderHeader(`DEFENSE CAMPAIGN · STAGE ${this.stageId}`)}
       <div class="campaign-stage-summary">
         <div><small>守方</small><b>${factionZh}</b></div>
         <div><small>部署上限</small><b>${total} / ${stage.defenderDeployment.maxUnits}</b></div>
         <div><small>TIER 配額</small><b>T1 ${tier1Total}/${stage.defenderDeployment.tierCapacity[1]} · T2+T3 ${tier2Total + tier3Total}/${stage.defenderDeployment.upperTierPoolCap ?? stage.defenderDeployment.maxUnits} · T3 ${tier3Total}/${stage.defenderDeployment.tierCapacity[3]}</b></div>
-        <div><small>騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap}</b></div>
+        <div><small>騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap ?? '不限'}</b></div>
         <div><small>部署時間</small><b>${DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds} 秒</b></div>
-        <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits} × T2</b></div>
+        <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits} · ${this._attackerTierLabel(stage.attackerArmy.tierCounts)}</b></div>
       </div>
 
       <div class="campaign-setup-layout">
@@ -221,12 +262,13 @@ export class CampaignSetupUI {
         </section>
 
         <aside class="campaign-rules-card">
-          <h2>STAGE 1</h2>
-          <p>守軍最多 <b>${stage.defenderDeployment.maxUnits} 人</b>；Stage 1 額外 <b>${stage.defenderDeployment.bonusSlots} 個 T1 名額</b>，並保留最多 <b>${stage.defenderDeployment.tierCapacity[3]} 名 T3</b>。</p>
+          <h2>STAGE ${this.stageId}</h2>
+          <p>本關守軍上限 <b>${stage.defenderDeployment.maxUnits} 人</b>。</p>
+          <p>Tier 配額：<b>${tierRuleText}</b>。</p>
           <p>敵軍於部署結束後開始進攻。</p>
           <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} 刀騎兵</b>援軍。</p>
-          <p>玩家與原始守軍全滅只會鎖定敗北，戰場仍繼續運作。</p>
-          <p>援軍實際抵達後，任一方存活人數歸零才正式結束戰役。</p>
+          <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
+          <p>玩家與原始守軍全滅會鎖定敗北；戰場仍可繼續模擬至援軍抵達。</p>
           <hr />
           <p><b>玩家裝備</b></p>
           <label class="campaign-loadout-field">
@@ -351,7 +393,7 @@ export class CampaignSetupUI {
     return {
       type: 'defense',
       defenderFaction: this.defenderFaction!,
-      stageId: 1,
+      stageId: this.stageId,
       defenderArmy: this._cloneArmy(),
       playerLoadout: { ...playerLoadout },
     }
@@ -375,7 +417,7 @@ export class CampaignSetupUI {
   }
 
   private _maxAllowedTierCount(presetId: UnitPresetId, tier: UnitTier): number {
-    const stage = getDefenseCampaignStage(1)
+    const stage = getDefenseCampaignStage(this.stageId)
     const rules = stage.defenderDeployment
     const counts = this.defenderArmy[presetId] ?? { 1: 0, 2: 0, 3: 0 }
     const current = counts[tier] ?? 0
@@ -426,6 +468,13 @@ export class CampaignSetupUI {
   private _adjust(presetId: UnitPresetId, tier: UnitTier, delta: number): void {
     const current = this.defenderArmy[presetId]?.[tier] ?? 0
     this._setTierCount(presetId, tier, current + delta)
+  }
+
+  private _attackerTierLabel(counts: Readonly<Record<UnitTier, number>>): string {
+    return ([1, 2, 3] as UnitTier[])
+      .filter(tier => counts[tier] > 0)
+      .map(tier => `T${tier} ${counts[tier]}`)
+      .join(' + ')
   }
 
   private _tierTotal(tier: UnitTier): number {

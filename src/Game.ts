@@ -138,10 +138,15 @@ import {
 } from './campaign/CampaignGate'
 import {
   createDefenseCampaignWaveConfig,
+  positionDefenseCampaignDefenders,
   positionDefenseCampaignReinforcements,
   type DefenseCampaignLaunchConfig,
 } from './campaign/DefenseCampaignLaunch'
 import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
+import {
+  completeDefenseCampaignStage,
+  DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
+} from './campaign/CampaignProgress'
 import {
   DEFENSE_CAMPAIGN_RULES,
   opposingCampaignFaction,
@@ -617,6 +622,7 @@ export class Game {
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
       battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
+      positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -802,6 +808,11 @@ export class Game {
       formationController,
       (order) => this.soundManager.playCommanderCommand(playerFaction, order),
       campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
+      (order) => {
+        if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true
+        const attackerFaction = opposingCampaignFaction(campaignConfig.defenderFaction)
+        return this._campaignFactionAlive(attackerFaction) > 0
+      },
     )
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout)
@@ -1327,6 +1338,11 @@ export class Game {
     allowObserve = false,
   ): void {
     if (!this.defenseCampaignHud) return
+    const campaign = this.defenseCampaignConfig
+    const onNext = result === 'victory' && campaign && campaign.stageId < 9
+      ? () => this._returnToNextDefenseCampaignSetup()
+      : undefined
+
     this.defenseCampaignHud.showResult(
       result,
       () => {
@@ -1334,7 +1350,34 @@ export class Game {
       },
       () => this._returnToHome(),
       allowObserve,
+      onNext,
     )
+  }
+
+  private _returnToNextDefenseCampaignSetup(): void {
+    const campaign = this.defenseCampaignConfig
+    if (!campaign || campaign.stageId >= 9) return
+
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+
+    try {
+      sessionStorage.removeItem('sagaburst_campaign_config')
+      sessionStorage.removeItem('sagaburst_battle_config')
+      sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+      sessionStorage.setItem(
+        DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY,
+        JSON.stringify({
+          defenderFaction: campaign.defenderFaction,
+          stageId: campaign.stageId + 1,
+        }),
+      )
+    } catch (error) {
+      console.warn('Failed to store next campaign setup target:', error)
+    }
+
+    window.location.href = window.location.pathname
   }
 
   private _returnToHome(): void {
@@ -1390,6 +1433,7 @@ export class Game {
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)
       } else if (event === 'battle_victory') {
+        completeDefenseCampaignStage(campaign.defenderFaction, campaign.stageId)
         if (this.campaignSpawnWave === 'reinforcement') {
           this.campaignSpawnQueue = []
           this.campaignSpawnQueueIndex = 0
@@ -1524,7 +1568,12 @@ export class Game {
   // ── Keyboard Shortcuts ──
   private _setupShortcuts(): void {
     window.addEventListener('keydown', (e) => {
-      if (import.meta.env.DEV && this.previewCampaignGate && e.code === 'KeyG') {
+      if (
+        import.meta.env.DEV
+        && this.previewCampaignGate
+        && !this.defenseCampaignConfig
+        && e.code === 'KeyG'
+      ) {
         e.preventDefault()
         const gate = this.previewCampaignGate
         const wasOpen = gate.state === 'open'

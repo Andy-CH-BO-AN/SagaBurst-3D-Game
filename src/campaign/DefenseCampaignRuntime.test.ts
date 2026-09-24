@@ -10,8 +10,8 @@ function state(overrides: Partial<{
 }> = {}) {
   return {
     playerDead: false,
-    originalDefendersAlive: 70,
-    defendersAlive: 70,
+    originalDefendersAlive: 80,
+    defendersAlive: 80,
     attackersAlive: 0,
     reinforcementSpawned: false,
     ...overrides,

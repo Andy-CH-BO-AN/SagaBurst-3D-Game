@@ -4,7 +4,7 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-Its main experience is **Custom Battle**: build Viking and Roman armies, choose how they deploy, pick the player's faction and starting equipment, then enter the battlefield as a fighter or spectator while both AI armies engage.
+SagaBurst currently has two main modes: **Custom Battle**, where you build both armies and control the scenario, and **Defense Campaign**, a nine-stage Roman/Viking defense progression with persistent per-faction unlocks.
 
 ## ⚔️ At a Glance
 
@@ -19,10 +19,33 @@ Its main experience is **Custom Battle**: build Viking and Roman armies, choose 
 | Combat | Melee, bows, pila, shields, lances, cavalry, horse impact |
 | Army command | Select troop groups or the whole army and issue Attack, Defend, Charge, or Formation orders |
 | Spectating | Start as spectator or continue as spectator after player death |
+| Defense Campaign | 9 sequential defense stages for Roman and Viking, with per-faction progression |
 | Replay | REMATCH with the same configuration or return to setup |
 | Platform | Desktop browser, keyboard + mouse |
 
 The project is actively evolving, with current work focused on combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
+
+## 🏰 Defense Campaign
+
+Choose **Roman Defense** or **Viking Defense**, configure the defending army for the selected stage, and hold the faction's outpost against a growing assault force.
+
+- Stages **1–9** unlock sequentially after victory.
+- Roman and Viking progression are stored separately in the browser.
+- Each stage has its own defender cap, tier limits, cavalry cap, attacker size, attacker tier mix, and reinforcement tier.
+- Destroying the entire attacking army wins immediately; otherwise scheduled cavalry reinforcements can still arrive during a long defense.
+- Stage 9 is the final Defense Campaign stage.
+
+| Stage | Defender cap | Bonus tier | Attacker force |
+| --- | ---: | --- | --- |
+| 1 | 80 | +30 T1 | 100 T2 |
+| 2 | 85 | +30 T1 | 110 T2 |
+| 3 | 90 | +30 T1 | 120 T2 |
+| 4 | 90 | +30 T2 | 100 T2 + 30 T3 |
+| 5 | 90 | +30 T2 | 70 T2 + 70 T3 |
+| 6 | 90 | +30 T2 | 30 T2 + 120 T3 |
+| 7 | 90 | +30 T3 | 160 T3 |
+| 8 | 90 | +30 T3 | 180 T3 |
+| 9 | 90 | +30 T3 | 200 T3 |
 
 ## 🚀 Quick Start
 

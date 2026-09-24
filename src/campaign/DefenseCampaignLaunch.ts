@@ -13,6 +13,7 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { getCampaignOutpostPlacement } from './CampaignOutpost'
 import {
   getUnitPreset,
   ROMAN_PRESET_IDS,
@@ -120,12 +121,6 @@ export function validateDefenseCampaignLaunchConfig(
     return { valid: false, errors }
   }
   const stageId = config.stageId
-
-  // #103 exposes Stage 1 only. Keeping this explicit prevents sessionStorage
-  // from bypassing the locked Stage 2-9 UI before their runtime is shipped.
-  if (stageId !== 1) {
-    errors.push('Only Defense Campaign Stage 1 is currently playable')
-  }
 
   const stage = getDefenseCampaignStage(stageId)
   const allowedPresets = config.defenderFaction === 'roman'
@@ -245,18 +240,30 @@ function createWaveArmy(
     const destination = side(defender)
     Object.assign(destination, cloneArmy(launch.defenderArmy))
   } else if (wave === 'attackers') {
-    // Stage 1 is all T2. Keeping the wave builder intentionally strict makes
-    // the Stage 2-9 tier allocator a separate follow-up instead of hidden logic.
-    if (
-      stage.attackerArmy.tierCounts[1] !== 0
-      || stage.attackerArmy.tierCounts[3] !== 0
-    ) {
-      throw new Error('Stage 2-9 attacker tier allocation is not implemented in #103')
-    }
+    // Split each tier bucket using the stage's authoritative role ratios.
+    // Reject non-integral allocations instead of silently rounding gameplay data.
+    for (const tier of [1, 2, 3] as UnitTier[]) {
+      const tierTotal = stage.attackerArmy.tierCounts[tier]
+      if (tierTotal === 0) continue
 
-    for (const role of ROLE_ORDER) {
-      const count = stage.attackerArmy.roleCounts[role]
-      putCount(side(attacker), resolveCampaignRolePreset(attacker, role), 2, count)
+      for (const role of ROLE_ORDER) {
+        const roleCount = (
+          tierTotal
+          * stage.attackerArmy.roleCounts[role]
+          / stage.attackerArmy.totalUnits
+        )
+        if (!Number.isInteger(roleCount)) {
+          throw new Error(
+            `Defense Campaign Stage ${stage.id} cannot allocate T${tier} ${role} integrally`,
+          )
+        }
+        putCount(
+          side(attacker),
+          resolveCampaignRolePreset(attacker, role),
+          tier,
+          roleCount,
+        )
+      }
     }
   } else {
     putCount(
@@ -295,6 +302,38 @@ export function createDefenseCampaignWaveConfig(
   }
 }
 
+
+export function positionDefenseCampaignDefenders(
+  specs: NpcSpawnSpec[],
+  defenderFaction: CampaignFaction,
+): void {
+  const mounted = specs.filter(spec => spec.cavalry || Boolean(spec.loadout?.mountId))
+  if (mounted.length === 0) return
+
+  const placement = getCampaignOutpostPlacement(defenderFaction)
+  const inwardSign = Math.sign(placement.backZ - placement.frontZ)
+  const columnsPerWing = 6
+  const wingBaseX = 6
+  const spacingX = 2.4
+  const spacingZ = 3.5
+  const startZ = placement.frontZ + inwardSign * 15
+
+  // Campaign defenders share one bounded mounted formation instead of the
+  // generic cavalry + horse-archer outer wings. With 90 mounted defenders the
+  // generic second wing can reach |x| ~= 49m, outside the 44m outpost wall.
+  // Keep both wings inside the central clear corridor; campaign tents live
+  // farther out toward the side walls.
+  for (let i = 0; i < mounted.length; i++) {
+    const spec = mounted[i]
+    const wingSign = i % 2 === 0 ? -1 : 1
+    const wingIndex = Math.floor(i / 2)
+    const row = Math.floor(wingIndex / columnsPerWing)
+    const col = wingIndex % columnsPerWing
+
+    spec.x = (wingBaseX + col * spacingX) * wingSign
+    spec.z = startZ + row * spacingZ * inwardSign
+  }
+}
 
 export function positionDefenseCampaignReinforcements(
   specs: NpcSpawnSpec[],

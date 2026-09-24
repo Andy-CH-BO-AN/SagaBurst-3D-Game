@@ -3,18 +3,21 @@ import {
   createDefaultDefenseArmy,
   createDefaultDefensePlayerLoadout,
   createDefenseCampaignWaveConfig,
+  positionDefenseCampaignDefenders,
   positionDefenseCampaignReinforcements,
   validateDefenseCampaignLaunchConfig,
   type DefenseCampaignLaunchConfig,
 } from './DefenseCampaignLaunch'
 import { calculateArmyTotal } from '../battle/BattleConfig'
 import { BattleSpawner } from '../battle/BattleSpawner'
+import { getCampaignOutpostPlacement } from './CampaignOutpost'
 
 function launch(
   defenderFaction: 'roman' | 'viking',
   withDefenders = false,
+  stageId: DefenseCampaignLaunchConfig['stageId'] = 1,
 ): DefenseCampaignLaunchConfig {
-  const defenderArmy = createDefaultDefenseArmy(defenderFaction, 1)
+  const defenderArmy = createDefaultDefenseArmy(defenderFaction, stageId)
   if (withDefenders) {
     defenderArmy[
       defenderFaction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'
@@ -23,7 +26,7 @@ function launch(
   return {
     type: 'defense',
     defenderFaction,
-    stageId: 1,
+    stageId,
     defenderArmy,
     playerLoadout: createDefaultDefensePlayerLoadout(defenderFaction),
   }
@@ -108,6 +111,55 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(result.errors.some(error => error.includes('T1 total 31 exceeds capacity 30'))).toBe(true)
   })
 
+  it.each([
+    [2, 85, 35, 40],
+    [3, 90, 35, 45],
+  ] as const)('allows the full Stage %s defender cap with the extra ten T1 slots', (
+    stageId,
+    expectedTotal,
+    t1,
+    t2,
+  ) => {
+    const config = launch('roman', false, stageId)
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: t1, 2: t2, 3: 10 },
+    }
+
+    expect(calculateArmyTotal(config.defenderArmy)).toBe(expectedTotal)
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+  })
+
+  it.each([
+    [4, 80, 10],
+    [5, 60, 30],
+    [6, 30, 60],
+  ] as const)('allows Stage %s to fill 90 defenders with the extra T2 slots', (
+    stageId,
+    t2,
+    t3,
+  ) => {
+    const config = launch('roman', false, stageId)
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 0, 2: t2, 3: t3 },
+    }
+
+    expect(calculateArmyTotal(config.defenderArmy)).toBe(90)
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+  })
+
+  it.each([7, 8, 9] as const)(
+    'allows Stage %s to field 90 T3 defenders with the extra T3 slots',
+    stageId => {
+      const config = launch('roman', false, stageId)
+      config.defenderArmy = {
+        roman_heavy_infantry: { 1: 0, 2: 0, 3: 90 },
+      }
+
+      expect(calculateArmyTotal(config.defenderArmy)).toBe(90)
+      expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+    },
+  )
+
   it('rejects using Stage 1 T1 bonus slots for extra T2/T3 defenders', () => {
     const config = launch('roman')
     config.defenderArmy = {
@@ -147,6 +199,33 @@ describe('Defense Campaign Stage 1 launch config', () => {
   })
 
 
+  it.each(['roman', 'viking'] as const)(
+    'keeps a full Stage 9 %s mounted defender army inside the outpost',
+    defenderFaction => {
+      const config = launch(defenderFaction, false, 9)
+      const presetId = defenderFaction === 'roman'
+        ? 'roman_sword_cavalry'
+        : 'viking_sword_cavalry'
+      config.defenderArmy = {
+        [presetId]: { 1: 0, 2: 0, 3: 90 },
+      }
+
+      const defenders = createDefenseCampaignWaveConfig(config, 'defenders')
+      const plan = BattleSpawner.createSpawnPlan(defenders)
+      positionDefenseCampaignDefenders(plan.npcSpecs, defenderFaction)
+
+      const placement = getCampaignOutpostPlacement(defenderFaction)
+      const minZ = Math.min(placement.frontZ, placement.backZ)
+      const maxZ = Math.max(placement.frontZ, placement.backZ)
+      const mounted = plan.npcSpecs.filter(spec => spec.cavalry || Boolean(spec.loadout?.mountId))
+
+      expect(mounted).toHaveLength(90)
+      expect(mounted.every(spec => Math.abs(spec.x) < placement.halfWidth)).toBe(true)
+      expect(mounted.every(spec => spec.z > minZ && spec.z < maxZ)).toBe(true)
+      expect(new Set(mounted.map(spec => `${spec.x},${spec.z}`)).size).toBe(90)
+    },
+  )
+
   it('places 50 reinforcements 250m away on the attacking army side for both factions', () => {
     for (const faction of ['roman', 'viking'] as const) {
       const reinforcement = createDefenseCampaignWaveConfig(launch(faction, true), 'reinforcement')
@@ -180,9 +259,42 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(false)
   })
 
-  it('keeps locked Stage 2-9 unreachable through untrusted session data', () => {
-    const config = launch('roman')
-    config.stageId = 2
-    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(false)
+  it('builds a valid attacker wave for all nine stages', () => {
+    const expectedTotals = [100, 110, 120, 130, 140, 150, 160, 180, 200]
+    for (let stageId = 1; stageId <= 9; stageId++) {
+      const config = launch(
+        'roman',
+        true,
+        stageId as DefenseCampaignLaunchConfig['stageId'],
+      )
+      expect(validateDefenseCampaignLaunchConfig(config).valid, `Stage ${stageId}`).toBe(true)
+
+      const attackers = createDefenseCampaignWaveConfig(config, 'attackers')
+      expect(calculateArmyTotal(attackers.viking), `Stage ${stageId}`).toBe(
+        expectedTotals[stageId - 1],
+      )
+    }
+  })
+
+  it('allocates Stage 4 mixed attacker tiers across the full 4:2:2:1:1 role mix', () => {
+    const config = createDefenseCampaignWaveConfig(launch('roman', true, 4), 'attackers')
+    expect(config.viking.viking_berserker).toEqual({ 1: 0, 2: 40, 3: 12 })
+    expect(config.viking.viking_archer).toEqual({ 1: 0, 2: 20, 3: 6 })
+    expect(config.viking.viking_sword_cavalry).toEqual({ 1: 0, 2: 20, 3: 6 })
+    expect(config.viking.viking_lancer).toEqual({ 1: 0, 2: 10, 3: 3 })
+    expect(config.viking.viking_horse_archer).toEqual({ 1: 0, 2: 10, 3: 3 })
+    expect(calculateArmyTotal(config.viking)).toBe(130)
+  })
+
+  it('allocates later attacker quality progression without changing role proportions', () => {
+    const stage6 = createDefenseCampaignWaveConfig(launch('roman', true, 6), 'attackers')
+    expect(stage6.viking.viking_berserker).toEqual({ 1: 0, 2: 12, 3: 48 })
+    expect(stage6.viking.viking_archer).toEqual({ 1: 0, 2: 6, 3: 24 })
+    expect(calculateArmyTotal(stage6.viking)).toBe(150)
+
+    const stage7 = createDefenseCampaignWaveConfig(launch('roman', true, 7), 'attackers')
+    expect(stage7.viking.viking_berserker).toEqual({ 1: 0, 2: 0, 3: 64 })
+    expect(stage7.viking.viking_archer).toEqual({ 1: 0, 2: 0, 3: 32 })
+    expect(calculateArmyTotal(stage7.viking)).toBe(160)
   })
 })

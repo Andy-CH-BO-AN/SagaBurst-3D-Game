@@ -90,6 +90,7 @@ export class ArmyCommandController {
     private readonly formation: FormationController | null = null,
     private readonly onCommandIssued: ((order: TacticalOrder) => void) | null = null,
     initialOrder: TacticalOrder = 'attack',
+    private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -264,6 +265,12 @@ export class ArmyCommandController {
   private _issue(order: TacticalOrder): void {
     const target = this.selectedTarget
     if (!target) return
+
+    if (this.canIssueOrder && !this.canIssueOrder(order)) {
+      this.ui.showFeedback('部署階段：敵軍尚未進場')
+      this._closeSubmenu()
+      return
+    }
 
     this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
