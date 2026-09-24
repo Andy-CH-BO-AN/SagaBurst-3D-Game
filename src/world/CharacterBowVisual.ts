@@ -45,7 +45,6 @@ export class CharacterBowVisual {
 
   private readonly tmpBodyPoint = new THREE.Vector3()
   private readonly tmpWorldNock = new THREE.Vector3()
-  private readonly tmpRestNock = new THREE.Vector3()
   private readonly tmpLocalDirection = new THREE.Vector3()
   private readonly tmpWorldQuaternion = new THREE.Quaternion()
   private drawContact?: THREE.Object3D
@@ -125,12 +124,10 @@ export class CharacterBowVisual {
       if (arrowVisible && this.drawContact) {
         this.drawContact.getWorldPosition(this.tmpWorldNock)
         this.gripPivot.worldToLocal(this.tmpWorldNock)
-        this.tmpRestNock.set(
-          DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007,
-          DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015,
-          0.12,
-        )
-        this.nockPosition.copy(this.tmpRestNock).lerp(this.tmpWorldNock, ratio)
+        // This contact is part of the sampled humanoid pose and already moves
+        // with bowLoad progress. Applying the charge ratio again would lag the
+        // nock behind the draw hand (for example, half of a half-draw at 50%).
+        this.nockPosition.copy(this.tmpWorldNock)
       } else this.nockPosition.z = .12
     }
     this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))

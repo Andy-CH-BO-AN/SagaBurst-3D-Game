@@ -908,7 +908,7 @@ describe('combat presentation regressions', () => {
     expect(direction.dot(target.clone().sub(nock).normalize())).toBeGreaterThan(0.999)
   })
 
-  it('blends the bow nock from its rest position to the draw hand by charge ratio', () => {
+  it('keeps the bow nock on the draw hand as the sampled contact follows charge', () => {
     const character = new THREE.Group()
     character.userData.handGripFrame = {
       palmContactCenter: new THREE.Vector3(0, 0.06, -0.08),
@@ -919,32 +919,32 @@ describe('combat presentation regressions', () => {
     character.add(actionPivot); actionPivot.add(gripPivot)
     const drawContact = new THREE.Object3D()
     drawContact.name = BOW_STRING_CONTACT
-    drawContact.position.set(0.18, 0.24, 0.72)
     character.add(drawContact)
     const bow = new CharacterBowVisual(actionPivot, gripPivot)
     bow.rebuild('recurve_longbow')
 
-    const rest = new THREE.Vector3(
-      DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007,
-      DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015,
-      0.12,
+    const contactAt = (ratio: number) => new THREE.Vector3(
+      0.18 + ratio * 0.04,
+      0.24 + ratio * 0.03,
+      0.12 + ratio * 0.45,
     )
-    gripPivot.localToWorld(rest)
-    character.updateMatrixWorld(true)
-    const contact = drawContact.getWorldPosition(new THREE.Vector3())
     const nockAt = (ratio: number) => {
+      drawContact.position.copy(contactAt(ratio))
+      character.updateMatrixWorld(true)
       bow.update(ratio, undefined, true)
-      return bow.getNockPosition(new THREE.Vector3())
+      character.updateMatrixWorld(true)
+      return {
+        nock: bow.getNockPosition(new THREE.Vector3()),
+        contact: drawContact.getWorldPosition(new THREE.Vector3()),
+      }
     }
 
-    const atRest = nockAt(0)
-    const halfway = nockAt(0.5)
-    const fullyDrawn = nockAt(1)
-    expect(atRest.distanceTo(rest)).toBeLessThan(1e-6)
-    expect(halfway.distanceTo(rest.clone().lerp(contact, 0.5))).toBeLessThan(1e-6)
-    expect(fullyDrawn.distanceTo(contact)).toBeLessThan(1e-6)
-    expect(atRest.distanceTo(halfway)).toBeGreaterThan(0.1)
-    expect(halfway.distanceTo(fullyDrawn)).toBeGreaterThan(0.1)
+    const samples = [0, 0.5, 1].map(nockAt)
+    for (const { nock, contact } of samples) {
+      expect(nock.distanceTo(contact)).toBeLessThan(1e-6)
+    }
+    expect(samples[0].nock.distanceTo(samples[1].nock)).toBeGreaterThan(0.1)
+    expect(samples[1].nock.distanceTo(samples[2].nock)).toBeGreaterThan(0.1)
   })
 
   it('samples the complete bow body from lower tip through grip to upper tip', () => {

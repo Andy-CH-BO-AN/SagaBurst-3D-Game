@@ -823,7 +823,10 @@ export class HumanoidAssetRegistry {
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of animations) clips.set(clip.name, clip)
       clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
-      rawClipsPerLevel.push([...clips.values()])
+      const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
+      for (const clip of gltf.animations) rawClips.set(clip.name, clip)
+      rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
+      rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
       if (index === 0) {

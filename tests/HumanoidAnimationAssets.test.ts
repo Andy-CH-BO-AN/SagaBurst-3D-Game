@@ -123,7 +123,7 @@ async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = fa
   }
   const clips = bow ? normalizeBowHandClips(gltf.scene, animationClips[lod]) : animationClips[lod]
   const mixer = new THREE.AnimationMixer(gltf.scene)
-  const controller = new MixerController([mixer], [clips], [animationClips[lod]])
+  const controller = new MixerController([mixer], [clips], [gltf.animations])
   const rig = createHumanoidRigAdapter(gltf.scene, controller)
   const hand = gltf.scene.getObjectByName('hand_l')!
   const gripFrames = calibrateEquipmentFrames(manifest.swordGripFrames[`lod${lod}`], frame, hand, hand)
@@ -157,10 +157,24 @@ describe('humanoid embedded animation asset contract', () => {
       + pose.arm.angleTo(samples[index].arm)
       + pose.drawHand.distanceTo(samples[index].drawHand), 0)
     expect(bowLoadMotion).toBeGreaterThan(0.1)
+    const rawBowLoadMotion = rawSamples.slice(1).reduce((sum, pose, index) => sum
+      + pose.arm.angleTo(rawSamples[index].arm)
+      + pose.drawHand.distanceTo(rawSamples[index].drawHand), 0)
+    if (lod === 0) {
+      // Production intentionally uses the authored LOD1 ranged tracks while
+      // raw diagnostics expose the distinct source LOD0 animation.
+      expect(rawBowLoadMotion).toBeGreaterThan(0.1)
+      expect(samples[1].arm.angleTo(rawSamples[1].arm)
+        + samples[1].drawHand.distanceTo(rawSamples[1].drawHand)).toBeGreaterThan(0.1)
+    } else {
+      expect(rawBowLoadMotion).toBeGreaterThan(0.1)
+    }
     for (let i = 0; i < samples.length; i++) {
-      expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
-      expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
-      expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
+      if (lod > 0) {
+        expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
+        expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
+        expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
+      }
     }
     controller.stop()
   })
@@ -174,7 +188,7 @@ describe('humanoid embedded animation asset contract', () => {
     controller.stop()
   })
 
-  it.each([0, 1, 2])('Roman LOD%s keeps real pilumThrow motion in raw and equipped production mixer paths', async lod => {
+  it.each([0, 1, 2])('Roman LOD%s keeps source clips raw and pilumThrow motion in production', async lod => {
     const { root, rig, controller } = await runtimeFixture('roman', lod)
     expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
     const sample = () => {
@@ -213,13 +227,22 @@ describe('humanoid embedded animation asset contract', () => {
         + pose.hand.distanceTo(previous.hand)
     }, 0)
 
-    expect(motion(raw)).toBeGreaterThan(0.5)
     expect(motion(equipped)).toBeGreaterThan(0.5)
-    for (let index = 0; index < times.length; index++) {
-      expect(equipped[index].shoulder.angleTo(raw[index].shoulder)).toBeLessThan(0.001)
-      expect(equipped[index].elbow.angleTo(raw[index].elbow)).toBeLessThan(0.001)
-      expect(equipped[index].wrist.angleTo(raw[index].wrist)).toBeLessThan(0.001)
-      expect(equipped[index].hand.distanceTo(raw[index].hand)).toBeLessThan(0.001)
+    if (lod === 0) {
+      expect(motion(raw)).toBeLessThan(0.001)
+      const middleFrameDifference = equipped[2].shoulder.angleTo(raw[2].shoulder)
+        + equipped[2].elbow.angleTo(raw[2].elbow)
+        + equipped[2].wrist.angleTo(raw[2].wrist)
+        + equipped[2].hand.distanceTo(raw[2].hand)
+      expect(middleFrameDifference).toBeGreaterThan(0.5)
+    } else {
+      expect(motion(raw)).toBeGreaterThan(0.5)
+      for (let index = 0; index < times.length; index++) {
+        expect(equipped[index].shoulder.angleTo(raw[index].shoulder)).toBeLessThan(0.001)
+        expect(equipped[index].elbow.angleTo(raw[index].elbow)).toBeLessThan(0.001)
+        expect(equipped[index].wrist.angleTo(raw[index].wrist)).toBeLessThan(0.001)
+        expect(equipped[index].hand.distanceTo(raw[index].hand)).toBeLessThan(0.001)
+      }
     }
     controller.stop()
   })
