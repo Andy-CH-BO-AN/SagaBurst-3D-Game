@@ -21,7 +21,7 @@ import {
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
 import {
-  PLAYER_MELEE_WEAPON_IDS,
+  PLAYER_MELEE_SELECTION_IDS,
   PLAYER_RANGED_WEAPON_IDS,
   PLAYER_SHIELD_IDS,
   type PlayerLoadoutConfig,
@@ -277,7 +277,7 @@ export class CampaignSetupUI {
           <p>本關守軍上限 <b>${stage.defenderDeployment.maxUnits} 人</b>。</p>
           <p>Tier 配額：<b>${tierRuleText}</b>。</p>
           <p>敵軍於部署結束後開始進攻。</p>
-          <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} 刀騎兵</b>援軍。</p>
+          <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} ${this.defenderFaction === 'viking' ? '斧騎兵' : '刀騎兵'}</b>援軍。</p>
           <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
           <p>玩家與原始守軍全滅會鎖定敗北；戰場仍可繼續模擬至援軍抵達。</p>
           <hr />
@@ -285,7 +285,7 @@ export class CampaignSetupUI {
           <label class="campaign-loadout-field">
             <span>近戰</span>
             <select id="campaign-player-melee">
-              ${PLAYER_MELEE_WEAPON_IDS.map(id => `
+              ${PLAYER_MELEE_SELECTION_IDS.map(id => `
                 <option value="${id}" ${loadout.meleeWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
               `).join('')}
             </select>

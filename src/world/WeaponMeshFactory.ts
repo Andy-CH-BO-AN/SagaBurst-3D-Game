@@ -174,6 +174,65 @@ export class WeaponMeshFactory {
       pivot.add(head)
       tipLocal.set(0, 2.6, 0)
 
+    } else if (weaponId === 'viking_axe_t1' || weaponId === 'viking_axe_t2' || weaponId === 'viking_axe_t3') {
+      const tier = WEAPONS[weaponId].tier
+      const wood = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x5b3d29 : 0x65472d, roughness: 0.75 })
+      const leather = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x302b36 : 0x3c3028, roughness: 0.82 })
+      const iron = proceduralMaterial({
+        kind: 'iron', color: tier === 1 ? 0x797875 : tier === 2 ? 0xb4bdc0 : 0xc9c5b2,
+        roughness: tier === 1 ? 0.49 : 0.34, metalness: 0.8,
+      })
+
+      // The 1.44 m haft starts below the axe head; the hand stays 0.15 m above its butt.
+      const haft = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.03, 1.44, 8), wood), 1)
+      haft.position.y = 0.72
+      haft.castShadow = true
+      haft.name = 'dane-axe-haft'
+      pivot.add(haft)
+
+      const grip = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.22, 8), leather), 1)
+      grip.position.y = 0.15
+      grip.name = 'dane-axe-grip'
+      pivot.add(grip)
+
+      const socket = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.24, 8), iron), 1)
+      socket.position.y = 1.30
+      socket.castShadow = true
+      socket.name = 'dane-axe-socket'
+      pivot.add(socket)
+
+      // One broad cutting edge on +X and a hooked beard below the socket.
+      const outline = new THREE.Shape()
+      outline.moveTo(0.025, 1.38)
+      outline.lineTo(0.17, 1.42)
+      outline.lineTo(0.31, 1.45)
+      outline.lineTo(0.33, 1.32)
+      outline.lineTo(0.33, 1.11)
+      outline.lineTo(0.27, 1.00)
+      outline.lineTo(0.16, 0.99)
+      outline.lineTo(0.18, 1.13)
+      outline.lineTo(0.025, 1.18)
+      outline.closePath()
+      const blade = equipmentShadowUntil(new THREE.Mesh(new THREE.ExtrudeGeometry(outline, { depth: 0.032, bevelEnabled: false }), iron), 1)
+      blade.position.z = -0.016
+      blade.castShadow = true
+      blade.name = 'dane-axe-single-bearded-blade'
+      pivot.add(blade)
+
+      // Splay only the visible axe outward from the hand so it clears the horse.
+      // The sword hit reference remains fixed on the original animation path.
+      const visual = new THREE.Group()
+      visual.name = 'dane-axe-visual'
+      visual.position.y = 0.15
+      visual.rotation.x = 0.45
+      for (const part of [...pivot.children]) {
+        part.position.y -= 0.15
+        visual.add(part)
+      }
+      pivot.add(visual)
+
+      // Keep the sword's hit reference and range even though the visible haft ends at 1.45 m.
+      tipLocal.set(0, 1.51, 0)
     } else {
       const tier = weaponId === 'rusty_dagger' ? 1 : weaponId === 'runic_greatsword' ? 3 : 2
       const leather = proceduralMaterial({

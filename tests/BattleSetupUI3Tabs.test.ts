@@ -227,6 +227,23 @@ describe('Battle setup and standalone reference UI', () => {
     ui.destroy()
   })
 
+  it('offers Viking axe tiers in the player melee loadout and equips the selected tier', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    const vikingMeleeCards = container.querySelectorAll('.loadout-card')
+      .filter(card => card.dataset.loadoutKind === 'melee'
+        && ['viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3', 'rusty_dagger', 'steel_sword', 'runic_greatsword'].includes(card.dataset.loadoutId))
+    expect(vikingMeleeCards.map(card => card.dataset.loadoutId)).toEqual([
+      'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
+    ])
+
+    vikingMeleeCards[2].click()
+    expect((ui as any).config.playerLoadout.meleeWeaponId).toBe('viking_axe_t3')
+
+    ui.destroy()
+  })
+
   it('initializes Player HP and clamps customization to 1–9999', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})

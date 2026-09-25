@@ -49,6 +49,8 @@ export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolea
   const matrix = pivot.userData[mounted ? 'swordMountedAttachment' : 'swordFootAttachment'] as THREE.Matrix4 | undefined
   if (!matrix) return
   matrix.decompose(pivot.position, pivot.quaternion, pivot.scale)
+  const axeVisual = pivot.getObjectByName('dane-axe-visual')
+  if (axeVisual) axeVisual.rotation.set(mounted ? 0 : 0.45, 0, mounted ? 0.55 : 0)
   pivot.userData.swordMounted = mounted
   pivot.updateMatrix()
 }

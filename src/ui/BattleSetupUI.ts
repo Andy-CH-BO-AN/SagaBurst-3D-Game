@@ -150,9 +150,9 @@ export class BattleSetupUI {
         <div class="loadout-columns">
           <section class="loadout-category"><div class="loadout-category-heading"><h3>近戰武器</h3><span>MELEE</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
-              { id: 'rusty_dagger', tier: 'T1', zh: '風化長劍', en: 'WEATHERED SWORD' },
-              { id: 'steel_sword', tier: 'T2', zh: '鋼製長劍', en: 'STEEL SWORD' },
-              { id: 'runic_greatsword', tier: 'T3', zh: '符文長劍', en: 'RUNIC SWORD' },
+              { id: 'viking_axe_t1', tier: 'T1', zh: '維京長斧', en: 'VIKING AXE' },
+              { id: 'viking_axe_t2', tier: 'T2', zh: '精鋼維京長斧', en: 'STEEL VIKING AXE' },
+              { id: 'viking_axe_t3', tier: 'T3', zh: '符文維京長斧', en: 'RUNIC VIKING AXE' },
             ], 'melee')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
               { id: 'gladius_rusty', tier: 'T1', zh: '生鏽羅馬短劍', en: 'RUSTY GLADIUS' },

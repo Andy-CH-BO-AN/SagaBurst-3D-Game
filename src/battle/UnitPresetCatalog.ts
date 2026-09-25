@@ -81,12 +81,12 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     faction: 'viking',
     nameZh: '維京資深戰士',
     nameEn: 'Viking Veteran',
-    description: '經驗豐富的維京近戰步兵，平時持同階長劍與圓盾穩健作戰；聽到衝鋒號後會卸下盾牌，化身狂戰士投入近戰。',
+    description: '經驗豐富的維京近戰步兵，平時持同階長斧與圓盾穩健作戰；聽到衝鋒號後會卸下盾牌，化身狂戰士投入近戰。',
     traits: ['shield_defense'],
     tierLoadouts: {
-      1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: null },
-      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: null },
-      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: null },
+      1: { meleeWeaponId: 'viking_axe_t1', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: null },
+      2: { meleeWeaponId: 'viking_axe_t2', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: null },
+      3: { meleeWeaponId: 'viking_axe_t3', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: null },
     },
   },
   viking_spearman: {
@@ -118,14 +118,14 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
   viking_sword_cavalry: {
     id: 'viking_sword_cavalry',
     faction: 'viking',
-    nameZh: '刀騎兵',
-    nameEn: 'Sword Cavalry',
-    description: '持劍持盾的突擊輕騎兵，攻守均衡。',
+    nameZh: '斧騎兵',
+    nameEn: 'Axe Cavalry',
+    description: '持長斧與圓盾的突擊輕騎兵，攻守均衡。',
     traits: ['shield_defense'],
     tierLoadouts: {
-      1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: 'horse' },
-      2: { meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: 'horse' },
-      3: { meleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: 'horse' },
+      1: { meleeWeaponId: 'viking_axe_t1', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: 'horse' },
+      2: { meleeWeaponId: 'viking_axe_t2', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: 'horse' },
+      3: { meleeWeaponId: 'viking_axe_t3', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: 'horse' },
     },
   },
   viking_lancer: {
