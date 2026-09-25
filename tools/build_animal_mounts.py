@@ -148,15 +148,15 @@ def sculpt(kind):
             # This is the key feline read from the reference sheet.
             s('front_shoulder', (x, .63, .46), (.085, .18, .11))
             seg('front_upper', (x, .62, .47), (x, .37, .49), .065, .050)
-            seg('front_lower', (x, .36, .49), (x, .12, .54), .047, .033)
-            s('front_paw', (x, .055, .585), (.045, .035, .0525))
+            seg('front_lower', (x, .36, .49), (x, .09, .54), .047, .033)
+            s('front_paw', (x, .045, .585), (.045, .045, .0525))
 
             # Cat hind leg zig-zag: hip -> forward knee -> rear hock -> paw.
             s('rear_thigh', (x, .60, -.52), (.095, .18, .12))
             seg('rear_upper', (x, .61, -.55), (x, .41, -.34), .075, .055)
             seg('rear_hock', (x, .40, -.35), (x, .20, -.62), .052, .038)
-            seg('rear_lower', (x, .19, -.61), (x, .10, -.48), .036, .029)
-            s('rear_paw', (x, .055, -.425), (.045, .035, .0525))
+            seg('rear_lower', (x, .19, -.61), (x, .09, -.48), .036, .029)
+            s('rear_paw', (x, .045, -.425), (.045, .045, .0525))
         else:
             s('front_shoulder', (x, 1.10, front_z), (.275, .38, .31))
             s('front_upper', (x, .80, .70), (.215, .34, .23))
@@ -171,7 +171,7 @@ def sculpt(kind):
         seg('tail_base', (0, .62, -.73), (0, .52, -.92), .055, .048)
         seg('tail_middle', (0, .52, -.91), (0, .36, -1.18), .048, .035)
         seg('tail_tip', (0, .36, -1.17), (0, .32, -1.48), .035, .022)
-        s('tail_end', (0, .33, -1.53), (.025, .025, .035))
+        s('tail_end', (0, .32, -1.50), (.025, .025, .035))
     else:
         s('docked_tail', (0, 1.35, -1.58), (.13, .13, .19))
 
@@ -234,12 +234,12 @@ def armature(kind):
             parent = 'chest_spine' if front else 'body'
             if kind == 'black_cat' and front:
                 add(f'{label}_upper_leg', parent, (x, .63, .46), (x, .37, .49))
-                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .36, .49), (x, .12, .54))
-                add(f'{label}_paw', f'{label}_lower_leg', (x, .105, .54), (x, .055, .64))
+                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .36, .49), (x, .09, .54))
+                add(f'{label}_paw', f'{label}_lower_leg', (x, .09, .54), (x, .045, .64))
             elif kind == 'black_cat':
                 add(f'{label}_upper_leg', parent, (x, .61, -.55), (x, .41, -.34))
                 add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .40, -.35), (x, .20, -.62))
-                add(f'{label}_paw', f'{label}_lower_leg', (x, .12, -.49), (x, .055, -.39))
+                add(f'{label}_paw', f'{label}_lower_leg', (x, .09, -.49), (x, .045, -.39))
             else:
                 z = .68 if front else -1.23
                 add(f'{label}_upper_leg', parent, (x, 1.1, z), (x, .65, z))
