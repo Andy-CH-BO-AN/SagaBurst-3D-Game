@@ -91,12 +91,12 @@ def sculpt(kind):
 
     if cat:
         # Narrow saddle back, broad shoulder and feline haunches.
-        s('ribcage', (0, 1.16, 0.04), (.355, .41, .78))
-        s('waist', (0, 1.16, -.53), (.32, .36, .53))
-        s('shoulders', (0, 1.18, .59), (.43, .46, .48))
-        s('haunch', (0, 1.15, -1.02), (.42, .44, .48))
-        s('sternum', (0, 1.08, .83), (.31, .38, .30))
-        s('neck', (0, 1.43, 1.03), (.31, .35, .36))
+        s('ribcage', (0, 1.16, 0.04), (.31, .39, .78))
+        s('waist', (0, 1.16, -.53), (.255, .33, .53))
+        s('shoulders', (0, 1.18, .59), (.36, .43, .47))
+        s('haunch', (0, 1.15, -1.02), (.365, .42, .47))
+        s('sternum', (0, 1.08, .83), (.27, .36, .30))
+        s('neck', (0, 1.43, 1.03), (.275, .33, .35))
         s('skull', (0, 1.66, 1.35), (.315, .255, .30))
         for side in (-1, 1):
             s('cheek', (side * .185, 1.57, 1.50), (.155, .13, .17))
@@ -119,20 +119,20 @@ def sculpt(kind):
         s('short_broad_muzzle', (0, 1.54, 1.65), (.255, .145, .23))
         s('jaw', (0, 1.43, 1.61), (.22, .09, .20))
 
-    leg_x = .36 if cat else .365
+    leg_x = .325 if cat else .365
     front_z = .68
     rear_z = -1.04 if cat else -1.23
     for side in (-1, 1):
         x = side * leg_x
         if cat:
-            s('front_shoulder', (x, 1.12, front_z), (.26, .39, .31))
-            s('front_upper', (x, .81, .71), (.205, .37, .215))
-            s('front_lower', (x, .37, .78), (.15, .33, .16))
-            s('front_paw', (x, .12, .92), (.215, .12, .27))
-            s('rear_thigh', (x, 1.02, rear_z), (.30, .41, .34))
-            s('rear_hock', (x, .59, rear_z - .12), (.19, .32, .19))
-            s('rear_lower', (x, .30, rear_z + .01), (.15, .27, .15))
-            s('rear_paw', (x, .12, rear_z + .16), (.22, .12, .26))
+            s('front_shoulder', (x, 1.12, front_z), (.215, .38, .285))
+            s('front_upper', (x, .81, .71), (.155, .36, .17))
+            s('front_lower', (x, .37, .78), (.10, .33, .115))
+            s('front_paw', (x, .12, .92), (.155, .105, .235))
+            s('rear_thigh', (x, 1.02, rear_z), (.245, .40, .30))
+            s('rear_hock', (x, .59, rear_z - .12), (.125, .31, .145))
+            s('rear_lower', (x, .30, rear_z + .01), (.095, .27, .11))
+            s('rear_paw', (x, .12, rear_z + .16), (.16, .105, .23))
         else:
             s('front_shoulder', (x, 1.10, front_z), (.275, .38, .31))
             s('front_upper', (x, .80, .70), (.215, .34, .23))
@@ -199,7 +199,7 @@ def armature(kind):
     for front in (True, False):
         for side in (-1, 1):
             label = f'{"front" if front else "rear"}_{"l" if side < 0 else "r"}'
-            x = side * (.36 if kind == 'black_cat' else .365)
+            x = side * (.325 if kind == 'black_cat' else .365)
             z = .68 if front else (-1.04 if kind == 'black_cat' else -1.23)
             parent = 'chest_spine' if front else 'body'
             add(f'{label}_upper_leg', parent, (x, 1.1, z), (x, .65, z))
@@ -316,9 +316,9 @@ def features(kind, arm, mats):
         objects.append(obj)
     cat = kind == 'black_cat'
     for side in (-1, 1):
-        add(sphere('eye', (side * (.155 if cat else .19), 1.69 if cat else 1.72, 1.605 if cat else 1.69), (.048 if cat else .043, .026 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
+        add(sphere('eye', (side * (.155 if cat else .19), 1.69 if cat else 1.72, 1.605 if cat else 1.69), (.064 if cat else .043, .034 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
         if cat:
-            add(sphere('pupil', (side * .155, 1.69, 1.614), (.009, .022, .005), 10, 6), mats['dark'], 'pupil')
+            add(sphere('pupil', (side * .155, 1.69, 1.614), (.012, .028, .005), 10, 6), mats['dark'], 'pupil')
     add(sphere('nose', (0, 1.535 if cat else 1.58, 1.735 if cat else 1.85), (.064 if cat else .085, .042, .035), 10, 6), mats['dark'], 'nose')
     return objects
 
