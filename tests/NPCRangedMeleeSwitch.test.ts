@@ -1,8 +1,10 @@
 import * as THREE from 'three'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
+import { getRangedCooldown } from '../src/combat/CombatBalance'
+import { PILUM_THROW_RELEASE_TIME } from '../src/world/CharacterCombatAnimator'
 import {
   BACKWARD_SPEED_MULTIPLIER,
   FORWARD_SPEED_MULTIPLIER,
@@ -20,7 +22,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     player.setPosition(0, 0, 0)
   })
 
-  function updateNpc(npc: NPC, dt = 0.016) {
+  function updateNpc(npc: NPC, dt = 0.016, onFireArrow = () => {}) {
     player.group.position.y = npc.combatPosition.y
     npc.update(
       dt,
@@ -30,10 +32,191 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       [],
       null as any,
       () => {},
-      () => {},
+      onFireArrow,
       true, // skipBoidsAndObstacles
     )
   }
+
+  it('NPC pilum releases once and completes recovery before switching an empty loadout to melee', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'PilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 1
+    updateNpc(npc, 0)
+    const animator = (npc as any).animator
+    const cancel = vi.spyOn(animator, 'cancel')
+    let launchGripDistance = Infinity
+    const projectiles = vi.fn((origin?: THREE.Vector3) => {
+      if (origin) launchGripDistance = origin.distanceTo((npc as any).bowGripPivot.getWorldPosition(new THREE.Vector3()))
+    })
+    ;(npc as any).attackTimer = 10
+
+    updateNpc(npc, 0, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+
+    updateNpc(npc, 0.44, projectiles)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+    updateNpc(npc, 0.02, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(projectiles.mock.calls[0][2]).toBe('pilum')
+    expect(launchGripDistance).toBeLessThan(1e-6)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect((npc as any).bowPivot.visible).toBe(false)
+    expect(npc.currentState).toBe(AIState.ATTACK)
+    expect(cancel).not.toHaveBeenCalled()
+
+    updateNpc(npc, 0.23, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(npc.currentState).toBe(AIState.ATTACK)
+
+    updateNpc(npc, 0.01, projectiles)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect(npc.currentState).toBe(AIState.CHASE)
+    expect((npc as any).swordPivot.visible).toBe(true)
+    expect((npc as any).bowPivot.visible).toBe(false)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('equips a fresh held pilum only when the next NPC throw starts', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'PilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_standard', shieldId: null, mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 2
+    updateNpc(npc, 0)
+    ;(npc as any).attackTimer = 10
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0, projectiles)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+    updateNpc(npc, 0.46, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect((npc as any).bowPivot.visible).toBe(false)
+    updateNpc(npc, 0.24, projectiles)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect((npc as any).bowPivot.visible).toBe(false)
+
+    npc.state = AIState.ATTACK
+    ;(npc as any).attackTimer = 10
+    updateNpc(npc, 0, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect((npc as any).bowPivot.visible).toBe(true)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    updateNpc(npc, 0.46, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(2)
+    expect((npc as any).bowPivot.visible).toBe(false)
+  })
+
+  it('aims an in-flight pilum at the target position at release time', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'MovingTargetPilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 2
+    updateNpc(npc, 0)
+    ;(npc as any).attackTimer = 10
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).not.toHaveBeenCalled()
+    const originalAim = (npc as any).pendingPilumTarget.clone() as THREE.Vector3
+    const elevatedAimAtRelease = vi.spyOn(npc as any, '_getElevatedRangedAimPoint')
+
+    player.group.position.set(5, player.group.position.y, -2)
+    updateNpc(npc, 0.46, projectiles)
+
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    const [origin, direction, weaponType] = projectiles.mock.calls[0] as [THREE.Vector3, THREE.Vector3, string]
+    expect(elevatedAimAtRelease).toHaveBeenCalledTimes(1)
+    const targetPositionAtRelease = elevatedAimAtRelease.mock.calls[0][0] as THREE.Vector3
+    expect(targetPositionAtRelease.distanceTo(player.group.position)).toBeLessThan(1e-6)
+    const expectedDirection = (elevatedAimAtRelease.mock.results[0].value as THREE.Vector3)
+      .clone().sub(origin).normalize()
+    const originalDirection = originalAim.sub(origin).normalize()
+    expect(weaponType).toBe('pilum')
+    expect(direction.dot(expectedDirection)).toBeGreaterThan(0.9999)
+    expect(direction.dot(originalDirection)).toBeLessThan(0.999)
+  })
+
+  it('uses the stored pilum aim if the target disappears before release', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'LostTargetPilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 2
+    updateNpc(npc, 0)
+    ;(npc as any).attackTimer = 10
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0, projectiles)
+    const pendingAim = (npc as any).pendingPilumTarget.clone() as THREE.Vector3
+    ;(player as any).isDead = true
+    updateNpc(npc, 0.46, projectiles)
+
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    const [origin, direction, weaponType] = projectiles.mock.calls[0] as [THREE.Vector3, THREE.Vector3, string]
+    expect(weaponType).toBe('pilum')
+    expect(direction.dot(pendingAim.sub(origin).normalize())).toBeGreaterThan(0.9999)
+  })
+
+  it('schedules an imported pilumThrow from its canonical 1.5s clip duration', () => {
+    const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'ImportedPilumThrower', 2, false, {
+      meleeWeaponId: 'gladius_rusty',
+      rangedWeaponId: 'pilum_standard',
+      shieldId: null,
+      mountId: null,
+    })
+    npc.state = AIState.ATTACK
+    ;(npc as any).arrows = 1
+    ;(npc as any).rig.animation = {
+      has: (state: string) => state === 'pilumThrow',
+      getDuration: (state: string) => state === 'pilumThrow' ? 1.5 : undefined,
+      play: () => true,
+      update: () => {},
+      setEquipmentState: () => {},
+    }
+    ;(npc as any).attackTimer = getRangedCooldown('javelin') - 1.5
+    const projectiles = vi.fn()
+
+    updateNpc(npc, 0.016, projectiles)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+    updateNpc(npc, PILUM_THROW_RELEASE_TIME - 0.026, projectiles)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect((npc as any).bowPivot.visible).toBe(true)
+    updateNpc(npc, 0.01, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect((npc as any).bowPivot.visible).toBe(false)
+    updateNpc(npc, 1.5 - PILUM_THROW_RELEASE_TIME - 0.001, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(npc.combatAnimationAction).toBe('pilumThrow')
+
+    updateNpc(npc, 0.001, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(npc.combatAnimationAction).toBe('idle')
+    expect(npc.currentState).toBe(AIState.CHASE)
+    expect(npc.arrows).toBe(0)
+    expect((npc as any).swordPivot.visible).toBe(true)
+    expect((npc as any).bowPivot.visible).toBe(false)
+  })
 
   function createMountedNpc(
     x: number,

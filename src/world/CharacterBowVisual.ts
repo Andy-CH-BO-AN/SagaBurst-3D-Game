@@ -110,7 +110,8 @@ export class CharacterBowVisual {
 
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
-    this.nockPosition.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015, 0.12 + THREE.MathUtils.clamp(drawRatio, 0, 1) * 0.45)
+    const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
+    this.nockPosition.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
     if (this.actionPivot.parent?.userData.handGripFrame) {
       if (!this.drawContact) {
         let ancestor: THREE.Object3D | null = this.actionPivot.parent
@@ -122,7 +123,11 @@ export class CharacterBowVisual {
       }
       if (arrowVisible && this.drawContact) {
         this.drawContact.getWorldPosition(this.tmpWorldNock)
-        this.gripPivot.worldToLocal(this.nockPosition.copy(this.tmpWorldNock))
+        this.gripPivot.worldToLocal(this.tmpWorldNock)
+        // This contact is part of the sampled humanoid pose and already moves
+        // with bowLoad progress. Applying the charge ratio again would lag the
+        // nock behind the draw hand (for example, half of a half-draw at 50%).
+        this.nockPosition.copy(this.tmpWorldNock)
       } else this.nockPosition.z = .12
     }
     this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))

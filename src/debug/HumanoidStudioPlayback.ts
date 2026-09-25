@@ -7,6 +7,9 @@ import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { applySwordAttachment } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import { applyCharacterMountedPose, type HumanoidAnimationState } from '../world/CharacterVisuals'
+import { ArrowProjectile } from '../world/ArrowProjectile'
+import { Faction } from '../world/NPC'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 
 /** Studio exercises the production animator and actual faction equipment. */
 export class HumanoidStudioPlayback {
@@ -21,6 +24,10 @@ export class HumanoidStudioPlayback {
   private readonly animator: CharacterCombatAnimator
   private readonly bowVisual: CharacterBowVisual
   private readonly target = new THREE.Vector3()
+  private readonly pilumPreviewDirection = new THREE.Vector3()
+  private readonly pilumPreviewRotation = new THREE.Quaternion()
+  private readonly pilumPreviewSpeed = WEAPONS.pilum_standard.arrowSpeedMax ?? 24
+  private pilumPreview: ArrowProjectile | null = null
   private elapsed = 0
   private equipped = true
   private started = false
@@ -141,6 +148,8 @@ export class HumanoidStudioPlayback {
   setEquipped(enabled: boolean): void { this.equipped = enabled; this.reset() }
 
   reset(): void {
+    this.pilumPreview?.destroy()
+    this.pilumPreview = null
     this.elapsed = 0
     this.started = false
     this.instance.rig.animation!.stop()
@@ -182,8 +191,25 @@ export class HumanoidStudioPlayback {
       this.animator.poseBow(ratio)
       this.animator.update(dt)
     } else if (this.state === 'swordSlash' || this.state === 'bowRelease' || this.state === 'pilumThrow') {
-      if (!this.animator.busy) this.animator.start(this.state)
-      this.animator.update(dt)
+      if (!this.animator.busy && this.animator.start(this.state) && this.state === 'pilumThrow') {
+        this.pilumPreview?.destroy()
+        this.pilumPreview = null
+        this.pilum.visible = true
+      }
+      const events = this.animator.update(dt)
+      if (this.state === 'pilumThrow' && events.projectileRelease) {
+        this.pilum.visible = false
+        const scene = this.instance.root.parent
+        if (scene instanceof THREE.Scene) {
+          const origin = this.pilum.getWorldPosition(new THREE.Vector3())
+          this.pilumPreviewDirection.set(0, 0, 1).applyQuaternion(this.instance.root.getWorldQuaternion(this.pilumPreviewRotation))
+          this.pilumPreview = new ArrowProjectile(scene, origin, this.pilumPreviewDirection,
+            this.pilumPreviewSpeed, 0, this.faction === 'viking' ? Faction.PLAYER : Faction.ENEMY, false, 'pilum')
+        }
+      }
+      // On the release frame the new projectile starts at the held grip, not a
+      // full update step ahead of the hand.
+      if (!events.projectileRelease) this.pilumPreview?.mesh.position.addScaledVector(this.pilumPreviewDirection, dt * this.pilumPreviewSpeed)
     } else {
       if (!this.started) {
         animation.setSwordHandShape?.(false)

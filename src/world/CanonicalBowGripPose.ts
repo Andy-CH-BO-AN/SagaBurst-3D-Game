@@ -7,66 +7,13 @@ import { buildAnatomicalBowThumbShape } from './AnatomicalBowThumb'
 import { preserveBowHandTopology } from './BowGripLOD'
 
 /**
- * Bow hand-frame normalization only. Preserve imported arm joint trajectories.
- * Pronation belongs to the forearm, while the wrist retains its neutral bind
- * orientation. Bake this once; finger contact never rearranges the arms.
+ * Add bow finger-shape channels without rewriting imported arm or hand tracks.
+ * Grip geometry is handled separately; clip trajectories remain authoritative.
  */
-export function normalizeBowHandClips(scene: THREE.Object3D, clips: THREE.AnimationClip[], frame: HandGripFrame): THREE.AnimationClip[] {
+export function normalizeBowHandClips(scene: THREE.Object3D, clips: THREE.AnimationClip[]): THREE.AnimationClip[] {
   const root = clone(scene)
-  const sourceRoot = clone(scene)
-  const sourceBones: Array<[THREE.Object3D, THREE.Object3D]> = []
-  root.traverse(object => {
-    if (object instanceof THREE.Bone) sourceBones.push([sourceRoot.getObjectByName(object.name)!, object])
-  })
-  const rightFrame = deriveDrawHandFrame(root, frame)
-  const arms = [frame, rightFrame].map((anatomy, i) => {
-    const hand = root.getObjectByName(i === 0 ? 'hand_l' : 'hand_r')!
-    const lower = hand.parent!
-    const shaftOffset = anatomy.wristCenter!.clone().applyQuaternion(hand.quaternion)
-    return { hand, lower, anatomy, shaftOffset, bindRotation: hand.quaternion.clone(), bindPosition: hand.position.clone() }
-  })
-  const mixer = new THREE.AnimationMixer(sourceRoot)
-  const owned = new Set(arms.flatMap(a => [a.lower.name + '.quaternion', a.lower.name + '.position', a.hand.name + '.quaternion', a.hand.name + '.position']))
   return clips.map(clip => {
     if (!/^bow(Load|Hold|Release)$/.test(clip.name)) return clip
-    const action = mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1)
-    action.clampWhenFinished = true; action.play()
-    const count = Math.ceil(clip.duration * 240), times: number[] = []
-    const values = new Map([...owned].map(name => [name, [] as number[]]))
-    for (let i = 0; i <= count; i++) {
-      const time = i / count * clip.duration
-      mixer.setTime(time)
-      // Mixer caches constant tracks. Never mutate its sampled bones: doing so
-      // feeds the previous correction back into bowHold's next sample.
-      for (const [source, target] of sourceBones) {
-        target.position.copy(source.position); target.quaternion.copy(source.quaternion); target.scale.copy(source.scale)
-      }
-      root.updateMatrixWorld(true)
-      for (const arm of arms) {
-        const pivot = arm.shaftOffset.clone().applyQuaternion(arm.lower.quaternion).add(arm.lower.position)
-        const axis = arm.bindPosition.clone().normalize().transformDirection(arm.lower.matrixWorld)
-        const thumb = arm.anatomy.thumbDirection!.clone().applyQuaternion(arm.bindRotation).transformDirection(arm.lower.matrixWorld)
-        thumb.addScaledVector(axis, -thumb.dot(axis)).normalize()
-        const upright = new THREE.Vector3(0, 1, 0).addScaledVector(axis, -axis.y)
-        if (upright.lengthSq() < 1e-8) upright.set(0, 0, -1).addScaledVector(axis, axis.z)
-        upright.normalize()
-        const angle = Math.atan2(axis.dot(new THREE.Vector3().crossVectors(thumb, upright)), thumb.dot(upright))
-        const q = new THREE.Quaternion().setFromAxisAngle(axis, angle).multiply(arm.lower.getWorldQuaternion(new THREE.Quaternion()))
-        arm.lower.quaternion.copy(arm.lower.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(q))
-        // The source bone origins run beside the actual arm shaft (6.5 cm on
-        // Roman). Rotate about its anatomical centreline, not that raw origin.
-        arm.lower.position.copy(pivot).sub(arm.shaftOffset.clone().applyQuaternion(arm.lower.quaternion))
-        arm.hand.quaternion.copy(arm.bindRotation)
-        arm.hand.position.copy(arm.bindPosition)
-        arm.lower.updateWorldMatrix(false, true)
-        values.get(arm.lower.name + '.quaternion')!.push(...arm.lower.quaternion.toArray())
-        values.get(arm.lower.name + '.position')!.push(...arm.lower.position.toArray())
-        values.get(arm.hand.name + '.quaternion')!.push(...arm.hand.quaternion.toArray())
-        values.get(arm.hand.name + '.position')!.push(...arm.hand.position.toArray())
-      }
-      times.push(time)
-    }
-    action.stop()
     const fingerTracks: THREE.KeyframeTrack[] = []
     root.traverse(object => {
       if (!(object instanceof THREE.SkinnedMesh) || object.morphTargetDictionary?.bowDraw === undefined) return
@@ -75,8 +22,7 @@ export function normalizeBowHandClips(scene: THREE.Object3D, clips: THREE.Animat
         release ? [0, clip.duration * .18, clip.duration * .45, clip.duration] : [0, clip.duration], release ? [1, 1, 0, 0] : [1, 1]))
     })
     return new THREE.AnimationClip(clip.name, clip.duration, [
-      ...clip.tracks.filter(track => !owned.has(track.name)), ...fingerTracks,
-      ...[...values].map(([name, value]) => name.endsWith('.position') ? new THREE.VectorKeyframeTrack(name, times, value) : new THREE.QuaternionKeyframeTrack(name, times, value)),
+      ...clip.tracks.filter(track => !fingerTracks.some(finger => finger.name === track.name)), ...fingerTracks,
     ])
   })
 }

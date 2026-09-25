@@ -126,8 +126,51 @@ function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefin
 interface HumanoidTemplate {
   manifest: HumanoidAssetManifest
   levels: GLTF[]
+  animationClips?: THREE.AnimationClip[][]
   bowClips?: THREE.AnimationClip[][]
   romanLod2Consolidation?: RomanLod2ConsolidationTemplate
+}
+
+const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
+
+/** The source LOD0 bowLoad has only two almost identical arm keys. Interpolate
+ * its original raised-bow pose to its own bowHold pose so charge can drive a
+ * draw without importing LOD1's differently aligned arm pose. GLBs stay raw. */
+function completeStaticBowLoad(load: THREE.AnimationClip, hold: THREE.AnimationClip): THREE.AnimationClip {
+  const holdTracks = new Map(hold.tracks.map(track => [track.name, track]))
+  const drawArm = load.tracks.find(track => track.name === 'upper_arm_r.quaternion')
+  const holdArm = holdTracks.get('upper_arm_r.quaternion')
+  if (!(drawArm instanceof THREE.QuaternionKeyframeTrack) || !(holdArm instanceof THREE.QuaternionKeyframeTrack)) return load
+  const quaternionAt = (track: THREE.QuaternionKeyframeTrack, offset: number) =>
+    new THREE.Quaternion().set(track.values[offset], track.values[offset + 1], track.values[offset + 2], track.values[offset + 3])
+  const start = quaternionAt(drawArm, 0)
+  if (start.angleTo(quaternionAt(drawArm, drawArm.values.length - 4)) > 0.01
+    || start.angleTo(quaternionAt(holdArm, 0)) < 0.1) return load
+
+  const tracks = load.tracks.map(track => {
+    if (!(track instanceof THREE.QuaternionKeyframeTrack)
+      || track.times.length !== 2
+      || /^(hips|socket_pelvis|upper_leg_|lower_leg_|foot_|socket_foot_|sole_|toe_)/.test(track.name)) return track
+    const destination = holdTracks.get(track.name)
+    if (!(destination instanceof THREE.QuaternionKeyframeTrack)) return track
+    return new THREE.QuaternionKeyframeTrack(track.name, [0, load.duration], [
+      ...track.values.slice(0, 4), ...destination.values.slice(0, 4),
+    ])
+  })
+  return new THREE.AnimationClip(load.name, load.duration, tracks)
+}
+
+/** Roman LOD0 pilumThrow is static; Bow LOD0 needs only its own pose endpoints. */
+export function resolveHumanoidAnimationClips(levelClips: THREE.AnimationClip[][]): THREE.AnimationClip[][] {
+  const lod1ByName = new Map((levelClips[1] ?? []).map(clip => [clip.name, clip]))
+  const lod0BowHold = levelClips[0]?.find(clip => clip.name === 'bowHold')
+  return levelClips.map((clips, index) => index === 0
+    ? clips.map(clip => {
+      if (clip.name === 'bowLoad' && lod0BowHold) return completeStaticBowLoad(clip, lod0BowHold)
+      if (LOD0_MOTION_CLIP_NAMES.has(clip.name)) return lod1ByName.get(clip.name) ?? clip
+      return clip
+    })
+    : clips)
 }
 
 export interface HumanoidCharacterInstance {
@@ -693,7 +736,8 @@ export class HumanoidAssetRegistry {
       }
       validateEmbeddedAnimations(faction, manifest, levels)
       const frame = readHandFrame(manifest)
-      const bowClips = levels.map(level => frame ? normalizeBowHandClips(level.scene, level.animations, frame) : level.animations)
+      const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+      const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
       let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
       if (faction === 'roman') {
         if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
@@ -704,7 +748,7 @@ export class HumanoidAssetRegistry {
           )
         }
       }
-      this.templates.set(faction, { manifest, levels, bowClips, romanLod2Consolidation })
+      this.templates.set(faction, { manifest, levels, animationClips, bowClips, romanLod2Consolidation })
     }))
   }
 
@@ -805,10 +849,14 @@ export class HumanoidAssetRegistry {
       }
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
+      const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
-      for (const clip of gltf.animations) clips.set(clip.name, clip)
+      for (const clip of animations) clips.set(clip.name, clip)
       clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
-      rawClipsPerLevel.push([...clips.values()])
+      const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
+      for (const clip of gltf.animations) rawClips.set(clip.name, clip)
+      rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
+      rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
       if (index === 0) {

@@ -264,6 +264,7 @@ export class NPC {
   private readonly _tmpPush = new THREE.Vector3()
   private readonly _tmpRangedOrigin = new THREE.Vector3()
   private readonly _tmpRangedTarget = new THREE.Vector3()
+  private readonly pendingPilumTarget = new THREE.Vector3()
   private readonly _tmpRangedDirection = new THREE.Vector3()
   private readonly _tmpWeaponTip = new THREE.Vector3()
   private readonly _tmpPelvisWorld = new THREE.Vector3()
@@ -1400,6 +1401,7 @@ export class NPC {
     const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
     const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+    const recoveringPilum = this.animator.currentAction === 'pilumThrow'
     this.rebuildShield()
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, true)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
@@ -1429,6 +1431,26 @@ export class NPC {
       else this.bowVisual?.update(0, undefined, false)
       if (events.actionCompleted) {
         if (this.arrows === 0) this._switchToMelee()
+        this.state = AIState.CHASE
+      }
+    } else if (recoveringPilum) {
+      const events = this.animator.update(dt, cameraDistance)
+      animationAdvanced = true
+      if (events.projectileRelease) {
+        const origin = this._tmpRangedOrigin
+        const direction = this._tmpRangedDirection
+        const aimPoint = targetInfo
+          ? this._getElevatedRangedAimPoint(targetInfo.position)
+          : this.pendingPilumTarget
+        origin.copy(this.bowGripPivot.getWorldPosition(origin))
+        direction.copy(aimPoint).sub(origin).normalize()
+        onFireArrow(origin, direction, 'pilum')
+        this.bowPivot.visible = false
+        this.arrows -= 1
+        this.attackTimer = 0
+      }
+      if (events.actionCompleted) {
+        if (this.arrows === 0) this._switchToMelee(true, false)
         this.state = AIState.CHASE
       }
     } else switch (this.state) {
@@ -1826,7 +1848,7 @@ export class NPC {
           const rangedKind = this.rangedCombatKind ?? 'bow'
           const cooldown = getRangedCooldown(rangedKind)
           const isBow = rangedKind === 'bow'
-          const windup = isBow ? 0.04 : 0.45
+          const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / cooldown)
@@ -1841,7 +1863,8 @@ export class NPC {
             }
           } else {
             if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
-              this.animator.start('pilumThrow')
+              this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
+              if (this.animator.start('pilumThrow')) this.bowPivot.visible = true
             }
           }
 
@@ -1859,6 +1882,7 @@ export class NPC {
             if (isBow && this.bowVisual) {
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
+              origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
             onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
@@ -1866,13 +1890,14 @@ export class NPC {
 
             this.arrows -= 1
             this.attackTimer = 0
+            if (!isBow) this.bowPivot.visible = false
             if (isBow && !rangedEvents.actionCompleted) {
               this.bowArrowReleased = true
-            } else {
-              if (this.arrows === 0) this._switchToMelee()
-              this.state = AIState.CHASE
-              this.animator.cancel()
             }
+          }
+          if (!isBow && rangedEvents.actionCompleted) {
+            if (this.arrows === 0) this._switchToMelee(true, true)
+            this.state = AIState.CHASE
           }
         } else {
           const berserker = getBerserkerModifiers(
@@ -2214,13 +2239,13 @@ export class NPC {
     return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
   }
 
-  private _switchToMelee(consumeRemainingAmmo = true): void {
+  private _switchToMelee(consumeRemainingAmmo = true, cancelAnimation = true): void {
     if (consumeRemainingAmmo) this.arrows = 0
     this.rangedActive = false
     this.pendingLanceChargeSpeed = 0
     this.swordPivot.visible = true
     this.bowPivot.visible = false
-    this.animator.cancel()
+    if (cancelAnimation) this.animator.cancel()
   }
 
   respawn(): void {

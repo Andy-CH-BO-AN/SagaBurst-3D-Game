@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import * as THREE from 'three'
+import { createHumanoidRigAdapter, MixerController, resolveHumanoidAnimationClips } from '../src/world/HumanoidAssetRegistry'
+import { CharacterCombatAnimator, PILUM_THROW_RELEASE_TIME } from '../src/world/CharacterCombatAnimator'
+import { normalizeBowHandClips, prepareBowGripShape } from '../src/world/CanonicalBowGripPose'
+import { CharacterEquipmentPose } from '../src/world/CharacterEquipmentPose'
+import { calibrateEquipmentFrames } from '../src/world/EquipmentAttachmentContract'
+// @ts-expect-error diagnostic loader has no declaration; it parses the same embedded GLB via Three's GLTFLoader.
+import { loadCharacter } from '../tools/humanoid-diagnostics/measure-hands.mjs'
 
 const ROOT = new URL('../public/models/characters/v2/', import.meta.url)
 const CLIPS = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
@@ -15,6 +23,14 @@ const EXPECTED_DURATIONS: Record<string, number> = {
   pilumThrow: 1.5,
 }
 
+it.each(['viking', 'roman'] as const)('%s pilum manifest releases at the shoulder-high throw frame and completes after 1.5s', faction => {
+  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+  const pilum = manifest.animations.embedded.find((clip: { clip: string }) => clip.clip === 'pilumThrow')
+  expect(pilum.duration).toBe(1.5)
+  expect(pilum.events.projectileRelease).toBeCloseTo(PILUM_THROW_RELEASE_TIME, 5)
+  expect(pilum.events.actionComplete).toBe(1.5)
+})
+
 interface GlbDocument {
   accessors: Array<{
     bufferView?: number
@@ -27,7 +43,7 @@ interface GlbDocument {
   }>
   animations: Array<{
     name: string
-    samplers: Array<{ input: number }>
+    samplers: Array<{ input: number, output: number, interpolation?: string }>
     channels: Array<{ sampler: number, target: { node: number, path: string } }>
   }>
   asset: { extras: { humanoidAnimationBuild: {
@@ -43,7 +59,7 @@ interface GlbDocument {
     name?: string
     primitives: Array<{ attributes: Record<string, number> }>
   }>
-  nodes: Array<{ name?: string, scale?: number[] }>
+  nodes: Array<{ name?: string, scale?: number[], translation?: number[], rotation?: number[], children?: number[] }>
   skins: Array<{ joints: number[] }>
 }
 
@@ -98,7 +114,209 @@ function clipDuration(document: GlbDocument, name: string): number {
   return Math.max(...clip.samplers.map((sampler) => document.accessors[sampler.input].max?.[0] ?? 0))
 }
 
+async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = false) {
+  const levels = await Promise.all([0, 1, 2].map(index => loadCharacter(faction, index)))
+  const gltf = levels[lod]
+  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+  const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+  const data = manifest.handGripFrames.left
+  const frame = Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key,
+    Array.isArray(value) ? new THREE.Vector3(...value as [number, number, number]) : value,
+  ])) as any
+  const reference = bow && lod > 0 ? levels[0] : undefined
+  if (bow) {
+    if (reference) prepareBowGripShape(reference.scene, frame)
+    prepareBowGripShape(gltf.scene, frame, reference?.scene)
+  }
+  const clips = bow ? normalizeBowHandClips(gltf.scene, animationClips[lod]) : animationClips[lod]
+  const mixer = new THREE.AnimationMixer(gltf.scene)
+  const controller = new MixerController([mixer], [clips], [gltf.animations])
+  const rig = createHumanoidRigAdapter(gltf.scene, controller)
+  const hand = gltf.scene.getObjectByName('hand_l')!
+  const gripFrames = calibrateEquipmentFrames(manifest.swordGripFrames[`lod${lod}`], frame, hand, hand)
+  controller.equipmentLayers = [new CharacterEquipmentPose(gltf.scene, rig, gripFrames)]
+  const animator = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+  return { root: gltf.scene, rig, controller, animator }
+}
+
 describe('humanoid embedded animation asset contract', () => {
+  it.each(['viking', 'roman'] as const)('%s LOD0 source bowLoad has no effective draw-arm motion', faction => {
+    const asset = readGlbAsset(faction, 0)
+    const clip = asset.document.animations.find(animation => animation.name === 'bowLoad')!
+    for (const name of ['upper_arm_r', 'lower_arm_r', 'hand_r']) {
+      const channel = clip.channels.find(candidate => asset.document.nodes[candidate.target.node]?.name === name && candidate.target.path === 'rotation')!
+      const sampler = clip.samplers[channel.sampler]
+      const times = readAccessor(asset, sampler.input)
+      const values = readAccessor(asset, sampler.output)
+      expect(times).toHaveLength(2)
+      const start = new THREE.Quaternion().fromArray(values[0])
+      const end = new THREE.Quaternion().fromArray(values[1])
+      expect(start.angleTo(end)).toBeLessThan(0.01)
+    }
+  })
+  it('keeps LOD0 bowHold/release source poses and only completes the static bowLoad trajectory', async () => {
+    const levels = await Promise.all([0, 1, 2].map(index => loadCharacter('roman', index)))
+    const resolved = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+    const rawLod0 = new Map(levels[0].animations.map(clip => [clip.name, clip]))
+    const lod1 = new Map(levels[1].animations.map(clip => [clip.name, clip]))
+    const productionLod0 = new Map(resolved[0].map(clip => [clip.name, clip]))
+
+    expect(productionLod0.get('bowLoad')).not.toBe(rawLod0.get('bowLoad'))
+    for (const name of ['bowHold', 'bowRelease']) {
+      expect(productionLod0.get(name)).toBe(rawLod0.get(name))
+    }
+    expect(productionLod0.get('pilumThrow')).toBe(lod1.get('pilumThrow'))
+  })
+
+  it.each(
+    (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
+  )('%s LOD%s equipped bowLoad moves at 0%, 50%, and 100% while preserving authored endpoints', async (faction, lod) => {
+    const { root, rig, controller, animator } = await runtimeFixture(faction, lod, true)
+    const sample = (ratio: number, equipped: boolean) => {
+      controller.setPoseLayersEnabled(equipped)
+      animator.cancel()
+      for (let i = 0; i < 30; i++) {
+        animator.poseBow(ratio)
+        animator.update(1 / 60)
+      }
+      root.updateMatrixWorld(true)
+      return {
+        arm: rig.right.elbow.quaternion.clone(),
+        drawHand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
+        bowHand: rig.left.handSocket.getWorldPosition(new THREE.Vector3()),
+      }
+    }
+    const samples = [0, 0.5, 1].map(ratio => sample(ratio, true))
+    const rawSamples = [0, 0.5, 1].map(ratio => sample(ratio, false))
+    const firstHalfMotion = samples[1].arm.angleTo(samples[0].arm)
+      + samples[1].drawHand.distanceTo(samples[0].drawHand)
+    const secondHalfMotion = samples[2].arm.angleTo(samples[1].arm)
+      + samples[2].drawHand.distanceTo(samples[1].drawHand)
+    expect(firstHalfMotion, `${faction} LOD${lod} bowLoad 0%→50% motion`).toBeGreaterThan(0.03)
+    expect(secondHalfMotion, `${faction} LOD${lod} bowLoad 50%→100% motion`).toBeGreaterThan(0.02)
+    const bowLoadMotion = samples.slice(1).reduce((sum, pose, index) => sum
+      + pose.arm.angleTo(samples[index].arm)
+      + pose.drawHand.distanceTo(samples[index].drawHand), 0)
+    expect(bowLoadMotion).toBeGreaterThan(0.1)
+    const rawBowLoadMotion = rawSamples.slice(1).reduce((sum, pose, index) => sum
+      + pose.arm.angleTo(rawSamples[index].arm)
+      + pose.drawHand.distanceTo(rawSamples[index].drawHand), 0)
+    expect(rawBowLoadMotion).toBeGreaterThan(0.1)
+    for (let i = 0; i < samples.length; i++) {
+      if (lod === 0 && i === 1) {
+        expect(samples[i].arm.angleTo(rawSamples[i].arm)
+          + samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeGreaterThan(0.1)
+        continue
+      }
+      expect(samples[i].arm.angleTo(rawSamples[i].arm)).toBeLessThan(0.001)
+      expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
+      expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
+    }
+    if (lod === 0) {
+      const almostFull = sample(0.99, true)
+      const full = sample(1, true)
+      expect(almostFull.arm.angleTo(full.arm)).toBeLessThan(0.1)
+      expect(almostFull.drawHand.distanceTo(full.drawHand)).toBeLessThan(0.1)
+      expect(almostFull.bowHand.distanceTo(full.bowHand)).toBeLessThan(0.1)
+    }
+    controller.stop()
+  })
+
+  it.each(
+    (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
+  )('%s LOD%s imported pilumThrow remains available at canonical duration in the runtime mixer', async (faction, lod) => {
+    const { root, rig, controller, animator } = await runtimeFixture(faction, lod)
+    expect(controller.has('pilumThrow')).toBe(true)
+    expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
+    controller.stop()
+  })
+
+  it.each(['viking', 'roman'] as const)('%s production pilumThrow raises the grip above the shoulder at release frame 17', async faction => {
+    const { root, rig, controller } = await runtimeFixture(faction, 0)
+    controller.setPoseLayersEnabled(true)
+    controller.setEquipmentState({ shield: false, lance: false, action: 'pilumThrow', elapsed: 0 })
+    expect(controller.play('pilumThrow', { fadeSeconds: 0, loop: false })).toBe(true)
+    let previousTime = 0
+    const sample = (time: number) => {
+      controller.setEquipmentState({ elapsed: time })
+      controller.update(time - previousTime)
+      previousTime = time
+      root.updateMatrixWorld(true)
+      return {
+        shoulder: rig.right.shoulder.getWorldPosition(new THREE.Vector3()),
+        hand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
+      }
+    }
+    const windup = sample(16 / 30)
+    const release = sample(PILUM_THROW_RELEASE_TIME)
+    const followThrough = sample(21 / 30)
+    expect(release.hand.y - release.shoulder.y).toBeGreaterThan(0.05)
+    expect(release.hand.z - windup.hand.z).toBeGreaterThan(0.3)
+    expect(followThrough.hand.y).toBeLessThan(followThrough.shoulder.y)
+    controller.stop()
+  })
+
+  it.each([0, 1, 2])('Roman LOD%s keeps source clips raw and pilumThrow motion in production', async lod => {
+    const { root, rig, controller } = await runtimeFixture('roman', lod)
+    expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
+    const sample = () => {
+      root.updateMatrixWorld(true)
+      return {
+        shoulder: rig.right.shoulder.quaternion.clone(),
+        elbow: rig.right.elbow.quaternion.clone(),
+        wrist: rig.right.wrist.quaternion.clone(),
+        hand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
+      }
+    }
+    const sampleSequence = (equipmentEnabled: boolean) => {
+      controller.setPoseLayersEnabled(equipmentEnabled)
+      controller.setEquipmentState({ shield: equipmentEnabled, lance: false, action: 'pilumThrow', elapsed: 0 })
+      expect(controller.play('pilumThrow', { fadeSeconds: 0, loop: false })).toBe(true)
+      controller.update(0.001)
+      const poses = [sample()]
+      let previous = 0
+      for (const time of [0.25, 0.5, 0.75, 1]) {
+        controller.setEquipmentState({ elapsed: time * 1.5 })
+        controller.update((time - previous) * 1.5)
+        poses.push(sample())
+        previous = time
+      }
+      return poses
+    }
+    const times = [0, 0.25, 0.5, 0.75, 1]
+    const raw = sampleSequence(false)
+    const equipped = sampleSequence(true)
+    const motion = (poses: typeof raw) => poses.slice(1).reduce((sum, pose, index) => {
+      const previous = poses[index]
+      return sum
+        + pose.shoulder.angleTo(previous.shoulder)
+        + pose.elbow.angleTo(previous.elbow)
+        + pose.wrist.angleTo(previous.wrist)
+        + pose.hand.distanceTo(previous.hand)
+    }, 0)
+
+    expect(motion(equipped)).toBeGreaterThan(0.5)
+    if (lod === 0) {
+      expect(motion(raw)).toBeLessThan(0.001)
+      const middleFrameDifference = equipped[2].shoulder.angleTo(raw[2].shoulder)
+        + equipped[2].elbow.angleTo(raw[2].elbow)
+        + equipped[2].wrist.angleTo(raw[2].wrist)
+        + equipped[2].hand.distanceTo(raw[2].hand)
+      expect(middleFrameDifference).toBeGreaterThan(0.5)
+    } else {
+      expect(motion(raw)).toBeGreaterThan(0.5)
+      for (let index = 0; index < times.length; index++) {
+        expect(equipped[index].shoulder.angleTo(raw[index].shoulder)).toBeLessThan(0.001)
+        expect(equipped[index].elbow.angleTo(raw[index].elbow)).toBeLessThan(0.001)
+        expect(equipped[index].wrist.angleTo(raw[index].wrist)).toBeLessThan(0.001)
+        expect(equipped[index].hand.distanceTo(raw[index].hand)).toBeLessThan(0.001)
+      }
+    }
+    controller.stop()
+  })
+
+
   it('keeps the Roman lower skirt on the same thigh frame as the covered leg', () => {
     for (let lod = 0; lod < 3; lod++) {
       const asset = readGlbAsset('roman', lod)

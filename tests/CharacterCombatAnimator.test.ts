@@ -4,6 +4,7 @@ import type { ArmRig, CharacterRig, LegRig } from '../src/world/CharacterVisuals
 import {
   CharacterCombatAnimator,
   COMBAT_ANIMATION_PROFILES,
+  PILUM_THROW_RELEASE_TIME,
   type CombatAction,
 } from '../src/world/CharacterCombatAnimator'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials, setRigRotation } from '../src/world/CharacterVisuals'
@@ -11,6 +12,9 @@ import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 import { ThirdPersonCamera } from '../src/camera/ThirdPersonCamera'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
 import { CharacterBowVisual } from '../src/world/CharacterBowVisual'
+import { HumanoidStudioPlayback } from '../src/debug/HumanoidStudioPlayback'
+import { BOW_STRING_CONTACT } from '../src/world/BowDrawHand'
+import { DEFAULT_BOW_GRIP_PROFILE } from '../src/world/BowAttachmentContract'
 import { getTerrainHeight } from '../src/world/Terrain'
 import { Faction } from '../src/world/NPC'
 import {
@@ -628,27 +632,78 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(play).toHaveBeenCalledWith('bowRelease', { fadeSeconds: 0.1, loop: false })
   })
 
-  it('fires and completes an imported pilum throw at its shared windup timing', () => {
+  it('releases an imported pilum at its shoulder-high frame, then completes at the canonical clip duration', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true),
       seek: vi.fn(() => true),
       has: vi.fn((state) => state === 'pilumThrow'),
-      getDuration: vi.fn(() => 0.7),
+      getDuration: vi.fn(() => 1.5),
       update: vi.fn(),
       stop: vi.fn(),
     }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     expect(subject.start('pilumThrow')).toBe(true)
-    const beforeRelease = subject.update(0.3)
-    expect(beforeRelease.projectileRelease).toBe(false)
-    expect(beforeRelease.actionCompleted).toBe(false)
+    expect(subject.update(0).projectileRelease).toBe(false)
+    expect(subject.update(PILUM_THROW_RELEASE_TIME - 0.01).projectileRelease).toBe(false)
+    expect(subject.currentAction).toBe('pilumThrow')
+    const release = subject.update(0.01)
+    expect(release.projectileRelease).toBe(true)
+    expect(release.actionCompleted).toBe(false)
+    const recovery = subject.update(1.5 - PILUM_THROW_RELEASE_TIME - 0.01)
+    expect(recovery.projectileRelease).toBe(false)
+    expect(recovery.actionCompleted).toBe(false)
     expect(subject.currentAction).toBe('pilumThrow')
 
-    const events = subject.update(0.4)
-    expect(events.projectileRelease).toBe(true)
+    const events = subject.update(0.01)
+    expect(events.projectileRelease).toBe(false)
     expect(events.actionCompleted).toBe(true)
     expect(subject.update(2).projectileRelease).toBe(false)
+  })
+
+  it('holds the studio pilum until the shoulder-high frame, then flies it from the grip', () => {
+    const rig = characterRig()
+    rig.animation = {
+      play: vi.fn(() => true), seek: vi.fn(() => true),
+      has: vi.fn((state) => state === 'pilumThrow'), getDuration: vi.fn(() => 1.5),
+      update: vi.fn(), stop: vi.fn(),
+    }
+    const pilum = new THREE.Group()
+    const bow = new THREE.Group()
+    bow.visible = false
+    const root = new THREE.Group()
+    const scene = new THREE.Scene()
+    rig.right.handSocket.add(pilum)
+    root.add(rig.right.shoulder)
+    scene.add(root)
+    const playback = Object.create(HumanoidStudioPlayback.prototype) as HumanoidStudioPlayback
+    Object.assign(playback, {
+      instance: { rig, root }, state: 'pilumThrow', faction: 'roman', equipped: true, equipmentLoadout: null,
+      animator: new CharacterCombatAnimator(rig, new THREE.Group(), pilum),
+      pilum, bow, elapsed: 0, started: false, pilumPreview: null,
+      pilumPreviewDirection: new THREE.Vector3(), pilumPreviewRotation: new THREE.Quaternion(), pilumPreviewSpeed: 24,
+    })
+    playback.update(0)
+    expect(pilum.visible).toBe(true)
+    playback.update(PILUM_THROW_RELEASE_TIME - 0.01)
+    expect(pilum.visible).toBe(true)
+    expect(scene.getObjectByName('pilum-projectile')).toBeUndefined()
+    playback.update(0.01)
+    expect(pilum.visible).toBe(false)
+    const flight = scene.getObjectByName('pilum-projectile')!
+    expect(flight).toBeDefined()
+    const releasePosition = flight.position.clone()
+    expect(releasePosition.distanceTo(pilum.getWorldPosition(new THREE.Vector3()))).toBeLessThan(1e-6)
+    playback.update(0.1)
+    expect(flight.position.distanceTo(releasePosition)).toBeGreaterThan(1)
+    playback.update(1.5 - PILUM_THROW_RELEASE_TIME - 0.1)
+    expect(pilum.visible).toBe(false)
+    playback.update(0.01)
+    expect(flight.parent).toBeNull()
+    expect(pilum.visible).toBe(true)
+    expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(0)
+    playback.update(PILUM_THROW_RELEASE_TIME - 0.01)
+    expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(1)
   })
 
   it('applies imported-bone pose deltas on top of the recorded bind rotation', () => {
@@ -904,6 +959,45 @@ describe('combat presentation regressions', () => {
     expect(nock.z).toBeGreaterThan(grip.z + 0.5)
     expect(origin.distanceTo(nock)).toBeCloseTo(0.45)
     expect(direction.dot(target.clone().sub(nock).normalize())).toBeGreaterThan(0.999)
+  })
+
+  it('keeps the bow nock on the draw hand as the sampled contact follows charge', () => {
+    const character = new THREE.Group()
+    character.userData.handGripFrame = {
+      palmContactCenter: new THREE.Vector3(0, 0.06, -0.08),
+      palmNormal: new THREE.Vector3(0, 0, -1),
+      thumbDir: 1,
+    }
+    const actionPivot = new THREE.Group(), gripPivot = new THREE.Group()
+    character.add(actionPivot); actionPivot.add(gripPivot)
+    const drawContact = new THREE.Object3D()
+    drawContact.name = BOW_STRING_CONTACT
+    character.add(drawContact)
+    const bow = new CharacterBowVisual(actionPivot, gripPivot)
+    bow.rebuild('recurve_longbow')
+
+    const contactAt = (ratio: number) => new THREE.Vector3(
+      0.18 + ratio * 0.04,
+      0.24 + ratio * 0.03,
+      0.12 + ratio * 0.45,
+    )
+    const nockAt = (ratio: number) => {
+      drawContact.position.copy(contactAt(ratio))
+      character.updateMatrixWorld(true)
+      bow.update(ratio, undefined, true)
+      character.updateMatrixWorld(true)
+      return {
+        nock: bow.getNockPosition(new THREE.Vector3()),
+        contact: drawContact.getWorldPosition(new THREE.Vector3()),
+      }
+    }
+
+    const samples = [0, 0.5, 1].map(nockAt)
+    for (const { nock, contact } of samples) {
+      expect(nock.distanceTo(contact)).toBeLessThan(1e-6)
+    }
+    expect(samples[0].nock.distanceTo(samples[1].nock)).toBeGreaterThan(0.1)
+    expect(samples[1].nock.distanceTo(samples[2].nock)).toBeGreaterThan(0.1)
   })
 
   it('samples the complete bow body from lower tip through grip to upper tip', () => {
