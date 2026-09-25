@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { createHumanoidRigAdapter, MixerController, resolveHumanoidAnimationClips } from '../src/world/HumanoidAssetRegistry'
-import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, PILUM_THROW_RELEASE_TIME } from '../src/world/CharacterCombatAnimator'
 import { normalizeBowHandClips, prepareBowGripShape } from '../src/world/CanonicalBowGripPose'
 import { CharacterEquipmentPose } from '../src/world/CharacterEquipmentPose'
 import { calibrateEquipmentFrames } from '../src/world/EquipmentAttachmentContract'
@@ -23,11 +23,12 @@ const EXPECTED_DURATIONS: Record<string, number> = {
   pilumThrow: 1.5,
 }
 
-it.each(['viking', 'roman'] as const)('%s pilum manifest releases at throw start and completes after 1.5s', faction => {
+it.each(['viking', 'roman'] as const)('%s pilum manifest releases at the shoulder-high throw frame and completes after 1.5s', faction => {
   const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
   const pilum = manifest.animations.embedded.find((clip: { clip: string }) => clip.clip === 'pilumThrow')
   expect(pilum.duration).toBe(1.5)
-  expect(pilum.events).toEqual({ projectileRelease: 0, actionComplete: 1.5 })
+  expect(pilum.events.projectileRelease).toBeCloseTo(PILUM_THROW_RELEASE_TIME, 5)
+  expect(pilum.events.actionComplete).toBe(1.5)
 })
 
 interface GlbDocument {
@@ -228,6 +229,31 @@ describe('humanoid embedded animation asset contract', () => {
     const { root, rig, controller, animator } = await runtimeFixture(faction, lod)
     expect(controller.has('pilumThrow')).toBe(true)
     expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
+    controller.stop()
+  })
+
+  it.each(['viking', 'roman'] as const)('%s production pilumThrow raises the grip above the shoulder at release frame 17', async faction => {
+    const { root, rig, controller } = await runtimeFixture(faction, 0)
+    controller.setPoseLayersEnabled(true)
+    controller.setEquipmentState({ shield: false, lance: false, action: 'pilumThrow', elapsed: 0 })
+    expect(controller.play('pilumThrow', { fadeSeconds: 0, loop: false })).toBe(true)
+    let previousTime = 0
+    const sample = (time: number) => {
+      controller.setEquipmentState({ elapsed: time })
+      controller.update(time - previousTime)
+      previousTime = time
+      root.updateMatrixWorld(true)
+      return {
+        shoulder: rig.right.shoulder.getWorldPosition(new THREE.Vector3()),
+        hand: rig.right.handSocket.getWorldPosition(new THREE.Vector3()),
+      }
+    }
+    const windup = sample(16 / 30)
+    const release = sample(PILUM_THROW_RELEASE_TIME)
+    const followThrough = sample(21 / 30)
+    expect(release.hand.y - release.shoulder.y).toBeGreaterThan(0.05)
+    expect(release.hand.z - windup.hand.z).toBeGreaterThan(0.3)
+    expect(followThrough.hand.y).toBeLessThan(followThrough.shoulder.y)
     controller.stop()
   })
 

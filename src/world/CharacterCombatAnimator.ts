@@ -38,6 +38,10 @@ export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnim
   mountedLance: { windup: 0.08, active: 0.08, recovery: 0.12 },
 }
 
+// The imported 30 FPS overhand throw reaches its shoulder-high forward swing
+// on frame 17. Keep the projectile in the hand through the windup.
+export const PILUM_THROW_RELEASE_TIME = 17 / 30
+
 const clamp01 = (value: number): number => THREE.MathUtils.clamp(value, 0, 1)
 const IDLE_BLADE_PITCH = 2.85
 const ease = (value: number): number => {
@@ -151,9 +155,9 @@ export class CharacterCombatAnimator {
     const total = Math.round((importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
-      // A pilum leaves the hand as the throw begins; the imported clip still
-      // owns the full recovery and action-complete timing.
-      const releasingPilum = this.action === 'pilumThrow' && previous === 0 && this.elapsed > 0
+      const pilumReleaseTime = (this.ownership === 'clip' ? PILUM_THROW_RELEASE_TIME : profile.windup) - 1e-9
+      const releasingPilum = this.action === 'pilumThrow'
+        && previous < pilumReleaseTime && this.elapsed >= pilumReleaseTime
       const releasingBow = this.action === 'bowRelease' && previous < profile.windup && this.elapsed >= profile.windup
       if (releasingPilum || releasingBow) {
         this.events.projectileRelease = true

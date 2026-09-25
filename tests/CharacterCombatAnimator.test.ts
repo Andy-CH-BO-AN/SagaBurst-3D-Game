@@ -4,6 +4,7 @@ import type { ArmRig, CharacterRig, LegRig } from '../src/world/CharacterVisuals
 import {
   CharacterCombatAnimator,
   COMBAT_ANIMATION_PROFILES,
+  PILUM_THROW_RELEASE_TIME,
   type CombatAction,
 } from '../src/world/CharacterCombatAnimator'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials, setRigRotation } from '../src/world/CharacterVisuals'
@@ -631,7 +632,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(play).toHaveBeenCalledWith('bowRelease', { fadeSeconds: 0.1, loop: false })
   })
 
-  it('releases an imported pilum at throw start, then completes at its canonical clip duration', () => {
+  it('releases an imported pilum at its shoulder-high frame, then completes at the canonical clip duration', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true),
@@ -644,10 +645,12 @@ describe('Phase 22 humanoid asset contract', () => {
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     expect(subject.start('pilumThrow')).toBe(true)
     expect(subject.update(0).projectileRelease).toBe(false)
+    expect(subject.update(PILUM_THROW_RELEASE_TIME - 0.01).projectileRelease).toBe(false)
+    expect(subject.currentAction).toBe('pilumThrow')
     const release = subject.update(0.01)
     expect(release.projectileRelease).toBe(true)
     expect(release.actionCompleted).toBe(false)
-    const recovery = subject.update(1.48)
+    const recovery = subject.update(1.5 - PILUM_THROW_RELEASE_TIME - 0.01)
     expect(recovery.projectileRelease).toBe(false)
     expect(recovery.actionCompleted).toBe(false)
     expect(subject.currentAction).toBe('pilumThrow')
@@ -658,7 +661,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(subject.update(2).projectileRelease).toBe(false)
   })
 
-  it('flies the studio pilum away from the hand when the throw begins', () => {
+  it('holds the studio pilum until the shoulder-high frame, then flies it from the grip', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true), seek: vi.fn(() => true),
@@ -682,17 +685,24 @@ describe('Phase 22 humanoid asset contract', () => {
     })
     playback.update(0)
     expect(pilum.visible).toBe(true)
+    playback.update(PILUM_THROW_RELEASE_TIME - 0.01)
+    expect(pilum.visible).toBe(true)
+    expect(scene.getObjectByName('pilum-projectile')).toBeUndefined()
     playback.update(0.01)
     expect(pilum.visible).toBe(false)
     const flight = scene.getObjectByName('pilum-projectile')!
     expect(flight).toBeDefined()
     const releasePosition = flight.position.clone()
+    expect(releasePosition.distanceTo(pilum.getWorldPosition(new THREE.Vector3()))).toBeLessThan(1e-6)
     playback.update(0.1)
     expect(flight.position.distanceTo(releasePosition)).toBeGreaterThan(1)
-    playback.update(1.39)
+    playback.update(1.5 - PILUM_THROW_RELEASE_TIME - 0.1)
     expect(pilum.visible).toBe(false)
     playback.update(0.01)
     expect(flight.parent).toBeNull()
+    expect(pilum.visible).toBe(true)
+    expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(0)
+    playback.update(PILUM_THROW_RELEASE_TIME - 0.01)
     expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(1)
   })
 

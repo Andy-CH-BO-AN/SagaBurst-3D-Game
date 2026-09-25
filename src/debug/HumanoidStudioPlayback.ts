@@ -207,7 +207,9 @@ export class HumanoidStudioPlayback {
             this.pilumPreviewSpeed, 0, this.faction === 'viking' ? Faction.PLAYER : Faction.ENEMY, false, 'pilum')
         }
       }
-      this.pilumPreview?.mesh.position.addScaledVector(this.pilumPreviewDirection, dt * this.pilumPreviewSpeed)
+      // On the release frame the new projectile starts at the held grip, not a
+      // full update step ahead of the hand.
+      if (!events.projectileRelease) this.pilumPreview?.mesh.position.addScaledVector(this.pilumPreviewDirection, dt * this.pilumPreviewSpeed)
     } else {
       if (!this.started) {
         animation.setSwordHandShape?.(false)
