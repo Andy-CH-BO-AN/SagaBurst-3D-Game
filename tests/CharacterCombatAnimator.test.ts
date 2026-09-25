@@ -658,7 +658,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(subject.update(2).projectileRelease).toBe(false)
   })
 
-  it('removes the held pilum from the equipped studio actor when the throw begins', () => {
+  it('flies the studio pilum away from the hand when the throw begins', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true), seek: vi.fn(() => true),
@@ -668,18 +668,32 @@ describe('Phase 22 humanoid asset contract', () => {
     const pilum = new THREE.Group()
     const bow = new THREE.Group()
     bow.visible = false
+    const root = new THREE.Group()
+    const scene = new THREE.Scene()
+    rig.right.handSocket.add(pilum)
+    root.add(rig.right.shoulder)
+    scene.add(root)
     const playback = Object.create(HumanoidStudioPlayback.prototype) as HumanoidStudioPlayback
     Object.assign(playback, {
-      instance: { rig }, state: 'pilumThrow', equipped: true, equipmentLoadout: null,
+      instance: { rig, root }, state: 'pilumThrow', faction: 'roman', equipped: true, equipmentLoadout: null,
       animator: new CharacterCombatAnimator(rig, new THREE.Group(), pilum),
-      pilum, bow, elapsed: 0, started: false,
+      pilum, bow, elapsed: 0, started: false, pilumPreview: null,
+      pilumPreviewDirection: new THREE.Vector3(), pilumPreviewRotation: new THREE.Quaternion(), pilumPreviewSpeed: 24,
     })
     playback.update(0)
     expect(pilum.visible).toBe(true)
     playback.update(0.01)
     expect(pilum.visible).toBe(false)
-    playback.update(1.49)
+    const flight = scene.getObjectByName('pilum-projectile')!
+    expect(flight).toBeDefined()
+    const releasePosition = flight.position.clone()
+    playback.update(0.1)
+    expect(flight.position.distanceTo(releasePosition)).toBeGreaterThan(1)
+    playback.update(1.39)
     expect(pilum.visible).toBe(false)
+    playback.update(0.01)
+    expect(flight.parent).toBeNull()
+    expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(1)
   })
 
   it('applies imported-bone pose deltas on top of the recorded bind rotation', () => {
