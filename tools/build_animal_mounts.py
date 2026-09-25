@@ -316,9 +316,9 @@ def features(kind, arm, mats):
         objects.append(obj)
     cat = kind == 'black_cat'
     for side in (-1, 1):
-        add(sphere('eye', (side * (.155 if cat else .19), 1.69 if cat else 1.72, 1.625 if cat else 1.69), (.048 if cat else .043, .026 if cat else .034, .012 if cat else .022), 12, 8), mats['eye'], 'eye')
+        add(sphere('eye', (side * (.155 if cat else .19), 1.69 if cat else 1.72, 1.605 if cat else 1.69), (.048 if cat else .043, .026 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
         if cat:
-            add(sphere('pupil', (side * .155, 1.69, 1.638), (.009, .022, .007), 10, 6), mats['dark'], 'pupil')
+            add(sphere('pupil', (side * .155, 1.69, 1.614), (.009, .022, .005), 10, 6), mats['dark'], 'pupil')
     add(sphere('nose', (0, 1.535 if cat else 1.58, 1.735 if cat else 1.85), (.064 if cat else .085, .042, .035), 10, 6), mats['dark'], 'nose')
     return objects
 
