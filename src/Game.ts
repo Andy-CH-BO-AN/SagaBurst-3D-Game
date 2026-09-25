@@ -790,6 +790,8 @@ export class Game {
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
+    this.equipmentUI      = new EquipmentUI()
+    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout)
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
@@ -813,9 +815,8 @@ export class Game {
         const attackerFaction = opposingCampaignFaction(campaignConfig.defenderFaction)
         return this._campaignFactionAlive(attackerFaction) > 0
       },
+      this.inventoryManager,
     )
-    this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout)
 
 
     // ── Save Manager ──

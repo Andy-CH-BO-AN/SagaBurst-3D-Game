@@ -222,16 +222,18 @@ Mounted save/load preserves the player's mounted state and the mount's world pos
 | Hold Right Mouse Button + click Left Mouse Button | Aim / throw Pilum |
 | `E` | Pick up equipment / mount horse / dismount |
 | `Tab` or `I` | Open character & inventory |
+| Mouse wheel | Cycle owned melee weapons by default; in command mode, select a troop group or order |
+| `Q` | Toggle command wheel mode; go back one level when a command submenu is open |
 | Viking: `1`–`6` + `` ` `` / Roman: `1`–`7` + `` ` `` | Select a friendly troop group; `` ` `` selects ALL and opens the Army Command menu |
 | Army Command `1` / `2` / `3` / `4` | Attack / Charge / Defend / Formation |
 | Army Command `` ` `` | Go back one command-menu level; the same key selects ALL from the troop list |
 | Formation: `E` or Left Mouse Button | Confirm the formation at the center-crosshair location |
-| Formation: `` ` `` | Return to the command menu |
+| Formation: `Q` or `` ` `` | Return to the command menu |
 | `Esc` | Close UI / release pointer lock |
 
 ## 📯 Army Commands
 
-Army Command supports both keyboard shortcuts and mouse-wheel navigation. The HUD shows only friendly unit presets that have actually entered the battle, plus ALL. The first present unit is highlighted by default; scrolling upward from it reaches ALL, while scrolling moves through the visible troop groups. Middle-click enters the highlighted target's command panel. Attack is highlighted first, the wheel moves between Attack / Charge / Defend / Formation, and middle-click confirms. Formation placement can be confirmed with `E`, left click, or middle click.
+Army Command supports keyboard shortcuts at all times. Press `Q` to give the mouse wheel to command selection; press it again from the troop list to return the wheel to owned melee weapons. Ranged weapons still appear through right-click aiming. The HUD shows only friendly unit presets that have actually entered the battle, plus ALL. The first present unit is highlighted by default; in command mode, scrolling upward from it reaches ALL, while scrolling moves through the visible troop groups. Middle-click enters the highlighted target's command panel. Attack is highlighted first, the command wheel moves between Attack / Charge / Defend / Formation, and middle-click confirms. `Q` goes back from a command submenu or formation placement without changing wheel mode. Formation placement can be confirmed with `E`, left click, or middle click.
 
 Select a troop group with its faction shortcut, then choose an order from the command menu.
 
