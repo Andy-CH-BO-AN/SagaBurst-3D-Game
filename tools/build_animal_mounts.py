@@ -15,6 +15,14 @@ from mathutils import Vector
 OUT = Path(__file__).resolve().parents[1] / 'public/models/mounts/v1'
 TARGETS = (11000, 4300, 1500)
 
+# Black Cat v1 silhouette review uses the supplied reference-sheet dimensions.
+# Keep these values literal for now; horse-scale enlargement comes after the
+# feline anatomy/silhouette is approved in the mount studio.
+CAT_SHOULDER_HEIGHT = .85
+CAT_SADDLE_HEIGHT = .94
+CAT_SADDLE_WIDTH = .40
+CAT_CAMERA_HEIGHT = 1.30
+
 
 def v(point):
     x, y, z = point
@@ -90,29 +98,31 @@ def sculpt(kind):
     def seg(name, a, b, ra, rb): parts.append(segment(name, a, b, ra, rb))
 
     if cat:
-        # Rebuilt from scratch around a feline side silhouette:
-        # deep chest -> tucked waist -> powerful pelvis, with a short muzzle,
-        # tapered sloping neck, compact paws and angular feline hind legs.
-        s('ribcage', (0, 1.17, .10), (.285, .40, .66))
-        s('chest_keel', (0, 1.02, .48), (.245, .34, .36))
-        s('waist', (0, 1.18, -.48), (.19, .255, .43))
-        s('pelvis', (0, 1.17, -.90), (.285, .34, .38))
-        s('haunch', (0, 1.12, -1.08), (.325, .38, .39))
+        # Reference-sheet silhouette (metres): shoulder 0.85, overall height
+        # 1.05, body length about 1.55, chest width 0.36.  The priority of
+        # this pass is to read unmistakably as a cat before scaling it up.
+        s('ribcage', (0, .58, .08), (.18, .27, .43))
+        s('chest_keel', (0, .50, .39), (.16, .20, .24))
+        s('waist', (0, .57, -.28), (.145, .18, .26))
+        s('pelvis', (0, .60, -.47), (.17, .22, .27))
+        s('haunch', (0, .59, -.54), (.19, .24, .25))
 
-        # Feline neck should rise diagonally from the shoulders and visibly taper.
-        seg('neck_base', (0, 1.30, .68), (0, 1.45, .98), .205, .165)
-        seg('neck_upper', (0, 1.44, .96), (0, 1.57, 1.20), .17, .135)
+        # Thin, tapered feline neck; never a straight cylinder between torso
+        # and head.
+        seg('neck_base', (0, .70, .46), (0, .79, .59), .115, .095)
+        seg('neck_upper', (0, .78, .58), (0, .84, .66), .095, .078)
 
-        # Broad, shallow cat skull with a very short muzzle.
-        s('skull', (0, 1.64, 1.33), (.31, .235, .265))
-        s('forehead', (0, 1.70, 1.28), (.255, .165, .205))
+        # Compact domestic-cat head: broad cheeks, short muzzle, small nose.
+        s('skull', (0, .86, .66), (.075, .075, .08))
+        s('forehead', (0, .90, .64), (.068, .055, .065))
         for side in (-1, 1):
-            s('cheek', (side * .165, 1.56, 1.46), (.135, .11, .135))
-            s('whisker_pad', (side * .085, 1.50, 1.57), (.105, .075, .085))
-        s('jaw', (0, 1.45, 1.50), (.175, .07, .145))
+            s('cheek', (side * .052, .83, .72), (.045, .038, .045))
+            s('whisker_pad', (side * .030, .805, .758), (.035, .026, .034))
+        s('jaw', (0, .785, .745), (.062, .025, .050))
         for side in (-1, 1):
-            # Compact ears with their bases buried into the skull silhouette.
-            parts.append(ear('feline_ear', side * .18, 1.76, 1.20, .105, .22, .055))
+            # Ear bases are sunk into the skull so the ears grow from the head
+            # instead of looking like detached spikes.
+            parts.append(ear('feline_ear', side * .055, .92, .65, .035, .13, .025))
     else:
         # Long deep corgi torso, with a horse-width back at the seat.
         s('long_ribcage', (0, 1.14, -.22), (.365, .43, 1.03))
@@ -128,24 +138,25 @@ def sculpt(kind):
         s('short_broad_muzzle', (0, 1.54, 1.65), (.255, .145, .23))
         s('jaw', (0, 1.43, 1.61), (.22, .09, .20))
 
-    leg_x = .325 if cat else .365
-    front_z = .68
-    rear_z = -1.04 if cat else -1.23
+    leg_x = .115 if cat else .365
+    front_z = .47 if cat else .68
+    rear_z = -.52 if cat else -1.23
     for side in (-1, 1):
         x = side * leg_x
         if cat:
-            # Front legs stay relatively straight but taper hard toward the wrist.
-            s('front_shoulder', (x, 1.12, .60), (.19, .34, .245))
-            seg('front_upper', (x, .98, .63), (x, .64, .70), .15, .115)
-            seg('front_lower', (x, .62, .70), (x, .20, .79), .105, .075)
-            s('front_paw', (x, .105, .90), (.135, .085, .185))
+            # Strong shoulder / thigh, narrow wrist / hock, compact paws.
+            # This is the key feline read from the reference sheet.
+            s('front_shoulder', (x, .63, .46), (.085, .18, .11))
+            seg('front_upper', (x, .62, .47), (x, .37, .49), .065, .050)
+            seg('front_lower', (x, .36, .49), (x, .12, .54), .047, .033)
+            s('front_paw', (x, .055, .585), (.045, .035, .0525))
 
-            # Cat hind legs need an obvious knee/hock zig-zag, not a vertical dog leg.
-            s('rear_thigh', (x, 1.05, -.92), (.24, .35, .29))
-            seg('rear_upper', (x, .98, -.92), (x, .69, -.72), .16, .12)
-            seg('rear_hock', (x, .68, -.73), (x, .34, -1.04), .115, .085)
-            seg('rear_lower', (x, .33, -1.03), (x, .17, -.89), .08, .065)
-            s('rear_paw', (x, .105, -.78), (.14, .085, .19))
+            # Cat hind leg zig-zag: hip -> forward knee -> rear hock -> paw.
+            s('rear_thigh', (x, .60, -.52), (.095, .18, .12))
+            seg('rear_upper', (x, .61, -.55), (x, .41, -.34), .075, .055)
+            seg('rear_hock', (x, .40, -.35), (x, .20, -.62), .052, .038)
+            seg('rear_lower', (x, .19, -.61), (x, .10, -.48), .036, .029)
+            s('rear_paw', (x, .055, -.425), (.045, .035, .0525))
         else:
             s('front_shoulder', (x, 1.10, front_z), (.275, .38, .31))
             s('front_upper', (x, .80, .70), (.215, .34, .23))
@@ -157,17 +168,17 @@ def sculpt(kind):
             s('rear_paw', (x, .12, rear_z + .13), (.23, .12, .27))
 
     if cat:
-        seg('tail_base', (0, 1.18, -1.30), (0, .98, -1.58), .105, .09)
-        seg('tail_middle', (0, .99, -1.56), (0, .82, -1.93), .09, .065)
-        seg('tail_tip', (0, .83, -1.91), (0, .78, -2.24), .065, .035)
-        s('tail_end', (0, .78, -2.26), (.04, .045, .06))
+        seg('tail_base', (0, .62, -.73), (0, .52, -.92), .055, .048)
+        seg('tail_middle', (0, .52, -.91), (0, .36, -1.18), .048, .035)
+        seg('tail_tip', (0, .36, -1.17), (0, .32, -1.48), .035, .022)
+        s('tail_end', (0, .33, -1.53), (.025, .025, .035))
     else:
         s('docked_tail', (0, 1.35, -1.58), (.13, .13, .19))
 
     body = join(parts, 'animal_body_source')
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     # All anatomy, including the limb roots, becomes one watertight skin.
-    body.data.remesh_voxel_size = .022 if cat else .027
+    body.data.remesh_voxel_size = .012 if cat else .027
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.voxel_remesh()
     smooth = body.modifiers.new('soft_anatomy', 'SMOOTH')
@@ -204,37 +215,40 @@ def armature(kind):
             bone.parent = bones[parent]
             bone.use_connect = False
         points[name] = point
-    add('root', None, (0, 0, 0), (0, .2, 0))
-    add('body', 'root', (0, 1.16, -.4), (0, 1.16, -.1))
-    add('chest_spine', 'body', (0, 1.24, .42), (0, 1.31, .70))
     if kind == 'black_cat':
-        add('neck', 'chest_spine', (0, 1.31, .72), (0, 1.54, 1.16))
-        add('head', 'neck', (0, 1.60, 1.28), (0, 1.62, 1.56))
+        add('root', None, (0, 0, 0), (0, .12, 0))
+        add('body', 'root', (0, .58, -.28), (0, .59, .02))
+        add('chest_spine', 'body', (0, .61, .16), (0, .69, .44))
+        add('neck', 'chest_spine', (0, .70, .46), (0, .81, .62))
+        add('head', 'neck', (0, .84, .65), (0, .84, .79))
     else:
+        add('root', None, (0, 0, 0), (0, .2, 0))
+        add('body', 'root', (0, 1.16, -.4), (0, 1.16, -.1))
+        add('chest_spine', 'body', (0, 1.24, .42), (0, 1.31, .70))
         add('neck', 'chest_spine', (0, 1.43, 1.00), (0, 1.58, 1.18))
         add('head', 'neck', (0, 1.65, 1.37), (0, 1.67, 1.66))
     for front in (True, False):
         for side in (-1, 1):
             label = f'{"front" if front else "rear"}_{"l" if side < 0 else "r"}'
-            x = side * (.325 if kind == 'black_cat' else .365)
+            x = side * (.115 if kind == 'black_cat' else .365)
             parent = 'chest_spine' if front else 'body'
             if kind == 'black_cat' and front:
-                add(f'{label}_upper_leg', parent, (x, 1.04, .62), (x, .64, .70))
-                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .62, .70), (x, .20, .79))
-                add(f'{label}_paw', f'{label}_lower_leg', (x, .16, .82), (x, .10, 1.00))
+                add(f'{label}_upper_leg', parent, (x, .63, .46), (x, .37, .49))
+                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .36, .49), (x, .12, .54))
+                add(f'{label}_paw', f'{label}_lower_leg', (x, .105, .54), (x, .055, .64))
             elif kind == 'black_cat':
-                add(f'{label}_upper_leg', parent, (x, 1.02, -.92), (x, .69, -.72))
-                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .68, -.73), (x, .34, -1.04))
-                add(f'{label}_paw', f'{label}_lower_leg', (x, .18, -.90), (x, .10, -.76))
+                add(f'{label}_upper_leg', parent, (x, .61, -.55), (x, .41, -.34))
+                add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .40, -.35), (x, .20, -.62))
+                add(f'{label}_paw', f'{label}_lower_leg', (x, .12, -.49), (x, .055, -.39))
             else:
                 z = .68 if front else -1.23
                 add(f'{label}_upper_leg', parent, (x, 1.1, z), (x, .65, z))
                 add(f'{label}_lower_leg', f'{label}_upper_leg', (x, .58, z), (x, .20, z + .06))
                 add(f'{label}_paw', f'{label}_lower_leg', (x, .15, z + .15), (x, .11, z + .31))
     if kind == 'black_cat':
-        add('tail_base', 'body', (0, 1.18, -1.30), (0, .98, -1.58))
-        add('tail_middle', 'tail_base', (0, .99, -1.56), (0, .82, -1.93))
-        add('tail_tip', 'tail_middle', (0, .83, -1.91), (0, .78, -2.24))
+        add('tail_base', 'body', (0, .62, -.73), (0, .52, -.92))
+        add('tail_middle', 'tail_base', (0, .52, -.91), (0, .36, -1.18))
+        add('tail_tip', 'tail_middle', (0, .36, -1.17), (0, .32, -1.48))
     else:
         add('tail', 'body', (0, 1.35, -1.54), (0, 1.35, -1.72))
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -245,35 +259,66 @@ def influence(kind, point):
     x, y, z = point
     weights = {}
     def put(name, value): weights[name] = max(weights.get(name, 0), value)
-    # Main spine blend; below the ribcage the relevant leg branch takes over.
-    chest = max(0, min(1, (z + .12) / .75))
-    put('body', 1 - chest)
-    put('chest_spine', chest)
-    if z > .88 and y > 1.17:
-        t = max(0, min(1, (z - .88) / .35))
-        put('body', (1 - chest) * (1 - t))
-        put('chest_spine', chest * (1 - t))
-        put('neck', t)
-    if z > 1.25 and y > 1.37:
-        t = max(0, min(1, (z - 1.25) / .28))
-        weights = {name: value * (1 - t) for name, value in weights.items()}
-        put('head', t)
-    if kind == 'black_cat' and z < -1.30 and abs(x) < .18 and y > .65:
-        tail = 'tail_tip' if z < -2.02 else 'tail_middle' if z < -1.66 else 'tail_base'
-        weights = {tail: 1}
-    elif kind == 'corgi' and z < -1.39 and abs(x) < .20 and y > 1.08:
-        weights = {'tail': 1}
-    for front in (True, False):
-        leg_z = .68 if front else (-.90 if kind == 'black_cat' else -1.23)
-        leg_window = .46 if kind == 'black_cat' else .40
-        if abs(z - leg_z) > leg_window or abs(x) < .20 or abs(x) > .66 or y > 1.24:
-            continue
-        side = 'l' if x < 0 else 'r'
-        prefix = f'{"front" if front else "rear"}_{side}'
-        blend = max(0, min(1, (1.24 - y) / .30))
-        limb = f'{prefix}_paw' if y < .22 else f'{prefix}_lower_leg' if y < .57 else f'{prefix}_upper_leg'
-        weights = {name: value * (1 - blend) for name, value in weights.items()}
-        put(limb, blend)
+    def clamp01(value): return max(0, min(1, value))
+
+    if kind == 'black_cat':
+        # Reference-scale feline weights.  Keep shoulders blended into the
+        # chest while distal limbs become increasingly rigid toward the paw.
+        chest = clamp01((z + .16) / .60)
+        put('body', 1 - chest)
+        put('chest_spine', chest)
+
+        if z > .40 and y > .60:
+            t = clamp01((z - .40) / .23)
+            weights = {name: value * (1 - t) for name, value in weights.items()}
+            put('neck', t)
+
+        if z > .62 and y > .74:
+            t = clamp01((z - .62) / .16)
+            weights = {name: value * (1 - t) for name, value in weights.items()}
+            put('head', t)
+
+        if z < -.70 and abs(x) < .13 and y > .16:
+            tail = 'tail_tip' if z < -1.27 else 'tail_middle' if z < -1.00 else 'tail_base'
+            weights = {tail: 1}
+        else:
+            for front in (True, False):
+                leg_z = .49 if front else -.49
+                if abs(z - leg_z) > .29 or abs(x) < .045 or abs(x) > .22 or y > .72:
+                    continue
+                side = 'l' if x < 0 else 'r'
+                prefix = f'{"front" if front else "rear"}_{side}'
+                blend = clamp01((.72 - y) / .24)
+                limb = f'{prefix}_paw' if y < .13 else f'{prefix}_lower_leg' if y < .40 else f'{prefix}_upper_leg'
+                weights = {name: value * (1 - blend) for name, value in weights.items()}
+                put(limb, blend)
+    else:
+        # Existing horse-scale corgi weighting remains unchanged.
+        chest = clamp01((z + .12) / .75)
+        put('body', 1 - chest)
+        put('chest_spine', chest)
+        if z > .88 and y > 1.17:
+            t = clamp01((z - .88) / .35)
+            put('body', (1 - chest) * (1 - t))
+            put('chest_spine', chest * (1 - t))
+            put('neck', t)
+        if z > 1.25 and y > 1.37:
+            t = clamp01((z - 1.25) / .28)
+            weights = {name: value * (1 - t) for name, value in weights.items()}
+            put('head', t)
+        if z < -1.39 and abs(x) < .20 and y > 1.08:
+            weights = {'tail': 1}
+        for front in (True, False):
+            leg_z = .68 if front else -1.23
+            if abs(z - leg_z) > .40 or abs(x) < .20 or abs(x) > .66 or y > 1.24:
+                continue
+            side = 'l' if x < 0 else 'r'
+            prefix = f'{"front" if front else "rear"}_{side}'
+            blend = clamp01((1.24 - y) / .30)
+            limb = f'{prefix}_paw' if y < .22 else f'{prefix}_lower_leg' if y < .57 else f'{prefix}_upper_leg'
+            weights = {name: value * (1 - blend) for name, value in weights.items()}
+            put(limb, blend)
+
     total = sum(weights.values())
     return {name: value / total for name, value in weights.items() if value > .001}
 
@@ -325,14 +370,26 @@ def tack(kind, arm, materials):
         obj.data.materials.append(mat)
         bind(obj, arm, kind, rigid='body')
         pieces.append(obj)
-    pad = sphere('pad', (0, 1.68, -.08), (.41, .075, .45), 20, 10)
-    add(pad, materials['pad'], 'saddle_pad')
-    seat = sphere('seat', (0, 1.77, -.08), (.37, .08, .39), 20, 10)
-    add(seat, materials['leather'], 'saddle_seat')
-    for side in (-1, 1):
-        add(segment('girth', (side * .37, 1.68, -.08), (side * .40, 1.10, -.08), .035, .035, 8), materials['leather'], 'girth')
-        add(segment('stirrup', (side * .42, 1.15, -.08), (side * .42, 1.05, -.08), .09, .09, 8), materials['metal'], 'stirrup')
-    add(segment('pommel', (0, 1.73, .24), (0, 1.87, .27), .07, .06, 8), materials['leather'], 'pommel')
+
+    if kind == 'black_cat':
+        # Reference sheet: ~40 cm saddle width, top of seat ~94 cm.
+        pad = sphere('pad', (0, .875, -.05), (.20, .022, .25), 20, 10)
+        add(pad, materials['pad'], 'saddle_pad')
+        seat = sphere('seat', (0, .91, -.05), (.18, .03, .20), 20, 10)
+        add(seat, materials['leather'], 'saddle_seat')
+        for side in (-1, 1):
+            add(segment('girth', (side * .18, .86, -.05), (side * .20, .45, -.05), .018, .018, 8), materials['leather'], 'girth')
+            add(segment('stirrup', (side * .22, .47, -.05), (side * .22, .37, -.05), .045, .045, 8), materials['metal'], 'stirrup')
+        add(segment('pommel', (0, .90, .11), (0, .97, .13), .035, .030, 8), materials['leather'], 'pommel')
+    else:
+        pad = sphere('pad', (0, 1.68, -.08), (.41, .075, .45), 20, 10)
+        add(pad, materials['pad'], 'saddle_pad')
+        seat = sphere('seat', (0, 1.77, -.08), (.37, .08, .39), 20, 10)
+        add(seat, materials['leather'], 'saddle_seat')
+        for side in (-1, 1):
+            add(segment('girth', (side * .37, 1.68, -.08), (side * .40, 1.10, -.08), .035, .035, 8), materials['leather'], 'girth')
+            add(segment('stirrup', (side * .42, 1.15, -.08), (side * .42, 1.05, -.08), .09, .09, 8), materials['metal'], 'stirrup')
+        add(segment('pommel', (0, 1.73, .24), (0, 1.87, .27), .07, .06, 8), materials['leather'], 'pommel')
     return pieces
 
 
@@ -343,12 +400,16 @@ def features(kind, arm, mats):
         obj.data.materials.append(mat)
         bind(obj, arm, kind, rigid='head')
         objects.append(obj)
-    cat = kind == 'black_cat'
-    for side in (-1, 1):
-        add(sphere('eye', (side * (.175 if cat else .19), 1.665 if cat else 1.72, 1.57 if cat else 1.69), (.068 if cat else .043, .038 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
-        if cat:
-            add(sphere('pupil', (side * .175, 1.665, 1.579), (.012, .031, .005), 10, 6), mats['dark'], 'pupil')
-    add(sphere('nose', (0, 1.515 if cat else 1.58, 1.665 if cat else 1.85), (.052 if cat else .085, .034 if cat else .042, .025 if cat else .035), 10, 6), mats['dark'], 'nose')
+
+    if kind == 'black_cat':
+        for side in (-1, 1):
+            add(sphere('eye', (side * .035, .87, .738), (.018, .016, .008), 12, 8), mats['eye'], 'eye')
+            add(sphere('pupil', (side * .035, .87, .746), (.0045, .014, .004), 10, 6), mats['dark'], 'pupil')
+        add(sphere('nose', (0, .81, .795), (.028, .018, .014), 10, 6), mats['dark'], 'nose')
+    else:
+        for side in (-1, 1):
+            add(sphere('eye', (side * .19, 1.72, 1.69), (.043, .034, .022), 12, 8), mats['eye'], 'eye')
+        add(sphere('nose', (0, 1.58, 1.85), (.085, .042, .035), 10, 6), mats['dark'], 'nose')
     return objects
 
 
@@ -397,8 +458,12 @@ def build(kind):
     bpy.data.objects.remove(source, do_unlink=True)
     tack_objects = tack(kind, arm, mats)
     feature_objects = features(kind, arm, mats)
-    socket(arm, 'socket_saddle_seat', (0, 1.82, -.08))
-    socket(arm, 'socket_camera', (0, 2.30, .35))
+    if cat:
+        socket(arm, 'socket_saddle_seat', (0, CAT_SADDLE_HEIGHT, -.05))
+        socket(arm, 'socket_camera', (0, CAT_CAMERA_HEIGHT, .20))
+    else:
+        socket(arm, 'socket_saddle_seat', (0, 1.82, -.08))
+        socket(arm, 'socket_camera', (0, 2.30, .35))
     # The LOD nodes contain only their body. Small tack/facial details are shared.
     # Parenting skinned meshes to the armature preserves a single common skeleton.
     destination = OUT / kind
@@ -407,8 +472,9 @@ def build(kind):
     bpy.ops.export_scene.gltf(filepath=str(destination / 'mount.glb'), export_format='GLB', use_selection=True, export_yup=True, export_cameras=False, export_lights=False)
     manifest = {
         'schemaVersion': 1, 'id': kind, 'status': 'ready', 'file': 'mount.glb', 'forward': '+Z',
-        'shoulderHeightM': 1.62, 'saddleHeightM': 1.82,
-        'saddleWidthM': .74,
+        'shoulderHeightM': CAT_SHOULDER_HEIGHT if cat else 1.62,
+        'saddleHeightM': CAT_SADDLE_HEIGHT if cat else 1.82,
+        'saddleWidthM': CAT_SADDLE_WIDTH if cat else .74,
         'triangles': {'lod0': counts[0], 'lod1': counts[1], 'lod2': counts[2]},
         'bones': [bone.name for bone in arm.data.bones],
         'sockets': ['socket_saddle_seat', 'socket_camera'],
@@ -418,5 +484,6 @@ def build(kind):
     print(kind, counts, 'GLB bytes', (destination / 'mount.glb').stat().st_size)
 
 
-for animal in ('black_cat', 'corgi'):
-    build(animal)
+if __name__ == '__main__':
+    for animal in ('black_cat', 'corgi'):
+        build(animal)

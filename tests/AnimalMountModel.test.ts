@@ -6,7 +6,7 @@ import { Mount, MountType, mountTypeFromSave } from '../src/world/Mount'
 
 describe('Black Cat and Corgi war mount assets', () => {
   for (const [type, folder] of [[MountType.BLACK_CAT, 'black_cat'], [MountType.CORGI, 'corgi']] as const) {
-    it(`${type} ships a skinned, three-LOD GLB at a horse-size rider fit`, () => {
+    it(`${type} ships a skinned, three-LOD GLB with validated mount proportions`, () => {
       const base = `../public/models/mounts/v1/${folder}/`
       const manifest = JSON.parse(readFileSync(new URL(`${base}manifest.json`, import.meta.url), 'utf8')) as AnimalMountManifest
       expect(() => validateAnimalMountManifest(manifest, type)).not.toThrow()
@@ -39,7 +39,7 @@ describe('Black Cat and Corgi war mount assets', () => {
       const second = new Mount(scene, type, 5, 3, 0)
       const seat = first.getRiderPelvisSeatLocal()
       expect(first.group.scale.toArray()).toEqual([1, 1, 1])
-      expect(seat.y).toBeCloseTo(1.82, 2)
+      expect(seat.y).toBeCloseTo(type === MountType.BLACK_CAT ? .94 : 1.82, 2)
       expect(first.animalVisual?.root.getObjectByName('socket_saddle_seat')).toBe(first.animalVisual?.saddleSeat)
       expect(first.animalVisual?.root.getObjectByName('socket_camera')).toBe(first.animalVisual?.cameraSocket)
       expect(first.mountSkeleton).not.toBe(second.mountSkeleton)

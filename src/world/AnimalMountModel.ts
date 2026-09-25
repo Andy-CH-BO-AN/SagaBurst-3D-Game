@@ -41,10 +41,22 @@ export function validateAnimalMountManifest(manifest: AnimalMountManifest, kind:
   if (manifest.schemaVersion !== 1 || manifest.id !== idFor(kind) || manifest.status !== 'ready' || manifest.file !== 'mount.glb') {
     throw new Error(`${kind} mount manifest is not ready`)
   }
-  if (manifest.forward !== '+Z' || manifest.shoulderHeightM < 1.55 || manifest.shoulderHeightM > 1.65) {
-    throw new Error(`${kind} mount orientation or shoulder height is invalid`)
+  if (manifest.forward !== '+Z') {
+    throw new Error(`${kind} mount orientation is invalid`)
   }
-  if (manifest.saddleHeightM < 1.7 || manifest.saddleHeightM > 1.9 || manifest.saddleWidthM < .6 || manifest.saddleWidthM > .8) {
+  if (kind === 'BLACK_CAT') {
+    if (
+      manifest.shoulderHeightM < .80 || manifest.shoulderHeightM > .90 ||
+      manifest.saddleHeightM < .90 || manifest.saddleHeightM > 1.00 ||
+      manifest.saddleWidthM < .35 || manifest.saddleWidthM > .45
+    ) {
+      throw new Error(`${kind} mount reference proportions are invalid`)
+    }
+  } else if (
+    manifest.shoulderHeightM < 1.55 || manifest.shoulderHeightM > 1.65 ||
+    manifest.saddleHeightM < 1.7 || manifest.saddleHeightM > 1.9 ||
+    manifest.saddleWidthM < .6 || manifest.saddleWidthM > .8
+  ) {
     throw new Error(`${kind} mount rider fit is outside the horse range`)
   }
   if (manifest.triangles.lod0 > 16000 || manifest.triangles.lod1 > 6500 || manifest.triangles.lod2 > 2500) {
@@ -99,7 +111,8 @@ function createTestFixture(kind: AnimalMountKind): AnimalMountModel {
   root.add(rootBone)
   const body = new THREE.Bone()
   body.name = 'body'
-  body.position.y = 1.2
+  const referenceScaleCat = kind === 'BLACK_CAT'
+  body.position.y = referenceScaleCat ? .55 : 1.2
   rootBone.add(body)
   const bones = [rootBone, body]
   for (const name of BONES.slice(2)) {
@@ -114,11 +127,11 @@ function createTestFixture(kind: AnimalMountKind): AnimalMountModel {
   bones.push(tail)
   const saddleSeat = new THREE.Object3D()
   saddleSeat.name = 'socket_saddle_seat'
-  saddleSeat.position.set(0, .62, -.08)
+  saddleSeat.position.set(0, referenceScaleCat ? .39 : .62, referenceScaleCat ? -.05 : -.08)
   body.add(saddleSeat)
   const cameraSocket = new THREE.Object3D()
   cameraSocket.name = 'socket_camera'
-  cameraSocket.position.set(0, 1.1, .35)
+  cameraSocket.position.set(0, referenceScaleCat ? .75 : 1.1, referenceScaleCat ? .20 : .35)
   body.add(cameraSocket)
   const lod = new THREE.LOD()
   root.add(lod)

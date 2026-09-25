@@ -4,9 +4,9 @@
   "status": "ready",
   "file": "mount.glb",
   "forward": "+Z",
-  "shoulderHeightM": 1.62,
-  "saddleHeightM": 1.82,
-  "saddleWidthM": 0.74,
+  "shoulderHeightM": 0.85,
+  "saddleHeightM": 0.94,
+  "saddleWidthM": 0.4,
   "triangles": {
     "lod0": 11000,
     "lod1": 4300,
