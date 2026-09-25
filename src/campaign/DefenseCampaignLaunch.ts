@@ -27,6 +27,7 @@ import {
   getDefenseDeploymentBaseUsed,
   isCampaignStageId,
   opposingCampaignFaction,
+  resolveCampaignAttackerRolePresets,
   resolveCampaignRolePreset,
   type CampaignFaction,
   type CampaignStageId,
@@ -257,12 +258,21 @@ function createWaveArmy(
             `Defense Campaign Stage ${stage.id} cannot allocate T${tier} ${role} integrally`,
           )
         }
-        putCount(
-          side(attacker),
-          resolveCampaignRolePreset(attacker, role),
-          tier,
-          roleCount,
-        )
+        const presets = resolveCampaignAttackerRolePresets(attacker, role)
+        const presetCount = roleCount / presets.length
+        if (!Number.isInteger(presetCount)) {
+          throw new Error(
+            `Defense Campaign Stage ${stage.id} cannot split T${tier} ${role} across ${presets.length} presets`,
+          )
+        }
+        for (const presetId of presets) {
+          putCount(
+            side(attacker),
+            presetId,
+            tier,
+            presetCount,
+          )
+        }
       }
     }
   } else {
