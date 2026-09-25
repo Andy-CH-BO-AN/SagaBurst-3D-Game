@@ -126,6 +126,8 @@ export class Player {
   public hasPrevLanceTip = false
 
   private aiming = false
+  private rangedAimViewActive = false
+  private rangedAimRequiresRmbRelease = false
   private bowChargeTime = 0
   private bowVisualDrawRatio = 0
   private nockedArrowReleased = false
@@ -135,7 +137,6 @@ export class Player {
   private pendingRangedWeapon?: WeaponData
   private pilumProjectileReleased = false
   private pilumReadyAfterThrow = false
-  private pilumAimRequiresRelease = false
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
@@ -184,6 +185,7 @@ export class Player {
   get staminaValue(): number    { return this.stamina }
   get swinging(): boolean       { return this.isSwinging }
   get isAiming(): boolean       { return this.aiming }
+  get isRangedAimViewActive(): boolean { return this.rangedAimViewActive }
   get bowDrawRatio(): number    { return this.bowVisualDrawRatio }
   get rangedVisualKind(): 'bow' | 'pilum' { return WEAPONS[this.currentRangedId]?.animationKind === 'pilum' ? 'pilum' : 'bow' }
   get arrowCount(): number      { return this.arrows }
@@ -422,7 +424,8 @@ export class Player {
     this.bowVisualDrawRatio = 0
     this.pilumProjectileReleased = false
     this.pilumReadyAfterThrow = false
-    this.pilumAimRequiresRelease = false
+    this.rangedAimViewActive = false
+    this.rangedAimRequiresRmbRelease = false
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
@@ -594,7 +597,7 @@ export class Player {
     this.pendingRangedWeapon = equippedRanged
     if (!this.animator.start('pilumThrow')) return
     this.pilumProjectileReleased = false
-    this.pilumAimRequiresRelease = true
+    this.rangedAimRequiresRmbRelease = true
     this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
   }
 
@@ -642,17 +645,15 @@ export class Player {
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
     const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
-    if (!input.isRightMouseDown && this.animator.currentAction !== 'pilumThrow') {
-      this.pilumAimRequiresRelease = false
-    }
+    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
+    if (!input.isRightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
     if (wantsBowAim) {
       this.meleeAttackBufferTimer = 0
     }
-    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    this.aiming = wantAim && !this.pilumAimRequiresRelease && !this.isSwinging && !rangedReleasing
+    this.aiming = wantAim && !this.rangedAimRequiresRmbRelease && !this.isSwinging && !rangedReleasing
+    if (this.aiming && equippedRanged) this.rangedAimViewActive = true
+    else if (!rangedReleasing || (this.animator.currentAction === 'bowRelease' && this.nockedArrowReleased)) this.rangedAimViewActive = false
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
-
-    quiverUI.setAiming(this.aiming)
 
     if (this.aiming) {
       this.swordPivot.visible = false
@@ -672,13 +673,14 @@ export class Player {
         this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
         if (input.consumeLeftClickRelease()) {
           this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
+          if (this.animator.currentAction !== 'bowRelease') {
+            this.bowChargeTime = 0
+            this.bowVisualDrawRatio = 0
+          }
           quiverUI.setChargeRatio(0)
         }
       }
     } else {
-      if (!isPilum && this.bowChargeTime > 0.1 && this.arrows > 0) {
-        this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
-      }
       this.bowChargeTime = 0
       quiverUI.setChargeRatio(0)
 
@@ -811,7 +813,9 @@ export class Player {
         this.bowVisualDrawRatio = 0
         soundManager.playBowRelease(0, true, 0)
       }
+      this.rangedAimViewActive = this.pendingRangedWeapon?.combatKind !== 'javelin' && input.isRightMouseDown
     }
+    quiverUI.setAiming(this.rangedAimViewActive)
     if (animationEvents.actionCompleted) {
       if (isPilum && this.pilumProjectileReleased) {
         // Recovery has finished: show the next held pilum only when ammo remains.

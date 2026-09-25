@@ -101,6 +101,7 @@ Player 裝備與 Player Faction 完全分開，因此 Viking / Roman 裝備可�
 有明確設定 Player Loadout 時，Player 起始背包只會包含所選裝備，不會另外塞入沒有選到的頂級裝備。切換兵力 Preset 或 Reset 也會保留目前的 Player Loadout。
 
 弓與 Pilum 的操作方式不同：弓沿用既有的拉弓 / 放箭流程；Pilum 則是按住右鍵瞄準，再用左鍵觸發投擲。進入遠程瞄準時，若有裝備盾牌，仍沿用既有邏輯自動卸下盾牌。
+按住滑鼠右鍵會進入第一人稱遠程瞄準。使用弓箭時，射出後持續按住右鍵可留在第一人稱觀察彈道，再按住左鍵即可裝填並拉下一箭；放開右鍵才返回第三人稱。Pilum 標槍實際離手後會返回第三人稱，需放開右鍵再按一次才能開始下一次投擲。
 
 為了向後相容，沒有 `playerLoadout` 的舊 BattleConfig 仍維持原本預設：**Steel Lance、Elven Runebow、Round Shield T3，並騎馬開場**。若啟用初始 **Spectator 觀戰模式**，則會忽略騎乘設定，不生成 Player 的開場戰馬。
 

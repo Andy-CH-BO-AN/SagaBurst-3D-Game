@@ -8,6 +8,7 @@ import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 import { getRangedCooldown } from '../src/combat/CombatBalance'
+import { Mount, MountType } from '../src/world/Mount'
 
 const input = (values = {}) => ({
   keys: {},
@@ -60,6 +61,8 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true }))
     expect(h.inventory.equippedShield).toBeNull()
     expect(h.player.isAiming).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    expect(h.ui.setAiming).toHaveBeenLastCalledWith(true)
 
     // Camera zooms smoothly toward 28° (AIM_FOV)
     for (let i = 0; i < 60; i++) {
@@ -67,16 +70,19 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     }
     expect(h.camera.fov).toBeLessThan(30)
     expect(h.camera.fov).toBeGreaterThanOrEqual(28)
+    expect(h.camera.position.distanceTo(h.player.position)).toBeLessThan(2)
 
     // 3. RMB release -> isAiming = false
     h.update(input({ isRightMouseDown: false }))
     expect(h.player.isAiming).toBe(false)
+    expect(h.player.isRangedAimViewActive).toBe(false)
 
     // Camera zooms smoothly back toward 58°
     for (let i = 0; i < 60; i++) {
       h.update(input({ isRightMouseDown: false }), 1 / 60)
     }
     expect(h.camera.fov).toBeGreaterThan(56)
+    expect(h.camera.position.distanceTo(h.player.position)).toBeGreaterThan(5)
   })
 
   // Test 1: RMB only -> isAiming === true, but bowDrawRatio === 0
@@ -103,12 +109,14 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
 
     h.update(input({ isRightMouseDown: true }), 1 / 60)
     expect(h.player.isAiming).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
     const initialPila = h.player.arrowCount
     const projectiles = vi.fn()
     h.player.onFireArrow = projectiles
 
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect(h.player.isRangedAimViewActive).toBe(true)
     expect(h.player.pilumCooldown).toBeCloseTo(getRangedCooldown('javelin') - 1 / 60)
     expect(h.player.arrowCount).toBe(initialPila)
     expect(projectiles).not.toHaveBeenCalled()
@@ -120,10 +128,13 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true }), 0.40)
     expect(projectiles).not.toHaveBeenCalled()
     expect(h.player.arrowCount).toBe(initialPila)
+    expect(h.player.isRangedAimViewActive).toBe(true)
     expect((h.player as any).bowPivot.visible).toBe(true)
 
     h.update(input({ isRightMouseDown: true }), 0.06)
     expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.isRangedAimViewActive).toBe(false)
+    expect(h.ui.setAiming).toHaveBeenLastCalledWith(false)
     expect(projectiles.mock.calls[0][0].visualKind).toBe('pilum')
     const heldGrip = (h.player as any).bowGripPivot.getWorldPosition(new THREE.Vector3())
     expect(projectiles.mock.calls[0][0].origin.distanceTo(heldGrip)).toBeLessThan(1e-6)
@@ -138,6 +149,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true }), 0.10)
     expect(h.player.combatAnimationAction).toBe('idle')
     expect(h.player.isAiming).toBe(false)
+    expect(h.player.isRangedAimViewActive).toBe(false)
     expect((h.player as any).bowPivot.visible).toBe(true)
     expect((h.player as any).swordPivot.visible).toBe(false)
 
@@ -146,6 +158,8 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
+    h.update(input({ isRightMouseDown: true }))
+    expect(h.player.isRangedAimViewActive).toBe(true)
   })
 
   it('holds the imported pilum until release, then draws a fresh one after recovery without re-aiming', () => {
@@ -165,13 +179,16 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
 
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 0)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect(h.player.isRangedAimViewActive).toBe(true)
     expect((h.player as any).bowPivot.visible).toBe(true)
     expect(projectiles).not.toHaveBeenCalled()
     h.update(input({ isRightMouseDown: true }), PILUM_THROW_RELEASE_TIME - 0.01)
     expect(projectiles).not.toHaveBeenCalled()
     expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
     h.update(input({ isRightMouseDown: true }), 0.01)
     expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.isRangedAimViewActive).toBe(false)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect((h.player as any).bowPivot.visible).toBe(false)
     h.update(input({ isRightMouseDown: true }), 0.46)
@@ -184,6 +201,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(h.player.combatAnimationAction).toBe('idle')
     expect(h.player.isAiming).toBe(false)
+    expect(h.player.isRangedAimViewActive).toBe(false)
     expect((h.player as any).bowPivot.visible).toBe(true)
     expect((h.player as any).swordPivot.visible).toBe(false)
     h.update(input({ isRightMouseDown: true }))
@@ -218,17 +236,20 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isAiming).toBe(false)
     expect((h.player as any).bowPivot.visible).toBe(true)
     expect(h.camera.fov).toBeGreaterThan(56)
+    expect(h.player.isRangedAimViewActive).toBe(false)
 
     // Holding the original RMB cannot silently re-enter aim or launch from an empty hand.
     for (let frame = 0; frame < 50; frame++) h.update(heldRmb)
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
     expect(h.player.isAiming).toBe(false)
+    expect(h.player.isRangedAimViewActive).toBe(false)
     expect(h.player.combatAnimationAction).toBe('idle')
     expect(projectiles).toHaveBeenCalledTimes(1)
 
     h.update(input({ isRightMouseDown: false }))
     h.update(heldRmb)
     expect(h.player.isAiming).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
     expect((h.player as any).bowPivot.visible).toBe(true)
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
@@ -290,11 +311,122 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     const initialArrows = h.player.arrowCount
     h.update(input({ isRightMouseDown: true, isLeftMouseDown: false, consumeLeftClickRelease: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('bowRelease')
+    expect(h.player.isRangedAimViewActive).toBe(true)
 
     // Advance through projectileRelease
     h.update(input({ isRightMouseDown: true }), 0.1)
     expect(h.player.arrowCount).toBe(initialArrows - 1)
+    expect(h.player.isRangedAimViewActive).toBe(true)
     expect(h.sounds.playBowRelease).toHaveBeenCalled()
+  })
+
+  it('keeps Bow in first person after firing and allows another load while RMB stays held', () => {
+    const h = createPlayerHarness()
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    h.update(input({ isRightMouseDown: true }))
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 0.2)
+    h.update(input({ isRightMouseDown: true, consumeLeftClickRelease: () => true }), 0)
+    expect(h.player.combatAnimationAction).toBe('bowRelease')
+    expect(h.player.isAiming).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    expect(h.ui.setAiming).toHaveBeenLastCalledWith(true)
+    h.update(input({ isRightMouseDown: true }), 0.03)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    h.update(input({ isRightMouseDown: true }), 0.02)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(projectiles.mock.calls[0][0].visualKind).toBe('arrow')
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    expect(h.ui.setAiming).toHaveBeenLastCalledWith(true)
+    for (let frame = 0; frame < 90; frame++) h.update(input({ isRightMouseDown: true }))
+    expect(h.player.combatAnimationAction).toBe('idle')
+    expect(h.player.isAiming).toBe(true)
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    expect(h.camera.position.distanceTo(h.player.position)).toBeLessThan(2)
+    expect(h.camera.fov).toBeLessThan(30)
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 0.2)
+    expect(h.player.bowDrawRatio).toBeGreaterThan(0)
+    h.update(input({ isRightMouseDown: true, consumeLeftClickRelease: () => true }), 0)
+    expect(h.player.combatAnimationAction).toBe('bowRelease')
+    h.update(input({ isRightMouseDown: true }), 0.05)
+    expect(projectiles).toHaveBeenCalledTimes(2)
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    h.update(input({ isRightMouseDown: false }))
+    expect(h.player.isRangedAimViewActive).toBe(false)
+    for (let frame = 0; frame < 30; frame++) h.update(input({ isRightMouseDown: false }))
+    expect(h.camera.fov).toBeGreaterThan(56)
+  })
+
+  it('cancels a charged Bow aim on RMB release without firing or locking the next aim', () => {
+    const h = createPlayerHarness()
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    const initialArrows = h.player.arrowCount
+    h.update(input({ isRightMouseDown: true }))
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 0.2)
+    expect(h.player.bowDrawRatio).toBeGreaterThan(0)
+    h.update(input({ isRightMouseDown: false }), 1 / 60)
+    expect(h.player.isRangedAimViewActive).toBe(false)
+    expect(h.player.combatAnimationAction).not.toBe('bowRelease')
+    expect(h.player.arrowCount).toBe(initialArrows)
+    expect(projectiles).not.toHaveBeenCalled()
+    h.update(input({ isRightMouseDown: true }), 1 / 60)
+    expect(h.player.isRangedAimViewActive).toBe(true)
+  })
+
+  it('keeps Bow aim through a committed release even if RMB is released during windup', () => {
+    const h = createPlayerHarness()
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    h.update(input({ isRightMouseDown: true }))
+    h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), 0.2)
+    h.update(input({ isRightMouseDown: true, consumeLeftClickRelease: () => true }), 0)
+    h.update(input({ isRightMouseDown: false }), 0.03)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    h.update(input({ isRightMouseDown: false }), 0.02)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.isRangedAimViewActive).toBe(false)
+  })
+
+  it('keeps Pilum aim through windup after RMB release and clears aim on weapon rebuild', () => {
+    const h = createPlayerHarness({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null })
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 0)
+    h.update(input({ isRightMouseDown: false }), 0.3)
+    expect(projectiles).not.toHaveBeenCalled()
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    h.player.rebuildRangedWeapon('recurve_longbow')
+    expect(h.player.isRangedAimViewActive).toBe(false)
+    h.update(input({ isRightMouseDown: false }), 0.2)
+    expect(projectiles).not.toHaveBeenCalled()
+  })
+
+  it('uses the same aim direction on a mounted Player while moving the camera to and from eye level', () => {
+    const h = createPlayerHarness({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null })
+    const mount = new Mount(h.scene, MountType.CORGI, 0, 0, 0)
+    h.player.mountVehicle(mount)
+    h.update(input())
+    const beforeDirection = h.tpCamera.getAimDirection(new THREE.Vector3())
+    const beforePosition = h.camera.position.clone()
+    for (let frame = 0; frame < 30; frame++) h.update(input({ isRightMouseDown: true }))
+    expect(h.player.isRangedAimViewActive).toBe(true)
+    expect([h.camera.position.x, h.camera.position.y, h.camera.position.z].every(Number.isFinite)).toBe(true)
+    const aimedDirection = h.tpCamera.getAimDirection(new THREE.Vector3())
+    expect(aimedDirection.dot(beforeDirection)).toBeGreaterThan(0.999999)
+    expect(h.camera.getWorldDirection(new THREE.Vector3()).dot(beforeDirection)).toBeGreaterThan(0.999999)
+    expect(h.camera.position.distanceTo(beforePosition)).toBeGreaterThan(5)
+    expect(Math.abs(h.camera.position.y - h.player.position.y)).toBeLessThan(1)
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    h.update(input({ isRightMouseDown: true }), 0.46)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.isRangedAimViewActive).toBe(false)
+    for (let frame = 0; frame < 30; frame++) h.update(input({ isRightMouseDown: true }))
+    expect(h.camera.position.distanceTo(h.player.position)).toBeGreaterThan(5)
   })
 
   // Test 3: release RMB without LMB charge -> does not shoot, only exits aim
@@ -314,6 +446,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     // Release RMB (no LMB was held) -> should only exit aim, not fire
     h.update(input({ isRightMouseDown: false }), 1 / 60)
     expect(h.player.isAiming).toBe(false)
+    expect(h.player.isRangedAimViewActive).toBe(false)
     // bowRelease animation must NOT have been triggered
     expect(h.player.combatAnimationAction).not.toBe('bowRelease')
     // Arrow count unchanged

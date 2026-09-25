@@ -1,7 +1,6 @@
 /**
  * ThirdPersonCamera.ts
- * Third-person camera that orbits around the player.
- * Phase 22: realistic 58-degree gameplay FOV with 40-degree aim zoom.
+ * Player camera that blends between third-person orbit and ranged first-person aim.
  */
 import * as THREE from 'three'
 import type { Player } from '../player/Player'
@@ -11,6 +10,8 @@ const MOUSE_SENSITIVITY = 0.002   // radians per pixel
 const MIN_PITCH = -0.4            // ~-23 deg
 const MAX_PITCH = 1.1             // ~+63 deg
 const CAMERA_DISTANCE = 6
+// The imported helmet and bow intersect the view at shorter offsets.
+const FIRST_PERSON_FORWARD_OFFSET = 0.55
 const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 
@@ -23,6 +24,10 @@ export class ThirdPersonCamera {
   private pitch = 0.3
   private readonly aimDirection = new THREE.Vector3(0, 0, 1)
   private readonly cameraTarget = new THREE.Vector3()
+  private readonly thirdPersonPosition = new THREE.Vector3()
+  private readonly firstPersonPosition = new THREE.Vector3()
+  private readonly lookTarget = new THREE.Vector3()
+  private aimViewBlend = 0
 
   constructor(private camera: THREE.PerspectiveCamera, private player: Player) {
     this.yaw = (player.facingYaw ?? 0) + Math.PI
@@ -67,14 +72,11 @@ export class ThirdPersonCamera {
       MAX_PITCH
     )
 
-    // Smooth FOV zoom transition
-    const targetFOV = this.player.isAiming ? AIM_FOV : NORMAL_FOV
-    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFOV, dt * 10)
+    const targetBlend = this.player.isRangedAimViewActive ? 1 : 0
+    const alpha = 1 - Math.exp(-18 * dt)
+    this.aimViewBlend = THREE.MathUtils.lerp(this.aimViewBlend, targetBlend, alpha)
+    this.camera.fov = THREE.MathUtils.lerp(NORMAL_FOV, AIM_FOV, this.aimViewBlend)
     this.camera.updateProjectionMatrix()
-
-    // Keep the orbit position stable while aiming; FOV alone provides the zoom.
-    // Moving to a shoulder camera changes the world point beneath the fixed reticle.
-    const dist = CAMERA_DISTANCE
 
     // The camera and projectile share one forward ray.  Looking back at the
     // player would make the screen-centre reticle point into the ground while
@@ -82,7 +84,9 @@ export class ThirdPersonCamera {
     this._updateAimDirection()
     this.cameraTarget.copy(this.player.position)
     this.cameraTarget.y += this.player.isMounted ? MOUNTED_CAMERA_HEIGHT_OFFSET : CAMERA_HEIGHT_OFFSET
-    this.camera.position.copy(this.cameraTarget).addScaledVector(this.aimDirection, -dist)
-    this.camera.lookAt(this.cameraTarget.add(this.aimDirection))
+    this.thirdPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, -CAMERA_DISTANCE)
+    this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, FIRST_PERSON_FORWARD_OFFSET)
+    this.camera.position.lerpVectors(this.thirdPersonPosition, this.firstPersonPosition, this.aimViewBlend)
+    this.camera.lookAt(this.lookTarget.copy(this.camera.position).add(this.aimDirection))
   }
 }

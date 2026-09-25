@@ -1122,10 +1122,10 @@ describe('combat presentation regressions', () => {
     expect(aimPoint.clone().sub(camera.position).normalize().dot(cameraForward)).toBeGreaterThan(0.999)
   })
 
-  it('does not move the camera when right-click aiming begins', () => {
+  it('moves the camera along the same aim ray when ranged aiming begins', () => {
     const camera = new THREE.PerspectiveCamera()
     const playerState = {
-      isAiming: false,
+      isRangedAimViewActive: false,
       position: new THREE.Vector3(),
     }
     const input = {
@@ -1134,9 +1134,12 @@ describe('combat presentation regressions', () => {
     const thirdPerson = new ThirdPersonCamera(camera, playerState as Player)
     thirdPerson.update(input)
     const before = camera.position.clone()
-    playerState.isAiming = true
+    const beforeDirection = thirdPerson.getAimDirection(new THREE.Vector3())
+    playerState.isRangedAimViewActive = true
     thirdPerson.update(input)
-    expect(camera.position.distanceTo(before)).toBeCloseTo(0)
+    expect(camera.position.distanceTo(before)).toBeGreaterThan(0)
+    expect(camera.position.clone().sub(before).normalize().dot(beforeDirection)).toBeGreaterThan(0.999999)
+    expect(thirdPerson.getAimDirection(new THREE.Vector3()).dot(beforeDirection)).toBeGreaterThan(0.999999)
   })
 
   it('preserves upgraded weapon and shield materials', () => {
