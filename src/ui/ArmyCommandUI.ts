@@ -2,6 +2,7 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ArmyCommandTarget } from '../battle/ArmyCommandController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { getUnitPreset } from '../battle/UnitPresetCatalog'
+import type { WheelInputMode } from '../battle/ArmyCommandController'
 
 export interface ArmyCommandHudEntry {
   key: string
@@ -31,6 +32,7 @@ export class ArmyCommandUI {
   private readonly targets: HTMLElement
   private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
+  private readonly wheelHint: HTMLElement
   private feedbackTimer: number | null = null
 
   constructor(faction: CharacterFaction) {
@@ -43,6 +45,8 @@ export class ArmyCommandUI {
     this.commands.className = 'army-command-commands'
     this.feedback = document.createElement('div')
     this.feedback.className = 'army-command-feedback'
+    this.wheelHint = document.createElement('div')
+    this.wheelHint.className = 'army-command-wheel-hint'
     this.root.append(this.targets, this.commands, this.feedback)
     document.getElementById('hud')?.appendChild(this.root)
   }
@@ -53,7 +57,12 @@ export class ArmyCommandUI {
     selectedTarget: ArmyCommandTarget | null,
     highlightedTarget: ArmyCommandTarget | null = null,
     highlightedCommandIndex = 0,
+    wheelMode: WheelInputMode = 'weapon',
+    selectedWeaponName = '',
   ): void {
+    this.wheelHint.textContent = wheelMode === 'command'
+      ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
+      : `滾輪：切換近戰武器${selectedWeaponName ? `（${selectedWeaponName}）` : ''}　[Q] ${submenuOpen ? '上一頁' : '滾輪選擇命令'}`
     this.targets.classList.toggle('hidden', submenuOpen)
     this.commands.classList.toggle('visible', submenuOpen)
 
@@ -64,6 +73,7 @@ export class ArmyCommandUI {
         ...entries.filter(entry => entry.key !== '`'),
       ]
       this._renderEntries(this.targets, ordered, highlightedTarget)
+      this.targets.appendChild(this.wheelHint)
       this.commands.replaceChildren()
       return
     }
@@ -96,8 +106,9 @@ export class ArmyCommandUI {
 
     const back = document.createElement('div')
     back.className = 'army-command-back-hint'
-    back.textContent = '[`] 上一頁'
+    back.textContent = '[Q] / [`] 上一頁'
     this.commands.appendChild(back)
+    this.commands.appendChild(this.wheelHint)
   }
 
   renderPlacement(target: ArmyCommandTarget): void {
@@ -122,8 +133,9 @@ export class ArmyCommandUI {
 
     const back = document.createElement('div')
     back.className = 'army-command-back-hint'
-    back.textContent = '[`] 上一頁'
+    back.textContent = '[Q] / [`] 上一頁'
     this.commands.appendChild(back)
+    this.commands.appendChild(this.wheelHint)
   }
 
   showFeedback(message: string): void {

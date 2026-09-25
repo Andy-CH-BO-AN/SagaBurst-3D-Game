@@ -8,6 +8,9 @@ import {
 import type { TacticalOrder } from './TacticalOrder'
 import { ArmyCommandUI, type ArmyCommandHudEntry } from '../ui/ArmyCommandUI'
 import type { FormationController } from './FormationController'
+import type { InventoryManager } from '../rpg/InventoryManager'
+
+export type WheelInputMode = 'weapon' | 'command'
 
 export type ArmyCommandTarget = UnitPresetId | 'all'
 
@@ -81,6 +84,8 @@ export class ArmyCommandController {
   private readonly seenPresetIds = new Set<UnitPresetId>()
   private rosterSignature = ''
   private allOrder: TacticalOrder | 'mixed' = 'attack'
+  private wheelInputMode: WheelInputMode = 'weapon'
+  private selectedWeaponId: string | null = null
 
   constructor(
     private readonly npcs: readonly NPC[],
@@ -91,10 +96,12 @@ export class ArmyCommandController {
     private readonly onCommandIssued: ((order: TacticalOrder) => void) | null = null,
     initialOrder: TacticalOrder = 'attack',
     private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
+    private readonly inventory: InventoryManager | null = null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
     this.allOrder = initialOrder
+    this.selectedWeaponId = inventory?.equippedMelee.id ?? null
     for (const shortcut of this.shortcuts) {
       if (shortcut.target !== 'all') this.orders.set(shortcut.target, initialOrder)
     }
@@ -115,6 +122,7 @@ export class ArmyCommandController {
   get isSubmenuOpen(): boolean { return this.submenuOpen }
   get selected(): ArmyCommandTarget | null { return this.selectedTarget }
   get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
+  get wheelMode(): WheelInputMode { return this.wheelInputMode }
 
   update(): void {
     const rosterChanged = this._syncRosterSelection()
@@ -131,7 +139,9 @@ export class ArmyCommandController {
         // Do not let stale wheel navigation leak out of placement mode.
       }
 
-      const goBack = this.input.consumeKeyPress('Backquote')
+      const qBack = this.input.consumeKeyPress('KeyQ')
+      const backquoteBack = this.input.consumeKeyPress('Backquote')
+      const goBack = qBack || backquoteBack
       const confirmedByKey = this.input.consumeKeyE()
       const confirmedByClick = this.input.consumeLeftClick()
       const confirmedByMiddle = this.input.consumeMiddleClick()
@@ -155,7 +165,12 @@ export class ArmyCommandController {
     }
 
     if (this.submenuOpen) {
-      if (this.input.consumeKeyPress('Backquote')) {
+      const qBack = this.input.consumeKeyPress('KeyQ')
+      const backquoteBack = this.input.consumeKeyPress('Backquote')
+      if (qBack || backquoteBack) {
+        while (this.input.consumeWheelStep() !== 0) {
+          // Returning from a submenu discards wheel movement from that page.
+        }
         for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
           this._consumeDigit(key)
         }
@@ -167,7 +182,8 @@ export class ArmyCommandController {
       let wheelChanged = false
       let wheelStep: -1 | 0 | 1
       while ((wheelStep = this.input.consumeWheelStep()) !== 0) {
-        this._moveCommandHighlight(wheelStep)
+        if (this.wheelInputMode === 'command') this._moveCommandHighlight(wheelStep)
+        else this._cycleWeapon(wheelStep)
         wheelChanged = true
       }
       if (wheelChanged) this._renderUi()
@@ -196,13 +212,22 @@ export class ArmyCommandController {
       return
     }
 
-    let targetChanged = false
-    let wheelStep: -1 | 0 | 1
-    while ((wheelStep = this.input.consumeWheelStep()) !== 0) {
-      this._moveTargetHighlight(wheelStep)
-      targetChanged = true
+    if (this.input.consumeKeyPress('KeyQ')) {
+      this.wheelInputMode = this.wheelInputMode === 'weapon' ? 'command' : 'weapon'
+      while (this.input.consumeWheelStep() !== 0) {
+        // A queued step from the old mode must not act in the new mode.
+      }
+      this._renderUi()
+    } else {
+      let wheelChanged = false
+      let wheelStep: -1 | 0 | 1
+      while ((wheelStep = this.input.consumeWheelStep()) !== 0) {
+        if (this.wheelInputMode === 'command') this._moveTargetHighlight(wheelStep)
+        else this._cycleWeapon(wheelStep)
+        wheelChanged = true
+      }
+      if (wheelChanged) this._renderUi()
     }
-    if (targetChanged) this._renderUi()
 
     if (this.input.consumeMiddleClick()) {
       if (this.highlightedTarget) this._openSubmenu(this.highlightedTarget)
@@ -249,6 +274,21 @@ export class ArmyCommandController {
       0,
       Math.min(WHEEL_COMMANDS.length - 1, this.highlightedCommandIndex + direction),
     )
+  }
+
+  private _cycleWeapon(direction: -1 | 1): void {
+    if (!this.inventory) return
+    const weapons = [...new Set(this.inventory.inventoryStacks
+      .filter(({ item, quantity }) => quantity > 0 && item.type === 'melee')
+      .map(({ item }) => item.id))]
+    if (weapons.length < 2) {
+      this.selectedWeaponId = weapons[0] ?? null
+      return
+    }
+    const currentIndex = weapons.indexOf(this.selectedWeaponId ?? '')
+    const nextIndex = ((currentIndex < 0 ? 0 : currentIndex) + direction + weapons.length) % weapons.length
+    const nextId = weapons[nextIndex]
+    if (this.inventory.equipWeapon(nextId)) this.selectedWeaponId = nextId
   }
 
   private _consumeShortcutKey(key: string): boolean {
@@ -387,12 +427,20 @@ export class ArmyCommandController {
   }
 
   private _renderUi(): void {
+    const ownedWeapons = this.inventory?.inventoryStacks.filter(({ item, quantity }) =>
+      quantity > 0 && item.type === 'melee',
+    ) ?? []
+    const selectedWeapon = ownedWeapons.find(({ item }) => item.id === this.selectedWeaponId)?.item
+      ?? ownedWeapons.find(({ item }) => item.id === this.inventory?.equippedMelee.id)?.item
+      ?? ownedWeapons[0]?.item
     this.ui.render(
       this._hudEntries(),
       this.submenuOpen,
       this.selectedTarget,
       this.highlightedTarget,
       this.highlightedCommandIndex,
+      this.wheelInputMode,
+      selectedWeapon?.name ?? '',
     )
   }
 
