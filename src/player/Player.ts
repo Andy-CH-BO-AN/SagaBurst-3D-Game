@@ -134,6 +134,8 @@ export class Player {
   private pendingArcheryMultiplier = 1
   private pendingRangedWeapon?: WeaponData
   private pilumProjectileReleased = false
+  private pilumReadyAfterThrow = false
+  private pilumAimRequiresRelease = false
   private readonly pendingArrowTarget = new THREE.Vector3()
   private arrows = 30
   private isDead = false
@@ -419,6 +421,8 @@ export class Player {
     this.bowChargeTime = 0
     this.bowVisualDrawRatio = 0
     this.pilumProjectileReleased = false
+    this.pilumReadyAfterThrow = false
+    this.pilumAimRequiresRelease = false
     this.aiming = false
     this.aimBlend = 0
     this.bowVisual?.hideArrow()
@@ -590,6 +594,7 @@ export class Player {
     this.pendingRangedWeapon = equippedRanged
     if (!this.animator.start('pilumThrow')) return
     this.pilumProjectileReleased = false
+    this.pilumAimRequiresRelease = true
     this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
   }
 
@@ -637,11 +642,14 @@ export class Player {
     quiverUI.setShieldBlocked?.(blockedAim)
     const wantAim = input.isRightMouseDown && !equippedShield
     const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
+    if (!input.isRightMouseDown && this.animator.currentAction !== 'pilumThrow') {
+      this.pilumAimRequiresRelease = false
+    }
     if (wantsBowAim) {
       this.meleeAttackBufferTimer = 0
     }
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    this.aiming = wantAim && !this.isSwinging && !rangedReleasing
+    this.aiming = wantAim && !this.pilumAimRequiresRelease && !this.isSwinging && !rangedReleasing
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
 
     quiverUI.setAiming(this.aiming)
@@ -692,12 +700,12 @@ export class Player {
     }
 
     const rangedActionActive = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    const showingHeldPilum = this.animator.currentAction === 'pilumThrow' && !this.pilumProjectileReleased
-    const showingRanged =
-      (this.aiming && !(isPilum && this.pilumProjectileReleased))
-      || this.animator.currentAction === 'bowRelease'
-      || showingHeldPilum
-    const hidingMeleeForRanged = this.aiming || rangedActionActive
+    const meleeActionActive = this.animator.busy && !rangedActionActive
+    const showingHeldPilum = isPilum && this.arrows > 0 && !this.pilumProjectileReleased
+      && !meleeActionActive
+      && (this.aiming || this.pilumReadyAfterThrow || this.animator.currentAction === 'pilumThrow')
+    const showingRanged = isPilum ? showingHeldPilum : this.aiming || this.animator.currentAction === 'bowRelease'
+    const hidingMeleeForRanged = this.aiming || rangedActionActive || showingHeldPilum
     this.swordPivot.visible = !hidingMeleeForRanged
     this.rig.animation?.setSwordHandShape?.(!hidingMeleeForRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     this.bowPivot.visible = showingRanged
@@ -805,7 +813,14 @@ export class Player {
       }
     }
     if (animationEvents.actionCompleted) {
-      // Keep the thrown pilum hidden through recovery and until the next throw.
+      if (isPilum && this.pilumProjectileReleased) {
+        // Recovery has finished: show the next held pilum only when ammo remains.
+        this.pilumProjectileReleased = false
+        this.pilumReadyAfterThrow = this.arrows > 0
+        this.bowPivot.visible = this.pilumReadyAfterThrow
+        this.swordPivot.visible = !this.pilumReadyAfterThrow
+        this.rig.animation?.setSwordHandShape?.(!this.pilumReadyAfterThrow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
+      }
       this.isSwinging = false
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false

@@ -137,6 +137,9 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     h.update(input({ isRightMouseDown: true }), 0.10)
     expect(h.player.combatAnimationAction).toBe('idle')
+    expect(h.player.isAiming).toBe(false)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect((h.player as any).swordPivot.visible).toBe(false)
 
     // RMB-up only exits aim; it cannot be a delayed or duplicate launch trigger.
     h.update(input({ isRightMouseDown: false }), 1 / 60)
@@ -145,7 +148,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
-  it('holds the imported pilum until the shoulder-high release frame and hides it through recovery', () => {
+  it('holds the imported pilum until release, then draws a fresh one after recovery without re-aiming', () => {
     const h = createPlayerHarness({
       meleeWeaponId: 'steel_sword',
       rangedWeaponId: 'pilum_standard',
@@ -180,8 +183,82 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true }), 0.01)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(h.player.combatAnimationAction).toBe('idle')
-    expect((h.player as any).bowPivot.visible).toBe(false)
+    expect(h.player.isAiming).toBe(false)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect((h.player as any).swordPivot.visible).toBe(false)
     h.update(input({ isRightMouseDown: true }))
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.isAiming).toBe(false)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+  })
+
+  it('zooms out after an imported throw and keeps the next pilum visible until RMB is re-pressed', () => {
+    const h = createPlayerHarness({
+      meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null,
+    })
+    h.update(input())
+    ;(h.player as any).rig.animation = {
+      has: (state: string) => state === 'pilumThrow', getDuration: () => 1.5,
+      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(),
+    }
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    const heldRmb = input({ isRightMouseDown: true })
+    for (let frame = 0; frame < 60; frame++) h.update(heldRmb)
+    expect(h.player.isAiming).toBe(true)
+    expect(h.camera.fov).toBeLessThan(30)
+
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(projectiles).not.toHaveBeenCalled()
+    for (let frame = 0; frame < 90; frame++) h.update(heldRmb)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.combatAnimationAction).toBe('idle')
+    expect(h.player.isAiming).toBe(false)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(h.camera.fov).toBeGreaterThan(56)
+
+    // Holding the original RMB cannot silently re-enter aim or launch from an empty hand.
+    for (let frame = 0; frame < 50; frame++) h.update(heldRmb)
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    expect(h.player.isAiming).toBe(false)
+    expect(h.player.combatAnimationAction).toBe('idle')
+    expect(projectiles).toHaveBeenCalledTimes(1)
+
+    h.update(input({ isRightMouseDown: false }))
+    h.update(heldRmb)
+    expect(h.player.isAiming).toBe(true)
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    for (let frame = 0; frame < 35; frame++) h.update(heldRmb)
+    expect(projectiles).toHaveBeenCalledTimes(2)
+    expect((h.player as any).bowPivot.visible).toBe(false)
+  })
+
+  it('does not conjure another held pilum or projectile when the last pilum is spent', () => {
+    const h = createPlayerHarness({
+      meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null,
+    })
+    h.update(input())
+    h.player.setArrowCount(1)
+    const projectiles = vi.fn()
+    h.player.onFireArrow = projectiles
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    h.update(input({ isRightMouseDown: true }), 0.46)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.arrowCount).toBe(0)
+    expect((h.player as any).bowPivot.visible).toBe(false)
+    h.update(input({ isRightMouseDown: true }), 0.24)
+    expect(h.player.combatAnimationAction).toBe('idle')
+    expect((h.player as any).bowPivot.visible).toBe(false)
+    expect((h.player as any).swordPivot.visible).toBe(true)
+    h.update(input({ isRightMouseDown: false }))
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 2)
+    expect(h.player.combatAnimationAction).not.toBe('pilumThrow')
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect((h.player as any).bowPivot.visible).toBe(false)
   })
