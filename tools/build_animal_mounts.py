@@ -90,20 +90,24 @@ def sculpt(kind):
     def seg(name, a, b, ra, rb): parts.append(segment(name, a, b, ra, rb))
 
     if cat:
-        # Narrow saddle back, broad shoulder and feline haunches.
-        s('ribcage', (0, 1.16, 0.04), (.31, .39, .78))
-        s('waist', (0, 1.16, -.53), (.225, .30, .53))
-        s('shoulders', (0, 1.18, .59), (.335, .41, .45))
-        s('haunch', (0, 1.15, -1.04), (.345, .40, .53))
-        s('sternum', (0, 1.08, .83), (.27, .36, .30))
-        s('neck', (0, 1.43, 1.03), (.275, .33, .35))
-        s('skull', (0, 1.66, 1.35), (.315, .255, .30))
+        # Keep a recognisably feline silhouette: deep chest, narrow waist,
+        # powerful haunches and a tapered neck instead of a dog-like barrel.
+        s('ribcage', (0, 1.16, 0.03), (.295, .36, .80))
+        s('waist', (0, 1.15, -.56), (.205, .27, .56))
+        s('shoulders', (0, 1.17, .58), (.305, .38, .42))
+        s('haunch', (0, 1.14, -1.06), (.325, .37, .54))
+        s('sternum', (0, 1.07, .82), (.235, .31, .27))
+        seg('lower_neck', (0, 1.28, .86), (0, 1.48, 1.15), .22, .17)
+        s('upper_neck', (0, 1.49, 1.17), (.205, .245, .25))
+        s('skull', (0, 1.65, 1.36), (.32, .25, .29))
         for side in (-1, 1):
-            s('cheek', (side * .185, 1.57, 1.50), (.155, .13, .17))
-            s('whisker_pad', (side * .10, 1.50, 1.62), (.125, .09, .105))
-        s('jaw', (0, 1.43, 1.53), (.205, .09, .20))
+            s('cheek', (side * .18, 1.57, 1.50), (.15, .125, .16))
+            s('whisker_pad', (side * .095, 1.50, 1.62), (.12, .085, .10))
+        s('jaw', (0, 1.44, 1.53), (.195, .085, .185))
         for side in (-1, 1):
-            parts.append(ear('feline_ear', side * .225, 1.81, 1.22, .125, .29, .07))
+            # Sink the ear bases into the skull and keep them compact so they
+            # read as cat ears rather than detached spikes.
+            parts.append(ear('feline_ear', side * .19, 1.78, 1.24, .105, .235, .06))
     else:
         # Long deep corgi torso, with a horse-width back at the seat.
         s('long_ribcage', (0, 1.14, -.22), (.365, .43, 1.03))
@@ -125,14 +129,14 @@ def sculpt(kind):
     for side in (-1, 1):
         x = side * leg_x
         if cat:
-            s('front_shoulder', (x, 1.12, front_z), (.215, .38, .285))
-            s('front_upper', (x, .81, .71), (.155, .36, .17))
+            s('front_shoulder', (x, 1.12, front_z), (.195, .36, .265))
+            s('front_upper', (x, .81, .71), (.145, .35, .155))
             s('front_lower', (x, .37, .78), (.10, .33, .115))
-            s('front_paw', (x, .12, .92), (.155, .105, .235))
-            s('rear_thigh', (x, 1.02, rear_z), (.245, .40, .30))
+            s('front_paw', (x, .12, .91), (.145, .09, .20))
+            s('rear_thigh', (x, 1.02, rear_z), (.23, .38, .29))
             s('rear_hock', (x, .59, rear_z - .12), (.125, .31, .145))
             s('rear_lower', (x, .30, rear_z + .01), (.095, .27, .11))
-            s('rear_paw', (x, .12, rear_z + .16), (.16, .105, .23))
+            s('rear_paw', (x, .12, rear_z + .15), (.15, .09, .20))
         else:
             s('front_shoulder', (x, 1.10, front_z), (.275, .38, .31))
             s('front_upper', (x, .80, .70), (.215, .34, .23))
