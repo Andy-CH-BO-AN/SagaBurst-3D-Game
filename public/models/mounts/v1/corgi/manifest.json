@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "corgi",
+  "status": "ready",
+  "file": "mount.glb",
+  "forward": "+Z",
+  "shoulderHeightM": 1.62,
+  "saddleHeightM": 1.82,
+  "saddleWidthM": 0.74,
+  "triangles": {
+    "lod0": 11000,
+    "lod1": 4300,
+    "lod2": 1500
+  },
+  "bones": [
+    "root",
+    "body",
+    "chest_spine",
+    "neck",
+    "head",
+    "front_l_upper_leg",
+    "front_l_lower_leg",
+    "front_l_paw",
+    "front_r_upper_leg",
+    "front_r_lower_leg",
+    "front_r_paw",
+    "rear_l_upper_leg",
+    "rear_l_lower_leg",
+    "rear_l_paw",
+    "rear_r_upper_leg",
+    "rear_r_lower_leg",
+    "rear_r_paw",
+    "tail"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "authorship": "Original Blender-generated sculpt and rig for this project; no third-party model or texture."
+}

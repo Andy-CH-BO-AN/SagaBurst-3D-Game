@@ -118,6 +118,7 @@ import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
 import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
+import { AnimalMountRegistry } from './world/AnimalMountModel'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -308,12 +309,12 @@ export class Game {
         return new GameplayBowQAPanel(renderer)
       }
       if (legacyQa) {
-        await HorseAssetRegistry.preload(renderer)
+        await Promise.all([HorseAssetRegistry.preload(renderer), AnimalMountRegistry.preload()])
         const game = new Game(renderer, battleConfig, campaignConfig)
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         return game
       }
-      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer)])
+      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), AnimalMountRegistry.preload()])
       const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       return game
@@ -1010,7 +1011,9 @@ export class Game {
     grid.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.012
     this.scene.add(grid)
 
-    const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const mountParam = new URLSearchParams(window.location.search).get('mount')
+    const studioType = mountParam === 'cat' ? MountType.BLACK_CAT : mountParam === 'corgi' ? MountType.CORGI : DEFAULT_MOUNT_TYPE
+    const mount = new Mount(this.scene, studioType, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
     mount.visualHold = true
     mount.playStudioClip('idle')
     this.mounts.push(mount)
@@ -1024,13 +1027,18 @@ export class Game {
     this.mountHpFill.style.width = '100%'
     this.mountHud.classList.add('visible')
 
-    const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
+    const comparisonHorse = new Mount(
+      this.scene, DEFAULT_MOUNT_TYPE,
+      studioType === MountType.HORSE ? 4.4 : 2.7,
+      studioType === MountType.HORSE ? 8 : 0,
+      studioType === MountType.HORSE ? undefined : HUMANOID_STUDIO_FLOOR_Y, 1,
+    )
     comparisonHorse.visualHold = true
     this.mounts.push(comparisonHorse)
-    this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
+    this._createStudioLabel(studioType === MountType.HORSE ? '寫實戰馬｜動畫與騎乘驗收' : `${mount.displayName}｜比例與騎乘驗收`, 0)
 
-    if (mount.horseSkeleton) {
-      const skeleton = new THREE.SkeletonHelper(mount.horseSkeleton.bones[0])
+    if (mount.mountSkeleton) {
+      const skeleton = new THREE.SkeletonHelper(mount.mountSkeleton.bones[0])
       const material = skeleton.material as THREE.LineBasicMaterial
       material.color.set(0x6fe3ff)
       material.depthTest = false
@@ -1070,7 +1078,9 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'mount-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    help.textContent = '戰馬工作室｜1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
+    help.textContent = studioType === MountType.HORSE
+      ? '戰馬工作室｜1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
+      : `${mount.displayName}工作室｜H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放`
     document.body.appendChild(help)
 
     const status = document.createElement('div')
@@ -1117,8 +1127,16 @@ export class Game {
       )
     }
     const state = this.mountStudioHorse.getHorseDebugState()
-    if (!state) return
     const info = this.renderer.info
+    if (!state) {
+      this.mountStudioStatus.textContent = [
+        `model: ${this.mountStudioHorse.displayName}`,
+        `bones: ${this.mountStudioHorse.mountSkeleton?.bones.length ?? 0}`,
+        `draw calls: ${info.render.calls}`,
+        `geometry: ${info.memory.geometries}`,
+      ].join('\n')
+      return
+    }
     this.mountStudioStatus.textContent = [
       `clip: ${state.clip}`,
       `time: ${state.time.toFixed(2)} s`,

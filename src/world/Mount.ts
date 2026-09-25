@@ -12,6 +12,7 @@ import {
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { AnimalMountRegistry, type AnimalMountModel } from './AnimalMountModel'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
@@ -53,6 +54,7 @@ export class Mount {
   readonly group: THREE.Group
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
+  readonly animalVisual: AnimalMountModel | null
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
@@ -75,7 +77,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.horseVisual?.lod.getCurrentLevel() ?? 0
+    return this.horseVisual?.lod.getCurrentLevel() ?? this.animalVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -99,6 +101,7 @@ export class Mount {
     this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : 12
 
     if (type === MountType.HORSE) {
+      this.animalVisual = null
       if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
       this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant })
       this.group.add(this.horseVisual.root)
@@ -108,14 +111,17 @@ export class Mount {
       this.ridePitch = 0.05
     } else {
       this.horseVisual = null
-      if (type === MountType.BLACK_CAT) this._buildBlackCat()
-      else this._buildCorgi()
+      this.animalVisual = AnimalMountRegistry.createInstance(type === MountType.BLACK_CAT ? 'BLACK_CAT' : 'CORGI')
+      this.group.add(this.animalVisual.root)
+      this.animalVisual.root.updateWorldMatrix(true, true)
+      const saddleWorld = this.animalVisual.saddleSeat.getWorldPosition(new THREE.Vector3())
+      this.rideHeightOffset = this.animalVisual.root.worldToLocal(saddleWorld).y
+      this.ridePitch = 0.05
     }
 
     const startY = y ?? getTerrainHeight(x, z)
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
-    if (type !== MountType.HORSE) this.group.scale.set(2.2, 2.2, 2.2)
 
     this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
     this.aimCollider.name = `aim_proxy_mount_${type}`
@@ -137,11 +143,12 @@ export class Mount {
   }
   get mountDisplayName(): string { return `${this.displayName}坐騎` }
   get horseSkeleton(): THREE.Skeleton | null { return this.horseVisual?.skeleton ?? null }
+  get mountSkeleton(): THREE.Skeleton | null { return this.horseVisual?.skeleton ?? this.animalVisual?.skeleton ?? null }
 
   getSaddleSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
-    if (!this.horseVisual) return target.set(0, this.rideHeightOffset, 0)
+    if (!this.horseVisual && !this.animalVisual) return target.set(0, this.rideHeightOffset, 0)
     this.group.updateWorldMatrix(true, true)
-    this.horseVisual.saddleSeat.getWorldPosition(target)
+    ;(this.horseVisual?.saddleSeat ?? this.animalVisual!.saddleSeat).getWorldPosition(target)
     return this.group.worldToLocal(target)
   }
 
@@ -155,8 +162,8 @@ export class Mount {
   }
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
-    if (this.horseVisual) {
-      return this.horseVisual.saddleSeat.getWorldPosition(target)
+    if (this.horseVisual || this.animalVisual) {
+      return (this.horseVisual?.saddleSeat ?? this.animalVisual!.saddleSeat).getWorldPosition(target)
     }
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
   }
@@ -205,11 +212,13 @@ export class Mount {
   setVisualHidden(hidden: boolean): void {
     if (this.horseVisual) {
       this.horseVisual.root.visible = !hidden
+    } else if (this.animalVisual) {
+      this.animalVisual.root.visible = !hidden
     }
   }
 
   isVisualHidden(): boolean {
-    return this.horseVisual ? !this.horseVisual.root.visible : false
+    return this.horseVisual ? !this.horseVisual.root.visible : this.animalVisual ? !this.animalVisual.root.visible : false
   }
 
   dispose(): void {
@@ -222,7 +231,7 @@ export class Mount {
    */
   devApplySimpleMaterials(getDiagnosticMaterial: (sourceMat: THREE.Material, isSkinned: boolean) => THREE.Material): void {
     if (!import.meta.env.DEV) return
-    const root = this.horseVisual?.root ?? this.group
+    const root = this.horseVisual?.root ?? this.animalVisual?.root ?? this.group
     root.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh
@@ -326,112 +335,6 @@ export class Mount {
     if (now - lastImpact < COMBAT_BALANCE.mountImpact.sameTargetCooldown) return false
     this.impactTimes.set(target, now)
     return true
-  }
-
-  /** Preserve the exact legacy procedural Black Cat used by existing saves. */
-  private _buildBlackCat(): void {
-    const material = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true })
-    const eyeMaterial = new THREE.MeshLambertMaterial({ color: 0xffff00, flatShading: true })
-    const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 1.2), material)
-    body.position.y = 0.4
-    body.castShadow = true
-    this.group.add(body)
-
-    const saddle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.1, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x8b4513, flatShading: true }),
-    )
-    saddle.position.set(0, 0.65, 0.1)
-    this.group.add(saddle)
-    this.rideHeightOffset = 1.3
-    this.ridePitch = 0.4
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), material)
-    head.position.set(0, 0.8, 0.7)
-    head.castShadow = true
-    this.group.add(head)
-
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), eyeMaterial)
-      eye.position.set(side * 0.12, 0.05, 0.2)
-      head.add(eye)
-
-      const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.11), pupilMaterial)
-      pupil.position.set(side * 0.12, 0.05, 0.21)
-      head.add(pupil)
-
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), material)
-      ear.position.set(side * 0.18, 0.3, 0)
-      ear.rotation.z = side * -0.2
-      head.add(ear)
-    }
-
-    const whiskerMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    for (let index = 0; index < 2; index++) {
-      for (const side of [-1, 1]) {
-        const whisker = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.02, 0.02), whiskerMaterial)
-        whisker.position.set(side * 0.25, -0.05 + index * 0.08, 0.18)
-        whisker.rotation.z = side * (-0.1 + index * 0.2)
-        head.add(whisker)
-      }
-    }
-  }
-
-  /** Preserve the exact legacy procedural Corgi used by existing saves. */
-  private _buildCorgi(): void {
-    const orangeMaterial = new THREE.MeshLambertMaterial({ color: 0xd97c2e, flatShading: true })
-    const whiteMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true })
-    const blackMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.45, 1.3), orangeMaterial)
-    body.position.y = 0.35
-    body.castShadow = true
-    this.group.add(body)
-
-    const saddle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.1, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x8b4513, flatShading: true }),
-    )
-    saddle.position.set(0, 0.58, 0.1)
-    this.group.add(saddle)
-    this.rideHeightOffset = 1.15
-    this.ridePitch = 0.4
-
-    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.61, 0.2, 1.2), whiteMaterial)
-    belly.position.y = 0.25
-    this.group.add(belly)
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), orangeMaterial)
-    head.position.set(0, 0.7, 0.7)
-    head.castShadow = true
-    this.group.add(head)
-
-    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), whiteMaterial)
-    snout.position.set(0, -0.05, 0.25)
-    head.add(snout)
-
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.05), blackMaterial)
-    nose.position.set(0, 0.05, 0.1)
-    snout.add(nose)
-
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.02), blackMaterial)
-      eye.position.set(side * 0.12, 0.1, 0.21)
-      head.add(eye)
-
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), orangeMaterial)
-      ear.position.set(side * 0.18, 0.35, 0)
-      ear.rotation.z = side * -0.1
-      head.add(ear)
-    }
-
-    for (let index = 0; index < 4; index++) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.12), whiteMaterial)
-      leg.position.set(index % 2 === 0 ? 0.2 : -0.2, 0.1, index < 2 ? 0.4 : -0.4)
-      this.group.add(leg)
-    }
   }
 
   private _pickWanderTarget(): void {
