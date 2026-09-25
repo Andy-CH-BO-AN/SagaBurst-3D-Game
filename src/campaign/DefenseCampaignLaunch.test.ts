@@ -110,7 +110,7 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(viking.viking.viking_sword_cavalry?.[1]).toBe(50)
   })
 
-  it('allows the full Stage 1 80-defender mix with 30 T1 bonus slots', () => {
+  it('allows the full Stage 1 80-defender mix within the published tier rules', () => {
     const config = launch('roman')
     config.defenderArmy = {
       roman_heavy_infantry: { 1: 30, 2: 40, 3: 10 },
@@ -120,21 +120,44 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
   })
 
-  it('rejects the 31st T1 defender in Stage 1', () => {
+  it('rejects Stage 1 defenders above the 80-person total cap', () => {
     const config = launch('roman')
     config.defenderArmy = {
-      roman_heavy_infantry: { 1: 31, 2: 39, 3: 10 },
+      roman_heavy_infantry: { 1: 81, 2: 0, 3: 0 },
     }
 
     const result = validateDefenseCampaignLaunchConfig(config)
     expect(result.valid).toBe(false)
-    expect(result.errors.some(error => error.includes('T1 total 31 exceeds capacity 30'))).toBe(true)
+    expect(result.errors.some(error => error.includes('Defender total exceeds 80'))).toBe(true)
+  })
+
+  it.each([
+    [1, 80],
+    [2, 85],
+    [3, 90],
+    [4, 90],
+    [5, 90],
+    [6, 90],
+    [7, 90],
+    [8, 90],
+    [9, 90],
+  ] as const)('allows Stage %s to fill the entire defender cap with T1', (
+    stageId,
+    expectedTotal,
+  ) => {
+    const config = launch('roman', false, stageId)
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: expectedTotal, 2: 0, 3: 0 },
+    }
+
+    expect(calculateArmyTotal(config.defenderArmy)).toBe(expectedTotal)
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
   })
 
   it.each([
     [2, 85, 35, 40],
     [3, 90, 35, 45],
-  ] as const)('allows the full Stage %s defender cap with the extra ten T1 slots', (
+  ] as const)('allows the full Stage %s defender cap while respecting the shared upper-tier pool', (
     stageId,
     expectedTotal,
     t1,
@@ -168,19 +191,40 @@ describe('Defense Campaign Stage 1 launch config', () => {
   })
 
   it.each([7, 8, 9] as const)(
-    'allows Stage %s to field 90 T3 defenders with the extra T3 slots',
+    'allows Stage %s to spend the full 90-person T2+T3 pool on either tier',
     stageId => {
-      const config = launch('roman', false, stageId)
-      config.defenderArmy = {
+      const allT2 = launch('roman', false, stageId)
+      allT2.defenderArmy = {
+        roman_heavy_infantry: { 1: 0, 2: 90, 3: 0 },
+      }
+      expect(validateDefenseCampaignLaunchConfig(allT2).valid).toBe(true)
+
+      const mixed = launch('roman', false, stageId)
+      mixed.defenderArmy = {
+        roman_heavy_infantry: { 1: 0, 2: 45, 3: 45 },
+      }
+      expect(validateDefenseCampaignLaunchConfig(mixed).valid).toBe(true)
+
+      const allT3 = launch('roman', false, stageId)
+      allT3.defenderArmy = {
         roman_heavy_infantry: { 1: 0, 2: 0, 3: 90 },
       }
-
-      expect(calculateArmyTotal(config.defenderArmy)).toBe(90)
-      expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+      expect(validateDefenseCampaignLaunchConfig(allT3).valid).toBe(true)
     },
   )
 
-  it('rejects using Stage 1 T1 bonus slots for extra T2/T3 defenders', () => {
+  it('rejects Stage 7-9 upper-tier totals above the shared 90-person pool', () => {
+    const config = launch('roman', false, 9)
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 0, 2: 46, 3: 45 },
+    }
+
+    const result = validateDefenseCampaignLaunchConfig(config)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(error => error.includes('T2+T3 total 91 exceeds shared capacity 90'))).toBe(true)
+  })
+
+  it('rejects Stage 1 T2+T3 above the shared 50-person pool', () => {
     const config = launch('roman')
     config.defenderArmy = {
       roman_heavy_infantry: { 1: 0, 2: 50, 3: 10 },

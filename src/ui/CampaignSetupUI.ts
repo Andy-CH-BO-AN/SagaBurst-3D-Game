@@ -2,7 +2,6 @@ import './battle-setup.css'
 import {
   DEFENSE_CAMPAIGN_TIMINGS,
   getDefenseCampaignStage,
-  getDefenseDeploymentBaseUsed,
   isCampaignStageId,
   type CampaignFaction,
   type CampaignStageId,
@@ -199,12 +198,24 @@ export class CampaignSetupUI {
       ?? createDefaultDefensePlayerLoadout(this.defenderFaction)
     this.playerLoadout = loadout
     const validation = validateDefenseCampaignLaunchConfig(this._buildLaunchConfig())
-    const tier1Total = this._tierTotal(1)
     const tier2Total = this._tierTotal(2)
     const tier3Total = this._tierTotal(3)
-    const tierRuleText = stage.defenderDeployment.upperTierPoolCap !== null
-      ? `T1 ≤ ${stage.defenderDeployment.tierCapacity[1]} · T2+T3 ≤ ${stage.defenderDeployment.upperTierPoolCap} · T3 ≤ ${stage.defenderDeployment.tierCapacity[3]}`
-      : `T1 ≤ ${stage.defenderDeployment.tierCapacity[1]} · T2 ≤ ${stage.defenderDeployment.tierCapacity[2]} · T3 ≤ ${stage.defenderDeployment.tierCapacity[3]}`
+    const upperTierPoolCap = stage.defenderDeployment.upperTierPoolCap
+    const tier3Cap = stage.defenderDeployment.tierCapacity[3]
+    const tierRuleText = upperTierPoolCap !== null
+      ? tier3Cap < upperTierPoolCap
+        ? `T2+T3 ≤ ${upperTierPoolCap} · T3 ≤ ${tier3Cap}`
+        : `T2+T3 ≤ ${upperTierPoolCap}`
+      : tier3Cap < stage.defenderDeployment.maxUnits
+        ? `T3 ≤ ${tier3Cap}`
+        : '依守軍總人數上限'
+    const tierSummaryText = upperTierPoolCap !== null
+      ? tier3Cap < upperTierPoolCap
+        ? `T2+T3 ${tier2Total + tier3Total}/${upperTierPoolCap} · T3 ${tier3Total}/${tier3Cap}`
+        : `T2+T3 ${tier2Total + tier3Total}/${upperTierPoolCap}`
+      : tier3Cap < stage.defenderDeployment.maxUnits
+        ? `T3 ${tier3Total}/${tier3Cap}`
+        : `總數 ${total}/${stage.defenderDeployment.maxUnits}`
     const rows = presets.map(preset => {
       const counts = this.defenderArmy[preset.id] ?? { 1: 0, 2: 0, 3: 0 }
       const mountedUnit = Boolean(preset.tierLoadouts[2].mountId || preset.tierLoadouts[3].mountId)
@@ -249,7 +260,7 @@ export class CampaignSetupUI {
       <div class="campaign-stage-summary">
         <div><small>守方</small><b>${factionZh}</b></div>
         <div><small>部署上限</small><b>${total} / ${stage.defenderDeployment.maxUnits}</b></div>
-        <div><small>TIER 配額</small><b>T1 ${tier1Total}/${stage.defenderDeployment.tierCapacity[1]} · T2+T3 ${tier2Total + tier3Total}/${stage.defenderDeployment.upperTierPoolCap ?? stage.defenderDeployment.maxUnits} · T3 ${tier3Total}/${stage.defenderDeployment.tierCapacity[3]}</b></div>
+        <div><small>TIER 配額</small><b>${tierSummaryText}</b></div>
         <div><small>騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap ?? '不限'}</b></div>
         <div><small>部署時間</small><b>${DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds} 秒</b></div>
         <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits} · ${this._attackerTierLabel(stage.attackerArmy.tierCounts)}</b></div>
@@ -441,8 +452,6 @@ export class CampaignSetupUI {
       }
     }
 
-    // Bonus slots belong only to the configured bonus tier. Reduce the candidate
-    // until the remaining army still fits inside the original base deployment pool.
     const tierTotals = {
       1: this._tierTotal(1),
       2: this._tierTotal(2),
@@ -455,10 +464,7 @@ export class CampaignSetupUI {
       }
       const upperTierPoolValid = rules.upperTierPoolCap === null
         || candidateTotals[2] + candidateTotals[3] <= rules.upperTierPoolCap
-      if (
-        upperTierPoolValid
-        && getDefenseDeploymentBaseUsed(rules, candidateTotals) <= rules.baseMaxUnits
-      ) {
+      if (upperTierPoolValid) {
         return maxAllowed
       }
     }
