@@ -92,9 +92,9 @@ def sculpt(kind):
     if cat:
         # Narrow saddle back, broad shoulder and feline haunches.
         s('ribcage', (0, 1.16, 0.04), (.31, .39, .78))
-        s('waist', (0, 1.16, -.53), (.255, .33, .53))
-        s('shoulders', (0, 1.18, .59), (.36, .43, .47))
-        s('haunch', (0, 1.15, -1.02), (.365, .42, .47))
+        s('waist', (0, 1.16, -.53), (.225, .30, .53))
+        s('shoulders', (0, 1.18, .59), (.335, .41, .45))
+        s('haunch', (0, 1.15, -1.04), (.345, .40, .53))
         s('sternum', (0, 1.08, .83), (.27, .36, .30))
         s('neck', (0, 1.43, 1.03), (.275, .33, .35))
         s('skull', (0, 1.66, 1.35), (.315, .255, .30))
@@ -158,8 +158,8 @@ def sculpt(kind):
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.voxel_remesh()
     smooth = body.modifiers.new('soft_anatomy', 'SMOOTH')
-    smooth.factor = 1.35
-    smooth.iterations = 3
+    smooth.factor = .9 if cat else 1.35
+    smooth.iterations = 2 if cat else 3
     bpy.ops.object.modifier_apply(modifier=smooth.name)
     return body
 
@@ -316,9 +316,9 @@ def features(kind, arm, mats):
         objects.append(obj)
     cat = kind == 'black_cat'
     for side in (-1, 1):
-        add(sphere('eye', (side * (.155 if cat else .19), 1.69 if cat else 1.72, 1.605 if cat else 1.69), (.064 if cat else .043, .034 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
+        add(sphere('eye', (side * (.19 if cat else .19), 1.69 if cat else 1.72, 1.605 if cat else 1.69), (.064 if cat else .043, .034 if cat else .034, .009 if cat else .022), 12, 8), mats['eye'], 'eye')
         if cat:
-            add(sphere('pupil', (side * .155, 1.69, 1.614), (.012, .028, .005), 10, 6), mats['dark'], 'pupil')
+            add(sphere('pupil', (side * .19, 1.69, 1.614), (.012, .028, .005), 10, 6), mats['dark'], 'pupil')
     add(sphere('nose', (0, 1.535 if cat else 1.58, 1.735 if cat else 1.85), (.064 if cat else .085, .042, .035), 10, 6), mats['dark'], 'nose')
     return objects
 
