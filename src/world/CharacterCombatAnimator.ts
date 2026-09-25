@@ -151,8 +151,11 @@ export class CharacterCombatAnimator {
     const total = Math.round((importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
-      const releaseTime = importedPilumDuration ?? profile.windup
-      if (previous < releaseTime && this.elapsed >= releaseTime) {
+      // A pilum leaves the hand as the throw begins; the imported clip still
+      // owns the full recovery and action-complete timing.
+      const releasingPilum = this.action === 'pilumThrow' && previous === 0 && this.elapsed > 0
+      const releasingBow = this.action === 'bowRelease' && previous < profile.windup && this.elapsed >= profile.windup
+      if (releasingPilum || releasingBow) {
         this.events.projectileRelease = true
       }
       if (this.ownership === 'procedural') {

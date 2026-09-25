@@ -48,10 +48,13 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     updateNpc(npc, 0)
     const animator = (npc as any).animator
     const cancel = vi.spyOn(animator, 'cancel')
-    const projectiles = vi.fn()
+    let launchGripDistance = Infinity
+    const projectiles = vi.fn((origin?: THREE.Vector3) => {
+      if (origin) launchGripDistance = origin.distanceTo((npc as any).bowGripPivot.getWorldPosition(new THREE.Vector3()))
+    })
     ;(npc as any).attackTimer = 10
 
-    updateNpc(npc, 0.44, projectiles)
+    updateNpc(npc, 0, projectiles)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
     expect(projectiles).not.toHaveBeenCalled()
     expect((npc as any).bowPivot.visible).toBe(true)
@@ -59,17 +62,18 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     updateNpc(npc, 0.02, projectiles)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(projectiles.mock.calls[0][2]).toBe('pilum')
+    expect(launchGripDistance).toBeLessThan(1e-6)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
     expect((npc as any).bowPivot.visible).toBe(false)
     expect(npc.currentState).toBe(AIState.ATTACK)
     expect(cancel).not.toHaveBeenCalled()
 
-    updateNpc(npc, 0.15, projectiles)
+    updateNpc(npc, 0.44, projectiles)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(npc.currentState).toBe(AIState.ATTACK)
 
-    updateNpc(npc, 0.10, projectiles)
+    updateNpc(npc, 0.24, projectiles)
     expect(npc.combatAnimationAction).toBe('idle')
     expect(npc.currentState).toBe(AIState.CHASE)
     expect((npc as any).swordPivot.visible).toBe(true)
@@ -88,19 +92,22 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     ;(npc as any).attackTimer = 10
     const projectiles = vi.fn()
 
-    updateNpc(npc, 0.46, projectiles)
+    updateNpc(npc, 0.01, projectiles)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect((npc as any).bowPivot.visible).toBe(false)
-    updateNpc(npc, 0.25, projectiles)
+    updateNpc(npc, 0.69, projectiles)
     expect(npc.combatAnimationAction).toBe('idle')
     expect((npc as any).bowPivot.visible).toBe(false)
 
     npc.state = AIState.ATTACK
     ;(npc as any).attackTimer = 10
-    updateNpc(npc, 0.01, projectiles)
+    updateNpc(npc, 0, projectiles)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
     expect((npc as any).bowPivot.visible).toBe(true)
     expect(projectiles).toHaveBeenCalledTimes(1)
+    updateNpc(npc, 0.01, projectiles)
+    expect(projectiles).toHaveBeenCalledTimes(2)
+    expect((npc as any).bowPivot.visible).toBe(false)
   })
 
   it('aims an in-flight pilum at the target position at release time', () => {
@@ -116,7 +123,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     ;(npc as any).attackTimer = 10
     const projectiles = vi.fn()
 
-    updateNpc(npc, 0.44, projectiles)
+    updateNpc(npc, 0, projectiles)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
     expect(projectiles).not.toHaveBeenCalled()
     const originalAim = (npc as any).pendingPilumTarget.clone() as THREE.Vector3
@@ -151,7 +158,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     ;(npc as any).attackTimer = 10
     const projectiles = vi.fn()
 
-    updateNpc(npc, 0.44, projectiles)
+    updateNpc(npc, 0, projectiles)
     const pendingAim = (npc as any).pendingPilumTarget.clone() as THREE.Vector3
     ;(player as any).isDead = true
     updateNpc(npc, 0.02, projectiles)
@@ -170,7 +177,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
       mountId: null,
     })
     npc.state = AIState.ATTACK
-    ;(npc as any).arrows = 2
+    ;(npc as any).arrows = 1
     ;(npc as any).rig.animation = {
       has: (state: string) => state === 'pilumThrow',
       getDuration: (state: string) => state === 'pilumThrow' ? 1.5 : undefined,
@@ -183,15 +190,19 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
 
     updateNpc(npc, 0.016, projectiles)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect((npc as any).bowPivot.visible).toBe(false)
     updateNpc(npc, 1.483, projectiles)
-    expect(projectiles).not.toHaveBeenCalled()
+    expect(projectiles).toHaveBeenCalledTimes(1)
     expect(npc.combatAnimationAction).toBe('pilumThrow')
 
     updateNpc(npc, 0.001, projectiles)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(npc.combatAnimationAction).toBe('idle')
     expect(npc.currentState).toBe(AIState.CHASE)
-    expect(npc.arrows).toBe(1)
+    expect(npc.arrows).toBe(0)
+    expect((npc as any).swordPivot.visible).toBe(true)
+    expect((npc as any).bowPivot.visible).toBe(false)
   })
 
   function createMountedNpc(

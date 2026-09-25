@@ -1437,10 +1437,10 @@ export class NPC {
       if (events.projectileRelease) {
         const origin = this._tmpRangedOrigin
         const direction = this._tmpRangedDirection
-        origin.copy(this.bowGripPivot.getWorldPosition(origin))
         const aimPoint = targetInfo
           ? this._getElevatedRangedAimPoint(targetInfo.position)
           : this.pendingPilumTarget
+        origin.copy(this.bowGripPivot.getWorldPosition(origin))
         direction.copy(aimPoint).sub(origin).normalize()
         onFireArrow(origin, direction, 'pilum')
         this.bowPivot.visible = false
@@ -1880,6 +1880,7 @@ export class NPC {
             if (isBow && this.bowVisual) {
               this.bowVisual.writeLaunch(origin, dir, aimPoint)
             } else {
+              origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
             onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')

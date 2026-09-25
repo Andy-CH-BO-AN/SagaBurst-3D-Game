@@ -93,7 +93,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.bowDrawRatio).toBe(0)
   })
 
-  it('Player pilum releases at the animation event and remains active through recovery', () => {
+  it('Player pilum leaves the hand on the first throw frame and remains active through recovery', () => {
     const h = createPlayerHarness({
       meleeWeaponId: 'steel_sword',
       rangedWeaponId: 'pilum_standard',
@@ -110,23 +110,24 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 1 / 60)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect(h.player.pilumCooldown).toBeCloseTo(getRangedCooldown('javelin') - 1 / 60)
-    expect(h.player.arrowCount).toBe(initialPila)
-    expect(projectiles).not.toHaveBeenCalled()
-    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(projectiles.mock.calls[0][0].visualKind).toBe('pilum')
+    const heldGrip = (h.player as any).bowGripPivot.getWorldPosition(new THREE.Vector3())
+    expect(projectiles.mock.calls[0][0].origin.distanceTo(heldGrip)).toBeLessThan(1e-6)
+    expect((h.player as any).bowPivot.visible).toBe(false)
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
     expect((h.player as any).swordPivot.visible).toBe(false)
 
-    // The legacy procedural fallback releases at 0.45s; imported GLBs use
-    // their canonical 1.5s duration, covered by the animator asset test.
+    // The procedural fallback also releases immediately, but keeps its 0.7s action.
     h.update(input({ isRightMouseDown: true }), 0.40)
-    expect(projectiles).not.toHaveBeenCalled()
-    expect(h.player.arrowCount).toBe(initialPila)
-    expect((h.player as any).bowPivot.visible).toBe(true)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.arrowCount).toBe(initialPila - 1)
+    expect((h.player as any).bowPivot.visible).toBe(false)
 
     h.update(input({ isRightMouseDown: true }), 0.06)
     expect(projectiles).toHaveBeenCalledTimes(1)
     expect(h.player.pilumCooldown).toBeCloseTo(getRangedCooldown('javelin') - 0.46 - 1 / 60)
-    expect(projectiles.mock.calls[0][0].visualKind).toBe('pilum')
     expect(h.player.arrowCount).toBe(initialPila - 1)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect((h.player as any).bowPivot.visible).toBe(false)
@@ -144,7 +145,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
-  it('keeps the held pilum hidden after an imported clip releases and completes on the same frame', () => {
+  it('keeps the held pilum hidden throughout an imported clip after its first update', () => {
     const h = createPlayerHarness({
       meleeWeaponId: 'steel_sword',
       rangedWeaponId: 'pilum_standard',
@@ -159,13 +160,19 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     const projectiles = vi.fn()
     h.player.onFireArrow = projectiles
 
-    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }), 0)
     expect(h.player.combatAnimationAction).toBe('pilumThrow')
     expect((h.player as any).bowPivot.visible).toBe(true)
-    h.update(input({ isRightMouseDown: true }), 0.74)
-    h.update(input({ isRightMouseDown: true }), 0.74)
     expect(projectiles).not.toHaveBeenCalled()
-    expect((h.player as any).bowPivot.visible).toBe(true)
+    h.update(input({ isRightMouseDown: true }), 0.01)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(false)
+    h.update(input({ isRightMouseDown: true }), 0.74)
+    h.update(input({ isRightMouseDown: true }), 0.74)
+    expect(projectiles).toHaveBeenCalledTimes(1)
+    expect(h.player.combatAnimationAction).toBe('pilumThrow')
+    expect((h.player as any).bowPivot.visible).toBe(false)
 
     h.update(input({ isRightMouseDown: true }), 0.01)
     expect(projectiles).toHaveBeenCalledTimes(1)

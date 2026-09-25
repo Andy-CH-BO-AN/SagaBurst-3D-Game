@@ -182,8 +182,9 @@ export class HumanoidStudioPlayback {
       this.animator.poseBow(ratio)
       this.animator.update(dt)
     } else if (this.state === 'swordSlash' || this.state === 'bowRelease' || this.state === 'pilumThrow') {
-      if (!this.animator.busy) this.animator.start(this.state)
-      this.animator.update(dt)
+      if (!this.animator.busy && this.animator.start(this.state) && this.state === 'pilumThrow') this.pilum.visible = true
+      const events = this.animator.update(dt)
+      if (this.state === 'pilumThrow' && events.projectileRelease) this.pilum.visible = false
     } else {
       if (!this.started) {
         animation.setSwordHandShape?.(false)

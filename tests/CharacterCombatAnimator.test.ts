@@ -11,6 +11,7 @@ import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 import { ThirdPersonCamera } from '../src/camera/ThirdPersonCamera'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
 import { CharacterBowVisual } from '../src/world/CharacterBowVisual'
+import { HumanoidStudioPlayback } from '../src/debug/HumanoidStudioPlayback'
 import { BOW_STRING_CONTACT } from '../src/world/BowDrawHand'
 import { DEFAULT_BOW_GRIP_PROFILE } from '../src/world/BowAttachmentContract'
 import { getTerrainHeight } from '../src/world/Terrain'
@@ -630,7 +631,7 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(play).toHaveBeenCalledWith('bowRelease', { fadeSeconds: 0.1, loop: false })
   })
 
-  it('fires and completes an imported pilum throw at its canonical clip duration', () => {
+  it('releases an imported pilum at throw start, then completes at its canonical clip duration', () => {
     const rig = characterRig()
     rig.animation = {
       play: vi.fn(() => true),
@@ -642,15 +643,43 @@ describe('Phase 22 humanoid asset contract', () => {
     }
     const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
     expect(subject.start('pilumThrow')).toBe(true)
-    const beforeRelease = subject.update(1.49)
-    expect(beforeRelease.projectileRelease).toBe(false)
-    expect(beforeRelease.actionCompleted).toBe(false)
+    expect(subject.update(0).projectileRelease).toBe(false)
+    const release = subject.update(0.01)
+    expect(release.projectileRelease).toBe(true)
+    expect(release.actionCompleted).toBe(false)
+    const recovery = subject.update(1.48)
+    expect(recovery.projectileRelease).toBe(false)
+    expect(recovery.actionCompleted).toBe(false)
     expect(subject.currentAction).toBe('pilumThrow')
 
     const events = subject.update(0.01)
-    expect(events.projectileRelease).toBe(true)
+    expect(events.projectileRelease).toBe(false)
     expect(events.actionCompleted).toBe(true)
     expect(subject.update(2).projectileRelease).toBe(false)
+  })
+
+  it('removes the held pilum from the equipped studio actor when the throw begins', () => {
+    const rig = characterRig()
+    rig.animation = {
+      play: vi.fn(() => true), seek: vi.fn(() => true),
+      has: vi.fn((state) => state === 'pilumThrow'), getDuration: vi.fn(() => 1.5),
+      update: vi.fn(), stop: vi.fn(),
+    }
+    const pilum = new THREE.Group()
+    const bow = new THREE.Group()
+    bow.visible = false
+    const playback = Object.create(HumanoidStudioPlayback.prototype) as HumanoidStudioPlayback
+    Object.assign(playback, {
+      instance: { rig }, state: 'pilumThrow', equipped: true, equipmentLoadout: null,
+      animator: new CharacterCombatAnimator(rig, new THREE.Group(), pilum),
+      pilum, bow, elapsed: 0, started: false,
+    })
+    playback.update(0)
+    expect(pilum.visible).toBe(true)
+    playback.update(0.01)
+    expect(pilum.visible).toBe(false)
+    playback.update(1.49)
+    expect(pilum.visible).toBe(false)
   })
 
   it('applies imported-bone pose deltas on top of the recorded bind rotation', () => {

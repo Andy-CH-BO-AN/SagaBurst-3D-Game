@@ -23,6 +23,13 @@ const EXPECTED_DURATIONS: Record<string, number> = {
   pilumThrow: 1.5,
 }
 
+it.each(['viking', 'roman'] as const)('%s pilum manifest releases at throw start and completes after 1.5s', faction => {
+  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+  const pilum = manifest.animations.embedded.find((clip: { clip: string }) => clip.clip === 'pilumThrow')
+  expect(pilum.duration).toBe(1.5)
+  expect(pilum.events).toEqual({ projectileRelease: 0, actionComplete: 1.5 })
+})
+
 interface GlbDocument {
   accessors: Array<{
     bufferView?: number

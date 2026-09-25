@@ -169,7 +169,7 @@
         "loop": false,
         "duration": 1.5,
         "events": {
-          "projectileRelease": 1.5,
+          "projectileRelease": 0,
           "actionComplete": 1.5
         }
       }
