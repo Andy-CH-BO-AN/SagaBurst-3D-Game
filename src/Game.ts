@@ -474,7 +474,7 @@ export class Game {
   private _getCameraAimPoint(target: THREE.Vector3): THREE.Vector3 {
     this.thirdPersonCamera.getAimDirection(this._tmpCameraDir)
     target.copy(this.camera.position).addScaledVector(this._tmpCameraDir, 100)
-    if (!this.player.isAiming) return target
+    if (!this.player.isRangedAimViewActive) return target
 
     this._aimRaycaster.setFromCamera(this._aimScreenCenter, this.camera)
     this._tmpCameraDir.copy(this._aimRaycaster.ray.direction)

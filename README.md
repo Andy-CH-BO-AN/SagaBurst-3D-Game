@@ -184,6 +184,7 @@ Bow and Pilum controls intentionally differ:
 - **Pilum** — hold right mouse to aim and click left mouse to commit the throw.
 
 Entering ranged aim still unequips an equipped shield using the existing ranged-weapon behavior.
+Holding right mouse enters first-person ranged aiming. With a Bow, keep holding right mouse after firing to watch the arrow's trajectory in first person, then hold left mouse again to load the next arrow. Releasing right mouse returns to third person. With a Pilum, the camera returns to third person when the projectile leaves the hand; release and press right mouse again to start the next throw.
 
 ### Legacy configuration compatibility
 
