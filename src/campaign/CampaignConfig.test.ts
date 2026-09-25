@@ -66,29 +66,19 @@ describe('Defense Campaign configuration', () => {
       10, 10, 10, 10, 10, 10, 20, 40, null,
     ])
 
-    expect(DEFENSE_CAMPAIGN_STAGES.map(stage => stage.defenderDeployment.baseMaxUnits)).toEqual([
-      50, 55, 60, 60, 60, 60, 60, 60, 60,
-    ])
-    expect(DEFENSE_CAMPAIGN_STAGES.map(stage => stage.defenderDeployment.bonusTier)).toEqual([
-      1, 1, 1, 2, 2, 2, 3, 3, 3,
-    ])
-    expect(DEFENSE_CAMPAIGN_STAGES.map(stage => stage.defenderDeployment.bonusSlots)).toEqual([
-      30, 30, 30, 30, 30, 30, 30, 30, 30,
-    ])
-
     expect(DEFENSE_CAMPAIGN_STAGES.map(stage => stage.defenderDeployment.upperTierPoolCap)).toEqual([
-      50, 50, 55, null, null, null, null, null, null,
+      50, 50, 55, null, null, null, 90, 90, 90,
     ])
 
-    expect(getDefenseCampaignStage(1).defenderDeployment.tierCapacity).toEqual({ 1: 30, 2: 50, 3: 10 })
-    expect(getDefenseCampaignStage(2).defenderDeployment.tierCapacity).toEqual({ 1: 35, 2: 50, 3: 10 })
-    expect(getDefenseCampaignStage(3).defenderDeployment.tierCapacity).toEqual({ 1: 35, 2: 55, 3: 10 })
-    expect(getDefenseCampaignStage(4).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 90, 3: 10 })
-    expect(getDefenseCampaignStage(5).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 90, 3: 30 })
-    expect(getDefenseCampaignStage(6).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 90, 3: 60 })
-    expect(getDefenseCampaignStage(7).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 60, 3: 90 })
-    expect(getDefenseCampaignStage(8).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 60, 3: 90 })
-    expect(getDefenseCampaignStage(9).defenderDeployment.tierCapacity).toEqual({ 1: 0, 2: 60, 3: 90 })
+    expect(getDefenseCampaignStage(1).defenderDeployment.tierCapacity).toEqual({ 1: 80, 2: 50, 3: 10 })
+    expect(getDefenseCampaignStage(2).defenderDeployment.tierCapacity).toEqual({ 1: 85, 2: 50, 3: 10 })
+    expect(getDefenseCampaignStage(3).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 55, 3: 10 })
+    expect(getDefenseCampaignStage(4).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 10 })
+    expect(getDefenseCampaignStage(5).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 30 })
+    expect(getDefenseCampaignStage(6).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 60 })
+    expect(getDefenseCampaignStage(7).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 90 })
+    expect(getDefenseCampaignStage(8).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 90 })
+    expect(getDefenseCampaignStage(9).defenderDeployment.tierCapacity).toEqual({ 1: 90, 2: 90, 3: 90 })
   })
 
   it('matches the intended attacker growth and 4:2:2:1:1 role composition', () => {

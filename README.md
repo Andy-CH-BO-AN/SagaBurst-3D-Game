@@ -34,18 +34,19 @@ Choose **Roman Defense** or **Viking Defense**, configure the defending army for
 - Each stage has its own defender cap, tier limits, cavalry cap, attacker size, attacker tier mix, and reinforcement tier.
 - Destroying the entire attacking army wins immediately; otherwise scheduled cavalry reinforcements can still arrive during a long defense.
 - Stage 9 is the final Defense Campaign stage.
+- T1 defenders remain selectable in every stage, so players can deliberately run lower-tier challenge armies.
 
-| Stage | Defender cap | Bonus tier | Attacker force |
+| Stage | Defender cap | Defender tier rule | Attacker force |
 | --- | ---: | --- | --- |
-| 1 | 80 | +30 T1 | 100 T2 |
-| 2 | 85 | +30 T1 | 110 T2 |
-| 3 | 90 | +30 T1 | 120 T2 |
-| 4 | 90 | +30 T2 | 100 T2 + 30 T3 |
-| 5 | 90 | +30 T2 | 70 T2 + 70 T3 |
-| 6 | 90 | +30 T2 | 30 T2 + 120 T3 |
-| 7 | 90 | +30 T3 | 160 T3 |
-| 8 | 90 | +30 T3 | 180 T3 |
-| 9 | 90 | +30 T3 | 200 T3 |
+| 1 | 80 | T2+T3 ≤ 50 · T3 ≤ 10 | 100 T2 |
+| 2 | 85 | T2+T3 ≤ 50 · T3 ≤ 10 | 110 T2 |
+| 3 | 90 | T2+T3 ≤ 55 · T3 ≤ 10 | 120 T2 |
+| 4 | 90 | T3 ≤ 10 | 100 T2 + 30 T3 |
+| 5 | 90 | T3 ≤ 30 | 70 T2 + 70 T3 |
+| 6 | 90 | T3 ≤ 60 | 30 T2 + 120 T3 |
+| 7 | 90 | T2+T3 ≤ 90 | 160 T3 |
+| 8 | 90 | T2+T3 ≤ 90 | 180 T3 |
+| 9 | 90 | T2+T3 ≤ 90 | 200 T3 |
 
 ## 🚀 Quick Start
 

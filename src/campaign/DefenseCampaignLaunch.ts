@@ -24,7 +24,6 @@ import {
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
   getDefenseCampaignStage,
-  getDefenseDeploymentBaseUsed,
   isCampaignStageId,
   opposingCampaignFaction,
   resolveCampaignAttackerRolePresets,
@@ -179,17 +178,6 @@ export function validateDefenseCampaignLaunchConfig(
       )
     }
 
-    const baseUsed = getDefenseDeploymentBaseUsed(
-      stage.defenderDeployment,
-      tierTotals,
-    )
-    if (baseUsed > stage.defenderDeployment.baseMaxUnits) {
-      errors.push(
-        `Base defender pool ${baseUsed} exceeds ${stage.defenderDeployment.baseMaxUnits}; `
-        + `only T${stage.defenderDeployment.bonusTier} can use the `
-        + `${stage.defenderDeployment.bonusSlots} bonus slots`,
-      )
-    }
 
     const cap = stage.defenderDeployment.cavalryCap
     if (cap !== null && mounted > cap) {
