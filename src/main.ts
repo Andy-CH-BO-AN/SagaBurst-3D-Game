@@ -81,7 +81,7 @@ async function bootstrap(): Promise<void> {
   // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
   if (
     isDevCombat
-    || (query.get('freeride') === '1' && query.get('mount') === 'black-cat')
+    || (query.get('freeride') === '1' && ['black-cat', 'corgi'].includes(query.get('mount') ?? ''))
     || isDevModels
     || isDamageableTest
     || isCampaignOutpostPreview

@@ -1,18 +1,20 @@
-# Repo 接入與黑貓案例
+# Repo 接入與診斷索引
 
-這份文件是目前專案的定位索引與經驗，不是固定 API 規格。接手時先確認程式仍如此，尤其不要把黑貓分支的數值當成所有動物的標準。
+這份文件是目前專案的定位索引與經驗，不是固定 API 規格。接手時先確認程式仍如此，各坐騎分支是定位範例，其數值與外觀不是其他動物的預設。
 
 ## 依賴定位
 
 | 檔案 | 應檢查的契約 |
 | --- | --- |
-| `src/world/BlackCatVisual.ts` | 程序體表、毛、皮甲、鞍座、共享 template、各實例動畫節點 |
+| `src/world/BlackCatVisual.ts`、`src/world/CorgiVisual.ts` | 程序體表、毛、皮甲、鞍座、共享 template、各實例動畫節點 |
 | `src/world/Mount.ts` | MountType、存檔反序列化、visual 選擇、物理狀態、座位世界座標與朝向 |
 | `src/world/HorseAssetRegistry.ts` | 外部戰馬的資產／動畫實例與鞍座；不要改壞戰馬分支 |
 | `src/world/CharacterVisuals.ts` 及呼叫 mounted pose 的 animator | 種類對應的騎士姿勢、髖腿與裝備；搜尋 `MountedPoseKind`、`mountKind` |
-| `src/debug/HumanoidStudioPlayback.ts` | 預覽中實際傳入的 mountKind，避免畫貓卻仍使用 HORSE 姿勢 |
+| `src/world/CharacterEquipmentPose.ts`、`src/world/CharacterCombatAnimator.ts` | 動畫後的姿勢層、掛點所有權、攻擊時間、取消與下馬還原；避免每幀累加修正 |
+| `src/world/EquipmentAttachmentContract.ts`、`src/world/SwordAttachmentContract.ts` | 手掌與模型握點校準、步戰／騎乘掛點；修穿模時不要破壞固定握持 |
+| `src/debug/HumanoidStudioPlayback.ts` | 實際 mountKind、武器模型與正式動畫路徑；預覽切換不能替代 Player／NPC 的共享修正 |
 | `src/Game.ts`、`src/main.ts`、`src/ui/MainMenuUI.ts` | 模型 studio、URL 解析、試騎入口與騎士同步；只改新增種類需要的入口 |
-| `tests/BlackCatMount.test.ts` | 接點世界座標、地面、實例互不影響、studio 播放、倒地重播與跳躍狀態 |
+| `tests/BlackCatMount.test.ts`、`tests/CorgiMount.test.ts`、`tests/EquipmentPose.test.ts` | 接點世界座標、地面、實例互不影響、studio 播放、倒地重播與跳躍狀態 |
 
 新增物種時，追蹤完整的種類流程：輸入／選單 → MountType → 具體 visual → rider pose → studio／實際遊戲。檢查存檔與 fallback 的顯式映射。不要只加入 enum 就讓未辨識種類落入柯基或馬的預設分支，也不要為此無關地改速度、HP、戰鬥或物理。
 
@@ -27,13 +29,11 @@
 
 ## 鞍座與騎士
 
-`Mount` 應回傳實際鞍座的 world position／rotation，騎士跟隨該接點。鞍面與接點不是兩個互不相關的高度常數。模型轉向、縮放、上下擺動後仍需相符。
+以 [rider-equipment-fit.md](rider-equipment-fit.md) 區分座面、骨盆與手掌接點。查清 `getSaddleSeatLocal/World` 與 `getRiderPelvisSeatLocal/World` 的語意及呼叫端，不假設二者回傳同一位置；必要的骨盆間距由實際騎士接觸面量測。驗證平移、轉向、縮放、鞍座俯仰，以及存檔還原、Player／NPC／studio 使用相同契約。
 
-黑貓目前例子：肩高約 1.6 m、體長約 2.4 m、尾長約 1.3 m、saddleHeight 1.65 m。這些只屬於該參考圖，不是新狼、鹿、熊或其他 mount 的預設尺度。不同體寬需自己的騎姿；先調整腿部的關節與裝備餘量，保持骨盆貼合鞍面。
+現有入口範例：`?devmodels=black-cat&nolock`、`?devmodels=corgi&nolock`、`?devmodels=mounts&nolock`；試騎參數從 `Game.ts`／`main.ts` 確認。新動物必須實際接好入口後才能使用新 URL，不要把 fallback 顯示出的動物當作成功。
 
-黑貓現有預覽是 `?devmodels=black-cat&nolock`，試騎為 `?freeride=1&mount=black-cat&nolock`；戰馬為 `?devmodels=mounts&nolock`。新動物必須實際接好入口後才能使用新 URL，不要猜一個未支援的參數再把顯示出的馬當作成功。
-
-## 這次修正留下的判斷方式
+## 常見表現與診斷方向
 
 | 表現 | 原因與修法 |
 | --- | --- |
@@ -45,7 +45,7 @@
 | 鞍墊被新身體頂穿 | 體表修改後鞍墊仍取樣舊橢球；讓兩者讀取同一表面 |
 | 正面看似正常、上方甲片長毛 | 甲片只避開單一球體，未包含肩胛／腿根；修曲面及精確覆蓋裁剪 |
 | 靜止乾淨、跑動禿斑或穿甲 | 裁剪只考慮 rest pose 或護片掛錯節點；檢查活動範圍與重新露出的毛皮 |
-| 騎士腿穿身體／屁股浮空 | 鞍寬、座高、騎姿與 mountKind 不一致；同時檢查預覽與遊戲使用的姿勢 |
+| 騎士腿穿身體／屁股浮空 | 鞍寬、座高、騎姿與 mountKind 不一致；先分清骨盆中心與臀部接觸面，再核對預覽與遊戲使用的姿勢 |
 | 尾根有空隙 | 需要封口、嵌入與擺動時足夠重疊；不能只靠靜止相切 |
 
-黑貓的白襪、細白鼻周、白胸腹，以及移除項圈／腳環／行李，是使用者對這一隻的指定。下一隻動物從自己的圖和需求建立外觀，不沿用這些裝飾選擇。
+騎士與武器的接觸診斷見上述貼合參考文件；案例的尺寸、毛色與裝備選擇只屬於各自需求，不作預設模板。

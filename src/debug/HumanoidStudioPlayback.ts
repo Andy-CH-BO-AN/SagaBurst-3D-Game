@@ -19,7 +19,9 @@ export class HumanoidStudioPlayback {
   readonly lance = new THREE.Group()
   readonly lanceModel = new THREE.Group()
   readonly shield = new THREE.Group()
-  private equipmentLoadout: 'none' | 'sword' | 'lance' | null = null
+  private readonly swordModel = new THREE.Group()
+  private readonly axeModel = new THREE.Group()
+  private equipmentLoadout: 'none' | 'sword' | 'axe' | 'lance' | null = null
   private hasShield = false
   private readonly animator: CharacterCombatAnimator
   private readonly bowVisual: CharacterBowVisual
@@ -44,8 +46,10 @@ export class HumanoidStudioPlayback {
       applyEquipmentAttachment(instance.rig.left.handSocket, this.shield, this.shield, frames.shieldLeft, 'shield')
     }
     this.lance.visible = this.shield.visible = false
-    const grip = new THREE.Group()
-    this.sword.add(grip)
+    const grip = this.swordModel
+    this.sword.add(grip, this.axeModel)
+    WeaponMeshFactory.buildMelee('viking_axe_t2', this.axeModel)
+    this.axeModel.visible = false
     WeaponMeshFactory.buildNpcMelee(faction, 2, false, grip)
     applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
@@ -116,7 +120,15 @@ export class HumanoidStudioPlayback {
     this.instance.root.updateMatrixWorld(true)
   }
 
-  setEquipmentLoadout(weapon: 'none' | 'sword' | 'lance', shield: boolean): void {
+  get weapon(): 'none' | 'sword' | 'axe' | 'lance' { return this.equipmentLoadout ?? 'sword' }
+
+  setEquipmentLoadout(weapon: 'none' | 'sword' | 'axe' | 'lance', shield: boolean): void {
+    if (weapon === 'sword' || weapon === 'axe') {
+      this.swordModel.visible = weapon === 'sword'
+      this.axeModel.visible = weapon === 'axe'
+      applySwordAttachment(this.instance.rig.right.handSocket, this.sword, weapon === 'axe' ? this.axeModel : this.swordModel,
+        this.instance.rig.swordGripFrame!, this.instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+    }
     this.equipmentLoadout = weapon
     this.hasShield = shield
     this.reset()
@@ -160,7 +172,7 @@ export class HumanoidStudioPlayback {
     this.bow.visible = this.equipped && alive && this.state.startsWith('bow')
     this.pilum.visible = this.equipped && alive && this.state === 'pilumThrow'
     if (this.equipmentLoadout !== null) {
-      this.sword.visible = this.equipped && alive && this.equipmentLoadout === 'sword'
+      this.sword.visible = this.equipped && alive && (this.equipmentLoadout === 'sword' || this.equipmentLoadout === 'axe')
       this.lance.visible = this.equipped && alive && this.equipmentLoadout === 'lance'
       this.shield.visible = this.equipped && alive && this.hasShield
       this.bow.visible = this.pilum.visible = false

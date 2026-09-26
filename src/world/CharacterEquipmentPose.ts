@@ -153,8 +153,40 @@ export class CharacterEquipmentPose {
     this.applied = true
     const live = state.alive && state.action !== 'death'
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
-    // Ready remains the imported Sword Idle. Only the attack adds a small FK
-    // extension; the grip/weapon attachment never moves relative to the hand.
+    // Corgi thighs sit wider and higher than the horse's. Carry the right hand
+    // forward and outside that thigh, retaining the sampled wrist orientation
+    // and fixed weapon grip. This is shared by mounted melee weapons.
+    if (live && state.mounted && state.mountKind === 'CORGI'
+      && state.action !== 'bowAim' && state.action !== 'bowRelease' && state.action !== 'pilumThrow') {
+      this.root.updateWorldMatrix(true, true)
+      this.rig.right.wrist.getWorldQuaternion(this.handWorld)
+      this.root.getWorldQuaternion(this.rootWorld)
+      this.attackAxis.set(0, 0, 1).applyQuaternion(this.rootWorld)
+      this.rotateArm(this.rig.right.shoulder, -0.60)
+      this.attackAxis.set(1, 0, 0).applyQuaternion(this.rootWorld)
+      let carry = 1
+      if (state.action === 'swordSlash' || state.action === 'daggerSlash' || state.action === 'greatswordSlash') {
+        const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES[state.action]
+        carry = state.elapsed < windup ? 1 - smooth(state.elapsed / windup)
+          : smooth((state.elapsed - windup - active) / recovery)
+      }
+      this.rotateArm(this.rig.right.shoulder, -1.05 * carry)
+      this.rig.right.wrist.parent!.getWorldQuaternion(this.parentInverse).invert()
+      this.rig.right.wrist.quaternion.copy(this.parentInverse).multiply(this.handWorld)
+      this.rig.right.wrist.updateWorldMatrix(false, true)
+      // Lift the cutting edge over the neck while the authored slash crosses
+      // the saddle centreline, then return to its sampled hand direction.
+      if (state.action === 'swordSlash') {
+        const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES.swordSlash
+        const lift = state.elapsed < windup + active * 0.7
+          ? smooth((state.elapsed - windup - active * 0.4) / (active * 0.3))
+          : 1 - smooth((state.elapsed - windup - active * 0.7) / (active * 0.3 + recovery * 0.5))
+        this.rotateArm(this.rig.right.elbow, -1.15 * lift)
+        this.rotateArm(this.rig.right.wrist, -0.65 * lift)
+      }
+    }
+    // Lance uses the sampled carry pose; attacks add an FK extension.
+    // The grip/weapon attachment never moves relative to the hand.
     if (live && state.lance && (state.action === 'lanceThrust' || state.action === 'mountedLance')) {
       const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES[state.action]
       const peak = windup + active * .9, end = windup + active

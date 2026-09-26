@@ -452,9 +452,9 @@ describe('Phase 21 procedural presentation', () => {
     expect(visual.rig.rightLeg.knee.parent).toBe(visual.rig.rightLeg.hip)
 
     applyCharacterMountedPose(visual.rig, true, 'CORGI')
-    expect(visual.rig.leftLeg.hip.rotation.z).toBeLessThan(-0.3)
-    expect(visual.rig.rightLeg.hip.rotation.z).toBeGreaterThan(0.3)
-    expect(visual.rig.leftLeg.knee.rotation.x).toBeLessThan(-1.2)
+    expect(visual.rig.leftLeg.hip.rotation.z).toBeLessThan(-0.8)
+    expect(visual.rig.rightLeg.hip.rotation.z).toBeGreaterThan(0.8)
+    expect(visual.rig.leftLeg.knee.rotation.x).toBeLessThan(-1.0)
 
     applyCharacterMountedPose(visual.rig, false)
     expect(visual.rig.leftLeg.hip.rotation.x).toBe(0)
