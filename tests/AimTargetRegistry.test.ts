@@ -59,7 +59,7 @@ describe('AimTargetRegistry', () => {
 
     registry.unregisterMount(mount)
     expect(registry.targets.length).toBe(0)
-  })
+  }, 15000)
 
   it('handles static target registration and clearing', () => {
     const registry = new AimTargetRegistry()

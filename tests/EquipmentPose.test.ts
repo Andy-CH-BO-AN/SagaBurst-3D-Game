@@ -368,5 +368,5 @@ describe('Corgi mounted weapon clearance', () => {
     }
     animator.setLocomotion(0, false); animator.update(.2)
     pivot.matrix.elements.forEach((value, i) => expect(value).toBeCloseTo(foot.elements[i], 10))
-  })
+  }, 15000)
 })

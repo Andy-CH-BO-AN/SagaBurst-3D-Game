@@ -340,7 +340,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.isRangedAimViewActive).toBe(true)
     expect(h.ui.setAiming).toHaveBeenLastCalledWith(true)
     for (let frame = 0; frame < 90; frame++) h.update(input({ isRightMouseDown: true }))
-    expect(h.player.combatAnimationAction).toBe('idle')
+    expect(h.player.combatAnimationAction).toBe('bowAim')
     expect(h.player.isAiming).toBe(true)
     expect(h.player.isRangedAimViewActive).toBe(true)
     expect(h.camera.position.distanceTo(h.player.position)).toBeLessThan(2)

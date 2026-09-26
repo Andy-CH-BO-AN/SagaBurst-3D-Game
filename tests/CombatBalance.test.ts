@@ -1073,6 +1073,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         _tmpAiCenter: new THREE.Vector3(),
         _tmpToTarget: new THREE.Vector3(),
         _applyLanceChargeBonus: (Game.prototype as any)._applyLanceChargeBonus,
+        _tryDamageObstacleWithMelee: vi.fn(() => false),
         soundManager: { playHit: vi.fn() },
         damageNumbers: { spawn: vi.fn() },
         _showEnemyHud: vi.fn(),

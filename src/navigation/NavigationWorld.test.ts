@@ -84,14 +84,14 @@ describe('NavigationWorld', () => {
     // Both starts are inside the same 4m macro group, and both goals are too.
     expect(
       world.queryPath(
-        new THREE.Vector3(-8.5, 0, -4.5),
-        new THREE.Vector3(8.5, 0, -4.5),
+        new THREE.Vector3(-7.1, 0, -2.5),
+        new THREE.Vector3(8.5, 0, -2.5),
       ).status,
     ).toBe('path')
     expect(
       world.queryPath(
-        new THREE.Vector3(-7.1, 0, -3.1),
-        new THREE.Vector3(9.1, 0, -3.1),
+        new THREE.Vector3(-6.5, 0, -1.1),
+        new THREE.Vector3(9.1, 0, -1.1),
       ).status,
     ).toBe('path')
 

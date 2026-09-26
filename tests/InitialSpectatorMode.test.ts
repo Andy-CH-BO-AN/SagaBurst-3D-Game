@@ -129,9 +129,11 @@ class MockElement {
     const results: MockElement[] = []
     const isClass = selector.startsWith('.')
     const className = isClass ? selector.slice(1) : ''
+    const isId = selector.startsWith('#')
+    const id = isId ? selector.slice(1) : ''
     const traverse = (el: MockElement) => {
       for (const child of el.children) {
-        if (isClass && child.classList.contains(className)) {
+        if ((isClass && child.classList.contains(className)) || (isId && child.id === id)) {
           results.push(child)
         }
         traverse(child)
@@ -139,6 +141,9 @@ class MockElement {
     }
     traverse(this)
     return results
+  }
+  querySelector(selector: string): MockElement | null {
+    return this.querySelectorAll(selector)[0] ?? null
   }
 }
 

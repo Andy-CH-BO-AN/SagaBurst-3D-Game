@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { NavigationPathFollower } from './NavigationPathFollower'
 import { NavigationWorld } from './NavigationWorld'
-import type { ObstacleData } from '../world/Terrain'
+import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../world/Terrain'
 
 function obstacle(
   minX: number,
@@ -63,7 +63,7 @@ describe('NavigationPathFollower', () => {
   it('returns unreachable without A star when a full barrier splits connectivity', () => {
     const world = new NavigationWorld()
     world.rebuild([
-      obstacle(-1, -180, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
     ])
     world.beginFrame()
 
@@ -89,7 +89,7 @@ describe('NavigationPathFollower', () => {
     const goal = new THREE.Vector3(10, 0, 0)
 
     world.rebuild([
-      obstacle(-1, -180, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
     ])
     world.beginFrame()
     expect(
@@ -98,8 +98,8 @@ describe('NavigationPathFollower', () => {
 
     // Rebuild the same wall as two pieces with a 12m breach in the middle.
     world.rebuild([
-      obstacle(-1, -180, 1, -6),
-      obstacle(-1, 6, 1, 180),
+      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, -6),
+      obstacle(-1, 6, 1, PLAYABLE_WORLD_BOUND),
     ])
     world.beginFrame()
 
