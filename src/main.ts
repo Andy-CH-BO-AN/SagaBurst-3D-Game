@@ -72,6 +72,11 @@ async function launchGame(
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
+  if (import.meta.env.DEV && query.get('devhero') === 'viking-t4') {
+    const { launchVikingHeroPreview } = await import('./debug/VikingHeroPreview')
+    await launchVikingHeroPreview(container!)
+    return
+  }
   const isDevCombat = query.has('devcombat')
   const isDevModels = query.has('devmodels')
   const isDamageableTest = import.meta.env.DEV && query.has('damageabletest')
