@@ -1,0 +1,4 @@
+interface:
+  display_name: "動物坐騎參考圖建模"
+  short_description: "依正面與側面參考圖建立動物坐騎，校準比例、騎乘姿勢與裝備貼合"
+  default_prompt: "使用 $mount-from-reference，依照提供的正面與側面圖，在這個 repo 製作可騎乘的動物坐騎並完成視覺驗收。"

@@ -38,6 +38,11 @@ export class MainMenuUI {
           <span>UNITS & WEAPONS</span>
           <small>查看兵種特性、戰鬥數值、武器與盾牌資料</small>
         </button>
+        <a class="main-menu-card" href="?devmodels=black-cat&nolock" style="text-decoration:none">
+          <strong>黑貓坐騎</strong>
+          <span>MOONSHADOW</span>
+          <small>查看月影旅者的外觀、步態與騎乘</small>
+        </a>
       </div>
     `
     parent.appendChild(container)

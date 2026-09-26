@@ -606,7 +606,7 @@ export class Game {
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts'
+    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
@@ -755,7 +755,7 @@ export class Game {
       }
     } else if (devModelsMode === 'humans') {
       this._spawnHumanoidStudio()
-    } else if (devModelsMode === 'mounts') {
+    } else if (this.isMountStudio) {
       this._spawnMountStudio()
     } else if (battleConfig && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
@@ -771,7 +771,7 @@ export class Game {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
-        DEFAULT_MOUNT_TYPE,
+        query.get('mount') === 'black-cat' ? MountType.BLACK_CAT : DEFAULT_MOUNT_TYPE,
         playerSpawn.x,
         playerSpawn.z
       )
@@ -1010,7 +1010,37 @@ export class Game {
     grid.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.012
     this.scene.add(grid)
 
-    const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const isCat = new URLSearchParams(window.location.search).get('devmodels') === 'black-cat'
+    const mount = new Mount(this.scene, isCat ? MountType.BLACK_CAT : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    if (isCat) {
+      this.camera.position.set(4.4, HUMANOID_STUDIO_FLOOR_Y + 2.6, 4.0)
+      this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2)
+      this.studioControls?.update()
+      this.scene.background = new THREE.Color(0x302e2c)
+      this.scene.fog = new THREE.Fog(0x302e2c, 12, 32)
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshStandardMaterial({ color: 0x45413c, roughness: 0.95 }))
+      floor.rotation.x = -Math.PI / 2
+      floor.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.002
+      floor.receiveShadow = true
+      this.scene.add(floor)
+      grid.visible = false
+      for (const [x, y, z, color, intensity] of [[3, 5, 4, 0xffe2b9, 3.5], [-4, 3, 2, 0xcbdfff, 2.5], [1, 4, -4, 0xe4d4c1, 4]]) {
+        const light = new THREE.DirectionalLight(color, intensity)
+        if (x === 3) {
+          light.castShadow = true
+          light.shadow.mapSize.set(2048, 2048)
+          Object.assign(light.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 0.1, far: 20 })
+          light.shadow.bias = -0.0002
+          light.shadow.normalBias = 0.015
+        }
+        light.position.set(x, HUMANOID_STUDIO_FLOOR_Y + y, z)
+        light.target.position.set(0, HUMANOID_STUDIO_FLOOR_Y + 1, 0)
+        this.scene.add(light, light.target)
+      }
+      const style = document.createElement('style')
+      style.textContent = '#hud,#army-command-hud,#crosshair,#controls-hint,#pickup-prompt{display:none!important}'
+      document.head.appendChild(style)
+    }
     mount.visualHold = true
     mount.playStudioClip('idle')
     this.mounts.push(mount)
@@ -1027,7 +1057,8 @@ export class Game {
     const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
     comparisonHorse.visualHold = true
     this.mounts.push(comparisonHorse)
-    this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
+    if (!isCat) this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
+    if (isCat) comparisonHorse.group.visible = false
 
     if (mount.horseSkeleton) {
       const skeleton = new THREE.SkeletonHelper(mount.horseSkeleton.bones[0])
@@ -1048,7 +1079,7 @@ export class Game {
         tier: 2,
         isPlayer: false,
       })
-      const playback = new HumanoidStudioPlayback(rider, 'mounted', 'viking')
+      const playback = new HumanoidStudioPlayback(rider, 'mounted', 'viking', mount.type)
       playback.setEquipmentLoadout('lance', true)
       playback.sampleEquipment(0, true)
       this.humanoidStudioPlayback.set(rider, playback)
@@ -1063,6 +1094,7 @@ export class Game {
       rider.root.rotation.x = mount.ridePitch
       mount.group.add(rider.root)
       this.humanoidShowcase.push(rider)
+      if (isCat) rider.root.visible = false
       this.mountStudioRider = rider
       this.mountStudioRiderPelvisHeight = pelvisHeight
     }
@@ -1070,7 +1102,8 @@ export class Game {
     const help = document.createElement('div')
     help.id = 'mount-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
-    help.textContent = '戰馬工作室｜1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
+    help.textContent = (isCat ? '黑貓工作室｜' : '戰馬工作室｜') + '1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
+    if (isCat) help.textContent = '拖曳旋轉 · 滾輪縮放 · 1–5 步態 · 6 跳躍 · 7 落地 · 8 受擊 · 9 倒地 · Space 暫停 · R 重播 · V 騎士'
     document.body.appendChild(help)
 
     const status = document.createElement('div')
@@ -1078,6 +1111,22 @@ export class Game {
     status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:30;min-width:220px;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 ui-monospace,monospace;pointer-events:none'
     document.body.appendChild(status)
     this.mountStudioStatus = status
+    if (isCat) {
+      const toolbar = document.createElement('div')
+      toolbar.style.cssText = 'position:fixed;top:24px;left:32px;right:32px;z-index:40;color:#e6d7bb;font:14px system-ui;display:flex;align-items:center;gap:12px'
+      toolbar.innerHTML = '<div style="margin-right:auto"><div style="letter-spacing:4px;font-size:11px;color:#b99a66">SAGABURST / MOUNTS</div><h1 style="font:28px Georgia,serif;margin:8px 0">月影旅者 · 黑貓坐騎</h1></div>'
+      const poses: [string, number, number, number][] = [['正面', 0, 2.1, 6], ['側面', 6, 2.0, 0], ['背面', 0, 2.2, -6], ['三分之四', 4.4, 2.6, 4]]
+      for (const [label, x, y, z] of poses) {
+        const button = document.createElement('button')
+        button.textContent = label
+        button.style.cssText = 'background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;padding:9px 14px;cursor:pointer'
+        button.onclick = () => { this.camera.position.set(x, HUMANOID_STUDIO_FLOOR_Y + y, z); this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2); this.studioControls?.update() }
+        toolbar.appendChild(button)
+      }
+      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = '?freeride=1&mount=black-cat&nolock'
+      ride.style.cssText = 'padding:10px 16px;background:#b99a66;color:#201b14;border-radius:5px;text-decoration:none'
+      toolbar.appendChild(ride); document.body.appendChild(toolbar)
+    }
 
     window.addEventListener('keydown', (event) => {
       const digit = Number(event.code.replace('Digit', ''))
@@ -1092,8 +1141,8 @@ export class Game {
         event.preventDefault()
         mount.toggleStudioPause()
       } else if (event.code === 'KeyR') {
-        const state = mount.getHorseDebugState()
-        if (state) mount.playStudioClip(state.clip)
+        const state = mount.catVisual?.debugState() ?? mount.getHorseDebugState()
+        if (state) mount.playStudioClip(state.clip as HorseAnimationState)
       } else if (event.code === 'KeyH' && this.mountStudioSkeleton) {
         this.mountStudioSkeleton.visible = !this.mountStudioSkeleton.visible
       } else if (event.code === 'KeyV' && this.mountStudioRider) {
@@ -1117,7 +1166,11 @@ export class Game {
       )
     }
     const state = this.mountStudioHorse.getHorseDebugState()
-    if (!state) return
+    if (!state) {
+      const cat = this.mountStudioHorse.catVisual?.debugState()
+      if (cat) this.mountStudioStatus.textContent = `黑貓 · ${cat.clip} · ${cat.paused ? '暫停' : '播放中'}｜肩高 1.6 m · 體長 2.4 m`
+      return
+    }
     const info = this.renderer.info
     this.mountStudioStatus.textContent = [
       `clip: ${state.clip}`,
