@@ -53,7 +53,7 @@ class ArmSolver {
     this.lowerLength = arm.wrist.position.length()
   }
 
-  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame): void {
+  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion): void {
     this.root.updateWorldMatrix(true, true)
     this.inverseRoot.copy(this.root.matrixWorld).invert()
     this.root.getWorldQuaternion(this.rootQ)
@@ -65,7 +65,8 @@ class ArmSolver {
     this.axis.normalize()
     this.wrist.copy(this.shoulder).addScaledVector(this.axis, distance)
     this.bend.set(this.side < 0 ? -0.15 : 0.65, -1, this.side < 0 ? -0.35 : -0.1)
-      .addScaledVector(this.axis, -this.bend.dot(this.axis)).normalize()
+    if (bodyRotation) this.bend.applyQuaternion(bodyRotation)
+    this.bend.addScaledVector(this.axis, -this.bend.dot(this.axis)).normalize()
     const along = (this.upperLength ** 2 - this.lowerLength ** 2 + distance ** 2) / (2 * distance)
     this.elbow.copy(this.shoulder).addScaledVector(this.axis, along).addScaledVector(this.bend, Math.sqrt(Math.max(0, this.upperLength ** 2 - along ** 2)))
     this.q.copy(handRotation).multiply(this.neutralWrist)
@@ -80,6 +81,7 @@ class ArmSolver {
     this.q.premultiply(this.swing)
     this.upperRotation.copy(this.q)
     this.q.copy(this.neutralShoulder)
+    if (bodyRotation) this.q.premultiply(bodyRotation)
     this.x.copy(this.upperAxis).applyQuaternion(this.q)
     this.swing.setFromUnitVectors(this.x, this.y)
     this.q.premultiply(this.swing).slerp(this.upperRotation, 0.35)
@@ -106,6 +108,11 @@ export class CharacterEquipmentPose {
   private readonly left: ArmSolver
   private readonly axeRight: ArmSolver
   private readonly shieldL: THREE.Quaternion
+  private readonly shieldBody: THREE.Object3D
+  private readonly shieldBindInverse = new THREE.Matrix4()
+  private readonly shieldBodyDelta = new THREE.Matrix4()
+  private readonly shieldBodyRotation = new THREE.Quaternion()
+  private readonly shieldHandRotation = new THREE.Quaternion()
   private readonly target = new THREE.Vector3()
   private readonly attackAxis = new THREE.Vector3()
   private readonly attackRotation = new THREE.Quaternion()
@@ -140,6 +147,10 @@ export class CharacterEquipmentPose {
     this.axeLeftRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI).multiply(hand(frames.lanceLeft))
     root.updateMatrixWorld(true)
     this.hipsY = root.worldToLocal((rig.pelvis?.parent ?? rig.rightLeg.hip).getWorldPosition(new THREE.Vector3())).y
+    // Carry the guard in the animated chest frame, including torso translation
+    // and lean. Capturing the bind basis also handles different LOD bone axes.
+    this.shieldBody = rig.upperChest ?? rig.left.shoulder.parent!
+    this.shieldBindInverse.copy(this.shieldBody.matrixWorld).invert().multiply(root.matrixWorld)
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
@@ -254,8 +265,12 @@ export class CharacterEquipmentPose {
       }
     }
     if (live && state.shield) {
-      this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward)
-      this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
+      this.root.updateWorldMatrix(true, true)
+      this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
+      this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
+      this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward).applyMatrix4(this.shieldBodyDelta)
+      this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
+      this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
     }
     const twoHandedAxe = live && !state.shield && state.action === 'axeAttack2H'
     if (twoHandedAxe) {

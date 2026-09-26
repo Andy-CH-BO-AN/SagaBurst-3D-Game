@@ -36,7 +36,7 @@ describe('rigid sword / shield consolidation', () => {
   })
 
   for (const [kind, maxMeshes] of Object.entries(counts)) for (const tier of [1, 2, 3]) {
-    it(`${kind} T${tier}: reduces renderables without changing cf04fd3 geometry or attachment`, () => {
+    it(`${kind} T${tier}: preserves consolidated geometry apart from the upright shield handle`, () => {
       const { root, tip } = build(kind, tier)
       const before = baseline[`${kind}-${tier}` as keyof typeof baseline]
       expect(root.children.length).toBe(maxMeshes)
@@ -49,7 +49,15 @@ describe('rigid sword / shield consolidation', () => {
       expect(root.position.toArray()).toEqual([0, 0, 0])
       expect(root.quaternion.toArray()).toEqual([0, 0, 0, 1])
       expect(root.scale.toArray()).toEqual([1, 1, 1])
+      // The shield grip now stands upright for a thumb-up grasp. Normalize
+      // only that intentional change to retain the historical geometry audit.
+      const shieldHandle = root.getObjectByName('shield-rear-grip')
+      if (shieldHandle) {
+        expect(shieldHandle.rotation.z).toBe(0)
+        shieldHandle.rotation.z = Math.PI / 2
+      }
       expect(equipmentGeometrySignature(root)).toEqual(before.geometry)
+      if (shieldHandle) shieldHandle.rotation.z = 0
       for (const child of root.children as THREE.Mesh[]) {
         expect(Array.isArray(child.material)).toBe(false)
         // Built-in primitive groups do not add draws with a single material.
