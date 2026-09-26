@@ -41,20 +41,20 @@ describe('T1–T3 melee parity', () => {
     expect(ids.slice(3).map(id => WEAPONS[id].damageMax)).toEqual([12, 25, 45])
   })
 
-  it('uses the default Viking sword shape for all tiers with distinct surface patterns', () => {
+  it('distinguishes Viking sword silhouettes while preserving grips and hit tips', () => {
     const ids = ['rusty_dagger', 'steel_sword', 'runic_greatsword']
     const groups = ids.map(id => {
       const group = new THREE.Group()
       const result = WeaponMeshFactory.buildMelee(id, group)
       return { group, result }
     })
-    expect(groups.map(({ group }) => shapeSignature(group))).toEqual(Array(3).fill(shapeSignature(groups[1].group)))
+    expect(new Set(groups.map(({ group }) => JSON.stringify(shapeSignature(group)))).size).toBe(3)
     expect(groups.map(({ group }) => group.userData.gripCenterLocal)).toEqual(Array(3).fill([0, 0.15, 0]))
     expect(groups.map(({ result }) => result.tipLocal.toArray())).toEqual(Array(3).fill([0, 1.51, 0]))
     expect(new Set(groups.map(({ group }) => JSON.stringify(materialSignature(group))).values()).size).toBe(3)
   })
 
-  it('keeps Dane axe tiers geometrically identical and on the sword combat contract', () => {
+  it('distinguishes Dane axe heads while preserving the sword combat contract', () => {
     const swords = ['rusty_dagger', 'steel_sword', 'runic_greatsword']
     const groups = [1, 2, 3].map(tier => {
       const id = `viking_axe_t${tier}`
@@ -72,7 +72,7 @@ describe('T1–T3 melee parity', () => {
       expect(group.getObjectByName('dane-axe-single-bearded-blade')).toBeTruthy()
       return group
     })
-    expect(groups.map(shapeSignature)).toEqual(Array(3).fill(shapeSignature(groups[1])))
+    expect(new Set(groups.map(group => JSON.stringify(shapeSignature(group)))).size).toBe(3)
     expect(new Set(groups.map(group => JSON.stringify(materialSignature(group)))).size).toBe(3)
   })
 
@@ -104,13 +104,13 @@ describe('T1–T3 melee parity', () => {
     visual.rotation.toArray().slice(0, 3).forEach((value, i) => expect(value).toBeCloseTo(i === 0 ? .45 : 0, 10))
   })
 
-  it('uses the default Roman gladius shape for all tiers with distinct surface patterns', () => {
+  it('distinguishes Roman gladius silhouettes while preserving grips and hit tips', () => {
     const groups = [1, 2, 3].map(tier => {
       const group = new THREE.Group()
       const tip = WeaponMeshFactory.buildNpcMelee('roman', tier, false, group)
       return { group, tip }
     })
-    expect(groups.map(({ group }) => shapeSignature(group))).toEqual(Array(3).fill(shapeSignature(groups[1].group)))
+    expect(new Set(groups.map(({ group }) => JSON.stringify(shapeSignature(group)))).size).toBe(3)
     expect(groups.map(({ group }) => group.userData.gripCenterLocal)).toEqual(Array(3).fill([0, 0.1, 0]))
     for (const { tip } of groups) expect(tip.toArray()).toEqual([0, expect.closeTo(0.88), 0])
     expect(new Set(groups.map(({ group }) => JSON.stringify(materialSignature(group))).values()).size).toBe(3)

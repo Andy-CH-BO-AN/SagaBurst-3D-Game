@@ -24,7 +24,7 @@ function build(kind: string, tier: number) {
 }
 const expected: Record<string, number[][]> = {
   viking: [[4, 3, 3]], roman: [[3, 3, 3]], round_shield: [[5, 3, 2]], scutum: [[5, 4, 3]],
-  bow: [[8, 6, 6]], lance: [[2, 2, 2]], pilum: [[3, 3, 2], [4, 4, 3], [5, 4, 3]],
+  bow: [[9, 6, 6], [8, 6, 6], [9, 6, 6]], lance: [[3, 2, 2], [2, 2, 2], [3, 2, 2]], pilum: [[3, 3, 2], [4, 4, 3], [5, 4, 3]],
 }
 
 describe('equipment visual LOD', () => {
