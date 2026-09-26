@@ -48,6 +48,20 @@ describe('羅馬盾牌零件貼合', () => {
         expect(face).toBeDefined()
         expect(Math.abs(point.z - face.point.z)).toBeLessThan(0.012)
       }
+      // Corners can sit above the shield while a wide, flat inlay's centre
+      // disappears inside it. Check front-facing triangle centres as well.
+      const index = emblem.geometry.index!
+      for (let i = 0; i < index.count; i += 3) {
+        const points = [0, 1, 2].map(j => new THREE.Vector3().fromBufferAttribute(positions, index.getX(i + j)).applyMatrix4(emblem.matrixWorld))
+        const triangle = new THREE.Triangle(...points as [THREE.Vector3, THREE.Vector3, THREE.Vector3])
+        if (triangle.getNormal(new THREE.Vector3()).z < 0.5) continue
+        const centre = triangle.getMidpoint(new THREE.Vector3())
+        ray.ray.origin.set(centre.x, centre.y, 1)
+        const face = ray.intersectObject(board)[0]
+        expect(face).toBeDefined()
+        expect(centre.z - face.point.z).toBeGreaterThan(0)
+        expect(centre.z - face.point.z).toBeLessThan(0.012)
+      }
     }
     expect(shield.userData.gripCenterLocal).toEqual([0, 0, 0.085])
   })

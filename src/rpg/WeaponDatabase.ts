@@ -40,7 +40,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.35,
     animationKind: 'sword',
     range: 1.8,
-    description: '沿用制式長劍外形，以風化鐵紋區分的普通武器。',
+    description: '窄刃、短護手與粗糙鏽鐵的風化長劍。',
   },
   steel_sword: {
     id: 'steel_sword',
@@ -66,7 +66,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.35,
     animationKind: 'sword',
     range: 1.8,
-    description: '沿用制式長劍外形，以藍金符文區分的史詩武器。',
+    description: '寬刃長劍搭配延展護手、藍色劍槽與雙面金色鑲紋。',
   },
 
   // Phase 1 axes retain the corresponding sword's combat values and animation.
@@ -189,7 +189,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.35,
     animationKind: 'sword',
     range: 1.8,
-    description: '沿用制式短劍外形，以風化鐵紋區分的普通武器。',
+    description: '窄刃與簡陋護手的風化羅馬短劍。',
   },
   gladius_standard: {
     id: 'gladius_standard',
@@ -215,7 +215,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     speedOrCharge: 0.35,
     animationKind: 'sword',
     range: 1.8,
-    description: '沿用制式短劍外形，以金色百夫長紋區分的史詩武器。',
+    description: '加寬葉形劍刃，搭配金色護手與雙面百夫長鑲紋。',
   },
 
   // ── Roman Ranged (Pilum / Javelin) ──
@@ -259,7 +259,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     animationKind: 'pilum',
     arrowSpeedMin: 16,
     arrowSpeedMax: 30,
-    description: '帶有發光效果的精銳軍團標槍。',
+    description: '深色木桿、拋光長鐵頸與金色箍環的精銳軍團標槍。',
   },
 }
 

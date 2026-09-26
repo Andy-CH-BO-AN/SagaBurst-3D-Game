@@ -65,7 +65,7 @@ export const ARMORS: Record<string, ArmorData> = {
     type: 'shield',
     tier: 3,
     damageReduction: 0.20,
-    description: '繪有猛獸圖騰的精鋼圓盾，極致的防禦工藝。減傷 20%。',
+    description: '藍色盾面搭配金色放射鑲紋、鉚釘與包邊的精製圓盾。減傷 20%。',
   },
 }
 

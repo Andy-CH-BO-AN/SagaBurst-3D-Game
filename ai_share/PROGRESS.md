@@ -56,6 +56,7 @@ The recent optimization sequence shows two distinct costs:
 - Equipped shields are the single source of shield state. A shield stays in the left hand on foot and mounted; ranged units can be configured without a shield.
 - Bow aiming is blocked while a shield is equipped; the player must unequip the shield first. Equipment changes cancel unfinished attack / bow-charge state without synthesizing pending events.
 - T1–T3 one-handed swords share the current sword combat path; tier differences remain visual/stats data. Existing inventory/save IDs remain compatible.
+- T1–T3 武器／盾牌現以粗陋、制式、精緻區分刃形、材質與紋飾，保留握把、判定尖端、動畫與數值。完整 24 件裝備清單及外觀界線見 [EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md)；人物胸甲／頭盔仍屬共用角色模型。
 - Current lance idle deliberately reuses the existing Sword Idle body/hand pose. Do **not** revive the older special Ready pose, palm-up correction, two-hand support, lance IK, or lance-specific finger morph in unrelated work.
 - Lance attacks use an attack-only right-arm FK extension while retaining the fixed attachment and existing event timing. Mounted sword attachment uses the current forward-facing mounted orientation and restores the foot attachment when dismounted.
 - `CharacterCombatAnimator` remains the owner of one-shot combat timing/events. Gameplay damage/projectile logic reacts to those events rather than inventing separate visual timing.

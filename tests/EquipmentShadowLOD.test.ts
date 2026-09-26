@@ -74,7 +74,7 @@ describe('NPC equipment shadow LOD', () => {
 
   // Horse assets are exercised by the production browser matrix; unit coverage uses the real lance builder.
   for (const faction of [Faction.PLAYER, Faction.ENEMY]) for (const tier of [1, 2, 3]) {
-    it(`${faction} T${tier} lance: keeps both meshes visible and restores shadows`, () => {
+    it(`${faction} T${tier} lance: keeps pole/head visible and hides tier trim at distance`, () => {
       const root = new THREE.Group(), controller = new EquipmentVisualLODController()
       const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
       WeaponMeshFactory.buildNpcMelee(characterFaction, tier, true, root)
@@ -83,9 +83,13 @@ describe('NPC equipment shadow LOD', () => {
       controller.register('lance', root)
       for (const level of [0, 1, 2, 0] as const) {
         controller.setLOD(level)
-        expect(equipment).toHaveLength(2)
-        expect(equipment.every(mesh => mesh.visible)).toBe(true)
-        expect(equipment.map(mesh => mesh.castShadow)).toEqual([level < 2, level < 2])
+        expect(equipment).toHaveLength(tier === 2 ? 2 : 3)
+        expect(equipment.slice(0, 2).every(mesh => mesh.visible)).toBe(true)
+        expect(equipment.slice(0, 2).map(mesh => mesh.castShadow)).toEqual([level < 2, level < 2])
+        if (tier !== 2) {
+          expect(equipment[2].visible).toBe(level === 0)
+          expect(equipment[2].castShadow).toBe(false)
+        }
       }
     })
   }

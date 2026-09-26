@@ -105,7 +105,19 @@ function curvedLimb(points: THREE.Vector3[], radius: number, material: THREE.Mat
   return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, radius, 8, false), material)
 }
 
-function bendShieldGeometry(geometry: THREE.BoxGeometry, width: number, curve: number): THREE.BoxGeometry {
+/** Small raised inlays; callers merge them into a single rigid detail draw. */
+function diamondInlay(x: number, y: number, z: number, width: number, height: number, material: THREE.Material, subdivisions = 1): THREE.Mesh {
+  // Subdivision lets shield inlays follow the curved face between vertices too.
+  const geometry = new THREE.BoxGeometry(1, 1, 0.004, subdivisions, subdivisions, 1)
+  geometry.rotateZ(Math.PI / 4)
+  geometry.scale(width / Math.SQRT2, height / Math.SQRT2, 1)
+  geometry.translate(0, 0, 0.002)
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.position.set(x, y, z)
+  return mesh
+}
+
+function bendShieldGeometry<T extends THREE.BufferGeometry>(geometry: T, width: number, curve: number): T {
   const position = geometry.getAttribute('position') as THREE.BufferAttribute
   for (let index = 0; index < position.count; index++) {
     const x = position.getX(index)
@@ -159,8 +171,9 @@ export class WeaponMeshFactory {
       pivot.userData.supportPointLocal = [0, 0.33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.6, 0]
-      const poleMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true })
-      const headMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa, flatShading: true })
+      const tier = WEAPONS[weaponId]?.tier ?? 2
+      const poleMat = proceduralMaterial({ kind: 'wood', color: tier === 1 ? 0x635344 : tier === 3 ? 0x302b32 : 0x5c4033, roughness: tier === 1 ? 0.95 : 0.7 })
+      const headMat = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x756052 : tier === 3 ? 0xd6d8dc : 0xaaaaaa, roughness: tier === 1 ? 0.86 : 0.3, metalness: tier === 1 ? 0.45 : 0.85 })
 
       // The lance is held near the back. The pole goes from y = -0.5 to y = 2.0
       const pole = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(LANCE_RADIUS, LANCE_RADIUS, 2.5, 12), poleMat), 1)
@@ -168,10 +181,27 @@ export class WeaponMeshFactory {
       pivot.add(pole)
 
       // Lance cone head
-      const head = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.6, 8), headMat), 1)
+      const headGeometry = tier === 2 ? new THREE.ConeGeometry(0.06, 0.6, 8)
+        : profiledBladeGeometry(0.6, tier === 1 ? [0.045, 0.074, 0.055, 0.028, 0] : [0.06, 0.15, 0.115, 0.055, 0], 0.035)
+      if (tier !== 2) headGeometry.translate(0, -0.3, 0)
+      const head = equipmentShadowUntil(new THREE.Mesh(headGeometry, headMat), 1)
       head.position.y = 2.3 // 0.75 + 1.25 + 0.3
       head.castShadow = true
       pivot.add(head)
+      if (tier !== 2) {
+        const trim = proceduralMaterial({ kind: tier === 1 ? 'leather' : 'bronze', color: tier === 1 ? 0x403126 : 0xc49a50, roughness: tier === 1 ? 0.95 : 0.3 })
+        const details: THREE.Mesh[] = []
+        for (const y of tier === 1 ? [1.82, 1.88, 1.94] : [0.48, 0.54, 1.82, 1.94]) {
+          const band = new THREE.Mesh(new THREE.CylinderGeometry(LANCE_RADIUS * 1.3, LANCE_RADIUS * 1.3, 0.035, 10), trim)
+          band.position.y = y
+          pivot.add(band); details.push(band)
+        }
+        if (tier === 3) for (const z of [-0.022, 0.018]) {
+          const inlay = diamondInlay(0, 2.2, z, 0.065, 0.21, trim)
+          pivot.add(inlay); details.push(inlay)
+        }
+        pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(details, trim, 'lance-tier-trim'), 0), -1))
+      }
       tipLocal.set(0, 2.6, 0)
 
     } else if (weaponId === 'viking_axe_t1' || weaponId === 'viking_axe_t2' || weaponId === 'viking_axe_t3') {
@@ -179,8 +209,8 @@ export class WeaponMeshFactory {
       const wood = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x5b3d29 : 0x65472d, roughness: 0.75 })
       const leather = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x302b36 : 0x3c3028, roughness: 0.82 })
       const iron = proceduralMaterial({
-        kind: 'iron', color: tier === 1 ? 0x797875 : tier === 2 ? 0xb4bdc0 : 0xc9c5b2,
-        roughness: tier === 1 ? 0.49 : 0.34, metalness: 0.8,
+        kind: 'iron', color: tier === 1 ? 0x80664e : tier === 2 ? 0xb4bdc0 : 0xc9c5b2,
+        roughness: tier === 1 ? 0.88 : 0.34, metalness: tier === 1 ? 0.45 : 0.8,
       })
 
       // The 1.44 m haft starts below the axe head; the hand stays 0.15 m above its butt.
@@ -215,9 +245,21 @@ export class WeaponMeshFactory {
       outline.closePath()
       const blade = equipmentShadowUntil(new THREE.Mesh(new THREE.ExtrudeGeometry(outline, { depth: 0.032, bevelEnabled: false }), iron), 1)
       blade.position.z = -0.016
+      // Change only the cutting head width; haft, grip and mounted clearance stay fixed.
+      blade.scale.x = tier === 1 ? 0.78 : tier === 3 ? 1.14 : 1
       blade.castShadow = true
       blade.name = 'dane-axe-single-bearded-blade'
       pivot.add(blade)
+
+      if (tier === 3) {
+        const gold = proceduralMaterial({ kind: 'bronze', color: 0xc49a50, roughness: 0.3 })
+        const inlays: THREE.Mesh[] = []
+        for (const z of [-0.022, 0.018]) for (const y of [1.17, 1.31]) {
+          const inlay = diamondInlay(0.2, y, z, 0.10, 0.09, gold)
+          pivot.add(inlay); inlays.push(inlay)
+        }
+        pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(inlays, gold, 'axe-gold-inlays'), 0), -1))
+      }
 
       // Splay only the visible axe outward from the hand so it clears the horse.
       // The sword hit reference remains fixed on the original animation path.
@@ -240,8 +282,8 @@ export class WeaponMeshFactory {
         roughness: 0.82, repeat: [2, tier + 2],
       })
       const steel = proceduralMaterial({
-        kind: 'iron', color: tier === 1 ? 0x77716b : tier === 3 ? 0xd8d3bd : 0xc2c7c9,
-        roughness: tier === 1 ? 0.48 : 0.27, metalness: tier === 1 ? 0.72 : 0.92, repeat: [tier + 1, 5],
+        kind: 'iron', color: tier === 1 ? 0x80664e : tier === 3 ? 0xd8d3bd : 0xc2c7c9,
+        roughness: tier === 1 ? 0.88 : 0.27, metalness: tier === 1 ? 0.45 : 0.92, repeat: [tier + 1, 5],
       })
       const darkSteel = proceduralMaterial({
         kind: tier === 3 ? 'bronze' : 'iron', color: tier === 1 ? 0x47413d : tier === 3 ? 0xb78a42 : 0x555c60,
@@ -254,6 +296,8 @@ export class WeaponMeshFactory {
 
       const pommel = new THREE.Mesh(new THREE.OctahedronGeometry(0.064, 1), darkSteel)
       pommel.scale.set(0.92, 1.18, 0.72)
+      if (tier === 1) pommel.scale.multiplyScalar(0.8)
+      if (tier === 3) pommel.scale.y *= 1.25
       pommel.position.y = -0.035
       pivot.add(pommel)
 
@@ -265,9 +309,12 @@ export class WeaponMeshFactory {
         new THREE.Vector3(0.23, 0, 0.02),
       ], 0.027, darkSteel)
       guard.position.y = 0.31
+      guard.scale.x = tier === 1 ? 0.72 : tier === 3 ? 1.18 : 1
       pivot.add(guard)
 
-      const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(1.18, [0.105, 0.102, 0.086, 0.052, 0.004], 0.038), steel), 1)
+      const widths = tier === 1 ? [0.087, 0.075, 0.069, 0.035, 0.004]
+        : tier === 3 ? [0.125, 0.118, 0.099, 0.056, 0.004] : [0.105, 0.102, 0.086, 0.052, 0.004]
+      const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(1.18, widths, 0.038), steel), 1)
       blade.position.y = 0.33
       blade.name = 'steel-sword-profiled-blade'
       blade.castShadow = true
@@ -278,7 +325,12 @@ export class WeaponMeshFactory {
       const fullerBack = fullerFront.clone()
       fullerBack.position.z = -0.021
       pivot.add(fullerBack)
-      pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([...wraps, pommel, guard], darkSteel, 'sword-grip-metal'), 1))
+      const inlays: THREE.Mesh[] = []
+      if (tier === 3) for (const z of [-0.026, 0.022]) for (const y of [0.52, 0.7, 0.88, 1.06]) {
+        const inlay = diamondInlay(0, y, z, 0.048, 0.095, darkSteel)
+        pivot.add(inlay); inlays.push(inlay)
+      }
+      pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([...wraps, pommel, guard, ...inlays], darkSteel, 'sword-grip-metal'), 1))
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts([fullerFront, fullerBack], fullerMaterial, 'sword-fullers'), 0), -1))
 
       tipLocal.set(0, 1.51, 0)
@@ -294,11 +346,12 @@ export class WeaponMeshFactory {
    */
   static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
     const profile = DEFAULT_BOW_GRIP_PROFILE
+    const tier = WEAPONS[weaponId]?.tier ?? 2
     const halfSpan = weaponId === 'wooden_shortbow' ? 0.62 : weaponId === 'elven_runebow' ? 1.02 : 0.85
     const bowModel = new THREE.Group()
     bowModel.name = 'bow-model'
     pivot.add(bowModel)
-    const wood = proceduralMaterial({ kind: 'wood', color: weaponId === 'elven_runebow' ? 0x8b846c : 0x795331, roughness: 0.7 })
+    const wood = proceduralMaterial({ kind: 'wood', color: tier === 1 ? 0x71604b : tier === 3 ? 0x344b59 : 0x795331, roughness: tier === 1 ? 0.95 : 0.7 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x423025, roughness: 0.85 })
     // One connected surface: the central rings form the straight leather grip,
     // and the same rings continue into tapered wood. Separate open cylinders
@@ -362,6 +415,21 @@ export class WeaponMeshFactory {
       cap.position.set(0, side * halfSpan, -0.035)
       bowModel.add(equipmentShadowUntil(equipmentDetail(cap, 0), -1))
     }
+    if (tier !== 2) {
+      const trim = proceduralMaterial({ kind: tier === 1 ? 'leather' : 'bronze', color: tier === 1 ? 0x3b3025 : 0xd0a457, roughness: tier === 1 ? 0.95 : 0.28 })
+      const bands: THREE.Mesh[] = []
+      // Follow the existing stave curve; stay clear of the central hand/arrow rest.
+      for (const side of [-1, 1]) for (const t of tier === 1 ? [0.3, 0.34, 0.38] : [0.25, 0.3, 0.65, 0.7, 0.9]) {
+        const center = curve.getPointAt(t), tangent = curve.getTangentAt(t)
+        center.y *= side; tangent.z *= side
+        const radius = profile.gripRadius * THREE.MathUtils.lerp(1, 0.38, t) + 0.004
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, tier === 1 ? 0.016 : 0.026, 10), trim)
+        band.position.copy(center)
+        band.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent)
+        bowModel.add(band); bands.push(band)
+      }
+      bowModel.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(bands, trim, 'bow-tier-bindings'), 0), -1))
+    }
     const topTip = new THREE.Vector3(0, halfSpan, -0.035)
     const botTip = new THREE.Vector3(0, -halfSpan, -0.035)
     return { topTip, botTip, stringLength: halfSpan }
@@ -378,6 +446,12 @@ export class WeaponMeshFactory {
         arrow.position.set((i - 2) * 0.035, 0.45, 0)
         pivot.add(arrow)
       }
+    } else if (WEAPONS[weaponId]?.combatKind === 'javelin') {
+      const pilumGroup = new THREE.Group()
+      this.buildNpcRanged('roman', WEAPONS[weaponId].tier, pilumGroup)
+      pilumGroup.scale.setScalar(0.62)
+      pilumGroup.position.y = 0.2
+      pivot.add(pilumGroup)
     } else if (weaponId.includes('bow')) {
       const bowGroup = new THREE.Group()
       this.buildRanged(weaponId, bowGroup)
@@ -402,7 +476,7 @@ export class WeaponMeshFactory {
    */
   static buildRomanGladius(tier: number, pivot: THREE.Group): THREE.Vector3 {
     pivot.userData.gripCenterLocal = [0, 0.1, 0]
-    let bladeColor = 0x77716b
+    let bladeColor = 0x80664e
     const bladeLength = 0.68
     const bladeWidth = 0.105
     let metalness = 0.72
@@ -415,7 +489,7 @@ export class WeaponMeshFactory {
       metalness = 1.0
     }
 
-    const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness, roughness: tier === 1 ? 0.48 : 0.3, repeat: [tier + 1, 5] })
+    const bladeMat = proceduralMaterial({ kind: 'iron', color: bladeColor, metalness: tier === 1 ? 0.45 : metalness, roughness: tier === 1 ? 0.88 : 0.3, repeat: [tier + 1, 5] })
     const handleMat = proceduralMaterial({ kind: 'leather', color: tier === 3 ? 0x4d241c : 0x3a2117, roughness: 0.82, repeat: [2, tier + 2] })
     const pommelMat = proceduralMaterial({ kind: tier === 3 ? 'bronze' : 'iron', color: tier === 3 ? 0xb38a4c : 0x575b5d, metalness: 0.8, roughness: 0.38 })
 
@@ -425,13 +499,22 @@ export class WeaponMeshFactory {
     const wraps = addWrappedGrip(pivot, 0.16, 0.028, 0.1, handleMat, pommelMat)
     const guard = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), pommelMat)
     guard.scale.set(1.3, 0.38, 0.65)
+    if (tier === 1) guard.scale.x *= 0.8
+    if (tier === 3) guard.scale.x *= 1.2
     guard.position.y = 0.2
     pivot.add(guard)
-    const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(bladeLength, [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004], 0.034), bladeMat), 1)
+    const widths = tier === 1 ? [0.065, 0.083, 0.074, 0.046, 0.004]
+      : tier === 3 ? [0.095, 0.135, 0.12, 0.07, 0.004] : [bladeWidth * 0.72, bladeWidth, bladeWidth * 0.92, bladeWidth * 0.58, 0.004]
+    const blade = equipmentShadowUntil(new THREE.Mesh(profiledBladeGeometry(bladeLength, widths, 0.034), bladeMat), 1)
     blade.position.y = 0.2
     blade.name = 'roman-gladius-profiled-blade'
     pivot.add(blade)
-    pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([pommel, ...wraps, guard], pommelMat, 'gladius-grip-metal'), 1))
+    const inlays: THREE.Mesh[] = []
+    if (tier === 3) for (const z of [-0.024, 0.02]) for (const y of [0.34, 0.49, 0.64]) {
+      const inlay = diamondInlay(0, y, z, 0.05, 0.09, pommelMat)
+      pivot.add(inlay); inlays.push(inlay)
+    }
+    pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([pommel, ...wraps, guard, ...inlays], pommelMat, 'gladius-grip-metal'), 1))
     return new THREE.Vector3(0, 0.2 + bladeLength, 0)
   }
 
@@ -443,7 +526,7 @@ export class WeaponMeshFactory {
       }
       return this.buildMelee(weaponId, pivot).tipLocal
     }
-    if (isLance) return this.buildMelee('steel_lance', pivot).tipLocal
+    if (isLance) return this.buildMelee(tier === 1 ? 'hunting_spear' : tier === 3 ? 'heavy_lance' : 'steel_lance', pivot).tipLocal
 
     if (characterFaction === 'viking') {
       const wId = tier === 1 ? 'rusty_dagger' : tier === 2 ? 'steel_sword' : 'runic_greatsword'
@@ -458,8 +541,8 @@ export class WeaponMeshFactory {
   static buildNpcRanged(characterFaction: CharacterFaction, tier: number, pivot: THREE.Group): NpcRangedMeshParts {
     if (characterFaction === 'roman') {
       // Roman Pilum (Javelin)
-      const woodMat = proceduralMaterial({ kind: 'wood', color: 0x68452c, roughness: 0.78, repeat: [2, 7] })
-      const ironMat = proceduralMaterial({ kind: 'iron', color: 0x777d7f, roughness: 0.36, metalness: 0.82 })
+      const woodMat = proceduralMaterial({ kind: 'wood', color: tier === 1 ? 0x71604b : tier === 3 ? 0x3c2926 : 0x68452c, roughness: tier === 1 ? 0.95 : 0.78, repeat: [2, 7] })
+      const ironMat = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x80664e : tier === 3 ? 0xd4d4cb : 0x777d7f, roughness: tier === 1 ? 0.88 : 0.36, metalness: tier === 1 ? 0.45 : 0.82 })
       const goldMat = proceduralMaterial({ kind: 'bronze', color: 0xa98248, roughness: 0.4, metalness: 0.74 })
 
       const shaft = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.021, 1.2, 10), woodMat), 1)
@@ -487,9 +570,13 @@ export class WeaponMeshFactory {
         neck.position.y = 1.45
         pivot.add(neck)
 
-        const wrap = equipmentShadowUntil(equipmentDetail(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), goldMat), 0), -1)
-        wrap.position.y = 1.2
-        pivot.add(wrap)
+        const bands: THREE.Mesh[] = []
+        for (const y of [0.3, 0.36, 1.10, 1.18]) {
+          const band = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.045, 10), goldMat)
+          band.position.y = y
+          pivot.add(band); bands.push(band)
+        }
+        pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(bands, goldMat, 'pilum-gold-bands'), 0), -1))
 
         const head = equipmentShadowUntil(new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), ironMat), 1)
         head.position.y = 1.775
@@ -537,21 +624,21 @@ export class WeaponMeshFactory {
     pivot.userData.gripCenterLocal = [0, 0, 0.085]
     const isRoman = shieldId.startsWith('scutum')
     const tier = parseInt(shieldId.split('_t')[1]) || 1
-    const iron = proceduralMaterial({ kind: 'iron', color: tier === 3 ? 0xbfc2bd : 0x686d70, roughness: 0.4, metalness: 0.82 })
+    const iron = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x77604e : tier === 3 ? 0xbfc2bd : 0x686d70, roughness: tier === 1 ? 0.88 : 0.4, metalness: tier === 1 ? 0.45 : 0.82 })
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
     if (isRoman) {
       const width = 0.58, height = 0.98, depth = 0.055, curve = 0.13, boardZ = 0.02
       const frontZ = boardZ + depth / 2
-      const boardMat = proceduralMaterial({ kind: 'leather', color: tier === 1 ? 0x68412b : 0x7f211d, roughness: 0.78, repeat: [4, 5] })
+      const boardMat = proceduralMaterial({ kind: tier === 1 ? 'wood' : 'leather', color: tier === 1 ? 0x75604a : tier === 3 ? 0x491b25 : 0x7f211d, roughness: tier === 1 ? 0.96 : 0.78, repeat: [4, 5] })
       const board = equipmentShadowUntil(new THREE.Mesh(bendShieldGeometry(new THREE.BoxGeometry(width, height, depth, 12, 14, 1), width, curve), boardMat), 1)
       board.position.z = boardZ
       board.name = 'curved-scutum-board'
       board.castShadow = true
       board.receiveShadow = true
       pivot.add(board)
-      const rim = equipmentShadowUntil(curvedRectangleRim(width, height, curve, frontZ, 0.022, tier >= 2 ? iron : leather), 0)
+      const rim = equipmentShadowUntil(curvedRectangleRim(width, height, curve, frontZ, tier === 3 ? 0.03 : 0.022, tier === 3 ? bronze : tier === 2 ? iron : leather), 0)
       rim.name = 'scutum-rim'
       pivot.add(rim)
 
@@ -560,17 +647,29 @@ export class WeaponMeshFactory {
       boss.scale.z = 0.58
       boss.name = 'shield-boss'
       pivot.add(boss)
-      const emblemMat = tier === 3 ? bronze : proceduralMaterial({ kind: 'bronze', color: 0x9a7445, roughness: 0.55, metalness: 0.5 })
+      const emblemMat = tier === 1 ? leather : tier === 3 ? bronze : proceduralMaterial({ kind: 'bronze', color: 0x9a7445, roughness: 0.55, metalness: 0.5 })
       const emblems: THREE.Mesh[] = []
-      for (const rotation of [Math.PI / 4, -Math.PI / 4]) {
+      for (const rotation of tier === 1 ? [0, 0.15] : [Math.PI / 4, -Math.PI / 4]) {
         // Bend in shield space after rotating so the whole ornament follows the face.
         const geometry = new THREE.BoxGeometry(0.035, 0.34, 0.012, 1, 5, 1)
         geometry.rotateZ(rotation)
-        geometry.translate(0, 0.08, frontZ + 0.003)
+        geometry.translate(tier === 1 ? (rotation === 0 ? -0.18 : 0.16) : 0, tier === 1 ? -0.1 : 0.08, frontZ + 0.003)
         const wing = new THREE.Mesh(bendShieldGeometry(geometry, width, curve), emblemMat)
         wing.name = 'scutum-emblem'
         pivot.add(wing)
         emblems.push(wing)
+      }
+      if (tier === 3) for (const y of [-0.32, 0.32]) {
+        const inlay = diamondInlay(0, y, 0, 0.16, 0.21, emblemMat, 4)
+        inlay.geometry.translate(0, 0, frontZ + 0.003)
+        bendShieldGeometry(inlay.geometry, width, curve)
+        pivot.add(inlay); emblems.push(inlay)
+        for (const x of [-0.19, 0.19]) {
+          const stud = diamondInlay(0, y, 0, 0.035, 0.06, emblemMat, 4)
+          stud.geometry.translate(x, 0, frontZ + 0.003)
+          bendShieldGeometry(stud.geometry, width, curve)
+          pivot.add(stud); emblems.push(stud)
+        }
       }
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(emblems, emblemMat, 'scutum-emblem'), 1), -1))
       const rearGrip = equipmentShadowUntil(new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather), -1)
@@ -578,7 +677,7 @@ export class WeaponMeshFactory {
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
     } else {
-      const wood = proceduralMaterial({ kind: 'wood', color: 0x65452d, roughness: 0.84, repeat: [5, 3] })
+      const wood = proceduralMaterial({ kind: 'wood', color: 0x75604a, roughness: 0.96, repeat: [5, 3] })
       const paint = proceduralMaterial({ kind: 'wood', color: tier === 3 ? 0x294d64 : 0x435443, roughness: 0.82, repeat: [5, 3] })
       const board = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.052, 32), tier >= 2 ? paint : wood), 1)
       board.rotation.x = Math.PI / 2
@@ -590,10 +689,11 @@ export class WeaponMeshFactory {
       for (let seam = -3; seam <= 3; seam++) {
         const line = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.72 - Math.abs(seam) * 0.055, 0.008), leather)
         line.position.set(seam * 0.1, 0, 0.18)
+        if (tier === 1) line.rotation.z = seam % 2 * 0.025
         pivot.add(line)
         leatherDetails.push(line)
       }
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.023, 10, 32), tier >= 2 ? iron : leather)
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.41, tier === 3 ? 0.03 : 0.023, 10, 32), tier === 3 ? bronze : tier === 2 ? iron : leather)
       rim.position.z = 0.18
       pivot.add(equipmentShadowUntil(equipmentDetail(rim, 1), 0))
       const boss = equipmentShadowUntil(new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10), tier === 3 ? bronze : iron), -1)
@@ -615,6 +715,12 @@ export class WeaponMeshFactory {
       pivot.add(equipmentDetail(rearGrip, 0))
       if (tier === 3) {
         const bossDetails: THREE.Mesh[] = [boss]
+        for (let index = 0; index < 8; index++) {
+          const angle = index / 8 * Math.PI * 2
+          const inlay = diamondInlay(Math.sin(angle) * 0.25, Math.cos(angle) * 0.25, 0.19, 0.055, 0.18, bronze)
+          inlay.rotation.z = -angle
+          pivot.add(inlay); bossDetails.push(inlay)
+        }
         for (let index = 0; index < 8; index++) {
           const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.018, 7, 5), bronze)
           const angle = index / 8 * Math.PI * 2

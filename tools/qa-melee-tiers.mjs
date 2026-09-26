@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { chromium } from 'playwright'
 
-const output = 'output/playwright/melee-tier-parity'
+const output = 'output/playwright/melee-tier-identity'
 fs.mkdirSync(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 try {
@@ -83,7 +83,7 @@ try {
         })
         rows.push({ label, tier: npc.tier, action: npc.animator.currentAction,
           clip: npc.rig.animation.current, attachmentOwned: npc.swordPivot.userData.swordAttachmentOwned,
-          size: size.toArray(), materials, swordHandShapes: shapes })
+          size: size.toArray(), grip: npc.swordGripPivot.userData.gripCenterLocal, tip: npc.swordTipLocal.toArray(), materials, swordHandShapes: shapes })
       }
       for (const npc of units) {
         npc.animator.setLocomotion(0)
@@ -98,7 +98,7 @@ try {
       const box = new THREE.Box3().setFromObject(game.player.swordGripPivot)
       playerRows.push({ id, requestedAction: game.player._meleeAction(WEAPONS[id]),
         attachmentOwned: game.player.swordPivot.userData.swordAttachmentOwned,
-        size: box.getSize(new THREE.Vector3()).toArray() })
+        size: box.getSize(new THREE.Vector3()).toArray(), grip: game.player.swordGripPivot.userData.gripCenterLocal, tip: game.player.swordTipLocal.toArray() })
     }
     return { rows, images, playerRows }
   })
@@ -107,18 +107,21 @@ try {
   fs.writeFileSync(`${output}/measurements.json`, JSON.stringify(measurements, null, 2))
   for (const label of ['viking', 'roman']) {
     const rows = result.rows.filter(row => row.label === label)
-    const shape = rows[1].size
+    const reference = rows[1]
     if (rows.some(row => row.action !== 'swordSlash' || row.clip !== 'swordSlash'
       || !row.attachmentOwned || !row.swordHandShapes.length || row.swordHandShapes.some(value => value !== 1)
-      || row.size.some((value, index) => Math.abs(value - shape[index]) > 1e-5))) {
-      throw Error(`${label}: tier shape, attachment, or animation mismatch`)
+      || row.grip.some((value, index) => Math.abs(value - reference.grip[index]) > 1e-5)
+      || row.tip.some((value, index) => Math.abs(value - reference.tip[index]) > 1e-5))) {
+      throw Error(`${label}: tier grip, hit tip, attachment, or animation mismatch`)
     }
+    if (new Set(rows.map(row => JSON.stringify(row.size))).size !== 3) throw Error(`${label}: tier silhouettes are not distinct`)
     if (new Set(rows.map(row => JSON.stringify(row.materials))).size !== 3) throw Error(`${label}: tier patterns are not distinct`)
   }
-  const playerShape = result.playerRows[1].size
+  const playerReference = result.playerRows[1]
   if (result.playerRows.some(row => row.requestedAction !== 'swordSlash' || !row.attachmentOwned
-    || row.size.some((value, index) => Math.abs(value - playerShape[index]) > 1e-5))) {
-    throw Error('Player tier shape, attachment, or animation mismatch')
+    || row.grip.some((value, index) => Math.abs(value - playerReference.grip[index]) > 1e-5)
+    || row.tip.some((value, index) => Math.abs(value - playerReference.tip[index]) > 1e-5))) {
+    throw Error('Player tier grip, hit tip, attachment, or animation mismatch')
   }
   if (errors.length) throw Error(errors.join('\n'))
   console.log(JSON.stringify({ npcRows: result.rows.length, playerRows: result.playerRows.length,
