@@ -6,7 +6,7 @@ import { CharacterBowVisual } from '../world/CharacterBowVisual'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { applySwordAttachment } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
-import { applyCharacterMountedPose, type HumanoidAnimationState } from '../world/CharacterVisuals'
+import { applyCharacterMountedPose, type HumanoidAnimationState, type MountedPoseKind } from '../world/CharacterVisuals'
 import { ArrowProjectile } from '../world/ArrowProjectile'
 import { Faction } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -32,7 +32,7 @@ export class HumanoidStudioPlayback {
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, readonly state: HumanoidAnimationState, readonly faction: 'viking' | 'roman') {
+  constructor(readonly instance: HumanoidCharacterInstance, readonly state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE') {
     this.lance.add(this.lanceModel)
     WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(faction === 'roman' ? 'scutum_t2' : 'round_shield_t2', this.shield)
@@ -130,7 +130,7 @@ export class HumanoidStudioPlayback {
     this.reset()
     const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
     const sprinting = motion === 'run'
-    this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield)
+    this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield, this.mountKind)
     this.animator.setLocomotion(speed, mounted, sprinting)
     this.animator.update(0.2)
     if (attack) this.animator.start(this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
@@ -164,7 +164,7 @@ export class HumanoidStudioPlayback {
       this.lance.visible = this.equipped && alive && this.equipmentLoadout === 'lance'
       this.shield.visible = this.equipped && alive && this.hasShield
       this.bow.visible = this.pilum.visible = false
-      this.animator.setEquipment(this.lance.visible, this.shield.visible)
+      this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
     }
     this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible || this.lance.visible)
   }
@@ -174,7 +174,7 @@ export class HumanoidStudioPlayback {
     this.elapsed += dt
     if (this.equipped && this.equipmentLoadout !== null) {
       const mounted = this.state === 'mounted' || this.state === 'mountedLance'
-      this.animator.setEquipment(this.lance.visible, this.shield.visible)
+      this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
       this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted, this.state === 'run')
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash') && !this.animator.busy) {
         this.animator.start(this.lance.visible ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
@@ -217,8 +217,8 @@ export class HumanoidStudioPlayback {
       }
       animation.update(dt)
       if (this.state === 'mounted') {
-        if (this.instance.rig.equipmentGripFrames) { animation.setEquipmentState?.({ mounted: true }); animation.update(0) }
-        else applyCharacterMountedPose(this.instance.rig, true, 'HORSE')
+        if (this.instance.rig.equipmentGripFrames) { animation.setEquipmentState?.({ mounted: true, mountKind: this.mountKind }); animation.update(0) }
+        else applyCharacterMountedPose(this.instance.rig, true, this.mountKind)
       }
     }
     if (this.bow.visible) {

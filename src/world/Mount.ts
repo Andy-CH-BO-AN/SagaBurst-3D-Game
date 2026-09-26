@@ -11,6 +11,7 @@ import {
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
+import { BlackCatVisual } from './BlackCatVisual'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
@@ -53,6 +54,7 @@ export class Mount {
   readonly group: THREE.Group
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
+  readonly catVisual: BlackCatVisual | null = null
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
@@ -105,17 +107,22 @@ export class Mount {
       this.horseVisual.root.updateWorldMatrix(true, true)
       const saddleWorld = this.horseVisual.saddleSeat.getWorldPosition(new THREE.Vector3())
       this.rideHeightOffset = this.horseVisual.root.worldToLocal(saddleWorld).y
-      this.ridePitch = 0.05
+      this.ridePitch = 0
     } else {
       this.horseVisual = null
-      if (type === MountType.BLACK_CAT) this._buildBlackCat()
+      if (type === MountType.BLACK_CAT) {
+        this.catVisual = new BlackCatVisual()
+        this.group.add(this.catVisual.root)
+        this.rideHeightOffset = this.catVisual.saddleSeat.position.y
+        this.ridePitch = 0
+      }
       else this._buildCorgi()
     }
 
     const startY = y ?? getTerrainHeight(x, z)
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
-    if (type !== MountType.HORSE) this.group.scale.set(2.2, 2.2, 2.2)
+    if (type === MountType.CORGI) this.group.scale.set(2.2, 2.2, 2.2)
 
     this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
     this.aimCollider.name = `aim_proxy_mount_${type}`
@@ -139,6 +146,11 @@ export class Mount {
   get horseSkeleton(): THREE.Skeleton | null { return this.horseVisual?.skeleton ?? null }
 
   getSaddleSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.catVisual) {
+      this.group.updateWorldMatrix(true, true)
+      this.catVisual.saddleSeat.getWorldPosition(target)
+      return this.group.worldToLocal(target)
+    }
     if (!this.horseVisual) return target.set(0, this.rideHeightOffset, 0)
     this.group.updateWorldMatrix(true, true)
     this.horseVisual.saddleSeat.getWorldPosition(target)
@@ -155,6 +167,7 @@ export class Mount {
   }
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.catVisual) return this.catVisual.saddleSeat.getWorldPosition(target)
     if (this.horseVisual) {
       return this.horseVisual.saddleSeat.getWorldPosition(target)
     }
@@ -182,14 +195,16 @@ export class Mount {
     this.velY = velocity
     this.onGround = false
     this.horseVisual?.playOnce('jump')
+    this.catVisual?.playOnce('jump')
   }
 
   playStudioClip(state: HorseAnimationState): void {
     this.horseVisual?.playStudioClip(state)
+    this.catVisual?.playStudioClip(state)
   }
 
   toggleStudioPause(): boolean {
-    return this.horseVisual?.togglePaused() ?? false
+    return this.catVisual?.togglePaused() ?? this.horseVisual?.togglePaused() ?? false
   }
 
   getHorseDebugState(): HorseDebugState | null {
@@ -203,17 +218,19 @@ export class Mount {
   }
 
   setVisualHidden(hidden: boolean): void {
+    if (this.catVisual) this.catVisual.root.visible = !hidden
     if (this.horseVisual) {
       this.horseVisual.root.visible = !hidden
     }
   }
 
   isVisualHidden(): boolean {
-    return this.horseVisual ? !this.horseVisual.root.visible : false
+    return this.catVisual ? !this.catVisual.root.visible : this.horseVisual ? !this.horseVisual.root.visible : false
   }
 
   dispose(): void {
     this.horseVisual?.dispose()
+    this.catVisual?.dispose()
     this.group.removeFromParent()
   }
 
@@ -257,9 +274,11 @@ export class Mount {
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
+      this.catVisual?.playOnce('death')
       for (const cb of this.onDeathCallbacks) cb(this)
     } else {
       this.horseVisual?.playOnce('hit')
+      this.catVisual?.playOnce('hit')
     }
     return true
   }
@@ -311,6 +330,12 @@ export class Mount {
 
     clampToPlayableWorld(this.group.position)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
+    if (this.catVisual) {
+      if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.catVisual.playOnce('land')
+      this.hasGroundedOnce ||= this.onGround
+      this.catVisual.setLocomotion(this.movementSpeed)
+      this.catVisual.update(dt)
+    }
     if (this.horseVisual) {
       if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.horseVisual.playOnce('land')
       this.hasGroundedOnce ||= this.onGround
@@ -326,57 +351,6 @@ export class Mount {
     if (now - lastImpact < COMBAT_BALANCE.mountImpact.sameTargetCooldown) return false
     this.impactTimes.set(target, now)
     return true
-  }
-
-  /** Preserve the exact legacy procedural Black Cat used by existing saves. */
-  private _buildBlackCat(): void {
-    const material = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true })
-    const eyeMaterial = new THREE.MeshLambertMaterial({ color: 0xffff00, flatShading: true })
-    const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 1.2), material)
-    body.position.y = 0.4
-    body.castShadow = true
-    this.group.add(body)
-
-    const saddle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.1, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x8b4513, flatShading: true }),
-    )
-    saddle.position.set(0, 0.65, 0.1)
-    this.group.add(saddle)
-    this.rideHeightOffset = 1.3
-    this.ridePitch = 0.4
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), material)
-    head.position.set(0, 0.8, 0.7)
-    head.castShadow = true
-    this.group.add(head)
-
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), eyeMaterial)
-      eye.position.set(side * 0.12, 0.05, 0.2)
-      head.add(eye)
-
-      const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.11), pupilMaterial)
-      pupil.position.set(side * 0.12, 0.05, 0.21)
-      head.add(pupil)
-
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), material)
-      ear.position.set(side * 0.18, 0.3, 0)
-      ear.rotation.z = side * -0.2
-      head.add(ear)
-    }
-
-    const whiskerMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    for (let index = 0; index < 2; index++) {
-      for (const side of [-1, 1]) {
-        const whisker = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.02, 0.02), whiskerMaterial)
-        whisker.position.set(side * 0.25, -0.05 + index * 0.08, 0.18)
-        whisker.rotation.z = side * (-0.1 + index * 0.2)
-        head.add(whisker)
-      }
-    }
   }
 
   /** Preserve the exact legacy procedural Corgi used by existing saves. */
@@ -448,15 +422,17 @@ export class Mount {
   update(dt: number, obstacles: ObstacleData[]): void {
     if (this.state === MountState.DEAD) {
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
+      else if (this.catVisual) this.catVisual.update(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.deathTimer -= dt
       if (this.deathTimer <= 0) this.group.visible = false
       return
     }
-    if (this.state === MountState.CONTROLLED) return
+    if (this.state === MountState.CONTROLLED && !this.visualHold) return
 
     if (this.visualHold) {
       this.onGround = true
+      this.catVisual?.update(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       return
     }

@@ -205,14 +205,13 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       setRigRotation(leg.ankle, 0, 0, 0)
       continue
     }
-    // A real horse is wide through the barrel: 14° left the imported thighs
-    // inside the body. Open each hip to about 33° so knees clear the flanks
-    // and the boots can remain aligned with the stirrups.
-    const spread = kind === 'CORGI' ? 0.34 : kind === 'HORSE' ? 0.58 : 0.28
-    const kneeBend = kind === 'CORGI' ? 1.28 : kind === 'HORSE' ? 1.22 : 1.18
+    // Spread the thigh around the barrel. On the cat, counter-roll the shin
+    // and ankle so the wider hips do not leave the boots splayed sideways.
+    const spread = kind === 'CORGI' ? 0.34 : kind === 'HORSE' ? 0.58 : 0.82
+    const kneeBend = kind === 'CORGI' ? 1.28 : kind === 'HORSE' ? 1.22 : 1.05
     setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, 0)
-    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, 0)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'BLACK_CAT' ? -leg.side * 0.42 : 0)
+    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'BLACK_CAT' ? -leg.side * 0.30 : 0)
   }
 }
 
