@@ -16,12 +16,13 @@ function buildTemplate(): THREE.Group {
   const material = (color: number, roughness = 0.75, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness, metalness })
   const fur = material(0x141519, 0.88)
   const soft = material(0x202127, 0.91)
-  const leather = material(0x211e24, 0.65)
+  const leather = material(0x30231c, 0.88)
   const edge = material(0x4d3829, 0.76)
-  const gold = material(0xb99751, 0.33, 0.72)
+  const gold = material(0x917449, 0.52, 0.55)
   const black = material(0x08090b, 0.37)
   const inner = material(0x493735, 0.93)
-  const iris = material(0xd6a537, 0.3, 0.18)
+  const earFibre = material(0x504844, 0.96)
+  const iris = material(0xffffff, 0.24, 0.05); iris.vertexColors = true
   const glint = new THREE.MeshBasicMaterial({ color: 0xfff4cf })
   const whiskers = material(0x857f76, 0.7)
   // Fine directional surface grain, supplemented by opaque geometric fur tufts at the silhouette.
@@ -142,53 +143,56 @@ function buildTemplate(): THREE.Group {
   const bodyFurGeometry = new THREE.BufferGeometry(); bodyFurGeometry.setAttribute('position', new THREE.Float32BufferAttribute(bodyHair, 3)); bodyFurGeometry.computeVertexNormals()
   mesh(torso, bodyFurGeometry, fur).userData.catFurStrands = true
 
-  const head = new THREE.Group(); head.name = 'cat_head'; head.position.set(0, 1.635, 1.065); head.scale.set(0.84, 1, 0.86); torso.add(head)
+  const head = new THREE.Group(); head.name = 'cat_head'; head.position.set(0, 1.66, 1.065); head.scale.set(1.04, 1.14, 0.86); torso.add(head)
   // Smooth-union sculpt: skull, cheekbones, muzzle and chin form one continuous surface.
   // This avoids the separate sphere seams that make a feline muzzle look like a toy.
-  const sculpt = new MarchingCubes(48, fur, false, false, 22000)
+  const headResolution = 64, headExtent = 0.36
+  const sculpt = new MarchingCubes(headResolution, fur, false, false, 32000)
   sculpt.isolation = 0
   const volumes: [V3, V3][] = [
-    [[0, -0.022, -0.008], [0.255, 0.18, 0.245]],
-    [[-0.173, -0.073, 0.024], [0.108, 0.108, 0.14]],
-    [[0.173, -0.073, 0.024], [0.108, 0.108, 0.14]],
-    [[-0.056, -0.097, 0.225], [0.075, 0.054, 0.080]],
-    [[0.056, -0.097, 0.225], [0.075, 0.054, 0.080]],
-    [[0, -0.146, 0.190], [0.075, 0.038, 0.084]],
-    [[0, -0.004, 0.188], [0.051, 0.089, 0.086]],
+    [[0, 0.002, -0.018], [0.230, 0.190, 0.217]],
+    [[-0.155, -0.037, 0.056], [0.101, 0.091, 0.125]],
+    [[0.155, -0.037, 0.056], [0.101, 0.091, 0.125]],
+    [[0, -0.121, 0.077], [0.147, 0.079, 0.133]],
+    [[-0.053, -0.103, 0.211], [0.070, 0.053, 0.069]],
+    [[0.053, -0.103, 0.211], [0.070, 0.053, 0.069]],
+    [[0, -0.165, 0.183], [0.063, 0.028, 0.066]],
+    [[0, -0.002, 0.179], [0.044, 0.086, 0.067]],
   ]
-  for (let z = 0; z < 48; z++) for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) {
-    const point = [(x / 48 * 2 - 1) * 0.45, (y / 48 * 2 - 1) * 0.45, (z / 48 * 2 - 1) * 0.45]
+  const eyeX = 0.112, eyeY = 0.025, eyeZ = 0.162
+  const headDistance = (x: number, y: number, z: number) => {
     let distance = 10
     for (const [center, radii] of volumes) {
-      const dx = (point[0] - center[0]) / radii[0], dy = (point[1] - center[1]) / radii[1], dz = (point[2] - center[2]) / radii[2]
-      const d = (Math.sqrt(dx * dx + dy * dy + dz * dz) - 1) * Math.min(...radii)
-      const h = Math.max(0.032 - Math.abs(distance - d), 0) / 0.032
-      distance = Math.min(distance, d) - h * h * 0.008
+      const d = (Math.hypot((x - center[0]) / radii[0], (y - center[1]) / radii[1], (z - center[2]) / radii[2]) - 1) * Math.min(...radii)
+      const h = Math.max(0.038 - Math.abs(distance - d), 0) / 0.038
+      distance = Math.min(distance, d) - h * h * 0.0095
     }
-    // A shallow convex crown sits between the former dome and flat cut-off.
-    const crown = point[1] - (0.150 - 0.70 * point[0] ** 2 - Math.max(0, point[2]) * 0.14)
-    const blend = Math.max(0.008 - Math.abs(distance - crown), 0) / 0.008
-    distance = Math.max(distance, crown) + blend * blend * 0.002
-    // Carve actual sockets into the face so eyes can sit inside the skull.
     for (const side of [-1, 1]) {
-      const dx = (point[0] - side * 0.142) / 0.075
-      const dy = (point[1] - 0.035) / 0.048
-      const dz = (point[2] - 0.193) / 0.050
-      const socketDistance = (Math.sqrt(dx * dx + dy * dy + dz * dz) - 1) * 0.048
-      distance = Math.max(distance, -socketDistance)
+      // A compact socket meets the lid; the surrounding cheek remains intact.
+      const d = (Math.hypot((x - side * eyeX) / 0.048, (y - eyeY) / 0.026, (z - eyeZ) / 0.031) - 1) * 0.040
+      const h = Math.max(0.010 - Math.abs(distance + d), 0) / 0.010
+      distance = Math.max(distance, -d) + h * h * 0.0025
     }
-    sculpt.field[z * 48 * 48 + y * 48 + x] = -distance
+    return distance
+  }
+  for (let z = 0; z < headResolution; z++) for (let y = 0; y < headResolution; y++) for (let x = 0; x < headResolution; x++) {
+    sculpt.field[z * headResolution * headResolution + y * headResolution + x] = -headDistance(
+      (x / headResolution * 2 - 1) * headExtent, (y / headResolution * 2 - 1) * headExtent, (z / headResolution * 2 - 1) * headExtent)
   }
   sculpt.update()
   const sculptGeometry = new THREE.BufferGeometry()
-  for (const name of ['position', 'normal']) {
-    const attr = sculpt.geometry.getAttribute(name)
-    sculptGeometry.setAttribute(name, new THREE.Float32BufferAttribute(attr.array.slice(0, sculpt.count * 3), 3))
+  sculptGeometry.setAttribute('position', new THREE.Float32BufferAttribute(sculpt.geometry.getAttribute('position').array.slice(0, sculpt.count * 3), 3))
+  sculptGeometry.scale(headExtent, headExtent, headExtent)
+  const headPositions = sculptGeometry.getAttribute('position'), headNormals: number[] = []
+  for (let i = 0; i < headPositions.count; i++) {
+    const x = headPositions.getX(i), y = headPositions.getY(i), z = headPositions.getZ(i), e = 0.0005
+    const n = new THREE.Vector3(headDistance(x + e, y, z) - headDistance(x - e, y, z), headDistance(x, y + e, z) - headDistance(x, y - e, z), headDistance(x, y, z + e) - headDistance(x, y, z - e)).normalize()
+    headNormals.push(n.x, n.y, n.z)
   }
-  sculptGeometry.scale(0.45, 0.45, 0.45)
+  sculptGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(headNormals, 3))
   mesh(head, sculptGeometry, fur); sculpt.geometry.dispose()
   // Grow short fur directly on the sculpt rather than on a second spherical cap.
-  // Area-weighted sampling follows the flattened brow, muzzle and tapered jaw.
+  // Area-weighted sampling follows the brow, muzzle and tapered jaw.
   const crownHair: number[] = []
   const scalp = sculptGeometry.getAttribute('position'), scalpNormals = sculptGeometry.getAttribute('normal')
   const areas: number[] = []; let totalArea = 0
@@ -198,7 +202,7 @@ function buildTemplate(): THREE.Group {
     totalArea += vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0])).length() * 0.5
     areas.push(totalArea)
   }
-  for (let i = 0; i < 18000; i++) {
+  for (let i = 0; i < 26000; i++) {
     const sample = random() * totalArea
     let low = 0, high = areas.length - 1
     while (low < high) { const mid = (low + high) >>> 1; if (areas[mid] < sample) low = mid + 1; else high = mid }
@@ -209,13 +213,14 @@ function buildTemplate(): THREE.Group {
       n.addScaledVector(new THREE.Vector3().fromBufferAttribute(scalpNormals, triangle + j), weights[j])
     }
     n.normalize()
-    if (base.z > 0.14 && Math.abs(base.y - 0.035) < 0.047 && Math.abs(Math.abs(base.x) - 0.142) < 0.070) continue
-    const direction = new THREE.Vector3(base.x * 1.4, base.y > 0.03 ? 0.1 : -0.55, -1)
+    if (base.z > 0.15 && Math.hypot((Math.abs(base.x) - eyeX) / 0.048, (base.y - eyeY) / 0.026) < 1.08) continue
+    const temple = THREE.MathUtils.smoothstep(Math.abs(base.x), 0.065, 0.17)
+    const direction = new THREE.Vector3(base.x * (1 + temple * 3), base.y > 0.045 ? -0.7 : -0.4, -0.25 - temple * 0.7)
     const groom = direction.addScaledVector(n, -n.dot(direction)).normalize()
     // Keep muzzle fur fine; lift the forehead and temple fibres just enough to catch light.
-    const length = base.z > 0.20 ? 0.012 : 0.031
-    const loft = base.z > 0.20 ? 0.004 : 0.009
-    const width = new THREE.Vector3().crossVectors(n, groom).normalize().multiplyScalar(0.001 + random() * 0.001)
+    const length = base.z > 0.20 ? 0.008 : 0.021 + temple * 0.009
+    const loft = base.z > 0.20 ? 0.0015 : 0.003
+    const width = new THREE.Vector3().crossVectors(n, groom).normalize().multiplyScalar(0.00045 + random() * 0.0006)
     base.addScaledVector(n, 0.001)
     const middle = base.clone().addScaledVector(groom, length * 0.5).addScaledVector(n, loft * 0.65)
     const tip = base.clone().addScaledVector(groom, length * (0.75 + random() * 0.5)).addScaledVector(n, loft)
@@ -223,20 +228,19 @@ function buildTemplate(): THREE.Group {
   }
   const crownGeometry = new THREE.BufferGeometry(); crownGeometry.setAttribute('position', new THREE.Float32BufferAttribute(crownHair, 3)); crownGeometry.computeVertexNormals(); mesh(head, crownGeometry, fur)
   for (const side of [-1, 1]) {
-    tufted(head, [side * 0.173, -0.073, 0.024], [0.108, 0.108, 0.14], 1100, 0.057, fur, false)
     // Cupped pinnae: curved front/back shells with a fleshy, furred base.
     // Side views retain ear volume instead of collapsing to a flat vertical strip.
     const ear = new THREE.Group(); ear.name = `cat_ear_${side}`
-    ear.position.set(side * 0.178, 0.048, 0.002)
+    ear.position.set(side * 0.162, 0.080, -0.020)
     // Forward is +Z: the tip leads the root slightly in side profile.
-    ear.rotation.set(0.28, side * 0.30, -side * 0.30); head.add(ear)
+    ear.rotation.set(0.22, side * 0.28, -side * 0.30); head.add(ear)
     // The lower pinna is buried inside the temple; its short fur bridges the join.
     tufted(ear, [0, -0.012, 0.006], [0.083, 0.052, 0.082], 500, 0.026)
     const earPoint = (u: number, t: number, back = false): V3 => {
       const across = u * 2 - 1
       const rootBlend = Math.max(0, 1 - t / 0.32)
-      const width = (0.106 - 0.025 * rootBlend) * Math.pow(1 - t, 0.9) + 0.002
-      return [across * width, t * 0.235 - 0.035 * rootBlend * rootBlend, 0.047 - Math.sin(t * Math.PI) * (1 - across * across) * 0.09 - t * 0.025 - (back ? 0.034 * (1 - t) + 0.007 : 0)]
+      const width = (0.114 - 0.019 * rootBlend) * Math.pow(1 - t, 0.9) + 0.002
+      return [across * width, t * 0.213 - 0.035 * rootBlend * rootBlend, 0.047 - Math.sin(t * Math.PI) * (1 - across * across) * 0.09 - t * 0.025 - (back ? 0.034 * (1 - t) + 0.007 : 0)]
     }
     for (const back of [false, true]) {
       const positions: number[] = [], indices: number[] = []
@@ -254,24 +258,75 @@ function buildTemplate(): THREE.Group {
     const inside = new THREE.BufferGeometry(); inside.setAttribute('position', new THREE.Float32BufferAttribute(innerPositions, 3)); inside.setIndex(innerIndices); inside.computeVertexNormals(); mesh(ear, inside, inner)
     for (const edgeU of [0, 1]) {
       const points: V3[] = []; for (let i = 0; i <= 18; i++) points.push(earPoint(edgeU, i / 18))
-      tube(ear, points, 0.009, fur)
+      tube(ear, points, 0.005, fur)
     }
 
-    const eye = new THREE.Group(); eye.position.set(side * 0.142, 0.035, 0.177); eye.scale.setScalar(0.70); eye.rotation.y = side * 0.38; eye.rotation.z = side * 0.14; head.add(eye)
-    ellipsoid(eye, [0, 0, 0], [0.083, 0.043, 0.021], black)
-    ellipsoid(eye, [0, 0, 0.008], [0.070, 0.031, 0.015], iris)
-    ellipsoid(eye, [0, 0, 0.023], [0.007, 0.028, 0.003], black)
-    ellipsoid(eye, [-0.019, 0.014, 0.024], [0.008, 0.008, 0.004], glint)
-    tube(eye, [[-0.078, 0.003, 0.013], [0, 0.028, 0.021], [0.078, 0.014, 0.013]], 0.009, fur)
+    // Fine fibres follow the inner pinna instead of leaving a plain pink triangle.
+    for (let i = 0; i < 90; i++) {
+      const u = 0.18 + random() * 0.64, t = 0.12 + random() * 0.58
+      const p = earPoint(u, t), tip = earPoint(0.5 + (u - 0.5) * 0.78, Math.min(0.87, t + 0.06 + random() * 0.07))
+      p[2] += 0.004; tip[2] += 0.010
+      tube(ear, [p, [(p[0] + tip[0]) / 2, (p[1] + tip[1]) / 2, (p[2] + tip[2]) / 2 + 0.003], tip], 0.00035, earFibre)
+    }
 
-    for (let i = 0; i < 7; i++) {
-      tube(head, [[side * 0.09, -0.09 - i * 0.006, 0.292], [side * 0.25, -0.08 + (i - 3) * 0.020, 0.31], [side * (0.46 + random() * 0.065), -0.10 + (i - 3) * 0.043, 0.22 - i * 0.009]], 0.0015, whiskers)
+    const eye = new THREE.Group(); eye.position.set(side * eyeX, eyeY, eyeZ); eye.scale.setScalar(0.70)
+    eye.rotation.y = side * 0.50; eye.rotation.z = side * 0.12; head.add(eye)
+    const eyePoint = (u: number, t: number): V3 => {
+      const q = u * 2 - 1, arch = Math.pow(Math.sin(u * Math.PI), 0.78)
+      return [q * 0.067, q * 0.003 + arch * THREE.MathUtils.lerp(-0.035, 0.021, t), 0.012 + arch * Math.sin(t * Math.PI) * 0.018]
+    }
+    const eyePositions: number[] = [], eyeColours: number[] = [], eyeIndices: number[] = []
+    const irisGold = new THREE.Color(0xc59b36), irisDark = new THREE.Color(0x60491d), pupilColour = new THREE.Color(0x050606)
+    for (let j = 0; j <= 24; j++) for (let i = 0; i <= 48; i++) {
+      const u = i / 48, t = j / 24, p = eyePoint(u, t)
+      eyePositions.push(...p)
+      const radius = Math.hypot(p[0] / 0.073, (p[1] + 0.003) / 0.054)
+      const angle = Math.atan2(p[1] + 0.003, p[0])
+      const pigment = THREE.MathUtils.clamp(0.15 + 0.35 * radius + 0.07 * Math.sin(angle * 53) + 0.04 * Math.sin(angle * 91 + radius * 7), 0, 0.8)
+      const colour = irisGold.clone().lerp(irisDark, pigment)
+      const pupilWidth = 0.011 * Math.sqrt(Math.max(0, 1 - ((p[1] + 0.003) / 0.049) ** 2))
+      colour.lerp(pupilColour, 1 - THREE.MathUtils.smoothstep(Math.abs(p[0]), pupilWidth - 0.001, pupilWidth + 0.001))
+      eyeColours.push(colour.r, colour.g, colour.b)
+      if (i < 48 && j < 24) { const k = j * 49 + i; eyeIndices.push(k, k + 1, k + 49, k + 1, k + 50, k + 49) }
+    }
+    const eyeGeometry = new THREE.BufferGeometry(); eyeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(eyePositions, 3)); eyeGeometry.setAttribute('color', new THREE.Float32BufferAttribute(eyeColours, 3)); eyeGeometry.setIndex(eyeIndices); eyeGeometry.computeVertexNormals()
+    mesh(eye, eyeGeometry, iris)
+    ellipsoid(eye, [-0.018, 0.012, 0.030], [0.004, 0.005, 0.002], glint)
+    for (const top of [false, true]) {
+      const rim: V3[] = []
+      for (let i = 0; i <= 24; i++) rim.push(eyePoint(i / 24, top ? 1 : 0))
+      tube(eye, rim, top ? 0.0045 : 0.003, fur)
+      // A tapered lid apron closes the socket and joins the surrounding facial surface.
+      const positions: number[] = [], indices: number[] = []
+      for (let j = 0; j <= 4; j++) for (let i = 0; i <= 24; i++) {
+        const u = i / 24, t = j / 4, p = eyePoint(u, top ? 1 : 0), arch = Math.sin(u * Math.PI)
+        positions.push(p[0] * (1 + t * 0.12), p[1] + (top ? 1 : -1) * arch * t * (top ? 0.024 : 0.018), p[2] - t * 0.025)
+        if (i < 24 && j < 4) { const k = j * 25 + i; if (top) indices.push(k, k + 1, k + 25, k + 1, k + 26, k + 25); else indices.push(k, k + 25, k + 1, k + 1, k + 25, k + 26) }
+      }
+      const lid = new THREE.BufferGeometry(); lid.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); lid.setIndex(indices); lid.computeVertexNormals(); mesh(eye, lid, fur)
+    }
+
+    const whiskerFan = [-0.8, -0.48, -0.16, 0.10, 0.36, 0.64]
+    for (let i = 0; i < whiskerFan.length; i++) {
+      const fan = whiskerFan[i], spread = 0.35 + random() * 0.09
+      tube(head, [[side * (0.060 + (i % 3) * 0.016), -0.104 - Math.floor(i / 3) * 0.015, 0.274],
+        [side * 0.20, -0.107 + fan * 0.043, 0.300], [side * spread, -0.108 + fan * 0.11, 0.265],
+        [side * (spread + 0.052), -0.120 + fan * 0.14, 0.210]], 0.00085, whiskers)
     }
   }
-  const nose = new THREE.Shape(); nose.moveTo(-0.040, 0); nose.quadraticCurveTo(0, 0.014, 0.040, 0); nose.lineTo(0, -0.034); nose.closePath()
-  mesh(head, new THREE.ExtrudeGeometry(nose, { depth: 0.010, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 2 }), black, [0, -0.074, 0.298])
-  tube(head, [[0, -0.108, 0.310], [0, -0.130, 0.294], [-0.04, -0.136, 0.285]], 0.004, black)
-  tube(head, [[0, -0.130, 0.294], [0.04, -0.136, 0.285]], 0.004, black)
+  const noseLeather = material(0x261e1f, 0.54)
+  const nose = new THREE.Shape(); nose.moveTo(-0.029, 0.001)
+  nose.bezierCurveTo(-0.018, 0.013, 0.018, 0.013, 0.029, 0.001)
+  nose.bezierCurveTo(0.028, -0.009, 0.010, -0.011, 0.007, -0.021)
+  nose.quadraticCurveTo(0, -0.027, -0.007, -0.021)
+  nose.bezierCurveTo(-0.010, -0.011, -0.028, -0.009, -0.029, 0.001); nose.closePath()
+  mesh(head, new THREE.ExtrudeGeometry(nose, { depth: 0.010, bevelEnabled: true, bevelSize: 0.003, bevelThickness: 0.004, bevelSegments: 3 }), noseLeather, [0, -0.080, 0.276])
+  for (const side of [-1, 1]) {
+    ellipsoid(head, [side * 0.024, -0.083, 0.282], [0.012, 0.009, 0.010], noseLeather)
+    ellipsoid(head, [side * 0.025, -0.085, 0.291], [0.0065, 0.0035, 0.002], black)
+    tube(head, [[0, -0.125, 0.279], [side * 0.025, -0.135, 0.271], [side * 0.049, -0.130, 0.258]], 0.0025, black)
+  }
+  tube(head, [[0, -0.104, 0.289], [0, -0.118, 0.282], [0, -0.125, 0.279]], 0.0025, black)
 
   // Four articulated digitigrade legs; uncovered white-sock paws move with each lower leg.
   for (const front of [true, false]) for (const side of [-1, 1]) {
@@ -361,7 +416,7 @@ function buildTemplate(): THREE.Group {
     const end = Math.pow(Math.abs(t * 2 - 1), 4)
     const width = 0.18 + end * 0.05
     const x = (u * 2 - 1) * width
-    return [x, BLACK_CAT_DIMENSIONS.saddleHeight + end * (t > 0.5 ? 0.09 : 0.055) + x * x * 0.18, 0.22 - t * 0.74]
+    return [x, BLACK_CAT_DIMENSIONS.saddleHeight + end * (t > 0.5 ? 0.045 : 0.03) + x * x * 0.18, 0.22 - t * 0.74]
   }
   surface(24, 16, seatPoint)
   // The saddle tree extends down to the fitted pad instead of floating above it.
@@ -388,8 +443,17 @@ function buildTemplate(): THREE.Group {
     star(saddle, [side * 0.345, 1.34, -0.40], 0.035, [0, side * Math.PI / 2, 0])
   }
   // Flexible leather barding: open neck and legs, with articulated shoulder/hip coverage.
-  const armour = material(0x573925, 0.84); armour.side = THREE.DoubleSide
-  armour.bumpMap = grain; armour.bumpScale = 0.006
+  const armour = material(0x38291f, 0.91); armour.side = THREE.DoubleSide
+  // Leather has irregular pores, separate from the directional fur grain.
+  const hideData = new Uint8Array(128 * 128 * 4)
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) {
+    const i = (y * 128 + x) * 4
+    const shade = 170 + random() * 65 + 12 * Math.sin(x * 0.19 + Math.sin(y * 0.11))
+    hideData[i] = hideData[i + 1] = hideData[i + 2] = shade; hideData[i + 3] = 255
+  }
+  const hide = new THREE.DataTexture(hideData, 128, 128)
+  hide.wrapS = hide.wrapT = THREE.RepeatWrapping; hide.repeat.set(5, 5); hide.magFilter = THREE.LinearFilter; hide.needsUpdate = true
+  armour.map = armour.bumpMap = hide; armour.bumpScale = 0.002
   const binding = material(0x281a13, 0.82)
   const stitch = material(0xae8b59, 0.92)
   const rivet = material(0x866846, 0.5, 0.55)
@@ -434,23 +498,56 @@ function buildTemplate(): THREE.Group {
     }
     for (const u of [0.09, 0.91]) for (const t of [0.10, 0.90]) ellipsoid(parent, pointAt(u, t), [0.008, 0.008, 0.008], rivet)
   }
-  for (const side of [-1, 1]) {
-    // Two overlapping shoulder lames stay above the moving foreleg and ahead of the knee.
-    for (let layer = 0; layer < 2; layer++) leatherPanel(barding, (u, t) => {
-      const azimuth = 0.40 + u * 1.98
-      const elevation = 0.18 + layer * 0.27 + t * 0.34 + 0.07 * Math.sin(u * Math.PI)
-      return fitSide([side * (0.428 + layer * 0.009) * Math.sin(azimuth) * Math.cos(elevation), 1.235 + 0.405 * Math.sin(elevation), 0.48 + 0.397 * Math.cos(azimuth) * Math.cos(elevation)], side, 0.020 + layer * 0.009)
-    })
-    // Split rear-quarter panels leave the saddle seat, rider boot and tail root clear.
-    for (let layer = 0; layer < 2; layer++) leatherPanel(barding, (u, t) => {
-      const azimuth = 0.70 + u * 1.73
-      const elevation = 0.13 + layer * 0.27 + t * 0.34
-      return fitSide([side * (0.36 + layer * 0.008) * Math.sin(azimuth) * Math.cos(elevation), 1.245 + 0.33 * Math.sin(elevation), -0.73 + 0.34 * Math.cos(azimuth) * Math.cos(elevation)], side, 0.020 + layer * 0.009)
-    })
-    // A narrow attachment tab joins shoulder armour to the front of the saddle.
-    leatherPanel(barding, (u, t) => fitSide([side * (0.30 + u * 0.038), 1.51 - t * 0.012, 0.47 - t * 0.22], side, 0.025))
+  // Sample each panel against the joined skin, including the moving shoulder envelope.
+  const chestSurface = (angle: number, y: number, clearance: number): V3 => {
+    const dx = Math.sin(angle), dz = Math.cos(angle)
+    let low = 0, high = 0.85
+    for (let i = 0; i < 16; i++) { const mid = (low + high) / 2; if (bodyDistance(dx * mid, y, 0.50 + dz * mid) < 0) low = mid; else high = mid }
+    return [dx * (high + clearance), y, 0.50 + dz * (high + clearance)]
   }
-  // Open-sided shoulder/thigh guards follow the upper limbs instead of bridging a moving joint.
+  // Three nested chevrons wrap the throat into the shoulder, as in the reference.
+  // The lower centre forms a breastplate point; there are no ankle cuffs.
+  for (let layer = 0; layer < 3; layer++) leatherPanel(barding, (u, t) => {
+    const a = (u * 2 - 1) * 1.48
+    const y = 1.59 - layer * 0.145 - t * 0.19 - (1 - Math.abs(Math.sin(a))) * (0.06 + t * 0.07)
+    return chestSurface(a * (1 - t * (layer === 2 ? 0.75 : 0.12)), y, 0.026 + (1 - t) * 0.014)
+  })
+  // Overlapping arched top panels complete the nape and rump coverage.
+  for (const front of [true, false]) for (let layer = 0; layer < 3; layer++) leatherPanel(barding, (u, t) => {
+    const z = (front ? 0.86 : -0.54) - layer * 0.14 - t * 0.18
+    const width = front ? 0.16 + (0.86 - z) * 0.27 : 0.27 - (-0.54 - z) * 0.24
+    const x = (u * 2 - 1) * width
+    return [x, backTop(x, z) + 0.024 + (1 - t) * 0.012, z]
+  })
+  for (const side of [-1, 1]) {
+    // Broad shoulder and haunch skirts, overlapping from the top downward.
+    for (const front of [true, false]) for (let layer = 0; layer < 2; layer++) leatherPanel(barding, (u, t) => {
+      const z = (front ? 0.79 : -0.48) - u * (front ? 0.58 : 0.56)
+      const top = Math.min(1.63, backTop(0, z) + 0.012)
+      const y = top - layer * 0.23 - t * 0.28 - 0.025 * Math.sin(u * Math.PI)
+      return fitSide([0, y, z], side, 0.024 + (1 - t) * 0.018)
+    })
+    // Continuous flank coverage below the saddle, split into overlapping soft lames.
+    for (let layer = 0; layer < 2; layer++) leatherPanel(barding, (u, t) => {
+      const z = 0.24 - u * 0.82
+      const y = 1.46 - layer * 0.22 - t * 0.265 + 0.035 * (2 * u - 1) ** 2
+      return fitSide([0, y, z], side, 0.025 + (1 - t) * 0.012)
+    })
+    // Two functional girth straps with aged brass rectangular buckles.
+    for (const z of [0.23, -0.56]) {
+      const strap = (u: number, t: number): V3 => {
+        const y = 1.60 - t * 0.65
+        return fitSide([0, y, z + (u - 0.5) * 0.065], side, 0.055)
+      }
+      leatherPanel(barding, strap)
+      for (const y of [1.42, 1.09]) {
+        const x = side * (bodySide(y, z) + 0.071)
+        tube(barding, [[x, y - 0.032, z - 0.047], [x, y + 0.032, z - 0.047], [x, y + 0.032, z + 0.047], [x, y - 0.032, z + 0.047], [x, y - 0.032, z - 0.047]], 0.005, rivet)
+        tube(barding, [[x, y, z - 0.046], [x, y, z + 0.022]], 0.0035, rivet)
+      }
+    }
+  }
+  // Upper-limb guards move with the limbs; paws and lower legs stay uncovered.
   for (const front of [true, false]) for (const side of [-1, 1]) {
     const limb = root.getObjectByName(`cat_leg_${front ? 'front' : 'rear'}_${side}`) as THREE.Group
     leatherPanel(limb, (u, t) => {
@@ -464,14 +561,6 @@ function buildTemplate(): THREE.Group {
       return [side * width, y, z]
     })
   }
-  // Shaped breast guard covers the lower chest without recreating a collar around the neck.
-  leatherPanel(barding, (u, t) => {
-    const y = 1.39 - t * 0.36
-    const x = (u * 2 - 1) * (0.15 + 0.07 * Math.sin(t * Math.PI) - 0.05 * t)
-    let low = 0.48, high = 1.15
-    for (let i = 0; i < 16; i++) { const mid = (low + high) / 2; if (bodyDistance(x, y, mid) < 0) low = mid; else high = mid }
-    return [x, y, high + 0.034]
-  })
 
   // Clip fur hidden beneath leather instead of pushing all armour away from the animal.
   // Each six-vertex tuft is removed as a unit, preserving clean edges and intact skin.
@@ -546,12 +635,12 @@ function buildTemplate(): THREE.Group {
           white = Math.max(belly, bib, throat)
 
         } else if (group === head) {
-          // The reference has black fur around the nose, framed by white whisker-pad edges.
+          // Preserve the chosen tuxedo markings, with a narrow border on the whisker pads.
           // Keep the upper muzzle black; the white border follows its sides and lower arc.
           const muzzleRadius = Math.hypot(x / 0.132, (y + 0.067) / 0.075)
-          const muzzleBorder = smooth(muzzleRadius, 0.82, 0.98) * (1 - smooth(muzzleRadius, 1.15, 1.34))
-            * (1 - smooth(y, -0.084, -0.055)) * smooth(z, 0.11, 0.18)
-          const chin = (1 - smooth(y, -0.148, -0.133)) * smooth(z, 0.09, 0.16)
+          const muzzleBorder = smooth(muzzleRadius, 0.92, 1.04) * (1 - smooth(muzzleRadius, 1.12, 1.26))
+            * (1 - smooth(y, -0.102, -0.075)) * smooth(z, 0.11, 0.18)
+          const chin = (1 - smooth(y, -0.155, -0.143)) * smooth(z, 0.12, 0.18) * (1 - smooth(Math.abs(x), 0.060, 0.102))
           // Preserve black fur all the way from the nose tip through the philtrum.
           const philtrum = (1 - smooth(Math.abs(x), 0.025, 0.037)) * smooth(y, -0.154, -0.143) * (1 - smooth(y, -0.078, -0.069)) * smooth(z, 0.225, 0.255)
           white = Math.max(muzzleBorder, chin) * (1 - philtrum)
@@ -564,6 +653,9 @@ function buildTemplate(): THREE.Group {
     }
   }
   colourCoat(root)
+  // The short facial coat needs finer relief than the longer body fur.
+  const faceCoat = coat.clone(); faceCoat.bumpScale = 0.0025
+  head.traverse(object => { if (object instanceof THREE.Mesh && object.material === coat) object.material = faceCoat })
 
   // Bake static pieces by material under each articulated node (no hundreds of draw calls).
   const consolidate = (group: THREE.Group) => {
