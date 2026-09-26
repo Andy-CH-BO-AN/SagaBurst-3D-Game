@@ -51,6 +51,12 @@ export function mountTypeFromSave(value: string): MountType {
   return DEFAULT_MOUNT_TYPE
 }
 
+export function mountTypeFromId(value: string | null | undefined): MountType {
+  if (value === 'black-cat') return MountType.BLACK_CAT
+  if (value === 'corgi') return MountType.CORGI
+  return DEFAULT_MOUNT_TYPE
+}
+
 export class Mount {
   readonly group: THREE.Group
   readonly type: MountType

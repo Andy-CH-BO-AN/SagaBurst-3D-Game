@@ -63,12 +63,15 @@ export type PlayerRangedWeaponId =
 export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
   | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
+export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'corgi'] as const
+export type PlayerMountId = typeof PLAYER_MOUNT_IDS[number]
 
 export interface PlayerLoadoutConfig {
   meleeWeaponId: PlayerMeleeWeaponId
   rangedWeaponId: PlayerRangedWeaponId
   shieldId: PlayerShieldId | null
   startMounted: boolean
+  mountId?: PlayerMountId
 }
 
 export const DEFAULT_PLAYER_LOADOUT: PlayerLoadoutConfig = {
@@ -76,6 +79,7 @@ export const DEFAULT_PLAYER_LOADOUT: PlayerLoadoutConfig = {
   rangedWeaponId: 'elven_runebow',
   shieldId: 'round_shield_t3',
   startMounted: true,
+  mountId: 'horse',
 }
 
 export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
@@ -316,6 +320,7 @@ function validateBattleConfigWithArmyLimit(
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
       if (loadout.shieldId !== null && !(PLAYER_SHIELD_IDS as readonly string[]).includes(loadout.shieldId)) errors.push(`Invalid player shield: ${String(loadout.shieldId)}`)
       if (typeof loadout.startMounted !== 'boolean') errors.push('playerLoadout.startMounted must be a boolean')
+      if (loadout.mountId !== undefined && !(PLAYER_MOUNT_IDS as readonly string[]).includes(loadout.mountId)) errors.push(`Invalid player mount: ${String(loadout.mountId)}`)
     }
   }
 

@@ -117,7 +117,7 @@ import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromSave } from './world/Mount'
+import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -771,7 +771,7 @@ export class Game {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
-        query.get('mount') === 'black-cat' ? MountType.BLACK_CAT : query.get('mount') === 'corgi' ? MountType.CORGI : DEFAULT_MOUNT_TYPE,
+        mountTypeFromId(query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
         playerSpawn.x,
         playerSpawn.z
       )
@@ -1327,7 +1327,7 @@ export class Game {
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
       const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
       const variant = horseVariantForStableKey(stableKey)
-      const mount = new Mount(this.scene, DEFAULT_MOUNT_TYPE, spec.x, spec.z, undefined, variant)
+      const mount = new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z, undefined, variant)
       npc.mountVehicle(mount)
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)

@@ -46,12 +46,14 @@ describe('Defense Campaign Stage 1 launch config', () => {
       rangedWeaponId: 'legionary_pilum',
       shieldId: 'scutum_t3',
       startMounted: true,
+      mountId: 'horse',
     })
     expect(createDefaultDefensePlayerLoadout('viking')).toEqual({
       meleeWeaponId: 'heavy_lance',
       rangedWeaponId: 'elven_runebow',
       shieldId: 'round_shield_t3',
       startMounted: true,
+      mountId: 'horse',
     })
   })
 

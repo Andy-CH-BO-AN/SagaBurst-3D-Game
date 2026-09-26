@@ -5,6 +5,7 @@ import {
   createEmptyRomanArmyConfig,
   createEmptyVikingArmyConfig,
   PLAYER_MELEE_WEAPON_IDS,
+  PLAYER_MOUNT_IDS,
   PLAYER_RANGED_WEAPON_IDS,
   PLAYER_SHIELD_IDS,
   type ArmyConfig,
@@ -85,12 +86,14 @@ export function createDefaultDefensePlayerLoadout(
         rangedWeaponId: 'legionary_pilum',
         shieldId: 'scutum_t3',
         startMounted: true,
+        mountId: 'horse',
       }
     : {
         meleeWeaponId: 'heavy_lance',
         rangedWeaponId: 'elven_runebow',
         shieldId: 'round_shield_t3',
         startMounted: true,
+        mountId: 'horse',
       }
 }
 
@@ -203,6 +206,9 @@ export function validateDefenseCampaignLaunchConfig(
     }
     if (typeof loadout.startMounted !== 'boolean') {
       errors.push('playerLoadout.startMounted must be boolean')
+    }
+    if (loadout.mountId !== undefined && !(PLAYER_MOUNT_IDS as readonly string[]).includes(loadout.mountId)) {
+      errors.push('Invalid player mount')
     }
   }
 

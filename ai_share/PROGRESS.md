@@ -1,6 +1,6 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-18（PR #27 merged）_
+_Last updated: 2026-09-27（mount selection）_
 
 > This file is a concise handoff, not a changelog or validation archive. Keep only current state, durable decisions, recent milestone outcomes, known limitations, and the next useful investigation. Detailed benchmark runs, screenshot inventories, per-frame evidence, and historical implementation narratives belong in merged PRs / Git history and ignored `output/` diagnostics.
 
@@ -77,7 +77,7 @@ The recent optimization sequence shows two distinct costs:
 
 ### Horse runtime
 
-- New scene mounts and NPC cavalry use the external `HORSE` pipeline; Black Cat / Corgi remain only for old-save compatibility.
+- Player mounts in Custom Battle and Defense Campaign can be Black Cat, Corgi, or Horse. T3 Viking cavalry use Black Cat; T3 Roman cavalry use Corgi. T1/T2 cavalry and camp mounts use Horse. Older player loadouts without a mount ID default to Horse.
 - Horse LOD thresholds remain `0 / 18 / 38m`; far horse animation beyond ~35m is throttled around 15 Hz.
 - Each horse owns an independent skeleton/mixer while geometry/material/texture/clip resources are shared.
 - `Mount` remains gameplay authority for HP, movement, collision, impact, death/dismount, and save behavior. Horse visual work must not silently change those systems.
