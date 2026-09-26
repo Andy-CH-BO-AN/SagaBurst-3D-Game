@@ -1,0 +1,28 @@
+{
+  "heightM": 2.0,
+  "uniformScaleAppliedInBlender": 1.1184998753605708,
+  "barefootPlaneY": 0.03356001411816453,
+  "scalpCrownY": 2.033560037612915,
+  "outsoleY": 0.0,
+  "overallHeightM": 2.0959982872009277,
+  "shoulderJointSpanM": 0.5290704503282214,
+  "shoulderWidthM": 0.6997544467449188,
+  "neckLengthM": 0.10984933376312256,
+  "kneeHeightM": 0.599976658821106,
+  "runtimeScale": [
+    1,
+    1,
+    1
+  ],
+  "measurementMethod": "authored closed scalp apex minus anatomical barefoot plane; source face retained below forehead; overall all exported mesh vertices; shirt surface horizontal section within 25 mm of shoulder joint height in rest pose; anatomical sole plane excludes the measured outsole-to-anatomical-sole offset",
+  "triangles": {
+    "lod0": 57992,
+    "lod1": 19487,
+    "lod2": 5891
+  },
+  "textures": {
+    "lod0": 2048,
+    "lod1": 1024,
+    "lod2": 512
+  }
+}

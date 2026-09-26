@@ -34,7 +34,7 @@ export class HumanoidStudioPlayback {
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, readonly state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE') {
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE') {
     this.lance.add(this.lanceModel)
     WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(faction === 'roman' ? 'scutum_t2' : 'round_shield_t2', this.shield)
@@ -143,16 +143,25 @@ export class HumanoidStudioPlayback {
       : this.equipmentLoadout === 'axe' ? this.hasShield ? 'axeAttack1H' : 'axeAttack2H' : 'swordSlash'
   }
 
-  sampleEquipment(time: number, mounted: boolean, motion: 'idle' | 'walk' | 'run' = 'idle', attack = false): void {
+  sampleEquipment(time: number, mounted: boolean, motion: 'idle' | 'walk' | 'run' = 'idle', attack = false, sampleDuration?: number): void {
     this.reset()
     const speed = motion === 'walk' ? 2 : motion === 'run' ? 4 : 0
     const sprinting = motion === 'run'
     this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield, this.mountKind)
     this.animator.setLocomotion(speed, mounted, sprinting)
     this.animator.update(0.2)
+    if (sampleDuration !== undefined && !attack) {
+      const state = mounted ? 'mounted' : motion
+      const animation = this.instance.rig.animation!
+      animation.play(state, { fadeSeconds: 0, loop: false })
+      animation.seek(state, time)
+      animation.update(0)
+      this.instance.root.updateWorldMatrix(true, true)
+      return
+    }
     if (attack) this.animator.start(this.equipmentAction(mounted))
     const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
-    const end = time * duration
+    const end = time * (sampleDuration ?? duration)
     for (let elapsed = 0; elapsed < end - 1e-9;) {
       const dt = Math.min(1 / 120, end - elapsed)
       this.animator.setLocomotion(speed, mounted, sprinting)

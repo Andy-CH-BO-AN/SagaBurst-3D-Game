@@ -48,6 +48,7 @@ export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
 
 export interface HumanoidAssetManifest {
   schemaVersion: 1
+  skeleton?: string
   id: string
   status: 'ready' | 'blocked'
   reason?: string
@@ -121,6 +122,14 @@ function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefin
     fingerBase: data.fingerBase,
     thumbBaseCenter: new THREE.Vector3(...data.thumbBaseCenter),
   }
+}
+
+export interface HumanoidAssetDescriptor {
+  assetId: string
+  faction: CharacterFaction
+  heightM: number
+  maxShoulderWidthM: number
+  neckLengthM: number
 }
 
 interface HumanoidTemplate {
@@ -642,15 +651,19 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
   }
 }
 
-export function validateHumanoidManifest(faction: CharacterFaction, manifest: HumanoidAssetManifest): void {
+export function validateHumanoidManifest(faction: CharacterFaction, manifest: HumanoidAssetManifest, descriptor?: HumanoidAssetDescriptor): void {
+  if (descriptor && manifest.id !== descriptor.assetId) throw new Error(`Unexpected humanoid asset id: ${manifest.id}`)
+  if (descriptor && manifest.skeleton !== 'project-humanoid-v1') throw new Error(`${descriptor.assetId}: incompatible skeleton contract`)
+  if (descriptor && manifest.metrics && ![manifest.metrics.heightM, manifest.metrics.shoulderWidthM, manifest.metrics.neckLengthM].every(value => Number.isFinite(value) && value > 0)) throw new Error(`${descriptor.assetId}: invalid measured metrics`)
+  if (descriptor && !manifest.animations) throw new Error(`${descriptor.assetId} is missing animation bindings`)
   if (manifest.status !== 'ready') throw new Error(`${faction} humanoid asset is blocked: ${manifest.blocker?.message ?? manifest.reason ?? 'manifest is not ready'}`)
   if (!manifest.files) throw new Error(`${faction} manifest has no LOD files`)
   if (!manifest.metrics) throw new Error(`${faction} manifest has no measured metrics`)
-  const targetHeight = faction === 'viking' ? 1.86 : 1.78
-  const targetShoulder = faction === 'viking' ? 0.54 : 0.46
+  const targetHeight = descriptor?.heightM ?? (faction === 'viking' ? 1.86 : 1.78)
+  const targetShoulder = descriptor?.maxShoulderWidthM ?? (faction === 'viking' ? 0.54 : 0.46)
   if (Math.abs(manifest.metrics.heightM - targetHeight) > 0.02) throw new Error(`${faction} height is outside tolerance`)
   if (manifest.metrics.shoulderWidthM > targetShoulder + 0.01) throw new Error(`${faction} shoulder width is outside tolerance`)
-  if (Math.abs(manifest.metrics.neckLengthM - 0.09) > 0.015) throw new Error(`${faction} neck length is outside tolerance`)
+  if (Math.abs(manifest.metrics.neckLengthM - (descriptor?.neckLengthM ?? 0.09)) > 0.015) throw new Error(`${faction} neck length is outside tolerance`)
   if (manifest.animations) {
     const required: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
     if (faction === 'viking') required.push('axeAttack1H', 'axeAttack2H')
@@ -678,6 +691,19 @@ function validateEmbeddedAnimations(faction: CharacterFaction, manifest: Humanoi
 export class HumanoidAssetRegistry {
   private static readonly templates = new Map<CharacterFaction, HumanoidTemplate>()
   private static preloadPromise: Promise<void> | null = null
+  private static readonly assets = new Map<string, HumanoidTemplate>()
+  private static readonly assetLoads = new Map<string, Promise<void>>()
+
+  static preloadAsset(descriptor: HumanoidAssetDescriptor): Promise<void> {
+    let pending = this.assetLoads.get(descriptor.assetId)
+    if (!pending) {
+      pending = this.loadTemplate(descriptor.faction, descriptor.assetId, descriptor).then(template => {
+        this.assets.set(descriptor.assetId, template)
+      }).catch(error => { this.assetLoads.delete(descriptor.assetId); throw error })
+      this.assetLoads.set(descriptor.assetId, pending)
+    }
+    return pending
+  }
 
   static get ready(): boolean {
     return this.templates.has('viking') && this.templates.has('roman')
@@ -688,69 +714,81 @@ export class HumanoidAssetRegistry {
     return this.preloadPromise
   }
 
-  private static async loadAll(): Promise<void> {
+  private static async loadTemplate(faction: CharacterFaction, assetId: string, descriptor?: HumanoidAssetDescriptor): Promise<HumanoidTemplate> {
     const loader = new GLTFLoader()
     const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     const expGroup = query?.get('expGroup')?.toLowerCase()
-    await Promise.all((['viking', 'roman'] as const).map(async (faction) => {
-      const base = `/models/characters/v2/${faction}`
-      const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
-      if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
-      const manifest = await response.json() as HumanoidAssetManifest
-      validateHumanoidManifest(faction, manifest)
-      const files = manifest.files!
-      const lod0File = (expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
-        ? `lod0.${expGroup}.glb`
-        : files.lod0
-      const lod2Url = `${base}/${files.lod2}`
-      const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman'
-        ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
-        : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
-      const [lod0, lod1, lod2Loaded] = await Promise.all([
-        loader.loadAsync(`${base}/${lod0File}`),
-        loader.loadAsync(`${base}/${files.lod1}`),
-        lod2Promise,
-      ])
-      const levels = [lod0, lod1, lod2Loaded.gltf]
-      for (const level of levels) {
-        firstSkinnedMesh(level.scene)
-        prepareBladeGrip(level.scene, faction)
-        const handFrame = readHandFrame(manifest)
-        if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
-      }
-      levels.forEach((level, index) => {
-        const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
-        if (swordFrame) prepareSwordHandShape(level.scene, swordFrame)
-      })
-      const left = readHandFrame(manifest)
-      if (left && manifest.swordGripFrames) {
-        levels[0].scene.updateMatrixWorld(true)
-        const sourceHand = levels[0].scene.getObjectByName('hand_l')!
-        levels.forEach((level, index) => {
-          level.scene.updateMatrixWorld(true)
-          const frames = calibrateEquipmentFrames(manifest.swordGripFrames![`lod${index}` as 'lod0'], left, sourceHand, level.scene.getObjectByName('hand_l')!)
-          level.scene.userData.equipmentGripFrames = frames
-          level.scene.userData.equipmentFaction = faction
-          calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
-          prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
-          if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
-        })
-      }
-      validateEmbeddedAnimations(faction, manifest, levels)
-      const frame = readHandFrame(manifest)
-      const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
-      const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
-      let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
-      if (faction === 'roman') {
-        if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
-          romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
-        } else {
-          console.warn(
-            `Roman LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} does not match audited ${AUDITED_ROMAN_LOD2_SHA256}`,
-          )
+    const base = `/models/characters/v2/${assetId}`
+    const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
+    if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
+    const manifest = await response.json() as HumanoidAssetManifest
+    validateHumanoidManifest(faction, manifest, descriptor)
+    const files = manifest.files!
+    const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
+      ? `lod0.${expGroup}.glb`
+      : files.lod0
+    const lod2Url = `${base}/${files.lod2}`
+    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman'
+      ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
+      : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
+    const [lod0, lod1, lod2Loaded] = await Promise.all([
+      loader.loadAsync(`${base}/${lod0File}`),
+      loader.loadAsync(`${base}/${files.lod1}`),
+      lod2Promise,
+    ])
+    const levels = [lod0, lod1, lod2Loaded.gltf]
+    if (descriptor) validateEmbeddedAnimations(faction, manifest, levels)
+    for (const level of levels) {
+      firstSkinnedMesh(level.scene)
+      if (descriptor) {
+        for (const aliases of Object.values(REQUIRED_BONES)) findBone(level.scene, aliases)
+        for (const name of ['socket_hand_l', 'socket_hand_r', 'socket_back', 'socket_head', 'socket_pelvis', 'socket_foot_l', 'socket_foot_r', 'sole_l', 'sole_r']) {
+          if (!level.scene.getObjectByName(name)) throw new Error(`${assetId}: missing required socket ${name}`)
         }
+        if (!manifest.swordGripFrames || !manifest.handGripFrames) throw new Error(`${assetId}: missing asset grip calibration`)
       }
-      this.templates.set(faction, { manifest, levels, animationClips, bowClips, romanLod2Consolidation })
+      prepareBladeGrip(level.scene, faction)
+      const handFrame = readHandFrame(manifest)
+      if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
+    }
+    levels.forEach((level, index) => {
+      const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
+      if (swordFrame) prepareSwordHandShape(level.scene, swordFrame)
+    })
+    const left = readHandFrame(manifest)
+    if (left && manifest.swordGripFrames) {
+      levels[0].scene.updateMatrixWorld(true)
+      const sourceHand = levels[0].scene.getObjectByName('hand_l')!
+      levels.forEach((level, index) => {
+        level.scene.updateMatrixWorld(true)
+        const frames = calibrateEquipmentFrames(manifest.swordGripFrames![`lod${index}` as 'lod0'], left, sourceHand, level.scene.getObjectByName('hand_l')!)
+        level.scene.userData.equipmentGripFrames = frames
+        level.scene.userData.equipmentFaction = faction
+        calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
+        prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
+        if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
+      })
+    }
+    validateEmbeddedAnimations(faction, manifest, levels)
+    const frame = readHandFrame(manifest)
+    const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
+    const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
+    let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
+    if (faction === 'roman') {
+      if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
+        romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
+      } else {
+        console.warn(
+          `Roman LOD2 consolidation disabled: asset SHA-256 ${lod2Loaded.sha256 ?? 'unavailable'} does not match audited ${AUDITED_ROMAN_LOD2_SHA256}`,
+        )
+      }
+    }
+    return { manifest, levels, animationClips, bowClips, romanLod2Consolidation }
+  }
+
+  private static async loadAll(): Promise<void> {
+    await Promise.all((['viking', 'roman'] as const).map(async faction => {
+      this.templates.set(faction, await this.loadTemplate(faction, faction))
     }))
   }
 
@@ -815,11 +853,11 @@ export class HumanoidAssetRegistry {
     }
   }
 
-  static createCharacterInstance(config: CharacterVisualConfig): HumanoidCharacterInstance {
-    const template = this.templates.get(config.faction)
-    if (!template) throw new Error(`HumanoidAssetRegistry is not preloaded for ${config.faction}`)
+  static createCharacterInstance(config: CharacterVisualConfig, assetId?: string): HumanoidCharacterInstance {
+    const template = assetId ? this.assets.get(assetId) : this.templates.get(config.faction)
+    if (!template) throw new Error(`HumanoidAssetRegistry is not preloaded for ${assetId ?? config.faction}`)
     const root = new THREE.Group()
-    root.name = `${config.faction}-humanoid-v2`
+    root.name = `${assetId ?? config.faction}-humanoid-v2`
     const lod = new THREE.LOD()
     const mixers: THREE.AnimationMixer[] = []
     const clipsPerLevel: THREE.AnimationClip[][] = []
@@ -828,7 +866,7 @@ export class HumanoidAssetRegistry {
     let skeleton: THREE.Skeleton | null = null
     template.levels.forEach((gltf, index) => {
       const level = cloneSkeleton(gltf.scene) as THREE.Group
-      level.name = `${config.faction}-lod${index}`
+      level.name = `${assetId ?? config.faction}-lod${index}`
       level.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.castShadow = config.faction === 'roman'
@@ -845,7 +883,7 @@ export class HumanoidAssetRegistry {
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
         cullRomanLod2TinyDetails(level)
       }
-      if (config.faction === 'viking') {
+      if (config.faction === 'viking' && !assetId) {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))
       }
@@ -854,10 +892,10 @@ export class HumanoidAssetRegistry {
       const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of animations) clips.set(clip.name, clip)
-      clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
+      if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
-      rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
+      if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
       rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
