@@ -653,6 +653,7 @@ export function validateHumanoidManifest(faction: CharacterFaction, manifest: Hu
   if (Math.abs(manifest.metrics.neckLengthM - 0.09) > 0.015) throw new Error(`${faction} neck length is outside tolerance`)
   if (manifest.animations) {
     const required: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
+    if (faction === 'viking') required.push('axeAttack1H', 'axeAttack2H')
     const embedded = new Set(manifest.animations.embedded.map((binding) => binding.clip))
     if (required.some((clip) => !embedded.has(clip))) throw new Error(`${faction} manifest is missing a canonical animation binding`)
   }
@@ -732,6 +733,7 @@ export class HumanoidAssetRegistry {
           level.scene.userData.equipmentFaction = faction
           calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
           prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
+          if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
         })
       }
       validateEmbeddedAnimations(faction, manifest, levels)

@@ -20,6 +20,8 @@ const EXPECTED_DURATIONS: Record<string, number> = {
   bowHold: 4 / 3,
   bowRelease: 0.22,
   swordSlash: 0.48,
+  axeAttack1H: 0.48,
+  axeAttack2H: 0.48,
   pilumThrow: 1.5,
 }
 
@@ -363,7 +365,7 @@ describe('humanoid embedded animation asset contract', () => {
     for (const faction of ['viking', 'roman'] as const) {
       for (let lod = 0; lod < 3; lod++) {
         const document = readGlb(faction, lod)
-        expect(document.animations.map((clip) => clip.name).sort()).toEqual([...CLIPS].sort())
+        expect(document.animations.map((clip) => clip.name).sort()).toEqual([...CLIPS, ...(faction === 'viking' ? ['axeAttack1H', 'axeAttack2H'] : [])].sort())
         expect(document.asset.extras.humanoidAnimationBuild.fps).toBe(30)
         expect(document.asset.extras.humanoidAnimationBuild.clips).toEqual(CLIPS)
         const joints = new Set(document.skins.flatMap((skin) => skin.joints))

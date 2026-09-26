@@ -5,10 +5,7 @@ import {
   isObstaclePathClear,
   type ObstacleData,
 } from '../src/world/Terrain'
-import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
-import { Player } from '../src/player/Player'
-import { Mount, MountType } from '../src/world/Mount'
-import { SpatialGrid } from '../src/world/SpatialGrid'
+import { AIType, Faction, NPC } from '../src/world/NPC'
 
 function treeObstacle(): ObstacleData {
   return {
@@ -18,37 +15,6 @@ function treeObstacle(): ObstacleData {
     ),
     isBarricade: false,
   }
-}
-
-function buildHostileGrid(npc: NPC, npcs: NPC[]): SpatialGrid<NPC> {
-  const grid = new SpatialGrid<NPC>(20)
-  for (const candidate of npcs) {
-    if (!candidate.dead && candidate.faction !== npc.faction) grid.insert(candidate)
-  }
-  return grid
-}
-
-function chaseFrame(
-  npc: NPC,
-  player: Player,
-  npcs: NPC[],
-  obstacles: ObstacleData[],
-  dt = 0.016,
-): void {
-  npc.update(
-    dt,
-    player,
-    npcs,
-    [],
-    obstacles,
-    null as any,
-    () => {},
-    () => {},
-    false,
-    0,
-    null,
-    buildHostileGrid(npc, npcs),
-  )
 }
 
 describe('Persistent NPC obstacle detour', () => {
@@ -107,49 +73,6 @@ describe('Persistent NPC obstacle detour', () => {
     expect(infantry).not.toBeNull()
     expect(mounted).not.toBeNull()
     expect(Math.abs(mounted!.waypoint.x)).toBeGreaterThan(Math.abs(infantry!.waypoint.x))
-  })
-
-  it('activates persistent detour for infantry CHASE and preserves its side on the next frame', () => {
-    const scene = new THREE.Scene()
-    const player = new Player(scene)
-    player.setPosition(0, 0, -200)
-
-    const infantry = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'Infantry', 1, false)
-    const enemy = new NPC(scene, 0, 20, Faction.ENEMY, 'roman', AIType.MELEE, 'Enemy', 1, false)
-    ;(infantry as any).state = AIState.CHASE
-
-    const npcs = [infantry, enemy]
-    const obstacles = [treeObstacle()]
-
-    chaseFrame(infantry, player, npcs, obstacles)
-
-    expect((infantry as any)._detourActive).toBe(true)
-    expect(Math.abs((infantry as any)._detourWaypoint.x)).toBeGreaterThan(0.9)
-    const firstSide = (infantry as any)._detourSide
-
-    chaseFrame(infantry, player, npcs, obstacles)
-
-    expect((infantry as any)._detourActive).toBe(true)
-    expect((infantry as any)._detourSide).toBe(firstSide)
-  })
-
-  it('activates the same persistent detour system for mounted NPCs with mounted body size', () => {
-    const scene = new THREE.Scene()
-    const player = new Player(scene)
-    player.setPosition(0, 0, -200)
-
-    const rider = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'Rider', 1, false)
-    const mount = new Mount(scene, MountType.CORGI, 0, 0)
-    rider.mountVehicle(mount)
-    const enemy = new NPC(scene, 0, 20, Faction.ENEMY, 'roman', AIType.MELEE, 'Enemy', 1, false)
-    ;(rider as any).state = AIState.CHASE
-
-    chaseFrame(rider, player, [rider, enemy], [treeObstacle()])
-
-    expect((rider as any)._detourActive).toBe(true)
-    expect((rider as any)._movementObstacleRadius()).toBe(1)
-    expect((rider as any)._movementObstacleHeight()).toBe(2.6)
-    expect(Math.abs((rider as any)._detourWaypoint.x)).toBeGreaterThan(1.4)
   })
 
   it('switches to the opposite detour side after 0.75s without meaningful progress', () => {

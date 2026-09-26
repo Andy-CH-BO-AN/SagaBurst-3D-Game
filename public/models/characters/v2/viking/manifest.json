@@ -94,9 +94,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "3bb5c26745455260efc1398c7185ff3e5309285ae6c2e15c98f7fb7ff0ee6f7f",
-    "lod1": "bbed79831761fdc318633027cad1b33a2a92e4bfd5cfe731eb91efb7057fecd1",
-    "lod2": "1d2f5fcc45619ec4b83b95ad776337cf22ac4758d69e42e68f610de8cb57e499"
+    "lod0": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
+    "lod1": "ae5653e63856b4fb8b10269728886fd5b9521014768204fd237c5a33c650eff9",
+    "lod2": "0fc7209838c469967a6af394c69f7462e8f3999364f8ea944e969551a93a1491"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -171,6 +171,28 @@
         "events": {
           "projectileRelease": 0.566667,
           "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack1H01_R",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.13090909090909092,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "axeAttack2H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack2H01",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.17,
+          "actionComplete": 0.48
         }
       }
     ],
@@ -384,5 +406,19 @@
       "contactSeconds": 0.252,
       "sourceContactNormalized": 0.575
     }
+  },
+  "axeAttackBuild": {
+    "sourceSha256": "bcd47d323e40419d4dda188d51bd5d91021e6ca42d8dc0c30f1e5053401244f5",
+    "license": "Standard Asset Store EULA",
+    "licenseEvidence": "Human Melee Animations 2.0 FREE.pdf",
+    "sourceUrl": "https://kevdev.itch.io/human-melee-animatons-free",
+    "sourceDistribution": "Retargeted rotation tracks only; source archive, FBX and meshes excluded from public/Git.",
+    "rootMotionRemoved": true,
+    "duration": 0.48,
+    "contactSourceFrames": {
+      "axeAttack1H": 10,
+      "axeAttack2H": 18
+    },
+    "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
   }
 }

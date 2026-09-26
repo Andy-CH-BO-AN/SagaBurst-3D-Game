@@ -4,7 +4,7 @@
  * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold).
  */
 export type ItemType = 'melee' | 'ranged' | 'consumable'
-export type WeaponAnimationKind = 'dagger' | 'sword' | 'greatsword' | 'lance' | 'bow' | 'pilum'
+export type WeaponAnimationKind = 'dagger' | 'sword' | 'axe' | 'greatsword' | 'lance' | 'bow' | 'pilum'
 export type WeaponCombatKind = 'sword' | 'lance' | 'bow' | 'javelin'
 
 export interface WeaponData {
@@ -73,19 +73,19 @@ export const WEAPONS: Record<string, WeaponData> = {
   viking_axe_t1: {
     id: 'viking_axe_t1', name: '維京長斧 Viking Axe', type: 'melee', tier: 1,
     combatKind: 'sword', damageMin: 12, damageMax: 12, speedOrCharge: 0.35,
-    animationKind: 'sword', range: 1.8,
+    animationKind: 'axe', range: 1.8,
     description: '長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
   },
   viking_axe_t2: {
     id: 'viking_axe_t2', name: '精鋼維京長斧 Steel Viking Axe', type: 'melee', tier: 2,
     combatKind: 'sword', damageMin: 25, damageMax: 25, speedOrCharge: 0.35,
-    animationKind: 'sword', range: 1.8,
+    animationKind: 'axe', range: 1.8,
     description: '精鋼長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
   },
   viking_axe_t3: {
     id: 'viking_axe_t3', name: '符文維京長斧 Runic Viking Axe', type: 'melee', tier: 3,
     combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: 0.35,
-    animationKind: 'sword', range: 1.8,
+    animationKind: 'axe', range: 1.8,
     description: '符文長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
   },
 

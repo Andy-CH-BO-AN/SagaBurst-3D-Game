@@ -318,7 +318,7 @@ export class Player {
     applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', 0.15)
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
-    if (this.rig.swordGripFrame && WEAPONS[this.currentMeleeId]?.animationKind === 'sword') {
+    if (this.rig.swordGripFrame && (WEAPONS[this.currentMeleeId]?.animationKind === 'sword' || WEAPONS[this.currentMeleeId]?.animationKind === 'axe')) {
       applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
@@ -358,7 +358,7 @@ export class Player {
 
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
-    if (this.rig.swordGripFrame && WEAPONS[weaponId]?.animationKind === 'sword') {
+    if (this.rig.swordGripFrame && (WEAPONS[weaponId]?.animationKind === 'sword' || WEAPONS[weaponId]?.animationKind === 'axe')) {
       applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[weaponId]?.animationKind === 'lance') {
@@ -561,6 +561,7 @@ export class Player {
       return this.isMounted ? 'mountedLance' : 'lanceThrust'
     }
     switch (weapon.animationKind) {
+      case 'axe': return this.hasShield ? 'axeAttack1H' : 'axeAttack2H'
       case 'dagger': return 'daggerSlash'
       case 'greatsword': return 'greatswordSlash'
       default: return 'swordSlash'
@@ -782,6 +783,8 @@ export class Player {
 
     // Player Berserker attack-rate bonus only speeds up melee attack cadence/animation, never global animator.update
     const isMeleeAttack = this.animator.currentAction === 'swordSlash'
+      || this.animator.currentAction === 'axeAttack1H'
+      || this.animator.currentAction === 'axeAttack2H'
       || this.animator.currentAction === 'daggerSlash'
       || this.animator.currentAction === 'greatswordSlash'
       || this.animator.currentAction === 'lanceThrust'

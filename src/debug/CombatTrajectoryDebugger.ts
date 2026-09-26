@@ -10,6 +10,8 @@ const AIM_GUIDE_LENGTH = 5
 const MELEE_ACTIONS = new Set<CombatAction>([
   'daggerSlash',
   'swordSlash',
+  'axeAttack1H',
+  'axeAttack2H',
   'greatswordSlash',
   'lanceThrust',
   'mountedLance',

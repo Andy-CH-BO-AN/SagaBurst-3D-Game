@@ -135,7 +135,12 @@ export class HumanoidStudioPlayback {
   }
 
   attackEquipment(): void {
-    this.animator.start(this.equipmentLoadout === 'lance' ? this.state === 'mounted' || this.state === 'mountedLance' ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+    this.animator.start(this.equipmentAction(this.state === 'mounted' || this.state === 'mountedLance'))
+  }
+
+  private equipmentAction(mounted: boolean): 'mountedLance' | 'lanceThrust' | 'axeAttack1H' | 'axeAttack2H' | 'swordSlash' {
+    return this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust'
+      : this.equipmentLoadout === 'axe' ? this.hasShield ? 'axeAttack1H' : 'axeAttack2H' : 'swordSlash'
   }
 
   sampleEquipment(time: number, mounted: boolean, motion: 'idle' | 'walk' | 'run' = 'idle', attack = false): void {
@@ -145,7 +150,7 @@ export class HumanoidStudioPlayback {
     this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield, this.mountKind)
     this.animator.setLocomotion(speed, mounted, sprinting)
     this.animator.update(0.2)
-    if (attack) this.animator.start(this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+    if (attack) this.animator.start(this.equipmentAction(mounted))
     const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
     const end = time * duration
     for (let elapsed = 0; elapsed < end - 1e-9;) {
@@ -189,7 +194,7 @@ export class HumanoidStudioPlayback {
       this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
       this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted, this.state === 'run')
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash') && !this.animator.busy) {
-        this.animator.start(this.lance.visible ? mounted ? 'mountedLance' : 'lanceThrust' : 'swordSlash')
+        this.animator.start(this.equipmentAction(mounted))
       }
       this.animator.update(dt)
     } else if (!this.equipped) {
