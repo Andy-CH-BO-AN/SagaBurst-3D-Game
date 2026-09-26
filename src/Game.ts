@@ -606,7 +606,7 @@ export class Game {
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat'
+    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'corgi'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
@@ -771,7 +771,7 @@ export class Game {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
-        query.get('mount') === 'black-cat' ? MountType.BLACK_CAT : DEFAULT_MOUNT_TYPE,
+        query.get('mount') === 'black-cat' ? MountType.BLACK_CAT : query.get('mount') === 'corgi' ? MountType.CORGI : DEFAULT_MOUNT_TYPE,
         playerSpawn.x,
         playerSpawn.z
       )
@@ -1010,10 +1010,13 @@ export class Game {
     grid.position.y = HUMANOID_STUDIO_FLOOR_Y + 0.012
     this.scene.add(grid)
 
-    const isCat = new URLSearchParams(window.location.search).get('devmodels') === 'black-cat'
-    const mount = new Mount(this.scene, isCat ? MountType.BLACK_CAT : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
-    if (isCat) {
-      this.camera.position.set(4.4, HUMANOID_STUDIO_FLOOR_Y + 2.6, 4.0)
+    const model = new URLSearchParams(window.location.search).get('devmodels')
+    const isCat = model === 'black-cat'
+    const isCorgi = model === 'corgi'
+    const isProcedural = isCat || isCorgi
+    const mount = new Mount(this.scene, isCat ? MountType.BLACK_CAT : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    if (isProcedural) {
+      this.camera.position.set(isCorgi ? 6.4 : 4.4, HUMANOID_STUDIO_FLOOR_Y + (isCorgi ? 2.8 : 2.6), isCorgi ? 6.8 : 4.0)
       this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2)
       this.studioControls?.update()
       this.scene.background = new THREE.Color(0x302e2c)
@@ -1025,7 +1028,7 @@ export class Game {
       this.scene.add(floor)
       grid.visible = false
       for (const [x, y, z, color, intensity] of [[3, 5, 4, 0xffe2b9, 3.5], [-4, 3, 2, 0xcbdfff, 2.5], [1, 4, -4, 0xe4d4c1, 4]]) {
-        const light = new THREE.DirectionalLight(color, intensity)
+        const light = new THREE.DirectionalLight(color, isCorgi ? intensity * 0.55 : intensity)
         if (x === 3) {
           light.castShadow = true
           light.shadow.mapSize.set(2048, 2048)
@@ -1057,8 +1060,8 @@ export class Game {
     const comparisonHorse = new Mount(this.scene, DEFAULT_MOUNT_TYPE, 4.4, 8, undefined, 1)
     comparisonHorse.visualHold = true
     this.mounts.push(comparisonHorse)
-    if (!isCat) this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
-    if (isCat) comparisonHorse.group.visible = false
+    if (!isProcedural) this._createStudioLabel('寫實戰馬｜動畫與騎乘驗收', 0)
+    if (isProcedural) comparisonHorse.group.visible = false
 
     if (mount.horseSkeleton) {
       const skeleton = new THREE.SkeletonHelper(mount.horseSkeleton.bones[0])
@@ -1080,7 +1083,7 @@ export class Game {
         isPlayer: false,
       })
       const playback = new HumanoidStudioPlayback(rider, 'mounted', 'viking', mount.type)
-      playback.setEquipmentLoadout('lance', true)
+      playback.setEquipmentLoadout(isCorgi ? 'axe' : 'lance', true)
       playback.sampleEquipment(0, true)
       this.humanoidStudioPlayback.set(rider, playback)
       const seat = mount.getRiderPelvisSeatLocal()
@@ -1094,16 +1097,27 @@ export class Game {
       rider.root.rotation.x = mount.ridePitch
       mount.group.add(rider.root)
       this.humanoidShowcase.push(rider)
-      if (isCat) rider.root.visible = false
+      if (isProcedural && !isCorgi) rider.root.visible = false
       this.mountStudioRider = rider
       this.mountStudioRiderPelvisHeight = pelvisHeight
+    }
+
+    let riderWeaponButton: HTMLButtonElement | null = null
+    const cycleRiderWeapon = () => {
+      if (!this.mountStudioRider) return
+      const playback = this.humanoidStudioPlayback.get(this.mountStudioRider)!
+      const choices = isCorgi ? ['lance', 'axe', 'sword'] as const : ['lance', 'sword'] as const
+      const next = choices[(choices.findIndex(weapon => weapon === playback.weapon) + 1) % choices.length]
+      playback.setEquipmentLoadout(next, playback.shield.visible)
+      this.mountStudioRider.root.visible = true
+      if (riderWeaponButton) riderWeaponButton.textContent = `武器：${{ lance: '長槍', axe: '斧頭', sword: '劍' }[next]}`
     }
 
     const help = document.createElement('div')
     help.id = 'mount-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
     help.textContent = (isCat ? '黑貓工作室｜' : '戰馬工作室｜') + '1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
-    if (isCat) help.textContent = '拖曳旋轉 · 滾輪縮放 · 1–5 步態 · 6 跳躍 · 7 落地 · 8 受擊 · 9 倒地 · Space 暫停 · R 重播 · V 騎士'
+    if (isProcedural) help.textContent = '拖曳旋轉 · 滾輪縮放 · 1–5 步態 · 6 跳躍 · 7 落地 · 8 受擊 · 9 倒地 · Space 暫停 · R 重播 · V 騎士 · L 換武器 · Q 盾牌 · F 攻擊'
     document.body.appendChild(help)
 
     const status = document.createElement('div')
@@ -1111,11 +1125,14 @@ export class Game {
     status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:30;min-width:220px;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 ui-monospace,monospace;pointer-events:none'
     document.body.appendChild(status)
     this.mountStudioStatus = status
-    if (isCat) {
+    if (isProcedural) {
       const toolbar = document.createElement('div')
       toolbar.style.cssText = 'position:fixed;top:24px;left:32px;right:32px;z-index:40;color:#e6d7bb;font:14px system-ui;display:flex;align-items:center;gap:12px'
       toolbar.innerHTML = '<div style="margin-right:auto"><div style="letter-spacing:4px;font-size:11px;color:#b99a66">SAGABURST / MOUNTS</div><h1 style="font:28px Georgia,serif;margin:8px 0">月影旅者 · 黑貓坐騎</h1></div>'
-      const poses: [string, number, number, number][] = [['正面', 0, 2.1, 6], ['側面', 6, 2.0, 0], ['背面', 0, 2.2, -6], ['三分之四', 4.4, 2.6, 4]]
+      if (isCorgi) toolbar.querySelector('h1')!.textContent = '赤金衛士 · 柯基坐騎'
+      const poses: [string, number, number, number][] = isCorgi
+        ? [['正面', 0, 1.4, 8], ['側面', -7.8, 1.4, 0], ['背面', 0, 1.4, -8], ['三分之四', -6.4, 2.8, 6.8]]
+        : [['正面', 0, 2.1, 6], ['側面', 6, 2.0, 0], ['背面', 0, 2.2, -6], ['三分之四', 4.4, 2.6, 4]]
       for (const [label, x, y, z] of poses) {
         const button = document.createElement('button')
         button.textContent = label
@@ -1123,9 +1140,22 @@ export class Game {
         button.onclick = () => { this.camera.position.set(x, HUMANOID_STUDIO_FLOOR_Y + y, z); this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2); this.studioControls?.update() }
         toolbar.appendChild(button)
       }
-      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = '?freeride=1&mount=black-cat&nolock'
+      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = `?freeride=1&mount=${isCorgi ? 'corgi' : 'black-cat'}&nolock`
       ride.style.cssText = 'padding:10px 16px;background:#b99a66;color:#201b14;border-radius:5px;text-decoration:none'
-      toolbar.appendChild(ride); document.body.appendChild(toolbar)
+      toolbar.appendChild(ride)
+      if (isCorgi) {
+        riderWeaponButton = document.createElement('button')
+        riderWeaponButton.textContent = '武器：斧頭'
+        riderWeaponButton.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
+        riderWeaponButton.onclick = cycleRiderWeapon
+        toolbar.appendChild(riderWeaponButton)
+        let equipped = true
+        const armor = document.createElement('button'); armor.textContent = '護甲：開'
+        armor.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
+        armor.onclick = () => { equipped = !equipped; mount.corgiVisual!.setEquipmentVisible(equipped); armor.textContent = `護甲：${equipped ? '開' : '關'}` }
+        toolbar.appendChild(armor)
+      }
+      document.body.appendChild(toolbar)
     }
 
     window.addEventListener('keydown', (event) => {
@@ -1141,7 +1171,7 @@ export class Game {
         event.preventDefault()
         mount.toggleStudioPause()
       } else if (event.code === 'KeyR') {
-        const state = mount.catVisual?.debugState() ?? mount.getHorseDebugState()
+        const state = mount.proceduralVisual?.debugState() ?? mount.getHorseDebugState()
         if (state) mount.playStudioClip(state.clip as HorseAnimationState)
       } else if (event.code === 'KeyH' && this.mountStudioSkeleton) {
         this.mountStudioSkeleton.visible = !this.mountStudioSkeleton.visible
@@ -1150,7 +1180,8 @@ export class Game {
       } else if (this.mountStudioRider && ['KeyL', 'KeyQ', 'KeyF'].includes(event.code)) {
         const playback = this.humanoidStudioPlayback.get(this.mountStudioRider)!
         if (event.code === 'KeyF') playback.attackEquipment()
-        else playback.setEquipmentLoadout(event.code === 'KeyL' ? playback.lance.visible ? 'sword' : 'lance' : playback.lance.visible ? 'lance' : 'sword', event.code === 'KeyQ' ? !playback.shield.visible : playback.shield.visible)
+        else if (event.code === 'KeyL') cycleRiderWeapon()
+        else playback.setEquipmentLoadout(playback.weapon, !playback.shield.visible)
       }
     })
   }
@@ -1167,8 +1198,8 @@ export class Game {
     }
     const state = this.mountStudioHorse.getHorseDebugState()
     if (!state) {
-      const cat = this.mountStudioHorse.catVisual?.debugState()
-      if (cat) this.mountStudioStatus.textContent = `黑貓 · ${cat.clip} · ${cat.paused ? '暫停' : '播放中'}｜肩高 1.6 m · 體長 2.4 m`
+      const procedural = this.mountStudioHorse.proceduralVisual?.debugState()
+      if (procedural) this.mountStudioStatus.textContent = `${this.mountStudioHorse.displayName} · ${procedural.clip} · ${procedural.paused ? '暫停' : '播放中'}｜${this.mountStudioHorse.type === MountType.CORGI ? '肩高約 1.5 m · 赤金具裝' : '肩高 1.6 m · 體長 2.4 m'}`
       return
     }
     const info = this.renderer.info

@@ -306,14 +306,14 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     expect(restoredMount.group.position.y).toBe(0.5)
     expect(restoredMount.group.position.z).toBe(25)
 
-    // Assert player is at restored mount saddle seat position, NOT overridden by intermediate setPosition
-    const expectedSaddle = new THREE.Vector3()
-    restoredMount.getSaddleSeatWorld(expectedSaddle)
-    expectedSaddle.y += 0.95 // PLAYER_HALF_HEIGHT
+    // Restore the anatomical rider socket, including clearance above the physical saddle.
+    const expectedPelvis = restoredMount.getRiderPelvisSeatWorld(new THREE.Vector3())
+    const saddleSurface = restoredMount.getSaddleSeatWorld(new THREE.Vector3())
+    expect(expectedPelvis.y - saddleSurface.y).toBeCloseTo(0.17, 3)
 
-    expect(player.position.x).toBeCloseTo(expectedSaddle.x, 3)
-    expect(player.position.y).toBeCloseTo(expectedSaddle.y, 3)
-    expect(player.position.z).toBeCloseTo(expectedSaddle.z, 3)
+    expect(player.position.x).toBeCloseTo(expectedPelvis.x, 3)
+    expect(player.position.y).toBeCloseTo(expectedPelvis.y + 0.95, 3) // PLAYER_HALF_HEIGHT
+    expect(player.position.z).toBeCloseTo(expectedPelvis.z, 3)
 
     mount.dispose()
     restoredMount.dispose()

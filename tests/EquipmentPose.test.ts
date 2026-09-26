@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { readGlb, loadRig } from '../tools/lib/humanoid-glb.mjs'
 import { createHumanoidRigAdapter, createMountedIdleClip, MixerController } from '../src/world/HumanoidAssetRegistry'
+import { CorgiVisual } from '../src/world/CorgiVisual'
 import { CharacterEquipmentPose } from '../src/world/CharacterEquipmentPose'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../src/world/CharacterCombatAnimator'
 import { applyEquipmentAttachment, calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../src/world/EquipmentAttachmentContract'
@@ -261,5 +262,75 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
     expect(upper()).toEqual(idleArms)
     expect(lower(f)).toEqual(lower(previous))
     expect(f.rigs[0].right.shoulder.getWorldPosition(new THREE.Vector3()).y - f.measure().grip.y).toBeGreaterThan(.3)
+  })
+})
+
+
+describe('Corgi mounted weapon clearance', () => {
+  it('keeps the lance above both thighs through idle, thrust and recovery with a fixed palm grip', async () => {
+    const f = await createFixture('viking')
+    f.animator.setEquipment(true, false, 'CORGI')
+    f.animator.setLocomotion(0, true)
+    f.animator.update(.2)
+    const attachment = f.lance.matrix.clone()
+    for (const attack of [false, true]) {
+      if (attack) f.animator.start('mountedLance')
+      for (let frame = 0; frame < 90; frame++) {
+        f.animator.update(1 / 120)
+        const m = f.measure()
+        const shaft = new THREE.Line3(m.grip, m.tip)
+        for (const leg of [f.rigs[0].leftLeg, f.rigs[0].rightLeg]) {
+          const hip = leg.hip.getWorldPosition(new THREE.Vector3())
+          const knee = leg.knee.getWorldPosition(new THREE.Vector3())
+          for (let i = 0; i <= 10; i++) {
+            const thigh = hip.clone().lerp(knee, i / 10)
+            expect(shaft.closestPointToPoint(thigh, true, new THREE.Vector3()).distanceTo(thigh)).toBeGreaterThan(.14)
+          }
+        }
+        expect(m.grip.distanceTo(m.hands[0].right)).toBeLessThan(1e-5)
+        expect(f.lance.matrix.equals(attachment)).toBe(true)
+      }
+    }
+  })
+
+  it('keeps the mounted axe haft outside the Corgi throughout its slash and restores the foot attachment', async () => {
+    const f = await createFixture('viking')
+    const mount = new CorgiVisual()
+    const scene = new THREE.Scene(); scene.add(f.root, mount.root)
+    const pivot = new THREE.Group(), model = new THREE.Group()
+    pivot.add(model); WeaponMeshFactory.buildMelee('viking_axe_t2', model)
+    f.rigs[0].right.handSocket.add(pivot)
+    const frame = f.levels[0].scene.userData.equipmentGripFrames.lanceRight
+    applySwordAttachment(f.rigs[0].right.handSocket, pivot, model, frame, frame.modelRotationLocal)
+    const foot = pivot.matrix.clone()
+    const animator = new CharacterCombatAnimator(f.rigs[0], pivot, new THREE.Group())
+    animator.setEquipment(false, false, 'CORGI'); animator.setLocomotion(0, true); animator.update(.2)
+    const pelvisHeight = f.root.worldToLocal(f.rigs[0].pelvis!.getWorldPosition(new THREE.Vector3())).y
+    f.root.position.y = 1.8 - pelvisHeight; f.root.position.z = -.16
+    const visual = model.getObjectByName('dane-axe-visual')!
+    const meshes: THREE.Object3D[] = []
+    mount.root.traverse(o => { if (o instanceof THREE.Mesh) meshes.push(o) })
+    for (const clip of ['idle', 'gallop', 'jump'] as const) {
+      mount.playStudioClip(clip); mount.update(clip === 'jump' ? .3 : clip === 'gallop' ? .12 : 0)
+      f.root.position.copy(mount.riderPelvisSeat.getWorldPosition(new THREE.Vector3()))
+      f.root.position.y -= pelvisHeight
+      animator.cancel(); animator.update(.2)
+      let hits = 0, completions = 0
+      animator.start('swordSlash')
+      for (let step = 0; step < 100; step++) {
+        const events = animator.update(1 / 120)
+        hits += Number(events.hitActiveStarted); completions += Number(events.actionCompleted)
+        scene.updateMatrixWorld(true)
+        const grip = visual.localToWorld(new THREE.Vector3())
+        const end = visual.localToWorld(new THREE.Vector3(0, 1.29, 0))
+        const ray = new THREE.Raycaster(grip, end.clone().sub(grip).normalize(), .14, grip.distanceTo(end))
+        expect(ray.intersectObjects(meshes, false), `axe intersects mount at step ${step}`).toHaveLength(0)
+        const palm = f.rigs[0].right.wrist.localToWorld(new THREE.Vector3(...frame.gripCenterLocal))
+        expect(grip.distanceTo(palm)).toBeLessThan(1e-5)
+      }
+      expect(hits).toBe(1); expect(completions).toBe(1)
+    }
+    animator.setLocomotion(0, false); animator.update(.2)
+    pivot.matrix.elements.forEach((value, i) => expect(value).toBeCloseTo(foot.elements[i], 10))
   })
 })

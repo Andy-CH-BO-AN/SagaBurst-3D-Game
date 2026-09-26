@@ -12,6 +12,7 @@ import {
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { BlackCatVisual } from './BlackCatVisual'
+import { CorgiVisual } from './CorgiVisual'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
@@ -55,6 +56,9 @@ export class Mount {
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
   readonly catVisual: BlackCatVisual | null = null
+  readonly corgiVisual: CorgiVisual | null = null
+
+  get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
@@ -116,13 +120,17 @@ export class Mount {
         this.rideHeightOffset = this.catVisual.saddleSeat.position.y
         this.ridePitch = 0
       }
-      else this._buildCorgi()
+      else {
+        this.corgiVisual = new CorgiVisual()
+        this.group.add(this.corgiVisual.root)
+        this.rideHeightOffset = this.corgiVisual.saddleSeat.position.y
+        this.ridePitch = 0
+      }
     }
 
     const startY = y ?? getTerrainHeight(x, z)
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
-    if (type === MountType.CORGI) this.group.scale.set(2.2, 2.2, 2.2)
 
     this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
     this.aimCollider.name = `aim_proxy_mount_${type}`
@@ -146,9 +154,9 @@ export class Mount {
   get horseSkeleton(): THREE.Skeleton | null { return this.horseVisual?.skeleton ?? null }
 
   getSaddleSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
-    if (this.catVisual) {
+    if (this.proceduralVisual) {
       this.group.updateWorldMatrix(true, true)
-      this.catVisual.saddleSeat.getWorldPosition(target)
+      this.proceduralVisual.saddleSeat.getWorldPosition(target)
       return this.group.worldToLocal(target)
     }
     if (!this.horseVisual) return target.set(0, this.rideHeightOffset, 0)
@@ -157,8 +165,12 @@ export class Mount {
     return this.group.worldToLocal(target)
   }
 
-  /** Visual rider seat: raw saddle socket adjusted to the saddle pan. */
+  /** Anatomical pelvis socket, accounting for the rider contact surface and saddle fit. */
   getRiderPelvisSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.corgiVisual) {
+      this.corgiVisual.riderPelvisSeat.getWorldPosition(target)
+      return this.group.worldToLocal(target)
+    }
     this.getSaddleSeatLocal(target)
     if (this.type === MountType.HORSE) {
       target.z += HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET
@@ -167,15 +179,16 @@ export class Mount {
   }
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
-    if (this.catVisual) return this.catVisual.saddleSeat.getWorldPosition(target)
+    if (this.proceduralVisual) return this.proceduralVisual.saddleSeat.getWorldPosition(target)
     if (this.horseVisual) {
       return this.horseVisual.saddleSeat.getWorldPosition(target)
     }
     return target.copy(this.group.position).addScaledVector(THREE.Object3D.DEFAULT_UP, this.rideHeightOffset)
   }
 
-  /** Visual rider seat: raw saddle socket adjusted to the saddle pan. */
+  /** Anatomical pelvis socket, accounting for the rider contact surface and saddle fit. */
   getRiderPelvisSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.corgiVisual) return this.corgiVisual.riderPelvisSeat.getWorldPosition(target)
     this.getSaddleSeatWorld(target)
     if (this.type === MountType.HORSE) {
       this.group.getWorldQuaternion(horseRiderSeatWorldQuaternion)
@@ -195,16 +208,16 @@ export class Mount {
     this.velY = velocity
     this.onGround = false
     this.horseVisual?.playOnce('jump')
-    this.catVisual?.playOnce('jump')
+    this.proceduralVisual?.playOnce('jump')
   }
 
   playStudioClip(state: HorseAnimationState): void {
     this.horseVisual?.playStudioClip(state)
-    this.catVisual?.playStudioClip(state)
+    this.proceduralVisual?.playStudioClip(state)
   }
 
   toggleStudioPause(): boolean {
-    return this.catVisual?.togglePaused() ?? this.horseVisual?.togglePaused() ?? false
+    return this.proceduralVisual?.togglePaused() ?? this.horseVisual?.togglePaused() ?? false
   }
 
   getHorseDebugState(): HorseDebugState | null {
@@ -218,19 +231,19 @@ export class Mount {
   }
 
   setVisualHidden(hidden: boolean): void {
-    if (this.catVisual) this.catVisual.root.visible = !hidden
+    if (this.proceduralVisual) this.proceduralVisual.root.visible = !hidden
     if (this.horseVisual) {
       this.horseVisual.root.visible = !hidden
     }
   }
 
   isVisualHidden(): boolean {
-    return this.catVisual ? !this.catVisual.root.visible : this.horseVisual ? !this.horseVisual.root.visible : false
+    return this.proceduralVisual ? !this.proceduralVisual.root.visible : this.horseVisual ? !this.horseVisual.root.visible : false
   }
 
   dispose(): void {
     this.horseVisual?.dispose()
-    this.catVisual?.dispose()
+    this.proceduralVisual?.dispose()
     this.group.removeFromParent()
   }
 
@@ -274,11 +287,11 @@ export class Mount {
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
-      this.catVisual?.playOnce('death')
+      this.proceduralVisual?.playOnce('death')
       for (const cb of this.onDeathCallbacks) cb(this)
     } else {
       this.horseVisual?.playOnce('hit')
-      this.catVisual?.playOnce('hit')
+      this.proceduralVisual?.playOnce('hit')
     }
     return true
   }
@@ -330,11 +343,11 @@ export class Mount {
 
     clampToPlayableWorld(this.group.position)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
-    if (this.catVisual) {
-      if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.catVisual.playOnce('land')
+    if (this.proceduralVisual) {
+      if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.proceduralVisual.playOnce('land')
       this.hasGroundedOnce ||= this.onGround
-      this.catVisual.setLocomotion(this.movementSpeed)
-      this.catVisual.update(dt)
+      this.proceduralVisual.setLocomotion(this.movementSpeed)
+      this.proceduralVisual.update(dt)
     }
     if (this.horseVisual) {
       if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.horseVisual.playOnce('land')
@@ -353,61 +366,6 @@ export class Mount {
     return true
   }
 
-  /** Preserve the exact legacy procedural Corgi used by existing saves. */
-  private _buildCorgi(): void {
-    const orangeMaterial = new THREE.MeshLambertMaterial({ color: 0xd97c2e, flatShading: true })
-    const whiteMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true })
-    const blackMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.45, 1.3), orangeMaterial)
-    body.position.y = 0.35
-    body.castShadow = true
-    this.group.add(body)
-
-    const saddle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.1, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x8b4513, flatShading: true }),
-    )
-    saddle.position.set(0, 0.58, 0.1)
-    this.group.add(saddle)
-    this.rideHeightOffset = 1.15
-    this.ridePitch = 0.4
-
-    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.61, 0.2, 1.2), whiteMaterial)
-    belly.position.y = 0.25
-    this.group.add(belly)
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), orangeMaterial)
-    head.position.set(0, 0.7, 0.7)
-    head.castShadow = true
-    this.group.add(head)
-
-    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), whiteMaterial)
-    snout.position.set(0, -0.05, 0.25)
-    head.add(snout)
-
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.05), blackMaterial)
-    nose.position.set(0, 0.05, 0.1)
-    snout.add(nose)
-
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.02), blackMaterial)
-      eye.position.set(side * 0.12, 0.1, 0.21)
-      head.add(eye)
-
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 4), orangeMaterial)
-      ear.position.set(side * 0.18, 0.35, 0)
-      ear.rotation.z = side * -0.1
-      head.add(ear)
-    }
-
-    for (let index = 0; index < 4; index++) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.12), whiteMaterial)
-      leg.position.set(index % 2 === 0 ? 0.2 : -0.2, 0.1, index < 2 ? 0.4 : -0.4)
-      this.group.add(leg)
-    }
-  }
-
   private _pickWanderTarget(): void {
     const angle = Math.random() * Math.PI * 2
     const distance = 5 + Math.random() * 15
@@ -422,7 +380,7 @@ export class Mount {
   update(dt: number, obstacles: ObstacleData[]): void {
     if (this.state === MountState.DEAD) {
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
-      else if (this.catVisual) this.catVisual.update(dt)
+      else if (this.proceduralVisual) this.proceduralVisual.update(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.deathTimer -= dt
       if (this.deathTimer <= 0) this.group.visible = false
@@ -432,7 +390,7 @@ export class Mount {
 
     if (this.visualHold) {
       this.onGround = true
-      this.catVisual?.update(dt)
+      this.proceduralVisual?.update(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       return
     }

@@ -43,6 +43,11 @@ export class MainMenuUI {
           <span>MOONSHADOW</span>
           <small>查看月影旅者的外觀、步態與騎乘</small>
         </a>
+        <a class="main-menu-card" href="?devmodels=corgi&nolock" style="text-decoration:none">
+          <strong>柯基坐騎</strong>
+          <span>GILDED GUARDIAN</span>
+          <small>查看赤金衛士的具裝、步態與騎乘</small>
+        </a>
       </div>
     `
     parent.appendChild(container)
