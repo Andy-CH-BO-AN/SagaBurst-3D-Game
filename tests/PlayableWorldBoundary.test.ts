@@ -8,9 +8,9 @@ import {
 } from '../src/world/Terrain'
 
 describe('Playable world boundary', () => {
-  it('uses most of the 400m terrain while preserving a 20m edge margin', () => {
-    expect(TERRAIN_SIZE).toBe(400)
-    expect(PLAYABLE_WORLD_BOUND).toBe(180)
+  it('uses most of the 640m terrain while preserving a 20m edge margin', () => {
+    expect(TERRAIN_SIZE).toBe(640)
+    expect(PLAYABLE_WORLD_BOUND).toBe(300)
     expect(TERRAIN_SIZE / 2 - PLAYABLE_WORLD_BOUND).toBe(20)
   })
 
@@ -24,8 +24,8 @@ describe('Playable world boundary', () => {
     expect(position.z).toBe(-150)
   })
 
-  it('clamps X/Z at ±180m without changing height', () => {
-    const position = new THREE.Vector3(250, 12, -240)
+  it('clamps X/Z at ±300m without changing height', () => {
+    const position = new THREE.Vector3(350, 12, -340)
 
     clampToPlayableWorld(position)
 

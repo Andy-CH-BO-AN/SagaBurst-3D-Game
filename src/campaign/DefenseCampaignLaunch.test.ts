@@ -311,7 +311,7 @@ describe('Defense Campaign Stage 1 launch config', () => {
         for (let j = i + 1; j < plan.npcSpecs.length; j++) {
           const a = plan.npcSpecs[i]
           const b = plan.npcSpecs[j]
-          expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(2.2)
+          expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(2.2 - 1e-9)
         }
       }
     }

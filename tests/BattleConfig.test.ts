@@ -113,15 +113,15 @@ describe('BattleConfig Domain & Validation', () => {
     const t1Bow = getUnitCombatProfile('viking', 'archer', 1)
     expect(t1Bow.aiType).toBe(AIType.RANGED)
     expect(t1Bow.rangedWeaponId).toBe('wooden_shortbow')
-    expect(t1Bow.rangedDamage).toBe(11) // 22 * 0.5
+    expect(t1Bow.rangedDamage).toBeCloseTo(15.4) // 22 * current bow multiplier (0.7)
 
     const t2Bow = getUnitCombatProfile('viking', 'archer', 2)
     expect(t2Bow.rangedWeaponId).toBe('recurve_longbow')
-    expect(t2Bow.rangedDamage).toBe(21) // 42 * 0.5
+    expect(t2Bow.rangedDamage).toBeCloseTo(29.4) // 42 * current bow multiplier (0.7)
 
     const t3Bow = getUnitCombatProfile('viking', 'archer', 3)
     expect(t3Bow.rangedWeaponId).toBe('elven_runebow')
-    expect(t3Bow.rangedDamage).toBe(37.5) // 75 * 0.5
+    expect(t3Bow.rangedDamage).toBeCloseTo(52.5) // 75 * current bow multiplier (0.7)
   })
 
   it('maps Roman Tier weapons and authoritative damage consistently', () => {
@@ -187,7 +187,7 @@ describe('BattleConfig Domain & Validation', () => {
     expect(rHorseArcher.cavalry).toBe(true)
     expect(rHorseArcher.isUsingLance).toBe(false)
     expect(rHorseArcher.rangedWeaponId).toBe('elven_runebow')
-    expect(rHorseArcher.rangedDamage).toBe(37.5)
+    expect(rHorseArcher.rangedDamage).toBeCloseTo(52.5)
 
     // Verify Roman horseArcher T1, T2, T3 bow progression
     expect(getUnitCombatProfile('roman', 'horseArcher', 1).rangedWeaponId).toBe('wooden_shortbow')

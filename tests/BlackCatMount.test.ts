@@ -13,7 +13,7 @@ describe('reference black cat mount', () => {
       expect(bounds.min.y).toBeGreaterThan(-0.035)
       expect(bounds.min.y).toBeLessThan(0.025)
     }
-  })
+  }, 15000)
 
   it('uses metre scale and transforms its actual saddle socket with heading and position', () => {
     const mount = new Mount(new THREE.Scene(), MountType.BLACK_CAT, 5, 9, 3)

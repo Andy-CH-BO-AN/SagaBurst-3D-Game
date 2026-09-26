@@ -223,8 +223,9 @@ describe('NavigationGrid', () => {
 
     expect(path).not.toBeNull()
     expect(internals.searchRunId).toBe(1)
-    expect(internals.seenRun[0]).toBe(0)
-    expect(internals.closedRun[0]).toBe(0)
+    const untouchedIndex = internals.seenRun.length - 1
+    expect(internals.seenRun[untouchedIndex]).toBe(0)
+    expect(internals.closedRun[untouchedIndex]).toBe(0)
   })
 
   it('returns null for world positions outside the navigation bounds', () => {
