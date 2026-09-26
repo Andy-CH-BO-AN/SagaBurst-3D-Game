@@ -31,7 +31,7 @@ describe('Viking infantry loadouts', () => {
       const loadout = resolveUnitLoadout('viking_sword_cavalry', tier)
       expect(loadout.meleeWeaponId).toBe(`viking_axe_t${tier}`)
       expect(loadout.shieldId).toBe(`round_shield_t${tier}`)
-      expect(loadout.mountId).toBe('horse')
+      expect(loadout.mountId).toBe(tier === 3 ? 'black-cat' : 'horse')
     }
   })
 

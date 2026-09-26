@@ -125,7 +125,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'viking_axe_t1', rangedWeaponId: null, shieldId: 'round_shield_t1', mountId: 'horse' },
       2: { meleeWeaponId: 'viking_axe_t2', rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: 'horse' },
-      3: { meleeWeaponId: 'viking_axe_t3', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: 'horse' },
+      3: { meleeWeaponId: 'viking_axe_t3', rangedWeaponId: null, shieldId: 'round_shield_t3', mountId: 'black-cat' },
     },
   },
   viking_lancer: {
@@ -138,7 +138,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'hunting_spear', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
       2: { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'black-cat' },
     },
   },
   viking_horse_archer: {
@@ -151,7 +151,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: 'horse' },
       2: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'rusty_dagger', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'black-cat' },
     },
   },
 
@@ -218,7 +218,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: null, shieldId: 'scutum_t1', mountId: 'horse' },
       2: { meleeWeaponId: 'gladius_standard', rangedWeaponId: null, shieldId: 'scutum_t2', mountId: 'horse' },
-      3: { meleeWeaponId: 'centurion_blade', rangedWeaponId: null, shieldId: 'scutum_t3', mountId: 'horse' },
+      3: { meleeWeaponId: 'centurion_blade', rangedWeaponId: null, shieldId: 'scutum_t3', mountId: 'corgi' },
     },
   },
   roman_lancer: {
@@ -231,7 +231,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'hunting_spear', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
       2: { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'corgi' },
     },
   },
   roman_horse_archer: {
@@ -244,7 +244,7 @@ export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
     tierLoadouts: {
       1: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: 'horse' },
       2: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' },
-      3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'horse' },
+      3: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: 'corgi' },
     },
   },
 }

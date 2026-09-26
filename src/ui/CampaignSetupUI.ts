@@ -25,6 +25,7 @@ import {
   PLAYER_RANGED_WEAPON_IDS,
   PLAYER_SHIELD_IDS,
   type PlayerLoadoutConfig,
+  type PlayerMountId,
   type UnitTier,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
@@ -309,7 +310,15 @@ export class CampaignSetupUI {
           </label>
           <label class="campaign-mounted-toggle">
             <input type="checkbox" id="campaign-player-mounted" ${loadout.startMounted ? 'checked' : ''}/>
-            玩家騎馬出戰
+            玩家騎乘出戰
+          </label>
+          <label class="campaign-loadout-field">
+            <span>坐騎</span>
+            <select id="campaign-player-mount">
+              <option value="black-cat" ${loadout.mountId === 'black-cat' ? 'selected' : ''}>黑貓</option>
+              <option value="corgi" ${loadout.mountId === 'corgi' ? 'selected' : ''}>柯基</option>
+              <option value="horse" ${!loadout.mountId || loadout.mountId === 'horse' ? 'selected' : ''}>馬</option>
+            </select>
           </label>
         </aside>
       </div>
@@ -369,6 +378,10 @@ export class CampaignSetupUI {
     this.container.querySelector('#campaign-player-mounted')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
       this.playerLoadout.startMounted = (event.target as HTMLInputElement).checked
+    })
+    this.container.querySelector('#campaign-player-mount')?.addEventListener('change', event => {
+      if (!this.playerLoadout) return
+      this.playerLoadout.mountId = (event.target as HTMLSelectElement).value as PlayerMountId
     })
     const backToStage = () => {
       this.screen = 'stage'

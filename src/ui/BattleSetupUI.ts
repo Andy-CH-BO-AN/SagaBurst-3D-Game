@@ -9,6 +9,7 @@ import {
   PlayerMeleeWeaponId,
   PlayerRangedWeaponId,
   PlayerShieldId,
+  PlayerMountId,
   UnitTier,
   UnitTierCounts,
   MAX_CUSTOM_ARMY_SIZE,
@@ -124,7 +125,7 @@ export class BattleSetupUI {
       title: string,
       subtitle: string,
       cards: Array<{ id: string | null; tier?: string; zh: string; en: string }>,
-      kind: 'melee' | 'ranged' | 'shield',
+      kind: 'melee' | 'ranged' | 'shield' | 'mount',
     ) => `
       <section class="equipment-group">
         <div class="equipment-group-heading"><span>${title}</span><small>${subtitle}</small></div>
@@ -194,8 +195,15 @@ export class BattleSetupUI {
         <section class="starting-state"><div class="loadout-category-heading"><h3>出戰方式</h3><span>STARTING STATE</span></div>
           <div class="starting-state-options" role="radiogroup" aria-label="Starting state">
             <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="false"><b>徒步</b><small>ON FOOT</small></button>
-            <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="true"><b>騎馬</b><small>MOUNTED</small><i>✓</i></button>
+            <button type="button" class="starting-state-card" role="radio" aria-checked="false" data-start-mounted="true"><b>騎乘</b><small>MOUNTED</small><i>✓</i></button>
           </div>
+        </section>
+        <section class="loadout-category"><div class="loadout-category-heading"><h3>坐騎</h3><span>MOUNT</span></div>
+          ${renderEquipmentGroup('坐騎種類', 'MOUNT TYPE', [
+            { id: 'black-cat', zh: '黑貓', en: 'BLACK CAT' },
+            { id: 'corgi', zh: '柯基', en: 'CORGI' },
+            { id: 'horse', zh: '馬', en: 'HORSE' },
+          ], 'mount')}
         </section>
       </div>
     `
@@ -398,6 +406,7 @@ export class BattleSetupUI {
           case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
           case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
           case 'shield': this.config.playerLoadout!.shieldId = id as PlayerShieldId | null; break
+          case 'mount': this.config.playerLoadout!.mountId = id as PlayerMountId; break
         }
         this._refreshView()
       })
@@ -614,6 +623,7 @@ export class BattleSetupUI {
         const selected = (el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
           || (el.dataset.loadoutKind === 'ranged' && el.dataset.loadoutId === loadout.rangedWeaponId)
           || (el.dataset.loadoutKind === 'shield' && el.dataset.loadoutId === (loadout.shieldId ?? ''))
+          || (el.dataset.loadoutKind === 'mount' && el.dataset.loadoutId === (loadout.mountId ?? 'horse'))
         el.classList.toggle('selected', selected)
         el.setAttribute?.('aria-checked', String(selected))
       })
