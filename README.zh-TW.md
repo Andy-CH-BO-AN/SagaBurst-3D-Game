@@ -349,7 +349,7 @@ SagaBurst 目前仍是一個持續開發中的 3D 動作 RPG 原型，核心方�
 
 ### 黑貓坐騎：月影旅者
 
-主選單的「黑貓坐騎」可進入展示工作室，也可直接開啟：
+主選單的「英雄坐騎試騎」可選擇黑貓或柯基，直接進入空場試騎。黑貓展示工作室也可直接開啟：
 
 - 展示與動畫：`http://localhost:5173/?devmodels=black-cat&nolock`
 - 空場試騎：`http://localhost:5173/?freeride=1&mount=black-cat&nolock`

@@ -933,6 +933,8 @@
   grid-template-columns: repeat(3, minmax(240px, 1fr));
   gap: 22px;
 }
+.hero-mount-grid { width: min(860px, 100%); grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+.hero-mount-grid .main-menu-card { text-decoration: none; }
 .campaign-faction-grid {
   width: min(860px, 100%);
   grid-template-columns: repeat(2, minmax(260px, 1fr));
