@@ -17,7 +17,9 @@ export const SHIELD_RADIUS = 0.024
 export function equipmentWeaponFrame(kind: 'lance' | 'shield', model?: THREE.Object3D): THREE.Matrix4 {
   // Legacy fixtures only. Production Lance uses the Sword Idle calibration.
   if (kind === 'lance') return new THREE.Matrix4().setPosition(LANCE_GRIP)
-  return new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, -1))
+  // Vertical grasp: thumb web up, left palm inward toward the torso (-X).
+  // The board remains upright and faces character-forward (+Z).
+  return new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0))
     .setPosition(new THREE.Vector3().fromArray(model?.userData.gripCenterLocal ?? [0, 0, 0.085]))
 }
 

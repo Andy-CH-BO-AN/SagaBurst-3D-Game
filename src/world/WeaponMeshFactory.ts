@@ -575,7 +575,6 @@ export class WeaponMeshFactory {
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(emblems, emblemMat, 'scutum-emblem'), 1), -1))
       const rearGrip = equipmentShadowUntil(new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather), -1)
       rearGrip.position.set(0, 0, 0.085)
-      rearGrip.rotation.z = Math.PI / 2
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
     } else {
@@ -612,7 +611,6 @@ export class WeaponMeshFactory {
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(leatherDetails, leather, 'shield-rear-strap'), 0), -1))
       const rearGrip = equipmentShadowUntil(new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather), -1)
       rearGrip.position.set(0, 0, 0.085)
-      rearGrip.rotation.z = Math.PI / 2
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
       if (tier === 3) {

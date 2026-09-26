@@ -62,6 +62,37 @@ async function createFixture(faction: string, emptyMounted = false) {
 beforeAll(async () => { for (const f of ['roman', 'viking']) fixtures[f] = await createFixture(f) })
 
 for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {
+  it('盾牌隨胸口轉動，三 LOD 虎口向上、掌心朝內，攻擊全程保持握把接觸', async () => {
+    const f = await createFixture(faction)
+    const frames = f.levels.map(l => l.scene.userData.equipmentGripFrames.shieldLeft)
+    const bindChest = f.rigs.map(r => r.upperChest!.getWorldQuaternion(new THREE.Quaternion()))
+    for (const mounted of [false, true]) for (const action of ['swordSlash', 'axeAttack1H'] as const) {
+      if (faction === 'roman' && action === 'axeAttack1H') continue // Axe clips are Viking-only.
+      f.root.rotation.y = mounted ? 1.2 : -.7
+      f.reset(true, mounted)
+      f.animator.setEquipment(false, true)
+      const localGrips = f.rigs.map((r, i) => r.upperChest!.worldToLocal(r.left.wrist.localToWorld(new THREE.Vector3(...frames[i].gripCenterLocal))))
+      const startNormal = new THREE.Vector3(0, 0, 1).transformDirection(f.shield.matrixWorld)
+      let maxTurn = 0
+      f.animator.start(action)
+      for (let sample = 0; sample < 75; sample++) {
+        f.animator.update(1 / 120)
+        const measured = f.measure()
+        maxTurn = Math.max(maxTurn, startNormal.angleTo(new THREE.Vector3(0, 0, 1).transformDirection(f.shield.matrixWorld)))
+        f.rigs.forEach((rig, i) => {
+          const chestInverse = rig.upperChest!.getWorldQuaternion(new THREE.Quaternion()).invert()
+          const thumb = new THREE.Vector3(...frames[i].gripAxisLocal).transformDirection(rig.left.wrist.matrixWorld).applyQuaternion(chestInverse).applyQuaternion(bindChest[i])
+          const palm = new THREE.Vector3(...frames[i].palmNormalLocal).transformDirection(rig.left.wrist.matrixWorld).applyQuaternion(chestInverse).applyQuaternion(bindChest[i])
+          expect(thumb.y, `${action} mounted=${mounted} sample=${sample} LOD${i}`).toBeGreaterThan(.999)
+          expect(palm.x).toBeLessThan(-.999)
+          expect(rig.upperChest!.worldToLocal(measured.hands[i].shield.clone()).distanceTo(localGrips[i])).toBeLessThan(.001)
+          expect(measured.hands[i].shield.distanceTo(measured.shieldGrip)).toBeLessThan(.01)
+        })
+      }
+      expect(maxTurn).toBeGreaterThan(.15)
+    }
+  })
+
   const bones = (f: Awaited<ReturnType<typeof createFixture>>) => f.levels.map(l => {
     const result: Record<string, number[]> = {}
     l.scene.traverse(o => { if (o instanceof THREE.Bone) result[o.name] = [...o.position.toArray(), ...o.quaternion.toArray(), ...o.scale.toArray()] })
