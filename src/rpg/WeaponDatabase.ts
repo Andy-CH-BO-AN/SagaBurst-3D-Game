@@ -69,6 +69,26 @@ export const WEAPONS: Record<string, WeaponData> = {
     description: '沿用制式長劍外形，以藍金符文區分的史詩武器。',
   },
 
+  // Phase 1 axes retain the corresponding sword's combat values and animation.
+  viking_axe_t1: {
+    id: 'viking_axe_t1', name: '維京長斧 Viking Axe', type: 'melee', tier: 1,
+    combatKind: 'sword', damageMin: 12, damageMax: 12, speedOrCharge: 0.35,
+    animationKind: 'sword', range: 1.8,
+    description: '長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
+  },
+  viking_axe_t2: {
+    id: 'viking_axe_t2', name: '精鋼維京長斧 Steel Viking Axe', type: 'melee', tier: 2,
+    combatKind: 'sword', damageMin: 25, damageMax: 25, speedOrCharge: 0.35,
+    animationKind: 'sword', range: 1.8,
+    description: '精鋼長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
+  },
+  viking_axe_t3: {
+    id: 'viking_axe_t3', name: '符文維京長斧 Runic Viking Axe', type: 'melee', tier: 3,
+    combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: 0.35,
+    animationKind: 'sword', range: 1.8,
+    description: '符文長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
+  },
+
   // ── Melee Weapons (Lances / Spears) ──
   hunting_spear: {
     id: 'hunting_spear',

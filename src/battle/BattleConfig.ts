@@ -54,6 +54,7 @@ export type BattleMode = 'formation' | 'scattered'
 
 export type PlayerMeleeWeaponId =
   | 'rusty_dagger' | 'steel_sword' | 'runic_greatsword'
+  | 'viking_axe_t1' | 'viking_axe_t2' | 'viking_axe_t3'
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
   | 'hunting_spear' | 'steel_lance' | 'heavy_lance'
 export type PlayerRangedWeaponId =
@@ -79,6 +80,13 @@ export const DEFAULT_PLAYER_LOADOUT: PlayerLoadoutConfig = {
 
 export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'rusty_dagger', 'steel_sword', 'runic_greatsword',
+  'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
+  'gladius_rusty', 'gladius_standard', 'centurion_blade',
+  'hunting_spear', 'steel_lance', 'heavy_lance',
+]
+/** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
+export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
+  'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance',
 ]
