@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Combat Animation"
+  short_description: "Retarget weapon attacks and validate mounted combat"
+  default_prompt: "Use $add-combat-animation to add the requested source animation, integrate runtime equipment selection, and verify grip, hit timing, mounted trajectory, and every required LOD."
