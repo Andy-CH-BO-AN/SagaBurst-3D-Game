@@ -39,8 +39,8 @@ If you are an AI agent picking up this project, please read these guidelines car
 
 ### Local GitHub and browser workflows
 
-- GitHub PR, issue, review, push, and other authenticated repository operations must use the local terminal's `gh` / `git` credential context. Do not ask the user to re-authenticate inside a Codex sandbox or rely on a sandbox-scoped GitHub token.
-- If `gh auth status` fails inside the sandbox, rerun the authenticated GitHub operation in the local environment. A successful `git push` does not imply that sandbox `gh` authentication is available.
+- GitHub PR, issue, review, push, and other authenticated repository operations must use the host machine's local terminal `gh` / `git` credential context. Never create or update a PR from the Codex sandbox: the user cannot access that environment or log in there.
+- If `gh auth status` fails inside the sandbox, do not ask the user to sign in there; rerun the authenticated GitHub operation in the host's local terminal. A successful `git push` does not imply that sandbox `gh` authentication is available.
 - Performance benchmarks that depend on WebGL, GPU timing, headed UI, or local credentials must run in the local environment with the user's installed browser and display. Do not substitute a sandbox browser, in-app browser, headless browser, or software-rendered environment unless the task explicitly requests a non-production diagnostic.
 
 ## 5. Think Before Coding
