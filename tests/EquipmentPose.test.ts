@@ -293,7 +293,7 @@ describe('Corgi mounted weapon clearance', () => {
     }
   })
 
-  it('keeps the mounted axe haft outside the Corgi throughout its slash and restores the foot attachment', async () => {
+  it.each([true, false])('keeps the mounted axe haft outside the Corgi throughout its attack (shield=%s) and restores the foot attachment', async (shield) => {
     const f = await createFixture('viking')
     const mount = new CorgiVisual()
     const scene = new THREE.Scene(); scene.add(f.root, mount.root)
@@ -304,7 +304,7 @@ describe('Corgi mounted weapon clearance', () => {
     applySwordAttachment(f.rigs[0].right.handSocket, pivot, model, frame, frame.modelRotationLocal)
     const foot = pivot.matrix.clone()
     const animator = new CharacterCombatAnimator(f.rigs[0], pivot, new THREE.Group())
-    animator.setEquipment(false, false, 'CORGI'); animator.setLocomotion(0, true); animator.update(.2)
+    animator.setEquipment(false, shield, 'CORGI'); animator.setLocomotion(0, true); animator.update(.2)
     const pelvisHeight = f.root.worldToLocal(f.rigs[0].pelvis!.getWorldPosition(new THREE.Vector3())).y
     f.root.position.y = 1.8 - pelvisHeight; f.root.position.z = -.16
     const visual = model.getObjectByName('dane-axe-visual')!
@@ -316,15 +316,20 @@ describe('Corgi mounted weapon clearance', () => {
       f.root.position.y -= pelvisHeight
       animator.cancel(); animator.update(.2)
       let hits = 0, completions = 0
-      animator.start('swordSlash')
+      animator.start(shield ? 'axeAttack1H' : 'axeAttack2H')
+      let previousDirection: THREE.Vector3 | undefined
       for (let step = 0; step < 100; step++) {
         const events = animator.update(1 / 120)
         hits += Number(events.hitActiveStarted); completions += Number(events.actionCompleted)
         scene.updateMatrixWorld(true)
         const grip = visual.localToWorld(new THREE.Vector3())
         const end = visual.localToWorld(new THREE.Vector3(0, 1.29, 0))
-        const ray = new THREE.Raycaster(grip, end.clone().sub(grip).normalize(), .14, grip.distanceTo(end))
-        expect(ray.intersectObjects(meshes, false), `axe intersects mount at step ${step}`).toHaveLength(0)
+        const direction = end.clone().sub(grip).normalize()
+        if (previousDirection) expect(direction.angleTo(previousDirection), `shaft jumps at ${clip} step ${step}`).toBeLessThan(.6)
+        previousDirection = direction
+        const ray = new THREE.Raycaster(grip, direction, .14, grip.distanceTo(end))
+        const intersections = ray.intersectObjects(meshes, false)
+        expect(intersections, `axe intersects mount at ${clip} step ${step}: ${JSON.stringify(intersections.map(h => ({name:h.object.name,point:h.point.toArray()})))}`).toHaveLength(0)
         const palm = f.rigs[0].right.wrist.localToWorld(new THREE.Vector3(...frame.gripCenterLocal))
         expect(grip.distanceTo(palm)).toBeLessThan(1e-5)
       }

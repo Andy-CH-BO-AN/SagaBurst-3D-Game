@@ -685,6 +685,7 @@ export class NPC {
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
+    if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.shieldId ? 'axeAttack1H' : 'axeAttack2H'
     return 'swordSlash'
   }
 

@@ -62,8 +62,9 @@ describe('T1–T3 melee parity', () => {
       const result = WeaponMeshFactory.buildMelee(id, group)
       const axe = WEAPONS[id]
       const sword = WEAPONS[swords[tier - 1]]
-      expect([axe.combatKind, axe.animationKind, axe.damageMin, axe.damageMax, axe.range, axe.speedOrCharge])
-        .toEqual([sword.combatKind, sword.animationKind, sword.damageMin, sword.damageMax, sword.range, sword.speedOrCharge])
+      expect(axe.animationKind).toBe('axe')
+      expect([axe.combatKind, axe.damageMin, axe.damageMax, axe.range, axe.speedOrCharge])
+        .toEqual([sword.combatKind, sword.damageMin, sword.damageMax, sword.range, sword.speedOrCharge])
       expect(group.userData.gripCenterLocal).toEqual([0, 0.15, 0])
       expect(result.tipLocal.toArray()).toEqual([0, 1.51, 0])
       const shaft = group.getObjectByName('dane-axe-haft') as THREE.Mesh
@@ -75,7 +76,7 @@ describe('T1–T3 melee parity', () => {
     expect(new Set(groups.map(group => JSON.stringify(materialSignature(group)))).size).toBe(3)
   })
 
-  it('splays the visible axe outward on foot and mounted without moving its grip or hit point', () => {
+  it('rolls the mounted axe cutting edge down without moving its grip or hit point', () => {
     const socket = new THREE.Group()
     const pivot = new THREE.Group()
     const model = new THREE.Group()
@@ -96,11 +97,11 @@ describe('T1–T3 melee parity', () => {
     const visual = model.getObjectByName('dane-axe-visual')!
     expect(visual.rotation.x).toBe(0.45)
     setSwordMountedAttachment(pivot, true)
-    expect(visual.rotation.toArray().slice(0, 3)).toEqual([0, 0, 0.55])
+    expect(new THREE.Vector3(1, 0, 0).applyQuaternion(visual.quaternion).distanceTo(new THREE.Vector3(0, 0, 1))).toBeLessThan(1e-10)
     expect(model.userData.gripCenterLocal).toEqual([0, 0.15, 0])
     expect(tip.toArray()).toEqual([0, 1.51, 0])
     setSwordMountedAttachment(pivot, false)
-    expect(visual.rotation.toArray().slice(0, 3)).toEqual([0.45, 0, 0])
+    visual.rotation.toArray().slice(0, 3).forEach((value, i) => expect(value).toBeCloseTo(i === 0 ? .45 : 0, 10))
   })
 
   it('uses the default Roman gladius shape for all tiers with distinct surface patterns', () => {
