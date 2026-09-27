@@ -816,6 +816,7 @@ export class Game {
         return this._campaignFactionAlive(attackerFaction) > 0
       },
       this.inventoryManager,
+      activeBattleConfig?.commandGrouping ?? 'preset',
     )
 
 
