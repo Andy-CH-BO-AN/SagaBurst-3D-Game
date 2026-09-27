@@ -145,7 +145,7 @@ export function createMountCombatTargetRef(
   name: string,
 ): CombatTargetRef {
   return {
-    targetId: `${owner.actorId}:mount`,
+    targetId: `mount:${mount.group.uuid}`,
     targetType: 'mount',
     name,
     ownerActorId: owner.actorId,
