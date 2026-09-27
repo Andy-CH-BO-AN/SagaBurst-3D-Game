@@ -1,0 +1,61 @@
+{
+  "file": "corgi.glb",
+  "byteLength": 2560528,
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.2.39",
+    "version": "2.0"
+  },
+  "counts": {
+    "scenes": 1,
+    "nodes": 28,
+    "meshes": 6,
+    "primitives": 6,
+    "triangles": 132165,
+    "materials": 4,
+    "textures": 1,
+    "images": 1,
+    "skins": 1,
+    "joints": 21,
+    "animations": 9
+  },
+  "jointNames": [
+    "corgi_front_paw_l",
+    "corgi_front_lower_l",
+    "corgi_front_upper_l",
+    "corgi_front_paw_r",
+    "corgi_front_lower_r",
+    "corgi_front_upper_r",
+    "corgi_head",
+    "corgi_neck",
+    "corgi_chest",
+    "corgi_rear_paw_l",
+    "corgi_rear_ankle_l",
+    "corgi_rear_lower_l",
+    "corgi_rear_upper_l",
+    "corgi_rear_paw_r",
+    "corgi_rear_ankle_r",
+    "corgi_rear_lower_r",
+    "corgi_rear_upper_r",
+    "corgi_tail_0",
+    "socket_camera",
+    "socket_saddle_seat",
+    "corgi_torso"
+  ],
+  "animationNames": [
+    "canter",
+    "death",
+    "gallop",
+    "hit",
+    "idle",
+    "jump",
+    "land",
+    "trot",
+    "walk"
+  ],
+  "extensionsUsed": [
+    "EXT_meshopt_compression"
+  ],
+  "extensionsRequired": [
+    "EXT_meshopt_compression"
+  ]
+}

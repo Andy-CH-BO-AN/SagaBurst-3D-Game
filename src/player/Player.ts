@@ -936,6 +936,12 @@ export class Player {
     }
   }
 
+  /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
+  fitCorgiSeat(): void {
+    if (!this.currentMount?.corgiVisual || this.dead) return
+    this.currentMount.corgiVisual.fitRider(this.characterVisualGroup)
+  }
+
   private _alignExternalVisualToMount(mounted: boolean): void {
     if (this.externalPelvisHeight <= 0) return
     this.characterVisualGroup.position.y = -PLAYER_HALF_HEIGHT - (mounted ? this.externalPelvisHeight : 0)

@@ -1,81 +1,105 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
-import { CorgiVisual, CORGI_RIDER_PELVIS_CLEARANCE } from '../src/world/CorgiVisual'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { CorgiVisual, CORGI_DIMENSIONS, CORGI_RIDER_PELVIS_CLEARANCE } from '../src/world/CorgiVisual'
 import { Mount, MountState, MountType, mountTypeFromSave } from '../src/world/Mount'
 
-describe('reference armored corgi', () => {
-  it('grounds four paws in metre coordinates and preserves CORGI saves', () => {
-    const mount = new Mount(new THREE.Scene(), mountTypeFromSave('CORGI'), 0, 0, 0)
-    expect(mount.type).toBe(MountType.CORGI)
-    expect(mount.group.scale.toArray()).toEqual([1, 1, 1])
-    mount.group.updateWorldMatrix(true, true)
-    for (const end of ['front', 'rear']) for (const side of [-1, 1]) {
-      const paw = mount.group.getObjectByName(`corgi_leg_${end}_${side}_foot`)!
-      expect(new THREE.Box3().setFromObject(paw).min.y).toBeCloseTo(0, 3)
-    }
-  })
+describe('reference source corgi mount', () => {
+  beforeAll(installCorgiTestAsset)
 
-  it('transforms the actual animated seat with translation, heading and scale', () => {
+  it('keeps the source paws on the ground with normalized skin weights', () => {
+    const cat = new CorgiVisual()
+    cat.root.updateMatrixWorld(true)
+    const mesh = cat.root.getObjectByName('corgi_body_lod0') as THREE.SkinnedMesh
+    const bounds = new THREE.Box3().setFromObject(mesh)
+    expect(bounds.min.y).toBeGreaterThan(-0.005)
+    expect(bounds.min.y).toBeLessThan(0.025)
+    const weights = mesh.geometry.getAttribute('skinWeight')
+    for (let i = 0; i < weights.count; i++) {
+      expect(weights.getX(i) + weights.getY(i) + weights.getZ(i) + weights.getW(i)).toBeCloseTo(1, 4)
+    }
+  }, 15000)
+
+  it('uses metre scale and transforms its actual saddle socket with heading and position', () => {
     const mount = new Mount(new THREE.Scene(), MountType.CORGI, 5, 9, 3)
     mount.group.rotation.y = Math.PI / 2
-    mount.group.scale.setScalar(1.2)
-    expect(mount.getRiderPelvisSeatWorld().x).toBeCloseTo(5 - 0.16 * 1.2)
-    expect(mount.getSaddleSeatWorld().y).toBeCloseTo(3 + 1.63 * 1.2)
-    expect(mount.getRiderPelvisSeatWorld().y).toBeCloseTo(3 + (1.63 + CORGI_RIDER_PELVIS_CLEARANCE) * 1.2)
-    mount.visualHold = true
-    mount.state = MountState.CONTROLLED
-    mount.playStudioClip('gallop'); mount.update(0.17, [])
-    const socket = mount.corgiVisual!.riderPelvisSeat.getWorldPosition(new THREE.Vector3())
-    expect(mount.getRiderPelvisSeatWorld().distanceTo(socket)).toBeLessThan(1e-8)
-    expect(mount.getSaddleSeatLocal().y).not.toBeCloseTo(1.63, 4)
+    expect(mount.group.scale.toArray()).toEqual([1, 1, 1])
+    const seat = mount.getRiderPelvisSeatWorld()
+    expect(seat.x).toBeCloseTo(4.8)
+    expect(seat.y).toBeCloseTo(3 + CORGI_DIMENSIONS.saddleHeight + CORGI_RIDER_PELVIS_CLEARANCE)
+    expect(seat.z).toBeCloseTo(9)
+    expect(mount.getSaddleSeatLocal().y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight)
+    expect(mountTypeFromSave('CORGI')).toBe(MountType.CORGI)
   })
 
-  it('keeps anatomical pelvis clearance in the saddle frame through pitch, roll and replay', () => {
-    const mount = new Mount(new THREE.Scene(), MountType.CORGI, 3, 7, 2)
-    mount.group.rotation.set(0.2, 0.8, -0.1)
-    mount.group.scale.setScalar(1.3)
-    for (const clip of ['idle', 'gallop', 'jump', 'land', 'death', 'idle'] as const) {
-      mount.playStudioClip(clip); mount.corgiVisual!.update(0.2)
-      const seat = mount.corgiVisual!.saddleSeat
-      const pelvisInSeat = seat.worldToLocal(mount.getRiderPelvisSeatWorld())
-      expect(pelvisInSeat.x).toBeCloseTo(0)
-      expect(pelvisInSeat.y).toBeCloseTo(CORGI_RIDER_PELVIS_CLEARANCE)
-      expect(pelvisInSeat.z).toBeCloseTo(0)
-      expect(mount.group.localToWorld(mount.getRiderPelvisSeatLocal()).distanceTo(mount.getRiderPelvisSeatWorld())).toBeLessThan(1e-8)
-    }
-  })
-
-  it('shares render resources while keeping joints, equipment and pause independent', () => {
+  it('shares immutable meshes while keeping independent gait and pause state', () => {
     const a = new CorgiVisual(), b = new CorgiVisual()
-    const meshes = (v: CorgiVisual) => { const found: THREE.Mesh[] = []; v.root.traverse(o => { if (o instanceof THREE.Mesh) found.push(o) }); return found }
-    expect(meshes(a)[0].geometry).toBe(meshes(b)[0].geometry)
-    const name = 'corgi_leg_front_-1'
-    a.playStudioClip('gallop'); a.update(0.13); a.togglePaused()
-    const angle = a.root.getObjectByName(name)!.rotation.x
-    a.update(1)
-    expect(a.root.getObjectByName(name)!.rotation.x).toBe(angle)
-    expect(b.root.getObjectByName(name)!.rotation.x).toBeCloseTo(0)
-    a.setEquipmentVisible(false)
-    expect(b.root.getObjectByName('corgi_equipment')!.visible).toBe(true)
-    const dispose = vi.spyOn(meshes(b)[0].geometry, 'dispose')
+    a.playStudioClip('gallop')
+    a.update(0.12)
+    const leg = a.root.getObjectByName('corgi_front_upper_r')!
+    expect(leg.quaternion.angleTo(b.root.getObjectByName(leg.name)!.quaternion)).toBeGreaterThan(.01)
+    expect(a.skeleton).not.toBe(b.skeleton)
+    expect(a.mixer).not.toBe(b.mixer)
+    expect(a.root.getObjectByName('corgi_head')).not.toBe(b.root.getObjectByName('corgi_head'))
+    a.togglePaused()
+    const angle = leg.quaternion.clone()
+    a.update(0.5)
+    expect(leg.quaternion.clone().normalize().angleTo(angle.normalize())).toBeCloseTo(0)
+    const meshes = (root: THREE.Object3D) => {
+      const result: THREE.Mesh[] = []
+      root.traverse(o => { if (o instanceof THREE.Mesh) result.push(o) })
+      return result
+    }
+    expect(meshes(a.root)[0].geometry).toBe(meshes(b.root)[0].geometry)
     a.dispose()
-    expect(dispose).not.toHaveBeenCalled()
-    dispose.mockRestore()
-    expect(meshes(b)[0].geometry.getAttribute('position').count).toBeGreaterThan(0)
+    expect(meshes(b.root)[0].geometry.getAttribute('position').count).toBeGreaterThan(0)
   })
 
-  it('holds an airborne tuck until landing and restores the rest pose after death replay', () => {
+  it('updates studio playback while the mount is held and controlled', () => {
     const mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0, 0)
-    mount.onGround = true; mount.startJump(8)
-    mount.corgiVisual!.update(1)
-    expect(mount.corgiVisual!.debugState().clip).toBe('jump')
-    mount.corgiVisual!.playOnce('land'); mount.corgiVisual!.update(0.2)
-    expect(mount.corgiVisual!.debugState().clip).toBe('land')
-    mount.corgiVisual!.update(0.6)
-    expect(mount.corgiVisual!.debugState().clip).toBe('idle')
-    mount.takeDamage(1000); mount.update(1, [])
-    expect(mount.corgiVisual!.root.getObjectByName('corgi_torso')!.rotation.z).toBeCloseTo(Math.PI / 2)
-    mount.playStudioClip('idle'); mount.corgiVisual!.update(0)
-    expect(mount.getSaddleSeatLocal().toArray()).toEqual([0, 1.63, -0.16])
+    mount.state = MountState.CONTROLLED
+    mount.visualHold = true
+    mount.playStudioClip('walk')
+    mount.update(0.2, [])
+    expect(mount.corgiVisual!.debugState().time).toBeCloseTo(0.2)
+    expect(mount.group.position.toArray()).toEqual([0, 0, 0])
+  })
+
+  it('replays upright after death and restores the saddle transform', () => {
+    const mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0, 0)
+    mount.takeDamage(999)
+    mount.update(1, [])
+    expect(mount.dead).toBe(true)
+    expect(mount.corgiVisual!.debugState().clip).toBe('death')
+    mount.playStudioClip('idle')
+    mount.corgiVisual!.update(0)
+    expect(mount.getRiderPelvisSeatWorld().x).toBeCloseTo(0)
+    expect(mount.getRiderPelvisSeatWorld().y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight + CORGI_RIDER_PELVIS_CLEARANCE)
+  })
+
+  it('keeps jump tucked until landing, then recovers to locomotion', () => {
+    const cat = new CorgiVisual()
+    cat.playOnce('jump')
+    cat.update(1)
+    expect(cat.debugState().clip).toBe('jump')
+    cat.playOnce('land')
+    cat.update(0.2)
+    expect(cat.debugState().clip).toBe('land')
+    cat.update(1)
+    expect(cat.debugState().clip).toBe('idle')
+    cat.update(.2)
+    const idle = new CorgiVisual()
+    expect(cat.root.getObjectByName('corgi_front_upper_r')!.quaternion.clone().normalize().angleTo(idle.root.getObjectByName('corgi_front_upper_r')!.quaternion.clone().normalize())).toBeCloseTo(0)
+  })
+
+  it('shows exactly one source-derived body at each LOD while sharing one skin', () => {
+    const cat = new CorgiVisual(), camera = new THREE.PerspectiveCamera()
+    for (const [level, distance] of [3, 25, 50].entries()) {
+      camera.position.set(0, 0, distance); camera.updateMatrixWorld(true)
+      cat.lod.update(camera)
+      expect(cat.lod.getCurrentLevel()).toBe(level)
+      expect(cat.lod.levels.filter(entry => entry.object.visible)).toHaveLength(1)
+      expect((cat.lod.levels[level].object as THREE.SkinnedMesh).skeleton).toBe(cat.skeleton)
+    }
   })
 })

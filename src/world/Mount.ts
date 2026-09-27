@@ -87,7 +87,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? 0
+    return this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? this.corgiVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -130,7 +130,8 @@ export class Mount {
       else {
         this.corgiVisual = new CorgiVisual()
         this.group.add(this.corgiVisual.root)
-        this.rideHeightOffset = this.corgiVisual.saddleSeat.position.y
+        this.corgiVisual.root.updateWorldMatrix(true, true)
+        this.rideHeightOffset = this.getSaddleSeatLocal().y
         this.ridePitch = 0
       }
     }

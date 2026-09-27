@@ -2213,6 +2213,12 @@ export class NPC {
     if (import.meta.env.DEV && collector) { collector.endPhase('mountRiderTransform', _tRiderTransform!) }
   }
 
+  /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
+  fitCorgiSeat(): void {
+    if (!this.mount?.corgiVisual || this.dead) return
+    this.mount.corgiVisual.fitRider(this.characterVisualGroup)
+  }
+
   private _alignExternalVisualToMount(mounted: boolean): void {
     if (this.externalPelvisHeight <= 0) return
     this.characterVisualGroup.position.y = mounted ? -this.externalPelvisHeight : 0
