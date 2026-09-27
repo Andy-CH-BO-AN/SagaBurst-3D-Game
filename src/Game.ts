@@ -822,7 +822,7 @@ export class Game {
     this.skillManager     = new SkillManager()
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout)
+    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,

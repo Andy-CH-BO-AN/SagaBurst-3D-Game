@@ -23,9 +23,20 @@ Compare source/rest, raw animation and the production mixer with equipment at th
 
 The reviewed source is `maki_archer.glb`, SHA-256 `de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601`. It has no original rig or animations. The measured sole-to-hood height is about 1.458 m. The builder's source hash guard protects its topology classification and landmarks; a different source requires a new audit.
 
-Maki preserves source idle, a neutral bow wrist, anatomical-left (+X) archery, thumb web upward and a drawing elbow level with its shoulder. This DEV stance does not change the game's +Z-forward contract. Production aiming must reconcile the authored shot axis before battle integration.
+Maki preserves source idle and the original side-on draw, including feet, neutral wrists, thumb web upward and a drawing elbow level with its shoulder. The bow clips turn the entire standing pose at the hips so the authored +X shot points along gameplay +Z. Do not replace that pose by re-solving both arms in front of the chest. `bowFullBodyStance` declares that standing pelvis heading belongs to the bow clip; only while moving or mounted does the equipment layer transfer the turn above the pelvis, preserving forward locomotion/riding legs. Verify standing, walking, stopping and riding separately, through the production controller and actual release direction. A preview using a special +X target can conceal this integration error.
+
+For a direction-only correction, compare the candidate against the accepted pose after removing the intended whole-body rotation. Meshes, skins, bind transforms, clothing shape, arm tracks, bow calibration and unrelated clips should remain unchanged. In Maki's implementation only the bow clips' hips rotation changes; rebuilding skinning or rotating wrists is outside that correction. `rig.pelvis` is the `socket_pelvis` attachment, so measure the actual `hips` bone (its parent) when checking the stance.
 
 Current equipment is the same T4 bow for ranged and melee. `axeAttack2H` names the reused animation, not an axe loadout. Keep the left-hand bow attachment and source idle; the right hand supports the bow handle during the strike. Read the [combat-animation skill](../../add-combat-animation/SKILL.md) for pose ownership and equipment reuse.
+
+### Maki in player setup and combat
+
+- In both Custom Battle and Campaign, selecting Ranger disables melee and shield controls. Display fixed bow melee / no shield without overwriting the saved choices for other characters; switching back restores those choices. Ranged and mount controls remain selectable.
+- `getHeroFixedEquipment` in `HeroAssetCatalog.ts` supplies the fixed equipment contract. `Game` passes the selected hero into `InventoryManager`, which enforces it at creation, save loading and equipment changes. Disabled UI alone must not leave a previously selected lance or shield active in combat. A Ranger-only melee bow from a save must not equip on another character whose bow asset was not preloaded.
+- Player bow melee uses the calibrated left-hand bow, `axeAttack2H`, and bow-derived grip/tip positions for contact. Preserve source idle and keep exactly the active melee or ranged visual visible through attack, aim, release and recovery. Rebuilding the character must reattach the melee bow to the new left-hand socket.
+- Validate the two setup flows, changing away from Ranger and back, actual starting inventory, and idle → melee → recovery → draw → release. Preview equipment does not establish Player integration; NPC equipment selection is a separate path.
+
+### Rebuild procedure
 
 Run from the repository root with Blender, Python/Pillow and Node available. Pass the reviewed source path explicitly when it is not in the user's Downloads folder:
 
@@ -49,4 +60,4 @@ Blender duplicate image exports have produced a corrupt PNG despite a valid head
 
 Use `?devhero=maki-t4&nolock`, LOD0 close views and fixed phases for idle, raising the bow, hold, release and melee acquisition/contact/recovery. Then repeat at every LOD. Check source idle recovery, both shoulders/sleeves, forearm volume, palm contact and weapon clearance. Preserve provenance in the manifest, attribution evidence and source audit; do not commit source downloads or ignored diagnostic screenshots.
 
-Maki's LOD1/2 currently retain hood/clothing intersections from independent mesh reduction. Passing hashes, triangle budgets, matching bone transforms or LOD0 visual checks does not make those lower LODs visually accepted. Keep this limitation and DEV-only integration status explicit until they are actually resolved.
+Maki's LOD1/2 currently retain hood/clothing intersections from independent mesh reduction. Passing hashes, triangle budgets, matching bone transforms or LOD0 visual checks does not make those lower LODs visually accepted. Keep this visual limitation explicit. Maki is selectable in gameplay; preview checks alone do not establish correct production aiming or mounted behavior.

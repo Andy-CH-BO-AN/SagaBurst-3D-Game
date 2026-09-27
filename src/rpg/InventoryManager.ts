@@ -4,6 +4,7 @@
  */
 import { WEAPONS, WeaponData } from './WeaponDatabase'
 import { ARMORS, ArmorData } from './ArmorDatabase'
+import { getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 export interface InventoryStack {
   id: string
@@ -29,12 +30,13 @@ export class InventoryManager {
   private equippedRangedId: string
   private equippedShieldId: string | null
 
-  constructor(initialLoadout?: InitialPlayerLoadout) {
-    const loadout = initialLoadout ?? LEGACY_LOADOUT
+  constructor(initialLoadout?: InitialPlayerLoadout, private readonly heroId?: PlayerHeroId | null) {
+    const fixed = getHeroFixedEquipment(heroId)
+    const loadout = { ...(initialLoadout ?? LEGACY_LOADOUT), ...fixed }
     this.equippedMeleeId = loadout.meleeWeaponId
     this.equippedRangedId = loadout.rangedWeaponId
     this.equippedShieldId = loadout.shieldId
-    this.items = initialLoadout
+    this.items = initialLoadout || fixed
       ? [
           { id: loadout.meleeWeaponId, quantity: 1 },
           { id: loadout.rangedWeaponId, quantity: 1 },
@@ -85,7 +87,11 @@ export class InventoryManager {
       this.items = state.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
     }
 
-    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]) {
+    const fixed = getHeroFixedEquipment(this.heroId)
+    // A save from Ranger must not equip its asset-only bow on another character.
+    if (!fixed) this.items = this.items.filter(item => item.id !== 'maki-ranger-bow')
+    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]
+      && (fixed || state.equippedMeleeId !== 'maki-ranger-bow')) {
       this.equippedMeleeId = state.equippedMeleeId
     }
     if (state.equippedRangedId && WEAPONS[state.equippedRangedId]) {
@@ -95,6 +101,11 @@ export class InventoryManager {
       this.equippedShieldId = state.equippedShieldId
     } else if (state.equippedShieldId === null) {
       this.equippedShieldId = null
+    }
+    if (fixed) {
+      this.equippedMeleeId = fixed.meleeWeaponId
+      this.equippedShieldId = fixed.shieldId
+      if (!this.items.some(item => item.id === fixed.meleeWeaponId)) this.addWeapon(fixed.meleeWeaponId)
     }
   }
 
@@ -115,6 +126,7 @@ export class InventoryManager {
     const weapon = WEAPONS[id]
     const armor = ARMORS[id]
     if (!weapon && !armor) return false
+    if (getHeroFixedEquipment(this.heroId) && (weapon?.type === 'melee' || armor?.type === 'shield')) return false
     const hasItem = this.items.some(item => item.id === id)
     if (!hasItem) return false
 

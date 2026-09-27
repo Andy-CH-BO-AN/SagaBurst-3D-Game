@@ -10,7 +10,7 @@ _Last updated: 2026-09-28（source corgi worktree）_
 
 - 柯基來源替換（`codex/corgi-source-mount`，未合併）：採用 leijiaoshou 的 CC BY 4.0 `corgi dog`，保留來源網格與貼圖；獨立骨架／mixer、三層 LOD、九個動作。使用貼背薄坐墊，已移除長方體座架。`?devmodels=corgi&rider=roman-t2|roman-t4|maki-t4&nolock` 可切換驗收騎士；坐墊表面貼合共用於預覽及既有 Player／NPC；依新模型收窄髖部展開，膝踝貼合身側，Maki 另依腿長調整。騎乘揮擊固定骨盆並把轉身留給上胸，避免腿隨步戰攻擊扭入坐騎。已與 main 的 T4 英雄正式兵種整合接軌，預覽沿用共用 HeroAssetCatalog。
 
-- Maki DEV 資產（`?devhero=maki-t4&nolock`）：保留來源持弓 idle，遠程朝角色左側（+X）；bowLoad／bowRelease 與近戰預覽的 normalized time 已修正。依最新決定，近戰仍持同一把 T4 弓，使用重定向的 `axeAttack2H`，不換斧頭、不使用斧頭 idle；左手固定弓 attachment，右手在揮擊區間扶弓柄，起手／收招回來源 idle。Maki 已烘焙握點，runtime 不再疊加通用長斧握柄 IK。袖身分支權重、局部左 deltoid 與雙側分段前臂骨共 40 bones。**Phase 1 尚未整體驗收：LOD1/2 仍有既有兜帽／服裝交穿與破面；目前仍為 DEV 資產，尚未接入正式兵種／戰鬥。** 重建依序為 builder → textures（同名／同解析度貼圖僅編碼一次）→ 保存 clean GLB → retarget → audit。
+- Maki（正式 T4 英雄及 `?devhero=maki-t4&nolock` 預覽）：保留來源持弓 idle 及完整側身拉弓姿勢，站定時連雙腳整體轉向，使射擊朝遊戲正前方（+Z）；走路與騎乘才把轉身移至上半身，讓雙腿遵循移動／騎姿；bowLoad／bowRelease 與近戰預覽的 normalized time 已修正。依最新決定，近戰仍持同一把 T4 弓，使用重定向的 `axeAttack2H`，不換斧頭、不使用斧頭 idle；左手固定弓 attachment，右手在揮擊區間扶弓柄，起手／收招回來源 idle。玩家選遊俠時，自訂戰鬥／戰役停用近戰與盾牌選擇，進場及讀檔固定弓近戰、無盾；切回其他角色保留原裝備選擇。Maki 已烘焙握點，runtime 不再疊加通用長斧握柄 IK。袖身分支權重、局部左 deltoid 與雙側分段前臂骨共 40 bones。**Phase 1 尚未整體驗收：LOD1/2 仍有既有兜帽／服裝交穿與破面；已接入正式兵種／戰鬥。** 重建依序為 builder → textures（同名／同解析度貼圖僅編碼一次）→ 保存 clean GLB → retarget → audit。
 
 - Current main 已包含 PR #27 的 NPC 弓 material-group consolidation；其正式 Before baseline 為 `9c10299`（PR #26）。下列 #19–#23 數字僅為歷史背景，不可直接當作目前場景的 Before。
 - Phases 0–23 are implemented. Current work is focused on making large 100v100 battles cheaper without changing gameplay semantics or broadly degrading visual quality.

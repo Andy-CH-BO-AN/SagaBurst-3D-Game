@@ -1485,3 +1485,11 @@
     justify-content: space-between;
   }
 }
+
+/* Hero-owned equipment cannot be changed in either setup flow. */
+.loadout-card:disabled,
+.campaign-loadout-field select:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.loadout-card:disabled:hover { transform: none; border-color: #51402d; background: #211a13; }

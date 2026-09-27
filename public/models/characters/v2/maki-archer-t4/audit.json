@@ -4,7 +4,7 @@
   "levels": [
     {
       "lod": 0,
-      "sha256": "c806e95852661493fd1f579f3a69204fa4d9fa3fb3da30b5b668bb34f537dec7",
+      "sha256": "258dbe4286eee631e043b10476c597e9c9496e799e5596c67c162ffba3035f43",
       "bytes": 21698188,
       "triangles": 59986,
       "vertices": 38482,
@@ -15,13 +15,13 @@
       "maxBowLoadFrameStep": 0.18627210757636306,
       "maxIdleRestDeviationRadians": 5.16191365590357e-8,
       "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933262927396,
+      "minHoldThumbUp": 0.9677933394721108,
       "earlyElbowRise": [
-        0.05002995317430381,
-        0.04532738364308664
+        0.050029953426684814,
+        0.045327383697156054
       ],
-      "minRightShoulderLift": 0.02142552280286658,
-      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "minRightShoulderLift": 0.021425522723304224,
+      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
       "textures": [
         {
           "name": "Image_30",
@@ -314,21 +314,21 @@
         },
         {
           "name": "bowLoad",
-          "minY": 0.0030000113794965704,
-          "maxY": 1.4608480160132005,
-          "maxExtent": 1.804638870158808
+          "minY": 0.0030000112204771564,
+          "maxY": 1.460848016171343,
+          "maxExtent": 1.8046389096573008
         },
         {
           "name": "bowHold",
-          "minY": 0.0030000113794965704,
-          "maxY": 1.4608480155965229,
-          "maxExtent": 1.7995674992993225
+          "minY": 0.003000011291445442,
+          "maxY": 1.4608480157426629,
+          "maxExtent": 1.799567544324997
         },
         {
           "name": "bowRelease",
-          "minY": 0.0030000113794965704,
-          "maxY": 1.4608480155965229,
-          "maxExtent": 1.8039520621221508
+          "minY": 0.003000011291445442,
+          "maxY": 1.4608480157426629,
+          "maxExtent": 1.8039521058947527
         },
         {
           "name": "axeAttack2H",
@@ -346,7 +346,7 @@
     },
     {
       "lod": 1,
-      "sha256": "522140107c0fdbcc219d433abe6ffccabc4aa5daf06c5c743ae6d38d11aa9f89",
+      "sha256": "0a3f443c2f8643a3e94226d3332807d987ad201617dde1ef684305ce1e6f9418",
       "bytes": 20082900,
       "triangles": 19988,
       "vertices": 14051,
@@ -357,13 +357,13 @@
       "maxBowLoadFrameStep": 0.18627210757636306,
       "maxIdleRestDeviationRadians": 5.16191365590357e-8,
       "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933262927396,
+      "minHoldThumbUp": 0.9677933394721108,
       "earlyElbowRise": [
-        0.05002995317430381,
-        0.04532738364308664
+        0.050029953426684814,
+        0.045327383697156054
       ],
-      "minRightShoulderLift": 0.02142552280286658,
-      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "minRightShoulderLift": 0.021425522723304224,
+      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
       "textures": [
         {
           "name": "Image_30",
@@ -656,21 +656,21 @@
         },
         {
           "name": "bowLoad",
-          "minY": 0.0030000119714372383,
-          "maxY": 1.4619864652898225,
-          "maxExtent": 1.8050457640116733
+          "minY": 0.003000011814369766,
+          "maxY": 1.46198646547668,
+          "maxExtent": 1.805045803203965
         },
         {
           "name": "bowHold",
-          "minY": 0.0030000119714372383,
-          "maxY": 1.4619864648409648,
-          "maxExtent": 1.7996310896071392
+          "minY": 0.0030000118853291146,
+          "maxY": 1.4619864649814889,
+          "maxExtent": 1.7996311343270939
         },
         {
           "name": "bowRelease",
-          "minY": 0.0030000119714372383,
-          "maxY": 1.4619864648409648,
-          "maxExtent": 1.8030482853251326
+          "minY": 0.0030000118853291146,
+          "maxY": 1.4619864649814889,
+          "maxExtent": 1.803048328339756
         },
         {
           "name": "axeAttack2H",
@@ -688,7 +688,7 @@
     },
     {
       "lod": 2,
-      "sha256": "3d0133ad3ab0cd4b72d33b4ed815cb9f6f02f3c0d9a57648ab67f7bfa10b2c76",
+      "sha256": "e50471d08a4c83772434f28663543eb62239e8ae1152f2b0ebb9598d3268ed6b",
       "bytes": 5667756,
       "triangles": 5988,
       "vertices": 4937,
@@ -699,13 +699,13 @@
       "maxBowLoadFrameStep": 0.18627210757636306,
       "maxIdleRestDeviationRadians": 5.16191365590357e-8,
       "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933262927396,
+      "minHoldThumbUp": 0.9677933394721108,
       "earlyElbowRise": [
-        0.05002995317430381,
-        0.04532738364308664
+        0.050029953426684814,
+        0.045327383697156054
       ],
-      "minRightShoulderLift": 0.02142552280286658,
-      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "minRightShoulderLift": 0.021425522723304224,
+      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
       "textures": [
         {
           "name": "Image_30",
@@ -998,21 +998,21 @@
         },
         {
           "name": "bowLoad",
-          "minY": 0.0030000079144991386,
-          "maxY": 1.459259434236415,
-          "maxExtent": 1.8014922098437374
+          "minY": 0.0030000077797819966,
+          "maxY": 1.4592594344693772,
+          "maxExtent": 1.8014922485937932
         },
         {
           "name": "bowHold",
-          "minY": 0.0030000079144991386,
-          "maxY": 1.4592594337473739,
-          "maxExtent": 1.7976041919767571
+          "minY": 0.0030000078583975113,
+          "maxY": 1.4592594338706193,
+          "maxExtent": 1.7976042365786788
         },
         {
           "name": "bowRelease",
-          "minY": 0.0030000079144991386,
-          "maxY": 1.4592594337473739,
-          "maxExtent": 1.8026247976801
+          "minY": 0.0030000078583975113,
+          "maxY": 1.4592594338706193,
+          "maxExtent": 1.8026248415659984
         },
         {
           "name": "axeAttack2H",

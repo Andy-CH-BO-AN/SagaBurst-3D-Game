@@ -27,11 +27,12 @@ The axe implementation is a worked example, not a universal timing or rig templa
 
 ## Connect gameplay and equipment
 
-- Distinguish the animation's source weapon from the equipped weapon. Reusing an axe take for bow melee does not authorize swapping in an axe, replacing the user's idle, or applying a long-haft grip solver to a bow. Fit contacts and clearance to the actual visible weapon. For Maki's static-source rig and rebuild, read [posed-source characters](../humanoid-rig-skinning/references/posed-source-characters.md).
+- Distinguish the animation's source weapon from the equipped weapon. Reusing an axe take for bow melee does not authorize swapping in an axe, replacing the user's idle, or applying a long-haft grip solver to a bow. Fit contacts and clearance to the actual visible weapon. For Maki's static-source rig, full-body bow stance, fixed Player equipment and rebuild, read [posed-source characters](../humanoid-rig-skinning/references/posed-source-characters.md).
 - Give a new attack family its own action identifier when it must not change an existing family. Trace selection through both Player and NPC entry points, including charge, defense, mount, and loadout transitions.
 - Select the attack at attack start from actual runtime equipment (for example, whether the shield is equipped), not a unit preset name or the presence of a hidden preview mesh. Freeze the selected action for that attack; the next attack must reflect newly equipped state.
 - Keep one owner for the melee hit event. Measure the actual weapon contact frame after retargeting and pose corrections, then configure a separate hit time per action. For uniformly remapped source frames, use `(contactFrame - firstFrame) / (lastFrame - firstFrame) * actionDuration`.
 - Prove exactly one event under normal stepping, a step crossing the hit threshold, zero time, distant animation throttling, cancellation, and recovery. Keep existing speed modifiers consistent with the action clock.
+- For an accepted side-on bow pose that shoots along the wrong model axis, preserve its limb arrangement and correct the authored pose heading. Define standing pelvis/feet ownership separately from moving and mounted legs; verify standing → walking → stopping as well as release at multiple actor headings. A forward-flying projectile alone does not prove the body and bow point along it.
 - Restore the current idle/walk/run/mounted locomotion and weapon attachment after completion or cancellation. Synchronize action time across LOD changes; a distant or newly visible LOD must not restart the attack.
 
 ## Make the pose physically readable

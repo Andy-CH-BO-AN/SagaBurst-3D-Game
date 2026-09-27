@@ -112,7 +112,7 @@ export class CharacterCombatAnimator {
         : 1
     this.locomotion = state
     this.locomotionTimeScale = timeScale
-    this.rig.animation?.setEquipmentState?.({ mounted })
+    this.rig.animation?.setEquipmentState?.({ mounted, moving: speed > 0.1 })
     if (this.busy && this.action !== 'bowRelease' && this.action !== 'lanceThrust' && this.action !== 'mountedLance') return
     if (this.action === 'bowAim' || this.action === 'bowRelease') {
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)

@@ -23,3 +23,10 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
 export function isHeroAssetId(value: unknown): value is HeroAssetId {
   return typeof value === 'string' && (HERO_ASSET_IDS as readonly string[]).includes(value)
 }
+
+/** Ranger's bow doubles as its melee weapon; setup choices remain saved for other heroes. */
+export function getHeroFixedEquipment(heroId?: PlayerHeroId | null) {
+  return heroId === 'maki-archer-t4'
+    ? { meleeWeaponId: 'maki-ranger-bow', shieldId: null } as const
+    : null
+}

@@ -81,6 +81,8 @@ export interface HumanoidAssetManifest {
   handShapeMode?: 'authored'
   /** These clips already contain asset-specific equipment contact constraints. */
   bakedEquipmentActions?: string[]
+  /** Authored standing bow pose turns the whole body; locomotion owns moving/mounted legs. */
+  bowFullBodyStance?: boolean
   animations?: {
     embedded: HumanoidAnimationBinding[]
     runtimeGenerated: HumanoidAnimationState[]
@@ -925,7 +927,7 @@ export class HumanoidAssetRegistry {
     }
     for (const [index, level] of lod.levels.entries()) {
       const frames = level.object.userData.equipmentGripFrames as EquipmentGripFrames | undefined
-      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames, template.manifest.bakedEquipmentActions)
+      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance)
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
     animation.onPoseEvaluated()

@@ -5,6 +5,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { HumanoidAssetRegistry, validateHumanoidManifest } from '../src/world/HumanoidAssetRegistry'
 import { MAKI_HERO, MAKI_FALLBACK, resolveMakiEquipmentMode } from '../src/world/MakiRangerEquipment'
 import { HumanoidStudioPlayback } from '../src/debug/HumanoidStudioPlayback'
+import { CharacterCombatAnimator } from '../src/world/CharacterCombatAnimator'
+import { CharacterBowVisual } from '../src/world/CharacterBowVisual'
 // @ts-expect-error Repository GLB tools are JavaScript.
 import { readGlb, loadRig } from '../tools/lib/humanoid-glb.mjs'
 const directory = 'public/models/characters/v2/maki-archer-t4'
@@ -40,8 +42,9 @@ describe('Maki hero asset integration', () => {
         mixer.setTime(.3)
         asset.scene.updateMatrixWorld(true)
         jacket.skeleton.update()
-        const hips = asset.scene.getObjectByName('hips')!.getWorldPosition(new THREE.Vector3())
-        return panel.map(i => jacket.getVertexPosition(i, new THREE.Vector3()).applyMatrix4(jacket.matrixWorld).sub(hips))
+        const hips = asset.scene.getObjectByName('hips')!
+        // Compare in the pelvis frame: the whole standing stance now turns.
+        return panel.map(i => hips.worldToLocal(jacket.getVertexPosition(i, new THREE.Vector3()).applyMatrix4(jacket.matrixWorld)))
       }
       const idle = relativePanel('idle')
       const hold = relativePanel('bowHold')
@@ -49,7 +52,7 @@ describe('Maki hero asset integration', () => {
     }
   })
 
-  it('aims the bow and gaze along the shoulder line toward the anatomical left', async () => {
+  it('preserves the side-on draw along the shoulder line while aiming gameplay forward', async () => {
     const asset = await loadRig(readGlb(`${directory}/lod0.glb`))
     const point = (name: string) => asset.scene.getObjectByName(name)!.getWorldPosition(new THREE.Vector3())
     const head = asset.scene.getObjectByName('head')!
@@ -62,11 +65,82 @@ describe('Maki hero asset integration', () => {
     const shoulders = point('upper_arm_l').sub(point('upper_arm_r')).normalize()
     const gaze = new THREE.Vector3(Math.sin(.65), 0, Math.cos(.65))
       .applyQuaternion(head.getWorldQuaternion(new THREE.Quaternion()).multiply(restHead.invert()))
-    expect(shot.x).toBeGreaterThan(.98)
+    expect(shot.z).toBeGreaterThan(.99)
     expect(shot.dot(shoulders)).toBeGreaterThan(.97)
     expect(gaze.dot(shot)).toBeGreaterThan(.97)
-    expect(point('lower_arm_r').x).toBeLessThan(point('hand_r').x)
+    expect(point('lower_arm_r').z).toBeLessThan(point('hand_r').z)
     expect(Math.abs(point('lower_arm_r').y - point('upper_arm_r').y)).toBeLessThan(.001)
+  })
+
+  it('keeps the side-on pose aligned with release on foot and all mounts at multiple headings', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+    const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
+    try {
+      await HumanoidAssetRegistry.preloadAsset(MAKI_HERO)
+      const actor = HumanoidAssetRegistry.createCharacterInstance({ faction: 'viking', tier: 2, isPlayer: true }, MAKI_HERO.assetId)
+      const pivot = new THREE.Group(), grip = new THREE.Group()
+      pivot.add(grip); actor.rig.left.handSocket.add(pivot)
+      const metadata = JSON.parse(readFileSync('public/models/weapons/maki-ranger-bow/attachment.json', 'utf8'))
+      const bowAsset = await loadRig(readGlb('public/models/weapons/maki-ranger-bow/bow.glb'))
+      const bow = new CharacterBowVisual(pivot, grip)
+      bow.rebuildFromAsset(bowAsset.scene, { ...metadata, visualScale: 1,
+        gripCenterLocal: new THREE.Vector3(...metadata.gripCenterLocal), shootingAxis: new THREE.Vector3(0, 0, -1),
+        longitudinalAxis: new THREE.Vector3(...metadata.longitudinalAxis), contactNormal: new THREE.Vector3(...metadata.contactNormal),
+      }, new THREE.Vector3(...metadata.topTip), new THREE.Vector3(...metadata.bottomTip))
+      const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
+      const lod = actor.root.children.find(o => o instanceof THREE.LOD) as THREE.LOD
+      const hips = actor.root.getObjectByName('hips')!
+      const hipsRest = hips.getWorldQuaternion(new THREE.Quaternion()).invert()
+      const feet = [actor.rig.leftLeg.ankle, actor.rig.rightLeg.ankle].map(bone => ({ bone, rest: bone.getWorldQuaternion(new THREE.Quaternion()) }))
+      const checkShot = (locomotionOwnsLegs: boolean) => {
+        actor.root.updateMatrixWorld(true)
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(actor.root.quaternion)
+        const pelvisDelta = actor.root.quaternion.clone().invert().multiply(hips.getWorldQuaternion(new THREE.Quaternion())).multiply(hipsRest)
+        const pelvisForward = new THREE.Vector3(0, 0, 1).applyQuaternion(pelvisDelta)
+        expect(pelvisForward.dot(new THREE.Vector3(locomotionOwnsLegs ? 0 : -1, 0, locomotionOwnsLegs ? 1 : 0))).toBeGreaterThan(.99)
+        if (!locomotionOwnsLegs) for (const { bone, rest } of feet) {
+          const local = actor.root.quaternion.clone().invert().multiply(bone.getWorldQuaternion(new THREE.Quaternion()))
+          expect(local.angleTo(pelvisDelta.clone().multiply(rest))).toBeLessThan(.001)
+        }
+        const target = new THREE.Vector3(0, 1.25, 20).applyMatrix4(actor.root.matrixWorld)
+        bow.update(1, target, true)
+        const origin = new THREE.Vector3(), direction = new THREE.Vector3()
+        bow.writeLaunch(origin, direction, target)
+        expect(direction.dot(forward)).toBeGreaterThan(.999)
+        expect(new THREE.Vector3(0, 0, -1).applyQuaternion(pivot.getWorldQuaternion(new THREE.Quaternion())).dot(forward)).toBeGreaterThan(.99)
+        for (const level of lod.levels) {
+          const point = (name: string) => level.object.getObjectByName(name)!.getWorldPosition(new THREE.Vector3())
+          const shot = point('bow_arrow_rest').sub(point('bow_string_contact')).normalize()
+          const shoulders = point('upper_arm_l').sub(point('upper_arm_r')).normalize()
+          // Forward shots must retain the original sideways torso/arm layout.
+          // Re-solving both arms in front of the chest would fail this check.
+          expect(shot.dot(shoulders)).toBeGreaterThan(.97)
+          expect(shot.dot(direction)).toBeGreaterThan(.99)
+        }
+      }
+      for (const heading of [0, .8, -1.7]) for (const [mount, speed] of [[null, 0], [null, 2], [null, 4], ['HORSE', 0], ['BLACK_CAT', 0], ['CORGI', 0]] as const) {
+        actor.root.rotation.y = heading
+        animator.cancel()
+        animator.setEquipment(false, false, mount ?? 'HORSE')
+        animator.setLocomotion(speed, mount !== null, speed > 3)
+        animator.poseBow(1)
+        animator.update(.2)
+        checkShot(mount !== null || speed > 0)
+        if (speed > 0) {
+          animator.setLocomotion(0, false)
+          animator.update(.2)
+          checkShot(false)
+          animator.setLocomotion(speed, false, speed > 3)
+          animator.update(.2)
+        }
+        expect(animator.start('bowRelease')).toBe(true)
+        expect(animator.update(.04).projectileRelease).toBe(true)
+        checkShot(mount !== null || speed > 0)
+        expect(animator.update(.02).projectileRelease).toBe(false)
+        animator.update(.3)
+      }
+      actor.dispose()
+    } finally { fetchMock.mockRestore(); loader.mockRestore() }
   })
 
   it('preserves the bow forearm thickness while pronating the thumb upward', async () => {
