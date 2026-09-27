@@ -87,7 +87,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.horseVisual?.lod.getCurrentLevel() ?? 0
+    return this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -123,7 +123,8 @@ export class Mount {
       if (type === MountType.BLACK_CAT) {
         this.catVisual = new BlackCatVisual()
         this.group.add(this.catVisual.root)
-        this.rideHeightOffset = this.catVisual.saddleSeat.position.y
+        this.catVisual.root.updateWorldMatrix(true, true)
+        this.rideHeightOffset = this.catVisual.root.worldToLocal(this.catVisual.saddleSeat.getWorldPosition(new THREE.Vector3())).y
         this.ridePitch = 0
       }
       else {

@@ -1,17 +1,22 @@
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { installBlackCatTestAsset } from './helpers/blackCatAsset'
 import { BlackCatVisual } from '../src/world/BlackCatVisual'
 import { Mount, MountState, MountType, mountTypeFromSave } from '../src/world/Mount'
 
 describe('reference black cat mount', () => {
-  it('keeps all four paws on the same ground plane after the feline hock adjustment', () => {
+  beforeAll(installBlackCatTestAsset)
+
+  it('keeps the source paws on the ground with normalized skin weights', () => {
     const cat = new BlackCatVisual()
     cat.root.updateMatrixWorld(true)
-    for (const end of ['front', 'rear']) for (const side of [-1, 1]) {
-      const foot = cat.root.getObjectByName(`cat_leg_${end}_${side}_foot`)!
-      const bounds = new THREE.Box3().setFromObject(foot)
-      expect(bounds.min.y).toBeGreaterThan(-0.035)
-      expect(bounds.min.y).toBeLessThan(0.025)
+    const mesh = cat.root.getObjectByName('cat_body_lod0') as THREE.SkinnedMesh
+    const bounds = new THREE.Box3().setFromObject(mesh)
+    expect(bounds.min.y).toBeGreaterThan(-0.005)
+    expect(bounds.min.y).toBeLessThan(0.025)
+    const weights = mesh.geometry.getAttribute('skinWeight')
+    for (let i = 0; i < weights.count; i++) {
+      expect(weights.getX(i) + weights.getY(i) + weights.getZ(i) + weights.getW(i)).toBeCloseTo(1, 4)
     }
   }, 15000)
 
@@ -31,13 +36,15 @@ describe('reference black cat mount', () => {
     const a = new BlackCatVisual(), b = new BlackCatVisual()
     a.playStudioClip('gallop')
     a.update(0.12)
-    const leg = a.root.getObjectByName('cat_leg_front_-1')!
-    expect(leg.rotation.x).not.toBe(0)
-    expect(b.root.getObjectByName(leg.name)!.rotation.x).toBeCloseTo(0)
+    const leg = a.root.getObjectByName('cat_front_upper_r')!
+    expect(leg.quaternion.angleTo(b.root.getObjectByName(leg.name)!.quaternion)).toBeGreaterThan(.01)
+    expect(a.skeleton).not.toBe(b.skeleton)
+    expect(a.mixer).not.toBe(b.mixer)
+    expect(a.root.getObjectByName('cat_head')).not.toBe(b.root.getObjectByName('cat_head'))
     a.togglePaused()
-    const angle = leg.rotation.x
+    const angle = leg.quaternion.clone()
     a.update(0.5)
-    expect(leg.rotation.x).toBe(angle)
+    expect(leg.quaternion.angleTo(angle)).toBeCloseTo(0)
     const meshes = (root: THREE.Object3D) => {
       const result: THREE.Mesh[] = []
       root.traverse(o => { if (o instanceof THREE.Mesh) result.push(o) })
@@ -80,6 +87,19 @@ describe('reference black cat mount', () => {
     expect(cat.debugState().clip).toBe('land')
     cat.update(1)
     expect(cat.debugState().clip).toBe('idle')
-    expect(cat.root.getObjectByName('cat_leg_front_-1')!.rotation.x).toBe(0)
+    cat.update(.2)
+    const idle = new BlackCatVisual()
+    expect(cat.root.getObjectByName('cat_front_upper_r')!.quaternion.angleTo(idle.root.getObjectByName('cat_front_upper_r')!.quaternion)).toBeCloseTo(0)
+  })
+
+  it('shows exactly one source-derived body at each LOD while sharing one skin', () => {
+    const cat = new BlackCatVisual(), camera = new THREE.PerspectiveCamera()
+    for (const [level, distance] of [3, 25, 50].entries()) {
+      camera.position.set(0, 0, distance); camera.updateMatrixWorld(true)
+      cat.lod.update(camera)
+      expect(cat.lod.getCurrentLevel()).toBe(level)
+      expect(cat.lod.levels.filter(entry => entry.object.visible)).toHaveLength(1)
+      expect((cat.lod.levels[level].object as THREE.SkinnedMesh).skeleton).toBe(cat.skeleton)
+    }
   })
 })

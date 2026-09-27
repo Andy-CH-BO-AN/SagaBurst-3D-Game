@@ -5,6 +5,8 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { BlackCatVisual } from './world/BlackCatVisual'
+import { MountStudioSeatContact } from './debug/MountStudioSeatContact'
 import {
   createSky,
   getDirectionalShadowMapSize,
@@ -308,12 +310,12 @@ export class Game {
         return new GameplayBowQAPanel(renderer)
       }
       if (legacyQa) {
-        await HorseAssetRegistry.preload(renderer)
+        await Promise.all([HorseAssetRegistry.preload(renderer), BlackCatVisual.preload()])
         const game = new Game(renderer, battleConfig, campaignConfig)
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         return game
       }
-      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer)])
+      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload()])
       const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       return game
@@ -416,6 +418,7 @@ export class Game {
   private mountStudioHorse: Mount | null = null
   private mountStudioRider: HumanoidCharacterInstance | null = null
   private mountStudioRiderPelvisHeight = 0
+  private mountStudioSeatContacts = new WeakMap<HumanoidCharacterInstance, MountStudioSeatContact>()
   private mountStudioSkeleton: THREE.SkeletonHelper | null = null
   private mountStudioStatus: HTMLElement | null = null
   private devCombatStatus: HTMLElement | null = null
@@ -1100,6 +1103,9 @@ export class Game {
       if (isProcedural && !isCorgi) rider.root.visible = false
       this.mountStudioRider = rider
       this.mountStudioRiderPelvisHeight = pelvisHeight
+      if (isCat) this.mountStudioSeatContacts.set(rider, new MountStudioSeatContact(
+        rider.root, mount.group, mount.catVisual!.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh,
+      ))
     }
 
     let riderWeaponButton: HTMLButtonElement | null = null
@@ -1149,13 +1155,84 @@ export class Game {
         riderWeaponButton.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
         riderWeaponButton.onclick = cycleRiderWeapon
         toolbar.appendChild(riderWeaponButton)
+      }
+      {
         let equipped = true
         const armor = document.createElement('button'); armor.textContent = '護甲：開'
         armor.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
-        armor.onclick = () => { equipped = !equipped; mount.corgiVisual!.setEquipmentVisible(equipped); armor.textContent = `護甲：${equipped ? '開' : '關'}` }
+        armor.onclick = () => { equipped = !equipped; (mount.catVisual ?? mount.corgiVisual)!.setEquipmentVisible(equipped); armor.textContent = `護甲：${equipped ? '開' : '關'}` }
         toolbar.appendChild(armor)
       }
       document.body.appendChild(toolbar)
+      if (isCat && this.mountStudioRider) {
+        const riders = new Map<string, { rider: HumanoidCharacterInstance; pelvisHeight: number }>([
+          ['viking-t2', { rider: this.mountStudioRider, pelvisHeight: this.mountStudioRiderPelvisHeight }],
+        ])
+        const picker = document.createElement('label')
+        picker.style.cssText = 'position:fixed;top:110px;right:32px;z-index:40;padding:10px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;font:14px system-ui'
+        picker.textContent = '騎士：'
+        const select = document.createElement('select')
+        select.setAttribute('aria-label', '黑貓騎士')
+        select.style.cssText = 'background:#282522;color:#e6d7bb;border:0;font:inherit;padding:4px'
+        for (const [value, label] of [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Maki']]) {
+          select.add(new Option(label, value))
+        }
+        const feedback = document.createElement('span')
+        feedback.setAttribute('role', 'status')
+        picker.append(select, feedback)
+        document.body.appendChild(picker)
+        const changeRider = async () => {
+          const key = select.value
+          select.disabled = true
+          feedback.textContent = ' 載入中…'
+          try {
+            if (!riders.has(key)) {
+              const { VIKING_HERO } = await import('./debug/VikingHeroPreview')
+              const { MAKI_HERO, MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
+              const maki = key === 'maki-t4'
+              const descriptor = maki ? MAKI_HERO : VIKING_HERO
+              await HumanoidAssetRegistry.preloadAsset(descriptor)
+              const bowAssets = maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined
+              const rider = HumanoidAssetRegistry.createCharacterInstance({ faction: 'viking', tier: 2, isPlayer: false }, descriptor.assetId)
+              const playback = new HumanoidStudioPlayback(rider, 'mounted', 'viking', mount.type, bowAssets)
+              playback.setEquipmentLoadout(maki ? 'bow' : 'axe', !maki)
+              playback.sampleEquipment(0, true)
+              rider.root.updateWorldMatrix(true, true)
+              const pelvisHeight = rider.root.worldToLocal(rider.rig.pelvis!.getWorldPosition(new THREE.Vector3())).y
+              rider.root.rotation.x = mount.ridePitch
+              mount.group.add(rider.root)
+              this.humanoidStudioPlayback.set(rider, playback)
+              riders.set(key, { rider, pelvisHeight })
+            }
+            const previous = this.mountStudioRider!
+            previous.root.visible = false
+            this.humanoidShowcase = this.humanoidShowcase.filter(rider => rider !== previous)
+            const selected = riders.get(key)!
+            this.mountStudioRider = selected.rider
+            this.mountStudioRiderPelvisHeight = selected.pelvisHeight
+            selected.rider.root.visible = true
+            this.humanoidShowcase.push(selected.rider)
+            this._updateMountStudioStatus()
+            if (!this.mountStudioSeatContacts.has(selected.rider)) {
+              this.mountStudioSeatContacts.set(selected.rider, new MountStudioSeatContact(
+                selected.rider.root, mount.group, mount.catVisual!.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh,
+              ))
+              this._updateMountStudioStatus()
+            }
+            const url = new URL(window.location.href)
+            url.searchParams.set('rider', key)
+            history.replaceState(null, '', url)
+            feedback.textContent = ''
+          } catch (error) {
+            feedback.textContent = ' 載入失敗，請重試'
+            console.error('Mount studio rider failed', error)
+          } finally { select.disabled = false }
+        }
+        select.onchange = () => { void changeRider() }
+        const requested = new URLSearchParams(window.location.search).get('rider')
+        select.value = requested === 'maki-t4' || requested === 'viking-t2' ? requested : 'viking-t4'
+        void changeRider()
+      }
     }
 
     window.addEventListener('keydown', (event) => {
@@ -1181,7 +1258,7 @@ export class Game {
         const playback = this.humanoidStudioPlayback.get(this.mountStudioRider)!
         if (event.code === 'KeyF') playback.attackEquipment()
         else if (event.code === 'KeyL') cycleRiderWeapon()
-        else playback.setEquipmentLoadout(playback.weapon, !playback.shield.visible)
+        else if (playback.weapon !== 'bow') playback.setEquipmentLoadout(playback.weapon, !playback.shield.visible)
       }
     })
   }
@@ -1195,6 +1272,7 @@ export class Game {
         seat.y - this.mountStudioRiderPelvisHeight,
         seat.z,
       )
+      this.mountStudioSeatContacts.get(this.mountStudioRider)?.align()
     }
     const state = this.mountStudioHorse.getHorseDebugState()
     if (!state) {
@@ -2571,12 +2649,13 @@ export class Game {
 
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 
+    // Seat the preview rider on this frame's animated saddle before drawing.
+    if (this.isMountStudio) this._updateMountStudioStatus()
+
     // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)
     if (profile) t0 = performance.now()
     this.renderer.render(this.scene, this.camera)
     const renderSubmitMs = profile ? performance.now() - t0 : 0
-
-    if (this.isMountStudio) this._updateMountStudioStatus()
 
     if (profile) {
       const frameEnd = performance.now()

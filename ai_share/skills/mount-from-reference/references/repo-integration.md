@@ -6,13 +6,14 @@
 
 | 檔案 | 應檢查的契約 |
 | --- | --- |
-| `src/world/BlackCatVisual.ts`、`src/world/CorgiVisual.ts` | 程序體表、毛、皮甲、鞍座、共享 template、各實例動畫節點 |
+| `src/world/BlackCatVisual.ts`、`src/world/CorgiVisual.ts` | 黑貓外部 GLB preload／LOD／獨立蒙皮實例；柯基程序體表與動畫節點 |
 | `src/world/Mount.ts` | MountType、存檔反序列化、visual 選擇、物理狀態、座位世界座標與朝向 |
 | `src/world/HorseAssetRegistry.ts` | 外部戰馬的資產／動畫實例與鞍座；不要改壞戰馬分支 |
 | `src/world/CharacterVisuals.ts` 及呼叫 mounted pose 的 animator | 種類對應的騎士姿勢、髖腿與裝備；搜尋 `MountedPoseKind`、`mountKind` |
 | `src/world/CharacterEquipmentPose.ts`、`src/world/CharacterCombatAnimator.ts` | 動畫後的姿勢層、掛點所有權、攻擊時間、取消與下馬還原；避免每幀累加修正 |
 | `src/world/EquipmentAttachmentContract.ts`、`src/world/SwordAttachmentContract.ts` | 手掌與模型握點校準、步戰／騎乘掛點；修穿模時不要破壞固定握持 |
 | `src/debug/HumanoidStudioPlayback.ts` | 實際 mountKind、武器模型與正式動畫路徑；預覽切換不能替代 Player／NPC 的共享修正 |
+| `src/debug/MountStudioSeatContact.ts` | 黑貓 DEV 騎士的蒙皮臀部／座面接觸；取樣區域限定已檢查的三種騎士 |
 | `src/Game.ts`、`src/main.ts`、`src/ui/MainMenuUI.ts` | 模型 studio、URL 解析、試騎入口與騎士同步；只改新增種類需要的入口 |
 | `tests/BlackCatMount.test.ts`、`tests/CorgiMount.test.ts`、`tests/EquipmentPose.test.ts` | 接點世界座標、地面、實例互不影響、studio 播放、倒地重播與跳躍狀態 |
 
@@ -20,7 +21,7 @@
 
 ## 模型與實例
 
-目前 BlackCatVisual 使用公尺、+Z 前向，模板幾何與材質共用，root 與活動節點各實例獨立。靜態零件按材質在各活動節點內合併，以減少 draw calls。
+目前 BlackCatVisual 載入來源衍生的 GLB，使用公尺與 +Z 前向；各實例共用模板幾何與材質，使用獨立骨架和 mixer。CorgiVisual 仍是程序模型。來源替換流程見 [source-model-replacement.md](source-model-replacement.md)。
 
 - 合併前完成幾何、毛色、覆蓋裁剪；保留 head、torso、tail、上下肢等需要獨立動作的階層，不可把所有零件焊成無法活動的單一 mesh。
 - 移除單隻 mount 時不能 dispose 其他實例還在使用的共用 geometry/material。
@@ -32,6 +33,8 @@
 以 [rider-equipment-fit.md](rider-equipment-fit.md) 區分座面、骨盆與手掌接點。查清 `getSaddleSeatLocal/World` 與 `getRiderPelvisSeatLocal/World` 的語意及呼叫端，不假設二者回傳同一位置；必要的骨盆間距由實際騎士接觸面量測。驗證平移、轉向、縮放、鞍座俯仰，以及存檔還原、Player／NPC／studio 使用相同契約。
 
 現有入口範例：`?devmodels=black-cat&nolock`、`?devmodels=corgi&nolock`、`?devmodels=mounts&nolock`；試騎參數從 `Game.ts`／`main.ts` 確認。新動物必須實際接好入口後才能使用新 URL，不要把 fallback 顯示出的動物當作成功。
+
+黑貓 studio 可用 `rider=viking-t2`、`rider=viking-t4`、`rider=maki-t4` 比較一般維京人、T4 維京英雄與 Maki；T4 是 DEV 資產標籤，不是新增正式兵種。這裡的接觸求值不代表試騎 Player 或 NPC 已採用同一貼合策略。
 
 ## 常見表現與診斷方向
 

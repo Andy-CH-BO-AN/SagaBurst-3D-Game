@@ -1,0 +1,66 @@
+{
+  "file": "black-cat.glb",
+  "byteLength": 6364540,
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.2.39",
+    "version": "2.0"
+  },
+  "counts": {
+    "scenes": 1,
+    "nodes": 32,
+    "meshes": 6,
+    "primitives": 6,
+    "triangles": 111472,
+    "materials": 4,
+    "textures": 3,
+    "images": 3,
+    "skins": 1,
+    "joints": 25,
+    "animations": 9
+  },
+  "jointNames": [
+    "cat_front_paw_l",
+    "cat_front_lower_l",
+    "cat_front_upper_l",
+    "cat_front_paw_r",
+    "cat_front_lower_r",
+    "cat_front_upper_r",
+    "cat_head",
+    "cat_neck",
+    "cat_chest",
+    "cat_rear_paw_l",
+    "cat_rear_ankle_l",
+    "cat_rear_lower_l",
+    "cat_rear_upper_l",
+    "cat_rear_paw_r",
+    "cat_rear_ankle_r",
+    "cat_rear_lower_r",
+    "cat_rear_upper_r",
+    "cat_tail_4",
+    "cat_tail_3",
+    "cat_tail_2",
+    "cat_tail_1",
+    "cat_tail_0",
+    "socket_camera",
+    "socket_saddle_seat",
+    "cat_torso"
+  ],
+  "animationNames": [
+    "canter",
+    "death",
+    "gallop",
+    "hit",
+    "idle",
+    "jump",
+    "land",
+    "trot",
+    "walk"
+  ],
+  "extensionsUsed": [
+    "EXT_meshopt_compression",
+    "KHR_materials_specular"
+  ],
+  "extensionsRequired": [
+    "EXT_meshopt_compression"
+  ]
+}
