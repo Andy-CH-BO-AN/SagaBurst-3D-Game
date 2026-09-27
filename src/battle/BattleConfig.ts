@@ -14,25 +14,31 @@ import {
 import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
+  BaseUnitTier,
+  CUSTOM_BATTLE_UNIT_TIERS,
   UnitPresetId,
   VikingPresetId,
   RomanPresetId,
   VIKING_PRESET_IDS,
   ROMAN_PRESET_IDS,
 } from './UnitPresetCatalog'
+import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 /** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
 export const MAX_CUSTOM_ARMY_SIZE = 200
+export const MAX_CUSTOM_T4_PER_SIDE = 3
 /** DEV-only preset limit used by the fixed performance benchmark scenarios. */
 export const MAX_BENCHMARK_ARMY_SIZE = 200
 
 export type { UnitTier, UnitPresetId, VikingPresetId, RomanPresetId }
+export { CUSTOM_BATTLE_UNIT_TIERS }
 export type BattleUnitType = 'infantry' | 'archer' | 'cavalry' | 'horseArcher'
 
 export interface UnitTierCounts {
   1: number
   2: number
   3: number
+  4?: number
 }
 
 export type VikingArmyConfig = Partial<Record<VikingPresetId, UnitTierCounts>> & {
@@ -115,6 +121,7 @@ export interface BattleConfig {
   squadAssignments?: SquadAssignment[]
   spectator?: boolean
   playerFaction?: CharacterFaction
+  playerHeroId?: PlayerHeroId | null
   playerHp?: number
   playerLoadout?: PlayerLoadoutConfig
   viking: VikingArmyConfig
@@ -266,12 +273,14 @@ export function normalizeArmyConfig(army: any, faction: CharacterFaction): Recor
         1: (normalized[mappedPresetId]?.[1] || 0) + (counts[1] || 0),
         2: (normalized[mappedPresetId]?.[2] || 0) + (counts[2] || 0),
         3: (normalized[mappedPresetId]?.[3] || 0) + (counts[3] || 0),
+        4: (normalized[mappedPresetId]?.[4] || 0) + (counts[4] || 0),
       }
     } else {
       normalized[key] = {
         1: (normalized[key]?.[1] || 0) + (counts[1] || 0),
         2: (normalized[key]?.[2] || 0) + (counts[2] || 0),
         3: (normalized[key]?.[3] || 0) + (counts[3] || 0),
+        4: (normalized[key]?.[4] || 0) + (counts[4] || 0),
       }
     }
   }
@@ -285,7 +294,7 @@ export function calculateArmyTotal(army: any): number {
   for (const key of Object.keys(army)) {
     const counts = army[key]
     if (counts && typeof counts === 'object') {
-      total += (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0)
+      total += (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0) + (counts[4] || 0)
     }
   }
   return total
@@ -328,7 +337,7 @@ function validateBattleConfigWithArmyLimit(
         if (!validPresetIds.includes(assignment.presetId)) {
           errors.push(`Invalid squad preset: ${String(assignment.presetId)}`)
         }
-        if (![1, 2, 3].includes(assignment.tier)) {
+        if (!(CUSTOM_BATTLE_UNIT_TIERS as readonly number[]).includes(assignment.tier)) {
           errors.push(`Invalid squad tier: ${String(assignment.tier)}`)
         }
         if (
@@ -361,6 +370,9 @@ function validateBattleConfigWithArmyLimit(
 
   if (c.playerFaction !== undefined && c.playerFaction !== 'viking' && c.playerFaction !== 'roman') {
     errors.push(`Invalid player faction: ${String(c.playerFaction)}`)
+  }
+  if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isHeroAssetId(c.playerHeroId)) {
+    errors.push(`Invalid player Hero: ${String(c.playerHeroId)}`)
   }
 
   if (c.playerHp !== undefined) {
@@ -399,6 +411,7 @@ function validateBattleConfigWithArmyLimit(
 
   const checkArmy = (army: any, faction: CharacterFaction, sideName: string): number => {
     let sideTotal = 0
+    let heroTotal = 0
     const normalized = normalizeArmyConfig(army, faction)
     const allowedPresetIds = faction === 'viking' ? VIKING_PRESET_IDS : ROMAN_PRESET_IDS
     const forbiddenPresetIds = faction === 'viking' ? ROMAN_PRESET_IDS : VIKING_PRESET_IDS
@@ -412,6 +425,17 @@ function validateBattleConfigWithArmyLimit(
       ) {
         errors.push(`Invalid preset id: ${key} for ${sideName} army`)
       }
+      const raw = army[key]
+      if (!raw || typeof raw !== 'object') {
+        errors.push(`${sideName} ${key} counts must be an object`)
+        continue
+      }
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
+        const count = raw[tier]
+        if (count !== undefined && (!Number.isInteger(count) || count < 0)) {
+          errors.push(`${sideName} ${key} T${tier} must be a non-negative integer`)
+        }
+      }
     }
 
     for (const [presetId, counts] of Object.entries(normalized)) {
@@ -419,7 +443,11 @@ function validateBattleConfigWithArmyLimit(
         errors.push(`${sideName} missing unit preset ${presetId}`)
         continue
       }
-      for (const tier of [1, 2, 3] as UnitTier[]) {
+      const rawCounts = army[presetId] ?? counts
+      for (const key of Object.keys(rawCounts)) {
+        if (!['1', '2', '3', '4'].includes(key)) errors.push(`${sideName} ${presetId} invalid tier ${key}`)
+      }
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const val = counts[tier]
         if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
           errors.push(`${sideName} ${presetId} T${tier} must be a non-negative integer`)
@@ -427,9 +455,11 @@ function validateBattleConfigWithArmyLimit(
           errors.push(`${sideName} ${presetId} T${tier} exceeds maximum ${maxArmySize}`)
         } else {
           sideTotal += val
+          if (tier === 4) heroTotal += val
         }
       }
     }
+    if (heroTotal > MAX_CUSTOM_T4_PER_SIDE) errors.push(`${sideName} T4 total (${heroTotal}) exceeds ${MAX_CUSTOM_T4_PER_SIDE}`)
     return sideTotal
   }
 
@@ -473,7 +503,7 @@ export function validateBattleSquadAssignments(
   const expected = new Map<string, number>()
   for (const [presetId, counts] of Object.entries(army)) {
     if (!(allowedPresets as readonly string[]).includes(presetId)) continue
-    for (const tier of [1, 2, 3] as UnitTier[]) {
+    for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
       const count = counts[tier] ?? 0
       if (count > 0) expected.set(`${presetId}:T${tier}`, count)
     }
@@ -539,7 +569,7 @@ export function validateBenchmarkBattleConfig(config: unknown): { valid: boolean
 export function getUnitCombatProfile(
   characterFaction: CharacterFaction,
   unitType: BattleUnitType,
-  tier: UnitTier
+  tier: BaseUnitTier
 ): UnitCombatProfile {
   const aiType = (unitType === 'archer' || unitType === 'horseArcher') ? AIType.RANGED : AIType.MELEE
   const cavalry = (unitType === 'cavalry' || unitType === 'horseArcher')

@@ -115,6 +115,10 @@ import {
   applyDevSimpleMaterials,
 } from './debug/RendererCostIsolation'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
+import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
+import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
+import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
+import { normalizeArmyConfig } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
@@ -322,6 +326,20 @@ export class Game {
         return game
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload()])
+      const heroAssets = new Set<HeroAssetId>()
+      const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+      if (playerHeroId) heroAssets.add(playerHeroId)
+      if (battleConfig && !campaignConfig) {
+        for (const faction of ['viking', 'roman'] as const) {
+          for (const [presetId, counts] of Object.entries(normalizeArmyConfig(battleConfig[faction], faction))) {
+            if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
+          }
+        }
+      }
+      await Promise.all([
+        ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
+        ...(heroAssets.has('maki-archer-t4') ? [preloadMakiRangerBow()] : []),
+      ])
       const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       return game
@@ -605,7 +623,8 @@ export class Game {
             : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    this.player = new Player(this.scene, playerFaction)
+    const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+    this.player = new Player(this.scene, playerFaction, playerHeroId)
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
@@ -663,7 +682,9 @@ export class Game {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
     }
 
-    const initialPlayerHp = activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+    const initialPlayerHp = playerHeroId
+      ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[playerHeroId])!.maxHp
+      : activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
     this.player.setMaxHp(initialPlayerHp, true)
 
     const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
@@ -1199,10 +1220,9 @@ export class Game {
           feedback.textContent = ' 載入中…'
           try {
             if (!riders.has(key)) {
-              const { VIKING_HERO } = await import('./debug/VikingHeroPreview')
-              const { MAKI_HERO, MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
+              const { MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
               const maki = key === 'maki-t4'
-              const descriptor = maki ? MAKI_HERO : VIKING_HERO
+              const descriptor = HERO_ASSETS[maki ? 'maki-archer-t4' : 'viking-hero-t4'].descriptor
               await HumanoidAssetRegistry.preloadAsset(descriptor)
               const bowAssets = maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined
               const rider = HumanoidAssetRegistry.createCharacterInstance({ faction: 'viking', tier: 2, isPlayer: false }, descriptor.assetId)
@@ -1415,6 +1435,9 @@ export class Game {
       spec.squadId,
       undefined,
       this.combatEvents.emit,
+      spec.visualAssetId,
+      spec.combatProfileId,
+      spec.specialCombatProfile,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -1803,7 +1826,7 @@ export class Game {
     })
   }
 
-  private _saveGame(): void {
+  _saveGame(): void {
     if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
@@ -1835,7 +1858,7 @@ export class Game {
     this._showNotify(ok ? '💾 遊戲已存檔（含背包裝備）' : '❌ 存檔失敗')
   }
 
-  private _loadGame(): void {
+  _loadGame(): void {
     if (this.player.dead || this.controlMode === 'spectator') return
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
@@ -2071,7 +2094,7 @@ export class Game {
     )
 
     const { damage: chargedDamage, isCharge } = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
-    const damage = Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
+    const damage = applyHeroOutgoingDamage(Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier), this.player.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.player.heroAssetId] : null)
 
     if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()

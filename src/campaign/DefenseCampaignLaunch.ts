@@ -26,8 +26,10 @@ import {
   ROMAN_PRESET_IDS,
   VIKING_PRESET_IDS,
   type UnitPresetId,
-  type UnitTier,
+  type BaseUnitTier as UnitTier,
+  BASE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
+import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
   getDefenseCampaignStage,
@@ -46,6 +48,7 @@ export interface DefenseCampaignLaunchConfig {
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
+  playerHeroId?: PlayerHeroId | null
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
 }
@@ -133,6 +136,9 @@ export function validateDefenseCampaignLaunchConfig(
   if (config.defenderFaction !== 'roman' && config.defenderFaction !== 'viking') {
     errors.push('Invalid defender faction')
   }
+  if (config.playerHeroId !== undefined && config.playerHeroId !== null && !isHeroAssetId(config.playerHeroId)) {
+    errors.push('Invalid player Hero')
+  }
 
   if (typeof config.stageId !== 'number' || !isCampaignStageId(config.stageId)) {
     errors.push('Invalid campaign stage')
@@ -162,9 +168,12 @@ export function validateDefenseCampaignLaunchConfig(
         errors.push(`Invalid counts for ${presetKey}`)
         continue
       }
+      for (const key of Object.keys(rawCounts)) {
+        if (!['1', '2', '3'].includes(key)) errors.push(`Campaign NPC tier ${key} is not allowed`)
+      }
 
       const preset = getUnitPreset(presetKey as UnitPresetId)
-      for (const tier of [1, 2, 3] as UnitTier[]) {
+      for (const tier of BASE_UNIT_TIERS) {
         const count = (rawCounts as UnitTierCounts)[tier]
         if (!Number.isInteger(count) || count < 0) {
           errors.push(`${presetKey} T${tier} must be a non-negative integer`)
@@ -393,6 +402,7 @@ export function createDefenseCampaignWaveConfig(
     playerFaction: launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
     playerLoadout: { ...launch.playerLoadout },
+    playerHeroId: launch.playerHeroId,
     squadAssignments: wave === 'defenders'
       ? launch.squadAssignments?.map(assignment => ({ ...assignment }))
       : [],

@@ -13,6 +13,8 @@ import {
   UnitTier,
   UnitTierCounts,
   MAX_CUSTOM_ARMY_SIZE,
+  MAX_CUSTOM_T4_PER_SIDE,
+  CUSTOM_BATTLE_UNIT_TIERS,
   PRESET_10V10,
   PRESET_25V25,
   PRESET_50V50,
@@ -32,6 +34,8 @@ import {
   getUnitPresetsForFaction,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
+import { HERO_ASSET_IDS, HERO_ASSETS, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
 import {
   MAX_COMMAND_SQUAD_SIZE,
   MAX_COMMAND_SQUADS,
@@ -111,15 +115,16 @@ export class BattleSetupUI {
               <th>T1</th>
               <th>T2</th>
               <th>T3</th>
+              <th>T4 HERO</th>
             </tr>
           </thead>
           <tbody>
             ${presets.map(p => `
               <tr class="unit-row" data-faction="${faction}" data-preset="${p.id}">
-                <td class="unit-label">
+                <td class="unit-label" title="${p.description}">
                   ${p.nameEn} <span class="unit-zh">${p.nameZh}</span>
                 </td>
-                ${([1, 2, 3] as UnitTier[]).map(t => `
+                ${CUSTOM_BATTLE_UNIT_TIERS.map(t => `
                   <td>
                     <div class="stepper">
                       <button type="button" class="step-btn btn-dec" data-faction="${faction}" data-preset="${p.id}" data-tier="${t}">-</button>
@@ -159,6 +164,12 @@ export class BattleSetupUI {
 
     const renderLoadoutPanel = () => `
       <div id="setup-loadout-panel" class="setup-tab-panel loadout-page">
+        <label class="campaign-loadout-field">玩家角色 / PLAYER CHARACTER
+          <select id="battle-player-hero">
+            <option value="">一般士兵 Standard</option>
+            ${HERO_ASSET_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+          </select>
+        </label>
         <div class="loadout-panel-heading">
           <h2>玩家裝備</h2><span>PLAYER LOADOUT</span>
         </div>
@@ -284,6 +295,7 @@ export class BattleSetupUI {
             <span class="faction-name">VIKING CLANS</span>
             <span class="faction-total-badge">
               Total: <span id="viking-total" class="total-num">0</span> / ${MAX_CUSTOM_ARMY_SIZE}
+              · T4: <span id="viking-t4-total">0</span> / ${MAX_CUSTOM_T4_PER_SIDE}
             </span>
           </div>
           ${renderTable('viking')}
@@ -295,6 +307,7 @@ export class BattleSetupUI {
             <span class="faction-name">ROMAN LEGION</span>
             <span class="faction-total-badge">
               Total: <span id="roman-total" class="total-num">0</span> / ${MAX_CUSTOM_ARMY_SIZE}
+              · T4: <span id="roman-t4-total">0</span> / ${MAX_CUSTOM_T4_PER_SIDE}
             </span>
           </div>
           ${renderTable('roman')}
@@ -363,6 +376,10 @@ export class BattleSetupUI {
     })
 
     // Number Inputs
+    this.container.querySelector<HTMLSelectElement>('#battle-player-hero')?.addEventListener('change', event => {
+      this.config.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      this._refreshView()
+    })
     this.container.querySelectorAll('.step-input').forEach(el => {
       const input = el as HTMLInputElement
       input.addEventListener('input', () => {
@@ -466,6 +483,7 @@ export class BattleSetupUI {
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
+      const currentHero = this.config.playerHeroId
       this.config = JSON.parse(JSON.stringify(preset))
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -475,6 +493,7 @@ export class BattleSetupUI {
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.playerHeroId = currentHero
       this.config.squadAssignments = undefined
       this._refreshView()
     }
@@ -491,6 +510,7 @@ export class BattleSetupUI {
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
+      const currentHero = this.config.playerHeroId
       this.config = createEmptyBattleConfig()
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -500,6 +520,7 @@ export class BattleSetupUI {
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.playerHeroId = currentHero
       this.config.squadAssignments = undefined
       this._refreshView()
     })
@@ -539,7 +560,7 @@ export class BattleSetupUI {
       const presetId = presetKey as UnitPresetId
       const preset = presets.get(presetId)
       if (!preset) continue
-      for (const tier of [1, 2, 3] as UnitTier[]) {
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const count = counts[tier] ?? 0
         if (count <= 0) continue
         rows.push({ presetId, tier, count, nameZh: preset.nameZh, nameEn: preset.nameEn })
@@ -772,7 +793,8 @@ export class BattleSetupUI {
     }
     const oldVal = army[preset]![tier] || 0
     const otherTotal = calculateArmyTotal(army) - oldVal
-    const maxAllowed = Math.max(0, MAX_CUSTOM_ARMY_SIZE - otherTotal)
+    const t4Remaining = MAX_CUSTOM_T4_PER_SIDE - this._t4Total(faction) + oldVal
+    const maxAllowed = Math.max(0, Math.min(MAX_CUSTOM_ARMY_SIZE - otherTotal, tier === 4 ? t4Remaining : MAX_CUSTOM_ARMY_SIZE))
     const clamped = Math.max(0, Math.min(value, maxAllowed))
 
     if (army[preset]![tier] !== clamped) this.config.squadAssignments = undefined
@@ -794,7 +816,7 @@ export class BattleSetupUI {
     const currentTotal = calculateArmyTotal(army)
 
     if (delta > 0) {
-      if (currentTotal >= MAX_CUSTOM_ARMY_SIZE || currentVal >= MAX_CUSTOM_ARMY_SIZE) return
+      if (currentTotal >= MAX_CUSTOM_ARMY_SIZE || currentVal >= MAX_CUSTOM_ARMY_SIZE || (tier === 4 && this._t4Total(faction) >= MAX_CUSTOM_T4_PER_SIDE)) return
       army[preset]![tier] = currentVal + 1
       this.config.squadAssignments = undefined
     } else if (delta < 0) {
@@ -813,11 +835,17 @@ export class BattleSetupUI {
       const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
       const presets = getUnitPresetsForFaction(faction)
       for (const p of presets) {
-        for (const t of [1, 2, 3] as UnitTier[]) {
+        for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
           const el = document.getElementById(`val-${faction}-${p.id}-${t}`) as HTMLInputElement | null
           if (el) el.value = String(army[p.id]?.[t] ?? 0)
         }
       }
+      const t4Total = this._t4Total(faction)
+      const t4El = document.getElementById(`${faction}-t4-total`)
+      if (t4El) t4El.textContent = String(t4Total)
+      this.container.querySelectorAll<HTMLButtonElement>(`.btn-inc[data-faction="${faction}"][data-tier="4"]`).forEach(button => {
+        button.disabled = t4Total >= MAX_CUSTOM_T4_PER_SIDE || calculateArmyTotal(army) >= MAX_CUSTOM_ARMY_SIZE
+      })
     }
 
     const vTotal = calculateArmyTotal(this.config.viking)
@@ -888,10 +916,14 @@ export class BattleSetupUI {
 
     const playerHpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
     if (playerHpInput) {
-      playerHpInput.value = String(this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault)
+      const heroProfile = this.config.playerHeroId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.config.playerHeroId]) : null
+      playerHpInput.value = String(heroProfile?.maxHp ?? this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault)
+      playerHpInput.disabled = Boolean(heroProfile)
     }
 
     const loadout = this.config.playerLoadout
+    const heroSelect = this.container.querySelector<HTMLSelectElement>('#battle-player-hero')
+    if (heroSelect) heroSelect.value = this.config.playerHeroId ?? ''
     const armyPanel = document.getElementById('setup-army-panel')
     const loadoutPanel = document.getElementById('setup-loadout-panel')
     const armyTab = document.getElementById('setup-tab-army')
@@ -920,6 +952,10 @@ export class BattleSetupUI {
         el.setAttribute?.('aria-checked', String(selected))
       })
     }
+  }
+
+  private _t4Total(faction: 'viking' | 'roman'): number {
+    return Object.values(this.config[faction]).reduce((sum: number, counts) => sum + (counts?.[4] ?? 0), 0)
   }
 
 

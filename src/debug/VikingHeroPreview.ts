@@ -7,15 +7,12 @@ import { CorgiVisual } from '../world/CorgiVisual'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { MAKI_HERO, MAKI_FALLBACK, loadMakiRangerBow, resolveMakiEquipmentMode } from '../world/MakiRangerEquipment'
 import type { HumanoidAnimationState } from '../world/CharacterVisuals'
+import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 
 /** T4 is an asset label. This descriptor never enters UnitTier or battle setup. */
-export const VIKING_HERO: HumanoidAssetDescriptor = {
-  assetId: 'viking-hero-t4', faction: 'viking', heightM: 2, maxShoulderWidthM: .78, neckLengthM: .11,
-}
+export const VIKING_HERO: HumanoidAssetDescriptor = HERO_ASSETS['viking-hero-t4'].descriptor
 
-export const ROMAN_HERO: HumanoidAssetDescriptor = {
-  assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .10,
-}
+export const ROMAN_HERO: HumanoidAssetDescriptor = HERO_ASSETS['roman-hero-t4'].descriptor
 
 export async function launchVikingHeroPreview(container: HTMLElement, descriptor = VIKING_HERO): Promise<void> {
   const maki = descriptor.assetId === MAKI_HERO.assetId

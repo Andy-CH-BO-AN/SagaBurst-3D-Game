@@ -2,10 +2,12 @@ import './battle-setup.css'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
+import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import {
   getUnitPresetsForFaction,
   getTraitDescription,
-  type UnitTier,
+  type BaseUnitTier as UnitTier,
 } from '../battle/UnitPresetCatalog'
 
 type ReferenceSubTab = 'balance' | 'viking' | 'roman' | 'weapons' | 'shields'
@@ -81,7 +83,7 @@ export class BattleReferenceUI {
                     <span class="reference-badge ${isMounted ? 'badge-mounted' : 'badge-neutral'}">${isMounted ? '騎乘' : '步兵'}</span>
                   </div>
                 </div>
-                <p class="reference-preset-desc">${p.description}</p>
+                <p class="reference-preset-desc">${p.description} T4 Hero：${HERO_ASSETS[T4_UNIT_PROFILES[p.id].visualAssetId].nameZh}。</p>
                 <div class="reference-preset-traits">
                   ${p.traits.map(t => `<div class="reference-trait-badge">${getTraitDescription(t)}</div>`).join('')}
                 </div>
