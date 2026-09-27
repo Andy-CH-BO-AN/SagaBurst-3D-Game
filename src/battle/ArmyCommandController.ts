@@ -533,7 +533,7 @@ export class ArmyCommandController {
         target: shortcut.target,
         label: this._targetLabel(shortcut.target),
         order: isAll ? this.allOrder : (this.orders.get(shortcut.target) ?? this.initialOrder),
-        side: isAll || Number(shortcut.key) <= 4 ? 'left' : 'right',
+        side: isAll || Number(shortcut.key) <= (this.groupingMode === 'squad' ? 4 : (this.faction === 'viking' ? 3 : 4)) ? 'left' : 'right',
         summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
