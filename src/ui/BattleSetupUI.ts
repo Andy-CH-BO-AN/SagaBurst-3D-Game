@@ -48,6 +48,9 @@ export class BattleSetupUI {
     if (!this.config.mode) {
       this.config.mode = 'formation'
     }
+    if (!this.config.commandGrouping) {
+      this.config.commandGrouping = 'preset'
+    }
     if (this.config.spectator === undefined) {
       this.config.spectator = false
     }
@@ -243,6 +246,20 @@ export class BattleSetupUI {
         </div>
       </div>
 
+      <div class="setup-mode-section">
+        <div class="mode-section-label">指揮分組 <small>COMMAND GROUPING</small></div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn" id="command-grouping-preset" data-command-grouping="preset">
+            <span class="mode-btn-title">兵種</span>
+            <span class="mode-btn-desc">UNIT PRESETS</span>
+          </button>
+          <button type="button" class="mode-btn" id="command-grouping-squad" data-command-grouping="squad">
+            <span class="mode-btn-title">小隊</span>
+            <span class="mode-btn-desc">SQUADS · UP TO 8</span>
+          </button>
+        </div>
+      </div>
+
       <div class="setup-tabs" role="tablist" aria-label="Battle setup sections">
         <button type="button" id="setup-tab-army" class="setup-tab" role="tab"><b>軍隊配置</b><small>ARMY SETUP</small></button>
         <button type="button" id="setup-tab-loadout" class="setup-tab" role="tab"><b>玩家裝備</b><small>PLAYER LOADOUT</small></button>
@@ -376,6 +393,15 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
+    document.getElementById('command-grouping-preset')?.addEventListener('click', () => {
+      this.config.commandGrouping = 'preset'
+      this._refreshView()
+    })
+    document.getElementById('command-grouping-squad')?.addEventListener('click', () => {
+      this.config.commandGrouping = 'squad'
+      this._refreshView()
+    })
+
     document.getElementById('setup-tab-army')?.addEventListener('click', () => {
       this.activeTab = 'army'
       this._refreshView()
@@ -421,6 +447,7 @@ export class BattleSetupUI {
     // Presets (Army composition only, strictly preserves selected Battle Mode, Spectator mode, and Player Faction)
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
@@ -429,6 +456,7 @@ export class BattleSetupUI {
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
       this.config.mode = currentMode
+      this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
@@ -443,6 +471,7 @@ export class BattleSetupUI {
     document.getElementById('preset-200')?.addEventListener('click', () => applyPreset(PRESET_200V200))
     document.getElementById('preset-reset')?.addEventListener('click', () => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
@@ -451,6 +480,7 @@ export class BattleSetupUI {
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
       this.config.mode = currentMode
+      this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
@@ -571,6 +601,10 @@ export class BattleSetupUI {
     if (scatteredBtn) {
       scatteredBtn.classList.toggle('active', currentMode === 'scattered')
     }
+
+    const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
+    document.getElementById('command-grouping-preset')?.classList.toggle('active', currentCommandGrouping === 'preset')
+    document.getElementById('command-grouping-squad')?.classList.toggle('active', currentCommandGrouping === 'squad')
 
     // Update Player Faction buttons active state
     const currentFaction = this.config.playerFaction ?? 'viking'
