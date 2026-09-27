@@ -325,6 +325,39 @@ describe('BattleConfig Domain & Validation', () => {
     expect(createEmptyBattleConfig().commandGrouping).toBe('preset')
   })
 
+  it('rejects malformed squad assignments and squads above 30 units', () => {
+    const baseConfig: BattleConfig = {
+      playerFaction: 'viking',
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 40, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      rules: { respawnEnabled: false, includeCamps: true },
+    }
+
+    expect(validateBattleConfig({
+      ...baseConfig,
+      squadAssignments: [
+        { presetId: 'viking_berserker', tier: 1, squadId: 1, count: 30 },
+        { presetId: 'viking_berserker', tier: 1, squadId: 2, count: 10 },
+      ],
+    }).valid).toBe(true)
+
+    const overCap = validateBattleConfig({
+      ...baseConfig,
+      squadAssignments: [
+        { presetId: 'viking_berserker', tier: 1, squadId: 1, count: 31 },
+      ],
+    })
+    expect(overCap.valid).toBe(false)
+    expect(overCap.errors.some(e => e.includes('Squad 1 exceeds 30 units'))).toBe(true)
+
+    const malformed = validateBattleConfig({
+      ...baseConfig,
+      squadAssignments: [null],
+    } as any)
+    expect(malformed.valid).toBe(false)
+    expect(malformed.errors.some(e => e.includes('must be an object'))).toBe(true)
+  })
+
   it('validates battle mode correctly and maintains backward compatibility', () => {
     const baseConfig: BattleConfig = {
       viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
