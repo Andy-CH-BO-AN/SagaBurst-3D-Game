@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "corgi-v2",
+  "status": "ready",
+  "forward": "+Z",
+  "file": "corgi.glb",
+  "source": {
+    "title": "Corgi",
+    "author": "leijiaoshou",
+    "url": "https://sketchfab.com/3d-models/corgi-dog-7afb2c8ef92c40819abc690584e6772a",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceSha256": "498dcc12755599e30de1c458f2eb852609876968c89490c8616456d072a0c19d"
+  },
+  "attribution": "Corgi by leijiaoshou, Sketchfab, CC BY 4.0. Modified for SagaBurst.",
+  "modifications": [
+    "Uniform 4x scale and baked +Z heading",
+    "Fitted 21-joint canine skin",
+    "Nine in-place animations",
+    "Source-derived body LODs",
+    "Thin source-fitted rounded cushion and stirrups",
+    "1024px original base-color map",
+    "Meshopt compression"
+  ],
+  "metrics": {
+    "triangles": {
+      "corgi_body_lod0": 99991,
+      "corgi_body_lod1": 19999,
+      "corgi_body_lod2": 5999
+    },
+    "textureMaxSize": 1024,
+    "packageBytes": 2560528,
+    "saddleHeightM": 1.313627550125122
+  },
+  "lodNodes": [
+    "corgi_body_lod0",
+    "corgi_body_lod1",
+    "corgi_body_lod2"
+  ],
+  "clips": [
+    "idle",
+    "walk",
+    "trot",
+    "canter",
+    "gallop",
+    "jump",
+    "land",
+    "hit",
+    "death"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "sha256": "67472e0b01af163bd30d89bd1087d799a6527154b7883de4f58fb0957798df4e"
+}

@@ -207,13 +207,13 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       setRigRotation(leg.ankle, 0, 0, 0)
       continue
     }
-    // Spread the thigh around the barrel. On the cat and corgi, counter-roll the shin
-    // and ankle so the wider hips do not leave the boots splayed sideways.
-    const spread = kind === 'CORGI' ? 1.15 : kind === 'HORSE' ? 0.58 : 0.82
+    // Follow each animal barrel and keep the soles upright. The source corgi
+    // is narrower than the old procedural model; its calves follow the flanks.
+    const spread = kind === 'CORGI' ? .72 : kind === 'HORSE' ? 0.58 : 0.82
     const kneeBend = kind === 'CORGI' ? 1.08 : kind === 'HORSE' ? 1.22 : 1.05
     setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * 0.25 : kind === 'BLACK_CAT' ? -leg.side * 0.42 : 0)
-    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'BLACK_CAT' || kind === 'CORGI' ? -leg.side * 0.30 : 0)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : kind === 'BLACK_CAT' ? -leg.side * 0.42 : 0)
+    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : kind === 'BLACK_CAT' ? -leg.side * .30 : 0)
   }
 }
 

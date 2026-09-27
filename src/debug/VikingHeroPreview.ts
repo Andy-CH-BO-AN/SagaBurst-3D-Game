@@ -32,7 +32,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   panel.textContent = `正在載入${label}資產…`
   document.body.append(panel)
   try {
-    await Promise.all([HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(!roman ? [BlackCatVisual.preload()] : [])])
+    await Promise.all([HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), roman ? CorgiVisual.preload() : BlackCatVisual.preload()])
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#b4bac1')
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
@@ -99,6 +99,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
         hero.root.position.add(seat.add(offset).sub(pelvis))
       }
       hero.root.updateMatrixWorld(true)
+      if (riding && cat instanceof CorgiVisual) cat.fitRider(hero.root)
     }
     const sample = () => {
       if (state === 'death') {

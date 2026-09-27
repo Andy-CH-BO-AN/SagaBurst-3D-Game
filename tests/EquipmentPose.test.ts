@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { readGlb, loadRig } from '../tools/lib/humanoid-glb.mjs'
 import { createHumanoidRigAdapter, createMountedIdleClip, MixerController } from '../src/world/HumanoidAssetRegistry'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { CorgiVisual } from '../src/world/CorgiVisual'
 import { CharacterEquipmentPose } from '../src/world/CharacterEquipmentPose'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../src/world/CharacterCombatAnimator'
@@ -298,6 +299,28 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
 
 
 describe('Corgi mounted weapon clearance', () => {
+  it.each(['roman', 'viking'])('keeps %s seated legs stable through an attack without losing hit events', async faction => {
+    const f = await createFixture(faction)
+    f.animator.setEquipment(false, true, 'CORGI')
+    f.animator.setLocomotion(0, true); f.animator.update(.2)
+    const feet = f.rigs.flatMap(rig => [rig.leftLeg.ankle, rig.rightLeg.ankle])
+    f.root.updateMatrixWorld(true)
+    const initial = feet.map(foot => f.root.worldToLocal(foot.getWorldPosition(new THREE.Vector3())))
+    f.animator.start('swordSlash')
+    let hits = 0, completed = 0
+    for (let frame = 0; frame < 90; frame++) {
+      const events = f.animator.update(1 / 120)
+      hits += Number(events.hitActiveStarted); completed += Number(events.actionCompleted)
+      f.root.updateMatrixWorld(true)
+      feet.forEach((foot, i) => {
+        const position = f.root.worldToLocal(foot.getWorldPosition(new THREE.Vector3()))
+        expect(position.x).toBeCloseTo(initial[i].x, 4)
+        expect(position.z).toBeCloseTo(initial[i].z, 4)
+      })
+    }
+    expect(hits).toBe(1); expect(completed).toBe(1)
+  })
+
   it('keeps the lance above both thighs through idle, thrust and recovery with a fixed palm grip', async () => {
     const f = await createFixture('viking')
     f.animator.setEquipment(true, false, 'CORGI')
@@ -326,6 +349,7 @@ describe('Corgi mounted weapon clearance', () => {
 
   it.each([true, false])('keeps the mounted axe haft outside the Corgi throughout its attack (shield=%s) and restores the foot attachment', async (shield) => {
     const f = await createFixture('viking')
+    await installCorgiTestAsset()
     const mount = new CorgiVisual()
     const scene = new THREE.Scene(); scene.add(f.root, mount.root)
     const pivot = new THREE.Group(), model = new THREE.Group()
@@ -339,13 +363,29 @@ describe('Corgi mounted weapon clearance', () => {
     const pelvisHeight = f.root.worldToLocal(f.rigs[0].pelvis!.getWorldPosition(new THREE.Vector3())).y
     f.root.position.y = 1.8 - pelvisHeight; f.root.position.z = -.16
     const visual = model.getObjectByName('dane-axe-visual')!
-    const meshes: THREE.Object3D[] = []
-    mount.root.traverse(o => { if (o instanceof THREE.Mesh) meshes.push(o) })
+    const sourceMeshes: THREE.SkinnedMesh[] = []
+    mount.root.traverse(o => { if (o instanceof THREE.SkinnedMesh && !/lod[12]/.test(o.name)) sourceMeshes.push(o) })
     for (const clip of ['idle', 'gallop', 'jump'] as const) {
       mount.playStudioClip(clip); mount.update(clip === 'jump' ? .3 : clip === 'gallop' ? .12 : 0)
       f.root.position.copy(mount.riderPelvisSeat.getWorldPosition(new THREE.Vector3()))
       f.root.position.y -= pelvisHeight
       animator.cancel(); animator.update(.2)
+      mount.fitRider(f.root)
+      scene.updateMatrixWorld(true)
+      // Freeze this gait's posed animal once. Re-skinning 100k triangles for
+      // every shaft sample makes the actual-GLB regression unnecessarily slow.
+      const meshes = sourceMeshes.map(source => {
+        source.skeleton.update()
+        const geometry = source.geometry.clone(), position = geometry.getAttribute('position')
+        const vertex = new THREE.Vector3()
+        for (let i = 0; i < position.count; i++) {
+          source.getVertexPosition(i, vertex); position.setXYZ(i, vertex.x, vertex.y, vertex.z)
+        }
+        geometry.computeBoundingBox(); geometry.computeBoundingSphere()
+        const mesh = new THREE.Mesh(geometry, source.material)
+        mesh.name = source.name; mesh.matrixWorld.copy(source.matrixWorld)
+        return mesh
+      })
       let hits = 0, completions = 0
       animator.start(shield ? 'axeAttack1H' : 'axeAttack2H')
       let previousDirection: THREE.Vector3 | undefined
@@ -365,6 +405,7 @@ describe('Corgi mounted weapon clearance', () => {
         expect(grip.distanceTo(palm)).toBeLessThan(1e-5)
       }
       expect(hits).toBe(1); expect(completions).toBe(1)
+      for (const mesh of meshes) mesh.geometry.dispose()
     }
     animator.setLocomotion(0, false); animator.update(.2)
     pivot.matrix.elements.forEach((value, i) => expect(value).toBeCloseTo(foot.elements[i], 10))

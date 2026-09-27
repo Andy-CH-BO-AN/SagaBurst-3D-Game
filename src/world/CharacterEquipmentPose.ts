@@ -133,6 +133,12 @@ export class CharacterEquipmentPose {
   private readonly axeSavedLeft = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
   private readonly axeLeftBones: THREE.Object3D[]
   private readonly hipsY: number
+  private readonly seatedHips: THREE.Object3D
+  private readonly seatedSpine: THREE.Object3D | undefined
+  private readonly hipsBindPosition: THREE.Vector3
+  private readonly hipsSamplePosition = new THREE.Vector3()
+  private readonly seatedRotation = new THREE.Quaternion()
+
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
   constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = []) {
@@ -151,8 +157,13 @@ export class CharacterEquipmentPose {
     // and lean. Capturing the bind basis also handles different LOD bone axes.
     this.shieldBody = rig.upperChest ?? rig.left.shoulder.parent!
     this.shieldBindInverse.copy(this.shieldBody.matrixWorld).invert().multiply(root.matrixWorld)
+    this.seatedHips = rig.pelvis?.parent ?? rig.rightLeg.hip.parent!
+    this.seatedSpine = rig.upperChest ?? root.getObjectByName('spine')
+    this.hipsBindPosition = this.seatedHips.position.clone()
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
+    nodes.push(this.seatedHips)
+    if (this.seatedSpine) nodes.push(this.seatedSpine)
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
     root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
   }
@@ -160,6 +171,7 @@ export class CharacterEquipmentPose {
   restore(): void {
     if (!this.applied) return
     for (const s of this.saved) s.node.quaternion.copy(s.q)
+    this.seatedHips.position.copy(this.hipsSamplePosition)
     this.applied = false
   }
 
@@ -180,9 +192,29 @@ export class CharacterEquipmentPose {
 
   apply(state: EquipmentPoseState): void {
     for (const s of this.saved) s.q.copy(s.node.quaternion)
+    this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
     const live = state.alive && state.action !== 'death'
+    if (live && state.mounted && state.mountKind === 'CORGI' && this.seatedSpine) {
+      // Foot attacks twist the pelvis by up to a quarter turn. Transfer that
+      // rotation to the upper chest so the attack keeps its upper-body arc while
+      // the seated legs stay either side of the source corgi's barrel.
+      this.seatedSpine.getWorldQuaternion(this.seatedRotation)
+      setRigRotation(this.seatedHips, 0, 0, 0)
+      this.seatedHips.position.x = this.hipsBindPosition.x
+      this.seatedHips.position.z = this.hipsBindPosition.z
+      this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+      this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
+    }
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted && state.mountKind === 'CORGI' && this.root.name.startsWith('maki-archer-t4-')) {
+      // Shorter thighs need slightly more abduction to place the knees outside
+      // the source barrel, while the boots follow its flanks instead of splaying.
+      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
+        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * .90)
+        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .90)
+      }
+    }
     if (live && state.mounted && state.mountKind === 'BLACK_CAT' && this.root.name.startsWith('maki-archer-t4-')) {
       // Maki's shorter legs need more thigh spread and less inward shin roll
       // to clear the source cat's barrel. Retain the fixed pelvis/seat contact.
@@ -277,9 +309,16 @@ export class CharacterEquipmentPose {
       this.root.updateWorldMatrix(true, true)
       this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
       this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
-      this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward).applyMatrix4(this.shieldBodyDelta)
-      this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
-      this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
+      if (state.mounted && state.mountKind === 'CORGI') {
+        // Hold the tall scutum outside the saddle during torso rotation.
+        // The shield remains attached to the same palm grip.
+        this.target.set(.55, this.hipsY + .26, .22)
+        this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
+      } else {
+        this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward).applyMatrix4(this.shieldBodyDelta)
+        this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
+        this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
+      }
     }
     // Baked asset-specific contacts must not receive the generic axe-haft solve.
     const twoHandedAxe = live && !state.shield && state.action === 'axeAttack2H' && !this.bakedActions.includes(state.action)

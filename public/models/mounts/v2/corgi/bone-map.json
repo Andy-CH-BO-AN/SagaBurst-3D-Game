@@ -1,0 +1,275 @@
+{
+  "corgi_torso": {
+    "head": [
+      0,
+      0.95,
+      -0.15
+    ],
+    "tail": [
+      0,
+      1.2,
+      -0.15
+    ],
+    "parent": null
+  },
+  "corgi_chest": {
+    "head": [
+      0,
+      1.06,
+      0.66
+    ],
+    "tail": [
+      0,
+      1.38,
+      0.9
+    ],
+    "parent": "corgi_torso"
+  },
+  "corgi_neck": {
+    "head": [
+      0,
+      1.38,
+      0.9
+    ],
+    "tail": [
+      0,
+      1.65,
+      1.13
+    ],
+    "parent": "corgi_chest"
+  },
+  "corgi_head": {
+    "head": [
+      0,
+      1.65,
+      1.13
+    ],
+    "tail": [
+      0,
+      1.69,
+      1.52
+    ],
+    "parent": "corgi_neck"
+  },
+  "corgi_front_upper_l": {
+    "head": [
+      0.29,
+      0.85,
+      0.69
+    ],
+    "tail": [
+      0.29,
+      0.43,
+      0.69
+    ],
+    "parent": "corgi_chest"
+  },
+  "corgi_front_lower_l": {
+    "head": [
+      0.29,
+      0.43,
+      0.69
+    ],
+    "tail": [
+      0.29,
+      0.12,
+      0.76
+    ],
+    "parent": "corgi_front_upper_l"
+  },
+  "corgi_front_paw_l": {
+    "head": [
+      0.29,
+      0.12,
+      0.76
+    ],
+    "tail": [
+      0.29,
+      0.06,
+      0.96
+    ],
+    "parent": "corgi_front_lower_l"
+  },
+  "corgi_rear_upper_l": {
+    "head": [
+      0.29,
+      0.89,
+      -0.98
+    ],
+    "tail": [
+      0.29,
+      0.45,
+      -0.82
+    ],
+    "parent": "corgi_torso"
+  },
+  "corgi_rear_lower_l": {
+    "head": [
+      0.29,
+      0.45,
+      -0.82
+    ],
+    "tail": [
+      0.29,
+      0.23,
+      -1.07
+    ],
+    "parent": "corgi_rear_upper_l"
+  },
+  "corgi_rear_ankle_l": {
+    "head": [
+      0.29,
+      0.23,
+      -1.07
+    ],
+    "tail": [
+      0.29,
+      0.1,
+      -1.02
+    ],
+    "parent": "corgi_rear_lower_l"
+  },
+  "corgi_rear_paw_l": {
+    "head": [
+      0.29,
+      0.1,
+      -1.02
+    ],
+    "tail": [
+      0.29,
+      0.06,
+      -0.84
+    ],
+    "parent": "corgi_rear_ankle_l"
+  },
+  "corgi_front_upper_r": {
+    "head": [
+      -0.29,
+      0.85,
+      0.69
+    ],
+    "tail": [
+      -0.29,
+      0.43,
+      0.69
+    ],
+    "parent": "corgi_chest"
+  },
+  "corgi_front_lower_r": {
+    "head": [
+      -0.29,
+      0.43,
+      0.69
+    ],
+    "tail": [
+      -0.29,
+      0.12,
+      0.76
+    ],
+    "parent": "corgi_front_upper_r"
+  },
+  "corgi_front_paw_r": {
+    "head": [
+      -0.29,
+      0.12,
+      0.76
+    ],
+    "tail": [
+      -0.29,
+      0.06,
+      0.96
+    ],
+    "parent": "corgi_front_lower_r"
+  },
+  "corgi_rear_upper_r": {
+    "head": [
+      -0.29,
+      0.89,
+      -0.98
+    ],
+    "tail": [
+      -0.29,
+      0.45,
+      -0.82
+    ],
+    "parent": "corgi_torso"
+  },
+  "corgi_rear_lower_r": {
+    "head": [
+      -0.29,
+      0.45,
+      -0.82
+    ],
+    "tail": [
+      -0.29,
+      0.23,
+      -1.07
+    ],
+    "parent": "corgi_rear_upper_r"
+  },
+  "corgi_rear_ankle_r": {
+    "head": [
+      -0.29,
+      0.23,
+      -1.07
+    ],
+    "tail": [
+      -0.29,
+      0.1,
+      -1.02
+    ],
+    "parent": "corgi_rear_lower_r"
+  },
+  "corgi_rear_paw_r": {
+    "head": [
+      -0.29,
+      0.1,
+      -1.02
+    ],
+    "tail": [
+      -0.29,
+      0.06,
+      -0.84
+    ],
+    "parent": "corgi_rear_ankle_r"
+  },
+  "corgi_tail_0": {
+    "head": [
+      0,
+      0.67,
+      -1.23
+    ],
+    "tail": [
+      0,
+      0.51,
+      -1.35
+    ],
+    "parent": "corgi_torso"
+  },
+  "socket_saddle_seat": {
+    "head": [
+      0,
+      1.313627550125122,
+      -0.2
+    ],
+    "tail": [
+      0,
+      1.363627550125122,
+      -0.2
+    ],
+    "parent": "corgi_torso"
+  },
+  "socket_camera": {
+    "head": [
+      0,
+      1.813627550125122,
+      -0.2
+    ],
+    "tail": [
+      0,
+      1.863627550125122,
+      -0.2
+    ],
+    "parent": "corgi_torso"
+  }
+}

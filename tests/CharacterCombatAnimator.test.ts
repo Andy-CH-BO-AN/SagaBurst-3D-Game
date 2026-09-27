@@ -452,8 +452,11 @@ describe('Phase 21 procedural presentation', () => {
     expect(visual.rig.rightLeg.knee.parent).toBe(visual.rig.rightLeg.hip)
 
     applyCharacterMountedPose(visual.rig, true, 'CORGI')
-    expect(visual.rig.leftLeg.hip.rotation.z).toBeLessThan(-0.8)
-    expect(visual.rig.rightLeg.hip.rotation.z).toBeGreaterThan(0.8)
+    // Imported corgi is narrower: knees straddle its barrel without the old splits pose.
+    expect(visual.rig.leftLeg.hip.rotation.z).toBeLessThan(-.6)
+    expect(visual.rig.leftLeg.hip.rotation.z).toBeGreaterThan(-.8)
+    expect(visual.rig.rightLeg.hip.rotation.z).toBeGreaterThan(.6)
+    expect(visual.rig.rightLeg.hip.rotation.z).toBeLessThan(.8)
     expect(visual.rig.leftLeg.knee.rotation.x).toBeLessThan(-1.0)
 
     applyCharacterMountedPose(visual.rig, false)
