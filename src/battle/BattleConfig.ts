@@ -5,6 +5,7 @@
 import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { CommandGroupingMode } from './CommandTarget'
 import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
@@ -105,6 +106,7 @@ export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
 
 export interface BattleConfig {
   mode?: BattleMode
+  commandGrouping?: CommandGroupingMode
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHp?: number
@@ -208,6 +210,7 @@ export function createEmptyArmyConfig(faction?: CharacterFaction): any {
 export function createEmptyBattleConfig(): BattleConfig {
   return {
     mode: 'formation',
+    commandGrouping: 'preset',
     spectator: false,
     playerFaction: 'viking',
     playerHp: COMBAT_BALANCE.hp.playerDefault,
@@ -295,6 +298,14 @@ function validateBattleConfigWithArmyLimit(
 
   if (c.mode !== undefined && c.mode !== 'formation' && c.mode !== 'scattered') {
     errors.push(`Invalid battle mode: ${String(c.mode)}`)
+  }
+
+  if (
+    c.commandGrouping !== undefined
+    && c.commandGrouping !== 'preset'
+    && c.commandGrouping !== 'squad'
+  ) {
+    errors.push(`Invalid command grouping: ${String(c.commandGrouping)}`)
   }
 
   if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
@@ -712,6 +723,7 @@ export const PRESET_DEVCOMBAT: BattleConfig = definePreset({
 export function getDefaultBattleConfig(): BattleConfig {
   const config: BattleConfig = JSON.parse(JSON.stringify(PRESET_10V10))
   config.playerFaction = 'viking'
+  config.commandGrouping = 'preset'
   config.playerHp = COMBAT_BALANCE.hp.playerDefault
   config.playerLoadout = createDefaultPlayerLoadout()
   return config
