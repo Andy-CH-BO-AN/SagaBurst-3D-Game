@@ -91,7 +91,7 @@ export class ArmyCommandController {
   private highlightedCommandIndex = 0
   private readonly seenPresetIds = new Set<UnitPresetId>()
   private readonly seenSquadIds = new Set<SquadId>()
-  private groupingMode: CommandGroupingMode = 'preset'
+  private readonly groupingMode: CommandGroupingMode
   private rosterSignature = ''
   private allOrder: TacticalOrder | 'mixed' = 'attack'
   private wheelInputMode: WheelInputMode = 'weapon'
@@ -108,9 +108,11 @@ export class ArmyCommandController {
     initialOrder: TacticalOrder = 'attack',
     private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
     private readonly inventory: InventoryManager | null = null,
+    groupingMode: CommandGroupingMode = 'preset',
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
+    this.groupingMode = groupingMode
     this.initialOrder = initialOrder
     this.allOrder = initialOrder
     this.selectedWeaponId = inventory?.equippedMelee.id ?? null
@@ -144,7 +146,6 @@ export class ArmyCommandController {
     }
 
     if (this.formation?.isPlacementMode) {
-      this.input.consumeKeyPress('KeyX')
       this.formation.updatePlacement()
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         this._consumeDigit(key)
@@ -179,7 +180,6 @@ export class ArmyCommandController {
     }
 
     if (this.submenuOpen) {
-      this.input.consumeKeyPress('KeyX')
       const qBack = this.input.consumeKeyPress('KeyQ')
       const backquoteBack = this.input.consumeKeyPress('Backquote')
       if (qBack || backquoteBack) {
@@ -224,11 +224,6 @@ export class ArmyCommandController {
           this._issue(command)
         }
       }
-      return
-    }
-
-    if (this.input.consumeKeyPress('KeyX')) {
-      this._toggleGroupingMode()
       return
     }
 
@@ -537,16 +532,6 @@ export class ArmyCommandController {
         summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
-  }
-
-  private _toggleGroupingMode(): void {
-    this.groupingMode = this.groupingMode === 'preset' ? 'squad' : 'preset'
-    this.selectedTarget = null
-    this.highlightedTarget = null
-    this.rosterSignature = ''
-    this._syncRosterSelection()
-    this.ui.showFeedback(`命令分組：${this.groupingMode === 'squad' ? '小隊' : '兵種'}`)
-    this._renderUi()
   }
 
   private _targetLabel(target: ArmyCommandTarget | null): string {
