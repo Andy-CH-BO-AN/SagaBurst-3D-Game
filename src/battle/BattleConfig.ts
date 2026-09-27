@@ -5,7 +5,7 @@
 import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { CommandGroupingMode } from './CommandTarget'
+import type { CommandGroupingMode, SquadAssignment } from './CommandTarget'
 import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
@@ -107,6 +107,7 @@ export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
 export interface BattleConfig {
   mode?: BattleMode
   commandGrouping?: CommandGroupingMode
+  squadAssignments?: SquadAssignment[]
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHp?: number
@@ -306,6 +307,10 @@ function validateBattleConfigWithArmyLimit(
     && c.commandGrouping !== 'squad'
   ) {
     errors.push(`Invalid command grouping: ${String(c.commandGrouping)}`)
+  }
+
+  if (c.squadAssignments !== undefined && !Array.isArray(c.squadAssignments)) {
+    errors.push('squadAssignments must be an array')
   }
 
   if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
