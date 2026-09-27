@@ -277,6 +277,19 @@ export class CampaignSetupUI {
 
     this.container.innerHTML = `
       ${this._renderHeader(`DEFENSE CAMPAIGN · STAGE ${this.stageId}`)}
+      <div class="setup-mode-section campaign-command-grouping-section">
+        <div class="mode-section-label">指揮分組 <small>COMMAND GROUPING</small></div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn ${this.commandGrouping === 'preset' ? 'active' : ''}" id="campaign-command-grouping-preset">
+            <span class="mode-btn-title">兵種</span>
+            <span class="mode-btn-desc">UNIT PRESETS</span>
+          </button>
+          <button type="button" class="mode-btn ${this.commandGrouping === 'squad' ? 'active' : ''}" id="campaign-command-grouping-squad">
+            <span class="mode-btn-title">小隊</span>
+            <span class="mode-btn-desc">SQUADS · UP TO 8</span>
+          </button>
+        </div>
+      </div>
       <div class="campaign-stage-summary">
         <div><small>守方</small><b>${factionZh}</b></div>
         <div><small>部署上限</small><b>${total} / ${stage.defenderDeployment.maxUnits}</b></div>
@@ -300,18 +313,6 @@ export class CampaignSetupUI {
           <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} ${this.defenderFaction === 'viking' ? '斧騎兵' : '刀騎兵'}</b>援軍。</p>
           <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
           <p>玩家與原始守軍全滅會鎖定敗北；戰場仍可繼續模擬至援軍抵達。</p>
-          <hr />
-          <p><b>指揮分組</b></p>
-          <div class="mode-btn-group">
-            <button type="button" class="mode-btn ${this.commandGrouping === 'preset' ? 'active' : ''}" id="campaign-command-grouping-preset">
-              <span class="mode-btn-title">兵種</span>
-              <span class="mode-btn-desc">UNIT PRESETS</span>
-            </button>
-            <button type="button" class="mode-btn ${this.commandGrouping === 'squad' ? 'active' : ''}" id="campaign-command-grouping-squad">
-              <span class="mode-btn-title">小隊</span>
-              <span class="mode-btn-desc">SQUADS · UP TO 8</span>
-            </button>
-          </div>
           <hr />
           <p><b>玩家裝備</b></p>
           <label class="campaign-loadout-field">
