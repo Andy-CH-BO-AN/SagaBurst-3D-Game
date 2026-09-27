@@ -18,6 +18,11 @@ import {
   type UnitLoadout,
   type UnitPresetId,
 } from './UnitPresetCatalog'
+import {
+  MAX_COMMAND_SQUADS,
+  TARGET_COMMAND_SQUAD_SIZE,
+  type SquadId,
+} from './CommandTarget'
 
 export interface NpcSpawnSpec {
   x: number
@@ -31,6 +36,7 @@ export interface NpcSpawnSpec {
   respawnEnabled: boolean
   presetId?: UnitPresetId
   loadout?: UnitLoadout
+  squadId?: SquadId
 }
 
 export interface CampPickupSpec {
@@ -107,16 +113,33 @@ interface PendingNpc {
   loadout?: UnitLoadout
 }
 
+export function assignPlayerCommandSquads(specs: NpcSpawnSpec[]): void {
+  const friendlies = specs.filter(spec => spec.faction === Faction.PLAYER)
+  if (friendlies.length === 0) return
+
+  const squadCount = Math.min(
+    MAX_COMMAND_SQUADS,
+    Math.max(1, Math.ceil(friendlies.length / TARGET_COMMAND_SQUAD_SIZE)),
+  )
+
+  // Round-robin over the deterministic spawn list so mixed armies naturally
+  // distribute infantry, ranged, and cavalry across the same numbered squads.
+  friendlies.forEach((spec, index) => {
+    spec.squadId = ((index % squadCount) + 1) as SquadId
+  })
+}
+
 export class BattleSpawner {
   /**
    * Generates a complete deterministic spawn plan from BattleConfig.
    */
   static createSpawnPlan(config: BattleConfig): BattleSpawnPlan {
     const mode = config.mode ?? 'formation'
-    if (mode === 'scattered') {
-      return this._generateScatteredPlan(config)
-    }
-    return this._generateFormationPlan(config)
+    const plan = mode === 'scattered'
+      ? this._generateScatteredPlan(config)
+      : this._generateFormationPlan(config)
+    assignPlayerCommandSquads(plan.npcSpecs)
+    return plan
   }
 
   private static _generateFormationPlan(config: BattleConfig): BattleSpawnPlan {
