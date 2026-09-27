@@ -205,6 +205,24 @@ describe('Battle setup and standalone reference UI', () => {
     ui.destroy()
   })
 
+  it('chooses command grouping before battle launch', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    const preset = domRegistry.get('command-grouping-preset')
+    const squad = domRegistry.get('command-grouping-squad')
+    expect(preset).toBeDefined()
+    expect(squad).toBeDefined()
+    expect((ui as any).config.commandGrouping).toBe('preset')
+    expect(preset?.classList.contains('active')).toBe(true)
+
+    squad?.click()
+    expect((ui as any).config.commandGrouping).toBe('squad')
+    expect(squad?.classList.contains('active')).toBe(true)
+
+    ui.destroy()
+  })
+
   it('switches cleanly between Army and Player Loadout', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})
