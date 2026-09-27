@@ -35,6 +35,7 @@ Choose **Roman Defense** or **Viking Defense**, configure the defending army for
 - Destroying the entire attacking army wins immediately; otherwise scheduled cavalry reinforcements can still arrive during a long defense.
 - Stage 9 is the final Defense Campaign stage.
 - T1 defenders remain selectable in every stage, so players can deliberately run lower-tier challenge armies.
+- When **Squads** command grouping is selected, the normal start button becomes **ASSIGN SQUADS**. A second setup step shows only deployed preset+tier rows, lets the player distribute them across squads 1–8, caps each squad at **30** units, and requires every defender to be assigned before the campaign can start.
 
 | Stage | Defender cap | Defender tier rule | Attacker force |
 | --- | ---: | --- | --- |
@@ -233,7 +234,7 @@ Mounted save/load preserves the player's mounted state and the mount's world pos
 
 ## 📯 Army Commands
 
-Army Command grouping is selected in the battle setup before deployment and remains fixed for the whole battle. Preset grouping remains the default; squad grouping distributes friendly NPCs deterministically into up to eight numbered squads, and a squad may intentionally mix infantry, ranged units, and cavalry. Squad HUD entries show living / total members. Press `Q` to give the mouse wheel to command selection; press it again from the target list to return the wheel to owned melee weapons. Ranged weapons still appear through right-click aiming. The first available target is highlighted by default; in command mode, scrolling upward from it reaches ALL, while scrolling moves through the visible targets. Middle-click enters the highlighted target's command panel. Attack is highlighted first, the command wheel moves between Attack / Charge / Defend / Formation, and middle-click confirms. `Q` goes back from a command submenu or formation placement without changing wheel mode. Formation placement can be confirmed with `E`, left click, or middle click.
+Army Command grouping is selected in the battle setup before deployment and remains fixed for the whole battle. Preset grouping remains the default. Defense Campaign squad grouping uses a second **ASSIGN SQUADS** setup step where the player manually distributes deployed preset+tier manpower across up to eight squads; zero-count rows are hidden and each squad is capped at 30. A squad may intentionally mix tiers, infantry, ranged units, and cavalry. Squad HUD entries show living / total members. Press `Q` to give the mouse wheel to command selection; press it again from the target list to return the wheel to owned melee weapons. Ranged weapons still appear through right-click aiming. The first available target is highlighted by default; in command mode, scrolling upward from it reaches ALL, while scrolling moves through the visible targets. Middle-click enters the highlighted target's command panel. Attack is highlighted first, the command wheel moves between Attack / Charge / Defend / Formation, and middle-click confirms. `Q` goes back from a command submenu or formation placement without changing wheel mode. Formation placement can be confirmed with `E`, left click, or middle click.
 
 Select a troop group with its faction shortcut, then choose an order from the command menu.
 
