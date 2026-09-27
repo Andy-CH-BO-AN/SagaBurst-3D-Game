@@ -223,6 +223,30 @@ describe('Battle setup and standalone reference UI', () => {
     ui.destroy()
   })
 
+  it('routes Custom Battle squad mode to a second manual squad page', () => {
+    const ui = new BattleSetupUI()
+    ui.mount(container, () => {})
+
+    domRegistry.get('command-grouping-squad')?.click()
+    expect(domRegistry.get('btn-start-battle-label')?.textContent).toBe('選擇小隊')
+
+    domRegistry.get('btn-start-battle')?.click()
+    const html = (domRegistry.get('battle-setup-container') as any).innerHTML
+    expect(html).toContain('CUSTOM BATTLE · SQUAD ASSIGNMENT')
+    expect(html).toContain('Viking Veteran')
+    expect(html).toContain('T1 · 總兵力 4')
+    expect(html).not.toContain('Spearman')
+    expect(html).toContain('單隊上限')
+    expect(html).toContain('30')
+
+    ;(ui as any)._setSquadAssignmentCount('viking_berserker', 1, 4)
+    ;(ui as any)._setSquadAssignmentCount('viking_archer', 2, 2)
+    ;(ui as any)._setSquadAssignmentCount('viking_lancer', 2, 2)
+    ;(ui as any)._setSquadAssignmentCount('viking_horse_archer', 3, 2)
+    expect((ui as any).config.squadAssignments.reduce((sum: number, item: any) => sum + item.count, 0)).toBe(10)
+
+    ui.destroy()
+  })
   it('switches cleanly between Army and Player Loadout', () => {
     const ui = new BattleSetupUI()
     ui.mount(container, () => {})
