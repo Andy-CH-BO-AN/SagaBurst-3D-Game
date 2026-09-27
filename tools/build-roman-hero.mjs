@@ -293,7 +293,7 @@ const manifest={schemaVersion:1,id:'roman-hero-t4',displayName:'羅馬禁衛軍 
   files:sourceManifest.files,fileSha256:Object.fromEntries(reports.map(r=>[`lod${r.lod}`,r.sha256])),skeleton:'project-humanoid-v1',boneMap:'bone-map.json',audit:'audit.json',
   handGripFrames:{left:scaleFrame(sourceManifest.handGripFrames.left)},swordGripFrames:Object.fromEntries(Object.entries(sourceManifest.swordGripFrames).map(([k,v])=>[k,scaleFrame(v)])),
   animations:sourceManifest.animations,animationSources:sourceManifest.animationSources,attachmentOffsets:{corgiPelvis:[0,.17,0]},lodMeasurements:reports,
-  visualAcceptance:'See the Roman T4 asset pull request description for validation and known limitations; exported GLB browser review required',
+  visualAcceptance:'Validation and known limitations: https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/127; exported GLB browser review required',
   inheritedLimitations:sourceManifest.remainingUncertainties}
 fs.writeFileSync(`${out}/manifest.json`,JSON.stringify(manifest,null,2)+'\n')
 const boneMap=JSON.parse(fs.readFileSync(`${base}/bone-map.json`));boneMap.rigidAttachments={Praetorian_face_mask:'head'}

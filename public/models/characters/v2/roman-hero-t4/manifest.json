@@ -688,7 +688,7 @@
       "overallHeightM": 1.9685262269676218
     }
   ],
-  "visualAcceptance": "See the Roman T4 asset pull request description for validation and known limitations; exported GLB browser review required",
+  "visualAcceptance": "Validation and known limitations: https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/127; exported GLB browser review required",
   "inheritedLimitations": [
     "The source FBX contains disconnected meshes, no armature, no weights, no actions, and emits excess-layer warnings during Blender import.",
     "The mounted thigh and skirt silhouette passed the isolated 12:32 asset review provisionally but must be validated against the actual saddle in the browser.",
