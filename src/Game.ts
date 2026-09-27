@@ -1322,6 +1322,7 @@ export class Game {
       spec.cavalry,
       spec.loadout,
       spec.presetId,
+      spec.squadId,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
