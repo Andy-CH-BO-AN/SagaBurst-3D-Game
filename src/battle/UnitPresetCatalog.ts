@@ -8,7 +8,10 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { ARMORS } from '../rpg/ArmorDatabase'
 
-export type UnitTier = 1 | 2 | 3
+export const BASE_UNIT_TIERS = [1, 2, 3] as const
+export const CUSTOM_BATTLE_UNIT_TIERS = [1, 2, 3, 4] as const
+export type BaseUnitTier = typeof BASE_UNIT_TIERS[number]
+export type UnitTier = typeof CUSTOM_BATTLE_UNIT_TIERS[number]
 
 export type VikingPresetId =
   | 'viking_berserker'
@@ -71,7 +74,7 @@ export interface UnitPreset {
   nameEn: string
   description: string
   traits: readonly UnitPresetTrait[]
-  tierLoadouts: Record<UnitTier, UnitLoadout>
+  tierLoadouts: Record<BaseUnitTier, UnitLoadout>
 }
 
 export const UNIT_PRESETS: Record<UnitPresetId, UnitPreset> = {
@@ -260,7 +263,7 @@ export function getUnitPresetsForFaction(faction: CharacterFaction): UnitPreset[
   return ids.map(id => UNIT_PRESETS[id])
 }
 
-export function resolveUnitLoadout(presetId: UnitPresetId, tier: UnitTier): UnitLoadout {
+export function resolveUnitLoadout(presetId: UnitPresetId, tier: BaseUnitTier): UnitLoadout {
   const preset = getUnitPreset(presetId)
   return preset.tierLoadouts[tier]
 }

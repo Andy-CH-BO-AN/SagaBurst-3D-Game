@@ -1,5 +1,8 @@
 import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
+import { createMakiRangerBowInstance } from '../world/MakiRangerEquipment'
 /**
  * Player.ts
  * The player character (capsule geometry).
@@ -248,7 +251,7 @@ export class Player {
     this.arrows = count
   }
 
-  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking') {
+  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null) {
     this.group = new THREE.Group()
     this.group.name = 'player'
 
@@ -299,7 +302,7 @@ export class Player {
     const allowLegacyFixture = import.meta.env.MODE === 'test'
       || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
     const parts = HumanoidAssetRegistry.ready
-      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, config)
+      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, config, this.heroAssetId ?? undefined)
       : allowLegacyFixture
         ? buildCharacterVisual(this.characterVisualGroup, config)
         : (() => { throw new Error('Viking humanoid assets were not preloaded') })()
@@ -384,7 +387,10 @@ export class Player {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
-      this.bowVisual.rebuild(weaponId)
+      if (this.heroAssetId === 'maki-archer-t4') {
+        const bow = createMakiRangerBowInstance()
+        this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
+      } else this.bowVisual.rebuild(weaponId)
     }
     polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false
@@ -446,7 +452,7 @@ export class Player {
       return false
     }
     const action = this._meleeAction(equippedMelee)
-    if (this.animator.start(action)) {
+    if (this.animator.start(action, getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)) {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false
@@ -526,7 +532,7 @@ export class Player {
       return hitSuccess
     }
 
-    this.currentHp = Math.max(0, this.currentHp - amount)
+    this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null))
     hpBar.setFill(this.hpRatio)
 
     if (this.currentHp <= 0) {
@@ -581,8 +587,8 @@ export class Player {
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
-    if (!this.animator.start('bowRelease')) return
-    this.bowCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'bow')
+    if (!this.animator.start('bowRelease', getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)) return
+    this.bowCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'bow') / (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)
     this.bowChargeTime = 0
   }
 
@@ -596,10 +602,10 @@ export class Player {
     this.pendingArrowTarget.copy(cameraAimPoint)
     this.pendingArcheryMultiplier = archeryMultiplier
     this.pendingRangedWeapon = equippedRanged
-    if (!this.animator.start('pilumThrow')) return
+    if (!this.animator.start('pilumThrow', getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)) return
     this.pilumProjectileReleased = false
     this.rangedAimRequiresRmbRelease = true
-    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin')
+    this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin') / (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)
   }
 
   update(
@@ -668,7 +674,7 @@ export class Player {
         if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
       } else {
         if (input.isLeftMouseDown && this.arrows > 0) {
-          this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt)
+          this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt * (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1))
           quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
         }
         this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
@@ -768,7 +774,7 @@ export class Player {
       ? this.currentMount.baseSpeed
       : MOVE_SPEED * berserker.moveSpeedMultiplier
     const effectiveSpeed = isMoving
-      ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1)
+      ? baseSpeed * speedMultiplier * (this.isSprinting ? SPRINT_MULTIPLIER : 1) * (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.moveSpeedMultiplier ?? 1)
       : 0
     if (this.aiming) {
       if (!isPilum) {
@@ -975,7 +981,10 @@ export class Player {
     const chargeRatio = chargeTime / maxChargeTime
     const speed  = THREE.MathUtils.lerp(speedMin, speedMax, chargeRatio)
     const baseDamage = THREE.MathUtils.lerp(dmgMin, dmgMax, chargeRatio)
-    const damage = Math.round(baseDamage * archeryMultiplier * getRangedDamageMultiplier(getRangedCombatKind(this.pendingRangedWeapon) ?? 'bow'))
+    const damage = applyHeroOutgoingDamage(
+      Math.round(baseDamage * archeryMultiplier * getRangedDamageMultiplier(getRangedCombatKind(this.pendingRangedWeapon) ?? 'bow')),
+      this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null,
+    )
 
     const arrowOrigin = this._tmpWorldNock
     const arrowDirection = this._tmpArrowDirection
@@ -1003,7 +1012,7 @@ export class Player {
         origin: origin.clone(),
         direction: direction.clone(),
         speed: equippedRanged.arrowSpeedMax ?? 48,
-        damage: Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)),
+        damage: applyHeroOutgoingDamage(Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)), this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null),
         visualKind: 'pilum',
       })
     }

@@ -116,6 +116,10 @@ import {
   applyDevSimpleMaterials,
 } from './debug/RendererCostIsolation'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
+import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
+import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
+import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
+import { normalizeArmyConfig } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
@@ -245,7 +249,12 @@ export function resolveMountSpawnY(
 ): number | undefined {
   return saveData.mountData?.position ? saveData.mountData.position.y : undefined
 }
-import { damageNpc, damagePlayer } from './combat/DamageRouter'
+import { damageNpc, damageObstacle, damagePlayer } from './combat/DamageRouter'
+import {
+  CombatEventStream,
+  createNpcCombatActorRef,
+  createPlayerCombatActorRef,
+} from './combat/CombatAttribution'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { createBowComparisonPanel } from './debug/BowComparisonPanel'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
@@ -281,6 +290,7 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 }
 
 export class Game {
+  readonly combatEvents = new CombatEventStream()
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -317,6 +327,20 @@ export class Game {
         return game
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload()])
+      const heroAssets = new Set<HeroAssetId>()
+      const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+      if (playerHeroId) heroAssets.add(playerHeroId)
+      if (battleConfig && !campaignConfig) {
+        for (const faction of ['viking', 'roman'] as const) {
+          for (const [presetId, counts] of Object.entries(normalizeArmyConfig(battleConfig[faction], faction))) {
+            if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
+          }
+        }
+      }
+      await Promise.all([
+        ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
+        ...(heroAssets.has('maki-archer-t4') ? [preloadMakiRangerBow()] : []),
+      ])
       const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       return game
@@ -600,7 +624,8 @@ export class Game {
             : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    this.player = new Player(this.scene, playerFaction)
+    const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+    this.player = new Player(this.scene, playerFaction, playerHeroId)
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
@@ -658,7 +683,9 @@ export class Game {
       battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
     }
 
-    const initialPlayerHp = activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+    const initialPlayerHp = playerHeroId
+      ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[playerHeroId])!.maxHp
+      : activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
     this.player.setMaxHp(initialPlayerHp, true)
 
     const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
@@ -857,6 +884,11 @@ export class Game {
         Faction.PLAYER,
         true,
         evt.visualKind,
+        {
+          source: createPlayerCombatActorRef(this.player),
+          weaponId: this.inventoryManager.equippedRanged.id,
+          emit: this.combatEvents.emit,
+        },
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -1190,10 +1222,9 @@ export class Game {
           feedback.textContent = ' 載入中…'
           try {
             if (!riders.has(key)) {
-              const { VIKING_HERO, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
-              const { MAKI_HERO, MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
+              const { MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
               const maki = key === 'maki-t4'
-              const descriptor = maki ? MAKI_HERO : isCorgi ? ROMAN_HERO : VIKING_HERO
+              const descriptor = HERO_ASSETS[maki ? 'maki-archer-t4' : isCorgi ? 'roman-hero-t4' : 'viking-hero-t4'].descriptor
               await HumanoidAssetRegistry.preloadAsset(descriptor)
               const bowAssets = maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined
               const rider = HumanoidAssetRegistry.createCharacterInstance({ faction: descriptor.faction, tier: 2, isPlayer: false }, descriptor.assetId)
@@ -1409,6 +1440,11 @@ export class Game {
       spec.loadout,
       spec.presetId,
       spec.squadId,
+      undefined,
+      this.combatEvents.emit,
+      spec.visualAssetId,
+      spec.combatProfileId,
+      spec.specialCombatProfile,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -1797,7 +1833,7 @@ export class Game {
     })
   }
 
-  private _saveGame(): void {
+  _saveGame(): void {
     if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
@@ -1829,7 +1865,7 @@ export class Game {
     this._showNotify(ok ? '💾 遊戲已存檔（含背包裝備）' : '❌ 存檔失敗')
   }
 
-  private _loadGame(): void {
+  _loadGame(): void {
     if (this.player.dead || this.controlMode === 'spectator') return
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
@@ -2027,7 +2063,12 @@ export class Game {
       )
       if (!hitPoint || hitPoint.distanceTo(gripPosition) > segmentLength) continue
 
-      const result = damageable.takeDamage(damage)
+      const result = damageObstacle(damageable, damage, {
+        source: createPlayerCombatActorRef(this.player),
+        method: 'melee',
+        weaponId: this.inventoryManager.equippedMelee.id,
+        emit: this.combatEvents.emit,
+      })
       if (result.appliedDamage <= 0) continue
 
       this.player.markHitProcessed()
@@ -2060,7 +2101,7 @@ export class Game {
     )
 
     const { damage: chargedDamage, isCharge } = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
-    const damage = Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier)
+    const damage = applyHeroOutgoingDamage(Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier), this.player.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.player.heroAssetId] : null)
 
     if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()
@@ -2091,7 +2132,12 @@ export class Game {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage)
+            const result = damageNpc(npc, finalDamage, {
+              source: createPlayerCombatActorRef(this.player),
+              method: 'melee',
+              weaponId: equippedMelee.id,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               // Only suppress Horse Impact when the Lance charge actually landed
               if (isCharge && this.player.currentMount) {
@@ -2125,7 +2171,12 @@ export class Game {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage)
+            const result = damageNpc(npc, finalDamage, {
+              source: createPlayerCombatActorRef(this.player),
+              method: 'melee',
+              weaponId: equippedMelee.id,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               this.soundManager.playSwordHit(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter)
@@ -2315,7 +2366,14 @@ export class Game {
       {
         npcGrid: this.npcGrid,
         candidateBuffer: this._impactCandidates,
-        onDamagePlayer: (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+        onDamagePlayer: (damage, context) => damagePlayer(
+          this.player,
+          damage,
+          this.hpBar,
+          this.inventoryManager.equippedShield?.id ?? null,
+          context,
+        ),
+        combatEvents: this.combatEvents.emit,
         onPlayerMountHitNpcAudio: (damage, attackerMount, npc, result) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           this._tmpHitPos.copy(npc.combatPosition)
@@ -2520,7 +2578,18 @@ export class Game {
           // Melee Hit Callback
           if (isPlayer) {
             if (!this.player.targetable) return
-            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
+            const result = damagePlayer(
+              this.player,
+              damage,
+              this.hpBar,
+              this.inventoryManager.equippedShield?.id ?? null,
+              {
+                source: createNpcCombatActorRef(npc),
+                method: 'melee',
+                weaponId: npc.meleeWeaponId ?? undefined,
+                emit: this.combatEvents.emit,
+              },
+            )
             if (result.hitSuccess) {
               if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
               else this.soundManager.playSwordHit(npc.currentLod, true)
@@ -2531,7 +2600,12 @@ export class Game {
               }
             }
           } else if (targetNpc) {
-            const result = damageNpc(targetNpc, damage)
+            const result = damageNpc(targetNpc, damage, {
+              source: createNpcCombatActorRef(npc),
+              method: 'melee',
+              weaponId: npc.meleeWeaponId ?? undefined,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
               else this.soundManager.playSwordHit(npc.currentLod, false)
@@ -2549,6 +2623,11 @@ export class Game {
             npc.faction,
             false,
             visualKind,
+            {
+              source: createNpcCombatActorRef(npc),
+              weaponId: npc.rangedWeaponId,
+              emit: this.combatEvents.emit,
+            },
           )
           this.arrows.push(arrow)
           if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
@@ -2629,7 +2708,13 @@ export class Game {
           },
         )
       },
-      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+      (damage, context) => damagePlayer(
+        this.player,
+        damage,
+        this.hpBar,
+        this.inventoryManager.equippedShield?.id ?? null,
+        context,
+      ),
       (damage, hitPos, obstacle, hpRatio) => {
         if (!arrow.isPlayerFired) return
         this.damageNumbers.spawn(Math.round(damage), hitPos)

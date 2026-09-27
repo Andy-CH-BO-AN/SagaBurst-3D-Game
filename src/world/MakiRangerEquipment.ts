@@ -1,12 +1,10 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { BowGripProfile } from './BowAttachmentContract'
-import type { HumanoidAssetDescriptor } from './HumanoidAssetRegistry'
+import { HERO_ASSETS } from './HeroAssetCatalog'
 
 /** Asset identity only; never a UnitTier or a production faction/loadout. */
-export const MAKI_HERO: HumanoidAssetDescriptor = {
-  assetId: 'maki-archer-t4', faction: 'viking', heightM: 1.457503, maxShoulderWidthM: .274, neckLengthM: .078,
-}
+export const MAKI_HERO = HERO_ASSETS['maki-archer-t4'].descriptor
 export type MakiEquipmentMode = 'ranged' | 'ammo-exhausted'
 /** Phase 2 integration point. Proximity/charge cannot trigger melee fallback. */
 export function resolveMakiEquipmentMode(arrows: number): MakiEquipmentMode {
@@ -22,6 +20,14 @@ export interface MakiBowAsset {
   bottomTip: THREE.Vector3
 }
 let bowTemplate: Promise<MakiBowAsset> | undefined
+let readyBow: MakiBowAsset | undefined
+export async function preloadMakiRangerBow(): Promise<void> {
+  await loadMakiRangerBow()
+}
+export function createMakiRangerBowInstance(): MakiBowAsset {
+  if (!readyBow) throw new Error('Maki Ranger Bow was not preloaded')
+  return { ...readyBow, model: readyBow.model.clone(true) }
+}
 export async function loadMakiRangerBow(): Promise<MakiBowAsset> {
   bowTemplate ??= (async () => {
     const base = '/models/weapons/maki-ranger-bow'
@@ -40,5 +46,6 @@ export async function loadMakiRangerBow(): Promise<MakiBowAsset> {
     return { model: gltf.scene, profile, topTip: new THREE.Vector3(...metadata.topTip as [number, number, number]), bottomTip: new THREE.Vector3(...metadata.bottomTip as [number, number, number]) }
   })()
   const asset = await bowTemplate
+  readyBow = asset
   return { ...asset, model: asset.model.clone(true) }
 }
