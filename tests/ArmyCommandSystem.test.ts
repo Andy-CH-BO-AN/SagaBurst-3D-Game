@@ -63,6 +63,7 @@ function controllerHarness(
   canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
   inventory: InventoryManager | null = null,
   faction: 'viking' | 'roman' = 'viking',
+  grouping: 'preset' | 'squad' = 'preset',
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -110,6 +111,7 @@ function controllerHarness(
     'attack',
     canIssueOrder,
     inventory,
+    grouping,
   )
   return { controller, input, ui }
 }
@@ -1159,10 +1161,8 @@ describe('Army command keyboard mapping and filtering', () => {
       dead: false,
       setTacticalOrder: vi.fn(),
     }
-    const h = controllerHarness([spearman, horseArcher, otherSquad])
+    const h = controllerHarness([spearman, horseArcher, otherSquad], null, null, null, 'viking', 'squad')
 
-    h.input.pressKey('KeyX')
-    h.controller.update()
     expect(h.controller.grouping).toBe('squad')
 
     const hud = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ target: string; summary?: string }>
