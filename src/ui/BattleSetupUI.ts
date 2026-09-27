@@ -327,7 +327,7 @@ export class BattleSetupUI {
           <input type="checkbox" id="spectator-checkbox" />
           <span>觀戰模式 Spectator</span>
         </label>
-        <button class="start-btn" id="btn-start-battle"><span>開始戰鬥</span><small>START BATTLE</small></button>
+        <button class="start-btn" id="btn-start-battle"><span id="btn-start-battle-label">開始戰鬥</span><small id="btn-start-battle-subtitle">START BATTLE</small></button>
       </div>
     `
   }
@@ -397,15 +397,18 @@ export class BattleSetupUI {
     // Faction buttons
     document.getElementById('faction-btn-viking')?.addEventListener('click', () => {
       this.config.playerFaction = 'viking'
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
     document.getElementById('faction-btn-roman')?.addEventListener('click', () => {
       this.config.playerFaction = 'roman'
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
 
     document.getElementById('command-grouping-preset')?.addEventListener('click', () => {
       this.config.commandGrouping = 'preset'
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
     document.getElementById('command-grouping-squad')?.addEventListener('click', () => {
@@ -472,6 +475,7 @@ export class BattleSetupUI {
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.squadAssignments = undefined
       this._refreshView()
     }
 
@@ -496,6 +500,7 @@ export class BattleSetupUI {
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
 
@@ -508,22 +513,16 @@ export class BattleSetupUI {
     // Start battle button
     document.getElementById('btn-start-battle')?.addEventListener('click', () => {
       const validation = validateBattleConfig(this.config)
-      if (validation.valid && this.onStartCallback) {
-        if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
-          try {
-            const canvasContainer = document.getElementById('canvas-container')
-            const target = canvasContainer || document.body
-            const p = target.requestPointerLock?.()
-            if (p && typeof (p as any).catch === "function") {
-              ;(p as Promise<void>).catch(() => {})
-            }
-          } catch {
-            // ignore
-          }
-        }
-        this.destroy()
-        this.onStartCallback(this.config)
+      if (!validation.valid || !this.onStartCallback) return
+
+      if (this.config.commandGrouping === 'squad') {
+        this.config.squadAssignments ??= []
+        this.selectedSquadId = 1
+        this._renderSquadSetup()
+        return
       }
+
+      this._launchBattle(this.config)
     })
   }
 
@@ -542,6 +541,7 @@ export class BattleSetupUI {
     const maxAllowed = Math.max(0, MAX_CUSTOM_ARMY_SIZE - otherTotal)
     const clamped = Math.max(0, Math.min(value, maxAllowed))
 
+    if (army[preset]![tier] !== clamped) this.config.squadAssignments = undefined
     army[preset]![tier] = clamped
     this._refreshView()
   }
@@ -562,9 +562,11 @@ export class BattleSetupUI {
     if (delta > 0) {
       if (currentTotal >= MAX_CUSTOM_ARMY_SIZE || currentVal >= MAX_CUSTOM_ARMY_SIZE) return
       army[preset]![tier] = currentVal + 1
+      this.config.squadAssignments = undefined
     } else if (delta < 0) {
       if (currentVal <= 0) return
       army[preset]![tier] = currentVal - 1
+      this.config.squadAssignments = undefined
     }
 
     this._refreshView()
@@ -639,6 +641,11 @@ export class BattleSetupUI {
     if (startBtn) {
       startBtn.disabled = !validation.valid
     }
+    const startLabel = document.getElementById('btn-start-battle-label')
+    const startSubtitle = document.getElementById('btn-start-battle-subtitle')
+    const usesSquads = currentCommandGrouping === 'squad'
+    if (startLabel) startLabel.textContent = usesSquads ? '選擇小隊' : '開始戰鬥'
+    if (startSubtitle) startSubtitle.textContent = usesSquads ? 'ASSIGN SQUADS' : 'START BATTLE'
 
     const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
     if (spectatorCheckbox) {
