@@ -1297,7 +1297,6 @@
 }
 .campaign-squad-stepper input {
   width: 64px;
-  cursor: default;
 }
 
 @media (max-width: 980px) {
