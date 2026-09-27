@@ -8,6 +8,7 @@ import {
 import { shouldCreateStartingHorse } from '../src/Game'
 import { Player } from '../src/player/Player'
 import { InventoryManager } from '../src/rpg/InventoryManager'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../src/rpg/WeaponDatabase'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
 
 const battleConfig = (): BattleConfig => ({
@@ -25,6 +26,14 @@ describe('Player loadout configuration', () => {
     const mixed = { ...battleConfig(), playerLoadout: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'legionary_pilum', shieldId: 'round_shield_t1', startMounted: true } } as const
     expect(validateBattleConfig(roman).valid).toBe(true)
     expect(validateBattleConfig(mixed).valid).toBe(true)
+    const t4Bow = { ...battleConfig(), playerLoadout: { ...roman.playerLoadout, rangedWeaponId: T4_RANGER_BOW_RANGED_ID } }
+    expect(validateBattleConfig(t4Bow).valid).toBe(true)
+    const t4Inventory = new InventoryManager(t4Bow.playerLoadout)
+    expect(t4Inventory.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
+    expect(t4Inventory.equippedRanged.tier).toBe(4)
+    expect(t4Inventory.equippedRanged.damageMax).toBe(WEAPONS.elven_runebow.damageMax)
+    expect(validateBattleConfig({ ...t4Bow, playerHeroId: 'maki-archer-t4' }).valid).toBe(true)
+    expect(validateBattleConfig({ ...battleConfig(), playerHeroId: 'maki-archer-t4', playerLoadout: roman.playerLoadout }).valid).toBe(false)
     expect(validateBattleConfig({ ...battleConfig(), playerLoadout: { ...roman.playerLoadout, meleeWeaponId: 'not_a_weapon' } }).valid).toBe(false)
     expect(validateBattleConfig({ ...battleConfig(), playerLoadout: { ...roman.playerLoadout, rangedWeaponId: 'not_a_weapon' } }).valid).toBe(false)
     expect(validateBattleConfig({ ...battleConfig(), playerLoadout: { ...roman.playerLoadout, shieldId: 'not_a_shield' } }).valid).toBe(false)
@@ -43,6 +52,12 @@ describe('Player loadout configuration', () => {
     expect(ranger.equipWeapon('heavy_lance')).toBe(false)
     expect(ranger.equipWeapon('scutum_t3')).toBe(false)
     expect(ranger.equipWeapon('elven_runebow')).toBe(true)
+    ranger.addWeapon('pilum_standard')
+    expect(ranger.equipWeapon('pilum_standard')).toBe(false)
+    const rangerWithPilum = new InventoryManager({ ...loadout, rangedWeaponId: 'pilum_standard' }, 'maki-archer-t4')
+    expect(rangerWithPilum.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
+    rangerWithPilum.loadSaveState(new InventoryManager({ ...loadout, rangedWeaponId: 'pilum_standard' }).saveState)
+    expect(rangerWithPilum.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
     const captain = new InventoryManager(loadout, 'viking-hero-t4')
     expect(captain.equippedMelee.id).toBe('heavy_lance')
     expect(captain.equippedShield?.id).toBe('scutum_t3')

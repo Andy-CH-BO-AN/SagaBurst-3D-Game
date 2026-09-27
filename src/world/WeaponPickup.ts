@@ -15,7 +15,7 @@ export class WeaponPickup {
   readonly isArrowPack: boolean
   readonly arrowQuantity: number
   readonly name: string
-  readonly tier: 1 | 2 | 3
+  readonly tier: 1 | 2 | 3 | 4
 
   private meshGroup: THREE.Group
   private alive = true

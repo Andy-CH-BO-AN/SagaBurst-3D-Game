@@ -36,7 +36,7 @@ import {
 } from '../battle/BattleConfig'
 import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -348,7 +348,8 @@ export class CampaignSetupUI {
             <span>遠程</span>
             <select id="campaign-player-ranged">
               ${PLAYER_RANGED_WEAPON_IDS.map(id => `
-                <option value="${id}" ${loadout.rangedWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
+                <option value="${id}" ${loadout.rangedWeaponId === id ? 'selected' : ''}
+                  ${this.playerHeroId === 'maki-archer-t4' && WEAPONS[id]?.combatKind !== 'bow' ? 'disabled' : ''}>${WEAPONS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
@@ -429,11 +430,17 @@ export class CampaignSetupUI {
     })
     this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
       this.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      if (this.playerHeroId === 'maki-archer-t4' && this.playerLoadout
+        && WEAPONS[this.playerLoadout.rangedWeaponId]?.combatKind !== 'bow') {
+        this.playerLoadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
+      }
       this._render()
     })
     this.container.querySelector('#campaign-player-ranged')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
-      this.playerLoadout.rangedWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['rangedWeaponId']
+      const rangedWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['rangedWeaponId']
+      if (this.playerHeroId === 'maki-archer-t4' && WEAPONS[rangedWeaponId]?.combatKind !== 'bow') return
+      this.playerLoadout.rangedWeaponId = rangedWeaponId
     })
     this.container.querySelector('#campaign-player-shield')?.addEventListener('change', event => {
       if (!this.playerLoadout || getHeroFixedEquipment(this.playerHeroId)) return

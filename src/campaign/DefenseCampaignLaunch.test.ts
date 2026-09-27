@@ -12,6 +12,7 @@ import {
 import { calculateArmyTotal, type UnitTierCounts } from '../battle/BattleConfig'
 import { BattleSpawner } from '../battle/BattleSpawner'
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
+import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 
 function launch(
   defenderFaction: 'roman' | 'viking',
@@ -127,6 +128,15 @@ describe('Defense Campaign Stage 1 launch config', () => {
 
     config.defenderArmy.roman_heavy_infantry![4] = 1
     expect(validateDefenseCampaignLaunchConfig(config).errors).toContain('Defender T4 total 2 exceeds 1')
+  })
+
+  it('accepts the T4 Ranger bow in the player ranged loadout', () => {
+    const config = launch('roman', true)
+    config.playerHeroId = 'maki-archer-t4'
+    config.playerLoadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+    config.playerLoadout.rangedWeaponId = 'pilum_standard'
+    expect(validateDefenseCampaignLaunchConfig(config).errors).toContain('Ranger player must equip a bow')
   })
 
   it.each(['roman', 'viking'] as const)('adds a melee hero and Ranger to the %s attacker army', defenderFaction => {

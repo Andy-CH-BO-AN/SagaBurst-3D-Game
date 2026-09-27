@@ -119,6 +119,7 @@ import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan
 import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
+import { T4_RANGER_BOW_RANGED_ID } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -320,8 +321,17 @@ export class Game {
         const { GameplayBowQAPanel } = await import('./debug/GameplayBowQAPanel')
         return new GameplayBowQAPanel(renderer)
       }
+      const usesPlayerT4Bow = (
+        campaignConfig?.playerLoadout?.rangedWeaponId ?? battleConfig?.playerLoadout?.rangedWeaponId
+      ) === T4_RANGER_BOW_RANGED_ID
+      const savedPlayerT4Bow = new SaveManager().load().inventory.equippedRangedId === T4_RANGER_BOW_RANGED_ID
       if (legacyQa) {
-        await Promise.all([HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload()])
+        await Promise.all([
+          HorseAssetRegistry.preload(renderer),
+          BlackCatVisual.preload(),
+          CorgiVisual.preload(),
+          ...(usesPlayerT4Bow || savedPlayerT4Bow ? [preloadMakiRangerBow()] : []),
+        ])
         const game = new Game(renderer, battleConfig, campaignConfig)
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         return game
@@ -342,7 +352,7 @@ export class Game {
       }
       await Promise.all([
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
-        ...(heroAssets.has('maki-archer-t4') ? [preloadMakiRangerBow()] : []),
+        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow ? [preloadMakiRangerBow()] : []),
       ])
       const game = new Game(renderer, battleConfig, campaignConfig)
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
