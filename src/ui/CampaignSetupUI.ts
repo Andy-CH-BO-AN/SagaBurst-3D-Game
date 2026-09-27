@@ -31,6 +31,7 @@ import {
 } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
+import type { CommandGroupingMode } from '../battle/CommandTarget'
 
 type CampaignSetupScreen = 'faction' | 'stage' | 'setup'
 
@@ -41,6 +42,7 @@ export class CampaignSetupUI {
   private stageId: CampaignStageId = 1
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
+  private commandGrouping: CommandGroupingMode = 'preset'
   private onStartCallback: ((config: DefenseCampaignLaunchConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
 
@@ -58,6 +60,7 @@ export class CampaignSetupUI {
     this.stageId = 1
     this.defenderArmy = {}
     this.playerLoadout = null
+    this.commandGrouping = 'preset'
 
     if (
       initialTarget
@@ -282,6 +285,18 @@ export class CampaignSetupUI {
           <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
           <p>玩家與原始守軍全滅會鎖定敗北；戰場仍可繼續模擬至援軍抵達。</p>
           <hr />
+          <p><b>指揮分組</b></p>
+          <div class="mode-btn-group">
+            <button type="button" class="mode-btn ${this.commandGrouping === 'preset' ? 'active' : ''}" id="campaign-command-grouping-preset">
+              <span class="mode-btn-title">兵種</span>
+              <span class="mode-btn-desc">UNIT PRESETS</span>
+            </button>
+            <button type="button" class="mode-btn ${this.commandGrouping === 'squad' ? 'active' : ''}" id="campaign-command-grouping-squad">
+              <span class="mode-btn-title">小隊</span>
+              <span class="mode-btn-desc">SQUADS · UP TO 8</span>
+            </button>
+          </div>
+          <hr />
           <p><b>玩家裝備</b></p>
           <label class="campaign-loadout-field">
             <span>近戰</span>
@@ -360,6 +375,14 @@ export class CampaignSetupUI {
         )
       })
     })
+    this.container.querySelector('#campaign-command-grouping-preset')?.addEventListener('click', () => {
+      this.commandGrouping = 'preset'
+      this._render()
+    })
+    this.container.querySelector('#campaign-command-grouping-squad')?.addEventListener('click', () => {
+      this.commandGrouping = 'squad'
+      this._render()
+    })
     this.container.querySelector('#campaign-player-melee')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
       this.playerLoadout.meleeWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['meleeWeaponId']
@@ -420,6 +443,7 @@ export class CampaignSetupUI {
       stageId: this.stageId,
       defenderArmy: this._cloneArmy(),
       playerLoadout: { ...playerLoadout },
+      commandGrouping: this.commandGrouping,
     }
   }
 
