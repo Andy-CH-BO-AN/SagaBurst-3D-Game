@@ -77,6 +77,10 @@ export interface HumanoidAssetManifest {
     }
   }
   swordGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
+  /** Posed source hands already authored in the asset; do not apply faction morphs. */
+  handShapeMode?: 'authored'
+  /** These clips already contain asset-specific equipment contact constraints. */
+  bakedEquipmentActions?: string[]
   animations?: {
     embedded: HumanoidAnimationBinding[]
     runtimeGenerated: HumanoidAnimationState[]
@@ -747,13 +751,14 @@ export class HumanoidAssetRegistry {
         }
         if (!manifest.swordGripFrames || !manifest.handGripFrames) throw new Error(`${assetId}: missing asset grip calibration`)
       }
+      if (manifest.handShapeMode === 'authored') continue
       prepareBladeGrip(level.scene, faction)
       const handFrame = readHandFrame(manifest)
       if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
     }
     levels.forEach((level, index) => {
       const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
-      if (swordFrame) prepareSwordHandShape(level.scene, swordFrame)
+      if (swordFrame && manifest.handShapeMode !== 'authored') prepareSwordHandShape(level.scene, swordFrame)
     })
     const left = readHandFrame(manifest)
     if (left && manifest.swordGripFrames) {
@@ -765,8 +770,10 @@ export class HumanoidAssetRegistry {
         level.scene.userData.equipmentGripFrames = frames
         level.scene.userData.equipmentFaction = faction
         calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
-        prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
-        if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
+        if (manifest.handShapeMode !== 'authored') {
+          prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
+          if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
+        }
       })
     }
     validateEmbeddedAnimations(faction, manifest, levels)
@@ -918,7 +925,7 @@ export class HumanoidAssetRegistry {
     }
     for (const [index, level] of lod.levels.entries()) {
       const frames = level.object.userData.equipmentGripFrames as EquipmentGripFrames | undefined
-      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames)
+      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames, template.manifest.bakedEquipmentActions)
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
     animation.onPoseEvaluated()

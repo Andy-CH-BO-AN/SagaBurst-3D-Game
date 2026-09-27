@@ -7,12 +7,14 @@ description: Audit, normalize, rig, skin, optimize, and export realistic humanoi
 
 Prepare external people without changing gameplay coordinates or silently falling back to the legacy procedural body.
 
+For a static posed GLB without a skeleton, or for shoulder/sleeve separation and forearm collapse, read [posed-source characters](references/posed-source-characters.md). It includes the Maki rebuild sequence and asset-specific limits; do not copy its landmarks or pose constraints to unrelated characters.
+
 ## Workflow
 
 1. Read `references/humanoid-contract.md` and `references/asset-manifest.md`.
 2. Preserve the downloaded source and its license evidence outside the runtime export folder. Reject assets whose redistribution or commercial-use terms are incomplete; never substitute a different asset without reporting it.
 3. Run `python3 scripts/audit_glb.py <file.glb>` before and after Blender work. Save the JSON report beside the asset manifest.
-4. In Blender, apply transforms and normalize the character to metres with uniform scale. Match faction height and proportion landmarks in the contract before rigging.
+4. In Blender, apply the complete source hierarchy and normalize to metres with uniform scale. Match the applicable faction contract; when the user explicitly requires original proportions, measure and record an asset-specific descriptor instead of stretching the source to a faction template.
 5. Retarget both factions to the project humanoid skeleton. Correct weights in shoulder, axilla, elbow, hip, knee, skirt, and rigid armour test poses.
 6. Add the required sockets as bones or named empties parented to bones. Keep weapon-forward semantics compatible with the runtime bone adapter.
 7. Export LOD0/1/2 with shared material intent and embedded or colocated PBR textures. Do not bake orange skin tint into albedo.
@@ -34,4 +36,3 @@ Prepare external people without changing gameplay coordinates or silently fallin
 - `manifest.json`, `audit.json`, `bone-map.json`, and attribution evidence for each faction.
 - Blender source or reproducible Blender script when the license permits redistribution.
 - Front/side and representative deformation screenshots.
-

@@ -72,9 +72,10 @@ async function launchGame(
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
-  if (import.meta.env.DEV && ['viking-t4', 'roman-t4'].includes(query.get('devhero') ?? '')) {
+  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
-    await launchVikingHeroPreview(container!, query.get('devhero') === 'roman-t4' ? ROMAN_HERO : undefined)
+    const descriptor = query.get('devhero') === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : query.get('devhero') === 'roman-t4' ? ROMAN_HERO : undefined
+    await launchVikingHeroPreview(container!, descriptor)
     return
   }
   const isDevCombat = query.has('devcombat')

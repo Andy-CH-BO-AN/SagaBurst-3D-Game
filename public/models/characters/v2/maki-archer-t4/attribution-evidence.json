@@ -1,0 +1,82 @@
+{
+  "model": {
+    "title": "Maki (Archer)",
+    "author": "Blue Spirit",
+    "url": "https://sketchfab.com/3d-models/maki-archer-f8fe68c9b6b14ded84172a06c9bd9b20",
+    "license": "CC-BY-4.0 (model; animation licenses separate)",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceSha256": "de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601"
+  },
+  "checkedDate": "2026-09-27",
+  "sourcePage": {
+    "url": "https://sketchfab.com/3d-models/maki-archer-f8fe68c9b6b14ded84172a06c9bd9b20",
+    "status": "Web fetch returned HTTP 403; embedded GLB asset.extras independently identifies author, title, source URL and CC-BY-4.0. Upstream disclosure supplied in user request; retain uncertainty until live page verified."
+  },
+  "embeddedSourceMetadata": {
+    "author": "Blue Spirit (https://sketchfab.com/Blue-Spirit)",
+    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+    "source": "https://sketchfab.com/3d-models/maki-archer-f8fe68c9b6b14ded84172a06c9bd9b20",
+    "title": "Maki (Archer)"
+  },
+  "upstreamDisclosure": "The Model is a Remodel and Redesign of Mixamo Character (Akai)",
+  "adobeOfficialFaq": {
+    "url": "https://helpx.adobe.com/tw/creative-cloud/faq/mixamo-faq.html",
+    "checkedDate": "2026-09-27",
+    "finding": "Official FAQ permits royalty-free characters and animations for personal, commercial and nonprofit projects, including video games. This is game-use information, not a CC license for Adobe materials."
+  },
+  "ccLicense": {
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "checkedDate": "2026-09-27",
+    "finding": "Attribution, license link, indication of changes and no implied endorsement required."
+  },
+  "animationProvenance": {
+    "sources": [
+      {
+        "author": "Kevin Iglesias",
+        "package": "Human Archer Animations FREE",
+        "license": "Unity Asset Store EULA",
+        "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
+      },
+      {
+        "author": "Quaternius",
+        "package": "Universal Animation Library 2",
+        "license": "CC0 1.0",
+        "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
+      }
+    ],
+    "axeAttackBuild": {
+      "sourceSha256": "bcd47d323e40419d4dda188d51bd5d91021e6ca42d8dc0c30f1e5053401244f5",
+      "license": "Standard Asset Store EULA",
+      "licenseEvidence": "Human Melee Animations 2.0 FREE.pdf",
+      "sourceUrl": "https://kevdev.itch.io/human-melee-animatons-free",
+      "sourceDistribution": "Retargeted rotation tracks only; source archive, FBX and meshes excluded from public/Git.",
+      "rootMotionRemoved": true,
+      "duration": 0.48,
+      "contactSourceFrames": {
+        "axeAttack1H": 10,
+        "axeAttack2H": 18
+      },
+      "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+    },
+    "inputGlb": "public/models/characters/v2/viking/lod0.glb",
+    "inputSha256": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
+    "sourceMakiEmbeddedAnimations": 0
+  },
+  "actualModifications": [
+    "Idle preserves the original Maki bind pose without importing another character posture",
+    "Melee uses the same T4 bow in the left hand; the existing two-handed axe take supplies the strike timing/arc, with baked bow-handle support contact and acquisition/recovery to source bow idle; no axe equipment or axe idle",
+    "Assigned sleeve weights along garment topology; separated both sleeve/body branches below the measured axillary junction, diffused shoulder weights between fixed body and sleeve regions, and transferred the same field to the overlapping hood shoulder flap; kept torso ornaments separate and smoothed skirt centre weights",
+    "Bow poses start from the original Maki body pose and raise the arms with a two-bone solve and drawing-side clavicle elevation; the side-on shot points toward anatomical left (+X), the head and neck turn toward the same sight line, and the drawing hand anchors beside the jaw; other locomotion retargets arm direction using Maki rest frames; constrained both bow wrists to their anatomical rest orientation relative to the forearm; solved arm reach from source frames; left thumb web rises through gradual forearm pronation with a neutral wrist and distributed skin twist; weapon facing never drives limb rotation",
+    "Baked complete source transforms and grounded shoe outsole; preserved source dimensions and original character surfaces/materials",
+    "Built fitted project-humanoid-v1 skeleton with six forearm twist deformation bones and a local left deltoid support bone; subdivided bow-hand pronation into three adjacent skinning intervals to preserve forearm cross-section; limited deltoid support to the shoulder joint so it cannot drag the axillary body panel; measured elbow centres from original skin cross-sections; normalized region-aware skin weights because source has no rig",
+    "Baked existing project animations to fitted bone and hand frames; shared identical animation samples across all LODs",
+    "Generated three runtime LODs; resized original textures and encoded opaque maps as JPEG95 while preserving masked alpha maps as PNG",
+    "Extracted original Spirit Bow, normalized its grip pivot, removed original static string for existing dynamic bow-string rendering",
+    "Removed the independent held arrow; preserved quiver and back arrow stack as visual accessories",
+    "Added equipment sockets, bow contact landmarks and Maki-specific hand grip metadata; corrected left thumb direction for forehand bow grasp"
+  ],
+  "knownUncertainty": [
+    "Live Sketchfab page blocked by 403; source license corroborated by metadata in the user-provided GLB.",
+    "Mixamo Akai upstream authorship is retained; Adobe FAQ does not relicense embedded project animations or all derivative materials as CC BY."
+  ]
+}

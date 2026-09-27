@@ -7,6 +7,7 @@ import {
   applyBowAttachment,
   updateBowOrientation,
   DEFAULT_BOW_GRIP_PROFILE,
+  type BowGripProfile,
 } from './BowAttachmentContract'
 
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
@@ -49,6 +50,7 @@ export class CharacterBowVisual {
   private readonly tmpWorldQuaternion = new THREE.Quaternion()
   private drawContact?: THREE.Object3D
   private arrowRest?: THREE.Object3D
+  private profile: BowGripProfile = DEFAULT_BOW_GRIP_PROFILE
 
   constructor(
     private readonly actionPivot: THREE.Group,
@@ -56,8 +58,21 @@ export class CharacterBowVisual {
   ) {}
 
   rebuild(weaponId: string, consolidateMaterialGroups = false): void {
+    this.profile = DEFAULT_BOW_GRIP_PROFILE
     this.gripPivot.clear()
     const parts = WeaponMeshFactory.buildRanged(weaponId, this.gripPivot, consolidateMaterialGroups)
+    this.configure(parts, weaponId)
+  }
+
+  /** Asset-owned body, same string/nock/arrow and launch path as ordinary bows. */
+  rebuildFromAsset(model: THREE.Object3D, profile: BowGripProfile, topTip: THREE.Vector3, botTip: THREE.Vector3): void {
+    this.profile = profile
+    this.gripPivot.clear()
+    this.gripPivot.add(model)
+    this.configure({ topTip, botTip, stringLength: topTip.distanceTo(botTip) / 2 }, profile.id)
+  }
+
+  private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string): void {
     this.topTip.copy(parts.topTip)
     this.bottomTip.copy(parts.botTip)
     this.stringLength = parts.stringLength
@@ -95,7 +110,7 @@ export class CharacterBowVisual {
 
     polishWeaponMaterials(this.actionPivot)
     if (this.actionPivot.parent) {
-      applyBowAttachment(this.actionPivot.parent, this.actionPivot, DEFAULT_BOW_GRIP_PROFILE)
+      applyBowAttachment(this.actionPivot.parent, this.actionPivot, this.profile)
     }
   }
 
@@ -103,15 +118,15 @@ export class CharacterBowVisual {
     if (!this.nockedArrow) return
     if (this.actionPivot.parent) {
       if (!this.actionPivot.parent.userData.handGripFrame) {
-        applyBowAttachment(this.actionPivot.parent, this.actionPivot, DEFAULT_BOW_GRIP_PROFILE)
+        applyBowAttachment(this.actionPivot.parent, this.actionPivot, this.profile)
       }
-      if (!this.actionPivot.parent.userData.handGripFrame) updateBowOrientation(this.actionPivot.parent, this.actionPivot, targetWorld, DEFAULT_BOW_GRIP_PROFILE, targetYOffset)
+      if (!this.actionPivot.parent.userData.handGripFrame) updateBowOrientation(this.actionPivot.parent, this.actionPivot, targetWorld, this.profile, targetYOffset)
     }
 
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
     const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
-    this.nockPosition.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + 0.007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
+    this.nockPosition.set(this.profile.gripRadius + 0.007, this.profile.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
     if (this.actionPivot.parent?.userData.handGripFrame) {
       if (!this.drawContact) {
         let ancestor: THREE.Object3D | null = this.actionPivot.parent
