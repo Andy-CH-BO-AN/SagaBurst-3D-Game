@@ -50,6 +50,7 @@ import {
   calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
 import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
@@ -149,6 +150,7 @@ export class NPC {
   readonly name: string
   readonly tier: 1 | 2 | 3
   readonly presetId?: UnitPresetId
+  readonly squadId?: SquadId
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -347,6 +349,7 @@ export class NPC {
     cavalry?: boolean,
     loadout?: UnitLoadout,
     presetId?: UnitPresetId,
+    squadId?: SquadId,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -357,6 +360,7 @@ export class NPC {
     this.tier = tier
     this.loadout = loadout
     this.presetId = presetId
+    this.squadId = squadId
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
