@@ -330,9 +330,12 @@ export class Game {
       const heroAssets = new Set<HeroAssetId>()
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
       if (playerHeroId) heroAssets.add(playerHeroId)
-      if (battleConfig && !campaignConfig) {
+      const heroBattleConfigs = campaignConfig
+        ? [createDefenseCampaignWaveConfig(campaignConfig, 'defenders'), createDefenseCampaignWaveConfig(campaignConfig, 'attackers')]
+        : battleConfig ? [battleConfig] : []
+      for (const config of heroBattleConfigs) {
         for (const faction of ['viking', 'roman'] as const) {
-          for (const [presetId, counts] of Object.entries(normalizeArmyConfig(battleConfig[faction], faction))) {
+          for (const [presetId, counts] of Object.entries(normalizeArmyConfig(config[faction], faction))) {
             if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
           }
         }

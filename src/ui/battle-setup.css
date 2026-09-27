@@ -1077,9 +1077,9 @@
 .campaign-unit-row {
   min-height: 68px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 11px 0;
   border-top: 1px solid rgba(255,255,255,.06);
 }
@@ -1088,9 +1088,9 @@
 .campaign-unit-name span,
 .campaign-unit-name small { color: #756b5e; font-size: 11px; letter-spacing: .08em; }
 .campaign-tier-controls {
-  flex: 1;
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: center;
   gap: 8px;
 }
@@ -1106,8 +1106,8 @@
   font: 800 12px 'Segoe UI', sans-serif;
   letter-spacing: .08em;
 }
-.campaign-tier-control .campaign-stepper button { width: 36px; }
-.campaign-tier-control .campaign-stepper input { width: 56px; }
+.campaign-tier-control .campaign-stepper button { width: 30px; }
+.campaign-tier-control .campaign-stepper input { width: 42px; }
 .campaign-stepper { display: flex; align-items: center; gap: 5px; }
 .campaign-stepper button,
 .campaign-stepper input {
@@ -1482,6 +1482,7 @@
   }
   .campaign-tier-controls {
     width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-content: space-between;
   }
 }

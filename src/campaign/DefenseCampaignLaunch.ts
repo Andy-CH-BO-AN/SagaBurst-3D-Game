@@ -27,7 +27,9 @@ import {
   VIKING_PRESET_IDS,
   type UnitPresetId,
   type BaseUnitTier as UnitTier,
+  type UnitTier as BattleUnitTier,
   BASE_UNIT_TIERS,
+  CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
 import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import {
@@ -54,6 +56,7 @@ export interface DefenseCampaignLaunchConfig {
 }
 
 export type DefenseCampaignWave = 'defenders' | 'attackers' | 'reinforcement'
+export const CAMPAIGN_DEFENDER_HERO_CAP = 1
 
 const ROLE_ORDER: readonly CampaignUnitRole[] = [
   'frontline',
@@ -72,7 +75,7 @@ function emptyArmy(faction: CampaignFaction): ArmyConfig {
 function cloneArmy(army: Record<string, UnitTierCounts>): Record<string, UnitTierCounts> {
   const cloned: Record<string, UnitTierCounts> = {}
   for (const [presetId, counts] of Object.entries(army)) {
-    cloned[presetId] = { 1: counts[1], 2: counts[2], 3: counts[3] }
+    cloned[presetId] = { 1: counts[1], 2: counts[2], 3: counts[3], 4: counts[4] ?? 0 }
   }
   return cloned
 }
@@ -80,11 +83,11 @@ function cloneArmy(army: Record<string, UnitTierCounts>): Record<string, UnitTie
 function putCount(
   army: Record<string, UnitTierCounts>,
   presetId: UnitPresetId,
-  tier: UnitTier,
+  tier: BattleUnitTier,
   count: number,
 ): void {
   const counts = army[presetId] ?? { 1: 0, 2: 0, 3: 0 }
-  counts[tier] += count
+  counts[tier] = (counts[tier] ?? 0) + count
   army[presetId] = counts
 }
 
@@ -157,6 +160,7 @@ export function validateDefenseCampaignLaunchConfig(
   } else {
     let total = 0
     let mounted = 0
+    let heroes = 0
     const tierTotals: Record<UnitTier, number> = { 1: 0, 2: 0, 3: 0 }
 
     for (const [presetKey, rawCounts] of Object.entries(army)) {
@@ -169,7 +173,7 @@ export function validateDefenseCampaignLaunchConfig(
         continue
       }
       for (const key of Object.keys(rawCounts)) {
-        if (!['1', '2', '3'].includes(key)) errors.push(`Campaign NPC tier ${key} is not allowed`)
+        if (!['1', '2', '3', '4'].includes(key)) errors.push(`Campaign NPC tier ${key} is not allowed`)
       }
 
       const preset = getUnitPreset(presetKey as UnitPresetId)
@@ -183,14 +187,25 @@ export function validateDefenseCampaignLaunchConfig(
         tierTotals[tier] += count
         if (preset.tierLoadouts[tier].mountId) mounted += count
       }
+      const heroCount = (rawCounts as UnitTierCounts)[4] ?? 0
+      if (!Number.isInteger(heroCount) || heroCount < 0) {
+        errors.push(`${presetKey} T4 must be a non-negative integer`)
+      } else {
+        total += heroCount
+        heroes += heroCount
+        if (preset.tierLoadouts[3].mountId) mounted += heroCount
+      }
     }
 
     if (total < 1) errors.push('Deploy at least one defender')
     if (total > stage.defenderDeployment.maxUnits) {
       errors.push(`Defender total exceeds ${stage.defenderDeployment.maxUnits}`)
     }
+    if (heroes > CAMPAIGN_DEFENDER_HERO_CAP) {
+      errors.push(`Defender T4 total ${heroes} exceeds ${CAMPAIGN_DEFENDER_HERO_CAP}`)
+    }
 
-    for (const tier of [1, 2, 3] as UnitTier[]) {
+    for (const tier of BASE_UNIT_TIERS) {
       if (tierTotals[tier] > stage.defenderDeployment.tierCapacity[tier]) {
         errors.push(
           `T${tier} total ${tierTotals[tier]} exceeds capacity ${stage.defenderDeployment.tierCapacity[tier]}`,
@@ -256,7 +271,7 @@ export function validateDefenseCampaignSquadAssignments(
   const expected = new Map<string, number>()
   for (const [presetId, counts] of Object.entries(launch.defenderArmy)) {
     if (!(allowedPresets as readonly string[]).includes(presetId)) continue
-    for (const tier of [1, 2, 3] as UnitTier[]) {
+    for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
       const count = counts[tier] ?? 0
       if (count > 0) expected.set(`${presetId}:T${tier}`, count)
     }
@@ -278,7 +293,7 @@ export function validateDefenseCampaignSquadAssignments(
     if (!(allowedPresets as readonly string[]).includes(assignment.presetId)) {
       errors.push(`Invalid squad preset: ${assignment.presetId}`)
     }
-    if (![1, 2, 3].includes(assignment.tier)) {
+    if (!CUSTOM_BATTLE_UNIT_TIERS.includes(assignment.tier)) {
       errors.push(`Invalid squad tier: ${String(assignment.tier)}`)
     }
     if (
@@ -373,6 +388,8 @@ function createWaveArmy(
         }
       }
     }
+    putCount(side(attacker), resolveCampaignRolePreset(attacker, 'frontline'), 4, 1)
+    putCount(side(attacker), resolveCampaignAttackerRolePresets(attacker, 'ranged')[0], 4, 1)
   } else {
     putCount(
       side(defender),
@@ -420,7 +437,7 @@ export function positionDefenseCampaignDefenders(
   specs: NpcSpawnSpec[],
   defenderFaction: CampaignFaction,
 ): void {
-  const mounted = specs.filter(spec => spec.cavalry || Boolean(spec.loadout?.mountId))
+  const mounted = specs.filter(spec => spec.cavalry)
   if (mounted.length === 0) return
 
   const placement = getCampaignOutpostPlacement(defenderFaction)
