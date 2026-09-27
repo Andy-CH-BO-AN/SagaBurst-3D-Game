@@ -9,8 +9,7 @@ import {
 import {
   damageNpc,
   damageObstacle,
-  damagePlayer,
-  type DamageResult,
+  damagePlayer
 } from '../src/combat/DamageRouter'
 import { resolveMountImpacts } from '../src/combat/MountImpact'
 import { DamageableObstacle } from '../src/world/DamageableObstacle'
@@ -267,6 +266,67 @@ describe('Combat attribution foundation', () => {
         presetId: 'viking_archer',
       },
       weaponId: 'recurve_longbow',
+    })
+  })
+
+  it('uses the retained projectile source when a delayed projectile hits', () => {
+    const { events, stream } = eventHarness()
+    const shooter = mockNpc({
+      id: 'archer-delayed',
+      faction: Faction.PLAYER,
+      characterFaction: 'viking',
+      presetId: 'viking_archer',
+      squadId: 4,
+    })
+    const target = mockNpc({
+      id: 'roman-delayed-target',
+      faction: Faction.ENEMY,
+      characterFaction: 'roman',
+      presetId: 'roman_heavy_infantry',
+      hp: 50,
+      maxHp: 50,
+      position: new THREE.Vector3(0, 0, 0.3),
+    })
+    const arrow = new ArrowProjectile(
+      new THREE.Scene(),
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1),
+      35,
+      25,
+      Faction.PLAYER,
+      false,
+      'arrow',
+      {
+        source: createNpcCombatActorRef(shooter),
+        weaponId: 'recurve_longbow',
+        emit: stream.emit,
+      },
+    )
+
+    arrow.update(
+      0.01,
+      {
+        targetable: false,
+        characterFaction: 'viking',
+        combatPosition: new THREE.Vector3(50, 0, 50),
+      } as any,
+      [target],
+      [],
+      () => {},
+      () => {
+        throw new Error('player should not be hit')
+      },
+    )
+
+    expect(events.find(event => event.type === 'damage_applied')).toMatchObject({
+      source: {
+        actorId: 'archer-delayed',
+        squadId: 4,
+      },
+      target: { targetId: 'roman-delayed-target' },
+      method: 'projectile',
+      weaponId: 'recurve_longbow',
+      appliedDamage: 25,
     })
   })
 
