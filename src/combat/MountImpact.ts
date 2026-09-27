@@ -13,6 +13,12 @@ import type { Player } from '../player/Player'
 import { COMBAT_BALANCE, calculateMountImpactDamage } from './CombatBalance'
 import { damageNpc, type DamageResult } from './DamageRouter'
 import type { SpatialGrid } from '../world/SpatialGrid'
+import {
+  createNpcCombatActorRef,
+  createPlayerCombatActorRef,
+  type CombatDamageContext,
+  type CombatEventSink,
+} from './CombatAttribution'
 
 /** Swept line-segment collision check between mount trajectory and a target sphere. */
 export function checkMountImpact(mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean {
@@ -59,7 +65,9 @@ export interface MountImpactOptions {
    * Authoritative player damage callback (required).
    * Must supply the player's equipped shield and HP bar — MountImpact.ts must not guess these.
    */
-  onDamagePlayer: (damage: number) => DamageResult
+  onDamagePlayer: (damage: number, context?: CombatDamageContext) => DamageResult
+  /** Optional combat event sink used by attribution-only consumers such as BattleStats. */
+  combatEvents?: CombatEventSink
   /** Side-effects for Player mount impacting an enemy NPC (damage numbers, HUD, sound). */
   onPlayerMountHitNpc?: (damage: number, npc: NPC, result: DamageResult) => void
   onPlayerMountHitNpcAudio?: (damage: number, attackerMount: Mount, npc: NPC, result: DamageResult) => void
@@ -104,7 +112,11 @@ export function resolveMountImpacts(
 
         if (checkMountImpact(mount, targetNpc.combatPosition, 0.5)) {
           applyMountImpactDamage(mount, targetNpc, targetNpc.combatPosition, now, (damage) => {
-            const result = damageNpc(targetNpc, damage)
+            const result = damageNpc(targetNpc, damage, {
+              source: createPlayerCombatActorRef(player),
+              method: 'mount-impact',
+              emit: options.combatEvents,
+            })
             if (result.hitSuccess) {
               options.onPlayerMountHitNpc?.(damage, targetNpc, result)
               options.onPlayerMountHitNpcAudio?.(damage, mount, targetNpc, result)
@@ -123,7 +135,13 @@ export function resolveMountImpacts(
     if (riderFaction === Faction.ENEMY && player.targetable) {
       if (checkMountImpact(mount, player.position, 0.38)) {
         applyMountImpactDamage(mount, player, player.position, now, (damage) => {
-          const result = options.onDamagePlayer(damage)
+          const rider = mount.riderNpc
+          const context: CombatDamageContext | undefined = rider ? {
+            source: createNpcCombatActorRef(rider),
+            method: 'mount-impact',
+            emit: options.combatEvents,
+          } : undefined
+          const result = options.onDamagePlayer(damage, context)
           if (result.hitSuccess) {
             options.onEnemyMountHitPlayer?.(damage, result)
             options.onEnemyMountHitPlayerAudio?.(damage, mount, result)
@@ -149,7 +167,12 @@ export function resolveMountImpacts(
 
       if (checkMountImpact(mount, targetNpc.combatPosition, 0.5)) {
         applyMountImpactDamage(mount, targetNpc, targetNpc.combatPosition, now, (damage) => {
-          const result = damageNpc(targetNpc, damage)
+          const rider = mount.riderNpc
+          const result = damageNpc(targetNpc, damage, rider ? {
+            source: createNpcCombatActorRef(rider),
+            method: 'mount-impact',
+            emit: options.combatEvents,
+          } : undefined)
           if (result.hitSuccess) {
             // NPC -> NPC: does NOT spawn floating damage numbers or change player HUD
             options.onNpcMountHitNpc?.(damage, mount, targetNpc, result)
