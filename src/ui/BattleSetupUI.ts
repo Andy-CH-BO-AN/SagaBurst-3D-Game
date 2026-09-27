@@ -444,7 +444,7 @@ export class BattleSetupUI {
       })
     })
 
-    // Presets (Army composition only, strictly preserves selected Battle Mode, Spectator mode, and Player Faction)
+    // Presets change army composition only; preserve battle mode, command grouping, spectator, faction, HP, and loadout.
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
       const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
