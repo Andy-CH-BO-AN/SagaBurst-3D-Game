@@ -1,8 +1,13 @@
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { ArmyCommandTarget } from '../battle/ArmyCommandController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { getUnitPreset } from '../battle/UnitPresetCatalog'
 import type { WheelInputMode } from '../battle/ArmyCommandController'
+import {
+  isSquadCommandTarget,
+  squadIdFromCommandTarget,
+  type ArmyCommandTarget,
+  type CommandGroupingMode,
+} from '../battle/CommandTarget'
 
 export interface ArmyCommandHudEntry {
   key: string
@@ -10,6 +15,7 @@ export interface ArmyCommandHudEntry {
   label: string
   order: TacticalOrder | 'mixed'
   side: 'left' | 'right'
+  summary?: string
 }
 
 const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
@@ -23,6 +29,7 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
 export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string {
   if (target === 'all') return '全軍命令'
   if (target === null) return '命令'
+  if (isSquadCommandTarget(target)) return `第 ${squadIdFromCommandTarget(target)} 隊`
   return getUnitPreset(target).nameZh
 }
 
@@ -59,6 +66,7 @@ export class ArmyCommandUI {
     highlightedCommandIndex = 0,
     wheelMode: WheelInputMode = 'weapon',
     selectedWeaponName = '',
+    groupingMode: CommandGroupingMode = 'preset',
   ): void {
     this.wheelHint.textContent = wheelMode === 'command'
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
@@ -73,6 +81,12 @@ export class ArmyCommandUI {
         ...entries.filter(entry => entry.key !== '`'),
       ]
       this._renderEntries(this.targets, ordered, highlightedTarget)
+      const grouping = document.createElement('div')
+      grouping.className = 'army-command-panel-title'
+      grouping.textContent = groupingMode === 'squad'
+        ? '命令分組：小隊　[X] 切換兵種'
+        : '命令分組：兵種　[X] 切換小隊'
+      this.targets.prepend(grouping)
       this.targets.appendChild(this.wheelHint)
       this.commands.replaceChildren()
       return
@@ -160,7 +174,7 @@ export class ArmyCommandUI {
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
       label.className = 'army-command-label'
-      label.textContent = `[${entry.key}] ${entry.label}`
+      label.textContent = `[${entry.key}] ${entry.label}${entry.summary ? ` ${entry.summary}` : ''}`
       const order = document.createElement('span')
       order.className = `army-command-order ${entry.order}`
       order.textContent = ORDER_LABELS[entry.order]
