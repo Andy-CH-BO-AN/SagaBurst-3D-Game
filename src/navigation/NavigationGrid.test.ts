@@ -82,7 +82,7 @@ describe('NavigationGrid', () => {
 
     expect(path).not.toBeNull()
     expect(path![0]).toEqual({ x: 1, z: 2 })
-    expect(path!.at(-1)).toEqual({ x: 8, z: 2 })
+    expect(path![path!.length - 1]).toEqual({ x: 8, z: 2 })
     expect(path).toContainEqual({ x: 4, z: 5 })
     expect(path!.every(cell => !grid.isBlocked(cell))).toBe(true)
   })
@@ -98,7 +98,7 @@ describe('NavigationGrid', () => {
 
     expect(path).not.toBeNull()
     expect(path![0]).toEqual({ x: 1, z: 1 })
-    expect(path!.at(-1)).toEqual({ x: 4, z: 1 })
+    expect(path![path!.length - 1]).toEqual({ x: 4, z: 1 })
   })
 
   it('returns null when a full barrier makes the target unreachable', () => {

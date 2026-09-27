@@ -253,6 +253,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       let npcDamageTaken = 0
 
       const mockMount: any = {
+        group: { uuid: 'shield-test-mount' },
         dead: false,
         currentHp: 200,
         maxHp: 200,
@@ -1177,7 +1178,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       // The resolver supplies raw impact damage to the authoritative callback exactly once.
       expect(onDamagePlayer).toHaveBeenCalledTimes(1)
-      expect(onDamagePlayer).toHaveBeenCalledWith(23)
+      expect(onDamagePlayer).toHaveBeenCalledWith(23, undefined)
       // The callback applies the equipped T2 shield (15%) and routes damage to the mounted Player's horse.
       expect(playerMount.currentHp).toBeCloseTo(100 - 23 * 0.85)
       expect(onEnemyMountHitPlayer).toHaveBeenCalledWith(

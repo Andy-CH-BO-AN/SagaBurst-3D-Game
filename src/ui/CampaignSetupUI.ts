@@ -20,6 +20,7 @@ import {
 import {
   getUnitPresetsForFaction,
   type UnitPresetId,
+  type BaseUnitTier as UnitTier,
 } from '../battle/UnitPresetCatalog'
 import {
   PLAYER_MELEE_SELECTION_IDS,
@@ -27,9 +28,9 @@ import {
   PLAYER_SHIELD_IDS,
   type PlayerLoadoutConfig,
   type PlayerMountId,
-  type UnitTier,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
+import { HERO_ASSET_IDS, HERO_ASSETS, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
@@ -49,6 +50,7 @@ export class CampaignSetupUI {
   private stageId: CampaignStageId = 1
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
+  private playerHeroId: PlayerHeroId | null = null
   private commandGrouping: CommandGroupingMode = 'preset'
   private squadAssignments: SquadAssignment[] = []
   private selectedSquadId: SquadId = 1
@@ -316,6 +318,13 @@ export class CampaignSetupUI {
           <hr />
           <p><b>玩家裝備</b></p>
           <label class="campaign-loadout-field">
+            <span>玩家角色 / PLAYER CHARACTER</span>
+            <select id="campaign-player-hero">
+              <option value="" ${!this.playerHeroId ? 'selected' : ''}>一般士兵 Standard</option>
+              ${HERO_ASSET_IDS.map(id => `<option value="${id}" ${this.playerHeroId === id ? 'selected' : ''}>${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+            </select>
+          </label>
+          <label class="campaign-loadout-field">
             <span>近戰</span>
             <select id="campaign-player-melee">
               ${PLAYER_MELEE_SELECTION_IDS.map(id => `
@@ -405,6 +414,9 @@ export class CampaignSetupUI {
     this.container.querySelector('#campaign-player-melee')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
       this.playerLoadout.meleeWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['meleeWeaponId']
+    })
+    this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
+      this.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
     })
     this.container.querySelector('#campaign-player-ranged')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
@@ -691,6 +703,7 @@ export class CampaignSetupUI {
       stageId: this.stageId,
       defenderArmy: this._cloneArmy(),
       playerLoadout: { ...playerLoadout },
+      playerHeroId: this.playerHeroId,
       commandGrouping: this.commandGrouping,
       squadAssignments: this.commandGrouping === 'squad'
         ? this.squadAssignments.map(assignment => ({ ...assignment }))
@@ -776,7 +789,7 @@ export class CampaignSetupUI {
   private _tierTotal(tier: UnitTier): number {
     let total = 0
     for (const counts of Object.values(this.defenderArmy)) {
-      total += counts[tier]
+      total += counts[tier] ?? 0
     }
     return total
   }

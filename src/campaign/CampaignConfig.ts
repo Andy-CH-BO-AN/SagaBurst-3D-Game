@@ -9,7 +9,7 @@
  * UI, spawning, siege AI, terrain, and runtime state transitions consume these
  * values but do not redefine them.
  */
-import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
+import type { UnitPresetId, BaseUnitTier as UnitTier } from '../battle/UnitPresetCatalog'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 

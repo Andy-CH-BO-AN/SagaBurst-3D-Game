@@ -7,9 +7,12 @@ import { Faction, AIType } from '../world/NPC'
 import {
   BattleConfig,
   UnitTier,
+  CUSTOM_BATTLE_UNIT_TIERS,
   ArmyConfig,
   normalizeArmyConfig,
 } from './BattleConfig'
+import { T4_UNIT_PROFILES, type T4CombatProfileId } from './T4HeroCatalog'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
 import {
@@ -37,6 +40,9 @@ export interface NpcSpawnSpec {
   respawnEnabled: boolean
   presetId?: UnitPresetId
   loadout?: UnitLoadout
+  visualAssetId?: HeroAssetId
+  combatProfileId?: T4CombatProfileId
+  specialCombatProfile?: 'maki-ranger'
   squadId?: SquadId
 }
 
@@ -100,6 +106,9 @@ interface UnitInstance {
   cavalry: boolean
   aiType: AIType
   loadout: UnitLoadout
+  visualAssetId?: HeroAssetId
+  combatProfileId?: T4CombatProfileId
+  specialCombatProfile?: 'maki-ranger'
 }
 
 interface PendingNpc {
@@ -112,6 +121,9 @@ interface PendingNpc {
   respawnEnabled: boolean
   presetId?: UnitPresetId
   loadout?: UnitLoadout
+  visualAssetId?: HeroAssetId
+  combatProfileId?: T4CombatProfileId
+  specialCombatProfile?: 'maki-ranger'
 }
 
 export function assignPlayerCommandSquads(
@@ -230,6 +242,9 @@ export class BattleSpawner {
             respawnEnabled: respawn,
             presetId: u.presetId,
             loadout: u.loadout,
+            visualAssetId: u.visualAssetId,
+            combatProfileId: u.combatProfileId,
+            specialCombatProfile: u.specialCombatProfile,
           })
         }
       }
@@ -320,6 +335,9 @@ export class BattleSpawner {
         respawnEnabled: pending.respawnEnabled,
         presetId: pending.presetId,
         loadout: pending.loadout,
+        visualAssetId: pending.visualAssetId,
+        combatProfileId: pending.combatProfileId,
+        specialCombatProfile: pending.specialCombatProfile,
       })
     }
 
@@ -360,9 +378,11 @@ export class BattleSpawner {
       const preset = UNIT_PRESETS[presetId]
       const presetName = preset?.nameEn ?? presetKey
 
-      for (const tier of [1, 2, 3] as UnitTier[]) {
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const count = tierCounts[tier] || 0
-        const loadout = resolveUnitLoadout(presetId, tier)
+        const profile = tier === 4 ? T4_UNIT_PROFILES[presetId] : null
+        const baseLoadout = resolveUnitLoadout(presetId, tier === 4 ? 3 : tier)
+        const loadout = profile ? { ...baseLoadout, mountId: profile.mountOverride } : baseLoadout
         const isMounted = Boolean(loadout.mountId)
         const hasRanged = Boolean(loadout.rangedWeaponId)
         const aiType = hasRanged ? AIType.RANGED : AIType.MELEE
@@ -376,6 +396,9 @@ export class BattleSpawner {
             cavalry: isMounted,
             aiType,
             loadout,
+            visualAssetId: profile?.visualAssetId,
+            combatProfileId: profile?.combatProfileId,
+            specialCombatProfile: profile?.specialCombatProfile,
           }
 
           if (isMounted) {
@@ -455,6 +478,9 @@ export class BattleSpawner {
           respawnEnabled,
           presetId: u.presetId,
           loadout: u.loadout,
+          visualAssetId: u.visualAssetId,
+          combatProfileId: u.combatProfileId,
+          specialCombatProfile: u.specialCombatProfile,
         })
       }
     }
@@ -490,6 +516,9 @@ export class BattleSpawner {
         respawnEnabled,
         presetId: u.presetId,
         loadout: u.loadout,
+        visualAssetId: u.visualAssetId,
+        combatProfileId: u.combatProfileId,
+        specialCombatProfile: u.specialCombatProfile,
       })
     }
 
@@ -539,6 +568,9 @@ export class BattleSpawner {
           respawnEnabled,
           presetId: u.presetId,
           loadout: u.loadout,
+          visualAssetId: u.visualAssetId,
+          combatProfileId: u.combatProfileId,
+          specialCombatProfile: u.specialCombatProfile,
         })
       }
     }

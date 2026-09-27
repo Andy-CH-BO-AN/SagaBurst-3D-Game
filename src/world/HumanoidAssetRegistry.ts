@@ -953,8 +953,8 @@ export class HumanoidAssetRegistry {
     }
   }
 
-  static createCharacterVisual(root: THREE.Group, config: CharacterVisualConfig): CharacterVisualParts {
-    const instance = this.createCharacterInstance(config)
+  static createCharacterVisual(root: THREE.Group, config: CharacterVisualConfig, assetId?: string): CharacterVisualParts {
+    const instance = this.createCharacterInstance(config, assetId)
     root.add(instance.root)
     const headMesh = firstSkinnedMesh(instance.root)
     const materials = Array.isArray(headMesh.material) ? headMesh.material : [headMesh.material]

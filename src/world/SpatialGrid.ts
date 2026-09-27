@@ -160,9 +160,4 @@ export class SpatialGrid<T extends SpatialEntity> {
     return closest
   }
 
-  private _getCellKey(x: number, z: number): string {
-    const cx = Math.floor(x / this.cellSize)
-    const cz = Math.floor(z / this.cellSize)
-    return `${cx},${cz}`
-  }
 }
