@@ -161,6 +161,15 @@ skyrim 3D test/
 
 ---
 
+## Army Command Grouping
+
+- Friendly battle spawn specs receive an optional `squadId`; command squads are capped at eight. `BattleConfig.squadAssignments` pins exact preset+tier counts to numbered squads. Custom Battle assigns only the selected Player Faction; Defense Campaign assigns the deployed defenders. Both setup flows hide zero-count preset+tier rows, cap each squad at 30 units, and require every relevant deployed NPC to be assigned before launch. Non-UI legacy/diagnostic configs without a manual plan retain the deterministic round-robin fallback.
+- `ArmyCommandTarget` supports `all`, unit-preset targets, and numbered squad targets. `matchesArmyCommandTarget` is the shared scope rule used by both `ArmyCommandController` and `FormationController`, preventing attack/charge/defend and formation placement from selecting different units.
+- Command grouping is part of the launch configuration and is chosen before deployment. Existing preset grouping remains the default; choosing squad grouping in Custom Battle or Defense Campaign changes the launch action to `ASSIGN SQUADS`, then opens a second deployment step that lists only non-zero preset+tier rows. In Defense Campaign the grouping selector sits directly under the `DEFENSE CAMPAIGN · STAGE X` heading. Squad grouping is fixed for the battle and squad entries show living/total members. The command submenu remains `1 Attack / 2 Charge / 3 Defend / 4 Formation`, and backquote remains All.
+- Squad identity is gameplay-neutral outside command targeting and is retained by NPC instances for future battle-stat/career attribution.
+
+---
+
 ## Data Flow (per frame)
 
 ```

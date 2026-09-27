@@ -9,10 +9,18 @@ import type { TacticalOrder } from './TacticalOrder'
 import { ArmyCommandUI, type ArmyCommandHudEntry } from '../ui/ArmyCommandUI'
 import type { FormationController } from './FormationController'
 import type { InventoryManager } from '../rpg/InventoryManager'
+import {
+  isSquadCommandTarget,
+  matchesArmyCommandTarget,
+  squadCommandTarget,
+  squadIdFromCommandTarget,
+  type ArmyCommandTarget,
+  type CommandGroupingMode,
+  type SquadId,
+} from './CommandTarget'
 
 export type WheelInputMode = 'weapon' | 'command'
-
-export type ArmyCommandTarget = UnitPresetId | 'all'
+export type { ArmyCommandTarget, CommandGroupingMode, SquadId } from './CommandTarget'
 
 export interface ArmyCommandShortcut {
   key: string
@@ -75,17 +83,20 @@ export function tacticalOrderLabel(order: TacticalOrder | 'mixed'): string {
 export class ArmyCommandController {
   private readonly faction: CharacterFaction
   private readonly shortcuts: readonly ArmyCommandShortcut[]
-  private readonly orders = new Map<UnitPresetId, TacticalOrder>()
-  private readonly formationDesiredCommandByPreset = new Map<UnitPresetId, number>()
+  private readonly orders = new Map<ArmyCommandTarget, TacticalOrder | 'mixed'>()
+  private readonly formationDesiredCommandByTarget = new Map<ArmyCommandTarget, number>()
   private selectedTarget: ArmyCommandTarget | null = null
   private submenuOpen = false
   private highlightedTarget: ArmyCommandTarget | null = null
   private highlightedCommandIndex = 0
   private readonly seenPresetIds = new Set<UnitPresetId>()
+  private readonly seenSquadIds = new Set<SquadId>()
+  private readonly groupingMode: CommandGroupingMode
   private rosterSignature = ''
   private allOrder: TacticalOrder | 'mixed' = 'attack'
   private wheelInputMode: WheelInputMode = 'weapon'
   private selectedWeaponId: string | null = null
+  private readonly initialOrder: TacticalOrder
 
   constructor(
     private readonly npcs: readonly NPC[],
@@ -97,9 +108,12 @@ export class ArmyCommandController {
     initialOrder: TacticalOrder = 'attack',
     private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
     private readonly inventory: InventoryManager | null = null,
+    groupingMode: CommandGroupingMode = 'preset',
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
+    this.groupingMode = groupingMode
+    this.initialOrder = initialOrder
     this.allOrder = initialOrder
     this.selectedWeaponId = inventory?.equippedMelee.id ?? null
     for (const shortcut of this.shortcuts) {
@@ -108,8 +122,8 @@ export class ArmyCommandController {
     for (const npc of this.npcs) {
       npc.onRespawnCallbacks?.push((respawned) => {
         if (respawned.faction !== Faction.PLAYER || respawned.dead) return
-        const desired = respawned.presetId ? this.orders.get(respawned.presetId) : undefined
-        respawned.setTacticalOrder(desired === 'formation' ? 'defend' : (desired ?? 'attack'))
+        const desired = this._desiredOrderForNpc(respawned)
+        respawned.setTacticalOrder(desired === 'formation' ? 'defend' : desired)
       })
     }
     this.formation?.setCompletionHandler((commandId, target, participants, status) => {
@@ -123,6 +137,7 @@ export class ArmyCommandController {
   get selected(): ArmyCommandTarget | null { return this.selectedTarget }
   get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
   get wheelMode(): WheelInputMode { return this.wheelInputMode }
+  get grouping(): CommandGroupingMode { return this.groupingMode }
 
   update(): void {
     const rosterChanged = this._syncRosterSelection()
@@ -155,7 +170,7 @@ export class ArmyCommandController {
         if (result.accepted) {
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.onCommandIssued?.('formation')
-          this.ui.showFeedback(`${this.selectedTarget === 'all' ? '全軍' : getUnitPreset(this.selectedTarget!).nameZh} → 列陣`)
+          this.ui.showFeedback(`${this._targetLabel(this.selectedTarget)} → 列陣`)
           this._closeSubmenu()
         } else {
           this.ui.showFeedback('無法在此處列陣')
@@ -317,13 +332,13 @@ export class ArmyCommandController {
 
     for (const npc of this.npcs) {
       if (npc.faction !== Faction.PLAYER) continue
-      if (target !== 'all' && npc.presetId !== target) continue
+      if (!matchesArmyCommandTarget(npc, target)) continue
       if (npc.dead) continue
       npc.setTacticalOrder(order)
     }
 
     this.onCommandIssued?.(order)
-    this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → ${ORDER_LABELS[order]}`)
+    this.ui.showFeedback(`${this._targetLabel(target)} → ${ORDER_LABELS[order]}`)
     this._closeSubmenu()
   }
 
@@ -334,12 +349,14 @@ export class ArmyCommandController {
   private _setDesiredOrder(target: ArmyCommandTarget | null, order: TacticalOrder): void {
     if (!target) return
     if (target === 'all') {
-      for (const [presetId] of this.orders) this.orders.set(presetId, order)
+      for (const key of this.orders.keys()) this.orders.set(key, order)
       this.allOrder = order
-    } else {
-      this.orders.set(target, order)
-      this.allOrder = this._resolveAllOrder()
+      return
     }
+
+    this.orders.set(target, order)
+    this._syncOverlappingOrderState(target, order)
+    this.allOrder = this._resolveAllOrder()
   }
 
   private _setFormationDesiredOrders(
@@ -349,26 +366,23 @@ export class ArmyCommandController {
   ): void {
     if (!target || commandId === null) return
     this._clearFormationDesiredOrders(target)
-    const participantPresets = new Set(
-      participants
-        .map(npc => npc.presetId)
-        .filter((presetId): presetId is UnitPresetId => presetId !== null),
-    )
 
     if (target === 'all') {
-      for (const [presetId, currentOrder] of this.orders) {
-        if (participantPresets.has(presetId)) {
-          this.orders.set(presetId, 'formation')
-          this.formationDesiredCommandByPreset.set(presetId, commandId)
+      for (const [commandTarget, currentOrder] of this.orders) {
+        const hasParticipant = participants.some(npc => matchesArmyCommandTarget(npc, commandTarget))
+        if (hasParticipant) {
+          this.orders.set(commandTarget, 'formation')
+          this.formationDesiredCommandByTarget.set(commandTarget, commandId)
         } else if (currentOrder === 'formation') {
-          // A preset with no live participant did not join this command. Do not
+          // A group with no live participant did not join this command. Do not
           // leave it cached as formation for HUD/respawn after the command ends.
-          this.orders.set(presetId, 'defend')
+          this.orders.set(commandTarget, 'defend')
         }
       }
     } else {
       this.orders.set(target, 'formation')
-      this.formationDesiredCommandByPreset.set(target, commandId)
+      this._syncOverlappingOrderState(target, 'formation')
+      this.formationDesiredCommandByTarget.set(target, commandId)
     }
     this.allOrder = this._resolveAllOrder()
   }
@@ -379,38 +393,42 @@ export class ArmyCommandController {
     participants: readonly NPC[],
     status: 'completed' | 'abandoned',
   ): void {
+    const tracked = [...this.formationDesiredCommandByTarget.values()].some(id => id === commandId)
     if (status === 'completed') {
       for (const npc of participants) {
         if (!npc.dead && npc.formationCommandId === commandId) npc.setTacticalOrder('defend')
       }
     }
-    for (const [presetId, currentOrder] of this.orders) {
-      if (currentOrder !== 'formation') continue
-      const desiredCommandId = this.formationDesiredCommandByPreset.get(presetId)
-      const belongsToCommand = desiredCommandId === commandId
-        || (target === 'all' && desiredCommandId === undefined)
-      if (!belongsToCommand) continue
-      this.orders.set(presetId, 'defend')
-      this.formationDesiredCommandByPreset.delete(presetId)
+    for (const [commandTarget, desiredCommandId] of [...this.formationDesiredCommandByTarget]) {
+      if (desiredCommandId !== commandId) continue
+      this.orders.set(commandTarget, 'defend')
+      this.formationDesiredCommandByTarget.delete(commandTarget)
     }
     this.allOrder = this._resolveAllOrder()
-    if (status === 'completed') {
-      this.ui.showFeedback(`${target === 'all' ? '全軍' : getUnitPreset(target).nameZh} → 防禦`)
+    if (status === 'completed' && tracked) {
+      this.ui.showFeedback(`${this._targetLabel(target)} → 防禦`)
     }
     this._renderUi()
   }
 
   private _clearFormationDesiredOrders(target: ArmyCommandTarget): void {
     if (target === 'all') {
-      this.formationDesiredCommandByPreset.clear()
-    } else {
-      this.formationDesiredCommandByPreset.delete(target)
+      this.formationDesiredCommandByTarget.clear()
+      return
+    }
+
+    for (const commandTarget of [...this.formationDesiredCommandByTarget.keys()]) {
+      if (this._targetsOverlap(commandTarget, target)) {
+        this.formationDesiredCommandByTarget.delete(commandTarget)
+      }
     }
   }
 
   private _resolveAllOrder(): TacticalOrder | 'mixed' {
-    const values = [...this.orders.values()]
-    if (values.length === 0) return 'attack'
+    const values = this._availableShortcuts()
+      .filter(shortcut => shortcut.target !== 'all')
+      .map(shortcut => this.orders.get(shortcut.target) ?? this.initialOrder)
+    if (values.length === 0) return this.initialOrder
     return values.every(order => order === values[0]) ? values[0] : 'mixed'
   }
 
@@ -441,10 +459,20 @@ export class ArmyCommandController {
       this.highlightedCommandIndex,
       this.wheelInputMode,
       selectedWeapon?.name ?? '',
+      this.groupingMode,
     )
   }
 
   private _availableShortcuts(): readonly ArmyCommandShortcut[] {
+    if (this.groupingMode === 'squad') {
+      return [
+        ...[...this.seenSquadIds]
+          .sort((a, b) => a - b)
+          .map(squadId => ({ key: String(squadId), target: squadCommandTarget(squadId) })),
+        { key: '`', target: 'all' as const },
+      ]
+    }
+
     return this.shortcuts.filter(shortcut =>
       shortcut.target === 'all' || this.seenPresetIds.has(shortcut.target as UnitPresetId),
     )
@@ -459,15 +487,23 @@ export class ArmyCommandController {
 
   private _syncRosterSelection(): boolean {
     for (const npc of this.npcs) {
-      if (npc.faction !== Faction.PLAYER || !npc.presetId) continue
-      this.seenPresetIds.add(npc.presetId)
+      if (npc.faction !== Faction.PLAYER) continue
+      if (npc.presetId) {
+        this.seenPresetIds.add(npc.presetId)
+        if (!this.orders.has(npc.presetId)) this.orders.set(npc.presetId, this.initialOrder)
+      }
+      if (npc.squadId) {
+        this.seenSquadIds.add(npc.squadId)
+        const target = squadCommandTarget(npc.squadId)
+        if (!this.orders.has(target)) this.orders.set(target, this.initialOrder)
+      }
     }
 
     const available = this._availableShortcuts()
-    const signature = available
+    const signature = `${this.groupingMode}:${available
       .filter(shortcut => shortcut.target !== 'all')
       .map(shortcut => shortcut.target)
-      .join('|')
+      .join('|')}`
     const targets = this._wheelTargets()
     let changed = signature !== this.rosterSignature
     this.rosterSignature = signature
@@ -479,21 +515,101 @@ export class ArmyCommandController {
       this.highlightedTarget = firstUnitTarget ?? 'all'
       changed = true
     }
+    this.allOrder = this._resolveAllOrder()
     return changed
   }
 
   private _hudEntries(): ArmyCommandHudEntry[] {
+    this.allOrder = this._resolveAllOrder()
     return this._availableShortcuts().map(shortcut => {
       const isAll = shortcut.target === 'all'
-      const label = isAll ? '全軍' : getUnitPreset(shortcut.target as UnitPresetId).nameZh
       return {
         key: shortcut.key,
         target: shortcut.target,
-        label,
-        order: isAll ? this.allOrder : (this.orders.get(shortcut.target as UnitPresetId) ?? 'attack'),
-        side: isAll || Number(shortcut.key) <= (this.faction === 'viking' ? 3 : 4) ? 'left' : 'right',
+        label: this._targetLabel(shortcut.target),
+        order: isAll ? this.allOrder : (this.orders.get(shortcut.target) ?? this.initialOrder),
+        side: isAll || Number(shortcut.key) <= (this.groupingMode === 'squad' ? 4 : (this.faction === 'viking' ? 3 : 4)) ? 'left' : 'right',
+        summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
+  }
+
+  private _targetLabel(target: ArmyCommandTarget | null): string {
+    if (target === null) return '命令'
+    if (target === 'all') return '全軍'
+    if (isSquadCommandTarget(target)) return `第 ${squadIdFromCommandTarget(target)} 隊`
+    return getUnitPreset(target).nameZh
+  }
+
+  private _targetCountSummary(target: ArmyCommandTarget): string {
+    let total = 0
+    let alive = 0
+    for (const npc of this.npcs) {
+      if (npc.faction !== Faction.PLAYER || !matchesArmyCommandTarget(npc, target)) continue
+      total++
+      if (!npc.dead) alive++
+    }
+    return `${alive}/${total}`
+  }
+
+  private _desiredOrderForNpc(npc: NPC): TacticalOrder {
+    const preferredTargets: ArmyCommandTarget[] = []
+    const squadTarget = npc.squadId ? squadCommandTarget(npc.squadId) : null
+    if (this.groupingMode === 'squad') {
+      if (squadTarget) preferredTargets.push(squadTarget)
+      if (npc.presetId) preferredTargets.push(npc.presetId)
+    } else {
+      if (npc.presetId) preferredTargets.push(npc.presetId)
+      if (squadTarget) preferredTargets.push(squadTarget)
+    }
+
+    for (const target of preferredTargets) {
+      const desired = this.orders.get(target)
+      if (desired && desired !== 'mixed') return desired
+    }
+    return this.initialOrder
+  }
+
+  private _syncOverlappingOrderState(target: ArmyCommandTarget, order: TacticalOrder): void {
+    if (target === 'all') return
+    const affected = this.npcs.filter(npc =>
+      npc.faction === Faction.PLAYER && matchesArmyCommandTarget(npc, target),
+    )
+
+    if (isSquadCommandTarget(target)) {
+      const presetIds = new Set(
+        affected.map(npc => npc.presetId).filter((id): id is UnitPresetId => Boolean(id)),
+      )
+      for (const presetId of presetIds) {
+        const members = this.npcs.filter(npc => npc.faction === Faction.PLAYER && npc.presetId === presetId)
+        this.orders.set(
+          presetId,
+          members.every(npc => matchesArmyCommandTarget(npc, target)) ? order : 'mixed',
+        )
+      }
+      return
+    }
+
+    const squadIds = new Set(
+      affected.map(npc => npc.squadId).filter((id): id is SquadId => Boolean(id)),
+    )
+    for (const squadId of squadIds) {
+      const squadTarget = squadCommandTarget(squadId)
+      const members = this.npcs.filter(npc => npc.faction === Faction.PLAYER && npc.squadId === squadId)
+      this.orders.set(
+        squadTarget,
+        members.every(npc => matchesArmyCommandTarget(npc, target)) ? order : 'mixed',
+      )
+    }
+  }
+
+  private _targetsOverlap(a: ArmyCommandTarget, b: ArmyCommandTarget): boolean {
+    if (a === 'all' || b === 'all') return true
+    return this.npcs.some(npc =>
+      npc.faction === Faction.PLAYER
+      && matchesArmyCommandTarget(npc, a)
+      && matchesArmyCommandTarget(npc, b),
+    )
   }
 
 }

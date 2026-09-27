@@ -5,6 +5,12 @@
 import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type CommandGroupingMode,
+  type SquadAssignment,
+} from './CommandTarget'
 import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
@@ -105,6 +111,8 @@ export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
 
 export interface BattleConfig {
   mode?: BattleMode
+  commandGrouping?: CommandGroupingMode
+  squadAssignments?: SquadAssignment[]
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHp?: number
@@ -208,6 +216,7 @@ export function createEmptyArmyConfig(faction?: CharacterFaction): any {
 export function createEmptyBattleConfig(): BattleConfig {
   return {
     mode: 'formation',
+    commandGrouping: 'preset',
     spectator: false,
     playerFaction: 'viking',
     playerHp: COMBAT_BALANCE.hp.playerDefault,
@@ -295,6 +304,55 @@ function validateBattleConfigWithArmyLimit(
 
   if (c.mode !== undefined && c.mode !== 'formation' && c.mode !== 'scattered') {
     errors.push(`Invalid battle mode: ${String(c.mode)}`)
+  }
+
+  if (
+    c.commandGrouping !== undefined
+    && c.commandGrouping !== 'preset'
+    && c.commandGrouping !== 'squad'
+  ) {
+    errors.push(`Invalid command grouping: ${String(c.commandGrouping)}`)
+  }
+
+  if (c.squadAssignments !== undefined) {
+    if (!Array.isArray(c.squadAssignments)) {
+      errors.push('squadAssignments must be an array')
+    } else {
+      const validPresetIds = [...VIKING_PRESET_IDS, ...ROMAN_PRESET_IDS] as readonly string[]
+      const squadTotals = new Map<number, number>()
+      c.squadAssignments.forEach((assignment, index) => {
+        if (!assignment || typeof assignment !== 'object') {
+          errors.push(`squadAssignments[${index}] must be an object`)
+          return
+        }
+        if (!validPresetIds.includes(assignment.presetId)) {
+          errors.push(`Invalid squad preset: ${String(assignment.presetId)}`)
+        }
+        if (![1, 2, 3].includes(assignment.tier)) {
+          errors.push(`Invalid squad tier: ${String(assignment.tier)}`)
+        }
+        if (
+          !Number.isInteger(assignment.squadId)
+          || assignment.squadId < 1
+          || assignment.squadId > MAX_COMMAND_SQUADS
+        ) {
+          errors.push(`Invalid squad id: ${String(assignment.squadId)}`)
+        }
+        if (!Number.isInteger(assignment.count) || assignment.count <= 0) {
+          errors.push(`Invalid squad count: ${String(assignment.count)}`)
+          return
+        }
+        squadTotals.set(
+          assignment.squadId,
+          (squadTotals.get(assignment.squadId) ?? 0) + assignment.count,
+        )
+      })
+      for (const [squadId, count] of squadTotals) {
+        if (count > MAX_COMMAND_SQUAD_SIZE) {
+          errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+        }
+      }
+    }
   }
 
   if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
@@ -396,6 +454,77 @@ function validateBattleConfigWithArmyLimit(
 /** Validates untrusted production Custom Battle data using the production army limit. */
 export function validateBattleConfig(config: unknown): { valid: boolean; errors: string[] } {
   return validateBattleConfigWithArmyLimit(config, MAX_CUSTOM_ARMY_SIZE)
+}
+
+export function validateBattleSquadAssignments(
+  config: BattleConfig,
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+  if (config.commandGrouping !== 'squad') return { valid: true, errors }
+
+  const assignments = config.squadAssignments
+  if (!assignments) {
+    return { valid: false, errors: ['Missing squad assignments'] }
+  }
+
+  const playerFaction = config.playerFaction ?? 'viking'
+  const allowedPresets = playerFaction === 'viking' ? VIKING_PRESET_IDS : ROMAN_PRESET_IDS
+  const army = normalizeArmyConfig(config[playerFaction], playerFaction)
+  const expected = new Map<string, number>()
+  for (const [presetId, counts] of Object.entries(army)) {
+    if (!(allowedPresets as readonly string[]).includes(presetId)) continue
+    for (const tier of [1, 2, 3] as UnitTier[]) {
+      const count = counts[tier] ?? 0
+      if (count > 0) expected.set(`${presetId}:T${tier}`, count)
+    }
+  }
+
+  const assignedByUnit = new Map<string, number>()
+  const assignedBySquad = new Map<number, number>()
+  const seen = new Set<string>()
+
+  for (const assignment of assignments) {
+    const key = `${assignment.presetId}:T${assignment.tier}`
+    const uniqueKey = `${key}:S${assignment.squadId}`
+    if (seen.has(uniqueKey)) {
+      errors.push(`Duplicate squad assignment: ${uniqueKey}`)
+      continue
+    }
+    seen.add(uniqueKey)
+
+    if (!(allowedPresets as readonly string[]).includes(assignment.presetId)) {
+      errors.push(`Invalid player squad preset: ${assignment.presetId}`)
+      continue
+    }
+    if (!expected.has(key)) {
+      errors.push(`Squad assignment references undeployed player unit: ${key}`)
+      continue
+    }
+    if (!Number.isInteger(assignment.count) || assignment.count <= 0) {
+      errors.push(`Invalid squad count: ${String(assignment.count)}`)
+      continue
+    }
+
+    assignedByUnit.set(key, (assignedByUnit.get(key) ?? 0) + assignment.count)
+    assignedBySquad.set(
+      assignment.squadId,
+      (assignedBySquad.get(assignment.squadId) ?? 0) + assignment.count,
+    )
+  }
+
+  for (const [squadId, count] of assignedBySquad) {
+    if (count > MAX_COMMAND_SQUAD_SIZE) {
+      errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+    }
+  }
+  for (const [key, count] of expected) {
+    const assigned = assignedByUnit.get(key) ?? 0
+    if (assigned !== count) {
+      errors.push(`${key} assigned ${assigned}/${count}`)
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
 }
 
 /** Validates trusted, fixed DEV benchmark presets without changing production validation. */
@@ -712,6 +841,7 @@ export const PRESET_DEVCOMBAT: BattleConfig = definePreset({
 export function getDefaultBattleConfig(): BattleConfig {
   const config: BattleConfig = JSON.parse(JSON.stringify(PRESET_10V10))
   config.playerFaction = 'viking'
+  config.commandGrouping = 'preset'
   config.playerHp = COMBAT_BALANCE.hp.playerDefault
   config.playerLoadout = createDefaultPlayerLoadout()
   return config

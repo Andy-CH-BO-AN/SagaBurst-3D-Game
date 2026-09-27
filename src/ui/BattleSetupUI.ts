@@ -20,6 +20,7 @@ import {
   PRESET_200V200,
   calculateArmyTotal,
   validateBattleConfig,
+  validateBattleSquadAssignments,
   getDefaultBattleConfig,
   createEmptyBattleConfig,
   createDefaultPlayerLoadout,
@@ -31,10 +32,17 @@ import {
   getUnitPresetsForFaction,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type SquadAssignment,
+  type SquadId,
+} from '../battle/CommandTarget'
 
 export class BattleSetupUI {
   private config: BattleConfig
   private activeTab: 'army' | 'loadout' = 'army'
+  private selectedSquadId: SquadId = 1
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
@@ -47,6 +55,9 @@ export class BattleSetupUI {
     attachArmyAliases(this.config.roman, 'roman')
     if (!this.config.mode) {
       this.config.mode = 'formation'
+    }
+    if (!this.config.commandGrouping) {
+      this.config.commandGrouping = 'preset'
     }
     if (this.config.spectator === undefined) {
       this.config.spectator = false
@@ -71,11 +82,8 @@ export class BattleSetupUI {
     this.onBackCallback = onBack ?? null
     this.container = document.createElement('div')
     this.container.id = 'battle-setup-container'
-    this.container.innerHTML = this._generateHtml()
     parent.appendChild(this.container)
-
-    this._bindEvents()
-    this._refreshView()
+    this._renderSetup()
   }
 
   destroy(): void {
@@ -85,6 +93,12 @@ export class BattleSetupUI {
     this.container = null
   }
 
+  private _renderSetup(): void {
+    if (!this.container) return
+    this.container.innerHTML = this._generateHtml()
+    this._bindEvents()
+    this._refreshView()
+  }
   private _generateHtml(): string {
     const renderTable = (faction: 'viking' | 'roman') => {
       const presets = getUnitPresetsForFaction(faction)
@@ -243,6 +257,20 @@ export class BattleSetupUI {
         </div>
       </div>
 
+      <div class="setup-mode-section">
+        <div class="mode-section-label">指揮分組 <small>COMMAND GROUPING</small></div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn" id="command-grouping-preset" data-command-grouping="preset">
+            <span class="mode-btn-title">兵種</span>
+            <span class="mode-btn-desc">UNIT PRESETS</span>
+          </button>
+          <button type="button" class="mode-btn" id="command-grouping-squad" data-command-grouping="squad">
+            <span class="mode-btn-title">小隊</span>
+            <span class="mode-btn-desc">SQUADS · UP TO 8</span>
+          </button>
+        </div>
+      </div>
+
       <div class="setup-tabs" role="tablist" aria-label="Battle setup sections">
         <button type="button" id="setup-tab-army" class="setup-tab" role="tab"><b>軍隊配置</b><small>ARMY SETUP</small></button>
         <button type="button" id="setup-tab-loadout" class="setup-tab" role="tab"><b>玩家裝備</b><small>PLAYER LOADOUT</small></button>
@@ -299,7 +327,7 @@ export class BattleSetupUI {
           <input type="checkbox" id="spectator-checkbox" />
           <span>觀戰模式 Spectator</span>
         </label>
-        <button class="start-btn" id="btn-start-battle"><span>開始戰鬥</span><small>START BATTLE</small></button>
+        <button class="start-btn" id="btn-start-battle"><span id="btn-start-battle-label">開始戰鬥</span><small id="btn-start-battle-subtitle">START BATTLE</small></button>
       </div>
     `
   }
@@ -369,10 +397,22 @@ export class BattleSetupUI {
     // Faction buttons
     document.getElementById('faction-btn-viking')?.addEventListener('click', () => {
       this.config.playerFaction = 'viking'
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
     document.getElementById('faction-btn-roman')?.addEventListener('click', () => {
       this.config.playerFaction = 'roman'
+      this.config.squadAssignments = undefined
+      this._refreshView()
+    })
+
+    document.getElementById('command-grouping-preset')?.addEventListener('click', () => {
+      this.config.commandGrouping = 'preset'
+      this.config.squadAssignments = undefined
+      this._refreshView()
+    })
+    document.getElementById('command-grouping-squad')?.addEventListener('click', () => {
+      this.config.commandGrouping = 'squad'
       this._refreshView()
     })
 
@@ -418,9 +458,10 @@ export class BattleSetupUI {
       })
     })
 
-    // Presets (Army composition only, strictly preserves selected Battle Mode, Spectator mode, and Player Faction)
+    // Presets change army composition only; preserve battle mode, command grouping, spectator, faction, HP, and loadout.
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
@@ -429,10 +470,12 @@ export class BattleSetupUI {
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
       this.config.mode = currentMode
+      this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.squadAssignments = undefined
       this._refreshView()
     }
 
@@ -443,6 +486,7 @@ export class BattleSetupUI {
     document.getElementById('preset-200')?.addEventListener('click', () => applyPreset(PRESET_200V200))
     document.getElementById('preset-reset')?.addEventListener('click', () => {
       const currentMode = this.config.mode ?? 'formation'
+      const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
@@ -451,10 +495,12 @@ export class BattleSetupUI {
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
       this.config.mode = currentMode
+      this.config.commandGrouping = currentCommandGrouping
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
+      this.config.squadAssignments = undefined
       this._refreshView()
     })
 
@@ -467,25 +513,253 @@ export class BattleSetupUI {
     // Start battle button
     document.getElementById('btn-start-battle')?.addEventListener('click', () => {
       const validation = validateBattleConfig(this.config)
-      if (validation.valid && this.onStartCallback) {
-        if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
-          try {
-            const canvasContainer = document.getElementById('canvas-container')
-            const target = canvasContainer || document.body
-            const p = target.requestPointerLock?.()
-            if (p && typeof (p as any).catch === "function") {
-              ;(p as Promise<void>).catch(() => {})
-            }
-          } catch {
-            // ignore
-          }
-        }
-        this.destroy()
-        this.onStartCallback(this.config)
+      if (!validation.valid || !this.onStartCallback) return
+
+      if (this.config.commandGrouping === 'squad') {
+        this.config.squadAssignments ??= []
+        this.selectedSquadId = 1
+        this._renderSquadSetup()
+        return
       }
+
+      this._launchBattle(this.config)
     })
   }
 
+  private _renderSquadSetup(): void {
+    if (!this.container) return
+    const playerFaction = this.config.playerFaction ?? 'viking'
+    const army = this.config[playerFaction] as Record<string, UnitTierCounts | undefined>
+    const presets = new Map(
+      getUnitPresetsForFaction(playerFaction).map(preset => [preset.id, preset]),
+    )
+    const rows: Array<{ presetId: UnitPresetId; tier: UnitTier; count: number; nameZh: string; nameEn: string }> = []
+    for (const [presetKey, counts] of Object.entries(army)) {
+      if (!counts) continue
+      const presetId = presetKey as UnitPresetId
+      const preset = presets.get(presetId)
+      if (!preset) continue
+      for (const tier of [1, 2, 3] as UnitTier[]) {
+        const count = counts[tier] ?? 0
+        if (count <= 0) continue
+        rows.push({ presetId, tier, count, nameZh: preset.nameZh, nameEn: preset.nameEn })
+      }
+    }
+
+    const assignments = this.config.squadAssignments ?? []
+    const totalArmy = calculateArmyTotal(army as any)
+    const totalAssigned = assignments.reduce((sum, assignment) => sum + assignment.count, 0)
+    const unassigned = Math.max(0, totalArmy - totalAssigned)
+    const selectedTotal = this._squadTotal(this.selectedSquadId)
+    const factionLabel = playerFaction === 'viking' ? '維京' : '羅馬'
+
+    const squadButtons = Array.from({ length: MAX_COMMAND_SQUADS }, (_, index) => {
+      const squadId = (index + 1) as SquadId
+      const total = this._squadTotal(squadId)
+      return `
+        <button type="button"
+          class="campaign-squad-card ${squadId === this.selectedSquadId ? 'active' : ''}"
+          data-command-squad="${squadId}">
+          <b>第 ${squadId} 隊</b>
+          <span>${total} / ${MAX_COMMAND_SQUAD_SIZE}</span>
+        </button>
+      `
+    }).join('')
+
+    const allocationRows = rows.map(row => {
+      const assignedHere = this._squadAssignmentCount(row.presetId, row.tier, this.selectedSquadId)
+      const assignedEverywhere = this._squadAssignedUnitTotal(row.presetId, row.tier)
+      const remaining = Math.max(0, row.count - assignedEverywhere)
+      const canIncrease = remaining > 0 && selectedTotal < MAX_COMMAND_SQUAD_SIZE
+      const maxDirectValue = Math.min(
+        row.count - (assignedEverywhere - assignedHere),
+        MAX_COMMAND_SQUAD_SIZE - (selectedTotal - assignedHere),
+      )
+      return `
+        <div class="campaign-squad-unit-row">
+          <div class="campaign-squad-unit-name">
+            <b>${row.nameZh}</b>
+            <span>${row.nameEn}</span>
+            <small>T${row.tier} · 總兵力 ${row.count}</small>
+          </div>
+          <div class="campaign-squad-unit-remaining">
+            <small>未分配</small>
+            <b>${remaining}</b>
+          </div>
+          <div class="campaign-stepper campaign-squad-stepper">
+            <button type="button" data-squad-dec="${row.presetId}" data-tier="${row.tier}" ${assignedHere <= 0 ? 'disabled' : ''}>−</button>
+            <input type="number" min="0" max="${maxDirectValue}" value="${assignedHere}"
+              data-squad-count="${row.presetId}" data-tier="${row.tier}" />
+            <button type="button" data-squad-inc="${row.presetId}" data-tier="${row.tier}" ${canIncrease ? '' : 'disabled'}>＋</button>
+          </div>
+        </div>
+      `
+    }).join('')
+
+    const baseValidation = validateBattleConfig(this.config)
+    const squadValidation = validateBattleSquadAssignments(this.config)
+    const canStart = baseValidation.valid && squadValidation.valid && unassigned === 0
+    const validationMessage = unassigned > 0
+      ? `尚有 ${unassigned} 名士兵未分配小隊`
+      : squadValidation.valid
+        ? ''
+        : squadValidation.errors.join(' ｜ ')
+
+    this.container.innerHTML = `
+      <button type="button" class="setup-back-btn" id="battle-squad-back">← 返回軍隊配置</button>
+      <div class="setup-header">
+        <h1 class="setup-title">SAGABURST</h1>
+        <div class="setup-subtitle">CUSTOM BATTLE · SQUAD ASSIGNMENT</div>
+      </div>
+      <div class="campaign-section-title">${factionLabel}小隊編組 <small>${playerFaction.toUpperCase()} PLAYER SQUADS</small></div>
+      <div class="campaign-squad-summary">
+        <div><small>玩家陣營兵力</small><b>${totalArmy}</b></div>
+        <div><small>已分配</small><b>${totalAssigned}</b></div>
+        <div class="${unassigned > 0 ? 'warning' : ''}"><small>未分配</small><b>${unassigned}</b></div>
+        <div><small>單隊上限</small><b>${MAX_COMMAND_SQUAD_SIZE}</b></div>
+      </div>
+      <div class="campaign-squad-tabs">${squadButtons}</div>
+      <section class="campaign-squad-editor">
+        <div class="campaign-squad-editor-heading">
+          <div><h2>第 ${this.selectedSquadId} 隊</h2><small>SQUAD ${this.selectedSquadId}</small></div>
+          <strong>${selectedTotal} / ${MAX_COMMAND_SQUAD_SIZE}</strong>
+        </div>
+        <div class="campaign-squad-unit-list">${allocationRows}</div>
+      </section>
+      <div class="setup-validation-msg">${validationMessage}</div>
+      <div class="campaign-actions">
+        <button type="button" class="campaign-secondary-btn" id="battle-squad-back-bottom">← 返回軍隊配置</button>
+        <button type="button" class="start-btn" id="battle-confirm-squads" ${canStart ? '' : 'disabled'}>
+          <span>開始戰鬥</span><small>START BATTLE</small>
+        </button>
+      </div>
+    `
+
+    this.container.querySelectorAll<HTMLElement>('[data-command-squad]').forEach(button => {
+      button.addEventListener('click', () => {
+        const value = Number(button.dataset.commandSquad)
+        if (value < 1 || value > MAX_COMMAND_SQUADS) return
+        this.selectedSquadId = value as SquadId
+        this._renderSquadSetup()
+      })
+    })
+    this.container.querySelectorAll<HTMLElement>('[data-squad-inc]').forEach(button => {
+      button.addEventListener('click', () => {
+        this._adjustSquadAssignment(
+          button.dataset.squadInc as UnitPresetId,
+          Number(button.dataset.tier) as UnitTier,
+          1,
+        )
+      })
+    })
+    this.container.querySelectorAll<HTMLElement>('[data-squad-dec]').forEach(button => {
+      button.addEventListener('click', () => {
+        this._adjustSquadAssignment(
+          button.dataset.squadDec as UnitPresetId,
+          Number(button.dataset.tier) as UnitTier,
+          -1,
+        )
+      })
+    })
+    this.container.querySelectorAll<HTMLInputElement>('[data-squad-count]').forEach(input => {
+      input.addEventListener('change', () => {
+        const parsed = Number.parseInt(input.value, 10)
+        this._setSquadAssignmentCount(
+          input.dataset.squadCount as UnitPresetId,
+          Number(input.dataset.tier) as UnitTier,
+          Number.isFinite(parsed) ? parsed : 0,
+        )
+      })
+    })
+
+    const goBack = () => this._renderSetup()
+    this.container.querySelector('#battle-squad-back')?.addEventListener('click', goBack)
+    this.container.querySelector('#battle-squad-back-bottom')?.addEventListener('click', goBack)
+    this.container.querySelector('#battle-confirm-squads')?.addEventListener('click', () => {
+      const currentBase = validateBattleConfig(this.config)
+      const currentSquads = validateBattleSquadAssignments(this.config)
+      if (!currentBase.valid || !currentSquads.valid) return
+      this._launchBattle(this.config)
+    })
+  }
+
+  private _squadAssignmentCount(presetId: UnitPresetId, tier: UnitTier, squadId: SquadId): number {
+    return (this.config.squadAssignments ?? []).find(assignment => (
+      assignment.presetId === presetId
+      && assignment.tier === tier
+      && assignment.squadId === squadId
+    ))?.count ?? 0
+  }
+
+  private _squadAssignedUnitTotal(presetId: UnitPresetId, tier: UnitTier): number {
+    return (this.config.squadAssignments ?? [])
+      .filter(assignment => assignment.presetId === presetId && assignment.tier === tier)
+      .reduce((sum, assignment) => sum + assignment.count, 0)
+  }
+
+  private _squadTotal(squadId: SquadId): number {
+    return (this.config.squadAssignments ?? [])
+      .filter(assignment => assignment.squadId === squadId)
+      .reduce((sum, assignment) => sum + assignment.count, 0)
+  }
+
+  private _adjustSquadAssignment(presetId: UnitPresetId, tier: UnitTier, delta: number): void {
+    const current = this._squadAssignmentCount(presetId, tier, this.selectedSquadId)
+    this._setSquadAssignmentCount(presetId, tier, current + delta)
+  }
+
+  private _setSquadAssignmentCount(presetId: UnitPresetId, tier: UnitTier, value: number): void {
+    const playerFaction = this.config.playerFaction ?? 'viking'
+    const army = this.config[playerFaction] as Record<string, UnitTierCounts | undefined>
+    const deployed = army[presetId]?.[tier] ?? 0
+    const current = this._squadAssignmentCount(presetId, tier, this.selectedSquadId)
+    const assignedOtherSquads = this._squadAssignedUnitTotal(presetId, tier) - current
+    const otherUnitsInSquad = this._squadTotal(this.selectedSquadId) - current
+    const maxAllowed = Math.max(0, Math.min(
+      deployed - assignedOtherSquads,
+      MAX_COMMAND_SQUAD_SIZE - otherUnitsInSquad,
+    ))
+    const next = Math.max(0, Math.min(maxAllowed, Math.floor(value)))
+    const assignments = this.config.squadAssignments ??= []
+    const index = assignments.findIndex(assignment => (
+      assignment.presetId === presetId
+      && assignment.tier === tier
+      && assignment.squadId === this.selectedSquadId
+    ))
+
+    if (next === 0) {
+      if (index >= 0) assignments.splice(index, 1)
+    } else if (index >= 0) {
+      assignments[index].count = next
+    } else {
+      const assignment: SquadAssignment = {
+        presetId,
+        tier,
+        squadId: this.selectedSquadId,
+        count: next,
+      }
+      assignments.push(assignment)
+    }
+    this._renderSquadSetup()
+  }
+
+  private _launchBattle(config: BattleConfig): void {
+    if (!this.onStartCallback) return
+    if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
+      try {
+        const canvasContainer = document.getElementById('canvas-container')
+        const target = canvasContainer || document.body
+        const p = target.requestPointerLock?.()
+        if (p && typeof (p as any).catch === 'function') {
+          ;(p as Promise<void>).catch(() => {})
+        }
+      } catch {
+        // Pointer lock is optional during launch.
+      }
+    }
+    this.destroy()
+    this.onStartCallback(config)
+  }
   private _setUnitCount(
     faction: 'viking' | 'roman',
     preset: UnitPresetId,
@@ -501,6 +775,7 @@ export class BattleSetupUI {
     const maxAllowed = Math.max(0, MAX_CUSTOM_ARMY_SIZE - otherTotal)
     const clamped = Math.max(0, Math.min(value, maxAllowed))
 
+    if (army[preset]![tier] !== clamped) this.config.squadAssignments = undefined
     army[preset]![tier] = clamped
     this._refreshView()
   }
@@ -521,9 +796,11 @@ export class BattleSetupUI {
     if (delta > 0) {
       if (currentTotal >= MAX_CUSTOM_ARMY_SIZE || currentVal >= MAX_CUSTOM_ARMY_SIZE) return
       army[preset]![tier] = currentVal + 1
+      this.config.squadAssignments = undefined
     } else if (delta < 0) {
       if (currentVal <= 0) return
       army[preset]![tier] = currentVal - 1
+      this.config.squadAssignments = undefined
     }
 
     this._refreshView()
@@ -572,6 +849,10 @@ export class BattleSetupUI {
       scatteredBtn.classList.toggle('active', currentMode === 'scattered')
     }
 
+    const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
+    document.getElementById('command-grouping-preset')?.classList.toggle('active', currentCommandGrouping === 'preset')
+    document.getElementById('command-grouping-squad')?.classList.toggle('active', currentCommandGrouping === 'squad')
+
     // Update Player Faction buttons active state
     const currentFaction = this.config.playerFaction ?? 'viking'
     const vikingBtn = document.getElementById('faction-btn-viking')
@@ -594,6 +875,11 @@ export class BattleSetupUI {
     if (startBtn) {
       startBtn.disabled = !validation.valid
     }
+    const startLabel = document.getElementById('btn-start-battle-label')
+    const startSubtitle = document.getElementById('btn-start-battle-subtitle')
+    const usesSquads = currentCommandGrouping === 'squad'
+    if (startLabel) startLabel.textContent = usesSquads ? '選擇小隊' : '開始戰鬥'
+    if (startSubtitle) startSubtitle.textContent = usesSquads ? 'ASSIGN SQUADS' : 'START BATTLE'
 
     const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
     if (spectatorCheckbox) {

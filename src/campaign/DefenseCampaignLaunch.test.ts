@@ -6,6 +6,7 @@ import {
   positionDefenseCampaignDefenders,
   positionDefenseCampaignReinforcements,
   validateDefenseCampaignLaunchConfig,
+  validateDefenseCampaignSquadAssignments,
   type DefenseCampaignLaunchConfig,
 } from './DefenseCampaignLaunch'
 import { calculateArmyTotal } from '../battle/BattleConfig'
@@ -55,6 +56,43 @@ describe('Defense Campaign Stage 1 launch config', () => {
       startMounted: true,
       mountId: 'horse',
     })
+  })
+
+  it('carries the pre-battle command grouping into every campaign wave config', () => {
+    const config = launch('roman', true)
+    config.commandGrouping = 'squad'
+
+    expect(createDefenseCampaignWaveConfig(config, 'defenders').commandGrouping).toBe('squad')
+    expect(createDefenseCampaignWaveConfig(config, 'attackers').commandGrouping).toBe('squad')
+    expect(createDefenseCampaignWaveConfig(config, 'reinforcement').commandGrouping).toBe('squad')
+  })
+
+  it('requires every deployed unit to be assigned and caps each squad at 30', () => {
+    const config = launch('roman')
+    config.commandGrouping = 'squad'
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 40, 2: 0, 3: 0 },
+    }
+    config.squadAssignments = [
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 1, count: 20 },
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 2, count: 20 },
+    ]
+    expect(validateDefenseCampaignSquadAssignments(config).valid).toBe(true)
+
+    config.squadAssignments = [
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 1, count: 31 },
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 2, count: 9 },
+    ]
+    const overCap = validateDefenseCampaignSquadAssignments(config)
+    expect(overCap.valid).toBe(false)
+    expect(overCap.errors.some(error => error.includes('Squad 1 exceeds 30 units'))).toBe(true)
+
+    config.squadAssignments = [
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 1, count: 20 },
+    ]
+    const partial = validateDefenseCampaignSquadAssignments(config)
+    expect(partial.valid).toBe(false)
+    expect(partial.errors.some(error => error.includes('assigned 20/40'))).toBe(true)
   })
 
   it('mirrors defender and attacker factions through the same wave builder', () => {

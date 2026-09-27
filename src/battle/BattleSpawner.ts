@@ -18,6 +18,12 @@ import {
   type UnitLoadout,
   type UnitPresetId,
 } from './UnitPresetCatalog'
+import {
+  MAX_COMMAND_SQUADS,
+  TARGET_COMMAND_SQUAD_SIZE,
+  type SquadAssignment,
+  type SquadId,
+} from './CommandTarget'
 
 export interface NpcSpawnSpec {
   x: number
@@ -31,6 +37,7 @@ export interface NpcSpawnSpec {
   respawnEnabled: boolean
   presetId?: UnitPresetId
   loadout?: UnitLoadout
+  squadId?: SquadId
 }
 
 export interface CampPickupSpec {
@@ -107,16 +114,60 @@ interface PendingNpc {
   loadout?: UnitLoadout
 }
 
+export function assignPlayerCommandSquads(
+  specs: NpcSpawnSpec[],
+  assignments?: readonly SquadAssignment[],
+): void {
+  const friendlies = specs.filter(spec => spec.faction === Faction.PLAYER)
+  if (friendlies.length === 0) return
+
+  if (assignments !== undefined) {
+    for (const spec of friendlies) delete spec.squadId
+    const grouped = new Map<string, NpcSpawnSpec[]>()
+    for (const spec of friendlies) {
+      if (!spec.presetId) continue
+      const key = `${spec.presetId}:T${spec.tier}`
+      const group = grouped.get(key) ?? []
+      group.push(spec)
+      grouped.set(key, group)
+    }
+
+    const cursorByGroup = new Map<string, number>()
+    for (const assignment of assignments) {
+      const key = `${assignment.presetId}:T${assignment.tier}`
+      const group = grouped.get(key) ?? []
+      let cursor = cursorByGroup.get(key) ?? 0
+      const end = Math.min(group.length, cursor + assignment.count)
+      for (; cursor < end; cursor++) {
+        group[cursor].squadId = assignment.squadId
+      }
+      cursorByGroup.set(key, cursor)
+    }
+    return
+  }
+
+  const squadCount = Math.min(
+    MAX_COMMAND_SQUADS,
+    Math.max(1, Math.ceil(friendlies.length / TARGET_COMMAND_SQUAD_SIZE)),
+  )
+
+  // Default auto-grouping for battles that did not supply a manual squad plan.
+  friendlies.forEach((spec, index) => {
+    spec.squadId = ((index % squadCount) + 1) as SquadId
+  })
+}
+
 export class BattleSpawner {
   /**
    * Generates a complete deterministic spawn plan from BattleConfig.
    */
   static createSpawnPlan(config: BattleConfig): BattleSpawnPlan {
     const mode = config.mode ?? 'formation'
-    if (mode === 'scattered') {
-      return this._generateScatteredPlan(config)
-    }
-    return this._generateFormationPlan(config)
+    const plan = mode === 'scattered'
+      ? this._generateScatteredPlan(config)
+      : this._generateFormationPlan(config)
+    assignPlayerCommandSquads(plan.npcSpecs, config.squadAssignments)
+    return plan
   }
 
   private static _generateFormationPlan(config: BattleConfig): BattleSpawnPlan {

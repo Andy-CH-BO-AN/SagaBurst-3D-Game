@@ -63,6 +63,7 @@ function controllerHarness(
   canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
   inventory: InventoryManager | null = null,
   faction: 'viking' | 'roman' = 'viking',
+  grouping: 'preset' | 'squad' = 'preset',
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -110,6 +111,7 @@ function controllerHarness(
     'attack',
     canIssueOrder,
     inventory,
+    grouping,
   )
   return { controller, input, ui }
 }
@@ -1136,6 +1138,72 @@ describe('Army command keyboard mapping and filtering', () => {
     completionHandler?.(12, 'all', [participant], 'abandoned')
     expect(h.ui.showFeedback).toHaveBeenCalledTimes(feedbackCount)
   })
+
+  it('switches to squad grouping and commands only the selected mixed squad', () => {
+    const spearman = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_spearman',
+      squadId: 1,
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    const horseArcher = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_horse_archer',
+      squadId: 1,
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    const otherSquad = {
+      faction: Faction.PLAYER,
+      presetId: 'viking_spearman',
+      squadId: 2,
+      dead: false,
+      setTacticalOrder: vi.fn(),
+    }
+    const h = controllerHarness([spearman, horseArcher, otherSquad], null, null, null, 'viking', 'squad')
+
+    expect(h.controller.grouping).toBe('squad')
+
+    const hud = h.ui.render.mock.calls.at(-1)?.[0] as Array<{ target: string; summary?: string }>
+    expect(hud.find(entry => entry.target === 'squad:1')?.summary).toBe('2/2')
+    expect(hud.find(entry => entry.target === 'squad:2')?.summary).toBe('1/1')
+    expect(hud.find(entry => entry.target === 'all')?.summary).toBe('3/3')
+
+    h.input.press('1')
+    h.controller.update()
+    expect(h.controller.selected).toBe('squad:1')
+
+    h.input.press('2')
+    h.controller.update()
+    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('charge')
+    expect(horseArcher.setTacticalOrder).toHaveBeenCalledWith('charge')
+    expect(otherSquad.setTacticalOrder).not.toHaveBeenCalled()
+    expect(h.ui.showFeedback).toHaveBeenCalledWith('第 1 隊 → 衝鋒')
+  })
+
+  it('keeps squad formation participants scoped even when the squad mixes presets', () => {
+    const squadOne = [
+      { name: 'spear', faction: Faction.PLAYER, presetId: 'viking_spearman', squadId: 1, dead: false },
+      { name: 'archer', faction: Faction.PLAYER, presetId: 'viking_horse_archer', squadId: 1, dead: false },
+    ]
+    const other = { name: 'other', faction: Faction.PLAYER, presetId: 'viking_spearman', squadId: 2, dead: false }
+    const formation = new FormationController(
+      new THREE.Scene(),
+      new THREE.PerspectiveCamera(),
+      [...squadOne, other] as any,
+      new THREE.Object3D(),
+      [],
+    )
+
+    const participants = (formation as any).resolveParticipants('squad:1')
+    expect(participants.map((npc: any) => npc.name)).toEqual(['spear', 'archer'])
+  })
+
+  it('labels squad command targets without requiring a unit preset', () => {
+    expect(armyCommandTargetLabel('squad:3')).toBe('第 3 隊')
+  })
+
 })
 
 function createNpc(

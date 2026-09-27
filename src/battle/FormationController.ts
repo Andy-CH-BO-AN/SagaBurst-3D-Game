@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Faction, NPC } from '../world/NPC'
 import { ObstacleData, PLAYABLE_WORLD_BOUND, clampToPlayableWorld, getTerrainHeight } from '../world/Terrain'
-import type { ArmyCommandTarget } from './ArmyCommandController'
+import { matchesArmyCommandTarget, type ArmyCommandTarget } from './CommandTarget'
 import {
   assignUnitsToSlots,
   FORMATION_ALL_MAX_COLUMNS,
@@ -212,11 +212,11 @@ export class FormationController {
   }
 
   private resolveParticipants(target: ArmyCommandTarget): NPC[] {
-    return this.npcs.filter(npc => {
-      if (npc.faction !== Faction.PLAYER || npc.dead) return false
-      if (target === 'all') return true
-      return npc.presetId === target
-    })
+    return this.npcs.filter(npc => (
+      npc.faction === Faction.PLAYER
+      && !npc.dead
+      && matchesArmyCommandTarget(npc, target)
+    ))
   }
 
   private resolvePlacementSnapshot(target: ArmyCommandTarget): PlacementSnapshot | null {

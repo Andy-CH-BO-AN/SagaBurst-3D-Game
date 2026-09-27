@@ -819,6 +819,7 @@ export class Game {
         return this._campaignFactionAlive(attackerFaction) > 0
       },
       this.inventoryManager,
+      activeBattleConfig?.commandGrouping ?? 'preset',
     )
 
 
@@ -1400,6 +1401,7 @@ export class Game {
       spec.cavalry,
       spec.loadout,
       spec.presetId,
+      spec.squadId,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
