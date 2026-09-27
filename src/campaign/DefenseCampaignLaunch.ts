@@ -41,7 +41,7 @@ export interface DefenseCampaignLaunchConfig {
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
-  commandGrouping: CommandGroupingMode
+  commandGrouping?: CommandGroupingMode
 }
 
 export type DefenseCampaignWave = 'defenders' | 'attackers' | 'reinforcement'
@@ -117,7 +117,11 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   if (config.type !== 'defense') errors.push('Campaign type must be defense')
-  if (config.commandGrouping !== 'preset' && config.commandGrouping !== 'squad') {
+  if (
+    config.commandGrouping !== undefined
+    && config.commandGrouping !== 'preset'
+    && config.commandGrouping !== 'squad'
+  ) {
     errors.push('Invalid command grouping')
   }
   if (config.defenderFaction !== 'roman' && config.defenderFaction !== 'viking') {
@@ -298,7 +302,7 @@ export function createDefenseCampaignWaveConfig(
   const armies = createWaveArmy(launch, wave)
   return {
     mode: 'formation',
-    commandGrouping: launch.commandGrouping,
+    commandGrouping: launch.commandGrouping ?? 'preset',
     spectator: false,
     playerFaction: launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
