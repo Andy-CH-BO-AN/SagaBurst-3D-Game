@@ -14,6 +14,7 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import type { CommandGroupingMode } from '../battle/CommandTarget'
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
 import {
   getUnitPreset,
@@ -40,6 +41,7 @@ export interface DefenseCampaignLaunchConfig {
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
+  commandGrouping: CommandGroupingMode
 }
 
 export type DefenseCampaignWave = 'defenders' | 'attackers' | 'reinforcement'
@@ -115,6 +117,9 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   if (config.type !== 'defense') errors.push('Campaign type must be defense')
+  if (config.commandGrouping !== 'preset' && config.commandGrouping !== 'squad') {
+    errors.push('Invalid command grouping')
+  }
   if (config.defenderFaction !== 'roman' && config.defenderFaction !== 'viking') {
     errors.push('Invalid defender faction')
   }
@@ -293,6 +298,7 @@ export function createDefenseCampaignWaveConfig(
   const armies = createWaveArmy(launch, wave)
   return {
     mode: 'formation',
+    commandGrouping: launch.commandGrouping,
     spectator: false,
     playerFaction: launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
