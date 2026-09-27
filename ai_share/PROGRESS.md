@@ -80,7 +80,7 @@ The recent optimization sequence shows two distinct costs:
 
 ### Horse runtime
 
-- Player mounts in Custom Battle and Defense Campaign can be Black Cat, Corgi, or Horse. T3 Viking cavalry use Black Cat; T3 Roman cavalry use Corgi. T1/T2 cavalry and camp mounts use Horse. Older player loadouts without a mount ID default to Horse.
+- Player mounts in Custom Battle and Defense Campaign can be Black Cat, Corgi, or Horse. Viking and Roman cavalry of every tier, as well as camp mounts, use Horse by default. Older player loadouts without a mount ID default to Horse.
 - Horse LOD thresholds remain `0 / 18 / 38m`; far horse animation beyond ~35m is throttled around 15 Hz.
 - Each horse owns an independent skeleton/mixer while geometry/material/texture/clip resources are shared.
 - `Mount` remains gameplay authority for HP, movement, collision, impact, death/dismount, and save behavior. Horse visual work must not silently change those systems.
