@@ -14,7 +14,12 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import type { CommandGroupingMode } from '../battle/CommandTarget'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type CommandGroupingMode,
+  type SquadAssignment,
+} from '../battle/CommandTarget'
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
 import {
   getUnitPreset,
@@ -42,6 +47,7 @@ export interface DefenseCampaignLaunchConfig {
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
   commandGrouping?: CommandGroupingMode
+  squadAssignments?: SquadAssignment[]
 }
 
 export type DefenseCampaignWave = 'defenders' | 'attackers' | 'reinforcement'
@@ -224,6 +230,86 @@ export function validateDefenseCampaignLaunchConfig(
   return { valid: errors.length === 0, errors }
 }
 
+export function validateDefenseCampaignSquadAssignments(
+  launch: DefenseCampaignLaunchConfig,
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+  if (launch.commandGrouping !== 'squad') return { valid: true, errors }
+
+  const assignments = launch.squadAssignments
+  if (!assignments) {
+    return { valid: false, errors: ['Missing squad assignments'] }
+  }
+
+  const allowedPresets = launch.defenderFaction === 'roman'
+    ? ROMAN_PRESET_IDS
+    : VIKING_PRESET_IDS
+  const expected = new Map<string, number>()
+  for (const [presetId, counts] of Object.entries(launch.defenderArmy)) {
+    if (!(allowedPresets as readonly string[]).includes(presetId)) continue
+    for (const tier of [1, 2, 3] as UnitTier[]) {
+      const count = counts[tier] ?? 0
+      if (count > 0) expected.set(`${presetId}:T${tier}`, count)
+    }
+  }
+
+  const assignedByUnit = new Map<string, number>()
+  const assignedBySquad = new Map<number, number>()
+  const seen = new Set<string>()
+
+  for (const assignment of assignments) {
+    const key = `${assignment.presetId}:T${assignment.tier}`
+    const uniqueKey = `${key}:S${assignment.squadId}`
+    if (seen.has(uniqueKey)) {
+      errors.push(`Duplicate squad assignment: ${uniqueKey}`)
+      continue
+    }
+    seen.add(uniqueKey)
+
+    if (!(allowedPresets as readonly string[]).includes(assignment.presetId)) {
+      errors.push(`Invalid squad preset: ${assignment.presetId}`)
+    }
+    if (![1, 2, 3].includes(assignment.tier)) {
+      errors.push(`Invalid squad tier: ${String(assignment.tier)}`)
+    }
+    if (
+      !Number.isInteger(assignment.squadId)
+      || assignment.squadId < 1
+      || assignment.squadId > MAX_COMMAND_SQUADS
+    ) {
+      errors.push(`Invalid squad id: ${String(assignment.squadId)}`)
+    }
+    if (!Number.isInteger(assignment.count) || assignment.count <= 0) {
+      errors.push(`Invalid squad count: ${String(assignment.count)}`)
+      continue
+    }
+    if (!expected.has(key)) {
+      errors.push(`Squad assignment references undeployed unit: ${key}`)
+      continue
+    }
+
+    assignedByUnit.set(key, (assignedByUnit.get(key) ?? 0) + assignment.count)
+    assignedBySquad.set(
+      assignment.squadId,
+      (assignedBySquad.get(assignment.squadId) ?? 0) + assignment.count,
+    )
+  }
+
+  for (const [squadId, count] of assignedBySquad) {
+    if (count > MAX_COMMAND_SQUAD_SIZE) {
+      errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+    }
+  }
+  for (const [key, count] of expected) {
+    const assigned = assignedByUnit.get(key) ?? 0
+    if (assigned !== count) {
+      errors.push(`${key} assigned ${assigned}/${count}`)
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
 function createWaveArmy(
   launch: DefenseCampaignLaunchConfig,
   wave: DefenseCampaignWave,
@@ -307,6 +393,9 @@ export function createDefenseCampaignWaveConfig(
     playerFaction: launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
     playerLoadout: { ...launch.playerLoadout },
+    squadAssignments: wave === 'defenders'
+      ? launch.squadAssignments?.map(assignment => ({ ...assignment }))
+      : [],
     viking: armies.viking,
     roman: armies.roman,
     rules: {
