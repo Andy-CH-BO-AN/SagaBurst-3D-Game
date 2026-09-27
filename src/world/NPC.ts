@@ -64,6 +64,8 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
+import { damageObstacle } from '../combat/DamageRouter'
+import { createNpcCombatActorRef, type CombatEventSink } from '../combat/CombatAttribution'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -141,6 +143,8 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
 }
 
 export class NPC {
+  private static nextCombatantSerial = 1
+
   // Visuals
   group: THREE.Group
   characterVisualGroup: THREE.Group
@@ -151,6 +155,8 @@ export class NPC {
   readonly tier: 1 | 2 | 3
   readonly presetId?: UnitPresetId
   readonly squadId?: SquadId
+  readonly combatantId: string
+  private readonly combatEventSink?: CombatEventSink
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -350,6 +356,8 @@ export class NPC {
     loadout?: UnitLoadout,
     presetId?: UnitPresetId,
     squadId?: SquadId,
+    combatantId?: string,
+    combatEventSink?: CombatEventSink,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -361,6 +369,8 @@ export class NPC {
     this.loadout = loadout
     this.presetId = presetId
     this.squadId = squadId
+    this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
+    this.combatEventSink = combatEventSink
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -1933,7 +1943,12 @@ export class NPC {
                 const finalDamage = Math.round(
                   this.meleeDamage * berserker.meleeDamageMultiplier,
                 )
-                const result = siegeObstacle.damageable!.takeDamage(finalDamage)
+                const result = damageObstacle(siegeObstacle.damageable!, finalDamage, {
+                  source: createNpcCombatActorRef(this),
+                  method: 'siege',
+                  weaponId: this.meleeWeaponId ?? undefined,
+                  emit: this.combatEventSink,
+                })
                 if (result.destroyed) {
                   this._clearSiegeFallback()
                   this.state = AIState.CHASE

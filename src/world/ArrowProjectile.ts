@@ -6,13 +6,24 @@ import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getTerrainHeight, obstacleContainsProjectilePoint, type ObstacleData } from './Terrain'
-import { damageNpc, type DamageResult } from '../combat/DamageRouter'
+import { damageNpc, damageObstacle, type DamageResult } from '../combat/DamageRouter'
+import type {
+  CombatActorRef,
+  CombatDamageContext,
+  CombatEventSink,
+} from '../combat/CombatAttribution'
 import { proceduralMaterial } from './ProceduralMaterials'
 import type { DamageableObstacle } from './DamageableObstacle'
 
 const GRAVITY = -9.8 // m/s² downforce for arrow arc
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 export type ProjectileVisualKind = 'arrow' | 'pilum'
+
+export interface ProjectileAttribution {
+  source: CombatActorRef
+  weaponId?: string
+  emit?: CombatEventSink
+}
 
 interface SharedProjectileVisuals {
   woodMaterial: THREE.Material
@@ -95,6 +106,7 @@ export class ArrowProjectile {
   readonly damage: number
   readonly shooterFaction: Faction
   readonly isPlayerFired: boolean
+  readonly attribution?: ProjectileAttribution
 
   get isAlive(): boolean { return this.alive }
   get isStuck(): boolean { return this.stuck }
@@ -112,10 +124,12 @@ export class ArrowProjectile {
     shooterFaction: Faction,
     isPlayerFired: boolean = false,
     visualKind: ProjectileVisualKind = 'arrow',
+    attribution?: ProjectileAttribution,
   ) {
     this.damage = damage
     this.shooterFaction = shooterFaction
     this.isPlayerFired = isPlayerFired
+    this.attribution = attribution
     this.mesh = new THREE.Group()
     this.mesh.name = `${visualKind}-projectile`
     this.mesh.userData.ignoreAimRaycast = true
@@ -188,7 +202,7 @@ export class ArrowProjectile {
     npcs: NPC[],
     obstacles: ObstacleData[],
     onHitTarget: (damage: number, hitPos: THREE.Vector3, targetName: string, hpRatio: number, isPlayerHit: boolean, npc?: NPC, isMountHit?: boolean) => void,
-    onDamagePlayer: (damage: number) => DamageResult,
+    onDamagePlayer: (damage: number, context?: CombatDamageContext) => DamageResult,
     onHitObstacle?: (
       damage: number,
       hitPos: THREE.Vector3,
@@ -242,7 +256,7 @@ export class ArrowProjectile {
             || damageable.isDamageableBy(player.characterFaction)
           )
         if (canDamageObstacle) {
-          const result = damageable.takeDamage(this.damage)
+          const result = damageObstacle(damageable, this.damage, this._damageContext())
           if (result.appliedDamage > 0) {
             onHitObstacle?.(
               result.appliedDamage,
@@ -264,7 +278,7 @@ export class ArrowProjectile {
       playerCenter.y += 1.0 // Torso height
       const dist = this.mesh.position.distanceTo(playerCenter)
       if (dist <= 0.9) {
-        const result = onDamagePlayer(this.damage)
+        const result = onDamagePlayer(this.damage, this._damageContext())
 
         if (result.hitSuccess) {
           onHitTarget(
@@ -290,7 +304,7 @@ export class ArrowProjectile {
 
       const dist = this.mesh.position.distanceTo(aiCenter)
       if (dist <= 1.0) {
-        const result = damageNpc(npc, this.damage)
+        const result = damageNpc(npc, this.damage, this._damageContext())
         if (result.hitSuccess) {
           onHitTarget(this.damage, this.mesh.position.clone(), result.targetName, result.hpRatio, false, npc, result.isMountHit)
         }
@@ -302,6 +316,16 @@ export class ArrowProjectile {
     // Out of bounds check (despawn radius scaled with world scale)
     if (this.mesh.position.lengthSq() > 400 * 400) {
       this.destroy()
+    }
+  }
+
+  private _damageContext(): CombatDamageContext | undefined {
+    if (!this.attribution) return undefined
+    return {
+      source: this.attribution.source,
+      method: 'projectile',
+      weaponId: this.attribution.weaponId,
+      emit: this.attribution.emit,
     }
   }
 

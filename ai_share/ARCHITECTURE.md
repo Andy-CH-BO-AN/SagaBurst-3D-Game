@@ -170,6 +170,18 @@ skyrim 3D test/
 
 ---
 
+## Combat Attribution
+
+- `Game` owns a synchronous `CombatEventStream`. Combat code emits attribution events only; it does not know about battle-stat UI, merit, or career progression.
+- `CombatActorRef` snapshots a source combatant at attack/fire time with stable `actorId`, allegiance, Roman/Viking faction, optional preset, and optional `squadId`. NPCs keep a stable `combatantId` for their lifetime.
+- `DamageRouter` is authoritative for mounted/unmounted actor damage and structure damage. `DamageResult` exposes requested damage, actual applied HP loss, target identity, and whether this hit killed the actual damage target.
+- Applied damage is measured from HP before/after routing, after shield reduction and overkill clamping. Example: a target at 3 HP hit for 80 contributes 3 applied damage.
+- Projectiles retain the concrete shooter snapshot and weapon ID when created, so delayed arrow/pilum hits can still be attributed to the correct NPC and squad.
+- Mount impacts attribute damage to the controlling rider. NPC siege attacks, player melee structure hits, and projectile structure hits all use the same structure-damage event path.
+- Event types currently emitted are `damage_applied`, `actor_killed`, `structure_damaged`, and `structure_destroyed`. Structure destruction and actor kills emit only on the first terminal transition.
+
+---
+
 ## Data Flow (per frame)
 
 ```

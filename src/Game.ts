@@ -244,7 +244,12 @@ export function resolveMountSpawnY(
 ): number | undefined {
   return saveData.mountData?.position ? saveData.mountData.position.y : undefined
 }
-import { damageNpc, damagePlayer } from './combat/DamageRouter'
+import { damageNpc, damageObstacle, damagePlayer } from './combat/DamageRouter'
+import {
+  CombatEventStream,
+  createNpcCombatActorRef,
+  createPlayerCombatActorRef,
+} from './combat/CombatAttribution'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { createBowComparisonPanel } from './debug/BowComparisonPanel'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
@@ -280,6 +285,7 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 }
 
 export class Game {
+  readonly combatEvents = new CombatEventStream()
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -856,6 +862,11 @@ export class Game {
         Faction.PLAYER,
         true,
         evt.visualKind,
+        {
+          source: createPlayerCombatActorRef(this.player),
+          weaponId: this.inventoryManager.equippedRanged.id,
+          emit: this.combatEvents.emit,
+        },
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -1402,6 +1413,8 @@ export class Game {
       spec.loadout,
       spec.presetId,
       spec.squadId,
+      undefined,
+      this.combatEvents.emit,
     )
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -2020,7 +2033,12 @@ export class Game {
       )
       if (!hitPoint || hitPoint.distanceTo(gripPosition) > segmentLength) continue
 
-      const result = damageable.takeDamage(damage)
+      const result = damageObstacle(damageable, damage, {
+        source: createPlayerCombatActorRef(this.player),
+        method: 'melee',
+        weaponId: this.inventoryManager.equippedMelee.id,
+        emit: this.combatEvents.emit,
+      })
       if (result.appliedDamage <= 0) continue
 
       this.player.markHitProcessed()
@@ -2084,7 +2102,12 @@ export class Game {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage)
+            const result = damageNpc(npc, finalDamage, {
+              source: createPlayerCombatActorRef(this.player),
+              method: 'melee',
+              weaponId: equippedMelee.id,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               // Only suppress Horse Impact when the Lance charge actually landed
               if (isCharge && this.player.currentMount) {
@@ -2118,7 +2141,12 @@ export class Game {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage)
+            const result = damageNpc(npc, finalDamage, {
+              source: createPlayerCombatActorRef(this.player),
+              method: 'melee',
+              weaponId: equippedMelee.id,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               this.soundManager.playSwordHit(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter)
@@ -2308,7 +2336,14 @@ export class Game {
       {
         npcGrid: this.npcGrid,
         candidateBuffer: this._impactCandidates,
-        onDamagePlayer: (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+        onDamagePlayer: (damage, context) => damagePlayer(
+          this.player,
+          damage,
+          this.hpBar,
+          this.inventoryManager.equippedShield?.id ?? null,
+          context,
+        ),
+        combatEvents: this.combatEvents.emit,
         onPlayerMountHitNpcAudio: (damage, attackerMount, npc, result) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           this._tmpHitPos.copy(npc.combatPosition)
@@ -2513,7 +2548,18 @@ export class Game {
           // Melee Hit Callback
           if (isPlayer) {
             if (!this.player.targetable) return
-            const result = damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null)
+            const result = damagePlayer(
+              this.player,
+              damage,
+              this.hpBar,
+              this.inventoryManager.equippedShield?.id ?? null,
+              {
+                source: createNpcCombatActorRef(npc),
+                method: 'melee',
+                weaponId: npc.meleeWeaponId ?? undefined,
+                emit: this.combatEvents.emit,
+              },
+            )
             if (result.hitSuccess) {
               if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
               else this.soundManager.playSwordHit(npc.currentLod, true)
@@ -2524,7 +2570,12 @@ export class Game {
               }
             }
           } else if (targetNpc) {
-            const result = damageNpc(targetNpc, damage)
+            const result = damageNpc(targetNpc, damage, {
+              source: createNpcCombatActorRef(npc),
+              method: 'melee',
+              weaponId: npc.meleeWeaponId ?? undefined,
+              emit: this.combatEvents.emit,
+            })
             if (result.hitSuccess) {
               if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
               else this.soundManager.playSwordHit(npc.currentLod, false)
@@ -2542,6 +2593,11 @@ export class Game {
             npc.faction,
             false,
             visualKind,
+            {
+              source: createNpcCombatActorRef(npc),
+              weaponId: npc.rangedWeaponId,
+              emit: this.combatEvents.emit,
+            },
           )
           this.arrows.push(arrow)
           if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
@@ -2622,7 +2678,13 @@ export class Game {
           },
         )
       },
-      (damage) => damagePlayer(this.player, damage, this.hpBar, this.inventoryManager.equippedShield?.id ?? null),
+      (damage, context) => damagePlayer(
+        this.player,
+        damage,
+        this.hpBar,
+        this.inventoryManager.equippedShield?.id ?? null,
+        context,
+      ),
       (damage, hitPos, obstacle, hpRatio) => {
         if (!arrow.isPlayerFired) return
         this.damageNumbers.spawn(Math.round(damage), hitPos)
