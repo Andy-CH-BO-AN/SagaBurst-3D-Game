@@ -121,6 +121,8 @@ For melee weapons:
 
 For bows:
 
+- For Maki, use the [side-on stance and fixed equipment contract](../humanoid-rig-skinning/references/posed-source-characters.md). Check full-body standing hold, moving hold, stopping, and mounted hold in the real game; a correct upper-body preview can hide forward-facing feet or stale loadout choices. After mounting or changing equipment, wait for the production controller to evaluate the new state before freezing and measuring the pose.
+
 - Confirm the upper limb reaches near the forehead.
 - Confirm the bow body curves toward the target while the string and nock sit toward the archer.
 - Confirm the drawing hand meets the centre nock and the arrow tail begins at that same point.

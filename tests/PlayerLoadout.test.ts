@@ -31,6 +31,26 @@ describe('Player loadout configuration', () => {
     expect(validateBattleConfig({ ...battleConfig(), playerLoadout: { ...roman.playerLoadout, startMounted: 'yes' } }).valid).toBe(false)
   })
 
+  it('gives Ranger only its fixed bow melee and no shield, including legacy saves', () => {
+    const loadout = { meleeWeaponId: 'heavy_lance', rangedWeaponId: 'elven_runebow', shieldId: 'scutum_t3' }
+    const ranger = new InventoryManager(loadout, 'maki-archer-t4')
+    expect(ranger.equippedMelee.id).toBe('maki-ranger-bow')
+    expect(ranger.equippedShield).toBeNull()
+    expect(ranger.inventoryStacks.map(stack => stack.item.id)).toEqual(['maki-ranger-bow', 'elven_runebow'])
+    ranger.loadSaveState(new InventoryManager(loadout).saveState)
+    expect(ranger.equippedMelee.id).toBe('maki-ranger-bow')
+    expect(ranger.equippedShield).toBeNull()
+    expect(ranger.equipWeapon('heavy_lance')).toBe(false)
+    expect(ranger.equipWeapon('scutum_t3')).toBe(false)
+    expect(ranger.equipWeapon('elven_runebow')).toBe(true)
+    const captain = new InventoryManager(loadout, 'viking-hero-t4')
+    expect(captain.equippedMelee.id).toBe('heavy_lance')
+    expect(captain.equippedShield?.id).toBe('scutum_t3')
+    captain.loadSaveState(ranger.saveState)
+    expect(captain.equippedMelee.id).toBe('heavy_lance')
+    expect(captain.inventoryStacks.some(stack => stack.item.id === 'maki-ranger-bow')).toBe(false)
+  })
+
   it('initializes an explicit loadout without unselected legacy T3 equipment', () => {
     const inventory = new InventoryManager({ meleeWeaponId: 'gladius_standard', rangedWeaponId: 'pilum_standard', shieldId: 'scutum_t2' })
     expect(inventory.equippedMelee.id).toBe('gladius_standard')

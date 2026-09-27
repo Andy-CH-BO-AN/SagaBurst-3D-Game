@@ -11,6 +11,7 @@ export interface EquipmentPoseState {
   shield: boolean
   lance: boolean
   mounted: boolean
+  moving?: boolean
   mountKind: MountedPoseKind
   action: string
   elapsed: number
@@ -138,10 +139,15 @@ export class CharacterEquipmentPose {
   private readonly hipsBindPosition: THREE.Vector3
   private readonly hipsSamplePosition = new THREE.Vector3()
   private readonly seatedRotation = new THREE.Quaternion()
+  private readonly bowSpine: THREE.Object3D | undefined
+  private readonly bowHipsWorld = new THREE.Quaternion()
+  private readonly bowSpineWorld = new THREE.Quaternion()
+  private readonly bowChestWorld = new THREE.Quaternion()
+  private readonly bowHalfTurnInverse = new THREE.Quaternion()
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = []) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false) {
     this.left = new ArmSolver(root, rig.left, 1)
     this.axeRight = new ArmSolver(root, rig.right, -1)
     this.axeLeftBones = [rig.left.shoulder, rig.left.elbow, rig.left.wrist]
@@ -159,11 +165,13 @@ export class CharacterEquipmentPose {
     this.shieldBindInverse.copy(this.shieldBody.matrixWorld).invert().multiply(root.matrixWorld)
     this.seatedHips = rig.pelvis?.parent ?? rig.rightLeg.hip.parent!
     this.seatedSpine = rig.upperChest ?? root.getObjectByName('spine')
+    this.bowSpine = root.getObjectByName('spine')
     this.hipsBindPosition = this.seatedHips.position.clone()
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     nodes.push(this.seatedHips)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
+    if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
     root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
   }
@@ -195,6 +203,25 @@ export class CharacterEquipmentPose {
     this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
     const live = state.alive && state.action !== 'death'
+    if (live && this.bowFullBodyStance && (state.moving || state.mounted)
+      && (state.action === 'bowAim' || state.action === 'bowRelease') && this.bowSpine && this.seatedSpine) {
+      // Standing keeps the authored whole-body side-on stance. Moving/seated
+      // legs face their travel direction; transfer the same turn above the
+      // pelvis without re-solving either arm or rotating the weapon grip.
+      this.seatedHips.getWorldQuaternion(this.bowHipsWorld)
+      this.bowSpine.getWorldQuaternion(this.bowSpineWorld)
+      this.seatedSpine.getWorldQuaternion(this.bowChestWorld)
+      setRigRotation(this.seatedHips, 0, 0, 0)
+      this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+      this.bowHipsWorld.multiply(this.parentInverse).invert()
+      this.bowHalfTurnInverse.identity().slerp(this.bowHipsWorld, .5)
+      this.bowSpineWorld.premultiply(this.bowHalfTurnInverse)
+      this.bowSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+      this.bowSpine.quaternion.copy(this.parentInverse).multiply(this.bowSpineWorld)
+      this.bowSpine.updateWorldMatrix(false, true)
+      this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+      this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
+    }
     if (live && state.mounted && state.mountKind === 'CORGI' && this.seatedSpine) {
       // Foot attacks twist the pelvis by up to a quarter turn. Transfer that
       // rotation to the upper chest so the attack keeps its upper-body arc while

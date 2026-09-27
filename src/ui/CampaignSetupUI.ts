@@ -30,7 +30,7 @@ import {
   type PlayerMountId,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
-import { HERO_ASSET_IDS, HERO_ASSETS, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
@@ -216,6 +216,7 @@ export class CampaignSetupUI {
     const total = this._armyTotal()
     const mounted = this._mountedTotal()
     const factionZh = this.defenderFaction === 'roman' ? '羅馬' : '維京'
+    const fixedEquipment = getHeroFixedEquipment(this.playerHeroId)
     const loadout = this.playerLoadout
       ?? createDefaultDefensePlayerLoadout(this.defenderFaction)
     this.playerLoadout = loadout
@@ -326,9 +327,10 @@ export class CampaignSetupUI {
           </label>
           <label class="campaign-loadout-field">
             <span>近戰</span>
-            <select id="campaign-player-melee">
+            <select id="campaign-player-melee" ${fixedEquipment ? 'disabled' : ''}>
+              ${fixedEquipment ? '<option selected>T4 弓（近戰）</option>' : ''}
               ${PLAYER_MELEE_SELECTION_IDS.map(id => `
-                <option value="${id}" ${loadout.meleeWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
+                <option value="${id}" ${!fixedEquipment && loadout.meleeWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
@@ -342,10 +344,10 @@ export class CampaignSetupUI {
           </label>
           <label class="campaign-loadout-field">
             <span>盾牌</span>
-            <select id="campaign-player-shield">
-              <option value="" ${loadout.shieldId === null ? 'selected' : ''}>無盾</option>
+            <select id="campaign-player-shield" ${fixedEquipment ? 'disabled' : ''}>
+              <option value="" ${fixedEquipment || loadout.shieldId === null ? 'selected' : ''}>無盾</option>
               ${PLAYER_SHIELD_IDS.map(id => `
-                <option value="${id}" ${loadout.shieldId === id ? 'selected' : ''}>${ARMORS[id]?.name ?? id}</option>
+                <option value="${id}" ${!fixedEquipment && loadout.shieldId === id ? 'selected' : ''}>${ARMORS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
@@ -412,18 +414,19 @@ export class CampaignSetupUI {
       this._render()
     })
     this.container.querySelector('#campaign-player-melee')?.addEventListener('change', event => {
-      if (!this.playerLoadout) return
+      if (!this.playerLoadout || getHeroFixedEquipment(this.playerHeroId)) return
       this.playerLoadout.meleeWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['meleeWeaponId']
     })
     this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
       this.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      this._render()
     })
     this.container.querySelector('#campaign-player-ranged')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
       this.playerLoadout.rangedWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['rangedWeaponId']
     })
     this.container.querySelector('#campaign-player-shield')?.addEventListener('change', event => {
-      if (!this.playerLoadout) return
+      if (!this.playerLoadout || getHeroFixedEquipment(this.playerHeroId)) return
       const value = (event.target as HTMLSelectElement).value
       this.playerLoadout.shieldId = value
         ? value as PlayerLoadoutConfig['shieldId']

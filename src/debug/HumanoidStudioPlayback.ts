@@ -98,7 +98,7 @@ export class HumanoidStudioPlayback {
           const events = this.animator.update(dt)
           if (this.customBowPreview && events.projectileRelease) {
             this.instance.root.updateMatrixWorld(true)
-            this.target.set(10, 1.25, 0).applyMatrix4(this.instance.root.matrixWorld)
+            this.target.set(0, 1.25, 10).applyMatrix4(this.instance.root.matrixWorld)
             this.bowVisual.update(1, this.target, true)
             const scene = this.instance.root.parent
             if (scene instanceof THREE.Scene) {
@@ -142,7 +142,7 @@ export class HumanoidStudioPlayback {
     this.bow.visible = mode !== 'raw'
     this.sword.visible = this.pilum.visible = false
     this.instance.root.updateMatrixWorld(true)
-    this.target.set(this.customBowPreview ? 10 : 0, this.customBowPreview ? 1.25 : 1.4, this.customBowPreview ? 0 : 10).applyMatrix4(this.instance.root.matrixWorld)
+    this.target.set(0, this.customBowPreview ? 1.25 : 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
     if (this.bow.visible) this.bowVisual.update(this.state === 'bowHold' ? 1 : this.state === 'bowRelease' ? 1 - time : time, this.target, !(this.state === 'bowRelease' && time >= 0.04 / 0.22))
     this.instance.root.updateMatrixWorld(true)
   }
@@ -280,7 +280,7 @@ export class HumanoidStudioPlayback {
       }
     }
     if (this.bow.visible) {
-      this.target.set(this.customBowPreview ? 10 : 0, this.customBowPreview ? 1.25 : 1.4, this.customBowPreview ? 0 : 10).applyMatrix4(this.instance.root.matrixWorld)
+      this.target.set(0, this.customBowPreview ? 1.25 : 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
       const archery = this.state.startsWith('bow')
       this.bowVisual.update(archery ? this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2 : 0, this.target, archery)
     }

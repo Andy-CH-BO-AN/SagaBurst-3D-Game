@@ -7,7 +7,7 @@ description: Audit, normalize, rig, skin, optimize, and export realistic humanoi
 
 Prepare external people without changing gameplay coordinates or silently falling back to the legacy procedural body.
 
-For a static posed GLB without a skeleton, or for shoulder/sleeve separation and forearm collapse, read [posed-source characters](references/posed-source-characters.md). It includes the Maki rebuild sequence and asset-specific limits; do not copy its landmarks or pose constraints to unrelated characters.
+For a static posed GLB without a skeleton, or for shoulder/sleeve separation, forearm collapse, or a correct side-on bow pose facing the wrong gameplay direction, read [posed-source characters](references/posed-source-characters.md). It includes the Maki rebuild sequence and asset-specific limits; do not copy its landmarks or pose constraints to unrelated characters.
 
 ## Workflow
 

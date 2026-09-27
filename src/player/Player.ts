@@ -93,6 +93,7 @@ export class Player {
   private bowPivot!: THREE.Group
   private bowGripPivot!: THREE.Group
   private bowVisual: CharacterBowVisual | null = null
+  private meleeBowVisual: CharacterBowVisual | null = null
   private currentRangedId: string = ''
 
   private shieldPivot!: THREE.Group
@@ -207,7 +208,7 @@ export class Player {
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
-    return weaponGripWorld(this.swordGripPivot, target)
+    return this.meleeBowVisual?.getGripPosition(target) ?? weaponGripWorld(this.swordGripPivot, target)
   }
 
   getBowGripPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -330,6 +331,10 @@ export class Player {
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
     if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
+    if (this.currentMeleeId === 'maki-ranger-bow') {
+      this.currentMeleeId = ''
+      this.rebuildMeleeWeapon('maki-ranger-bow')
+    }
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
     this.isSwinging = false
     this.hitEventPending = false
@@ -353,6 +358,22 @@ export class Player {
       this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
 
+    this.meleeBowVisual = null
+    if (weaponId === 'maki-ranger-bow') {
+      const bow = createMakiRangerBowInstance()
+      this.meleeBowVisual = new CharacterBowVisual(this.swordPivot, this.swordGripPivot)
+      applyBowAttachment(this.rig.left.handSocket, this.swordPivot)
+      this.rig.left.handSocket.add(this.swordPivot)
+      this.swordPivot.userData.swordAttachmentOwned = false
+      delete this.swordPivot.userData.equipmentAttachmentOwned
+      this.meleeBowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
+      this.meleeBowVisual.update(0, undefined, false)
+      return
+    }
+    if (this.swordPivot.parent !== this.rig.right.handSocket) {
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', .15)
+      this.rig.right.handSocket.add(this.swordPivot)
+    }
     const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordGripPivot)
     this.swordTipLocal.copy(tipLocal)
 
@@ -397,6 +418,7 @@ export class Player {
   }
 
   getSwordTipPosition(): THREE.Vector3 {
+    if (this.meleeBowVisual) return this.meleeBowVisual.getTopTipPosition(this._tmpTipWorld)
     const tipWorld = this._tmpTipWorld
     this.swordGripPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
     return tipWorld
@@ -798,6 +820,7 @@ export class Player {
     const animDt = isMeleeAttack ? dt * berserker.meleeAttackRateMultiplier : dt
     const animationEvents = this.animator.update(animDt)
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
+    if (this.swordPivot.visible) this.meleeBowVisual?.update(0, undefined, false)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
     if (this.animator.isLanceThrustActive) {
       if (!this.hasPrevLanceTip) {

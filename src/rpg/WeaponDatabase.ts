@@ -28,6 +28,12 @@ export interface WeaponData {
 }
 
 export const WEAPONS: Record<string, WeaponData> = {
+  'maki-ranger-bow': {
+    id: 'maki-ranger-bow', name: 'T4 遊俠弓（近戰）', type: 'melee', tier: 3,
+    combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: .35,
+    animationKind: 'axe', range: 1.8,
+    description: '遊俠以持弓姿勢揮擊，使用雙手近戰動作，不攜帶盾牌。',
+  },
   // ── Melee Weapons (Swords) ──
   rusty_dagger: {
     id: 'rusty_dagger',
