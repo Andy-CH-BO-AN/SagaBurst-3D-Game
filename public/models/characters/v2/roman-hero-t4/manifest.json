@@ -1,0 +1,697 @@
+{
+  "schemaVersion": 1,
+  "id": "roman-hero-t4",
+  "displayName": "羅馬禁衛軍 T4",
+  "status": "ready",
+  "source": {
+    "uid": "61cd5cae148042c38048bff2bd206af3",
+    "title": "Roman Soldier - T pose - free download",
+    "author": "Andy Woodhead",
+    "url": "https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadedAt": "2026-07-20T03:49:30Z",
+    "sourceFile": "Old man head 12 FBX test.fbx",
+    "sourceSha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
+  },
+  "attribution": "Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.",
+  "modifications": [
+    "Original Roman face, neck, helmet and visible clothing topology retained; no anatomy reconstructed. User-requested local shoulder/thigh repair tucks covered skin beneath sleeves and skirt; two hidden thigh lining pieces have a narrower waist and intermediate weight-support rings",
+    "Uniform offline scaling of mesh positions, rest translations, inverse binds, sockets, animation translations and grip frames; anatomical height measured from scalp to unshod foot surface",
+    "Independent named atlas copies: charcoal steel, preserved antique gold detail, navy tunic and dark brown leather; skin/eye/normal image bytes preserved",
+    "Head-parented facial shell projected from the measured retained face: brow, nose, cheek, lip and chin shape; two open eye apertures, inner wall and dark steel rims; no facial rig or gameplay tier",
+    "Hero-only offline pelvis floor contact for idle/walk/run/swordSlash/death; existing mounted upper-body binding and project death profile baked without changing source clips or event times",
+    "Review refinements: dark eye rims; clean UV-bounded gold bosses and continuous trim; dark navy front/back; shoulder cloth clearance with matching pauldron weights; bracers shortened below elbows and bound to forearms. All repairs confined to this hero."
+  ],
+  "metrics": {
+    "heightM": 1.9499999963499655,
+    "overallHeightM": 1.9721072834964575,
+    "shoulderWidthM": 0.4817781683423575,
+    "shoulderJointSpanM": 0.45423598943442256,
+    "neckLengthM": 0.09971035837158335,
+    "barefootPlaneY": 0.013424678187132992,
+    "scalpY": 1.963424678187133,
+    "uniformScaleAppliedOffline": 1.1078928707953706,
+    "runtimeScale": [
+      1,
+      1,
+      1
+    ],
+    "sourceMeasurements": {
+      "posture": "exported T-pose, +Y up; anatomical head surface and unshod New_legs foot surface; shoulder armour cross-section",
+      "facialLandmarks": [
+        {
+          "name": "brow",
+          "x": 0,
+          "y": 1.628,
+          "z": 0.12988766172179603
+        },
+        {
+          "name": "noseTip",
+          "x": 0,
+          "y": 1.571,
+          "z": 0.14484548748462459
+        },
+        {
+          "name": "cheekbone",
+          "x": 0.034,
+          "y": 1.565,
+          "z": 0.11292989495313849
+        },
+        {
+          "name": "upperLip",
+          "x": 0,
+          "y": 1.55,
+          "z": 0.12591741042002585
+        },
+        {
+          "name": "chin",
+          "x": 0,
+          "y": 1.505,
+          "z": 0.1206105543905438
+        },
+        {
+          "name": "jaw",
+          "x": 0.034,
+          "y": 1.52,
+          "z": 0.10042323319839735
+        }
+      ],
+      "facialRaySamples": [
+        {
+          "y": 1.49,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.10441719377912564
+            },
+            {
+              "x": 0.02,
+              "z": 0.07752283276692803
+            },
+            {
+              "x": 0.04,
+              "z": 0.04216233320602891
+            },
+            {
+              "x": 0.06,
+              "z": 0.020069922585034983
+            }
+          ]
+        },
+        {
+          "y": 1.51,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.12100021589284851
+            },
+            {
+              "x": 0.02,
+              "z": 0.1102727032591653
+            },
+            {
+              "x": 0.04,
+              "z": 0.08814273866933256
+            },
+            {
+              "x": 0.06,
+              "z": 0.02081274053464227
+            }
+          ]
+        },
+        {
+          "y": 1.53,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.11979086830793231
+            },
+            {
+              "x": 0.02,
+              "z": 0.11085073748747853
+            },
+            {
+              "x": 0.04,
+              "z": 0.10164406096814516
+            },
+            {
+              "x": 0.06,
+              "z": 0.04913656649180442
+            }
+          ]
+        },
+        {
+          "y": 1.55,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.12591741042002585
+            },
+            {
+              "x": 0.02,
+              "z": 0.11919349249276423
+            },
+            {
+              "x": 0.04,
+              "z": 0.1099674266288165
+            },
+            {
+              "x": 0.06,
+              "z": 0.07926035842555548
+            }
+          ]
+        },
+        {
+          "y": 1.57,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.1445780133136309
+            },
+            {
+              "x": 0.02,
+              "z": 0.12214973509393792
+            },
+            {
+              "x": 0.04,
+              "z": 0.11125401581032981
+            },
+            {
+              "x": 0.06,
+              "z": 0.09202199719151846
+            }
+          ]
+        },
+        {
+          "y": 1.59,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.1363310346176
+            },
+            {
+              "x": 0.02,
+              "z": 0.11241169449430674
+            },
+            {
+              "x": 0.04,
+              "z": 0.10041211860183097
+            },
+            {
+              "x": 0.06,
+              "z": 0.08707218489019705
+            }
+          ]
+        },
+        {
+          "y": 1.61,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.12270312572602729
+            },
+            {
+              "x": 0.02,
+              "z": 0.07496249658378507
+            },
+            {
+              "x": 0.04,
+              "z": 0.07208264107693069
+            },
+            {
+              "x": 0.06,
+              "z": 0.08260608816405382
+            }
+          ]
+        },
+        {
+          "y": 1.63,
+          "samples": [
+            {
+              "x": 0,
+              "z": 0.1295828563099702
+            },
+            {
+              "x": 0.02,
+              "z": 0.12681967914336206
+            },
+            {
+              "x": 0.04,
+              "z": 0.11579037785086924
+            },
+            {
+              "x": 0.06,
+              "z": 0.08615825667490506
+            }
+          ]
+        }
+      ],
+      "scalpY": 1.7360656261444092,
+      "barefootY": -0.024032350296282024,
+      "soleY": -0.03614965743040524,
+      "anatomicalHeightM": 1.7600979764406912,
+      "overallHeightM": 1.7800523406884619,
+      "shoulderJointSpanM": 0.4099999209384935,
+      "outerShoulderWidthM": 0.43485988676548004
+    },
+    "triangles": {
+      "lod0": 63619,
+      "lod1": 21881,
+      "lod2": 6960
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    }
+  },
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "fileSha256": {
+    "lod0": "6824917d259ce4fc5ae0d561a6a303ae6c07cd86d0888e58a49197ef5523aae9",
+    "lod1": "10c174b2d79ae466523aa17abbe3d814cc8ace85e932882cffad6df1bc40e913",
+    "lod2": "9366dde35a2c472fec9c4405a882d575dfd591a02df3359c8037259c5be58331"
+  },
+  "skeleton": "project-humanoid-v1",
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        -0.008863142966362965,
+        0.060934107893745384,
+        -0.0864156439220389
+      ],
+      "palmNormal": [
+        0,
+        0,
+        -1
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        1,
+        0,
+        0
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        -0.0720130366016991
+      ],
+      "fingerBase": 0.060934107893745384,
+      "thumbBaseCenter": [
+        0.038776250477837976,
+        0.019942071674316667,
+        -0.0675814651185176
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0.008863142966362963,
+        0.060934107893745384,
+        -0.11994476051263309
+      ],
+      "gripAxisLocal": [
+        -1,
+        0,
+        0
+      ],
+      "palmNormalLocal": [
+        -3.308722450212111e-24,
+        -4.197606579480168e-24,
+        -1
+      ],
+      "fingerDirection": [
+        1.3234889800848443e-23,
+        1,
+        2.539883426411287e-24
+      ],
+      "wristCenter": [
+        -2.3827115091198824e-25,
+        -3.0228239624763827e-25,
+        -0.07201303660169885
+      ],
+      "thumbBaseCenter": [
+        -0.03877625047783797,
+        0.019942071674316667,
+        -0.06758146511851736
+      ],
+      "fingerBase": 0.060934107893745384,
+      "gripRadius": 0.03474352042814283
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        0.008863142966362963,
+        0.060934107893745384,
+        -0.11994476051263309
+      ],
+      "gripAxisLocal": [
+        -1,
+        0,
+        0
+      ],
+      "palmNormalLocal": [
+        -3.308722450212111e-24,
+        -4.197606579480168e-24,
+        -1
+      ],
+      "fingerDirection": [
+        1.3234889800848443e-23,
+        1,
+        2.539883426411287e-24
+      ],
+      "wristCenter": [
+        -2.3827115091198824e-25,
+        -3.0228239624763827e-25,
+        -0.07201303660169885
+      ],
+      "thumbBaseCenter": [
+        -0.03877625047783797,
+        0.019942071674316667,
+        -0.06758146511851736
+      ],
+      "fingerBase": 0.060934107893745384,
+      "gripRadius": 0.03474352042814283
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        0.008863142966362963,
+        0.060934107893745384,
+        -0.11994476051263309
+      ],
+      "gripAxisLocal": [
+        -1,
+        0,
+        0
+      ],
+      "palmNormalLocal": [
+        -3.308722450212111e-24,
+        -4.197606579480168e-24,
+        -1
+      ],
+      "fingerDirection": [
+        1.3234889800848443e-23,
+        1,
+        2.539883426411287e-24
+      ],
+      "wristCenter": [
+        -2.3827115091198824e-25,
+        -3.0228239624763827e-25,
+        -0.07201303660169885
+      ],
+      "thumbBaseCenter": [
+        -0.03877625047783797,
+        0.019942071674316667,
+        -0.06758146511851736
+      ],
+      "fingerBase": 0.060934107893745384,
+      "gripRadius": 0.03474352042814283
+    }
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Idle01",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Walk01_Forward",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Run01_Forward",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Load",
+        "loop": false,
+        "duration": 0.833333
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Hold",
+        "loop": true,
+        "duration": 1.333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Release",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "Sword_Regular_A",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "OverhandThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.566667,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "mounted",
+        "source": "Kevin Iglesias",
+        "sourceClip": "Original idle upper body, existing runtime mounted legs",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "death",
+        "source": "SagaBurst",
+        "sourceClip": "Existing project death pitch/drop baked to hero rest frame and floor",
+        "loop": false,
+        "duration": 1
+      }
+    ],
+    "runtimeGenerated": [
+      "idle",
+      "walk",
+      "run",
+      "bowLoad",
+      "bowHold",
+      "bowRelease",
+      "swordSlash",
+      "pilumThrow",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ]
+  },
+  "animationSources": [
+    {
+      "author": "Kevin Iglesias",
+      "package": "Human Archer Animations FREE",
+      "license": "Unity Asset Store EULA",
+      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
+    },
+    {
+      "author": "Quaternius",
+      "package": "Universal Animation Library 2",
+      "license": "CC0 1.0",
+      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
+    }
+  ],
+  "attachmentOffsets": {
+    "corgiPelvis": [
+      0,
+      0.17,
+      0
+    ]
+  },
+  "lodMeasurements": [
+    {
+      "lod": 0,
+      "triangles": 63619,
+      "maskTriangles": 3444,
+      "materials": 17,
+      "bytes": 17238424,
+      "textures": [
+        {
+          "name": "Armour_top_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Boots_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Dangles_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Full_figure_42_T_pose_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Helmet3_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Tunic_1_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Wrist_guard1_TXTR",
+          "width": 2048,
+          "height": 2048
+        }
+      ],
+      "sourceSha256": "aa10f27f9b29d672cdb5acf757a7e828ab0ae6a9519914b219389a7dedc4bb11",
+      "sha256": "6824917d259ce4fc5ae0d561a6a303ae6c07cd86d0888e58a49197ef5523aae9",
+      "anatomicalHeightM": 1.9499999963499655,
+      "overallHeightM": 1.9721072834964575
+    },
+    {
+      "lod": 1,
+      "triangles": 21881,
+      "maskTriangles": 1660,
+      "materials": 17,
+      "bytes": 4470320,
+      "textures": [
+        {
+          "name": "Armour_top_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Boots_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Dangles_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Full_figure_42_T_pose_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Helmet3_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Tunic_1_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Wrist_guard1_TXTR",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "sourceSha256": "06526947fb43a22338648030a0eab9d84c3cc216e418ff066fc8f48d7e13fc70",
+      "sha256": "10c174b2d79ae466523aa17abbe3d814cc8ace85e932882cffad6df1bc40e913",
+      "anatomicalHeightM": 1.9498763763167013,
+      "overallHeightM": 1.972218675021042
+    },
+    {
+      "lod": 2,
+      "triangles": 6960,
+      "maskTriangles": 848,
+      "materials": 17,
+      "bytes": 1792496,
+      "textures": [
+        {
+          "name": "Armour_top_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Boots_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Dangles_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Full_figure_42_T_pose_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Helmet3_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Tunic_1_TXTR",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Wrist_guard1_TXTR",
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "sourceSha256": "0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14",
+      "sha256": "9366dde35a2c472fec9c4405a882d575dfd591a02df3359c8037259c5be58331",
+      "anatomicalHeightM": 1.9498258315779318,
+      "overallHeightM": 1.9685262269676218
+    }
+  ],
+  "visualAcceptance": "Validation and known limitations: https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/127; exported GLB browser review required",
+  "inheritedLimitations": [
+    "The source FBX contains disconnected meshes, no armature, no weights, no actions, and emits excess-layer warnings during Blender import.",
+    "The mounted thigh and skirt silhouette passed the isolated 12:32 asset review provisionally but must be validated against the actual saddle in the browser.",
+    "If saddle validation exposes gaps or clipping, the corrective path is manual topology and weight refinement in Blender, not runtime non-uniform scaling."
+  ]
+}
