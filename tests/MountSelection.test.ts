@@ -41,13 +41,13 @@ describe('mount selection', () => {
     expect(mountTypeFromId('corgi')).toBe(MountType.CORGI)
   })
 
-  it('uses faction mounts for all T3 cavalry and horse for T1/T2', () => {
-    for (const [faction, mountId] of [['viking', 'black-cat'], ['roman', 'corgi']] as const) {
+  it('uses horses for all Viking and Roman cavalry tiers', () => {
+    for (const faction of ['viking', 'roman'] as const) {
       for (const role of ['sword_cavalry', 'lancer', 'horse_archer'] as const) {
         const preset = `${faction}_${role}` as Parameters<typeof resolveUnitLoadout>[0]
         expect(resolveUnitLoadout(preset, 1).mountId).toBe('horse')
         expect(resolveUnitLoadout(preset, 2).mountId).toBe('horse')
-        expect(resolveUnitLoadout(preset, 3).mountId).toBe(mountId)
+        expect(resolveUnitLoadout(preset, 3).mountId).toBe('horse')
       }
     }
   })

@@ -186,7 +186,7 @@ Game Loop
   └─► Mount Impact Damage ─► Horizontal line-segment collision vs Dummy/NPC/Player radii -> deals speed-based damage
   
 ### Cavalry & Mount Data Flow
-- **Spawn**: Player loadouts in Custom Battle and Defense Campaign select Black Cat, Corgi, or Horse. T3 Viking cavalry use Black Cat and T3 Roman cavalry use Corgi across sword, lance, and mounted archer presets. T1/T2 cavalry and camp mounts use the external Horse.
+- **Spawn**: Player loadouts in Custom Battle and Defense Campaign select Black Cat, Corgi, or Horse. Viking and Roman cavalry of every tier, across sword, lance, and mounted archer presets, use the external Horse by default; camp mounts also use Horse.
 - **Visuals**: The Horse provides saddle/stirrup sockets, `rideHeightOffset`, `ridePitch`, LOD and animation; riders align their pelvis and mounted leg pose to those landmarks.
 - **Roles**: Cavalry can be **Lancers** (3.0 reach, 3x charge damage that suppresses mount impact) or **Mounted Archers** (can shoot while moving, maintaining 6~15m distance. Will drop bows and auto-switch to melee sword charge if enemy enters <6m range).
 - **Damage Routing**: Melee/Arrow attacks against a Mounted entity route 100% of damage to `mount.takeDamage()`.
