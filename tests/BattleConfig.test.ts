@@ -311,6 +311,20 @@ describe('BattleConfig Domain & Validation', () => {
     expect(badCampsRes.errors.some(e => e.includes('includeCamps must be a boolean'))).toBe(true)
   })
 
+  it('validates command grouping and keeps old configs on preset behavior', () => {
+    const baseConfig: BattleConfig = {
+      viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
+      rules: { respawnEnabled: false, includeCamps: true },
+    }
+
+    expect(validateBattleConfig({ ...baseConfig, commandGrouping: 'preset' }).valid).toBe(true)
+    expect(validateBattleConfig({ ...baseConfig, commandGrouping: 'squad' }).valid).toBe(true)
+    expect(validateBattleConfig(baseConfig).valid).toBe(true)
+    expect(validateBattleConfig({ ...baseConfig, commandGrouping: 'dynamic' } as any).valid).toBe(false)
+    expect(createEmptyBattleConfig().commandGrouping).toBe('preset')
+  })
+
   it('validates battle mode correctly and maintains backward compatibility', () => {
     const baseConfig: BattleConfig = {
       viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
