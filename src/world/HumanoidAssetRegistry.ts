@@ -728,7 +728,7 @@ export class HumanoidAssetRegistry {
       ? `lod0.${expGroup}.glb`
       : files.lod0
     const lod2Url = `${base}/${files.lod2}`
-    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman'
+    const lod2Promise: Promise<LoadedGltfWithSha256> = faction === 'roman' && !descriptor
       ? loadGltfWithSha256(loader, lod2Url, `${base}/`)
       : loader.loadAsync(lod2Url).then(gltf => ({ gltf }))
     const [lod0, lod1, lod2Loaded] = await Promise.all([
@@ -774,7 +774,7 @@ export class HumanoidAssetRegistry {
     const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
     const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
     let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
-    if (faction === 'roman') {
+    if (faction === 'roman' && !descriptor) {
       if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
         romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
       } else {
