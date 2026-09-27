@@ -14,6 +14,7 @@ import {
   createDefaultDefenseArmy,
   createDefaultDefensePlayerLoadout,
   validateDefenseCampaignLaunchConfig,
+  validateDefenseCampaignSquadAssignments,
   type DefenseCampaignLaunchConfig,
 } from '../campaign/DefenseCampaignLaunch'
 import {
@@ -31,9 +32,15 @@ import {
 } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import type { CommandGroupingMode } from '../battle/CommandTarget'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type CommandGroupingMode,
+  type SquadAssignment,
+  type SquadId,
+} from '../battle/CommandTarget'
 
-type CampaignSetupScreen = 'faction' | 'stage' | 'setup'
+type CampaignSetupScreen = 'faction' | 'stage' | 'setup' | 'squad'
 
 export class CampaignSetupUI {
   private container: HTMLElement | null = null
@@ -43,6 +50,8 @@ export class CampaignSetupUI {
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
   private commandGrouping: CommandGroupingMode = 'preset'
+  private squadAssignments: SquadAssignment[] = []
+  private selectedSquadId: SquadId = 1
   private onStartCallback: ((config: DefenseCampaignLaunchConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
 
@@ -61,6 +70,8 @@ export class CampaignSetupUI {
     this.defenderArmy = {}
     this.playerLoadout = null
     this.commandGrouping = 'preset'
+    this.squadAssignments = []
+    this.selectedSquadId = 1
 
     if (
       initialTarget
@@ -91,6 +102,7 @@ export class CampaignSetupUI {
     if (!this.container) return
     if (this.screen === 'faction') this._renderFactionSelect()
     else if (this.screen === 'stage') this._renderStageSelect()
+    else if (this.screen === 'squad') this._renderSquadSetup()
     else this._renderStageSetup()
   }
 
@@ -134,6 +146,8 @@ export class CampaignSetupUI {
         this.stageId = 1
         this.defenderArmy = createDefaultDefenseArmy(faction, this.stageId)
         this.playerLoadout = createDefaultDefensePlayerLoadout(faction)
+        this.squadAssignments = []
+        this.selectedSquadId = 1
         this.screen = 'stage'
         this._render()
       })
@@ -179,6 +193,8 @@ export class CampaignSetupUI {
         if (!isCampaignStageId(value)) return
         this.stageId = value
         this.defenderArmy = createDefaultDefenseArmy(this.defenderFaction!, this.stageId)
+        this.squadAssignments = []
+        this.selectedSquadId = 1
         this.screen = 'setup'
         this._render()
       })
@@ -342,7 +358,8 @@ export class CampaignSetupUI {
       <div class="campaign-actions">
         <button type="button" class="campaign-secondary-btn" id="campaign-back-stage">← 關卡選擇</button>
         <button type="button" class="start-btn" id="campaign-start-stage" ${validation.valid ? '' : 'disabled'}>
-          <span>開始戰役</span><small>START CAMPAIGN</small>
+          <span>${this.commandGrouping === 'squad' ? '選擇小隊' : '開始戰役'}</span>
+          <small>${this.commandGrouping === 'squad' ? 'ASSIGN SQUADS' : 'START CAMPAIGN'}</small>
         </button>
       </div>
     `
@@ -377,6 +394,7 @@ export class CampaignSetupUI {
     })
     this.container.querySelector('#campaign-command-grouping-preset')?.addEventListener('click', () => {
       this.commandGrouping = 'preset'
+      this.squadAssignments = []
       this._render()
     })
     this.container.querySelector('#campaign-command-grouping-squad')?.addEventListener('click', () => {
@@ -417,20 +435,14 @@ export class CampaignSetupUI {
       const result = validateDefenseCampaignLaunchConfig(config)
       if (!result.valid || !this.onStartCallback) return
 
-      if (!window.location.search.includes('nolock')) {
-        try {
-          const target = document.getElementById('canvas-container') || document.body
-          const promise = target.requestPointerLock?.()
-          if (promise && typeof (promise as Promise<void>).catch === 'function') {
-            ;(promise as Promise<void>).catch(() => {})
-          }
-        } catch {
-          // Pointer lock is optional during launch.
-        }
+      if (this.commandGrouping === 'squad') {
+        this.screen = 'squad'
+        this.selectedSquadId = 1
+        this._render()
+        return
       }
 
-      this.destroy()
-      this.onStartCallback(config)
+      this._launchCampaign(config)
     })
   }
 
@@ -444,6 +456,9 @@ export class CampaignSetupUI {
       defenderArmy: this._cloneArmy(),
       playerLoadout: { ...playerLoadout },
       commandGrouping: this.commandGrouping,
+      squadAssignments: this.commandGrouping === 'squad'
+        ? this.squadAssignments.map(assignment => ({ ...assignment }))
+        : undefined,
     }
   }
 
@@ -459,7 +474,9 @@ export class CampaignSetupUI {
     const counts = this.defenderArmy[presetId] ?? { 1: 0, 2: 0, 3: 0 }
     const maxAllowed = this._maxAllowedTierCount(presetId, tier)
 
-    counts[tier] = Math.max(0, Math.min(maxAllowed, Math.floor(value)))
+    const nextValue = Math.max(0, Math.min(maxAllowed, Math.floor(value)))
+    if (counts[tier] !== nextValue) this.squadAssignments = []
+    counts[tier] = nextValue
     this.defenderArmy[presetId] = counts
     this._render()
   }
