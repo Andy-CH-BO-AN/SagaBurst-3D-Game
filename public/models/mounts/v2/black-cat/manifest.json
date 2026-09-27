@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "black-cat-v2",
+  "status": "ready",
+  "forward": "+Z",
+  "file": "black-cat.glb",
+  "source": {
+    "title": "Black Cat",
+    "author": "3D Creator (3DChuang-Ke-Ji)",
+    "url": "https://sketchfab.com/3d-models/black-cat-dd0adc10d8b94bc99dfffe0268818e0b",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceSha256": "4aec818094bf09a57ff44a24ea0be24a1cf7100f4e7a4b632c21df4dc92f2b57"
+  },
+  "attribution": "Black Cat by 3D Creator (3DChuang-Ke-Ji), Sketchfab, CC BY 4.0. Modified for SagaBurst.",
+  "modifications": [
+    "Uniform 3.5x scale and baked +Z heading",
+    "Fitted 25-joint feline skin",
+    "Forward-facing neck and head pose",
+    "Nine in-place animations",
+    "Source-derived body LODs",
+    "Fitted saddle and leather armour",
+    "2048px source PBR maps",
+    "Meshopt compression"
+  ],
+  "metrics": {
+    "triangles": {
+      "cat_body_lod0": 71856,
+      "cat_body_lod1": 20000,
+      "cat_body_lod2": 6000
+    },
+    "textureMaxSize": 2048,
+    "packageBytes": 6364540,
+    "saddleHeightM": 1.65
+  },
+  "lodNodes": [
+    "cat_body_lod0",
+    "cat_body_lod1",
+    "cat_body_lod2"
+  ],
+  "clips": [
+    "idle",
+    "walk",
+    "trot",
+    "canter",
+    "gallop",
+    "jump",
+    "land",
+    "hit",
+    "death"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "sha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d"
+}

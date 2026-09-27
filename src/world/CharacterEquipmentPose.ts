@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
-import { applyCharacterMountedPose } from './CharacterVisuals'
+import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
 import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnimator'
 import { swordHandMatrix } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
@@ -183,6 +183,15 @@ export class CharacterEquipmentPose {
     this.applied = true
     const live = state.alive && state.action !== 'death'
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted && state.mountKind === 'BLACK_CAT' && this.root.name.startsWith('maki-archer-t4-')) {
+      // Maki's shorter legs need more thigh spread and less inward shin roll
+      // to clear the source cat's barrel. Retain the fixed pelvis/seat contact.
+      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
+        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * 1.1)
+        setRigRotation(leg.knee, 1.05 * leg.forwardBendSign, 0, -leg.side * .2)
+        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .6)
+      }
+    }
     // Corgi thighs sit wider and higher than the horse's. Carry the right hand
     // forward and outside that thigh, retaining the sampled wrist orientation
     // and fixed weapon grip. This is shared by mounted melee weapons.

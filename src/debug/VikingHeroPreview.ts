@@ -32,7 +32,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   panel.textContent = `正在載入${label}資產…`
   document.body.append(panel)
   try {
-    await Promise.all([HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor)])
+    await Promise.all([HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(!roman ? [BlackCatVisual.preload()] : [])])
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#b4bac1')
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
