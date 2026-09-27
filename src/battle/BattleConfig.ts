@@ -5,7 +5,12 @@
 import { AIType } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { CommandGroupingMode, SquadAssignment } from './CommandTarget'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type CommandGroupingMode,
+  type SquadAssignment,
+} from './CommandTarget'
 import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '../combat/CombatBalance'
 import {
   UnitTier,
@@ -309,8 +314,45 @@ function validateBattleConfigWithArmyLimit(
     errors.push(`Invalid command grouping: ${String(c.commandGrouping)}`)
   }
 
-  if (c.squadAssignments !== undefined && !Array.isArray(c.squadAssignments)) {
-    errors.push('squadAssignments must be an array')
+  if (c.squadAssignments !== undefined) {
+    if (!Array.isArray(c.squadAssignments)) {
+      errors.push('squadAssignments must be an array')
+    } else {
+      const validPresetIds = [...VIKING_PRESET_IDS, ...ROMAN_PRESET_IDS] as readonly string[]
+      const squadTotals = new Map<number, number>()
+      c.squadAssignments.forEach((assignment, index) => {
+        if (!assignment || typeof assignment !== 'object') {
+          errors.push(`squadAssignments[${index}] must be an object`)
+          return
+        }
+        if (!validPresetIds.includes(assignment.presetId)) {
+          errors.push(`Invalid squad preset: ${String(assignment.presetId)}`)
+        }
+        if (![1, 2, 3].includes(assignment.tier)) {
+          errors.push(`Invalid squad tier: ${String(assignment.tier)}`)
+        }
+        if (
+          !Number.isInteger(assignment.squadId)
+          || assignment.squadId < 1
+          || assignment.squadId > MAX_COMMAND_SQUADS
+        ) {
+          errors.push(`Invalid squad id: ${String(assignment.squadId)}`)
+        }
+        if (!Number.isInteger(assignment.count) || assignment.count <= 0) {
+          errors.push(`Invalid squad count: ${String(assignment.count)}`)
+          return
+        }
+        squadTotals.set(
+          assignment.squadId,
+          (squadTotals.get(assignment.squadId) ?? 0) + assignment.count,
+        )
+      })
+      for (const [squadId, count] of squadTotals) {
+        if (count > MAX_COMMAND_SQUAD_SIZE) {
+          errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+        }
+      }
+    }
   }
 
   if (c.spectator !== undefined && typeof c.spectator !== 'boolean') {
