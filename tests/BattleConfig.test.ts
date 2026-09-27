@@ -3,6 +3,7 @@ import { AIType } from '../src/world/NPC'
 import {
   calculateArmyTotal,
   validateBattleConfig,
+  validateBattleSquadAssignments,
   getUnitCombatProfile,
   createEmptyArmyConfig,
   createEmptyBattleConfig,
@@ -358,6 +359,39 @@ describe('BattleConfig Domain & Validation', () => {
     expect(malformed.errors.some(e => e.includes('must be an object'))).toBe(true)
   })
 
+  it('validates complete custom-battle squad allocation for the player faction only', () => {
+    const config: BattleConfig = {
+      commandGrouping: 'squad',
+      playerFaction: 'viking',
+      viking: {
+        ...createEmptyArmyConfig(),
+        infantry: { 1: 4, 2: 0, 3: 0 },
+        archer: { 1: 0, 2: 2, 3: 0 },
+      },
+      roman: { ...createEmptyArmyConfig(), infantry: { 1: 6, 2: 0, 3: 0 } },
+      rules: { respawnEnabled: false, includeCamps: true },
+      squadAssignments: [
+        { presetId: 'viking_berserker', tier: 1, squadId: 1, count: 4 },
+        { presetId: 'viking_archer', tier: 2, squadId: 2, count: 2 },
+      ],
+    }
+
+    expect(validateBattleSquadAssignments(config).valid).toBe(true)
+
+    config.squadAssignments = [
+      { presetId: 'viking_berserker', tier: 1, squadId: 1, count: 3 },
+      { presetId: 'viking_archer', tier: 2, squadId: 2, count: 2 },
+    ]
+    expect(validateBattleSquadAssignments(config).valid).toBe(false)
+
+    config.squadAssignments = [
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 1, count: 4 },
+      { presetId: 'viking_archer', tier: 2, squadId: 2, count: 2 },
+    ]
+    const foreign = validateBattleSquadAssignments(config)
+    expect(foreign.valid).toBe(false)
+    expect(foreign.errors.some(error => error.includes('Invalid player squad preset'))).toBe(true)
+  })
   it('validates battle mode correctly and maintains backward compatibility', () => {
     const baseConfig: BattleConfig = {
       viking: { ...createEmptyArmyConfig(), infantry: { 1: 5, 2: 0, 3: 0 } },
