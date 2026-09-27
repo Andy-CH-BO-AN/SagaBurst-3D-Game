@@ -57,6 +57,15 @@ describe('Defense Campaign Stage 1 launch config', () => {
     })
   })
 
+  it('carries the pre-battle command grouping into every campaign wave config', () => {
+    const config = launch('roman', true)
+    config.commandGrouping = 'squad'
+
+    expect(createDefenseCampaignWaveConfig(config, 'defenders').commandGrouping).toBe('squad')
+    expect(createDefenseCampaignWaveConfig(config, 'attackers').commandGrouping).toBe('squad')
+    expect(createDefenseCampaignWaveConfig(config, 'reinforcement').commandGrouping).toBe('squad')
+  })
+
   it('mirrors defender and attacker factions through the same wave builder', () => {
     const romanDefense = launch('roman', true)
     const vikingDefense = launch('viking', true)
