@@ -11,6 +11,7 @@ import {
   type DefenseCampaignSetupTarget,
 } from '../campaign/CampaignProgress'
 import {
+  CAMPAIGN_DEFENDER_HERO_CAP,
   createDefaultDefenseArmy,
   createDefaultDefensePlayerLoadout,
   validateDefenseCampaignLaunchConfig,
@@ -20,7 +21,9 @@ import {
 import {
   getUnitPresetsForFaction,
   type UnitPresetId,
-  type BaseUnitTier as UnitTier,
+  type BaseUnitTier,
+  type UnitTier,
+  CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
 import {
   PLAYER_MELEE_SELECTION_IDS,
@@ -31,6 +34,7 @@ import {
   type UnitTierCounts,
 } from '../battle/BattleConfig'
 import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
@@ -174,7 +178,7 @@ export class CampaignSetupUI {
           data-stage="${stageId}"
           ${playable ? '' : 'disabled'}>
           <b>STAGE ${stageId}</b>
-          <span>${playable ? `敵軍 ${stage.attackerArmy.totalUnits} · ${attackerTiers}` : '尚未解鎖'}</span>
+          <span>${playable ? `敵軍 ${stage.attackerArmy.totalUnits + 2} · ${attackerTiers} + T4 2` : '尚未解鎖'}</span>
           <small>${playable ? 'OUTPOST DEFENSE' : `CLEAR STAGE ${stageId - 1}`}</small>
         </button>
       `
@@ -223,6 +227,7 @@ export class CampaignSetupUI {
     const validation = validateDefenseCampaignLaunchConfig(this._buildLaunchConfig())
     const tier2Total = this._tierTotal(2)
     const tier3Total = this._tierTotal(3)
+    const heroTotal = this._tierTotal(4)
     const upperTierPoolCap = stage.defenderDeployment.upperTierPoolCap
     const tier3Cap = stage.defenderDeployment.tierCapacity[3]
     const tierRuleText = upperTierPoolCap !== null
@@ -242,20 +247,21 @@ export class CampaignSetupUI {
     const rows = presets.map(preset => {
       const counts = this.defenderArmy[preset.id] ?? { 1: 0, 2: 0, 3: 0 }
       const mountedUnit = Boolean(preset.tierLoadouts[2].mountId || preset.tierLoadouts[3].mountId)
+      const heroName = HERO_ASSETS[T4_UNIT_PROFILES[preset.id].visualAssetId].nameZh
 
       const renderTierControl = (tier: UnitTier): string => {
         const value = counts[tier] ?? 0
-        const tierCap = stage.defenderDeployment.tierCapacity[tier]
+        const tierCap = tier === 4 ? CAMPAIGN_DEFENDER_HERO_CAP : stage.defenderDeployment.tierCapacity[tier]
         const incrementDisabled = value >= this._maxAllowedTierCount(preset.id, tier)
 
         return `
           <div class="campaign-tier-control">
-            <span class="campaign-tier-label">T${tier}</span>
+            <span class="campaign-tier-label" title="${tier === 4 ? heroName : ''}">T${tier}</span>
             <div class="campaign-stepper">
-              <button type="button" data-dec="${preset.id}" data-tier="${tier}">−</button>
+              <button type="button" data-testid="campaign-${preset.id}-t${tier}-dec" data-dec="${preset.id}" data-tier="${tier}">−</button>
               <input type="number" min="0" max="${tierCap}"
-                value="${value}" data-count="${preset.id}" data-tier="${tier}" />
-              <button type="button" data-inc="${preset.id}" data-tier="${tier}"
+                value="${value}" data-testid="campaign-${preset.id}-t${tier}-count" data-count="${preset.id}" data-tier="${tier}" />
+              <button type="button" data-testid="campaign-${preset.id}-t${tier}-inc" data-inc="${preset.id}" data-tier="${tier}"
                 ${incrementDisabled ? 'disabled' : ''}>＋</button>
             </div>
           </div>
@@ -273,6 +279,7 @@ export class CampaignSetupUI {
             ${renderTierControl(1)}
             ${renderTierControl(2)}
             ${renderTierControl(3)}
+            ${renderTierControl(4)}
           </div>
         </div>
       `
@@ -296,10 +303,10 @@ export class CampaignSetupUI {
       <div class="campaign-stage-summary">
         <div><small>守方</small><b>${factionZh}</b></div>
         <div><small>部署上限</small><b>${total} / ${stage.defenderDeployment.maxUnits}</b></div>
-        <div><small>TIER 配額</small><b>${tierSummaryText}</b></div>
+        <div><small>TIER 配額</small><b>${tierSummaryText} · T4 ${heroTotal}/${CAMPAIGN_DEFENDER_HERO_CAP}</b></div>
         <div><small>騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap ?? '不限'}</b></div>
         <div><small>部署時間</small><b>${DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds} 秒</b></div>
-        <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits} · ${this._attackerTierLabel(stage.attackerArmy.tierCounts)}</b></div>
+        <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits + 2} · ${this._attackerTierLabel(stage.attackerArmy.tierCounts)} + T4 2</b></div>
       </div>
 
       <div class="campaign-setup-layout">
@@ -312,6 +319,7 @@ export class CampaignSetupUI {
           <h2>STAGE ${this.stageId}</h2>
           <p>本關守軍上限 <b>${stage.defenderDeployment.maxUnits} 人</b>。</p>
           <p>Tier 配額：<b>${tierRuleText}</b>。</p>
+          <p>守方可選 <b>${CAMPAIGN_DEFENDER_HERO_CAP} 名 T4 英雄</b>；攻方固定 <b>2 名 T4 英雄</b>。英雄計入總兵力。</p>
           <p>敵軍於部署結束後開始進攻。</p>
           <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} ${this.defenderFaction === 'viking' ? '斧騎兵' : '刀騎兵'}</b>援軍。</p>
           <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
@@ -473,7 +481,7 @@ export class CampaignSetupUI {
       const presetId = presetKey as UnitPresetId
       const preset = presets.get(presetId)
       if (!preset) continue
-      for (const tier of [1, 2, 3] as UnitTier[]) {
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const count = counts[tier] ?? 0
         if (count <= 0) continue
         rows.push({ presetId, tier, count, nameZh: preset.nameZh, nameEn: preset.nameEn })
@@ -717,7 +725,7 @@ export class CampaignSetupUI {
   private _cloneArmy(): Record<string, UnitTierCounts> {
     const clone: Record<string, UnitTierCounts> = {}
     for (const [key, counts] of Object.entries(this.defenderArmy)) {
-      clone[key] = { 1: counts[1], 2: counts[2], 3: counts[3] }
+      clone[key] = { 1: counts[1], 2: counts[2], 3: counts[3], 4: counts[4] ?? 0 }
     }
     return clone
   }
@@ -740,6 +748,21 @@ export class CampaignSetupUI {
     const current = counts[tier] ?? 0
     const totalWithoutCurrent = this._armyTotal() - current
     const tierWithoutCurrent = this._tierTotal(tier) - current
+
+    if (tier === 4) {
+      let maxAllowed = Math.max(0, Math.min(
+        rules.maxUnits - totalWithoutCurrent,
+        CAMPAIGN_DEFENDER_HERO_CAP - tierWithoutCurrent,
+      ))
+      if (this.defenderFaction && rules.cavalryCap !== null) {
+        const preset = getUnitPresetsForFaction(this.defenderFaction)
+          .find(candidate => candidate.id === presetId)
+        if (preset?.tierLoadouts[3].mountId) {
+          maxAllowed = Math.min(maxAllowed, Math.max(0, rules.cavalryCap - (this._mountedTotal() - current)))
+        }
+      }
+      return maxAllowed
+    }
 
     let maxAllowed = Math.min(
       Math.max(0, rules.maxUnits - totalWithoutCurrent),
@@ -782,8 +805,8 @@ export class CampaignSetupUI {
     this._setTierCount(presetId, tier, current + delta)
   }
 
-  private _attackerTierLabel(counts: Readonly<Record<UnitTier, number>>): string {
-    return ([1, 2, 3] as UnitTier[])
+  private _attackerTierLabel(counts: Readonly<Record<BaseUnitTier, number>>): string {
+    return ([1, 2, 3] as BaseUnitTier[])
       .filter(tier => counts[tier] > 0)
       .map(tier => `T${tier} ${counts[tier]}`)
       .join(' + ')
@@ -800,7 +823,7 @@ export class CampaignSetupUI {
   private _armyTotal(): number {
     let total = 0
     for (const counts of Object.values(this.defenderArmy)) {
-      total += counts[1] + counts[2] + counts[3]
+      total += counts[1] + counts[2] + counts[3] + (counts[4] ?? 0)
     }
     return total
   }
@@ -814,8 +837,8 @@ export class CampaignSetupUI {
     for (const [presetId, counts] of Object.entries(this.defenderArmy)) {
       const preset = presets.get(presetId as UnitPresetId)
       if (!preset) continue
-      for (const tier of [1, 2, 3] as const) {
-        if (preset.tierLoadouts[tier].mountId) total += counts[tier]
+      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
+        if (preset.tierLoadouts[tier === 4 ? 3 : tier].mountId) total += counts[tier] ?? 0
       }
     }
     return total

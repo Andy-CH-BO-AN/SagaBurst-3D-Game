@@ -12,6 +12,7 @@ yarn-debug.log*
 yarn-error.log*
 .chrome_temp/
 debug_images/
+.codex/config.toml
 
 output/
 node_modules

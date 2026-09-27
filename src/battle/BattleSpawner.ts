@@ -383,8 +383,9 @@ export class BattleSpawner {
         const profile = tier === 4 ? T4_UNIT_PROFILES[presetId] : null
         const baseLoadout = resolveUnitLoadout(presetId, tier === 4 ? 3 : tier)
         const loadout = profile ? { ...baseLoadout, mountId: profile.mountOverride } : baseLoadout
-        const isMounted = Boolean(loadout.mountId)
         const hasRanged = Boolean(loadout.rangedWeaponId)
+        const formationMounted = Boolean(baseLoadout.mountId)
+        const formationRanged = Boolean(baseLoadout.rangedWeaponId)
         const aiType = hasRanged ? AIType.RANGED : AIType.MELEE
 
         for (let i = 0; i < count; i++) {
@@ -393,7 +394,7 @@ export class BattleSpawner {
             presetName,
             tier,
             index: idx++,
-            cavalry: isMounted,
+            cavalry: formationMounted,
             aiType,
             loadout,
             visualAssetId: profile?.visualAssetId,
@@ -401,14 +402,14 @@ export class BattleSpawner {
             specialCombatProfile: profile?.specialCombatProfile,
           }
 
-          if (isMounted) {
-            if (hasRanged) {
+          if (formationMounted) {
+            if (formationRanged) {
               horseArcher.push(unit)
             } else {
               cavalry.push(unit)
             }
           } else {
-            if (hasRanged) {
+            if (formationRanged) {
               archer.push(unit)
             } else {
               infantry.push(unit)

@@ -8,7 +8,7 @@ import {
 } from '../src/battle/BattleConfig'
 import { BattleSpawner } from '../src/battle/BattleSpawner'
 import { T4_COMBAT_PROFILES, T4_UNIT_PROFILES, applyHeroIncomingDamage, applyHeroOutgoingDamage } from '../src/battle/T4HeroCatalog'
-import { CUSTOM_BATTLE_UNIT_TIERS, BASE_UNIT_TIERS, ROMAN_PRESET_IDS, VIKING_PRESET_IDS } from '../src/battle/UnitPresetCatalog'
+import { CUSTOM_BATTLE_UNIT_TIERS, BASE_UNIT_TIERS, ROMAN_PRESET_IDS, VIKING_PRESET_IDS, UNIT_PRESETS } from '../src/battle/UnitPresetCatalog'
 import { createDefaultDefensePlayerLoadout, createDefenseCampaignWaveConfig, validateDefenseCampaignLaunchConfig } from '../src/campaign/DefenseCampaignLaunch'
 import { resolveMakiEquipmentMode } from '../src/world/MakiRangerEquipment'
 import { NPC, Faction, AIType } from '../src/world/NPC'
@@ -87,7 +87,7 @@ describe('T4 Hero Custom Battle domain', () => {
       expect(spec.visualAssetId).toBe(profile.visualAssetId)
       expect(spec.combatProfileId).toBe(profile.combatProfileId)
       expect(spec.loadout).toMatchObject({ mountId: profile.mountOverride })
-      expect(spec.cavalry).toBe(Boolean(profile.mountOverride))
+      expect(spec.cavalry).toBe(Boolean(UNIT_PRESETS[presetId].tierLoadouts[3].mountId))
       config[faction][presetId as keyof typeof config[typeof faction]]![4] = 0
     }
     const ordinary = BattleSpawner.createSpawnPlan(config).npcSpecs
@@ -154,7 +154,7 @@ describe('T4 Hero Custom Battle domain', () => {
     expect(animation.update).toHaveBeenLastCalledWith(0.1, 0)
   })
 
-  it('allows Campaign player Hero while rejecting NPC T4 in every wave', () => {
+  it('keeps the Campaign player Hero separate from defender and attacker NPC heroes', () => {
     const launch = {
       type: 'defense' as const,
       defenderFaction: 'roman' as const,
@@ -164,10 +164,10 @@ describe('T4 Hero Custom Battle domain', () => {
       playerHeroId: 'viking-hero-t4' as const,
     }
     expect(validateDefenseCampaignLaunchConfig(launch).valid).toBe(true)
-    for (const wave of ['defenders', 'attackers', 'reinforcement'] as const) {
-      expect(BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, wave)).npcSpecs.every(spec => spec.tier < 4)).toBe(true)
-    }
-    expect(validateDefenseCampaignLaunchConfig({ ...launch, defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0, 4: 1 } } }).valid).toBe(false)
+    expect(BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders')).npcSpecs.filter(spec => spec.tier === 4)).toHaveLength(0)
+    expect(BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers')).npcSpecs.filter(spec => spec.tier === 4)).toHaveLength(2)
+    expect(BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs.filter(spec => spec.tier === 4)).toHaveLength(0)
+    expect(validateDefenseCampaignLaunchConfig({ ...launch, defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0, 4: 1 } } }).valid).toBe(true)
     expect(validateDefenseCampaignLaunchConfig({ ...launch, playerHeroId: 'invalid' }).valid).toBe(false)
   })
 })
