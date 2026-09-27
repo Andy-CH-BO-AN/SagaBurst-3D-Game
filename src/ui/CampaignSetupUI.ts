@@ -491,6 +491,10 @@ export class CampaignSetupUI {
       const assignedEverywhere = this._squadAssignedUnitTotal(row.presetId, row.tier)
       const remaining = Math.max(0, row.count - assignedEverywhere)
       const canIncrease = remaining > 0 && selectedTotal < MAX_COMMAND_SQUAD_SIZE
+      const maxDirectValue = Math.min(
+        row.count - (assignedEverywhere - assignedHere),
+        MAX_COMMAND_SQUAD_SIZE - (selectedTotal - assignedHere),
+      )
       return `
         <div class="campaign-squad-unit-row">
           <div class="campaign-squad-unit-name">
@@ -504,7 +508,8 @@ export class CampaignSetupUI {
           </div>
           <div class="campaign-stepper campaign-squad-stepper">
             <button type="button" data-squad-dec="${row.presetId}" data-tier="${row.tier}" ${assignedHere <= 0 ? 'disabled' : ''}>−</button>
-            <input type="number" value="${assignedHere}" readonly />
+            <input type="number" min="0" max="${maxDirectValue}" value="${assignedHere}"
+              data-squad-count="${row.presetId}" data-tier="${row.tier}" />
             <button type="button" data-squad-inc="${row.presetId}" data-tier="${row.tier}" ${canIncrease ? '' : 'disabled'}>＋</button>
           </div>
         </div>
@@ -578,6 +583,16 @@ export class CampaignSetupUI {
         )
       })
     })
+    this.container.querySelectorAll<HTMLInputElement>('[data-squad-count]').forEach(input => {
+      input.addEventListener('change', () => {
+        const parsed = Number.parseInt(input.value, 10)
+        this._setSquadAssignmentCount(
+          input.dataset.squadCount as UnitPresetId,
+          Number(input.dataset.tier) as UnitTier,
+          Number.isFinite(parsed) ? parsed : 0,
+        )
+      })
+    })
 
     const backToSetup = () => {
       this.screen = 'setup'
@@ -615,28 +630,37 @@ export class CampaignSetupUI {
   }
 
   private _adjustSquadAssignment(presetId: UnitPresetId, tier: UnitTier, delta: number): void {
+    const current = this._squadAssignmentCount(presetId, tier, this.selectedSquadId)
+    this._setSquadAssignmentCount(presetId, tier, current + delta)
+  }
+
+  private _setSquadAssignmentCount(presetId: UnitPresetId, tier: UnitTier, value: number): void {
     const deployed = this.defenderArmy[presetId]?.[tier] ?? 0
-    const assignedEverywhere = this._squadAssignedUnitTotal(presetId, tier)
-    const squadTotal = this._squadTotal(this.selectedSquadId)
+    const current = this._squadAssignmentCount(presetId, tier, this.selectedSquadId)
+    const assignedOtherSquads = this._squadAssignedUnitTotal(presetId, tier) - current
+    const otherUnitsInSquad = this._squadTotal(this.selectedSquadId) - current
+    const maxAllowed = Math.max(0, Math.min(
+      deployed - assignedOtherSquads,
+      MAX_COMMAND_SQUAD_SIZE - otherUnitsInSquad,
+    ))
+    const next = Math.max(0, Math.min(maxAllowed, Math.floor(value)))
     const index = this.squadAssignments.findIndex(assignment => (
       assignment.presetId === presetId
       && assignment.tier === tier
       && assignment.squadId === this.selectedSquadId
     ))
-    const current = index >= 0 ? this.squadAssignments[index].count : 0
 
-    if (delta > 0) {
-      if (assignedEverywhere >= deployed || squadTotal >= MAX_COMMAND_SQUAD_SIZE) return
-      if (index >= 0) this.squadAssignments[index].count = current + 1
-      else this.squadAssignments.push({
+    if (next === 0) {
+      if (index >= 0) this.squadAssignments.splice(index, 1)
+    } else if (index >= 0) {
+      this.squadAssignments[index].count = next
+    } else {
+      this.squadAssignments.push({
         presetId,
         tier,
         squadId: this.selectedSquadId,
-        count: 1,
+        count: next,
       })
-    } else if (delta < 0 && current > 0) {
-      if (current === 1) this.squadAssignments.splice(index, 1)
-      else this.squadAssignments[index].count = current - 1
     }
     this._render()
   }
