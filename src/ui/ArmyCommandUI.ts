@@ -84,8 +84,8 @@ export class ArmyCommandUI {
       const grouping = document.createElement('div')
       grouping.className = 'army-command-panel-title'
       grouping.textContent = groupingMode === 'squad'
-        ? '命令分組：小隊　[X] 切換兵種'
-        : '命令分組：兵種　[X] 切換小隊'
+        ? '命令分組：小隊'
+        : '命令分組：兵種'
       this.targets.prepend(grouping)
       this.targets.appendChild(this.wheelHint)
       this.commands.replaceChildren()
