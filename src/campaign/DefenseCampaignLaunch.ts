@@ -191,13 +191,11 @@ export function validateDefenseCampaignLaunchConfig(
       if (!Number.isInteger(heroCount) || heroCount < 0) {
         errors.push(`${presetKey} T4 must be a non-negative integer`)
       } else {
-        total += heroCount
         heroes += heroCount
-        if (preset.tierLoadouts[3].mountId) mounted += heroCount
       }
     }
 
-    if (total < 1) errors.push('Deploy at least one defender')
+    if (total + heroes < 1) errors.push('Deploy at least one defender')
     if (total > stage.defenderDeployment.maxUnits) {
       errors.push(`Defender total exceeds ${stage.defenderDeployment.maxUnits}`)
     }

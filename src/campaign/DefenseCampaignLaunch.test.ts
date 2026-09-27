@@ -146,7 +146,7 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(heroes.find(spec => spec.presetId === rangedPreset)?.combatProfileId).toBe('ranger')
   })
 
-  it('keeps a Ranger in the archer formation despite its T4 mount override', () => {
+  it('keeps a Ranger on foot in the archer formation', () => {
     const config = launch('viking', true)
     config.defenderArmy.viking_archer = { 1: 0, 2: 0, 3: 0, 4: 1 }
     const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(config, 'defenders'))
@@ -156,7 +156,7 @@ describe('Defense Campaign Stage 1 launch config', () => {
 
     expect(ranger.presetId).toBe('viking_archer')
     expect(ranger.cavalry).toBe(false)
-    expect(ranger.loadout?.mountId).toBe('black-cat')
+    expect(ranger.loadout?.mountId).toBeNull()
     expect(ranger.combatProfileId).toBe('ranger')
     expect({ x: ranger.x, z: ranger.z }).toEqual(originalPosition)
     expect(Math.abs(ranger.x)).toBeLessThan(14)
@@ -206,6 +206,20 @@ describe('Defense Campaign Stage 1 launch config', () => {
 
     expect(calculateArmyTotal(config.defenderArmy)).toBe(80)
     expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+  })
+
+  it('adds a defender T4 above the normal army and cavalry limits', () => {
+    const config = launch('roman')
+    config.defenderArmy = {
+      roman_heavy_infantry: { 1: 70, 2: 0, 3: 0 },
+      roman_sword_cavalry: { 1: 10, 2: 0, 3: 0, 4: 1 },
+    }
+
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+    const wave = createDefenseCampaignWaveConfig(config, 'defenders')
+    expect(calculateArmyTotal(wave.roman)).toBe(81)
+    expect(wave.roman.roman_sword_cavalry?.[1]).toBe(10)
+    expect(wave.roman.roman_sword_cavalry?.[4]).toBe(1)
   })
 
   it('rejects Stage 1 defenders above the 80-person total cap', () => {

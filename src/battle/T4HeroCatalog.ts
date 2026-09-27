@@ -35,7 +35,7 @@ const VARANGIAN_FOOT: T4UnitProfile = { visualAssetId: 'viking-hero-t4', combatP
 const VARANGIAN_MOUNTED: T4UnitProfile = { ...VARANGIAN_FOOT, mountOverride: 'black-cat' }
 const PRAETORIAN_FOOT: T4UnitProfile = { visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', baseLoadoutTier: 3, mountOverride: null }
 const PRAETORIAN_MOUNTED: T4UnitProfile = { ...PRAETORIAN_FOOT, mountOverride: 'corgi' }
-const RANGER: T4UnitProfile = { visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', baseLoadoutTier: 3, mountOverride: 'black-cat', specialCombatProfile: 'maki-ranger' }
+const RANGER: T4UnitProfile = { visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', baseLoadoutTier: 3, mountOverride: null, specialCombatProfile: 'maki-ranger' }
 
 export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
   viking_berserker: VARANGIAN_FOOT,

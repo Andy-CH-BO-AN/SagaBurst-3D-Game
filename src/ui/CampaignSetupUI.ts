@@ -23,6 +23,7 @@ import {
   type UnitPresetId,
   type BaseUnitTier,
   type UnitTier,
+  BASE_UNIT_TIERS,
   CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
 import {
@@ -218,6 +219,7 @@ export class CampaignSetupUI {
     const stage = getDefenseCampaignStage(this.stageId)
     const presets = getUnitPresetsForFaction(this.defenderFaction)
     const total = this._armyTotal()
+    const ordinaryTotal = total - this._tierTotal(4)
     const mounted = this._mountedTotal()
     const factionZh = this.defenderFaction === 'roman' ? '羅馬' : '維京'
     const fixedEquipment = getHeroFixedEquipment(this.playerHeroId)
@@ -243,7 +245,7 @@ export class CampaignSetupUI {
         : `T2+T3 ${tier2Total + tier3Total}/${upperTierPoolCap}`
       : tier3Cap < stage.defenderDeployment.maxUnits
         ? `T3 ${tier3Total}/${tier3Cap}`
-        : `總數 ${total}/${stage.defenderDeployment.maxUnits}`
+        : `一般兵力 ${ordinaryTotal}/${stage.defenderDeployment.maxUnits}`
     const rows = presets.map(preset => {
       const counts = this.defenderArmy[preset.id] ?? { 1: 0, 2: 0, 3: 0 }
       const mountedUnit = Boolean(preset.tierLoadouts[2].mountId || preset.tierLoadouts[3].mountId)
@@ -302,9 +304,9 @@ export class CampaignSetupUI {
       </div>
       <div class="campaign-stage-summary">
         <div><small>守方</small><b>${factionZh}</b></div>
-        <div><small>部署上限</small><b>${total} / ${stage.defenderDeployment.maxUnits}</b></div>
+        <div><small>守軍總數</small><b>${total}（一般 ${ordinaryTotal}/${stage.defenderDeployment.maxUnits} + T4 ${heroTotal}）</b></div>
         <div><small>TIER 配額</small><b>${tierSummaryText} · T4 ${heroTotal}/${CAMPAIGN_DEFENDER_HERO_CAP}</b></div>
-        <div><small>騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap ?? '不限'}</b></div>
+        <div><small>一般騎兵上限</small><b>${mounted} / ${stage.defenderDeployment.cavalryCap ?? '不限'}</b></div>
         <div><small>部署時間</small><b>${DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds} 秒</b></div>
         <div><small>敵軍</small><b>${stage.attackerArmy.totalUnits + 2} · ${this._attackerTierLabel(stage.attackerArmy.tierCounts)} + T4 2</b></div>
       </div>
@@ -317,9 +319,9 @@ export class CampaignSetupUI {
 
         <aside class="campaign-rules-card">
           <h2>STAGE ${this.stageId}</h2>
-          <p>本關守軍上限 <b>${stage.defenderDeployment.maxUnits} 人</b>。</p>
+          <p>本關一般守軍上限 <b>${stage.defenderDeployment.maxUnits} 人</b>；T4 英雄額外加入，不佔一般兵力與騎兵名額。</p>
           <p>Tier 配額：<b>${tierRuleText}</b>。</p>
-          <p>守方可選 <b>${CAMPAIGN_DEFENDER_HERO_CAP} 名 T4 英雄</b>；攻方固定 <b>2 名 T4 英雄</b>。英雄計入總兵力。</p>
+          <p>守方可選 <b>${CAMPAIGN_DEFENDER_HERO_CAP} 名 T4 英雄</b>；攻方固定 <b>2 名 T4 英雄</b>。雙方英雄都增加總兵力。</p>
           <p>敵軍於部署結束後開始進攻。</p>
           <p>進攻開始 ${DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds} 秒後，獲得 <b>${stage.reinforcement.count} 名 T${stage.reinforcement.tier} ${this.defenderFaction === 'viking' ? '斧騎兵' : '刀騎兵'}</b>援軍。</p>
           <p>敵軍全滅會立即勝利，不需要等待援軍。</p>
@@ -746,26 +748,15 @@ export class CampaignSetupUI {
     const rules = stage.defenderDeployment
     const counts = this.defenderArmy[presetId] ?? { 1: 0, 2: 0, 3: 0 }
     const current = counts[tier] ?? 0
-    const totalWithoutCurrent = this._armyTotal() - current
+    const ordinaryTotalWithoutCurrent = this._armyTotal() - this._tierTotal(4) - (tier === 4 ? 0 : current)
     const tierWithoutCurrent = this._tierTotal(tier) - current
 
     if (tier === 4) {
-      let maxAllowed = Math.max(0, Math.min(
-        rules.maxUnits - totalWithoutCurrent,
-        CAMPAIGN_DEFENDER_HERO_CAP - tierWithoutCurrent,
-      ))
-      if (this.defenderFaction && rules.cavalryCap !== null) {
-        const preset = getUnitPresetsForFaction(this.defenderFaction)
-          .find(candidate => candidate.id === presetId)
-        if (preset?.tierLoadouts[3].mountId) {
-          maxAllowed = Math.min(maxAllowed, Math.max(0, rules.cavalryCap - (this._mountedTotal() - current)))
-        }
-      }
-      return maxAllowed
+      return Math.max(0, CAMPAIGN_DEFENDER_HERO_CAP - tierWithoutCurrent)
     }
 
     let maxAllowed = Math.min(
-      Math.max(0, rules.maxUnits - totalWithoutCurrent),
+      Math.max(0, rules.maxUnits - ordinaryTotalWithoutCurrent),
       Math.max(0, rules.tierCapacity[tier] - tierWithoutCurrent),
     )
 
@@ -837,8 +828,8 @@ export class CampaignSetupUI {
     for (const [presetId, counts] of Object.entries(this.defenderArmy)) {
       const preset = presets.get(presetId as UnitPresetId)
       if (!preset) continue
-      for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
-        if (preset.tierLoadouts[tier === 4 ? 3 : tier].mountId) total += counts[tier] ?? 0
+      for (const tier of BASE_UNIT_TIERS) {
+        if (preset.tierLoadouts[tier].mountId) total += counts[tier] ?? 0
       }
     }
     return total
