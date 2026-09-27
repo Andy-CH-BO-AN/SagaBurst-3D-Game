@@ -163,7 +163,7 @@ skyrim 3D test/
 
 - Friendly battle spawn specs receive a deterministic optional `squadId`; command squads target roughly ten NPCs each and are capped at eight. Assignment is round-robin over the deterministic friendly spawn list so one squad may intentionally mix infantry, ranged units, and cavalry.
 - `ArmyCommandTarget` supports `all`, unit-preset targets, and numbered squad targets. `matchesArmyCommandTarget` is the shared scope rule used by both `ArmyCommandController` and `FormationController`, preventing attack/charge/defend and formation placement from selecting different units.
-- Existing preset grouping remains the default. At battle runtime, `X` switches the command HUD between preset grouping and squad grouping; squad entries show living/total members. The command submenu remains `1 Attack / 2 Charge / 3 Defend / 4 Formation`, and backquote remains All.
+- Command grouping is part of the launch configuration and is chosen before deployment. Existing preset grouping remains the default; squad grouping is fixed for the battle and squad entries show living/total members. The command submenu remains `1 Attack / 2 Charge / 3 Defend / 4 Formation`, and backquote remains All.
 - Squad identity is gameplay-neutral outside command targeting and is retained by NPC instances for future battle-stat/career attribution.
 
 ---
