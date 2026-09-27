@@ -20,6 +20,7 @@ import {
   PRESET_200V200,
   calculateArmyTotal,
   validateBattleConfig,
+  validateBattleSquadAssignments,
   getDefaultBattleConfig,
   createEmptyBattleConfig,
   createDefaultPlayerLoadout,
@@ -31,10 +32,17 @@ import {
   getUnitPresetsForFaction,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
+import {
+  MAX_COMMAND_SQUAD_SIZE,
+  MAX_COMMAND_SQUADS,
+  type SquadAssignment,
+  type SquadId,
+} from '../battle/CommandTarget'
 
 export class BattleSetupUI {
   private config: BattleConfig
   private activeTab: 'army' | 'loadout' = 'army'
+  private selectedSquadId: SquadId = 1
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
@@ -74,11 +82,8 @@ export class BattleSetupUI {
     this.onBackCallback = onBack ?? null
     this.container = document.createElement('div')
     this.container.id = 'battle-setup-container'
-    this.container.innerHTML = this._generateHtml()
     parent.appendChild(this.container)
-
-    this._bindEvents()
-    this._refreshView()
+    this._renderSetup()
   }
 
   destroy(): void {
@@ -88,6 +93,12 @@ export class BattleSetupUI {
     this.container = null
   }
 
+  private _renderSetup(): void {
+    if (!this.container) return
+    this.container.innerHTML = this._generateHtml()
+    this._bindEvents()
+    this._refreshView()
+  }
   private _generateHtml(): string {
     const renderTable = (faction: 'viking' | 'roman') => {
       const presets = getUnitPresetsForFaction(faction)
