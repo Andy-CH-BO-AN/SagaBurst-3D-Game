@@ -378,4 +378,27 @@ describe('BattleSpawner Deterministic Scattered Battle', () => {
     expect(plan.pickupSpecs.some(p => p.z === CAMP_PICKUP_Z)).toBe(true)
     expect(plan.pickupSpecs.some(p => p.z === -CAMP_PICKUP_Z)).toBe(true)
   })
+
+  it('assigns the player army to at most eight deterministic mixed command squads', () => {
+    const plan = BattleSpawner.createSpawnPlan(PRESET_100V100)
+    const allies = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    const enemies = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+    const squadIds = [...new Set(allies.map(spec => spec.squadId))]
+
+    expect(allies.every(spec => spec.squadId !== undefined)).toBe(true)
+    expect(squadIds).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(enemies.every(spec => spec.squadId === undefined)).toBe(true)
+
+    const firstSquadPresets = new Set(
+      allies.filter(spec => spec.squadId === 1).map(spec => spec.presetId),
+    )
+    expect(firstSquadPresets.size).toBeGreaterThan(1)
+  })
+
+  it('keeps the small 10v10 player army together as one command squad', () => {
+    const plan = BattleSpawner.createSpawnPlan(PRESET_10V10)
+    const allies = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    expect(new Set(allies.map(spec => spec.squadId))).toEqual(new Set([1]))
+  })
+
 })
