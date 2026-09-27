@@ -1,7 +1,7 @@
 /**
  * WeaponDatabase.ts
  * Centralized definition for weapons and inventory items.
- * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold).
+ * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold), Tier 4 (Hero/Purple).
  */
 export type ItemType = 'melee' | 'ranged' | 'consumable'
 export type WeaponAnimationKind = 'dagger' | 'sword' | 'axe' | 'greatsword' | 'lance' | 'bow' | 'pilum'
@@ -11,7 +11,7 @@ export interface WeaponData {
   id: string
   name: string
   type: ItemType
-  tier: 1 | 2 | 3
+  tier: 1 | 2 | 3 | 4
   combatKind: WeaponCombatKind
   damageMin: number
   damageMax: number
@@ -26,6 +26,8 @@ export interface WeaponData {
   isLance?: boolean
   description: string
 }
+
+export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
 export const WEAPONS: Record<string, WeaponData> = {
   'maki-ranger-bow': {
@@ -182,6 +184,20 @@ export const WEAPONS: Record<string, WeaponData> = {
     arrowSpeedMax: 65,
     description: '精靈工匠打造的符文弓，箭矢射速極快且帶有強大打擊力。',
   },
+  [T4_RANGER_BOW_RANGED_ID]: {
+    id: T4_RANGER_BOW_RANGED_ID,
+    name: 'T4 遊俠弓 Ranger Bow',
+    type: 'ranged',
+    tier: 4,
+    combatKind: 'bow',
+    damageMin: 28,
+    damageMax: 75,
+    speedOrCharge: 1.8,
+    animationKind: 'bow',
+    arrowSpeedMin: 25,
+    arrowSpeedMax: 65,
+    description: '遊俠使用的長弓，可作為遠程武器裝備。',
+  },
 
   // ── Roman Enemy Melee (Gladius) ──
   gladius_rusty: {
@@ -269,18 +285,20 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
 }
 
-export function getTierColor(tier: 1 | 2 | 3): string {
+export function getTierColor(tier: 1 | 2 | 3 | 4): string {
   switch (tier) {
     case 1: return '#a0a0a0' // Grey
     case 2: return '#3498db' // Blue
     case 3: return '#f1c40f' // Gold
+    case 4: return '#b27aff' // Purple
   }
 }
 
-export function getTierBadge(tier: 1 | 2 | 3): string {
+export function getTierBadge(tier: 1 | 2 | 3 | 4): string {
   switch (tier) {
     case 1: return '★ Tier 1 (普通)'
     case 2: return '★★ Tier 2 (稀有)'
     case 3: return '★★★ Tier 3 (史詩)'
+    case 4: return '★★★★ Tier 4 (英雄)'
   }
 }

@@ -32,6 +32,7 @@ import {
   CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
 import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
   getDefenseCampaignStage,
@@ -191,13 +192,11 @@ export function validateDefenseCampaignLaunchConfig(
       if (!Number.isInteger(heroCount) || heroCount < 0) {
         errors.push(`${presetKey} T4 must be a non-negative integer`)
       } else {
-        total += heroCount
         heroes += heroCount
-        if (preset.tierLoadouts[3].mountId) mounted += heroCount
       }
     }
 
-    if (total < 1) errors.push('Deploy at least one defender')
+    if (total + heroes < 1) errors.push('Deploy at least one defender')
     if (total > stage.defenderDeployment.maxUnits) {
       errors.push(`Defender total exceeds ${stage.defenderDeployment.maxUnits}`)
     }
@@ -236,6 +235,9 @@ export function validateDefenseCampaignLaunchConfig(
     }
     if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) {
       errors.push('Invalid player ranged weapon')
+    }
+    if (config.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
+      errors.push('Ranger player must equip a bow')
     }
     if (
       loadout.shieldId !== null

@@ -3,7 +3,7 @@
  * Core domain types, validation, presets, and combat mapping rules for Custom Battle.
  */
 import { AIType } from '../world/NPC'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -71,6 +71,7 @@ export type PlayerMeleeWeaponId =
   | 'hunting_spear' | 'steel_lance' | 'heavy_lance'
 export type PlayerRangedWeaponId =
   | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
+  | typeof T4_RANGER_BOW_RANGED_ID
   | 'pilum_basic' | 'pilum_standard' | 'legionary_pilum'
 export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
@@ -107,7 +108,7 @@ export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'hunting_spear', 'steel_lance', 'heavy_lance',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
-  'wooden_shortbow', 'recurve_longbow', 'elven_runebow',
+  'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID,
   'pilum_basic', 'pilum_standard', 'legionary_pilum',
 ]
 export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
@@ -388,6 +389,9 @@ function validateBattleConfigWithArmyLimit(
     } else {
       if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
+      if (c.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
+        errors.push('Ranger player must equip a bow')
+      }
       if (loadout.shieldId !== null && !(PLAYER_SHIELD_IDS as readonly string[]).includes(loadout.shieldId)) errors.push(`Invalid player shield: ${String(loadout.shieldId)}`)
       if (typeof loadout.startMounted !== 'boolean') errors.push('playerLoadout.startMounted must be a boolean')
       if (loadout.mountId !== undefined && !(PLAYER_MOUNT_IDS as readonly string[]).includes(loadout.mountId)) errors.push(`Invalid player mount: ${String(loadout.mountId)}`)

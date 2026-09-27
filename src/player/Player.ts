@@ -19,7 +19,7 @@ import type { HpBar } from '../ui/HpBar'
 import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
-import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount, MountState } from '../world/Mount'
@@ -408,7 +408,7 @@ export class Player {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
-      if (this.heroAssetId === 'maki-archer-t4') {
+      if (this.heroAssetId === 'maki-archer-t4' || weaponId === T4_RANGER_BOW_RANGED_ID) {
         const bow = createMakiRangerBowInstance()
         this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
       } else this.bowVisual.rebuild(weaponId)
@@ -654,7 +654,7 @@ export class Player {
     const equippedMelee = inventoryManager?.equippedMelee
     const equippedRanged = inventoryManager?.equippedRanged
 
-    const visualTier = Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2) as 1 | 2 | 3
+    const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)

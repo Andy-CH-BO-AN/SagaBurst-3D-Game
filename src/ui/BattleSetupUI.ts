@@ -30,6 +30,7 @@ import {
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { ARMORS } from '../rpg/ArmorDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
   type UnitPresetId,
@@ -197,6 +198,7 @@ export class BattleSetupUI {
               { id: 'wooden_shortbow', tier: 'T1', zh: '木製短弓', en: 'WOODEN SHORTBOW' },
               { id: 'recurve_longbow', tier: 'T2', zh: '反曲長弓', en: 'RECURVE LONGBOW' },
               { id: 'elven_runebow', tier: 'T3', zh: '精靈符文弓', en: 'ELVEN RUNE BOW' },
+              { id: 'maki-ranger-bow-ranged', tier: 'T4', zh: '遊俠弓', en: 'RANGER BOW' },
             ], 'ranged')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
               { id: 'pilum_basic', tier: 'T1', zh: '簡易標槍', en: 'BASIC PILUM' },
@@ -379,6 +381,10 @@ export class BattleSetupUI {
     // Number Inputs
     this.container.querySelector<HTMLSelectElement>('#battle-player-hero')?.addEventListener('change', event => {
       this.config.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      if (this.config.playerHeroId === 'maki-archer-t4'
+        && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
+        this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
+      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {
@@ -461,6 +467,8 @@ export class BattleSetupUI {
         const target = card as HTMLElement
         if (getHeroFixedEquipment(this.config.playerHeroId) && ['melee', 'shield'].includes(target.dataset.loadoutKind ?? '')) return
         const id = target.dataset.loadoutId || null
+        if (this.config.playerHeroId === 'maki-archer-t4' && target.dataset.loadoutKind === 'ranged'
+          && WEAPONS[id ?? '']?.combatKind !== 'bow') return
         switch (target.dataset.loadoutKind) {
           case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
           case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
@@ -943,7 +951,9 @@ export class BattleSetupUI {
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLButtonElement
-        const locked = Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? '')
+        const locked = (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
+          || (this.config.playerHeroId === 'maki-archer-t4' && el.dataset.loadoutKind === 'ranged'
+            && WEAPONS[el.dataset.loadoutId ?? '']?.combatKind !== 'bow')
         el.disabled = locked
         el.setAttribute?.('aria-disabled', String(locked))
         const selected = !locked && ((el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
