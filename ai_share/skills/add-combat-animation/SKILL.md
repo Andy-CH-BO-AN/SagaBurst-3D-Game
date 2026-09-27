@@ -27,6 +27,7 @@ The axe implementation is a worked example, not a universal timing or rig templa
 
 ## Connect gameplay and equipment
 
+- Distinguish the animation's source weapon from the equipped weapon. Reusing an axe take for bow melee does not authorize swapping in an axe, replacing the user's idle, or applying a long-haft grip solver to a bow. Fit contacts and clearance to the actual visible weapon. For Maki's static-source rig and rebuild, read [posed-source characters](../humanoid-rig-skinning/references/posed-source-characters.md).
 - Give a new attack family its own action identifier when it must not change an existing family. Trace selection through both Player and NPC entry points, including charge, defense, mount, and loadout transitions.
 - Select the attack at attack start from actual runtime equipment (for example, whether the shield is equipped), not a unit preset name or the presence of a hidden preview mesh. Freeze the selected action for that attack; the next attack must reflect newly equipped state.
 - Keep one owner for the melee hit event. Measure the actual weapon contact frame after retargeting and pose corrections, then configure a separate hit time per action. For uniformly remapped source frames, use `(contactFrame - firstFrame) / (lastFrame - firstFrame) * actionDuration`.
@@ -40,11 +41,14 @@ Treat the bone pose and weapon attachment as separate controls. When the user re
 - Keep the primary hand on the grip through idle, preparation, contact, recovery, mount changes, and attachment blending. Interpolated attachment rotation needs a recomputed position around the palm anchor to avoid sliding.
 - Preserve the ordinary shield layer for a shielded attack. For an unshielded two-hand attack, blend out the shield pose, place the off hand on a reachable haft point, and close its fingers. Both hands must participate; a bent elbow alone is insufficient.
 - Apply pose corrections after the mixer, restore the previous corrections before the next sample, and avoid cumulative transforms. Use distinct quaternion operands when an interpolation implementation would alias its output and input.
+- Give each joint constraint one owner. If a clip already bakes asset-specific equipment contacts, declare that ownership and bypass only the corresponding generic runtime solve (`bakedEquipmentActions`); preserve unrelated equipment layers. Compare the raw clip with the rendered controller pose to catch double application.
 - Place the rider using the production anatomical pelvis seat, not an approximate model-root height. Test the actual supported mounts; body widths and head/ear silhouettes differ.
 - A mounted strike must reach the intended target zone. Sample world-space cutting-edge positions before, at, and after contact. For a downward chop, prove negative vertical travel through contact rather than an upward swing over infantry. Check the entire haft, blade, rider, shield, and mount from side and front views.
 - Blend carry and attack corrections outside the contact interval where possible. Compare idle/gallop/jump and recovery, not just a single frozen contact frame.
 
 ## Validate and deliver
+
+Keep normalized phase and seconds distinct in preview APIs. A slider in `[0, 1]` already supplies the argument expected by `seek` and fixed-phase samplers; dividing it by clip duration again makes short attacks or releases finish early. Convert to seconds only at the action clock boundary, and account for exported float-duration precision at the completion endpoint. Check actual mixer/action state at mid-release and recovery, not just dropdown labels.
 
 1. Add focused regression coverage for behavioral invariants: runtime shield transitions on the same actor, Player/NPC parity, unrelated weapons unchanged, one hit, grip error, actual contact trajectory, and LOD continuity. Avoid tests that only repeat implementation constants.
 2. Check all required LODs and finite transforms. Audit preservation of existing asset data. Keep asset rebuild tools maintained; put one-off galleries, probes, screenshots, and raw logs in ignored `output/`.

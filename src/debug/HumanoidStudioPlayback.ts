@@ -10,6 +10,7 @@ import { applyCharacterMountedPose, type HumanoidAnimationState, type MountedPos
 import { ArrowProjectile } from '../world/ArrowProjectile'
 import { Faction } from '../world/NPC'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { MakiBowAsset } from '../world/MakiRangerEquipment'
 
 /** Studio exercises the production animator and actual faction equipment. */
 export class HumanoidStudioPlayback {
@@ -21,7 +22,7 @@ export class HumanoidStudioPlayback {
   readonly shield = new THREE.Group()
   private readonly swordModel = new THREE.Group()
   private readonly axeModel = new THREE.Group()
-  private equipmentLoadout: 'none' | 'sword' | 'axe' | 'lance' | null = null
+  private equipmentLoadout: 'none' | 'sword' | 'axe' | 'lance' | 'bow' | null = null
   private hasShield = false
   private readonly animator: CharacterCombatAnimator
   private readonly bowVisual: CharacterBowVisual
@@ -30,11 +31,17 @@ export class HumanoidStudioPlayback {
   private readonly pilumPreviewRotation = new THREE.Quaternion()
   private readonly pilumPreviewSpeed = WEAPONS.pilum_standard.arrowSpeedMax ?? 24
   private pilumPreview: ArrowProjectile | null = null
+  private arrowPreview: ArrowProjectile | null = null
+  private readonly arrowPreviewVelocity = new THREE.Vector3()
+  private readonly customBowPreview: boolean
+  private readonly bowMeleeAction?: 'axeAttack2H'
   private elapsed = 0
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE') {
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset, meleeAnimation: 'axeAttack2H' }) {
+    this.customBowPreview = !!assets
+    this.bowMeleeAction = assets?.meleeAnimation
     this.lance.add(this.lanceModel)
     WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(faction === 'roman' ? 'scutum_t2' : 'round_shield_t2', this.shield)
@@ -59,7 +66,8 @@ export class HumanoidStudioPlayback {
     applyBowAttachment(instance.rig.left.handSocket, this.bow)
     instance.rig.left.handSocket.add(this.bow)
     this.bowVisual = new CharacterBowVisual(this.bow, bowGrip)
-    this.bowVisual.rebuild('recurve_longbow')
+    if (assets) this.bowVisual.rebuildFromAsset(assets.bow.model, assets.bow.profile, assets.bow.topTip, assets.bow.bottomTip)
+    else this.bowVisual.rebuild('recurve_longbow')
     this.animator = new CharacterCombatAnimator(instance.rig, this.sword, state === 'pilumThrow' ? this.pilum : this.bow)
     this.reset()
   }
@@ -87,7 +95,26 @@ export class HumanoidStudioPlayback {
         for (let elapsed = 0; elapsed < duration;) {
           const dt = Math.min(1 / 60, duration - elapsed)
           this.animator.setLocomotion(speed, false, sprinting)
-          this.animator.update(dt)
+          const events = this.animator.update(dt)
+          if (this.customBowPreview && events.projectileRelease) {
+            this.instance.root.updateMatrixWorld(true)
+            this.target.set(10, 1.25, 0).applyMatrix4(this.instance.root.matrixWorld)
+            this.bowVisual.update(1, this.target, true)
+            const scene = this.instance.root.parent
+            if (scene instanceof THREE.Scene) {
+              const origin = new THREE.Vector3(), direction = new THREE.Vector3()
+              this.bowVisual.writeLaunch(origin, direction, this.target)
+              const speed = WEAPONS.recurve_longbow.arrowSpeedMax ?? 40
+              this.arrowPreview = new ArrowProjectile(scene, origin, direction, speed, 0, Faction.PLAYER, false)
+              this.arrowPreviewVelocity.copy(direction).multiplyScalar(speed)
+            }
+          } else if (this.arrowPreview) {
+            // Same projectile visual/launch contract; isolated studio has no
+            // Player, targets or damage loop. Integrate preview flight only.
+            this.arrowPreviewVelocity.y -= 9.8 * dt
+            this.arrowPreview.mesh.position.addScaledVector(this.arrowPreviewVelocity, dt)
+            this.arrowPreview.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), this.arrowPreviewVelocity.clone().normalize())
+          }
           elapsed += dt
         }
       }
@@ -115,14 +142,14 @@ export class HumanoidStudioPlayback {
     this.bow.visible = mode !== 'raw'
     this.sword.visible = this.pilum.visible = false
     this.instance.root.updateMatrixWorld(true)
-    this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
+    this.target.set(this.customBowPreview ? 10 : 0, this.customBowPreview ? 1.25 : 1.4, this.customBowPreview ? 0 : 10).applyMatrix4(this.instance.root.matrixWorld)
     if (this.bow.visible) this.bowVisual.update(this.state === 'bowHold' ? 1 : this.state === 'bowRelease' ? 1 - time : time, this.target, !(this.state === 'bowRelease' && time >= 0.04 / 0.22))
     this.instance.root.updateMatrixWorld(true)
   }
 
-  get weapon(): 'none' | 'sword' | 'axe' | 'lance' { return this.equipmentLoadout ?? 'sword' }
+  get weapon(): 'none' | 'sword' | 'axe' | 'lance' | 'bow' { return this.equipmentLoadout ?? 'sword' }
 
-  setEquipmentLoadout(weapon: 'none' | 'sword' | 'axe' | 'lance', shield: boolean): void {
+  setEquipmentLoadout(weapon: 'none' | 'sword' | 'axe' | 'lance' | 'bow', shield: boolean): void {
     if (weapon === 'sword' || weapon === 'axe') {
       this.swordModel.visible = weapon === 'sword'
       this.axeModel.visible = weapon === 'axe'
@@ -139,7 +166,7 @@ export class HumanoidStudioPlayback {
   }
 
   private equipmentAction(mounted: boolean): 'mountedLance' | 'lanceThrust' | 'axeAttack1H' | 'axeAttack2H' | 'swordSlash' {
-    return this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust'
+    return this.bowMeleeAction && this.equipmentLoadout === 'bow' ? this.bowMeleeAction : this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust'
       : this.equipmentLoadout === 'axe' ? this.hasShield ? 'axeAttack1H' : 'axeAttack2H' : 'swordSlash'
   }
 
@@ -157,11 +184,12 @@ export class HumanoidStudioPlayback {
       animation.seek(state, time)
       animation.update(0)
       this.instance.root.updateWorldMatrix(true, true)
+      if (this.equipmentLoadout === 'bow') this.bowVisual.update(0, undefined, false)
       return
     }
     if (attack) this.animator.start(this.equipmentAction(mounted))
     const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
-    const end = time * (sampleDuration ?? duration)
+    const end = time * Math.round((sampleDuration ?? duration) * 1e6) / 1e6
     for (let elapsed = 0; elapsed < end - 1e-9;) {
       const dt = Math.min(1 / 120, end - elapsed)
       this.animator.setLocomotion(speed, mounted, sprinting)
@@ -169,11 +197,14 @@ export class HumanoidStudioPlayback {
       elapsed += dt
     }
     this.instance.root.updateWorldMatrix(true, true)
+    if (this.equipmentLoadout === 'bow') this.bowVisual.update(0, undefined, false)
   }
 
   setEquipped(enabled: boolean): void { this.equipped = enabled; this.reset() }
 
   reset(): void {
+    this.arrowPreview?.destroy()
+    this.arrowPreview = null
     this.pilumPreview?.destroy()
     this.pilumPreview = null
     this.elapsed = 0
@@ -189,7 +220,8 @@ export class HumanoidStudioPlayback {
       this.sword.visible = this.equipped && alive && (this.equipmentLoadout === 'sword' || this.equipmentLoadout === 'axe')
       this.lance.visible = this.equipped && alive && this.equipmentLoadout === 'lance'
       this.shield.visible = this.equipped && alive && this.hasShield
-      this.bow.visible = this.pilum.visible = false
+      this.bow.visible = this.equipped && alive && this.equipmentLoadout === 'bow'
+      this.pilum.visible = false
       this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
     }
     this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible || this.lance.visible)
@@ -198,11 +230,11 @@ export class HumanoidStudioPlayback {
   update(dt: number): void {
     const animation = this.instance.rig.animation!
     this.elapsed += dt
-    if (this.equipped && this.equipmentLoadout !== null) {
+    if (this.equipped && this.equipmentLoadout !== null && !this.state.startsWith('bow')) {
       const mounted = this.state === 'mounted' || this.state === 'mountedLance'
       this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
       this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted, this.state === 'run')
-      if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash') && !this.animator.busy) {
+      if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash' || this.state === 'axeAttack1H' || this.state === 'axeAttack2H') && !this.animator.busy) {
         this.animator.start(this.equipmentAction(mounted))
       }
       this.animator.update(dt)
@@ -248,8 +280,9 @@ export class HumanoidStudioPlayback {
       }
     }
     if (this.bow.visible) {
-      this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
-      this.bowVisual.update(this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2, this.target, true)
+      this.target.set(this.customBowPreview ? 10 : 0, this.customBowPreview ? 1.25 : 1.4, this.customBowPreview ? 0 : 10).applyMatrix4(this.instance.root.matrixWorld)
+      const archery = this.state.startsWith('bow')
+      this.bowVisual.update(archery ? this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2 : 0, this.target, archery)
     }
     this.started = true
   }

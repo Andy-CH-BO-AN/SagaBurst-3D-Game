@@ -8,6 +8,8 @@ _Last updated: 2026-09-27（mount selection）_
 
 ## Current Status
 
+- Maki DEV 資產（`?devhero=maki-t4&nolock`）：保留來源持弓 idle，遠程朝角色左側（+X）；bowLoad／bowRelease 與近戰預覽的 normalized time 已修正。依最新決定，近戰仍持同一把 T4 弓，使用重定向的 `axeAttack2H`，不換斧頭、不使用斧頭 idle；左手固定弓 attachment，右手在揮擊區間扶弓柄，起手／收招回來源 idle。Maki 已烘焙握點，runtime 不再疊加通用長斧握柄 IK。袖身分支權重、局部左 deltoid 與雙側分段前臂骨共 40 bones。**Phase 1 尚未整體驗收：LOD1/2 仍有既有兜帽／服裝交穿與破面；目前仍為 DEV 資產，尚未接入正式兵種／戰鬥。** 重建依序為 builder → textures（同名／同解析度貼圖僅編碼一次）→ 保存 clean GLB → retarget → audit。
+
 - Current main 已包含 PR #27 的 NPC 弓 material-group consolidation；其正式 Before baseline 為 `9c10299`（PR #26）。下列 #19–#23 數字僅為歷史背景，不可直接當作目前場景的 Before。
 - Phases 0–23 are implemented. Current work is focused on making large 100v100 battles cheaper without changing gameplay semantics or broadly degrading visual quality.
 - Apple M1 Pro / Chrome 153 / ANGLE Metal 的最新場景中，100v100 cavalry 仍約 12 FPS；render submission 仍是主要未解成本。

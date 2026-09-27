@@ -1,0 +1,1051 @@
+{
+  "sourceSha256": "de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601",
+  "method": "Final GLB parsing; normalized skin weights; common bone hierarchy/rest transforms; identical sampled animation/socket transforms; texture dimensions read from encoded images. Bounds are not proof against visual intersections.",
+  "levels": [
+    {
+      "lod": 0,
+      "sha256": "c806e95852661493fd1f579f3a69204fa4d9fa3fb3da30b5b668bb34f537dec7",
+      "bytes": 21698188,
+      "triangles": 59986,
+      "vertices": 38482,
+      "skinnedMeshes": 13,
+      "bones": 40,
+      "maxWeightError": 4.470348358154297e-8,
+      "maxBowWristDeviationRadians": 0,
+      "maxBowLoadFrameStep": 0.18627210757636306,
+      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
+      "maxBowTwistDeviationRadians": 2.1524979792875443,
+      "minHoldThumbUp": 0.9677933262927396,
+      "earlyElbowRise": [
+        0.05002995317430381,
+        0.04532738364308664
+      ],
+      "minRightShoulderLift": 0.02142552280286658,
+      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "textures": [
+        {
+          "name": "Image_30",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_31",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_28",
+          "mimeType": "image/png",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_29",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_12",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_10",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_11",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_6",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_4",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_5",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_18",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_16",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_17",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_21",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_19",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_20",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_9",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_7",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_8",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_3",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_2",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_1",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_0",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_15",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_13",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_14",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_24",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_22",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_23",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_27",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_25",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_26",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "axeAttack1H",
+        "axeAttack2H",
+        "death"
+      ],
+      "samples": [
+        {
+          "name": "idle",
+          "minY": 0.0030000113794965704,
+          "maxY": 1.4608480160135378,
+          "maxExtent": 1.6424318049940902
+        },
+        {
+          "name": "walk",
+          "minY": 0.002734031508992131,
+          "maxY": 1.4155533977156167,
+          "maxExtent": 1.7624871287828832
+        },
+        {
+          "name": "run",
+          "minY": 0.0020337871458564845,
+          "maxY": 1.3785045814889636,
+          "maxExtent": 1.8680162013365234
+        },
+        {
+          "name": "bowLoad",
+          "minY": 0.0030000113794965704,
+          "maxY": 1.4608480160132005,
+          "maxExtent": 1.804638870158808
+        },
+        {
+          "name": "bowHold",
+          "minY": 0.0030000113794965704,
+          "maxY": 1.4608480155965229,
+          "maxExtent": 1.7995674992993225
+        },
+        {
+          "name": "bowRelease",
+          "minY": 0.0030000113794965704,
+          "maxY": 1.4608480155965229,
+          "maxExtent": 1.8039520621221508
+        },
+        {
+          "name": "axeAttack2H",
+          "minY": 0.002999979840354405,
+          "maxY": 1.4608480160135378,
+          "maxExtent": 1.690517607598276
+        },
+        {
+          "name": "death",
+          "minY": -0.11384990116537934,
+          "maxY": 1.466627429673411,
+          "maxExtent": 1.7237641989481647
+        }
+      ]
+    },
+    {
+      "lod": 1,
+      "sha256": "522140107c0fdbcc219d433abe6ffccabc4aa5daf06c5c743ae6d38d11aa9f89",
+      "bytes": 20082900,
+      "triangles": 19988,
+      "vertices": 14051,
+      "skinnedMeshes": 13,
+      "bones": 40,
+      "maxWeightError": 4.6566128730773926e-8,
+      "maxBowWristDeviationRadians": 0,
+      "maxBowLoadFrameStep": 0.18627210757636306,
+      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
+      "maxBowTwistDeviationRadians": 2.1524979792875443,
+      "minHoldThumbUp": 0.9677933262927396,
+      "earlyElbowRise": [
+        0.05002995317430381,
+        0.04532738364308664
+      ],
+      "minRightShoulderLift": 0.02142552280286658,
+      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "textures": [
+        {
+          "name": "Image_30",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_31",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_28",
+          "mimeType": "image/png",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_29",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_12",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_10",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_11",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_6",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_4",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_5",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_18",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_16",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_17",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_21",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_19",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_20",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_9",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_7",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_8",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_3",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_2",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_1",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_0",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_15",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_13",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_14",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_24",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_22",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_23",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_27",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_25",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "name": "Image_26",
+          "mimeType": "image/jpeg",
+          "size": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "axeAttack1H",
+        "axeAttack2H",
+        "death"
+      ],
+      "samples": [
+        {
+          "name": "idle",
+          "minY": 0.0030000119714372383,
+          "maxY": 1.4619864652902024,
+          "maxExtent": 1.6436992683143203
+        },
+        {
+          "name": "walk",
+          "minY": 0.00238135642924525,
+          "maxY": 1.4170586198776356,
+          "maxExtent": 1.7637555863148375
+        },
+        {
+          "name": "run",
+          "minY": 0.002021384187928402,
+          "maxY": 1.3784824011195826,
+          "maxExtent": 1.868241910335419
+        },
+        {
+          "name": "bowLoad",
+          "minY": 0.0030000119714372383,
+          "maxY": 1.4619864652898225,
+          "maxExtent": 1.8050457640116733
+        },
+        {
+          "name": "bowHold",
+          "minY": 0.0030000119714372383,
+          "maxY": 1.4619864648409648,
+          "maxExtent": 1.7996310896071392
+        },
+        {
+          "name": "bowRelease",
+          "minY": 0.0030000119714372383,
+          "maxY": 1.4619864648409648,
+          "maxExtent": 1.8030482853251326
+        },
+        {
+          "name": "axeAttack2H",
+          "minY": 0.002874661790359916,
+          "maxY": 1.4619864652902024,
+          "maxExtent": 1.6914201386963008
+        },
+        {
+          "name": "death",
+          "minY": -0.11351928165673031,
+          "maxY": 1.4665960996715057,
+          "maxExtent": 1.7244322799778486
+        }
+      ]
+    },
+    {
+      "lod": 2,
+      "sha256": "3d0133ad3ab0cd4b72d33b4ed815cb9f6f02f3c0d9a57648ab67f7bfa10b2c76",
+      "bytes": 5667756,
+      "triangles": 5988,
+      "vertices": 4937,
+      "skinnedMeshes": 13,
+      "bones": 40,
+      "maxWeightError": 3.888271749019623e-8,
+      "maxBowWristDeviationRadians": 0,
+      "maxBowLoadFrameStep": 0.18627210757636306,
+      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
+      "maxBowTwistDeviationRadians": 2.1524979792875443,
+      "minHoldThumbUp": 0.9677933262927396,
+      "earlyElbowRise": [
+        0.05002995317430381,
+        0.04532738364308664
+      ],
+      "minRightShoulderLift": 0.02142552280286658,
+      "maxRightHoldElbowHeightError": 7.440967841887414e-10,
+      "textures": [
+        {
+          "name": "Image_30",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_31",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_28",
+          "mimeType": "image/png",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_29",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_12",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_10",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_11",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_6",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_4",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_5",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_18",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_16",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_17",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_21",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_19",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_20",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_9",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_7",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_8",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_3",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_2",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_1",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_0",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_15",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_13",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_14",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_24",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_22",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_23",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_27",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_25",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        },
+        {
+          "name": "Image_26",
+          "mimeType": "image/jpeg",
+          "size": [
+            512,
+            512
+          ]
+        }
+      ],
+      "animationNames": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "axeAttack1H",
+        "axeAttack2H",
+        "death"
+      ],
+      "samples": [
+        {
+          "name": "idle",
+          "minY": 0.0030000079144991386,
+          "maxY": 1.4592594342367662,
+          "maxExtent": 1.638586768907839
+        },
+        {
+          "name": "walk",
+          "minY": 0.001277463955988968,
+          "maxY": 1.4149817349955582,
+          "maxExtent": 1.7630216138292927
+        },
+        {
+          "name": "run",
+          "minY": 0.0017405076070052573,
+          "maxY": 1.3783378384297558,
+          "maxExtent": 1.8681938212421305
+        },
+        {
+          "name": "bowLoad",
+          "minY": 0.0030000079144991386,
+          "maxY": 1.459259434236415,
+          "maxExtent": 1.8014922098437374
+        },
+        {
+          "name": "bowHold",
+          "minY": 0.0030000079144991386,
+          "maxY": 1.4592594337473739,
+          "maxExtent": 1.7976041919767571
+        },
+        {
+          "name": "bowRelease",
+          "minY": 0.0030000079144991386,
+          "maxY": 1.4592594337473739,
+          "maxExtent": 1.8026247976801
+        },
+        {
+          "name": "axeAttack2H",
+          "minY": 0.003000007914498978,
+          "maxY": 1.4592594342367662,
+          "maxExtent": 1.6895821046851263
+        },
+        {
+          "name": "death",
+          "minY": -0.11245605327713223,
+          "maxY": 1.4662467010924742,
+          "maxExtent": 1.7239098006908011
+        }
+      ]
+    }
+  ],
+  "commonSkeletonAndAnimations": true,
+  "requiredSockets": [
+    "socket_hand_l",
+    "socket_hand_r",
+    "socket_back",
+    "socket_head",
+    "socket_pelvis",
+    "socket_foot_l",
+    "socket_foot_r",
+    "sole_l",
+    "sole_r",
+    "bow_string_contact",
+    "bow_arrow_rest"
+  ],
+  "bow": {
+    "triangles": 4492,
+    "skins": 0,
+    "sha256": "ce3fe00325fde23a8ff83a6fd865e0380f13a7e31543a58c7d4484af1dd82862"
+  }
+}

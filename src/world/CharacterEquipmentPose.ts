@@ -135,7 +135,7 @@ export class CharacterEquipmentPose {
   private readonly hipsY: number
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = []) {
     this.left = new ArmSolver(root, rig.left, 1)
     this.axeRight = new ArmSolver(root, rig.right, -1)
     this.axeLeftBones = [rig.left.shoulder, rig.left.elbow, rig.left.wrist]
@@ -272,7 +272,8 @@ export class CharacterEquipmentPose {
       this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
       this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
     }
-    const twoHandedAxe = live && !state.shield && state.action === 'axeAttack2H'
+    // Baked asset-specific contacts must not receive the generic axe-haft solve.
+    const twoHandedAxe = live && !state.shield && state.action === 'axeAttack2H' && !this.bakedActions.includes(state.action)
     if (twoHandedAxe) {
       // Source 2H has the left hand below the right hand. Constrain its grasp
       // to the actual haft (5cm above the butt), retaining the source torso,
