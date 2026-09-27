@@ -401,4 +401,29 @@ describe('BattleSpawner Deterministic Scattered Battle', () => {
     expect(new Set(allies.map(spec => spec.squadId))).toEqual(new Set([1]))
   })
 
+
+  it('applies manual preset+tier squad assignments exactly', () => {
+    const config: BattleConfig = {
+      ...PRESET_10V10,
+      commandGrouping: 'squad',
+      squadAssignments: [
+        { presetId: 'viking_berserker', tier: 1, squadId: 2, count: 4 },
+        { presetId: 'viking_archer', tier: 2, squadId: 1, count: 2 },
+        { presetId: 'viking_lancer', tier: 2, squadId: 1, count: 2 },
+        { presetId: 'viking_horse_archer', tier: 3, squadId: 3, count: 2 },
+      ],
+    }
+    const plan = BattleSpawner.createSpawnPlan(config)
+    const allies = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+
+    expect(allies.filter(spec => spec.squadId === 1)).toHaveLength(4)
+    expect(allies.filter(spec => spec.squadId === 2)).toHaveLength(4)
+    expect(allies.filter(spec => spec.squadId === 3)).toHaveLength(2)
+    expect(allies.every(spec => spec.squadId !== undefined)).toBe(true)
+    expect(
+      allies.filter(spec => spec.presetId === 'viking_berserker' && spec.tier === 1)
+        .every(spec => spec.squadId === 2),
+    ).toBe(true)
+  })
+
 })
