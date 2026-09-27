@@ -16,6 +16,7 @@ import { DamageableObstacle } from '../src/world/DamageableObstacle'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
 import { Faction } from '../src/world/NPC'
 import { MountState } from '../src/world/Mount'
+import { getTerrainHeight } from '../src/world/Terrain'
 
 function eventHarness() {
   const events: CombatEvent[] = []
@@ -278,6 +279,7 @@ describe('Combat attribution foundation', () => {
       presetId: 'viking_archer',
       squadId: 4,
     })
+    const targetGroundY = getTerrainHeight(0, 0.3)
     const target = mockNpc({
       id: 'roman-delayed-target',
       faction: Faction.ENEMY,
@@ -285,11 +287,11 @@ describe('Combat attribution foundation', () => {
       presetId: 'roman_heavy_infantry',
       hp: 50,
       maxHp: 50,
-      position: new THREE.Vector3(0, 0, 0.3),
+      position: new THREE.Vector3(0, targetGroundY, 0.3),
     })
     const arrow = new ArrowProjectile(
       new THREE.Scene(),
-      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, targetGroundY + 1, 0),
       new THREE.Vector3(0, 0, 1),
       35,
       25,
