@@ -4,7 +4,7 @@
 
 **SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
 
-SagaBurst currently has two main modes: **Custom Battle**, where you build both armies and control the scenario, and **Defense Campaign**, a nine-stage Roman/Viking defense progression with persistent per-faction unlocks.
+SagaBurst includes **Custom Battle**, **Defense Campaign**, and **Career Town Hub**. Custom Battle lets you build both armies; Defense Campaign has nine Roman/Viking stages; Career starts in a persistent faction town.
 
 ## ⚔️ At a Glance
 
@@ -24,6 +24,18 @@ SagaBurst currently has two main modes: **Custom Battle**, where you build both 
 | Platform | Desktop browser, keyboard + mouse |
 
 The project is actively evolving, with current work focused on combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
+
+## 🏘️ Career Town Hub
+
+Choose **CAREER** from the main menu, select Roman or Viking, and choose one T1 starter weapon once. Existing careers keep their faction, appointed rank, merit, and collections. Roman towns use a forum and colonnaded hall; Viking towns use timber longhouses, roof snow, compacted snow paths, and civilians in muted wool tunics and brown trousers.
+
+- Move with **WASD**, run with **Shift**, and face a nearby service character to **E** talk. **Q / Esc** closes dialogue. The captain appoints one eligible rank at a time; the infantryman opens the existing same-faction Stage 1 setup, whose Back button returns to town.
+- Every peaceful entry starts on foot with weapons and shield put away. **Tab** opens the existing equipment UI to draw owned gear allowed by your appointed rank. Ownership and equipment preferences remain saved; empty-hand clicks do not attack or aim. Town sheathing does not change Campaign loadouts.
+- The weapon merchant and Black Cat / Maki stable show provisional prices and eligibility only. Purchasing and player town mounts are not available yet.
+- Town population is **60 T2 training troops** (10 melee cavalry, 10 horse archers, 20 ranged infantry, 20 melee infantry), **20 civilians**, and **5 service actors**. The 21 ordinary horses are additional runtime entities; the stable cat is counted once among the 85 principal actors.
+- The first effective hit on any resident or building immediately starts town-wide retaliation. Civilians have 50 HP and draw `gladius_rusty`; Maki mounts the same stable cat. Training targets and training projectiles never cause crime, rewards, or friendly damage.
+- Death deducts up to **100 available merit** once and returns you to a restored town. Defeating all 85 principal actors switches faction, resets appointed rank to Recruit, and starts a new enlistment merit baseline while retaining lifetime merit and collections. Reloading an unfinished event preserves hostility, deaths, and destroyed buildings.
+- Rank eligibility uses `totalMerit - enlistmentMeritBase` at 0 / 300 / 900 / 5000 / 20000. Appointment requires the captain; earning merit or loading a save never automatically promotes you. This hub does not yet award Career merit from ordinary Campaign results or implement Career Recruit battles / command authority.
 
 ## 🏰 Defense Campaign
 

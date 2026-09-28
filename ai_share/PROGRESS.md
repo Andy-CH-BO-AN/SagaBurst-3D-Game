@@ -1,12 +1,14 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-28（source corgi worktree）_
+_Last updated: 2026-09-28_
 
 > This file is a concise handoff, not a changelog or validation archive. Keep only current state, durable decisions, recent milestone outcomes, known limitations, and the next useful investigation. Detailed benchmark runs, screenshot inventories, per-frame evidence, and historical implementation narratives belong in merged PRs / Git history and ignored `output/` diagnostics.
 
 ---
 
 ## Current Status
+
+- Career Town Hub（`codex/career-town-hub`，未合併）：獨立 Roman／Viking 小鎮、固定駐軍訓練、交談與手動任命、戰役設定入口、建築破壞及全鎮反擊已接上。和平進場預設收起武装，Tab 仍依 owned／已任命 rank 拔刀；事件重載保留敵對與死亡／摧毀名單，結算保存後才重生或轉陣營。商店目前只展示，Career Recruit 戰役與正式軍功串接留後續。
 
 - 柯基來源替換（`codex/corgi-source-mount`，未合併）：採用 leijiaoshou 的 CC BY 4.0 `corgi dog`，保留來源網格與貼圖；獨立骨架／mixer、三層 LOD、九個動作。使用貼背薄坐墊，已移除長方體座架。`?devmodels=corgi&rider=roman-t2|roman-t4|maki-t4&nolock` 可切換驗收騎士；坐墊表面貼合共用於預覽及既有 Player／NPC；依新模型收窄髖部展開，膝踝貼合身側，Maki 另依腿長調整。騎乘揮擊固定骨盆並把轉身留給上胸，避免腿隨步戰攻擊扭入坐騎。已與 main 的 T4 英雄正式兵種整合接軌，預覽沿用共用 HeroAssetCatalog。
 

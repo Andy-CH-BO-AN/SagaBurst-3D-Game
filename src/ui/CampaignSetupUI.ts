@@ -60,6 +60,7 @@ export class CampaignSetupUI {
   private squadAssignments: SquadAssignment[] = []
   private selectedSquadId: SquadId = 1
   private onStartCallback: ((config: DefenseCampaignLaunchConfig) => void) | null = null
+  private returnToOrigin = false
   private onBackCallback: (() => void) | null = null
 
   mount(
@@ -67,10 +68,12 @@ export class CampaignSetupUI {
     onStart: (config: DefenseCampaignLaunchConfig) => void,
     onBack: () => void,
     initialTarget?: DefenseCampaignSetupTarget,
+    returnToOrigin = false,
   ): void {
     this.destroy()
     this.onStartCallback = onStart
     this.onBackCallback = onBack
+    this.returnToOrigin = returnToOrigin
     this.screen = 'faction'
     this.defenderFaction = null
     this.stageId = 1
@@ -379,7 +382,7 @@ export class CampaignSetupUI {
 
       <div class="setup-validation-msg">${validation.valid ? '' : validation.errors.join(' ｜ ')}</div>
       <div class="campaign-actions">
-        <button type="button" class="campaign-secondary-btn" id="campaign-back-stage">← 關卡選擇</button>
+        <button type="button" class="campaign-secondary-btn" id="campaign-back-stage">${this.returnToOrigin ? '← 返回小鎮' : '← 關卡選擇'}</button>
         <button type="button" class="start-btn" id="campaign-start-stage" ${validation.valid ? '' : 'disabled'}>
           <span>${this.commandGrouping === 'squad' ? '選擇小隊' : '開始戰役'}</span>
           <small>${this.commandGrouping === 'squad' ? 'ASSIGN SQUADS' : 'START CAMPAIGN'}</small>
@@ -458,6 +461,7 @@ export class CampaignSetupUI {
       this.playerLoadout.mountId = (event.target as HTMLSelectElement).value as PlayerMountId
     })
     const backToStage = () => {
+      if (this.returnToOrigin) { this.onBackCallback?.(); return }
       this.screen = 'stage'
       this._render()
     }

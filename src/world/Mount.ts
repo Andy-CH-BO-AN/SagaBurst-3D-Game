@@ -69,6 +69,7 @@ export class Mount {
   public readonly aimCollider: THREE.Mesh
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
+  public reservedForTown = false
   public maxHp = 100
   public currentHp = 100
   public baseSpeed = 12
@@ -152,7 +153,7 @@ export class Mount {
 
   get dead(): boolean { return this.state === MountState.DEAD }
   get availableForPlayer(): boolean {
-    return !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
+    return !this.reservedForTown && !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
   }
   get displayName(): string {
     if (this.type === MountType.HORSE) return '戰馬'

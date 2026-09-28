@@ -1,3 +1,4 @@
+import { CIVILIAN_PROFILE } from '../town/TownRules'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
@@ -369,6 +370,8 @@ export class NPC {
     visualAssetId?: HeroAssetId,
     combatProfileId?: T4CombatProfileId,
     specialCombatProfile?: 'maki-ranger',
+    readonly townCategory?: 'civilian',
+    civilianStyle?: CharacterFaction,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -380,7 +383,7 @@ export class NPC {
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
     this.currentHp = this.maxHp
     this.loadout = loadout
     this.presetId = presetId
@@ -445,6 +448,8 @@ export class NPC {
       faction: this.characterFaction,
       tier: this.tier === 4 ? 3 : this.tier,
       isPlayer: false,
+      civilian: townCategory === 'civilian',
+      civilianStyle,
     } as const
     const allowLegacyFixture = import.meta.env.MODE === 'test'
       || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
@@ -526,6 +531,50 @@ export class NPC {
 
     this.group.position.copy(basePos)
     scene.add(this.group)
+  }
+
+  private townArmed = false
+  setTownPeaceful(): void {
+    this.respawnEnabled = false
+    this.animator.cancel()
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+  }
+  beginTownHostility(): void {
+    if (this.dead) return
+    this.animator.cancel()
+    this.tacticalOrder = 'charge'
+    this.state = AIState.CHASE
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.townArmed = true
+      this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
+      this.swordPivot.visible = true
+    }
+  }
+  /** Peace uses animation and assigned motion only: no battle target search or A*. */
+  updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
+    if (this.dead) { this.animator.update(dt, distance); return false }
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setLocomotion(speed, this.isMounted)
+    if (training && startAttack && !this.animator.busy) {
+      this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
+    }
+    if (training && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
+      const charge = Math.min(1, trainingPhase / 1.3)
+      this.animator.poseBow(charge)
+      this._tmpRangedTarget.set(0, 1.3, 4).applyQuaternion(this.group.quaternion).add(this.group.position)
+      this.bowVisual?.update(charge, this._tmpRangedTarget, true)
+    }
+    const events = this.animator.update(dt, distance)
+    if (this.isMounted) this._syncToMount()
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    return events.projectileRelease
+  }
+  dispose(): void {
+    this.animator.cancel()
+    this.rig.animation?.stop()
+    this.alertSprite.material.map?.dispose()
+    this.alertSprite.material.dispose()
+    this.group.removeFromParent()
   }
 
   mountVehicle(mount: Mount): void {

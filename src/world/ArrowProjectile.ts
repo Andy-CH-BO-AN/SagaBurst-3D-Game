@@ -209,6 +209,7 @@ export class ArrowProjectile {
       obstacle: DamageableObstacle,
       hpRatio: number,
     ) => void,
+    visualOnly = false,
   ): void {
     if (!this.alive) return
 
@@ -231,6 +232,8 @@ export class ArrowProjectile {
     // Orient arrow towards velocity
     this._tmpTargetPos.copy(this.velocity).normalize()
     this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
+
+    if (visualOnly) return
 
     // Give the arrowhead enough clearance to leave the nock before testing
     // world geometry, then collide against the procedural terrain height—not

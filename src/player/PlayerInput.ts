@@ -4,6 +4,16 @@
  * Phase 3 addition: right mouse button (aim mode) detection.
  */
 export class PlayerInput {
+  private readonly listeners = new AbortController()
+  dispose(): void { this.listeners.abort(); this.clear() }
+  clear(): void {
+    for (const key of Object.keys(this.keys)) delete this.keys[key]
+    this.isLeftMouseDown = this.isRightMouseDown = false
+    this._leftClickTriggered = this._leftClickReleased = this._middleClickTriggered = this._keyETriggered = false
+    this._wheelSteps = this._dx = this._dy = 0
+    this._keyPresses.clear()
+  }
+
   private readonly allowUnlockedInput = window.location.search.includes('nolock')
   // Movement & Action keys
   readonly keys: Record<string, boolean> = {}
@@ -37,10 +47,10 @@ export class PlayerInput {
       if (e.code === 'KeyE') {
         this._keyETriggered = true
       }
-    })
+    }, { signal: this.listeners.signal })
     window.addEventListener('keyup', (e) => {
       this.keys[e.code] = false
-    })
+    }, { signal: this.listeners.signal })
 
     window.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
@@ -70,7 +80,7 @@ export class PlayerInput {
         // input path can still be exercised end-to-end.
         this.isRightMouseDown = this.allowUnlockedInput ? !this.isRightMouseDown : true
       }
-    })
+    }, { signal: this.listeners.signal })
 
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) {
@@ -84,7 +94,7 @@ export class PlayerInput {
       if (e.button === 2) {
         if (!this.allowUnlockedInput) this.isRightMouseDown = false
       }
-    })
+    }, { signal: this.listeners.signal })
 
     window.addEventListener('wheel', (e) => {
       if (!this.isLocked || e.deltaY === 0) return
@@ -92,12 +102,12 @@ export class PlayerInput {
       // Clamp queued steps so trackpads cannot accumulate an unbounded backlog.
       e.preventDefault()
       this._wheelSteps = Math.max(-8, Math.min(8, this._wheelSteps + Math.sign(e.deltaY)))
-    }, { passive: false })
+    }, { passive: false, signal: this.listeners.signal })
 
     // Prevent context menu from popping up on right-click
     window.addEventListener('contextmenu', (e) => {
       e.preventDefault()
-    })
+    }, { signal: this.listeners.signal })
 
     document.addEventListener('mousemove', (e) => {
       // Strict lock gating: mouse movement delta is only accumulated when locked.
@@ -105,11 +115,11 @@ export class PlayerInput {
       if (!this.isLocked) return
       this._dx += e.movementX
       this._dy += e.movementY
-    })
+    }, { signal: this.listeners.signal })
 
     document.addEventListener('pointerlockchange', () => {
       this._syncPointerLockState()
-    })
+    }, { signal: this.listeners.signal })
 
     // Critical: handle pointer lock acquired before PlayerInput existed.
     this._syncPointerLockState()

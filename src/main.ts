@@ -4,6 +4,8 @@
  * Implements Custom Battle Setup official entrance with developer bypass and untrusted sessionStorage validation.
  */
 import { Game } from './Game'
+import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { CareerProfileStore } from './career/CareerProfileStore'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
 import { MainMenuUI } from './ui/MainMenuUI'
@@ -120,7 +122,8 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_campaign_config')
   }
 
-  if (savedCampaign) {
+  const careerResume = new CareerProfileStore().loadChecked().profile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1'
+  if (savedCampaign && !careerResume) {
     await launchGame(undefined, savedCampaign)
     return
   }
@@ -143,7 +146,7 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_battle_config')
   }
 
-  if (savedConfig) {
+  if (savedConfig && !careerResume) {
     await launchGame(savedConfig)
     return
   }
@@ -194,6 +197,7 @@ async function bootstrap(): Promise<void> {
   showHome = (): void => {
     const menu = new MainMenuUI()
     menu.mount(document.body, {
+      onCareer: () => { menu.destroy(); enterCareerTown(container!, config => launchGame(undefined, config), showHome) },
       onCustomBattle: () => {
         menu.destroy()
         const setupUI = new BattleSetupUI()
@@ -230,7 +234,9 @@ async function bootstrap(): Promise<void> {
     })
   }
 
-  if (requestedCampaignSetup) {
+  if (careerResume) {
+    enterCareerTown(container!, config => launchGame(undefined, config), showHome)
+  } else if (requestedCampaignSetup) {
     showCampaignSetup(requestedCampaignSetup)
   } else {
     showHome()

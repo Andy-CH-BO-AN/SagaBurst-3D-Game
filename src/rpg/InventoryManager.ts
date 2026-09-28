@@ -25,6 +25,9 @@ const LEGACY_LOADOUT: InitialPlayerLoadout = {
 }
 
 export class InventoryManager {
+  rangedEnabled = true
+  meleeEnabled = true
+  shieldEnabled = true
   private items: InventoryStack[]
   private equippedMeleeId: string
   private equippedRangedId: string
@@ -42,7 +45,7 @@ export class InventoryManager {
     this.items = initialLoadout || fixed
       ? [
           { id: loadout.meleeWeaponId, quantity: 1 },
-          { id: loadout.rangedWeaponId, quantity: 1 },
+          ...(loadout.rangedWeaponId ? [{ id: loadout.rangedWeaponId, quantity: 1 }] : []),
           ...(loadout.shieldId ? [{ id: loadout.shieldId, quantity: 1 }] : []),
         ]
       : [
