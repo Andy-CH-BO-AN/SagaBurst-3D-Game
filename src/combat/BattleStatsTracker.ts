@@ -78,7 +78,10 @@ export class BattleStatsTracker {
   private readonly registeredSquadActors = new Set<string>()
   private readonly unsubscribe: () => void
 
-  constructor(events: CombatEventStream) {
+  constructor(
+    events: CombatEventStream,
+    private readonly trackStructureStats = true,
+  ) {
     this.unsubscribe = events.subscribe(event => this._onEvent(event))
   }
 
@@ -164,6 +167,8 @@ export class BattleStatsTracker {
       if (event.source.squadId !== undefined) this._squad(event.source.squadId).kills++
       return
     }
+
+    if (!this.trackStructureStats) return
 
     if (event.type === 'structure_damaged') {
       if (event.source.actorType === 'player') {
