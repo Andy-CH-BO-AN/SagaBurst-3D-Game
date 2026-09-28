@@ -293,7 +293,7 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 
 export class Game {
   readonly combatEvents = new CombatEventStream()
-  readonly battleStats = new BattleStatsTracker(this.combatEvents)
+  readonly battleStats: BattleStatsTracker
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -552,6 +552,9 @@ export class Game {
   ) {
     this.renderer = renderer
     this.defenseCampaignConfig = campaignConfig ?? null
+    // Defense Campaign player-side units are defenders, so structure damage / breach
+    // is not a valid performance statistic for them. Custom Battle remains generic.
+    this.battleStats = new BattleStatsTracker(this.combatEvents, !campaignConfig)
 
     // ── Scene ──
     this.scene = new THREE.Scene()
