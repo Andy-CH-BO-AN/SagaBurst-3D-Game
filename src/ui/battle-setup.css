@@ -1437,12 +1437,20 @@
   text-align: center;
 }
 .battle-stats-result h2 small,
+.battle-stats-player-title small,
 .battle-stats-squad-title small {
   margin-left: 6px;
   color: #756858;
   font-size: 9px;
   letter-spacing: .16em;
 }
+.battle-stats-player-title {
+  padding: 0 0 7px;
+  color: #cdb28a;
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
 .battle-stats-player-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
