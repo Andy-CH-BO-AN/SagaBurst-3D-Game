@@ -192,6 +192,17 @@ skyrim 3D test/
 
 ---
 
+## Career Progression Foundation
+
+- Career persistence is isolated from the existing open-world save and campaign-stage progress under `sagaburst_career_v1`. A career profile owns faction, merit, rank, unlock sets, lifetime stats, and claimed battle IDs; it does not reuse `wdyh_save_v1`.
+- Career ranks are data-driven merit thresholds: Recruit 0, Soldier 300, Veteran 900, Captain 2000, Commander 4000. The current values are first-pass tuning constants rather than UI/gameplay hard-coding.
+- `MeritCalculator` consumes a `BattleStatsSnapshot` plus battle outcome/role. First-pass merit is Victory +80, Kill +8, every 100 actual character damage +2, survival +20; offense-only every 100 structure damage +1 and each gate breach +25. Defense ignores structure/breach merit even if malformed input contains those values.
+- `claimCareerBattle` requires an opaque unique battle ID, applies merit/lifetime totals exactly once, derives rank from total merit, and leaves faction/unlock state unchanged. Claimed IDs make result processing idempotent.
+- `CareerProfileStore` validates/sanitizes loaded data, derives rank from merit instead of trusting saved rank, filters unknown unlock IDs, and returns `null` for corrupt/unsupported profiles instead of silently selecting a faction.
+- This layer has no Career UI or battle-launch rules. Recruit equipment restrictions, Career battle IDs, Captain squad authority, T4 unlocks, Commander controls, and result-to-career wiring remain separate gameplay work.
+
+---
+
 ## Data Flow (per frame)
 
 ```
