@@ -40,18 +40,18 @@ export function setDirectionalShadowMapSize(scene: THREE.Scene, shadowMapSize: n
   return shadowMapSize
 }
 
-export function createSky(scene: THREE.Scene, shadowMapSize = PRODUCTION_SHADOW_MAP_SIZE): void {
-  scene.background = new THREE.Color(0x87ceeb)
+export function createSky(scene: THREE.Scene, shadowMapSize = PRODUCTION_SHADOW_MAP_SIZE, snowy = false): void {
+  scene.background = new THREE.Color(snowy ? 0xaebfce : 0x87ceeb)
 
   // Atmospheric fog
-  scene.fog = new THREE.Fog(0xd4e8f5, 35, 180)
+  scene.fog = new THREE.Fog(snowy ? 0xdbe5ec : 0xd4e8f5, 35, 180)
 
   // Ambient light
-  const ambient = new THREE.AmbientLight(0xfff5e0, 0.52)
+  const ambient = new THREE.AmbientLight(snowy ? 0xe9f1fa : 0xfff5e0, 0.52)
   scene.add(ambient)
 
   // Directional sun light
-  const sun = new THREE.DirectionalLight(0xfff0cc, 1.8)
+  const sun = new THREE.DirectionalLight(snowy ? 0xeaf3ff : 0xfff0cc, snowy ? 1.5 : 1.8)
   sun.position.set(60, 80, 40)
   sun.castShadow = true
   sun.shadow.mapSize.width = shadowMapSize
@@ -66,6 +66,6 @@ export function createSky(scene: THREE.Scene, shadowMapSize = PRODUCTION_SHADOW_
   scene.add(sun)
 
   // Hemisphere light
-  const hemi = new THREE.HemisphereLight(0x9bc9e2, 0x46513f, 0.72)
+  const hemi = new THREE.HemisphereLight(snowy ? 0xc9ddeb : 0x9bc9e2, snowy ? 0x8b98a4 : 0x46513f, 0.72)
   scene.add(hemi)
 }

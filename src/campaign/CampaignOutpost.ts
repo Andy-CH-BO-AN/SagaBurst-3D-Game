@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { createCampfireVisual, createChevalVisual, createTentVisual, timberMaterial, bakedMesh, beamBetween } from '../world/EnvironmentVisuals'
 import {
   getTerrainHeight,
   removeObstacleData,
@@ -18,7 +19,7 @@ export const CAMPAIGN_OUTPOST_LAYOUT = {
   backDistance: 180,
   halfWidth: 44,
   gateWidth: 8,
-  stakeLineDistance: 102,
+  stakeLineDistance: 115,
 } as const
 
 // Canonical humanoid heights are 1.86m Viking / 1.78m Roman.
@@ -112,20 +113,22 @@ export function createCampaignOutpost(
   const damageableObstacles: DamageableObstacle[] = []
   const breachController = new CampaignBreachController()
 
-  const woodMaterial = new THREE.MeshLambertMaterial({ color: 0x76502b })
-  const darkWoodMaterial = new THREE.MeshLambertMaterial({ color: 0x4d321d })
-  const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xb6a47c, side: THREE.DoubleSide })
-  const emberMaterial = new THREE.MeshBasicMaterial({ color: 0xff8a32 })
-  const stoneMaterial = new THREE.MeshLambertMaterial({ color: 0x6d6b63 })
-
+  const woodMaterial = timberMaterial(0x827058)
+  const darkWoodMaterial = timberMaterial(0x514333)
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
   const palisadeHeight = CAMPAIGN_PALISADE_HEIGHT[defenderFaction]
-  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, palisadeHeight, 6)
-  const stakePole = new THREE.CylinderGeometry(0.1, 0.13, 3.4, 6)
-  const tentGeometry = new THREE.ConeGeometry(4.0, 3.6, 4)
-  const fireLogGeometry = new THREE.CylinderGeometry(0.12, 0.12, 1.15, 6)
-  const flameGeometry = new THREE.ConeGeometry(0.35, 0.9, 8)
-  const stoneGeometry = new THREE.DodecahedronGeometry(0.22, 0)
+  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, palisadeHeight, 7, 2)
+  // Shape each stake into a hewn point while retaining the exact wall height.
+  const stakePositions = palisadeStakeGeometry.getAttribute('position')
+  for (let i = 0; i < stakePositions.count; i++) {
+    if (Math.abs(stakePositions.getY(i)) < 0.001) {
+      stakePositions.setY(i, palisadeHeight / 2 - 0.18)
+    } else if (stakePositions.getY(i) > palisadeHeight * 0.49) {
+      stakePositions.setX(i, stakePositions.getX(i) * 0.16)
+      stakePositions.setZ(i, stakePositions.getZ(i) * 0.16)
+    }
+  }
+  palisadeStakeGeometry.computeVertexNormals()
 
   const unregisterHitMeshes = (hitMeshes: readonly THREE.Object3D[]): void => {
     for (const mesh of hitMeshes) {
@@ -202,30 +205,28 @@ export function createCampaignOutpost(
       maxTerrainY = Math.max(maxTerrainY, terrainY)
       matrix.makeTranslation(stakeX, terrainY + palisadeHeight / 2, stakeZ)
       stakes.setMatrixAt(i, matrix)
+      stakes.setColorAt(i, new THREE.Color().setHSL(0.09, 0.12, 0.65 + Math.sin(i * 13.7) * 0.12))
     }
     stakes.instanceMatrix.needsUpdate = true
     pieceRoot.add(stakes)
 
-    const centerTerrainY = getTerrainHeight(x, z)
-    const lowerRail = new THREE.Mesh(unitBox, darkWoodMaterial)
-    lowerRail.position.set(x, centerTerrainY + palisadeHeight * 0.42, z)
-    lowerRail.scale.set(
-      horizontal ? widthX : 0.16,
-      0.14,
-      horizontal ? 0.16 : depthZ,
-    )
-    lowerRail.castShadow = true
-    pieceRoot.add(lowerRail)
-
-    const upperRail = new THREE.Mesh(unitBox, darkWoodMaterial)
-    upperRail.position.set(x, centerTerrainY + palisadeHeight * 0.76, z)
-    upperRail.scale.set(
-      horizontal ? widthX : 0.16,
-      0.14,
-      horizontal ? 0.16 : depthZ,
-    )
-    upperRail.castShadow = true
-    pieceRoot.add(upperRail)
+    const createRail = (heightRatio: number): THREE.Mesh => {
+      const parts: THREE.BufferGeometry[] = []
+      const sections = Math.ceil(length / 2)
+      const pointAt = (offset: number): THREE.Vector3 => {
+        const px = horizontal ? x + offset : x + 0.17
+        const pz = horizontal ? z + 0.17 : z + offset
+        return new THREE.Vector3(px, getTerrainHeight(px, pz) + palisadeHeight * heightRatio, pz)
+      }
+      for (let i = 0; i < sections; i++) {
+        parts.push(beamBetween(pointAt(-length / 2 + length * i / sections),
+          pointAt(-length / 2 + length * (i + 1) / sections), 0.075))
+      }
+      return bakedMesh(parts, darkWoodMaterial)
+    }
+    const lowerRail = createRail(0.42)
+    const upperRail = createRail(0.76)
+    pieceRoot.add(lowerRail, upperRail)
 
     root.add(pieceRoot)
 
@@ -303,8 +304,8 @@ export function createCampaignOutpost(
   gateRoot.add(leftGateHinge)
 
   const leftGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  leftGate.position.set(gateWidth / 4, palisadeHeight / 2, 0)
-  leftGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
+  leftGate.position.set(gateWidth / 4, (palisadeHeight - 0.14) / 2, 0)
+  leftGate.scale.set(gateWidth / 2, palisadeHeight - 0.14, 0.9)
   leftGate.castShadow = true
   leftGateHinge.add(leftGate)
 
@@ -320,8 +321,8 @@ export function createCampaignOutpost(
   gateRoot.add(rightGateHinge)
 
   const rightGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  rightGate.position.set(-gateWidth / 4, palisadeHeight / 2, 0)
-  rightGate.scale.set(gateWidth / 2, palisadeHeight, 0.9)
+  rightGate.position.set(-gateWidth / 4, (palisadeHeight - 0.14) / 2, 0)
+  rightGate.scale.set(gateWidth / 2, palisadeHeight - 0.14, 0.9)
   rightGate.castShadow = true
   rightGateHinge.add(rightGate)
 
@@ -331,11 +332,36 @@ export function createCampaignOutpost(
   rightGateTop.castShadow = true
   rightGateHinge.add(rightGateTop)
 
+  // Plank relief, diagonal bracing and iron straps travel with each hinged leaf.
+  const gateDetails: THREE.Object3D[] = []
+  const iron = new THREE.MeshStandardMaterial({ color: 0x3e4140, roughness: 0.78, metalness: 0.5 })
+  for (const [hinge, sign] of [[leftGateHinge, 1], [rightGateHinge, -1]] as const) {
+    const woodParts: THREE.BufferGeometry[] = []
+    const ironParts: THREE.BufferGeometry[] = []
+    for (let plank = 0; plank < 10; plank++) {
+      woodParts.push(new THREE.BoxGeometry(gateWidth / 20 - 0.025, palisadeHeight - 0.13, 0.94)
+        .translate(sign * (plank + 0.5) * gateWidth / 20, palisadeHeight / 2, 0))
+    }
+    for (const face of [-1, 1]) {
+      woodParts.push(beamBetween(new THREE.Vector3(sign * 0.15, 0.18, face * 0.49), new THREE.Vector3(sign * (gateWidth / 2 - 0.15), palisadeHeight - 0.18, face * 0.49), 0.065))
+      for (const y of [0.27, palisadeHeight - 0.27]) {
+        ironParts.push(new THREE.BoxGeometry(gateWidth / 2 - 0.12, 0.09, 0.025).translate(sign * gateWidth / 4, y, face * 0.485))
+        for (const x of [0.2, 1.3, 2.6, 3.8]) {
+          ironParts.push(new THREE.SphereGeometry(0.038, 6, 4).translate(sign * x, y, face * 0.51))
+        }
+      }
+    }
+    const planks = bakedMesh(woodParts, woodMaterial)
+    const hardware = bakedMesh(ironParts, iron)
+    hinge.add(planks, hardware)
+    gateDetails.push(planks, hardware)
+  }
+
   root.add(gateRoot)
   const gate = registerDamageablePiece({
     kind: 'gate',
     root: gateRoot,
-    hitMeshes: [leftGate, leftGateTop, rightGate, rightGateTop],
+    hitMeshes: [leftGate, leftGateTop, rightGate, rightGateTop, ...gateDetails],
     box: new THREE.Box3(
       new THREE.Vector3(-gateWidth / 2, gateTerrainY, frontZ - 0.45),
       new THREE.Vector3(gateWidth / 2, gateTerrainY + palisadeHeight, frontZ + 0.45),
@@ -358,40 +384,42 @@ export function createCampaignOutpost(
 
   const stakeXs = [-40, -32, -24, -16, -10, 10, 16, 24, 32, 40]
   for (const [index, x] of stakeXs.entries()) {
-    const z = stakeLineZ + (index % 2 === 0 ? -0.8 : 0.8)
+    const z = stakeLineZ + zSign * (index % 2 === 0 ? -0.8 : 0.8)
     const terrainY = getTerrainHeight(x, z)
-    const pieceRoot = new THREE.Group()
+    const pieceRoot = createChevalVisual()
     pieceRoot.name = `campaign-chevaux-de-frise-${index + 1}`
-
-    const poleA = new THREE.Mesh(stakePole, darkWoodMaterial)
-    poleA.position.set(x, terrainY + 0.9, z)
-    poleA.rotation.z = Math.PI / 4
-    poleA.castShadow = true
-    pieceRoot.add(poleA)
-
-    const poleB = new THREE.Mesh(stakePole, darkWoodMaterial)
-    poleB.position.set(x, terrainY + 0.9, z)
-    poleB.rotation.z = -Math.PI / 4
-    poleB.castShadow = true
-    pieceRoot.add(poleB)
-
-    const cross = new THREE.Mesh(stakePole, woodMaterial)
-    cross.position.set(x, terrainY + 0.85, z)
-    cross.rotation.x = Math.PI / 2
-    cross.castShadow = true
-    pieceRoot.add(cross)
+    pieceRoot.position.set(x, terrainY, z)
+    const hitMeshes = [...pieceRoot.children]
 
     root.add(pieceRoot)
     registerDamageablePiece({
       kind: 'chevaux_de_frise',
       root: pieceRoot,
-      hitMeshes: [poleA, poleB, cross],
+      hitMeshes,
       box: new THREE.Box3(
         new THREE.Vector3(x - 1.6, terrainY, z - 0.8),
         new THREE.Vector3(x + 1.6, terrainY + 2.0, z + 0.8),
       ),
       isBarricade: true,
     })
+  }
+
+  // Let the cloth hem and rope pegs meet the terrain without bending the roof.
+  const groundTentHem = (tent: THREE.Group): void => {
+    const point = new THREE.Vector3()
+    for (const child of tent.children) {
+      if (!(child instanceof THREE.Mesh)) continue
+      const positions = child.geometry.getAttribute('position')
+      for (let i = 0; i < positions.count; i++) {
+        const y = positions.getY(i)
+        if (y >= 0.7) continue
+        point.set(positions.getX(i), y, positions.getZ(i)).applyEuler(tent.rotation).add(tent.position)
+        const offset = getTerrainHeight(point.x, point.z) - tent.position.y
+        positions.setY(i, y + offset * (1 - THREE.MathUtils.smoothstep(y, 0.1, 0.7)))
+      }
+      positions.needsUpdate = true
+      child.geometry.computeVertexNormals()
+    }
   }
 
   const createTent = (
@@ -401,21 +429,17 @@ export function createCampaignOutpost(
     rotationY: number,
   ): DamageableObstacle => {
     const terrainY = getTerrainHeight(x, z)
-    const tentRoot = new THREE.Group()
+    const tentRoot = createTentVisual(defenderFaction)
     tentRoot.name = name
-
-    const tent = new THREE.Mesh(tentGeometry, canvasMaterial)
-    tent.position.set(x, terrainY + 1.8, z)
-    tent.rotation.y = rotationY
-    tent.castShadow = true
-    tent.receiveShadow = true
-    tentRoot.add(tent)
+    tentRoot.position.set(x, terrainY, z)
+    tentRoot.rotation.y = rotationY
+    groundTentHem(tentRoot)
     root.add(tentRoot)
 
     return registerDamageablePiece({
       kind: 'tent',
       root: tentRoot,
-      hitMeshes: [tent],
+      hitMeshes: [...tentRoot.children],
       box: new THREE.Box3(
         new THREE.Vector3(x - 3.7, terrainY, z - 3.7),
         new THREE.Vector3(x + 3.7, terrainY + 3.8, z + 3.7),
@@ -443,7 +467,7 @@ export function createCampaignOutpost(
       `campaign-outpost-tent-${index + 1}`,
       x,
       absZ * zSign,
-      rotationY,
+      rotationY + (x < 0 ? Math.PI / 4 : -Math.PI / 4),
     )
   })
 
@@ -453,31 +477,10 @@ export function createCampaignOutpost(
     z: number,
   ): DamageableObstacle => {
     const terrainY = getTerrainHeight(x, z)
-    const fireRoot = new THREE.Group()
+    const fireRoot = createCampfireVisual(x < 0 ? 17 : 29)
     fireRoot.name = name
-    const hitMeshes: THREE.Object3D[] = []
-
-    for (let i = 0; i < 3; i++) {
-      const log = new THREE.Mesh(fireLogGeometry, darkWoodMaterial)
-      log.position.set(x, terrainY + 0.14, z)
-      log.rotation.z = Math.PI / 2
-      log.rotation.y = (Math.PI / 3) * i
-      fireRoot.add(log)
-      hitMeshes.push(log)
-    }
-
-    for (let i = 0; i < 8; i++) {
-      const angle = (Math.PI * 2 * i) / 8
-      const stone = new THREE.Mesh(stoneGeometry, stoneMaterial)
-      stone.position.set(x + Math.cos(angle) * 0.7, terrainY + 0.14, z + Math.sin(angle) * 0.7)
-      fireRoot.add(stone)
-      hitMeshes.push(stone)
-    }
-
-    const flame = new THREE.Mesh(flameGeometry, emberMaterial)
-    flame.position.set(x, terrainY + 0.55, z)
-    fireRoot.add(flame)
-    hitMeshes.push(flame)
+    fireRoot.position.set(x, terrainY, z)
+    const hitMeshes = [...fireRoot.children]
 
     root.add(fireRoot)
     return registerDamageablePiece({

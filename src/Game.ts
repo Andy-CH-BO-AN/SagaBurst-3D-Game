@@ -426,6 +426,7 @@ export class Game {
   private defenseCampaignHud: DefenseCampaignHUD | null = null
   private campaignOriginalDefenders: NPC[] = []
   private campaignReinforcementSpawned = false
+  private campaignAttackersStarted = false
   private campaignSpawnQueue: NpcSpawnSpec[] = []
   private campaignSpawnQueueIndex = 0
   private campaignSpawnWave: 'attackers' | 'reinforcement' | null = null
@@ -584,7 +585,7 @@ export class Game {
           ? previewOutpostQuery
           : null)
 
-    createSky(this.scene, resolveShadowMapSize(startupQuery))
+    createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
     const {
       terrainMesh,
       obstacles,
@@ -1547,6 +1548,7 @@ export class Game {
     }
 
     const npc = this._spawnNpc(spec)
+    if (wave === 'attackers') this.campaignAttackersStarted = true
     npc.setTacticalOrder('attack')
     this.campaignSpawnQueueIndex++
 
@@ -1681,6 +1683,11 @@ export class Game {
 
     const defenderAlive = this._campaignFactionAlive(campaign.defenderFaction)
     const attackersAlive = this._campaignFactionAlive(attackerFaction)
+    hud.updateGate(
+      this.previewCampaignGate?.state ?? 'destroyed',
+      this.campaignAttackersStarted,
+      !this.player.dead && this.controlMode !== 'spectator',
+    )
     hud.update(
       runtime.getSnapshot(),
       defenderAlive,
@@ -1799,39 +1806,40 @@ export class Game {
     }, 5000)
   }
 
+  private _toggleCampaignGate(): void {
+    const gate = this.previewCampaignGate
+    if (!gate || this.player.dead || this.controlMode === 'spectator'
+      || this.equipmentUI.visible) return
+    if (this.defenseCampaignConfig && !this.campaignAttackersStarted) {
+      this._showNotify('🚪 部署中：敵軍開始進場後可按 G 開門')
+      return
+    }
+    if (gate.state === 'destroyed') {
+      this._showNotify('🚪 營門已損毀')
+      return
+    }
+    const actorPositions: THREE.Vector3[] = [this.player.combatPosition]
+    for (const npc of this.npcs) {
+      if (!npc.dead) actorPositions.push(npc.combatPosition)
+    }
+    for (const mount of this.mounts) {
+      if (!mount.dead) actorPositions.push(mount.group.position)
+    }
+    const occupied = gate.state === 'open'
+      && isCampaignGateOccupied(gate.collisionBox, actorPositions)
+    const changed = gate.toggle(occupied)
+    this._showNotify(!changed && occupied
+      ? '🚪 門口有人或馬，無法關門'
+      : gate.state === 'open' ? '🚪 營門已開啟 · G 關門' : '🚪 營門已關閉 · G 開門')
+  }
+
   // ── Keyboard Shortcuts ──
   private _setupShortcuts(): void {
     window.addEventListener('keydown', (e) => {
-      if (
-        import.meta.env.DEV
-        && this.previewCampaignGate
-        && !this.defenseCampaignConfig
-        && e.code === 'KeyG'
-      ) {
+      if (this.previewCampaignGate && e.code === 'KeyG'
+        && (this.defenseCampaignConfig || import.meta.env.DEV)) {
         e.preventDefault()
-        const gate = this.previewCampaignGate
-        const wasOpen = gate.state === 'open'
-        const actorPositions: THREE.Vector3[] = []
-
-        if (!this.player.dead && !this.player.spectatorOnly) {
-          actorPositions.push(this.player.combatPosition)
-        }
-        for (const npc of this.npcs) {
-          if (!npc.dead) actorPositions.push(npc.combatPosition)
-        }
-        for (const mount of this.mounts) {
-          if (!mount.dead) actorPositions.push(mount.group.position)
-        }
-
-        const occupied = wasOpen
-          && isCampaignGateOccupied(gate.collisionBox, actorPositions)
-        const changed = gate.toggle(occupied)
-
-        if (!changed && occupied) {
-          this._showNotify('🚪 門口有人或馬，無法關門')
-        } else {
-          this._showNotify(`🚪 Gate: ${gate.state.toUpperCase()}`)
-        }
+        if (!e.repeat) this._toggleCampaignGate()
         return
       }
 
