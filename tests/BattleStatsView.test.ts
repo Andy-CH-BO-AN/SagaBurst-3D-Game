@@ -30,6 +30,8 @@ describe('BattleStatsView', () => {
   it('renders personal battle stats', () => {
     const html = renderBattleStats(snapshot, false)
     expect(html).toContain('戰鬥統計')
+    expect(html).toContain('玩家統計')
+    expect(html).toContain('PLAYER')
     expect(html).toContain('1,284')
     expect(html).toContain('擊殺')
     expect(html).toContain('320')
