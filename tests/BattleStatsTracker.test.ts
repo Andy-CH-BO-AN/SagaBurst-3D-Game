@@ -199,6 +199,76 @@ describe('BattleStatsTracker', () => {
     }])
   })
 
+  it('does not count structure damage or breaches for defense-role stats', () => {
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, false)
+    const squadNpc = mockSquadNpc('defender-1', 1, false)
+    tracker.registerNpc(squadNpc)
+
+    events.emit({
+      type: 'structure_damaged',
+      source: playerSource(),
+      target: {
+        targetId: 'gate-defense',
+        targetType: 'structure',
+        name: 'Gate',
+        structureKind: 'gate',
+      },
+      method: 'melee',
+      requestedDamage: 500,
+      appliedDamage: 500,
+      hpRatio: 0,
+    })
+    events.emit({
+      type: 'structure_destroyed',
+      source: playerSource(),
+      target: {
+        targetId: 'gate-defense',
+        targetType: 'structure',
+        name: 'Gate',
+        structureKind: 'gate',
+      },
+      method: 'melee',
+    })
+    events.emit({
+      type: 'structure_damaged',
+      source: squadSource(1),
+      target: {
+        targetId: 'wall-defense',
+        targetType: 'structure',
+        name: 'Palisade',
+        structureKind: 'palisade',
+      },
+      method: 'siege',
+      requestedDamage: 300,
+      appliedDamage: 300,
+      hpRatio: 0,
+    })
+    events.emit({
+      type: 'structure_destroyed',
+      source: squadSource(1),
+      target: {
+        targetId: 'wall-defense',
+        targetType: 'structure',
+        name: 'Palisade',
+        structureKind: 'palisade',
+      },
+      method: 'siege',
+    })
+
+    const snapshot = tracker.snapshot([squadNpc] as any, { dead: false } as any)
+    expect(snapshot.player).toMatchObject({
+      structureDamage: 0,
+      structuresDestroyed: 0,
+      gateBreaches: 0,
+    })
+    expect(snapshot.squads[0]).toMatchObject({
+      structureDamage: 0,
+      structuresDestroyed: 0,
+      gateBreaches: 0,
+    })
+  })
+
   it('handles large event volume as counters and returns one compact snapshot', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
