@@ -44,34 +44,41 @@ function parseLifetimeStats(value: unknown): CareerLifetimeStats {
 
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
-  const input = value as Partial<CareerProfile>
+  const raw = value as Record<string, unknown>
 
-  if (input.version !== 1) return null
-  if (input.faction !== 'roman' && input.faction !== 'viking') return null
+  if (raw.version !== 1) return null
+  if (raw.faction !== 'roman' && raw.faction !== 'viking') return null
 
-  const merit = nonNegativeInteger(input.merit)
-  const unlockedWeapons = uniqueStrings(input.unlockedWeapons)
+  // Temporary compatibility with the pre-merge #140 field names.
+  const totalMerit = nonNegativeInteger(raw.totalMerit ?? raw.merit)
+  const availableMerit = Math.min(
+    totalMerit,
+    nonNegativeInteger(raw.availableMerit ?? totalMerit),
+  )
+
+  const ownedWeapons = uniqueStrings(raw.ownedWeapons ?? raw.unlockedWeapons)
     .filter(id => Boolean(WEAPONS[id]))
-  const unlockedShields = uniqueStrings(input.unlockedShields)
+  const ownedArmors = uniqueStrings(raw.ownedArmors ?? raw.unlockedShields)
     .filter(id => Boolean(ARMORS[id]))
-  const unlockedMounts = uniqueStrings(input.unlockedMounts)
+  const ownedMounts = uniqueStrings(raw.ownedMounts ?? raw.unlockedMounts)
     .filter((id): id is PlayerMountId => (
       (PLAYER_MOUNT_IDS as readonly string[]).includes(id)
     ))
-  const unlockedHeroes = uniqueStrings(input.unlockedHeroes)
+  const ownedHeroes = uniqueStrings(raw.ownedHeroes ?? raw.unlockedHeroes)
     .filter((id): id is HeroAssetId => isHeroAssetId(id))
 
   return {
     version: 1,
-    faction: input.faction,
-    merit,
-    rank: resolveCareerRank(merit),
-    unlockedWeapons,
-    unlockedShields,
-    unlockedMounts,
-    unlockedHeroes,
-    lifetimeStats: parseLifetimeStats(input.lifetimeStats),
-    claimedBattleIds: uniqueStrings(input.claimedBattleIds),
+    faction: raw.faction,
+    totalMerit,
+    availableMerit,
+    rank: resolveCareerRank(totalMerit),
+    ownedWeapons,
+    ownedArmors,
+    ownedMounts,
+    ownedHeroes,
+    lifetimeStats: parseLifetimeStats(raw.lifetimeStats),
+    claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
 }
 
