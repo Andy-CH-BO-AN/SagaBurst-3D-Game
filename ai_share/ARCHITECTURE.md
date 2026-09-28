@@ -192,6 +192,17 @@ skyrim 3D test/
 
 ---
 
+## Career Progression Foundation
+
+- Career persistence is isolated from the existing open-world save and campaign-stage progress under `sagaburst_career_v1`. A career profile owns faction, lifetime `totalMerit`, spendable `availableMerit`, rank, owned-content sets, lifetime stats, and claimed battle IDs; it does not reuse `wdyh_save_v1`.
+- Career ranks are based only on lifetime `totalMerit`, which never decreases: Recruit 0, Soldier 300, Veteran 900, Captain 5000, Commander 20000. Rank unlocks purchase tiers rather than granting gear: Recruit can buy T1, Soldier T2, Veteran T3, Captain/Commander T4.
+- `MeritCalculator` consumes a `BattleStatsSnapshot` plus battle outcome/role. First-pass merit is Victory +80, Kill +8, every 100 actual character damage +2, survival +20; offense-only every 100 structure damage +1 and each gate breach +25. Defense ignores structure/breach merit even if malformed input contains those values.
+- `claimCareerBattle` requires an opaque unique battle ID and adds the earned amount to both `totalMerit` and `availableMerit`; claimed IDs make result processing idempotent. `purchaseCareerContent` checks the rank-unlocked purchase tier, deducts only `availableMerit`, and records ownership without changing `totalMerit` or rank.
+- `CareerProfileStore` validates/sanitizes loaded data, derives rank from `totalMerit` instead of trusting saved rank, clamps `availableMerit <= totalMerit`, filters unknown owned-content IDs, and returns `null` for corrupt/unsupported profiles instead of silently selecting a faction. It also understands the temporary pre-merge single-merit / `unlocked*` field shape.
+- This layer has no Career UI, price catalog, or battle-launch rules. Exact prices for weapons/armor/horse/hero mounts, Recruit loadout restrictions, Career battle IDs, Captain squad authority, T4 content choices, Commander controls, and result-to-career wiring remain separate gameplay work.
+
+---
+
 ## Data Flow (per frame)
 
 ```
