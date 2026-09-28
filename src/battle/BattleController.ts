@@ -5,6 +5,8 @@
  */
 import { NPC } from '../world/NPC'
 import { BattleConfig } from './BattleConfig'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { renderBattleStats } from '../ui/BattleStatsView'
 
 export type BattleResult = "VIKING_VICTORY" | "ROMAN_VICTORY" | "DRAW" | null
 
@@ -20,7 +22,11 @@ export class BattleController {
   private initialVikingCount = 0
   private initialRomanCount = 0
 
-  constructor(config: BattleConfig) {
+  constructor(
+    config: BattleConfig,
+    private readonly statsProvider?: () => BattleStatsSnapshot,
+    private readonly showSquadStats = false,
+  ) {
     this.config = config
     this._createHud()
   }
@@ -108,6 +114,8 @@ export class BattleController {
       document.exitPointerLock()
     }
 
+    const statsHtml = renderBattleStats(this.statsProvider?.(), this.showSquadStats)
+
     const modal = document.createElement('div')
     modal.id = 'battle-result-modal'
     modal.style.cssText = `
@@ -133,11 +141,14 @@ export class BattleController {
         border-radius: 8px;
         text-align: center;
         box-shadow: 0 12px 48px rgba(0, 0, 0, 0.9), inset 0 0 30px rgba(0, 0, 0, 0.7);
-        max-width: 500px;
+        max-width: ${statsHtml ? '760px' : '500px'};
         width: 90%;
+        max-height: 88vh;
+        overflow-y: auto;
       ">
         <h1 style="margin: 0 0 8px 0; font-size: 38px; letter-spacing: 0.15em; color: ${titleColor}; text-shadow: 0 0 20px ${titleColor}66;">${title}</h1>
-        <p style="margin: 0 0 36px 0; font-size: 16px; color: #a99a86; letter-spacing: 0.08em;">${subtitle}</p>
+        <p style="margin: 0 0 ${statsHtml ? '18px' : '36px'} 0; font-size: 16px; color: #a99a86; letter-spacing: 0.08em;">${subtitle}</p>
+        ${statsHtml}
         <div style="display: flex; gap: 20px; justify-content: center;">
           <button id="btn-rematch" style="
             padding: 12px 28px;

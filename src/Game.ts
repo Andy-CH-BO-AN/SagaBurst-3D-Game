@@ -256,6 +256,7 @@ import {
   createNpcCombatActorRef,
   createPlayerCombatActorRef,
 } from './combat/CombatAttribution'
+import { BattleStatsTracker } from './combat/BattleStatsTracker'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { createBowComparisonPanel } from './debug/BowComparisonPanel'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
@@ -292,6 +293,7 @@ export function resolveMeleeHitThreshold(baseRange: number, isMounted: boolean):
 
 export class Game {
   readonly combatEvents = new CombatEventStream()
+  readonly battleStats: BattleStatsTracker
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -550,6 +552,9 @@ export class Game {
   ) {
     this.renderer = renderer
     this.defenseCampaignConfig = campaignConfig ?? null
+    // Defense Campaign player-side units are defenders, so structure damage / breach
+    // is not a valid performance statistic for them. Custom Battle remains generic.
+    this.battleStats = new BattleStatsTracker(this.combatEvents, !campaignConfig)
 
     // ── Scene ──
     this.scene = new THREE.Scene()
@@ -803,7 +808,11 @@ export class Game {
       this._spawnMountStudio()
     } else if (battleConfig && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
-      this.battleController = new BattleController(battleConfig)
+      this.battleController = new BattleController(
+        battleConfig,
+        () => this.battleStats.snapshot(this.npcs, this.player),
+        battleConfig.commandGrouping === 'squad',
+      )
       this.battleController.initCounts(this.npcs)
     }
 
@@ -1469,6 +1478,7 @@ export class Game {
       this._aimTargetRegistry.registerMount(mount)
     }
     this.npcs.push(npc)
+    this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
     return npc
   }
@@ -1564,6 +1574,7 @@ export class Game {
       ? () => this._returnToNextDefenseCampaignSetup()
       : undefined
 
+    const stats = this.battleStats.snapshot(this.npcs, this.player)
     this.defenseCampaignHud.showResult(
       result,
       () => {
@@ -1572,6 +1583,8 @@ export class Game {
       () => this._returnToHome(),
       allowObserve,
       onNext,
+      stats,
+      campaign?.commandGrouping === 'squad',
     )
   }
 

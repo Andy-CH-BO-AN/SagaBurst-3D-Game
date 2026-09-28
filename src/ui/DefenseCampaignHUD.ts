@@ -2,6 +2,8 @@ import type { CampaignFaction } from '../campaign/CampaignConfig'
 import type {
   DefenseCampaignRuntimeSnapshot,
 } from '../campaign/DefenseCampaignRuntime'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { renderBattleStats } from './BattleStatsView'
 
 export type DefenseCampaignResult = 'victory' | 'defeat'
 
@@ -84,6 +86,8 @@ export class DefenseCampaignHUD {
     onHome: () => void,
     allowObserve = false,
     onNext?: () => void,
+    stats?: BattleStatsSnapshot,
+    showSquadStats = false,
   ): void {
     if (this.resultShown) return
     this.resultShown = true
@@ -93,6 +97,7 @@ export class DefenseCampaignHUD {
     const modal = document.createElement('div')
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
+    const statsHtml = renderBattleStats(stats, showSquadStats)
     const victoryMessage = this.stageId < 9
       ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`
       : '敵軍已全數殲滅，Defense Campaign 全部通關。'
@@ -106,6 +111,7 @@ export class DefenseCampaignHUD {
               ? '玩家與原始守軍全滅。戰場仍會繼續模擬。'
               : '守方已全數陣亡，戰役結束。'
         }</p>
+        ${statsHtml}
         <div class="campaign-result-actions">
           ${!victory && allowObserve ? '<button type="button" id="campaign-result-observe">繼續觀戰</button>' : ''}
           ${victory && onNext
