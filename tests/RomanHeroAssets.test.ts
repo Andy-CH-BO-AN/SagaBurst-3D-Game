@@ -38,9 +38,10 @@ describe('Roman T4 independent appearance asset', () => {
       b.root.traverse(node => { if (node instanceof THREE.Bone) expect(bones.has(node.uuid)).toBe(false) })
       const lod = a.root.children.find(child => child instanceof THREE.LOD) as THREE.LOD
       for (const level of lod.levels) {
-        expect(level.object.getObjectByName('Praetorian_face_mask')?.parent?.name).toBe('head')
+        expect(level.object.getObjectByName('Praetorian_Roman_helmet')?.parent?.name).toBe('head')
+        for (const old of ['Helmet3', 'Praetorian_face_mask', 'Boots']) expect(level.object.getObjectByName(old)).toBeUndefined()
         expect(level.object.userData.humanoidLod2RepresentationControl).toBeUndefined()
-        for (const name of ['New_head', 'New_legs', 'Helmet3', 'socket_hand_r', 'socket_hand_l', 'socket_pelvis']) expect(level.object.getObjectByName(name)).toBeDefined()
+        for (const name of ['New_head', 'New_legs', 'Praetorian_centurion_footwear', 'Praetorian_Roman_helmet', 'socket_hand_r', 'socket_hand_l', 'socket_pelvis']) expect(level.object.getObjectByName(name)).toBeDefined()
       }
       const before = b.rig.right.shoulder.quaternion.clone()
       a.rig.animation!.play('swordSlash', { fadeSeconds: 0, loop: false })
@@ -79,7 +80,20 @@ describe('Roman T4 independent appearance asset', () => {
   })
 
   it.each([0, 1, 2])('LOD%d preserves source assets and all binding durations/events', async lod => {
-    const gltf = await loadRig(readGlb(`${directory}/lod${lod}.glb`))
+    const asset = readGlb(`${directory}/lod${lod}.glb`)
+    const gltf = await loadRig(asset)
+    expect(asset.document.meshes.some((mesh: { name: string }) => ['Helmet3', 'Praetorian_face_mask', 'Boots'].includes(mesh.name))).toBe(false)
+    const helmet = asset.document.materials.find((material: { name: string }) => material.name === 'Praetorian_source_helmet').pbrMetallicRoughness
+    const torso = asset.document.materials.find((material: { name: string }) => material.name === 'Armour_top0').pbrMetallicRoughness
+    expect(helmet.metallicFactor).toBe(torso.metallicFactor)
+    expect(helmet.roughnessFactor).toBe(torso.roughnessFactor)
+    expect(asset.document.asset.extras.romanHelmetReplacement.sourceSha256).toBe(
+      createHash('sha256').update(readFileSync('artifacts/character_sources/roman-helmet/source.glb')).digest('hex'),
+    )
+    expect(asset.document.asset.extras.romanGreavesReplacement.sourceSha256).toBe(
+      createHash('sha256').update(readFileSync('artifacts/character_sources/roman-centurion/source.glb')).digest('hex'),
+    )
+    expect(asset.document.asset.extras.romanGreavesReplacement.selectedSourceMeshes).toHaveLength(5)
     const base = JSON.parse(readFileSync('public/models/characters/v2/roman/manifest.json', 'utf8'))
     const sourceHash = createHash('sha256').update(readFileSync(`public/models/characters/v2/roman/lod${lod}.glb`)).digest('hex')
     expect(sourceHash).toBe(manifest.lodMeasurements[lod].sourceSha256)
@@ -93,7 +107,7 @@ describe('Roman T4 independent appearance asset', () => {
     expect(audit.rows[lod].changedUVorWeights).toBe(0)
     expect(audit.rows[lod].sha256).toBe(createHash('sha256').update(readFileSync(`${directory}/lod${lod}.glb`)).digest('hex'))
     expect(audit.rows[lod].localRepairs.map((repair: { name: string }) => repair.name).sort()).toEqual(['Armour_top', 'New_arms', 'New_legs', 'RomanUndertunic_l', 'RomanUndertunic_r', 'Tunic_1', 'Wrist_guard1'])
-    expect(audit.rows[lod].innerFaceClearanceM).toBeGreaterThan(.001)
+    expect(audit.rows[lod].helmetClearanceM).toBeGreaterThan(.001)
     expect(audit.rows[lod].bodyHeightM).toBeCloseTo(1.95, 3)
     expect(audit.rows[lod].badWeights).toBe(0)
   })

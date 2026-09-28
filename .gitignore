@@ -64,3 +64,9 @@ public/models/characters/v2/*/lod0.g*.glb
 /tools/qa-equipment-scenes.mjs
 /tools/qa-lance-idle-minimal.mjs
 /tools/qa-lance-thrust.mjs
+
+# Reproducible CC-BY Roman T4 helmet source.
+!/artifacts/character_sources/
+/artifacts/character_sources/*
+!/artifacts/character_sources/roman-helmet/
+!/artifacts/character_sources/roman-centurion/
