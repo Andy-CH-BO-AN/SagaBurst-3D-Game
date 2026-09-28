@@ -1,7 +1,7 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 
 function whole(value: number): string {
-  return Math.round(value).toLocaleString()
+  return Math.round(value).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',')
 }
 
 export function renderBattleStats(
