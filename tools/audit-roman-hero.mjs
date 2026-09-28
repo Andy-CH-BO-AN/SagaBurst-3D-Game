@@ -1,4 +1,4 @@
-/** Audit exported runtime GLBs, including rigid mask and all embedded clips. */
+/** Audit exported runtime GLBs, including source helmet/footwear and all embedded clips. */
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import * as THREE from 'three'
@@ -23,7 +23,7 @@ for(let lod=0;lod<3;lod++){
   g.scene.updateMatrixWorld(true)
   const meshes=[],rest=new Map();g.scene.traverse(o=>{rest.set(o,{p:o.position.clone(),q:o.quaternion.clone()});if(o.isMesh)meshes.push(o)})
   const reset=()=>{for(const[o,t]of rest){o.position.copy(t.p);o.quaternion.copy(t.q)}g.scene.updateMatrixWorld(true)}
-  const missing=[...required.generatedBones,...required.generatedSockets,'Praetorian_face_mask'].filter(n=>!g.scene.getObjectByName(n))
+  const missing=[...required.generatedBones,...required.generatedSockets,'Praetorian_Roman_helmet'].filter(n=>!g.scene.getObjectByName(n))
   const triangles=a.document.meshes.flatMap(m=>m.primitives).reduce((n,p)=>n+a.document.accessors[p.indices??p.attributes.POSITION].count/3,0)
   let badWeights=0,changedTopology=0,changedUVorWeights=0,positionScaleMaxError=0
   const localRepairs=[]
@@ -32,11 +32,12 @@ for(let lod=0;lod<3;lod++){
     for(let i=0;i<w.count;i++){let sum=0;for(let j=0;j<4;j++)sum+=w.getComponent(i,j);if(!Number.isFinite(sum)||Math.abs(sum-1)>.001)badWeights++}
   }
   for(let mi=0;mi<s.document.meshes.length;mi++)for(let pi=0;pi<s.document.meshes[mi].primitives.length;pi++){
-    const p=s.document.meshes[mi].primitives[pi],q=a.document.meshes[mi].primitives[pi]
     const name=s.document.meshes[mi].name
+    if(['Helmet3','Boots'].includes(name))continue // Entirely replaced; all retained body surfaces remain checked.
+    const p=s.document.meshes[mi].primitives[pi],q=a.document.meshes.find(m=>m.name===name).primitives[pi]
     if(/^RomanUndertunic_[lr]$/.test(name)){
       localRepairs.push({name,sourceVertices:s.document.accessors[p.attributes.POSITION].count,heroVertices:a.document.accessors[q.attributes.POSITION].count,reason:'narrow waist and intermediate thigh weight-support rings'})
-      if(p.material!==q.material)failures.push(`LOD${lod}: changed lining material`)
+      if(s.document.materials[p.material].name!==a.document.materials[q.material].name)failures.push(`LOD${lod}: changed lining material`)
       continue
     }
     if(!accessorBytes(s,p.indices).equals(accessorBytes(a,q.indices)))changedTopology++
@@ -82,20 +83,21 @@ for(let lod=0;lod<3;lod++){
     }
     for(let i=0;i<sp.length;i++)positionScaleMaxError=Math.max(positionScaleMaxError,Math.abs(hp[i]-sp[i]*manifest.metrics.uniformScaleAppliedOffline))
   }
-  const images=a.document.images.map((im,i)=>({name:im.name,dimensions:dimensions(imageBytes(a,im)),preserved:!/(New_|_NM$)/.test(im.name)||imageBytes(a,im).equals(imageBytes(s,s.document.images[i]))}))
+  const images=a.document.images.map((im,i)=>({name:im.name,dimensions:dimensions(imageBytes(a,im)),preserved:!/(New_|_NM$)/.test(im.name)||imageBytes(a,im).equals(imageBytes(s,s.document.images.find(original=>original.name===im.name)))}))
   const box=new THREE.Box3().setFromObject(g.scene,true),headBox=new THREE.Box3().setFromObject(g.scene.getObjectByName('New_head'),true)
   const bodyHeightM=headBox.max.y-manifest.metrics.barefootPlaneY,clips=[]
-  const mask=g.scene.getObjectByName('Praetorian_face_mask'),head=g.scene.getObjectByName('New_head'),ray=new THREE.Raycaster()
-  mask.traverse(o=>{if(o.isMesh)o.material.side=THREE.DoubleSide});head.material.side=THREE.DoubleSide
-  const scale=manifest.metrics.uniformScaleAppliedOffline,ground=a.document.asset.extras.romanHeroBuild.ground
-  let faceClearanceM=Infinity,faceSamples=0,closestFaceSample=null
-  for(let y=1.488;y<1.635;y+=.004)for(let x=-.06;x<=.06;x+=.004){
-    ray.set(new THREE.Vector3(x*scale,y*scale+ground,.4),new THREE.Vector3(0,0,-1))
-    const shell=ray.intersectObject(mask,true)[0],skin=ray.intersectObject(head)[0]
-    if(shell&&skin){faceSamples++;const clearance=shell.point.z-skin.point.z;if(clearance<faceClearanceM){faceClearanceM=clearance;closestFaceSample={sourceX:x,sourceY:y,shellZ:shell.point.z,skinZ:skin.point.z}}}
+  const helmet=g.scene.getObjectByName('Praetorian_Roman_helmet'),head=g.scene.getObjectByName('New_head'),ray=new THREE.Raycaster()
+  helmet.traverse(o=>{if(o.isMesh)o.material.side=THREE.DoubleSide});head.material.side=THREE.DoubleSide
+  let helmetClearanceM=Infinity,helmetSamples=0
+  // Forehead and rear skull sections. Eye/nose/ear openings are checked visually.
+  for(const side of [1,-1])for(let y=1.855;y<=1.955;y+=.005)for(let x=-.07;x<=.07;x+=.005){
+    ray.set(new THREE.Vector3(x,y,side),new THREE.Vector3(0,0,-side))
+    const shell=ray.intersectObject(helmet,true)[0],skin=ray.intersectObject(head)[0]
+    if(shell&&skin){helmetSamples++;helmetClearanceM=Math.min(helmetClearanceM,skin.distance-shell.distance)}
   }
-  const innerFaceClearanceM=faceClearanceM-.0025*scale
-  if(innerFaceClearanceM<.001||!faceSamples)failures.push(`LOD${lod}: sampled INNER mask/face clearance ${innerFaceClearanceM} at ${JSON.stringify(closestFaceSample)}`)
+  if(helmetClearanceM<.002||helmetSamples<100)failures.push(`LOD${lod}: skull/helmet clearance ${helmetClearanceM}`)
+  if(a.document.nodes.some(n=>['Helmet3','Praetorian_face_mask'].includes(n.name))||a.document.meshes.some(m=>['Helmet3','Praetorian_face_mask'].includes(m.name)))failures.push(`LOD${lod}: obsolete headgear retained`)
+  if(a.document.asset.extras.romanHelmetReplacement.sourceSha256!==manifest.helmetSource.sourceSha256)failures.push(`LOD${lod}: helmet provenance`)
   for(const clip of g.animations){
     reset();const mixer=new THREE.AnimationMixer(g.scene),action=mixer.clipAction(clip);action.setLoop(THREE.LoopOnce,1);action.clampWhenFinished=true;action.play()
     const samples=[],p=new THREE.Vector3()
@@ -126,11 +128,13 @@ for(let lod=0;lod<3;lod++){
   }
   for(const binding of source.animations.embedded)if(JSON.stringify(binding.events)!==JSON.stringify(manifest.animations.embedded.find(b=>b.clip===binding.clip)?.events))failures.push(`LOD${lod}: changed events ${binding.clip}`)
   if(missing.length||badWeights||changedTopology||changedUVorWeights||positionScaleMaxError>1e-6||images.some(im=>!im.preserved||Math.max(...im.dimensions)>[2048,1024,512][lod])||Math.abs(bodyHeightM-1.95)>.002||triangles>[64000,22000,7000][lod]||hash(file)!==manifest.fileSha256[`lod${lod}`]||hash(`${base}/lod${lod}.glb`)!==manifest.lodMeasurements[lod].sourceSha256)failures.push(`LOD${lod}: structural/source preservation/budget check`)
-  const node=a.document.nodes.find(n=>n.name==='head'),maskIndex=a.document.nodes.findIndex(n=>n.name==='Praetorian_face_mask')
-  if(!node.children.includes(maskIndex))failures.push(`LOD${lod}: mask not head-attached`)
-  rows.push({lod,triangles,maskTriangles:a.document.asset.extras.romanHeroBuild.maskTriangles,materials:a.document.materials.length,bytes:fs.statSync(file).size,bodyHeightM,overallHeightM:box.max.y-box.min.y,faceClearanceM,innerFaceClearanceM,faceSamples,missing,badWeights,changedTopology,changedUVorWeights,positionScaleMaxError,localRepairs:[...new Map(localRepairs.map(r=>[r.name,r])).values()],sha256:hash(file),images,clips})
+  if(a.document.nodes.some(n=>n.name==='Boots')||a.document.meshes.some(m=>m.name==='Boots'))failures.push(`LOD${lod}: obsolete footwear retained`)
+  if(a.document.asset.extras.romanGreavesReplacement?.sourceSha256!==manifest.footwearSource?.sourceSha256)failures.push(`LOD${lod}: footwear provenance`)
+  const node=a.document.nodes.find(n=>n.name==='head'),helmetIndex=a.document.nodes.findIndex(n=>n.name==='Praetorian_Roman_helmet')
+  if(!node.children.includes(helmetIndex))failures.push(`LOD${lod}: helmet not head-attached`)
+  rows.push({lod,triangles,helmetTriangles:a.document.asset.extras.romanHelmetReplacement.triangles,materials:a.document.materials.length,bytes:fs.statSync(file).size,bodyHeightM,overallHeightM:box.max.y-box.min.y,helmetClearanceM,helmetSamples,missing,badWeights,changedTopology,changedUVorWeights,positionScaleMaxError,localRepairs:[...new Map(localRepairs.map(r=>[r.name,r])).values()],sha256:hash(file),images,clips})
 }
-const result={schemaVersion:1,assetId:manifest.id,method:'Actual GLTFLoader CPU vertex skinning plus rigid head attachment; seven samples/clip. Source topology/UV/normals preserved except two explicitly recorded hidden lining meshes; bounded covered-arm/thigh/cloth/bracer positions and local pauldron/forearm weights independently checked. All other weights preserved. Skin/eye images and source rotations preserved. Does not establish absence of intersections.',failures,rows}
+const result={schemaVersion:1,assetId:manifest.id,method:'Actual GLTFLoader CPU vertex skinning plus rigid head attachment; seven samples/clip. Helmet and footwear are source-derived replacements. Retained body topology/UV/normals preserved except two explicitly recorded hidden lining meshes; bounded covered-arm/thigh/cloth/bracer positions and local pauldron/forearm weights independently checked. All other weights preserved. Skin/eye images and source rotations preserved. Does not establish absence of intersections.',failures,rows}
 fs.writeFileSync(`${dir}/audit.json`,JSON.stringify(result,null,2)+'\n')
 console.log(JSON.stringify({failures,rows:rows.map(({lod,triangles,bodyHeightM,badWeights,changedTopology})=>({lod,triangles,bodyHeightM,badWeights,changedTopology}))},null,2))
 if(failures.length)process.exitCode=1

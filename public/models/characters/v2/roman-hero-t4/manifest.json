@@ -16,16 +16,17 @@
   },
   "attribution": "Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.",
   "modifications": [
-    "Original Roman face, neck, helmet and visible clothing topology retained; no anatomy reconstructed. User-requested local shoulder/thigh repair tucks covered skin beneath sleeves and skirt; two hidden thigh lining pieces have a narrower waist and intermediate weight-support rings",
+    "Original Roman face, neck and visible clothing topology retained; no anatomy reconstructed. User-requested local shoulder/thigh repair tucks covered skin beneath sleeves and skirt; two hidden thigh lining pieces have a narrower waist and intermediate weight-support rings",
     "Uniform offline scaling of mesh positions, rest translations, inverse binds, sockets, animation translations and grip frames; anatomical height measured from scalp to unshod foot surface",
     "Independent named atlas copies: charcoal steel, preserved antique gold detail, navy tunic and dark brown leather; skin/eye/normal image bytes preserved",
-    "Head-parented facial shell projected from the measured retained face: brow, nose, cheek, lip and chin shape; two open eye apertures, inner wall and dark steel rims; no facial rig or gameplay tier",
     "Hero-only offline pelvis floor contact for idle/walk/run/swordSlash/death; existing mounted upper-body binding and project death profile baked without changing source clips or event times",
-    "Review refinements: dark eye rims; clean UV-bounded gold bosses and continuous trim; dark navy front/back; shoulder cloth clearance with matching pauldron weights; bracers shortened below elbows and bound to forearms. All repairs confined to this hero."
+    "Review refinements: clean UV-bounded gold bosses and continuous trim; dark navy front/back; shoulder cloth clearance with matching pauldron weights; bracers shortened below elbows and bound to forearms. All repairs confined to this hero.",
+    "Replacement helmet: supplied stratovarius1980 CC BY 4.0 Roman helmet, with its original integrated cheek guards retained as requested. Old Helmet3 and generated face mask removed from all LODs. Source-derived LODs with re-baked original color atlas, offline fit and torso-sampled steel/gold palette; original head, skeleton, body and animation data unchanged by replacement.",
+    "Replacement footwear: source centurion shoes, greaves and their four existing buckles only. Old Boots entirely removed. Fitted to unchanged T4 feet/calves, torso steel and existing dark leather palette, barycentric skin transfer, three source-derived LODs. Skeleton and animation payloads unchanged."
   ],
   "metrics": {
     "heightM": 1.9499999963499655,
-    "overallHeightM": 1.9721072834964575,
+    "overallHeightM": 1.991793237351972,
     "shoulderWidthM": 0.4817781683423575,
     "shoulderJointSpanM": 0.45423598943442256,
     "neckLengthM": 0.09971035837158335,
@@ -256,9 +257,9 @@
       "outerShoulderWidthM": 0.43485988676548004
     },
     "triangles": {
-      "lod0": 63619,
-      "lod1": 21881,
-      "lod2": 6960
+      "lod0": 61007,
+      "lod1": 20599,
+      "lod2": 6431
     },
     "textures": {
       "lod0": 2048,
@@ -272,9 +273,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "6824917d259ce4fc5ae0d561a6a303ae6c07cd86d0888e58a49197ef5523aae9",
-    "lod1": "10c174b2d79ae466523aa17abbe3d814cc8ace85e932882cffad6df1bc40e913",
-    "lod2": "9366dde35a2c472fec9c4405a882d575dfd591a02df3359c8037259c5be58331"
+    "lod0": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
+    "lod1": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
+    "lod2": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -545,18 +546,12 @@
   "lodMeasurements": [
     {
       "lod": 0,
-      "triangles": 63619,
-      "maskTriangles": 3444,
-      "materials": 17,
-      "bytes": 17238424,
+      "triangles": 61007,
+      "materials": 15,
+      "bytes": 21921520,
       "textures": [
         {
           "name": "Armour_top_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Boots_TXTR",
           "width": 2048,
           "height": 2048
         },
@@ -571,40 +566,51 @@
           "height": 2048
         },
         {
-          "name": "Helmet3_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
           "name": "Tunic_1_TXTR",
           "width": 2048,
           "height": 2048
         },
         {
           "name": "Wrist_guard1_TXTR",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Praetorian_helmet_albedo",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Praetorian_greaves_albedo",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Praetorian_greaves_metalrough",
+          "width": 2048,
+          "height": 2048
+        },
+        {
+          "name": "Praetorian_greaves_normal",
           "width": 2048,
           "height": 2048
         }
       ],
       "sourceSha256": "aa10f27f9b29d672cdb5acf757a7e828ab0ae6a9519914b219389a7dedc4bb11",
-      "sha256": "6824917d259ce4fc5ae0d561a6a303ae6c07cd86d0888e58a49197ef5523aae9",
+      "sha256": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
       "anatomicalHeightM": 1.9499999963499655,
-      "overallHeightM": 1.9721072834964575
+      "overallHeightM": 1.991793237351972,
+      "helmetTriangles": 11000,
+      "footwearTriangles": 5590
     },
     {
       "lod": 1,
-      "triangles": 21881,
-      "maskTriangles": 1660,
-      "materials": 17,
-      "bytes": 4470320,
+      "triangles": 20599,
+      "materials": 15,
+      "bytes": 6390792,
       "textures": [
         {
           "name": "Armour_top_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Boots_TXTR",
           "width": 1024,
           "height": 1024
         },
@@ -619,40 +625,51 @@
           "height": 1024
         },
         {
-          "name": "Helmet3_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
           "name": "Tunic_1_TXTR",
           "width": 1024,
           "height": 1024
         },
         {
           "name": "Wrist_guard1_TXTR",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Praetorian_helmet_albedo",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Praetorian_greaves_albedo",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Praetorian_greaves_metalrough",
+          "width": 1024,
+          "height": 1024
+        },
+        {
+          "name": "Praetorian_greaves_normal",
           "width": 1024,
           "height": 1024
         }
       ],
       "sourceSha256": "06526947fb43a22338648030a0eab9d84c3cc216e418ff066fc8f48d7e13fc70",
-      "sha256": "10c174b2d79ae466523aa17abbe3d814cc8ace85e932882cffad6df1bc40e913",
+      "sha256": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
       "anatomicalHeightM": 1.9498763763167013,
-      "overallHeightM": 1.972218675021042
+      "overallHeightM": 1.9914512312449113,
+      "helmetTriangles": 3800,
+      "footwearTriangles": 1830
     },
     {
       "lod": 2,
-      "triangles": 6960,
-      "maskTriangles": 848,
-      "materials": 17,
-      "bytes": 1792496,
+      "triangles": 6431,
+      "materials": 15,
+      "bytes": 2370236,
       "textures": [
         {
           "name": "Armour_top_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Boots_TXTR",
           "width": 512,
           "height": 512
         },
@@ -667,11 +684,6 @@
           "height": 512
         },
         {
-          "name": "Helmet3_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
           "name": "Tunic_1_TXTR",
           "width": 512,
           "height": 512
@@ -680,18 +692,118 @@
           "name": "Wrist_guard1_TXTR",
           "width": 512,
           "height": 512
+        },
+        {
+          "name": "Praetorian_helmet_albedo",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Praetorian_greaves_albedo",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Praetorian_greaves_metalrough",
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "Praetorian_greaves_normal",
+          "width": 512,
+          "height": 512
         }
       ],
       "sourceSha256": "0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14",
-      "sha256": "9366dde35a2c472fec9c4405a882d575dfd591a02df3359c8037259c5be58331",
+      "sha256": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a",
       "anatomicalHeightM": 1.9498258315779318,
-      "overallHeightM": 1.9685262269676218
+      "overallHeightM": 1.992404816240121,
+      "helmetTriangles": 950,
+      "footwearTriangles": 942
     }
   ],
-  "visualAcceptance": "Validation and known limitations: https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/127; exported GLB browser review required",
+  "visualAcceptance": "Front, side, three-quarter and animation review required after export; see docs/roman-t4-helmet-validation.md.",
   "inheritedLimitations": [
     "The source FBX contains disconnected meshes, no armature, no weights, no actions, and emits excess-layer warnings during Blender import.",
     "The mounted thigh and skirt silhouette passed the isolated 12:32 asset review provisionally but must be validated against the actual saddle in the browser.",
     "If saddle validation exposes gaps or clipping, the corrective path is manual topology and weight refinement in Blender, not runtime non-uniform scaling."
-  ]
+  ],
+  "helmetSource": {
+    "title": "An ancient Roman helmet (Древнеримский шлем)",
+    "author": "stratovarius1980",
+    "url": "https://sketchfab.com/3d-models/an-ancient-roman-helmet-00be37c8062c430daad5686d4f17916f",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceSha256": "b698b183e8fa260955f514a0e0c5e30f7d515c4f0b85171aaaa324c332ef7a6f",
+    "verifiedAt": "2026-09-28",
+    "licenseEvidence": "Sketchfab v3 model API and embedded GLB asset.extras both state CC BY 4.0",
+    "integratedCheekGuards": "Retained by explicit user clarification; old T4 generated face mask removed."
+  },
+  "helmetFit": {
+    "headUnchanged": true,
+    "sourceScale": [
+      0.43,
+      0.3,
+      0.375
+    ],
+    "sourceYawRadians": -1.5707963267948966,
+    "worldPositionM": [
+      0,
+      1.84,
+      0.004
+    ],
+    "palette": {
+      "bodyAtlas": "Armour_top_TXTR",
+      "steelSRGB": [
+        0.13333333333333333,
+        0.1450980392156863,
+        0.1607843137254902
+      ],
+      "goldSRGB": [
+        0.5843137254901961,
+        0.4470588235294118,
+        0.23137254901960785
+      ],
+      "metallicFactor": 0.62,
+      "roughnessFactor": 0.48,
+      "redAccents": "No red in the current T4 torso palette; no new red painted."
+    }
+  },
+  "footwearSource": {
+    "title": "Roman Centurion Armor",
+    "author": "Tactical_Beard (embedded credit: Tactical_Gamer)",
+    "url": "https://sketchfab.com/3d-models/roman-centurion-armor-d0c6de99f16c49f386a9f8d7c3120dec",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "sourceSha256": "4956bb60a97a0320c8abd17f9cd83825731b2452ad055082ca0013a072151de6",
+    "verifiedAt": "2026-09-28",
+    "licenseEvidence": "Sketchfab v3 API and embedded GLB asset.extras agree.",
+    "selectedSourceMeshes": [
+      "defaultMaterial_11",
+      "defaultMaterial_9",
+      "defaultMaterial_10",
+      "defaultMaterial_12",
+      "defaultMaterial_13"
+    ]
+  },
+  "footwearFit": {
+    "bodyLegsUnchanged": true,
+    "palette": {
+      "bodyAtlas": "Armour_top_TXTR",
+      "steelSRGB": [
+        0.13333333333333333,
+        0.1450980392156863,
+        0.1607843137254902
+      ],
+      "leatherSRGB": [
+        0.1803921568627451,
+        0.13333333333333333,
+        0.09803921568627451
+      ],
+      "metalMetallic": 0.62,
+      "metalRoughness": 0.48,
+      "leatherRoughness": 0.7
+    },
+    "method": "Separate bilateral stance fitting, surface clearance, original UVs and foot-surface skin weights."
+  }
 }

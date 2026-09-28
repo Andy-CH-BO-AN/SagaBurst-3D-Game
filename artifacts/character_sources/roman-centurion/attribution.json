@@ -1,0 +1,17 @@
+{
+  "title": "Roman Centurion Armor",
+  "author": "Tactical_Beard (embedded credit: Tactical_Gamer)",
+  "url": "https://sketchfab.com/3d-models/roman-centurion-armor-d0c6de99f16c49f386a9f8d7c3120dec",
+  "license": "CC-BY-4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "sourceSha256": "4956bb60a97a0320c8abd17f9cd83825731b2452ad055082ca0013a072151de6",
+  "verifiedAt": "2026-09-28",
+  "licenseEvidence": "Sketchfab v3 API and embedded GLB asset.extras agree.",
+  "selectedSourceMeshes": [
+    "defaultMaterial_11",
+    "defaultMaterial_9",
+    "defaultMaterial_10",
+    "defaultMaterial_12",
+    "defaultMaterial_13"
+  ]
+}
