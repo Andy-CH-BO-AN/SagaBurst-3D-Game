@@ -185,7 +185,7 @@ skyrim 3D test/
 ## Battle Stats
 
 - `BattleStatsTracker` subscribes to `CombatEventStream` and performs streaming aggregation only. It never stores a combat-event history, so memory grows with a fixed player record plus at most eight squad counters rather than with battle duration or hit count.
-- Player totals include actual character/mount damage dealt, damage taken by the player, actor kills, structure damage, destroyed structures, gate breaches, and final survival state. Squad totals include damage dealt/taken, kills, structure damage, destroyed structures, gate breaches, starting strength, survivors, and casualties.
+- Player totals include actual character/mount damage dealt, damage taken by the player, actor kills, optional structure-offense totals, and final survival state. Squad totals include damage dealt/taken, kills, optional structure-offense totals, starting strength, survivors, and casualties. Defense Campaign disables structure damage / destroyed-structure / gate-breach aggregation because the player side is defending; generic Custom Battle keeps it enabled, and a future offense campaign can enable it explicitly.
 - `Game._spawnNpc()` registers player-side squad members once for starting strength. No additional per-frame squad scan is introduced. Survivor counts are calculated from current NPC state only when a result snapshot is requested.
 - Custom Battle and Defense Campaign result modals render the same `BattleStatsView`. Personal stats are always shown; squad rows are shown only when the launch configuration uses squad command grouping.
 - These counters are battle-scoped runtime data only. Career persistence, merit formulas, rank progression, and unlocks remain separate layers.
