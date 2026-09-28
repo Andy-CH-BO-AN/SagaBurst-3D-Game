@@ -78,12 +78,14 @@ export interface CareerPurchaseRequest {
   kind: CareerPurchaseKind
   id: string
   cost: number
+  requiredTier: CareerPurchaseTier
 }
 
 export type CareerPurchaseFailureReason =
   | 'invalid-id'
   | 'invalid-cost'
   | 'already-owned'
+  | 'tier-locked'
   | 'insufficient-merit'
 
 export interface CareerPurchaseResult {
@@ -128,6 +130,13 @@ export function resolveCareerRank(totalMerit: number): CareerRank {
 
 export function getCareerPurchaseTier(rank: CareerRank): CareerPurchaseTier {
   return CAREER_PURCHASE_TIER_BY_RANK[rank]
+}
+
+export function isCareerPurchaseTierUnlocked(
+  profile: Pick<CareerProfile, 'rank'>,
+  tier: CareerPurchaseTier,
+): boolean {
+  return tier <= getCareerPurchaseTier(profile.rank)
 }
 
 export function claimCareerBattle(
@@ -208,6 +217,14 @@ export function purchaseCareerContent(
   }
 
   const profile = cloneCareerProfile(current)
+  if (!isCareerPurchaseTierUnlocked(profile, request.requiredTier)) {
+    return {
+      profile,
+      purchased: false,
+      spentMerit: 0,
+      reason: 'tier-locked',
+    }
+  }
   const target = request.kind === 'weapon'
     ? profile.ownedWeapons as string[]
     : request.kind === 'armor'
