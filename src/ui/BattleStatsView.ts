@@ -30,6 +30,7 @@ export function renderBattleStats(
   return `
     <section class="battle-stats-result">
       <h2>戰鬥統計 <small>BATTLE STATS</small></h2>
+      <div class="battle-stats-player-title">玩家統計 <small>PLAYER</small></div>
       <div class="battle-stats-player-grid">
         <div><small>個人傷害</small><b>${whole(player.damageDealt)}</b></div>
         <div><small>擊殺</small><b>${player.kills}</b></div>
