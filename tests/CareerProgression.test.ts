@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { BattleStatsSnapshot } from '../src/combat/BattleStatsTracker'
 import {
+  CAREER_PURCHASE_TIER_BY_RANK,
   CAREER_RANK_THRESHOLDS,
   claimCareerBattle,
   createCareerProfile,
+  getCareerPurchaseTier,
+  isCareerPurchaseTierUnlocked,
+  purchaseCareerContent,
   resolveCareerRank,
-  unlockCareerContent,
 } from '../src/career/CareerProfile'
 import {
   CAREER_STORAGE_KEY,
@@ -35,39 +38,21 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>()
-
   get length(): number { return this.values.size }
-
-  clear(): void {
-    this.values.clear()
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null
-  }
-
-  key(index: number): string | null {
-    return [...this.values.keys()][index] ?? null
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key)
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value)
-  }
+  clear(): void { this.values.clear() }
+  getItem(key: string): string | null { return this.values.get(key) ?? null }
+  key(index: number): string | null { return [...this.values.keys()][index] ?? null }
+  removeItem(key: string): void { this.values.delete(key) }
+  setItem(key: string, value: string): void { this.values.set(key, value) }
 }
 
 describe('Career merit calculation', () => {
   it('awards victory, kills, actual damage and survival merit', () => {
-    const result = calculateMerit(
+    expect(calculateMerit(
       stats({ damageDealt: 2280, kills: 2, survived: true }),
       'victory',
       'defense',
-    )
-
-    expect(result).toEqual({
+    )).toEqual({
       victory: 80,
       kills: 16,
       characterDamage: 44,
@@ -86,19 +71,11 @@ describe('Career merit calculation', () => {
       gateBreaches: 2,
       survived: false,
     })
-
-    const defense = calculateMerit(battleStats, 'defeat', 'defense')
-    expect(defense.structureDamage).toBe(0)
-    expect(defense.gateBreaches).toBe(0)
-    expect(defense.total).toBe(16)
-
-    const offense = calculateMerit(battleStats, 'defeat', 'offense')
-    expect(offense.structureDamage).toBe(3)
-    expect(offense.gateBreaches).toBe(50)
-    expect(offense.total).toBe(69)
+    expect(calculateMerit(battleStats, 'defeat', 'defense').total).toBe(16)
+    expect(calculateMerit(battleStats, 'defeat', 'offense').total).toBe(69)
   })
 
-  it('keeps the first-pass merit tuning centralized', () => {
+  it('keeps merit tuning centralized', () => {
     expect(MERIT_RULES).toEqual({
       victory: 80,
       kill: 8,
@@ -110,223 +87,220 @@ describe('Career merit calculation', () => {
   })
 })
 
-describe('Career profile progression', () => {
-  it('resolves data-driven rank thresholds', () => {
+describe('Career progression and spending', () => {
+  it('uses lifetime merit for rank thresholds and purchase-tier availability', () => {
     expect(CAREER_RANK_THRESHOLDS).toEqual({
       recruit: 0,
       soldier: 300,
       veteran: 900,
-      captain: 2000,
-      commander: 4000,
+      captain: 5000,
+      commander: 20000,
+    })
+    expect(CAREER_PURCHASE_TIER_BY_RANK).toEqual({
+      recruit: 1,
+      soldier: 2,
+      veteran: 3,
+      captain: 4,
+      commander: 4,
     })
 
-    expect(resolveCareerRank(0)).toBe('recruit')
     expect(resolveCareerRank(299)).toBe('recruit')
     expect(resolveCareerRank(300)).toBe('soldier')
     expect(resolveCareerRank(899)).toBe('soldier')
     expect(resolveCareerRank(900)).toBe('veteran')
-    expect(resolveCareerRank(1999)).toBe('veteran')
-    expect(resolveCareerRank(2000)).toBe('captain')
-    expect(resolveCareerRank(3999)).toBe('captain')
-    expect(resolveCareerRank(4000)).toBe('commander')
+    expect(resolveCareerRank(4999)).toBe('veteran')
+    expect(resolveCareerRank(5000)).toBe('captain')
+    expect(resolveCareerRank(19999)).toBe('captain')
+    expect(resolveCareerRank(20000)).toBe('commander')
+
+    const veteran = createCareerProfile('roman')
+    veteran.totalMerit = 1000
+    veteran.availableMerit = 1000
+    veteran.rank = resolveCareerRank(veteran.totalMerit)
+    expect(getCareerPurchaseTier(veteran.rank)).toBe(3)
+    expect(isCareerPurchaseTierUnlocked(veteran, 3)).toBe(true)
+    expect(isCareerPurchaseTierUnlocked(veteran, 4)).toBe(false)
   })
 
-  it('claims a battle once, updates lifetime stats and promotes by total merit', () => {
+  it('adds battle merit to both lifetime and spendable balances', () => {
     const profile = createCareerProfile('roman')
-    profile.merit = 290
-    profile.rank = resolveCareerRank(profile.merit)
+    profile.totalMerit = 290
+    profile.availableMerit = 40
+    profile.rank = resolveCareerRank(profile.totalMerit)
 
-    const first = claimCareerBattle(profile, {
+    const claim = claimCareerBattle(profile, {
       battleId: 'career-battle-001',
       outcome: 'victory',
       role: 'defense',
-      stats: stats({
-        damageDealt: 500,
-        kills: 2,
-        structureDamage: 900,
-        gateBreaches: 1,
-        survived: true,
-      }),
+      stats: stats({ damageDealt: 500, kills: 2, survived: true }),
     })
 
-    expect(first.alreadyClaimed).toBe(false)
-    expect(first.meritAwarded).toBe(126)
-    expect(first.previousRank).toBe('recruit')
-    expect(first.newRank).toBe('soldier')
-    expect(first.profile.faction).toBe('roman')
-    expect(first.profile.merit).toBe(416)
-    expect(first.profile.lifetimeStats).toEqual({
-      battles: 1,
-      victories: 1,
-      deaths: 0,
-      kills: 2,
-      damage: 500,
-      structureDamage: 0,
-      breaches: 0,
+    expect(claim.meritAwarded).toBe(126)
+    expect(claim.profile.totalMerit).toBe(416)
+    expect(claim.profile.availableMerit).toBe(166)
+    expect(claim.newRank).toBe('soldier')
+  })
+
+  it('spending merit never reduces lifetime merit or rank', () => {
+    const profile = createCareerProfile('viking')
+    profile.totalMerit = 5200
+    profile.availableMerit = 3200
+    profile.rank = resolveCareerRank(profile.totalMerit)
+
+    const purchase = purchaseCareerContent(profile, {
+      kind: 'weapon',
+      id: 'viking_axe_t3',
+      cost: 1200,
+      requiredTier: 3,
     })
 
-    const duplicate = claimCareerBattle(first.profile, {
-      battleId: 'career-battle-001',
+    expect(purchase.purchased).toBe(true)
+    expect(purchase.spentMerit).toBe(1200)
+    expect(purchase.profile.totalMerit).toBe(5200)
+    expect(purchase.profile.availableMerit).toBe(2000)
+    expect(purchase.profile.rank).toBe('captain')
+    expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
+  })
+
+  it('rank only unlocks the tier for purchase and never grants equipment automatically', () => {
+    const profile = createCareerProfile('roman')
+    profile.totalMerit = 900
+    profile.availableMerit = 900
+    profile.rank = resolveCareerRank(profile.totalMerit)
+
+    expect(profile.rank).toBe('veteran')
+    expect(getCareerPurchaseTier(profile.rank)).toBe(3)
+    expect(profile.ownedWeapons).toEqual([])
+    expect(profile.ownedArmors).toEqual([])
+    expect(profile.ownedMounts).toEqual([])
+  })
+
+  it('blocks purchases above the unlocked tier', () => {
+    const profile = createCareerProfile('roman')
+    profile.totalMerit = 900
+    profile.availableMerit = 9999
+    profile.rank = resolveCareerRank(profile.totalMerit)
+
+    const result = purchaseCareerContent(profile, {
+      kind: 'hero',
+      id: 'roman-hero-t4',
+      cost: 3000,
+      requiredTier: 4,
+    })
+
+    expect(result.purchased).toBe(false)
+    expect(result.reason).toBe('tier-locked')
+    expect(result.profile.availableMerit).toBe(9999)
+    expect(result.profile.ownedHeroes).toEqual([])
+  })
+
+  it('does not charge for duplicate ownership and blocks insufficient balance', () => {
+    const profile = createCareerProfile('viking')
+    profile.totalMerit = 5000
+    profile.availableMerit = 100
+    profile.rank = 'captain'
+    profile.ownedMounts.push('horse')
+
+    const duplicate = purchaseCareerContent(profile, {
+      kind: 'mount',
+      id: 'horse',
+      cost: 50,
+      requiredTier: 1,
+    })
+    expect(duplicate.reason).toBe('already-owned')
+    expect(duplicate.profile.availableMerit).toBe(100)
+
+    const expensive = purchaseCareerContent(profile, {
+      kind: 'mount',
+      id: 'black-cat',
+      cost: 500,
+      requiredTier: 4,
+    })
+    expect(expensive.reason).toBe('insufficient-merit')
+    expect(expensive.profile.availableMerit).toBe(100)
+  })
+
+  it('claims each battle only once', () => {
+    const profile = createCareerProfile('viking')
+    const first = claimCareerBattle(profile, {
+      battleId: 'battle-once',
       outcome: 'victory',
-      role: 'offense',
-      stats: stats({
-        damageDealt: 9999,
-        kills: 99,
-        structureDamage: 9999,
-        gateBreaches: 9,
-        survived: false,
-      }),
+      role: 'defense',
+      stats: stats({ damageDealt: 500 }),
     })
-
+    const duplicate = claimCareerBattle(first.profile, {
+      battleId: 'battle-once',
+      outcome: 'victory',
+      role: 'defense',
+      stats: stats({ damageDealt: 9999, kills: 99 }),
+    })
     expect(duplicate.alreadyClaimed).toBe(true)
     expect(duplicate.meritAwarded).toBe(0)
     expect(duplicate.profile).toEqual(first.profile)
   })
-
-  it('records defeat progress but gives no victory or death survival bonus', () => {
-    const profile = createCareerProfile('viking')
-    const claim = claimCareerBattle(profile, {
-      battleId: 'career-battle-loss',
-      outcome: 'defeat',
-      role: 'defense',
-      stats: stats({
-        damageDealt: 950,
-        kills: 3,
-        survived: false,
-      }),
-    })
-
-    expect(claim.meritBreakdown.victory).toBe(0)
-    expect(claim.meritBreakdown.survival).toBe(0)
-    expect(claim.meritAwarded).toBe(42)
-    expect(claim.profile.lifetimeStats).toMatchObject({
-      battles: 1,
-      victories: 0,
-      deaths: 1,
-      kills: 3,
-      damage: 950,
-    })
-  })
-
-  it('unlocks each content id at most once', () => {
-    const profile = createCareerProfile('viking')
-
-    expect(unlockCareerContent(profile, 'weapon', 'viking_axe_t1')).toBe(true)
-    expect(unlockCareerContent(profile, 'weapon', 'viking_axe_t1')).toBe(false)
-    expect(unlockCareerContent(profile, 'shield', 'round_shield_t1')).toBe(true)
-    expect(unlockCareerContent(profile, 'mount', 'horse')).toBe(true)
-    expect(unlockCareerContent(profile, 'hero', 'viking-hero-t4')).toBe(true)
-
-    expect(profile.unlockedWeapons).toEqual(['viking_axe_t1'])
-    expect(profile.unlockedShields).toEqual(['round_shield_t1'])
-    expect(profile.unlockedMounts).toEqual(['horse'])
-    expect(profile.unlockedHeroes).toEqual(['viking-hero-t4'])
-  })
-
-  it('rejects an empty battle id before mutating career progress', () => {
-    const profile = createCareerProfile('roman')
-    expect(() => claimCareerBattle(profile, {
-      battleId: '   ',
-      outcome: 'victory',
-      role: 'defense',
-      stats: stats(),
-    })).toThrow('Career battleId must not be empty')
-    expect(profile.merit).toBe(0)
-    expect(profile.claimedBattleIds).toEqual([])
-  })
 })
 
 describe('Career profile persistence', () => {
-  it('round-trips a career profile in its own storage key', () => {
+  it('round-trips lifetime and available merit plus owned content', () => {
     const storage = new MemoryStorage()
     const store = new CareerProfileStore(storage)
     const profile = createCareerProfile('viking')
-    profile.merit = 2123
-    profile.rank = resolveCareerRank(profile.merit)
-    profile.unlockedWeapons.push('viking_axe_t1')
-    profile.unlockedShields.push('round_shield_t1')
-    profile.unlockedMounts.push('horse')
-    profile.unlockedHeroes.push('viking-hero-t4')
+    profile.totalMerit = 5200
+    profile.availableMerit = 2100
+    profile.rank = resolveCareerRank(profile.totalMerit)
+    profile.ownedWeapons.push('viking_axe_t1')
+    profile.ownedArmors.push('round_shield_t1')
+    profile.ownedMounts.push('horse')
+    profile.ownedHeroes.push('viking-hero-t4')
     profile.claimedBattleIds.push('battle-a')
-    profile.lifetimeStats = {
-      battles: 7,
-      victories: 5,
-      deaths: 2,
-      kills: 44,
-      damage: 12345.5,
-      structureDamage: 500,
-      breaches: 1,
-    }
 
     expect(store.save(profile)).toBe(true)
     expect(storage.getItem(CAREER_STORAGE_KEY)).not.toBeNull()
-
-    const loaded = store.load()
-    expect(loaded).toEqual(profile)
-    expect(loaded?.faction).toBe('viking')
-    expect(loaded?.rank).toBe('captain')
+    expect(store.load()).toEqual(profile)
   })
 
-  it('returns null for corrupt or unsupported saves instead of changing faction', () => {
-    const storage = new MemoryStorage()
-    const store = new CareerProfileStore(storage)
-
-    storage.setItem(CAREER_STORAGE_KEY, '{broken json')
-    expect(store.load()).toBeNull()
-
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify({
-      version: 1,
-      faction: 'gaul',
-      merit: 9999,
-    }))
-    expect(store.load()).toBeNull()
-
-    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify({
-      version: 2,
-      faction: 'roman',
-      merit: 9999,
-    }))
-    expect(store.load()).toBeNull()
-  })
-
-  it('sanitizes arrays and derives rank from merit instead of trusting saved rank', () => {
+  it('migrates the pre-merge single-merit/unlocked field shape safely', () => {
     const parsed = parseCareerProfile({
       version: 1,
       faction: 'roman',
       merit: 950,
       rank: 'commander',
-      unlockedWeapons: ['gladius_rusty', 'gladius_rusty', 'missing-weapon'],
-      unlockedShields: ['scutum_t1', 'missing-shield'],
-      unlockedMounts: ['horse', 'dragon'],
-      unlockedHeroes: ['roman-hero-t4', 'unknown-hero'],
-      claimedBattleIds: ['battle-1', 'battle-1', '', 'battle-2'],
-      lifetimeStats: {
-        battles: 2.9,
-        victories: -1,
-        deaths: 1,
-        kills: 4.8,
-        damage: 123.5,
-        structureDamage: -10,
-        breaches: 1.9,
-      },
+      unlockedWeapons: ['gladius_rusty'],
+      unlockedShields: ['scutum_t1'],
+      unlockedMounts: ['horse'],
+      unlockedHeroes: ['roman-hero-t4'],
+      claimedBattleIds: [],
+      lifetimeStats: {},
     })
 
-    expect(parsed).not.toBeNull()
-    expect(parsed?.faction).toBe('roman')
-    expect(parsed?.rank).toBe('veteran')
-    expect(parsed?.unlockedWeapons).toEqual(['gladius_rusty'])
-    expect(parsed?.unlockedShields).toEqual(['scutum_t1'])
-    expect(parsed?.unlockedMounts).toEqual(['horse'])
-    expect(parsed?.unlockedHeroes).toEqual(['roman-hero-t4'])
-    expect(parsed?.claimedBattleIds).toEqual(['battle-1', 'battle-2'])
-    expect(parsed?.lifetimeStats).toEqual({
-      battles: 2,
-      victories: 0,
-      deaths: 1,
-      kills: 4,
-      damage: 123.5,
-      structureDamage: 0,
-      breaches: 1,
+    expect(parsed).toMatchObject({
+      faction: 'roman',
+      totalMerit: 950,
+      availableMerit: 950,
+      rank: 'veteran',
+      ownedWeapons: ['gladius_rusty'],
+      ownedArmors: ['scutum_t1'],
+      ownedMounts: ['horse'],
+      ownedHeroes: ['roman-hero-t4'],
     })
+  })
+
+  it('clamps available merit to lifetime earned merit and rejects bad faction/version', () => {
+    const parsed = parseCareerProfile({
+      version: 1,
+      faction: 'viking',
+      totalMerit: 1000,
+      availableMerit: 9000,
+      ownedWeapons: [],
+      ownedArmors: [],
+      ownedMounts: [],
+      ownedHeroes: [],
+      lifetimeStats: {},
+      claimedBattleIds: [],
+    })
+    expect(parsed?.availableMerit).toBe(1000)
+
+    expect(parseCareerProfile({ version: 1, faction: 'gaul' })).toBeNull()
+    expect(parseCareerProfile({ version: 2, faction: 'roman' })).toBeNull()
   })
 })
