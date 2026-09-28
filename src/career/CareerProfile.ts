@@ -10,13 +10,23 @@ import {
 } from './MeritCalculator'
 
 export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
+export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
+export type CareerPurchaseTier = 1 | 2 | 3 | 4
 
 export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
   recruit: 0,
   soldier: 300,
   veteran: 900,
-  captain: 2000,
-  commander: 4000,
+  captain: 5000,
+  commander: 20000,
+}
+
+export const CAREER_PURCHASE_TIER_BY_RANK: Readonly<Record<CareerRank, CareerPurchaseTier>> = {
+  recruit: 1,
+  soldier: 2,
+  veteran: 3,
+  captain: 4,
+  commander: 4,
 }
 
 export interface CareerLifetimeStats {
@@ -32,12 +42,18 @@ export interface CareerLifetimeStats {
 export interface CareerProfile {
   version: 1
   faction: CharacterFaction
-  merit: number
+
+  /** Lifetime earned merit. Never decreases and determines rank / purchasable tier. */
+  totalMerit: number
+  /** Spendable merit. Purchases deduct this without affecting rank. */
+  availableMerit: number
   rank: CareerRank
-  unlockedWeapons: string[]
-  unlockedShields: string[]
-  unlockedMounts: PlayerMountId[]
-  unlockedHeroes: HeroAssetId[]
+
+  ownedWeapons: string[]
+  ownedArmors: string[]
+  ownedMounts: PlayerMountId[]
+  ownedHeroes: HeroAssetId[]
+
   lifetimeStats: CareerLifetimeStats
   claimedBattleIds: string[]
 }
@@ -58,18 +74,36 @@ export interface CareerBattleClaim {
   newRank: CareerRank
 }
 
-export type CareerUnlockKind = 'weapon' | 'shield' | 'mount' | 'hero'
+export interface CareerPurchaseRequest {
+  kind: CareerPurchaseKind
+  id: string
+  cost: number
+}
+
+export type CareerPurchaseFailureReason =
+  | 'invalid-id'
+  | 'invalid-cost'
+  | 'already-owned'
+  | 'insufficient-merit'
+
+export interface CareerPurchaseResult {
+  profile: CareerProfile
+  purchased: boolean
+  spentMerit: number
+  reason?: CareerPurchaseFailureReason
+}
 
 export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
     version: 1,
     faction,
-    merit: 0,
+    totalMerit: 0,
+    availableMerit: 0,
     rank: 'recruit',
-    unlockedWeapons: [],
-    unlockedShields: [],
-    unlockedMounts: [],
-    unlockedHeroes: [],
+    ownedWeapons: [],
+    ownedArmors: [],
+    ownedMounts: [],
+    ownedHeroes: [],
     lifetimeStats: {
       battles: 0,
       victories: 0,
@@ -83,13 +117,17 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   }
 }
 
-export function resolveCareerRank(merit: number): CareerRank {
-  const value = Math.max(0, Math.floor(merit))
+export function resolveCareerRank(totalMerit: number): CareerRank {
+  const value = Math.max(0, Math.floor(totalMerit))
   if (value >= CAREER_RANK_THRESHOLDS.commander) return 'commander'
   if (value >= CAREER_RANK_THRESHOLDS.captain) return 'captain'
   if (value >= CAREER_RANK_THRESHOLDS.veteran) return 'veteran'
   if (value >= CAREER_RANK_THRESHOLDS.soldier) return 'soldier'
   return 'recruit'
+}
+
+export function getCareerPurchaseTier(rank: CareerRank): CareerPurchaseTier {
+  return CAREER_PURCHASE_TIER_BY_RANK[rank]
 }
 
 export function claimCareerBattle(
@@ -119,11 +157,14 @@ export function claimCareerBattle(
   const breaches = result.role === 'offense'
     ? Math.max(0, Math.floor(result.stats.player.gateBreaches))
     : 0
-  const merit = current.merit + meritBreakdown.total
-  const newRank = resolveCareerRank(merit)
+
+  const totalMerit = current.totalMerit + meritBreakdown.total
+  const availableMerit = current.availableMerit + meritBreakdown.total
+  const newRank = resolveCareerRank(totalMerit)
 
   const profile = cloneCareerProfile(current)
-  profile.merit = merit
+  profile.totalMerit = totalMerit
+  profile.availableMerit = availableMerit
   profile.rank = newRank
   profile.claimedBattleIds.push(battleId)
   profile.lifetimeStats.battles += 1
@@ -144,34 +185,71 @@ export function claimCareerBattle(
   }
 }
 
-export function unlockCareerContent(
-  profile: CareerProfile,
-  kind: CareerUnlockKind,
-  id: string,
-): boolean {
-  const value = id.trim()
-  if (!value) return false
+export function purchaseCareerContent(
+  current: CareerProfile,
+  request: CareerPurchaseRequest,
+): CareerPurchaseResult {
+  const id = request.id.trim()
+  if (!id) {
+    return {
+      profile: cloneCareerProfile(current),
+      purchased: false,
+      spentMerit: 0,
+      reason: 'invalid-id',
+    }
+  }
+  if (!Number.isInteger(request.cost) || request.cost < 0) {
+    return {
+      profile: cloneCareerProfile(current),
+      purchased: false,
+      spentMerit: 0,
+      reason: 'invalid-cost',
+    }
+  }
 
-  const target = kind === 'weapon'
-    ? profile.unlockedWeapons as string[]
-    : kind === 'shield'
-      ? profile.unlockedShields as string[]
-      : kind === 'mount'
-        ? profile.unlockedMounts as string[]
-        : profile.unlockedHeroes as string[]
+  const profile = cloneCareerProfile(current)
+  const target = request.kind === 'weapon'
+    ? profile.ownedWeapons as string[]
+    : request.kind === 'armor'
+      ? profile.ownedArmors as string[]
+      : request.kind === 'mount'
+        ? profile.ownedMounts as string[]
+        : profile.ownedHeroes as string[]
 
-  if (target.includes(value)) return false
-  target.push(value)
-  return true
+  if (target.includes(id)) {
+    return {
+      profile,
+      purchased: false,
+      spentMerit: 0,
+      reason: 'already-owned',
+    }
+  }
+  if (profile.availableMerit < request.cost) {
+    return {
+      profile,
+      purchased: false,
+      spentMerit: 0,
+      reason: 'insufficient-merit',
+    }
+  }
+
+  profile.availableMerit -= request.cost
+  target.push(id)
+
+  return {
+    profile,
+    purchased: true,
+    spentMerit: request.cost,
+  }
 }
 
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
-    unlockedWeapons: [...profile.unlockedWeapons],
-    unlockedShields: [...profile.unlockedShields],
-    unlockedMounts: [...profile.unlockedMounts],
-    unlockedHeroes: [...profile.unlockedHeroes],
+    ownedWeapons: [...profile.ownedWeapons],
+    ownedArmors: [...profile.ownedArmors],
+    ownedMounts: [...profile.ownedMounts],
+    ownedHeroes: [...profile.ownedHeroes],
     lifetimeStats: { ...profile.lifetimeStats },
     claimedBattleIds: [...profile.claimedBattleIds],
   }
