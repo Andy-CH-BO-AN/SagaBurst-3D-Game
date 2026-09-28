@@ -70,6 +70,30 @@ describe('CampaignOutpost', () => {
     },
   )
 
+  it.each(['roman', 'viking'] as const)(
+    'keeps every %s chevaux-de-frise inside the perimeter and leaves the gate corridor open',
+    faction => {
+      const outpost = createCampaignOutpost(new THREE.Scene(), faction)
+      const placement = getCampaignOutpostPlacement(faction)
+      const stakes = outpost.obstacles.filter(obstacle => obstacle.damageable?.kind === 'chevaux_de_frise')
+      expect(stakes).toHaveLength(10)
+      for (const stake of stakes) {
+        const visualBox = new THREE.Box3().setFromObject(stake.damageable!.root)
+        for (const box of [stake.box, visualBox]) {
+          expect(box.min.z).toBeGreaterThan(Math.min(placement.frontZ, placement.backZ) + 0.5)
+          expect(box.max.z).toBeLessThan(Math.max(placement.frontZ, placement.backZ) - 0.5)
+          expect(box.min.x).toBeGreaterThan(-placement.halfWidth + 0.5)
+          expect(box.max.x).toBeLessThan(placement.halfWidth - 0.5)
+          expect(box.max.x < -placement.gateWidth / 2 || box.min.x > placement.gateWidth / 2).toBe(true)
+        }
+        stake.damageable!.destroy()
+        expect(outpost.obstacles).not.toContain(stake)
+        expect(stake.damageable!.root.parent).toBeNull()
+        expect(stake.damageable!.hitMeshes.every(mesh => !outpost.obstacleMeshes.includes(mesh))).toBe(true)
+      }
+    },
+  )
+
   it('faces Roman and Viking defenders toward their mirrored front gates', () => {
     expect(getCampaignDefenderFacingYaw('roman')).toBe(0)
     expect(getCampaignDefenderFacingYaw('viking')).toBe(Math.PI)

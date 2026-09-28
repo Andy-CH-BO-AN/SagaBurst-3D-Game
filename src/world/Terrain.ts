@@ -4,6 +4,8 @@
  * Exports getTerrainHeight(x, z) to calibrate all 3D entity & obstacle positions.
  */
 import * as THREE from 'three'
+import { createPineVisual } from './EnvironmentVisuals'
+import { createMeadow, meadowMaterial } from './Meadow'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
 import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
@@ -636,7 +638,7 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
-  const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 128, 128)
+  const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)
 
   // Apply procedural height function to PlaneGeometry vertices
@@ -651,45 +653,27 @@ export function createTerrain(
   geometry.computeBoundingSphere()
   geometry.computeBoundingBox()
 
-  const material = new THREE.MeshLambertMaterial({
-    color: 0x4a7c3f,
-    flatShading: true,
-  })
+  const material = meadowMaterial(geometry, options.fortifiedCampFaction)
 
   const terrainMesh = new THREE.Mesh(geometry, material)
   terrainMesh.name = 'terrain'
   terrainMesh.receiveShadow = true
   scene.add(terrainMesh)
+  createMeadow(scene, getTerrainHeight, options.fortifiedCampFaction)
 
   const obstacles: ObstacleData[] = []
   const obstacleMeshes: THREE.Object3D[] = []
   const damageableObstacles: DamageableObstacle[] = []
 
   // ── Pine trees (damageable, but AI destruction policy is implemented separately) ──
-  const treeTrunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
-  const treeLeafMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
-  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 8)
-  const leavesGeo = new THREE.ConeGeometry(2, 4, 8)
-  trunkGeo.computeBoundingSphere()
-  leavesGeo.computeBoundingSphere()
-
   TERRAIN_TREE_POSITIONS.forEach(([tx, tz], index) => {
     const terrainY = getTerrainHeight(tx, tz)
-    const root = new THREE.Group()
+    const root = createPineVisual(index + 42, options.fortifiedCampFaction === 'viking')
     root.name = `damageable-tree-${index + 1}`
-
-    const trunk = new THREE.Mesh(trunkGeo, treeTrunkMat)
-    trunk.position.set(tx, terrainY + 1, tz)
-    trunk.castShadow = true
-    root.add(trunk)
-
-    const leaves = new THREE.Mesh(leavesGeo, treeLeafMat)
-    leaves.position.set(tx, terrainY + 4, tz)
-    leaves.castShadow = true
-    root.add(leaves)
-
+    root.position.set(tx, terrainY, tz)
+    const hitMeshes = root.children.filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
     scene.add(root)
-    obstacleMeshes.push(trunk, leaves)
+    obstacleMeshes.push(...hitMeshes)
 
     const box = new THREE.Box3(
       new THREE.Vector3(tx - 0.4, terrainY, tz - 0.4),
@@ -699,7 +683,7 @@ export function createTerrain(
       kind: 'tree',
       maxHp: DAMAGEABLE_OBSTACLE_HP.tree,
       root,
-      hitMeshes: [trunk, leaves],
+      hitMeshes,
       ownerFaction: null,
     })
     const obstacle: ObstacleData = {

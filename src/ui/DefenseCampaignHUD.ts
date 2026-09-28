@@ -1,3 +1,4 @@
+import type { CampaignGateState } from '../campaign/CampaignGate'
 import type { CampaignFaction } from '../campaign/CampaignConfig'
 import type {
   DefenseCampaignRuntimeSnapshot,
@@ -12,6 +13,7 @@ export class DefenseCampaignHUD {
   private readonly stageEl: HTMLElement
   private readonly phaseEl: HTMLElement
   private readonly timerEl: HTMLElement
+  private readonly gateEl: HTMLElement
   private readonly defenderEl: HTMLElement
   private readonly attackerEl: HTMLElement
   private resultShown = false
@@ -25,6 +27,7 @@ export class DefenseCampaignHUD {
     root.innerHTML = `
       <div class="campaign-hud-stage">STAGE <span data-stage></span></div>
       <div class="campaign-hud-phase" data-phase></div>
+      <div class="campaign-hud-gate" data-gate></div>
       <div class="campaign-hud-counts">
         <span class="${defenderFaction}" data-defender></span>
         <span class="campaign-hud-vs">VS</span>
@@ -35,13 +38,24 @@ export class DefenseCampaignHUD {
     this.root = root
     this.stageEl = root.querySelector('[data-stage]')!
     this.phaseEl = root.querySelector('[data-phase]')!
+    this.gateEl = root.querySelector('[data-gate]')!
     const timer = document.createElement('div')
     timer.id = 'defense-campaign-countdown'
-    document.body.appendChild(timer)
+    root.appendChild(timer)
     this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
     this.stageEl.textContent = String(this.stageId)
+  }
+
+  updateGate(state: CampaignGateState, unlocked: boolean, canOperate: boolean): void {
+    this.gateEl.textContent = state === 'destroyed'
+      ? '營門已損毀'
+      : !canOperate
+        ? `營門${state === 'open' ? '已開啟' : '已關閉'}`
+        : !unlocked
+          ? '營門鎖定 · 敵軍開始進場後可開門'
+          : state === 'open' ? '[G] 關門' : '[G] 開門'
   }
 
   update(
