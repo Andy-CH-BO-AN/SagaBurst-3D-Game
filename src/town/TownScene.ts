@@ -293,11 +293,15 @@ export class TownScene {
     this.activateHostility(); this.persistCasualties()
   }
   private get ranger(): NPC { return this.residents.find(r => r.spec.role === 'ranger')!.npc }
-  private damageBuilding(index: number, amount: number): void {
-    const b = this.world.buildings[index]; if (!b || b.hp.destroyed || amount <= 0) return
+  private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3): void {
+    const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
     const townOwned = b.ownerFaction !== Faction.BANDIT
     if (townOwned && !this.prepareDamage()) return
-    b.hp.takeDamage(amount); this.world.refreshDamage(); this.navigation.sync(this.world.obstacles)
+    const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
+    const { appliedDamage } = b.hp.takeDamage(amount)
+    if (appliedDamage <= 0) return
+    this.damageNumbers.spawn(appliedDamage, position)
+    this.world.refreshDamage(); this.navigation.sync(this.world.obstacles)
     if (townOwned) this.activateHostility()
     this.persistCasualties()
   }
@@ -331,7 +335,7 @@ export class TownScene {
         if (b.hp.destroyed) continue
         for (const obstacle of b.obstacles) {
           const p = ray.intersectBox(obstacle.box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
-          if (distance < nearest) { nearest = distance; hit = () => { if (s.player) this.damageBuilding(i, s.arrow.damage) } }
+          if (distance < nearest) { nearest = distance; hit = () => { if (s.player) this.damageBuilding(i, s.arrow.damage, p!) } }
         }
       }
       for (const target of this.world.targets) {
@@ -358,17 +362,17 @@ export class TownScene {
     if (!this.player.isHitFrame(this.inventory.equippedMelee)) return
     const weapon = this.inventory.equippedMelee, from = this.player.getWeaponGripPosition(new THREE.Vector3()), tip = this.player.getSwordTipPosition()
     // Buildings block melee before residents behind them.
-    let buildingHit = -1, nearestBuilding = Infinity
+    let buildingHit = -1, nearestBuilding = Infinity, buildingHitPosition: THREE.Vector3 | undefined
     for (let i = 0; i < this.world.buildings.length; i++) {
       const b = this.world.buildings[i]
       if (b.hp.destroyed) continue
       for (const { box } of b.obstacles) {
         if (!townMeleeBuildingContact(this.player.position, this.player.facingYaw, from, tip, previousTip, box, weapon.range ?? 1.8, weapon.combatKind === 'lance')) continue
         const distance = box.distanceToPoint(this.player.position)
-        if (distance < nearestBuilding) { nearestBuilding = distance; buildingHit = i }
+        if (distance < nearestBuilding) { nearestBuilding = distance; buildingHit = i; buildingHitPosition = box.clampPoint(this.player.position, new THREE.Vector3()) }
       }
     }
-    if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, weapon.damageMax); return }
+    if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, weapon.damageMax, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
     for (const target of [...this.residents.map(r => r.npc), this.cat, ...this.stableHorses]) {
       if (target.dead) continue
@@ -489,7 +493,7 @@ export class TownScene {
       const outcome = this.event.evaluate(this.player.dead); if (outcome && !this.panel) this.finish(outcome)
     }
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && this.serviceAvailable(id)
-    this.hud.textContent = this.profile.faction === 'viking' ? 'økse 村' : 'vinum 村'
+    this.hud.textContent = `${this.profile.faction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}`
     this.damageNumbers.update(dt, this.camera)
     this.updateAmbient()
     document.getElementById('quiver-hud')!.style.display = this.inventory.rangedEnabled ? '' : 'none'

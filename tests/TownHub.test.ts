@@ -206,9 +206,11 @@ describe('Town orchestration transitions', () => {
     town.player = { position: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), isHitFrame: () => true, markHitProcessed: vi.fn() }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
+    town.damageNumbers = { spawn: vi.fn() }
     town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null; town.residents = []
     town.melee()
     expect(hp.hpRatio).toBeCloseTo(.88); expect(town.event.hostile).toBe(true)
+    expect(town.damageNumbers.spawn).toHaveBeenCalledWith(12, new THREE.Vector3(0, .9, 1))
     expect(town.player.markHitProcessed).toHaveBeenCalledTimes(1)
   })
   it.each([false, true])('hostility is broadcast once; captain dead=%s selects another soldier', captainDead => {
@@ -237,8 +239,22 @@ describe('Town orchestration transitions', () => {
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: 120, root: new THREE.Group() })
     town.world = { buildings: [{ ownerFaction: Faction.BANDIT, hp }], obstacles: [], refreshDamage: vi.fn() }
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
+    town.damageNumbers = { spawn: vi.fn() }
     town.damageBuilding(0, 12)
     expect(hp.hpRatio).toBeCloseTo(.9); expect(town.prepareDamage).not.toHaveBeenCalled(); expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+  it('building feedback uses remaining HP for overkill and ignores zero, invalid and repeated damage', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 7, root: new THREE.Group() })
+    town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp }], obstacles: [], refreshDamage: vi.fn() }
+    town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
+    town.damageNumbers = { spawn: vi.fn() }
+    for (const damage of [0, -1, NaN, Infinity]) town.damageBuilding(0, damage)
+    expect(town.damageNumbers.spawn).not.toHaveBeenCalled(); expect(town.prepareDamage).not.toHaveBeenCalled()
+    const hitPosition = new THREE.Vector3(2, 1, 3)
+    town.damageBuilding(0, 1000, hitPosition); town.damageBuilding(0, 1000, hitPosition)
+    expect(town.damageNumbers.spawn).toHaveBeenCalledExactlyOnceWith(7, hitPosition)
+    expect(town.activateHostility).toHaveBeenCalledTimes(1)
   })
   it('persists casualties only on a death/destruction, preserving them across reload', () => {
     const town = Object.create(TownScene.prototype) as any, npc = { dead: false }, p = enlist()

@@ -36,7 +36,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }, p => { void start(p) }, message => { loading.textContent = message })
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
-    } catch (error) { loading.textContent = '小鎮載入失敗：' + String(error); const back = document.createElement('button'); back.textContent = '返回主選單'; back.onclick = () => { loading.remove(); home() }; loading.append(back) }
+    } catch (error) {
+      sessionStorage.removeItem(TOWN_ENTRY_KEY)
+      loading.textContent = '小鎮載入失敗：' + String(error)
+      const back = document.createElement('button'); back.textContent = '返回主選單'
+      back.onclick = () => { sessionStorage.removeItem(TOWN_ENTRY_KEY); loading.remove(); home() }; loading.append(back)
+    }
   }
   if (loaded.profile?.starterWeaponId) { void start(loaded.profile); return }
   let faction: 'roman' | 'viking' = loaded.profile?.faction ?? 'roman'
