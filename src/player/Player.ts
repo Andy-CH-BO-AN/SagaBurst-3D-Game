@@ -1,3 +1,4 @@
+import { Faction } from '../combat/CombatFaction'
 import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
@@ -76,6 +77,7 @@ export interface ArrowLaunchEvent {
 }
 
 export class Player {
+  readonly faction = Faction.PLAYER
   readonly group: THREE.Group
 
   private characterVisualGroup: THREE.Group
@@ -638,10 +640,8 @@ export class Player {
   }
 
   clearTownAction(): void {
-    this.animator.cancel(); this.hitEventPending = false
-    this.aiming = false; this.rangedAimViewActive = false; this.bowChargeTime = 0
-    this.bowVisualDrawRatio = 0; this.meleeAttackBufferTimer = 0
-    this.pilumReadyAfterThrow = false; this.pendingRangedWeapon = undefined
+    this._cancelEquipmentAction()
+    this.pendingRangedWeapon = undefined
   }
 
   update(

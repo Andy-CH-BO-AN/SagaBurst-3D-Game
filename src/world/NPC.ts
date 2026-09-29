@@ -79,10 +79,8 @@ export enum AIState {
   DEAD = 'DEAD',
 }
 
-export enum Faction {
-  PLAYER = 'PLAYER', // Allied with Player
-  ENEMY = 'ENEMY',   // Hostile to Player
-}
+export { Faction } from '../combat/CombatFaction'
+import { Faction } from '../combat/CombatFaction'
 
 export enum AIType {
   MELEE = 'MELEE',
@@ -534,12 +532,16 @@ export class NPC {
   }
 
   private townArmed = false
+  private townHostile = false
+  private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   setTownPeaceful(): void {
+    this.townHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
   }
   beginTownHostility(): void {
+    this.townHostile = true
     if (this.dead) return
     this.animator.cancel()
     this.tacticalOrder = 'charge'
@@ -1205,7 +1207,7 @@ export class NPC {
     let bestDistSq = Infinity
 
     if (
-      this.faction === Faction.ENEMY
+      this.targetsPlayer
       && !this._cachedTargetIsPlayer
       && player.targetable
       && !player.dead
@@ -1270,7 +1272,7 @@ export class NPC {
 
   private _isCachedTargetValid(player: Player): boolean {
     if (this._cachedTargetIsPlayer) {
-      return this.faction === Faction.ENEMY && player.targetable && !player.dead
+      return this.targetsPlayer && player.targetable && !player.dead
     }
     if (this._cachedTargetNpc !== null) {
       return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
@@ -1405,7 +1407,7 @@ export class NPC {
     let closestDistSq = Infinity
 
     // Check Player separately because Player is not stored in the NPC spatial grids.
-    if (this.faction === Faction.ENEMY && player.targetable) {
+    if (this.targetsPlayer && player.targetable) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const dSq = this.combatPosition.distanceToSquared(playerPos)
       if (dSq < closestDistSq) {

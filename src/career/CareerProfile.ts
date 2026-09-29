@@ -51,6 +51,8 @@ export interface CareerProfile {
   enlistmentMeritBase: number
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
   starterWeaponId?: string
+  townDialogueSeen?: string[]
+  ownedHorseTiers?: (1 | 2 | 3)[]
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
   ownedWeapons: string[]
@@ -270,6 +272,8 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...profile,
     ...(profile.equipment ? { equipment: { ...profile.equipment } } : {}),
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
+    ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
+    ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
     ownedWeapons: [...profile.ownedWeapons],
     ownedArmors: [...profile.ownedArmors],
     ownedMounts: [...profile.ownedMounts],

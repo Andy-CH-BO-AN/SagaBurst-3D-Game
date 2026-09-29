@@ -3,7 +3,7 @@ import { applyCivilianAppearance } from '../src/world/CivilianAppearance'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
-import { TownEvent, townRoster, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget } from '../src/town/TownRules'
+import { TownEvent, townRoster, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../src/town/TownRules'
 import { TownEquipment, canUseCareerEquipment } from '../src/town/TownEquipment'
 import { NPC, AIType, Faction } from '../src/world/NPC'
 import { Mount, MountType } from '../src/world/Mount'
@@ -25,9 +25,17 @@ function civilian() { return new NPC(new THREE.Scene(), 0, 0, Faction.ENEMY, 'ro
 function enlist() { const p = grantStarter(createCareerProfile('roman'), 'gladius_rusty'); p.totalMerit = 22000; p.availableMerit = 180; p.rank = 'commander'; p.townEvent = { id: 'event-1', state: 'hostile' }; return p }
 
 describe('Town population and civilian combat', () => {
+  it('uses faction T4 captains with their own hero mount and five stable horses in mixed existing coats', () => {
+    expect(townCaptainProfile('roman')).toMatchObject({ visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', mountOverride: 'corgi' })
+    expect(townCaptainProfile('viking')).toMatchObject({ visualAssetId: 'viking-hero-t4', combatProfileId: 'varangian', mountOverride: 'black-cat' })
+    const stalls = stableHorsePositions(); expect(stalls).toHaveLength(5); expect(new Set(stalls.map(s => s.variant)).size).toBe(3)
+    expect(stalls.every(s => s.x > -39.5 && s.x < -28.5 && s.z > 13 && s.z < 27)).toBe(true)
+    for (const site of Object.values(TOWN_SITES)) expect(Math.sin(site.yaw) * -site.x + Math.cos(site.yaw) * -site.z).toBeGreaterThan(0)
+    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: -21.5, yaw: Math.PI / 2 })
+  })
   it('keeps Viking civilian wool/trousers and armor hiding consistent across LODs without changing shared Roman materials', () => {
     const cloth = new THREE.MeshStandardMaterial({ color: 0xff2222 }), skin = new THREE.MeshStandardMaterial({ color: 0xffccaa })
-    const create = () => { const group = new THREE.Group(); for (const [name, material] of [['Tunic_1', cloth], ['RomanUndertunic_l', cloth], ['New_legs', skin], ['New_head', skin], ['Armour_top', cloth], ['Full_figure_42_T_pose', cloth], ['Helmet3', cloth]] as const) { const mesh = new THREE.Mesh(undefined, material); mesh.name = name; group.add(mesh) } return group }
+    const create = () => { const group = new THREE.Group(); for (const [name, material] of [['Tunic_1', cloth], ['RomanUndertunic_l', cloth], ['New_legs', skin], ['New_head', skin], ['Armour_top', cloth], ['Full_figure_42_T_pose', cloth], ['Helmet3', cloth]] as const) { const mesh = new THREE.Mesh(new THREE.BoxGeometry(.4, .8, .2), material); mesh.name = name; group.add(mesh) } return group }
     const lods = [create(), create(), create()]
     lods.forEach(level => applyCivilianAppearance(level, 'viking'))
     for (const level of lods) {
@@ -124,8 +132,10 @@ describe('Town settlement, persistence and appointments', () => {
     p.enlistmentMeritBase = p.totalMerit; p.rank = 'commander'; expect(parseCareerProfile(p)?.rank).toBe('recruit')
   })
   it('shop display is pure and appointed rank controls the four states', () => {
-    const p = enlist(), item = TOWN_PRODUCTS.find(i => i.id === 'horse')!, before = JSON.stringify(p)
-    expect(productStatus(p, item)).toBe('已解鎖・餘額不足'); expect(JSON.stringify(p)).toBe(before); p.availableMerit = 1000; expect(productStatus(p, item)).toBe('已解鎖・餘額足夠'); p.rank = 'recruit'; expect(productStatus(p, item)).toBe('軍階未解鎖'); p.ownedMounts.push('horse'); expect(productStatus(p, item)).toBe('已擁有')
+    const p = enlist(), item = TOWN_PRODUCTS.find(i => i.id === 'horse-t2')!, before = JSON.stringify(p)
+    p.ownedHorseTiers = [1]
+    const unchanged = JSON.stringify(p)
+    expect(productStatus(p, item)).toBe('已解鎖・餘額不足'); expect(JSON.stringify(p)).toBe(unchanged); expect(before).not.toBe(unchanged); p.availableMerit = 1000; expect(productStatus(p, item)).toBe('已解鎖・餘額足夠'); p.rank = 'recruit'; expect(productStatus(p, item)).toBe('軍階未解鎖'); p.ownedHorseTiers.push(2); p.ownedMounts.push('horse'); expect(productStatus(p, item)).toBe('已擁有')
     expect(townCampaignTarget('roman')).toEqual({ defenderFaction: 'roman', stageId: 1 }); expect(townCampaignTarget('viking')).toEqual({ defenderFaction: 'viking', stageId: 1 })
   })
   it('removes collision and invalidates navigation only once when a building is destroyed', () => {
@@ -189,7 +199,7 @@ describe('Town input and isolation regressions', () => {
 describe('Town orchestration transitions', () => {
   it.each([false, true])('hostility is broadcast once; captain dead=%s selects another soldier', captainDead => {
     const town = Object.create(TownScene.prototype) as any
-    town.event = new TownEvent(); town.closePanel = vi.fn()
+    town.event = new TownEvent(); town.closePanel = vi.fn(); town.equipment = { visible: true }
     const captain = { dead: captainDead, beginTownHostility: vi.fn() }, infantry = { dead: false, beginTownHostility: vi.fn() }
     town.residents = [{ spec: { id: 'captain', role: 'captain' }, npc: captain }, { spec: { id: 'infantry', role: 'melee_infantry' }, npc: infantry }]
     town.activateHostility(false); town.activateHostility(false)
@@ -200,6 +210,21 @@ describe('Town orchestration transitions', () => {
     town.prepareDamage = vi.fn(() => false); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
     town.hitResident(npc, 0); expect(town.prepareDamage).not.toHaveBeenCalled()
     town.hitResident(npc, 10); expect(npc.hp).toBe(50); expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+  it('hostility preserves an active swing and held movement when no dialog is open', () => {
+    const town = Object.create(TownScene.prototype) as any
+    town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null
+    town.closePanel = vi.fn(); town.residents = []
+    town.activateHostility(false)
+    expect(town.event.hostile).toBe(true); expect(town.closePanel).not.toHaveBeenCalled()
+  })
+  it('reserved bandit camp structures do not broadcast town crime', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 120, root: new THREE.Group() })
+    town.world = { buildings: [{ ownerFaction: Faction.BANDIT, hp }], obstacles: [], refreshDamage: vi.fn() }
+    town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
+    town.damageBuilding(0, 12)
+    expect(hp.hpRatio).toBeCloseTo(.9); expect(town.prepareDamage).not.toHaveBeenCalled(); expect(town.activateHostility).not.toHaveBeenCalled()
   })
   it('persists casualties only on a death/destruction, preserving them across reload', () => {
     const town = Object.create(TownScene.prototype) as any, npc = { dead: false }, p = enlist()
