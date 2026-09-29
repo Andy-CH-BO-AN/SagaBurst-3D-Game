@@ -32,7 +32,7 @@ import { SoundManager } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { getAntiCavalryMultiplier, getBerserkerModifiers } from '../combat/CombatBalance'
-import { townMeleeContact } from './TownCombat'
+import { townMeleeBuildingContact, townMeleeContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TownEquipment } from './TownEquipment'
 import { TOWN_RULES, TownEvent, townRoster, townCaptainProfile, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownActorSpec, type TownResult } from './TownRules'
@@ -327,10 +327,12 @@ export class TownScene {
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       let nearest = length + .01, hit: (() => void) | null = null
       for (let i = 0; i < this.world.buildings.length; i++) {
-        const b = this.world.buildings[i], obstacle = this.world.obstacles.find(o => o.damageable === b.hp)
-        if (!obstacle) continue
-        const p = ray.intersectBox(obstacle.box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
-        if (distance < nearest) { nearest = distance; hit = () => { if (s.player) this.damageBuilding(i, s.arrow.damage) } }
+        const b = this.world.buildings[i]
+        if (b.hp.destroyed) continue
+        for (const obstacle of b.obstacles) {
+          const p = ray.intersectBox(obstacle.box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
+          if (distance < nearest) { nearest = distance; hit = () => { if (s.player) this.damageBuilding(i, s.arrow.damage) } }
+        }
       }
       for (const target of this.world.targets) {
         const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
@@ -354,13 +356,19 @@ export class TownScene {
     const previousTip = this.hasPreviousTip ? this.previousTip.clone() : currentTip
     this.previousTip.copy(currentTip); this.hasPreviousTip = true
     if (!this.player.isHitFrame(this.inventory.equippedMelee)) return
-    const weapon = this.inventory.equippedMelee, from = this.player.getWeaponGripPosition(new THREE.Vector3()), tip = this.player.getSwordTipPosition(), ray = new THREE.Ray(from, tip.clone().sub(from).normalize())
+    const weapon = this.inventory.equippedMelee, from = this.player.getWeaponGripPosition(new THREE.Vector3()), tip = this.player.getSwordTipPosition()
     // Buildings block melee before residents behind them.
+    let buildingHit = -1, nearestBuilding = Infinity
     for (let i = 0; i < this.world.buildings.length; i++) {
-      const b = this.world.buildings[i], box = this.world.obstacles.find(o => o.damageable === b.hp)?.box
-      const p = box && ray.intersectBox(box.clone().expandByScalar(.25), new THREE.Vector3())
-      if (p && p.distanceTo(from) <= from.distanceTo(tip) + .3) { this.player.markHitProcessed(); this.damageBuilding(i, weapon.damageMax); return }
+      const b = this.world.buildings[i]
+      if (b.hp.destroyed) continue
+      for (const { box } of b.obstacles) {
+        if (!townMeleeBuildingContact(this.player.position, this.player.facingYaw, from, tip, previousTip, box, weapon.range ?? 1.8, weapon.combatKind === 'lance')) continue
+        const distance = box.distanceToPoint(this.player.position)
+        if (distance < nearestBuilding) { nearestBuilding = distance; buildingHit = i }
+      }
     }
+    if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, weapon.damageMax); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
     for (const target of [...this.residents.map(r => r.npc), this.cat, ...this.stableHorses]) {
       if (target.dead) continue

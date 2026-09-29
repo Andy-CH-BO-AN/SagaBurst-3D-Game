@@ -4,7 +4,7 @@ import { CAREER_RANKS, cloneCareerProfile, createCareerProfile } from '../src/ca
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { grantStarter, STARTER_WEAPONS, purchaseTownHorse, productStatus, TOWN_PRODUCTS, settleTown } from '../src/town/TownRules'
 import { TownEquipment } from '../src/town/TownEquipment'
-import { townMeleeContact } from '../src/town/TownCombat'
+import { townMeleeBuildingContact, townMeleeContact } from '../src/town/TownCombat'
 import { Faction, NPC, AIType } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { resolveEntityCollision, resolveObstacleCollision } from '../src/world/Terrain'
@@ -80,6 +80,14 @@ describe('Starter and progressive horse ownership', () => {
 })
 
 describe('Town physical contact and allegiance', () => {
+  it('building swings use the nearest wall but exclude buildings behind, beyond reach or overhead', () => {
+    const origin = new THREE.Vector3(0, .9, 0), grip = new THREE.Vector3(.2, 1.2, .1), tip = new THREE.Vector3(1.5, 1.2, .1)
+    const hit = (min: number[], max: number[]) => townMeleeBuildingContact(origin, 0, grip, tip, tip, new THREE.Box3(new THREE.Vector3().fromArray(min), new THREE.Vector3().fromArray(max)), 1.8, false)
+    expect(hit([-5, -2, 1], [5, 5, 10])).toBe(true)
+    expect(hit([-5, -2, -10], [5, 5, -1])).toBe(false)
+    expect(hit([-5, -2, 3], [5, 5, 10])).toBe(false)
+    expect(hit([-5, 4, 1], [5, 8, 10])).toBe(false)
+  })
   it('first sword contact hits the finite forward arc but never behind or out of range', () => {
     const origin = new THREE.Vector3(0, .9, 0), grip = new THREE.Vector3(.3, 1.3, .3), tip = new THREE.Vector3(1, 1.5, .8)
     const hit = (x: number, z: number) => townMeleeContact(origin, 0, grip, tip, tip, new THREE.Vector3(x, 1, z), 1.8, false)

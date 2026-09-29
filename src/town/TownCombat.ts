@@ -1,5 +1,11 @@
 import * as THREE from 'three'
 
+/** Large structures use their nearest surface, not their distant center or one blade snapshot. */
+export function townMeleeBuildingContact(origin: THREE.Vector3, yaw: number, grip: THREE.Vector3, tip: THREE.Vector3, previousTip: THREE.Vector3, box: THREE.Box3, range: number, lance: boolean): boolean {
+  const surface = box.clampPoint(origin, new THREE.Vector3())
+  return townMeleeContact(origin, yaw, grip, tip, previousTip, surface, range, lance)
+}
+
 /** Evaluate the authored hit event against a front-facing actor capsule, including the swept blade. */
 export function townMeleeContact(origin: THREE.Vector3, yaw: number, grip: THREE.Vector3, tip: THREE.Vector3, previousTip: THREE.Vector3, center: THREE.Vector3, range: number, lance: boolean): boolean {
   const delta = center.clone().sub(origin), distance = Math.hypot(delta.x, delta.z)

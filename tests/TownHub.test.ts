@@ -197,6 +197,20 @@ describe('Town input and isolation regressions', () => {
 
 
 describe('Town orchestration transitions', () => {
+  it('the first close frontal house swing damages the wall and starts hostility even after the blade has swept sideways', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root: new THREE.Group() })
+    const obstacle = { box: new THREE.Box3(new THREE.Vector3(-5, -2, 1), new THREE.Vector3(5, 5, 10)), damageable: hp }
+    town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp, obstacles: [obstacle] }], obstacles: [obstacle], refreshDamage: vi.fn() }
+    town.inventory = { meleeEnabled: true, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
+    town.player = { position: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), isHitFrame: () => true, markHitProcessed: vi.fn() }
+    town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
+    town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
+    town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null; town.residents = []
+    town.melee()
+    expect(hp.hpRatio).toBeCloseTo(.88); expect(town.event.hostile).toBe(true)
+    expect(town.player.markHitProcessed).toHaveBeenCalledTimes(1)
+  })
   it.each([false, true])('hostility is broadcast once; captain dead=%s selects another soldier', captainDead => {
     const town = Object.create(TownScene.prototype) as any
     town.event = new TownEvent(); town.closePanel = vi.fn(); town.equipment = { visible: true }

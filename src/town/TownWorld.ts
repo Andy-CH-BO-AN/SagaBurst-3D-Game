@@ -13,7 +13,7 @@ export class TownWorld {
   readonly obstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
-  readonly buildings: { id: string; ownerFaction: Faction; hp: DamageableObstacle; roof: THREE.Group; damaged: boolean }[] = []
+  readonly buildings: { id: string; ownerFaction: Faction; obstacles: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; damaged: boolean }[] = []
   private readonly geometries = new Set<THREE.BufferGeometry>()
   private readonly materials = new Set<THREE.Material>()
   private readonly textures = new Set<THREE.Texture>()
@@ -86,7 +86,7 @@ export class TownWorld {
         const angle = i / 5 * Math.PI * 2, x = cx + Math.sin(angle) * 10, z = cz + Math.cos(angle) * 10
         this.building('camp-' + cx + '-' + i, '', x, z, 5, 5, 2.4, 'tent', angle + Math.PI)
         for (const side of [-1, 1]) {
-          const yaw = angle + Math.PI, xx = x + Math.cos(yaw) * side * 1.1 + Math.sin(yaw) * 4, zz = z - Math.sin(yaw) * side * 1.1 + Math.cos(yaw) * 4
+          const yaw = angle + Math.PI, xx = x + Math.cos(yaw) * side * 1.1 + Math.sin(yaw) * 5, zz = z - Math.sin(yaw) * side * 1.1 + Math.cos(yaw) * 5
           spawnPoints.push(new THREE.Vector3(xx, getTerrainHeight(xx, zz), zz))
         }
       }
@@ -205,6 +205,7 @@ export class TownWorld {
   }
   private building(id: string, _name: string, x: number, z: number, w: number, d: number, h: number, kind: string, yaw = 0): void {
     const y = getTerrainHeight(x, z), root = new THREE.Group(); root.position.set(x, y, z); root.rotation.y = yaw; this.root.add(root)
+    const attachments: THREE.Box3[] = []
     const tent = kind === 'tent', stable = kind === 'stable', roman = this.faction === 'roman'
     const lowGround = Math.min(...[-1, 1].flatMap(sx => [-1, 1].map(sz => getTerrainHeight(x + Math.cos(yaw) * sx * w / 2 + Math.sin(yaw) * sz * d / 2, z - Math.sin(yaw) * sx * w / 2 + Math.cos(yaw) * sz * d / 2))))
     const foundationDepth = Math.max(.5, y - lowGround + .6)
@@ -262,17 +263,25 @@ export class TownWorld {
       const porchDepth = kind === 'barracks' ? 5 : 4.2
       this.cube(root, 0, h - .15, d / 2 + porchDepth / 2, porchWidth, .22, porchDepth, this.roofMat)
       if (!roman) this.cube(root, 0, h + .02, d / 2 + porchDepth / 2, porchWidth, .15, porchDepth, this.snow)
-      for (const side of [-1, 1]) this.cube(root, side * (porchWidth / 2 - .25), h / 2, d / 2 + porchDepth - .2, .22, h, .22, this.wood)
+      for (const side of [-1, 1]) {
+        const xx = side * (porchWidth / 2 - .25), zz = d / 2 + porchDepth - .2
+        this.cube(root, xx, h / 2, zz, .22, h, .22, this.wood)
+        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .14, -100, zz - .14), new THREE.Vector3(xx + .14, h, zz + .14)))
+      }
       this.sign(root, kind === 'shop' ? 'WEAPON SHOP' : stable ? 'HORSE SHOP' : 'BARRACKS', 0, kind === 'barracks' ? h - .3 : h + 1.05, kind === 'barracks' ? d / 2 + porchDepth + .15 : d / 2 + .25, stable || kind === 'barracks' ? 7 : 6)
-      if (kind === 'shop') this.weaponDisplay(root, d / 2)
+      if (kind === 'shop') {
+        this.weaponDisplay(root, d / 2)
+        for (const side of [-1, 1]) attachments.push(new THREE.Box3(new THREE.Vector3(side * 3.8 - 1.3, -100, d / 2 + 1.5), new THREE.Vector3(side * 3.8 + 1.3, 1.15, d / 2 + 2.9)))
+      }
     }
     const ruin = new THREE.Group(); ruin.position.copy(root.position); ruin.rotation.y = yaw; ruin.visible = false; this.root.add(ruin)
     for (let i = 0; i < 9; i++) { const chunk = this.cube(ruin, Math.sin(i * 8) * w * .35, .25 + i % 2 * .15, Math.cos(i * 4) * d * .3, 2.2, .4, .7, roman && !tent ? this.stone : this.wood); chunk.rotation.y = i * 1.7 }
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: kind === 'hall' ? 900 : tent ? 120 : 300, root })
     this.batch(root); this.batch(roof); this.batch(ruin)
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-w / 2 - .2, -100, -d / 2 - .2), new THREE.Vector3(w / 2 + .2, h + 3, d / 2 + .2)).applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }
-    this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : Faction.TOWN, hp, roof, damaged: false }); this.obstacles.push(obstacle)
-    hp.onDestroyed(() => { ruin.visible = true; const index = this.obstacles.indexOf(obstacle); if (index >= 0) this.obstacles.splice(index, 1) })
+    const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }))]
+    this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : Faction.TOWN, obstacles: buildingObstacles, hp, roof, damaged: false }); this.obstacles.push(...buildingObstacles)
+    hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })
   }
   refreshDamage(): void { for (const b of this.buildings) if (!b.damaged && b.hp.hpRatio <= .6 && !b.hp.destroyed) { b.damaged = true; b.roof.rotation.z = .14; b.roof.position.y -= 1; b.roof.children.slice(0, 2).forEach(c => c.visible = false) } }
   addTarget(x: number, z: number, ranged: boolean): THREE.Vector3 {
@@ -298,7 +307,7 @@ export class TownWorld {
     for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
     const material = new THREE.MeshBasicMaterial({ map: this.textTexture(text) }); this.materials.add(material)
     const sign = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(width, width / 6.4)), material)
-    sign.name = 'town-shop-sign'; sign.position.set(x, y, z); parent.add(sign)
+    sign.name = 'town-shop-sign'; sign.position.set(x, y, z + .02); parent.add(sign)
   }
   private markerMaterial?: THREE.SpriteMaterial
   addServiceMarker(parent: THREE.Object3D, height: number): THREE.Sprite {
