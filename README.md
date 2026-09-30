@@ -112,7 +112,7 @@ You can command one troop group, one squad, or the whole army depending on the g
 | `5` | Lancer | `5` | Sword Cavalry |
 | `6` | Mounted Archer | `6` | Lancer |
 | — | — | `7` | Mounted Archer |
-| ``` ``` | ALL | ``` ``` | ALL |
+| <kbd>&#96;</kbd> | ALL | <kbd>&#96;</kbd> | ALL |
 
 After selecting a command target:
 
