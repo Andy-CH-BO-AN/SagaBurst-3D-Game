@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../src/career/CareerProfile'
 import { createActiveCareerMission } from '../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
-import { TownEvent, townRoster, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../src/town/TownRules'
+import { TownEvent, townRoster, townMilitaryEquipment, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../src/town/TownRules'
 import { TownEquipment, canUseCareerEquipment } from '../src/town/TownEquipment'
 import { NPC, AIType, Faction } from '../src/world/NPC'
 import { Mount, MountType } from '../src/world/Mount'
@@ -53,11 +53,25 @@ describe('Town population and civilian combat', () => {
   })
   it('registers exactly 85 unique principals, with 60 garrison and 20 additional pedestrians', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
-    expect(counts).toMatchObject({ melee_cavalry: 10, ranged_cavalry: 10, ranged_infantry: 20, melee_infantry: 20, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
+    expect(counts).toMatchObject({ melee_cavalry: 5, lancer_cavalry: 5, ranged_cavalry: 10, ranged_infantry: 20, melee_infantry: 10, spearman_infantry: 10, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
     const e = new TownEvent(); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(85)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
     expect(TOWN_PRODUCTS.some(p => p.id.includes('civilian'))).toBe(false)
+  })
+  it('uses faction T2 presets for peaceful garrison and a foot T3 melee profile for the sergeant', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const sword = townMilitaryEquipment(faction, 'melee_cavalry')
+      const lancer = townMilitaryEquipment(faction, 'lancer_cavalry')
+      const spear = townMilitaryEquipment(faction, 'spearman_infantry')
+      const sergeant = townMilitaryEquipment(faction, 'deployment')
+      expect(sword).toMatchObject({ presetId: `${faction}_sword_cavalry`, tier: 2, level: 2 })
+      expect(lancer).toMatchObject({ presetId: `${faction}_lancer`, tier: 2, level: 2 })
+      expect(spear).toMatchObject({ presetId: `${faction}_spearman`, tier: 2, level: 2 })
+      expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 3 })
+      expect(sergeant.loadout).toEqual(UNIT_PRESETS[sergeant.presetId].tierLoadouts[3])
+      expect(sergeant.loadout.mountId).toBeNull()
+    }
   })
   it('uses HP 50, no squad or weapon in peace; arms once with catalog gladius after hostility', () => {
     const npc = civilian(); npc.setTownPeaceful()
@@ -444,6 +458,39 @@ describe('Town orchestration transitions', () => {
     expect(town.activateHostility).not.toHaveBeenCalled()
   })
 
+  it('protects a soldier on the same frame a Bandit enters range, but leaves a distant merchant and building vulnerable', () => {
+    const scene = new THREE.Scene()
+    const soldier = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Soldier', 2, false)
+    const merchant = new NPC(scene, 80, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Merchant', 2, false)
+    const bandit = new NPC(scene, 10, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 2, false)
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { activeMission: undefined }
+    town.externalThreatActors = new Set()
+    town.mission = { friendlies: [], ambientBandits: [bandit], missionBandits: [] }
+    town.residents = [{ spec: { role: 'melee_infantry' }, npc: soldier }, { spec: { role: 'merchant' }, npc: merchant }]
+    town.prepareDamage = vi.fn(() => true)
+    town.activateHostility = vi.fn()
+    town.persistCasualties = vi.fn()
+    town.damageNumbers = { spawn: vi.fn() }
+    expect(town.isProtectedTownAlly(soldier)).toBe(true)
+    expect(town.isProtectedTownAlly(merchant)).toBe(false)
+    const soldierHp = soldier.hp
+    town.hitResident(soldier, 5)
+    expect(soldier.hp).toBe(soldierHp)
+    expect(town.activateHostility).not.toHaveBeenCalled()
+    town.hitResident(merchant, 5)
+    expect(merchant.hp).toBeLessThan(merchant.maxHp)
+    expect(town.activateHostility).toHaveBeenCalledOnce()
+
+    town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp: { root: new THREE.Group(), destroyed: false, takeDamage: vi.fn(() => ({ appliedDamage: 5 })) } }], refreshDamage: vi.fn(), obstacles: [] }
+    town.navigation = { sync: vi.fn() }
+    town.activateHostility.mockClear()
+    town.damageBuilding(0, 5)
+    expect(town.world.buildings[0].hp.takeDamage).toHaveBeenCalledWith(5)
+    expect(town.activateHostility).toHaveBeenCalledOnce()
+    soldier.dispose(); merchant.dispose(); bandit.dispose()
+  })
+
   it('dismounts Maki when enemy fire kills the black cat during Town Defense', () => {
     const town = Object.create(TownScene.prototype) as any
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
@@ -490,7 +537,7 @@ describe('Town orchestration transitions', () => {
     expect(town.careerCommandCue).toBe('defend')
     town.profile.activeMission.phase = 'ATTACKING'
     town.updateCareerCommandCue()
-    expect(town.careerCommandCue).toBe('attack')
+    expect(town.careerCommandCue).toBe('defend')
     town.defense.reserveHasCharged = true
     town.updateCareerCommandCue()
     expect(town.careerCommandCue).toBe('charge')

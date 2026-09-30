@@ -5,10 +5,24 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, principalActors: 85, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
-export type TownRole = 'melee_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'melee_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian'
+export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian'
 export interface TownActorSpec { id: string; role: TownRole; x: number; z: number; index: number; yaw?: number }
+export function townMilitaryEquipment(faction: CharacterFaction, role: TownRole) {
+  const mounted = role === 'melee_cavalry' || role === 'lancer_cavalry' || role === 'ranged_cavalry' || role === 'captain'
+  const ranged = role === 'ranged_cavalry' || role === 'ranged_infantry'
+  const kind = role === 'lancer_cavalry' ? 'lancer'
+    : mounted ? ranged ? 'horse_archer' : 'sword_cavalry'
+      : role === 'spearman_infantry' ? 'spearman'
+        : ranged ? faction === 'roman' ? 'javelin_infantry' : 'archer'
+          : faction === 'roman' ? 'heavy_infantry' : 'berserker'
+  const presetId = `${faction}_${kind}` as UnitPresetId
+  const tier = role === 'captain' || role === 'deployment' ? 3 : TOWN_RULES.garrisonTier
+  const level: 1 | 2 | 3 | 4 = role === 'captain' ? 4 : tier
+  return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
+}
 export const TOWN_SITES = {
   weapons: { x: -29, z: -10, yaw: Math.PI / 2 },
   stable: { x: -34, z: 20, yaw: Math.PI / 2 },
@@ -20,7 +34,7 @@ export function townSitePoint(site: keyof typeof TOWN_SITES, side: number, forwa
 }
 export function townRoster(): TownActorSpec[] {
   const result: TownActorSpec[] = []
-  const groups = [ ['melee_cavalry', 10, 35, -38], ['ranged_cavalry', 10, 62, -38], ['ranged_infantry', 20, 35, 0], ['melee_infantry', 20, 62, 0] ] as const
+  const groups = [ ['melee_cavalry', 5, 35, -38], ['lancer_cavalry', 5, 35, -31], ['ranged_cavalry', 10, 62, -38], ['ranged_infantry', 20, 35, 0], ['melee_infantry', 10, 62, 0], ['spearman_infantry', 10, 62, 14] ] as const
   for (const [role, count, x, z] of groups) for (let i = 0; i < count; i++) result.push({ id: role + '-' + i, role, index: i, x: x + (i % 5) * 4, z: z + Math.floor(i / 5) * 7 })
   for (let i = 0; i < 20; i++) { const angle = i * Math.PI * 2 / 20; result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: Math.sin(angle) * (15 + i % 3 * 3) - 5, z: Math.cos(angle) * 16 + 7 }) }
   for (const [role, site, side, forward] of [['captain', 'barracks', -5, 8], ['deployment', 'barracks', 4, 8], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({ id: role, role, index: 0, ...townSitePoint(site, side, forward) })

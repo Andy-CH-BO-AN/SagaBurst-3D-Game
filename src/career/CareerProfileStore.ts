@@ -95,6 +95,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   const targetActorIds = uniqueStrings(raw.targetActorIds)
   const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
   if (template.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
+  if (template.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
   if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
