@@ -1,9 +1,10 @@
 /**
  * SoundManager.ts
- * Runtime playback for the SagaBurst Audio Pack V3.
+ * Runtime playback for the V3 battle pack and lazy Career mission voice pack.
  */
 
 export type AudioFaction = 'roman' | 'viking'
+export type CareerMissionVoiceCue = 'missionAccepted' | 'follow' | 'return' | 'townDefense'
 export type AudioCommand = 'attack' | 'defend' | 'formation' | 'charge'
 
 export interface HorseGallopCandidate {
@@ -57,6 +58,21 @@ const ASSETS: Record<AudioAsset, string> = {
   vikingHorn: new URL('../../sagaburst_audio_pack_v3/horns/viking_charge.wav', import.meta.url).href,
 }
 
+// Kept separate from ASSETS: non-Career scenes never preload this pack.
+const CAREER_ASSETS = {
+  'roman:missionAccepted': new URL('../../sagaburst_voice_pack_v1/mission/roman/mission_accepted.wav', import.meta.url).href,
+  'roman:follow': new URL('../../sagaburst_voice_pack_v1/mission/roman/follow.wav', import.meta.url).href,
+  'roman:return': new URL('../../sagaburst_voice_pack_v1/mission/roman/return.wav', import.meta.url).href,
+  'roman:townDefense': new URL('../../sagaburst_voice_pack_v1/mission/roman/town_defense.wav', import.meta.url).href,
+  'viking:missionAccepted': new URL('../../sagaburst_voice_pack_v1/mission/viking/mission_accepted.wav', import.meta.url).href,
+  'viking:follow': new URL('../../sagaburst_voice_pack_v1/mission/viking/follow.wav', import.meta.url).href,
+  'viking:return': new URL('../../sagaburst_voice_pack_v1/mission/viking/return.wav', import.meta.url).href,
+  'viking:townDefense': new URL('../../sagaburst_voice_pack_v1/mission/viking/town_defense.wav', import.meta.url).href,
+  townAlarm: new URL('../../sagaburst_voice_pack_v1/sfx/town_alarm.wav', import.meta.url).href,
+} as const
+type CareerAudioAsset = keyof typeof CAREER_ASSETS
+type PlaybackAsset = AudioAsset | CareerAudioAsset
+
 interface GallopLoop {
   source: AudioBufferSourceNode
   gain: GainNode
@@ -77,8 +93,8 @@ interface BattleImpactVoice {
 
 export class SoundManager {
   private ctx: AudioContext | null = null
-  private readonly buffers = new Map<AudioAsset, AudioBuffer>()
-  private readonly loading = new Map<AudioAsset, Promise<AudioBuffer | null>>()
+  private readonly buffers = new Map<PlaybackAsset, AudioBuffer>()
+  private readonly loading = new Map<PlaybackAsset, Promise<AudioBuffer | null>>()
   private readonly gallopWanted = new Map<object, boolean>()
   private readonly gallopLoops = new Map<object, GallopLoop>()
   private gallopLoadPending = false
@@ -86,6 +102,9 @@ export class SoundManager {
   private bowReleaseSequence = 0
   private readonly battleImpactVoices: BattleImpactVoice[] = []
   private battleImpactSequence = 0
+
+  private readonly careerVoices = new Set<CareerAudioAsset>()
+  private readonly careerLastPlayed = new Map<CareerAudioAsset, number>()
 
   constructor() {
     void this.preload()
@@ -226,13 +245,45 @@ export class SoundManager {
     })
   }
 
+  /** Fetch/decode only the requested Career cue; pending and active copies are deduplicated. */
+  playCareerMissionVoice(faction: AudioFaction, cue: CareerMissionVoiceCue): void {
+    void this._playCareerAsset(`${faction}:${cue}`)
+  }
+
+  /** Resolves at the alarm's onset (or failure), so warnings can follow its actual start. */
+  playTownAlarm(): Promise<boolean> {
+    return this._playCareerAsset('townAlarm')
+  }
+
+  private async _playCareerAsset(asset: CareerAudioAsset): Promise<boolean> {
+    const now = Date.now()
+    if (this.careerVoices.has(asset) || now - (this.careerLastPlayed.get(asset) ?? -Infinity) < 1000) return false
+    this.careerVoices.add(asset)
+    let started = false
+    try {
+      const buffer = await this._load(asset)
+      // Do not queue stale mission speech behind a browser autoplay wall.
+      if (!buffer || this.ctx?.state !== 'running') return false
+      const source = this._startOneShot(buffer)
+      if (!source) return false
+      started = true
+      this.careerLastPlayed.set(asset, Date.now())
+      source.addEventListener('ended', () => this.careerVoices.delete(asset), { once: true })
+      return true
+    } catch {
+      return false
+    } finally {
+      if (!started) this.careerVoices.delete(asset)
+    }
+  }
+
   private _init(): AudioContext {
     this.unlockAudio()
     if (!this.ctx) throw new Error('AudioContext unavailable')
     return this.ctx
   }
 
-  private async _load(asset: AudioAsset): Promise<AudioBuffer | null> {
+  private async _load(asset: PlaybackAsset): Promise<AudioBuffer | null> {
     const existing = this.buffers.get(asset)
     if (existing) return existing
     const pending = this.loading.get(asset)
@@ -241,18 +292,17 @@ export class SoundManager {
     const request = (async (): Promise<AudioBuffer | null> => {
       try {
         const ctx = this._init()
-        const response = await fetch(ASSETS[asset])
-        if (!response.ok) throw new Error(`Cannot load audio asset ${ASSETS[asset]}`)
+        const url = asset in CAREER_ASSETS ? CAREER_ASSETS[asset as CareerAudioAsset] : ASSETS[asset as AudioAsset]
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`Cannot load audio asset ${url}`)
         const data = await response.arrayBuffer()
         const buffer = await ctx.decodeAudioData(data)
         this.buffers.set(asset, buffer)
         return buffer
       } catch {
         return null
-      } finally {
-        this.loading.delete(asset)
       }
-    })()
+    })().finally(() => this.loading.delete(asset))
     this.loading.set(asset, request)
     return request
   }

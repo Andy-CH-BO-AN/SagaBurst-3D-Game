@@ -28,7 +28,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
-import { SoundManager, type AudioCommand, type HorseGallopCandidate } from '../audio/SoundManager'
+import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, claimCareerMission, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, getRecruitMissionTemplate, patrolPreferredCamp } from '../career/CareerMissionCatalog'
@@ -173,6 +173,7 @@ export class TownScene {
     this.navigation.sync(this.world.obstacles)
     const missionCaptain = this.residents.find(resident => resident.spec.role === 'captain')!.npc
     this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p))
+    this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation)
     this.careerMounts = new CareerMountController(
       this.scene,
@@ -187,15 +188,7 @@ export class TownScene {
         ...this.defense.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
       ],
     )
-    if (profile.activeMission) {
-      if (profile.activeMission.kind === 'town-defense') {
-        if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.defense.startActiveMission()
-      } else {
-        this.mission.startActiveMission()
-      }
-      if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.inventory.prepareForCombat()
-      this.careerMounts.restoreActiveMount()
-    }
+    this.restoreActiveCareerMission()
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()
     for (const distance of [100, 35, 0]) {
@@ -370,6 +363,29 @@ export class TownScene {
       panel.append(gate)
     }
   }
+  private restoreActiveCareerMission(): void {
+    const { profile } = this
+    if (profile.activeMission) {
+      if (profile.activeMission.kind === 'town-defense') {
+        if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.defense.startActiveMission()
+      } else {
+        this.mission.startActiveMission()
+      }
+      if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.inventory.prepareForCombat()
+      this.careerMounts.restoreActiveMount()
+    }
+  }
+  private playMissionVoice(cue: CareerMissionVoiceCue): void {
+    sound ??= new SoundManager()
+    sound.playCareerMissionVoice(this.profile.faction, cue)
+  }
+  private async playTownDefenseAlert(): Promise<void> {
+    const missionId = this.profile.activeMission?.id
+    await (sound ??= new SoundManager()).playTownAlarm()
+    setTimeout(() => {
+      if (!this.disposed && this.profile.activeMission?.id === missionId) this.playMissionVoice('townDefense')
+    }, 450)
+  }
   private acceptMission(templateId: string): void {
     const fresh = this.store.load()
     const template = availableRecruitMissions(fresh ?? this.profile).find(candidate => candidate.id === templateId)
@@ -389,6 +405,7 @@ export class TownScene {
       if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }
       this.inventory.prepareForCombat()
       this.notice = '警報！敌軍正在接近。前往主防線集合。'
+      void this.playTownDefenseAlert()
       this.closePanel()
       return
     }
@@ -401,6 +418,7 @@ export class TownScene {
     if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但隊伍無法建立。重新載入後可用同一個 missionId 恢復。'); return }
     this.inventory.prepareForCombat()
     this.notice = `已接受 ${template.name}。前往兵營外集合。`
+    this.playMissionVoice('missionAccepted')
     this.closePanel()
   }
   private applyCareerPlayerIdentity(): void {
@@ -459,7 +477,9 @@ export class TownScene {
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
     this.button(panel, '返回小鎮', () => result.defense ? this.settleTownDefenseInPlace() : this.fastReturnFromMission())
     if (!result.defense && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+      if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
+      if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
       this.missionResultOpen = false
       this.closePanel()
     })

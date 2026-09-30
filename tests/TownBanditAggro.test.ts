@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { TownScene } from '../src/town/TownScene'
-import { AIType, Faction, NPC } from '../src/world/NPC'
+import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 
 function hostile(faction: Faction) {
   return new NPC(new THREE.Scene(), 0, 0, faction, 'viking', AIType.MELEE, 'Hostile', 2, false)
@@ -49,6 +49,80 @@ describe('Town player hit aggro', () => {
     bandit.triggerEncounterAlert()
     expect(sprite.visible).toBe(true)
     bandit.dispose()
+  })
+
+  it.each(['alerted', 'provoked'] as const)('reacquires Player from AI IDLE without replaying known %s awareness', awareness => {
+    const bandit = hostile(Faction.BANDIT)
+    bandit.configureBanditEncounter(new THREE.Vector3())
+    if (awareness === 'provoked') bandit.provokeEncounter()
+    else bandit.triggerEncounterAlert()
+    const internal = bandit as any
+    internal.state = AIState.IDLE
+    internal.alertSprite.visible = false
+    bandit.takeDamage(1)
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.update(.016, player() as any, [], [bandit], [], () => {}, true)
+    expect(internal.alertSprite.visible).toBe(false)
+    expect(bandit.inCombat).toBe(true)
+    expect(internal._cachedTargetIsPlayer).toBe(true)
+    bandit.dispose()
+  })
+
+  it('announces an idle encounter only when an effective first hit provokes awareness', () => {
+    const bandit = hostile(Faction.BANDIT)
+    bandit.configureBanditEncounter(new THREE.Vector3())
+    const internal = bandit as any
+    bandit.takeDamage(1)
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.provokeEncounter()
+    expect(bandit.encounterAggroState).toBe('provoked')
+    expect(internal.alertSprite.visible).toBe(true)
+    bandit.dispose()
+  })
+
+  it('allows one new detection only after returning fully to the encounter origin', () => {
+    const bandit = hostile(Faction.BANDIT)
+    bandit.configureBanditEncounter(new THREE.Vector3())
+    bandit.triggerEncounterAlert()
+    const internal = bandit as any
+    expect(internal.alertSprite.visible).toBe(true)
+    bandit.update(.5, player() as any, [], [bandit], [], () => {}, true)
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.group.position.x = 30
+    internal._beginEncounterReturn()
+    bandit.triggerEncounterAlert()
+    expect(bandit.encounterAggroState).toBe('returning')
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.group.position.set(0, 0, 0)
+    bandit.update(.016, player(100) as any, [], [bandit], [], () => {}, true)
+    expect(bandit.encounterAggroState).toBe('idle')
+    bandit.triggerEncounterAlert()
+    expect(internal.alertSprite.visible).toBe(true)
+    internal.alertSprite.visible = false
+    bandit.triggerEncounterAlert()
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.dispose()
+  })
+
+  it('does not re-announce awareness when hit while returning before reaching camp', () => {
+    const bandit = hostile(Faction.BANDIT)
+    bandit.configureBanditEncounter(new THREE.Vector3())
+    bandit.triggerEncounterAlert()
+    const internal = bandit as any
+    internal.alertSprite.visible = false
+    bandit.group.position.x = 30
+    internal._beginEncounterReturn()
+    bandit.provokeEncounter()
+    expect(bandit.encounterAggroState).toBe('provoked')
+    expect(internal.alertSprite.visible).toBe(false)
+    bandit.dispose()
+  })
+
+  it('keeps the generic alert marker for NPCs without encounter awareness', () => {
+    const enemy = hostile(Faction.ENEMY)
+    enemy.update(.016, player() as any, [], [enemy], [], () => {}, true)
+    expect((enemy as any).alertSprite.visible).toBe(true)
+    enemy.dispose()
   })
 
   it('also makes a living Town Defense enemy acquire Player after effective damage', () => {
