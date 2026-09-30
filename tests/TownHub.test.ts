@@ -139,8 +139,10 @@ describe('Town settlement, persistence and appointments', () => {
     expect(townCampaignTarget('roman')).toEqual({ defenderFaction: 'roman', stageId: 1 }); expect(townCampaignTarget('viking')).toEqual({ defenderFaction: 'viking', stageId: 1 })
   })
   it('removes collision and invalidates navigation only once when a building is destroyed', () => {
-    const root = new THREE.Group(), hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root }), obstacles = [{ box: new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(5, 5, 5)), isBarricade: false, damageable: hp }], nav = new NavigationWorld(), cb = vi.fn(() => obstacles.splice(0, 1))
+    const parent = new THREE.Group(), root = new THREE.Group(); parent.add(root)
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root }), obstacles = [{ box: new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(5, 5, 5)), isBarricade: false, damageable: hp }], nav = new NavigationWorld(), cb = vi.fn(() => obstacles.splice(0, 1))
     hp.onDestroyed(cb); nav.sync(obstacles); const rev = nav.revision; hp.takeDamage(10); expect(nav.sync(obstacles)).toBe(false); hp.takeDamage(100); nav.sync(obstacles); expect(nav.revision).toBe(rev + 1); hp.takeDamage(100); expect(cb).toHaveBeenCalledTimes(1); expect(nav.sync(obstacles)).toBe(false)
+    hp.restore(); expect(hp.currentHp).toBe(100); expect(hp.destroyed).toBe(false); expect(root.parent).toBe(parent); expect(root.visible).toBe(true)
   })
 })
 describe('Town temporary sheathing and equipment eligibility', () => {
@@ -297,6 +299,53 @@ describe('Town orchestration transitions', () => {
     expect(playerPosition).toEqual(new THREE.Vector3(9, 1, -4)); expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
     town.settleReturnedMissionInPlace()
     expect(town.commit).toHaveBeenCalledOnce(); expect(town.mission.cleanupMission).toHaveBeenCalledOnce()
+  })
+  it('settles Town Defense in place and restores the existing garrison, civilians, buildings and services', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const profile = createCareerProfile('roman')
+    profile.activeMission = {
+      id: 'defense-return', templateId: 'recruit-town-defense-01', kind: 'town-defense', phase: 'RESULT',
+      targetCampId: -1, targetActorIds: [], friendlyActorIds: [], civilianActorIds: [], acceptedAt: Date.now(),
+      result: { outcome: 'victory', stats: { damageDealt: 20, damageTaken: 5, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, merit: { damage: 2, kills: 1, contribution: 1, total: 4 }, claimed: true, defense: { civilianSurvived: 20, civilianDeaths: 0 } },
+    }
+    const makeResident = (role: string, index: number) => ({
+      spec: { id: `${role}-${index}`, role, index, x: index, z: -index },
+      npc: { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() },
+      cycle: 4, walkTime: 3,
+    })
+    const residents = [
+      ...Array.from({ length: 60 }, (_, index) => makeResident(index < 20 ? 'melee_infantry' : index < 40 ? 'ranged_infantry' : index < 50 ? 'melee_cavalry' : 'ranged_cavalry', index)),
+      makeResident('captain', 0),
+      ...Array.from({ length: 20 }, (_, index) => makeResident('civilian', index)),
+    ]
+    const projectile = { destroy: vi.fn() }
+    town.profile = profile; town.residents = residents; town.shots = [{ arrow: projectile }]
+    town.defense = { cleanupMission: vi.fn() }
+    town.world = { obstacles: [], restoreTownDamage: vi.fn() }
+    town.navigation = { sync: vi.fn() }
+    town.externalThreatActors = new Set(residents.map(resident => resident.npc))
+    town.commit = vi.fn((next: typeof profile) => { town.profile = next; return true })
+    town.careerMounts = { restInTown: vi.fn() }; town.inventory = { sheathAll: vi.fn() }
+    const playerPosition = new THREE.Vector3(4, 1, -2)
+    town.player = { position: playerPosition, maxHp: 120, clearTownAction: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), setArrowCount: vi.fn(), arrowCount: 30 }
+    town.hp = { setFill: vi.fn() }; town.stamina = { setFill: vi.fn() }; town.quiver = { setArrowCount: vi.fn() }
+    town.missionResultOpen = true; town.target = 'captain'; town.hasPreviousTip = true; town.notice = ''; town.panel = {}
+    town.closePanel = vi.fn(); town.dispose = vi.fn(); town.onRestart = vi.fn()
+
+    town.settleTownDefenseInPlace()
+
+    expect(town.profile.activeMission).toBeUndefined()
+    expect(town.defense.cleanupMission).toHaveBeenCalledOnce()
+    expect(residents.every(resident => resident.npc.respawn.mock.calls.length === 1)).toBe(true)
+    expect(town.world.restoreTownDamage).toHaveBeenCalledOnce()
+    expect(town.navigation.sync).toHaveBeenCalledExactlyOnceWith(town.world.obstacles)
+    expect(projectile.destroy).toHaveBeenCalledOnce()
+    expect(town.externalThreatActors.size).toBe(0)
+    expect(town.careerMounts.restInTown).toHaveBeenCalledOnce()
+    expect(playerPosition).toEqual(new THREE.Vector3(4, 1, -2))
+    expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
+    town.settleTownDefenseInPlace()
+    expect(town.commit).toHaveBeenCalledOnce(); expect(town.defense.cleanupMission).toHaveBeenCalledOnce()
   })
   it('the first close frontal house swing damages the wall and starts hostility even after the blade has swept sideways', () => {
     const town = Object.create(TownScene.prototype) as any

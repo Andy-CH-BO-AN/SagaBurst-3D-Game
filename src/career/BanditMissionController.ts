@@ -27,6 +27,7 @@ const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, sh
 const DETECTION_RANGE = 18
 const MISSION_LEADER_MARCH_SPEED = 4.4
 const LEADER_RETURN_RADIUS = 5
+const PARTY_RETURN_RADIUS = 18
 const PLAYER_RETURN_RADIUS = 12
 const STATS_CHECKPOINT_SECONDS = 5
 const PERCEPTION_INTERVAL_SECONDS = .2
@@ -86,7 +87,15 @@ export class BanditMissionController {
   get ambientBandits(): NPC[] { return this.camps.flatMap(camp => camp.ambient) }
   get fieldNpcs(): NPC[] { return [...this.ambientBandits, ...this.missionBandits, ...this.friendlies] }
   get remainingEnemies(): number { return this.missionBandits.filter(npc => !npc.dead).length }
-  get partyReturned(): boolean { return this.phase === 'RETURNING' && Boolean(this.leader && this.leader.combatPosition.distanceTo(this.assemblyPoint()) < LEADER_RETURN_RADIUS) }
+  get partyReturned(): boolean {
+    if (this.phase !== 'RETURNING') return false
+    const living = this.friendlies.filter(npc => !npc.dead)
+    if (living.length === 0) return true
+    const leader = this.leader && !this.leader.dead ? this.leader : living[0]
+    const assembly = this.assemblyPoint()
+    return leader.combatPosition.distanceTo(assembly) < LEADER_RETURN_RADIUS
+      && living.every(npc => npc.combatPosition.distanceTo(assembly) < PARTY_RETURN_RADIUS)
+  }
   get playerReturned(): boolean { return this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.assemblyPoint()) < PLAYER_RETURN_RADIUS }
   get returnComplete(): boolean { return this.partyReturned && this.playerReturned }
 
@@ -140,7 +149,8 @@ export class BanditMissionController {
       this.positionPartyForReload(0)
     } else {
       const objective = this.missionObjective(template, active, camp.center)
-      this.setRoute(this.buildRoute(this.assemblyPoint(), objective), this.assemblyPoint(), routeStage)
+      const segmentStart = this.missionSegmentStart(template, active, camp.center)
+      this.setRoute(this.buildRoute(segmentStart, objective), segmentStart, routeStage)
       if (active.phase === 'ASSEMBLING') this.assignAssembly()
       else if (active.phase === 'MARCHING') {
         this.positionPartyForReload(routeStage)
@@ -193,8 +203,12 @@ export class BanditMissionController {
       for (const friendly of this.friendlies) {
         if (!friendly.dead && friendly.tacticalOrder !== 'charge') friendly.setTacticalOrder('charge')
       }
-      if (template.kind === 'patrol' && this.remainingEnemies === 0 && hasLeader && leader) this.resumePatrol(template, camp, leader)
+      if (template.kind === 'patrol' && this.remainingEnemies === 0) {
+        if (hasLeader && leader) this.resumePatrol(template, camp, leader)
+        else this.resumePlayerOnlyPatrol()
+      }
     }
+    if (template.kind === 'patrol' && this.phase === 'MARCHING' && !hasLeader) this.updatePlayerOnlyPatrol(template, camp)
 
     this.persistRuntimeProgress()
     const current = this.active ?? active
@@ -435,6 +449,17 @@ export class BanditMissionController {
     return Math.max(0, this.patrolWaypoints(template, camp).findIndex(point => point.distanceToSquared(encounter) < 1))
   }
 
+  private missionSegmentStart(
+    template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate,
+    active: ActiveCareerMission,
+    camp: THREE.Vector3,
+  ): THREE.Vector3 {
+    if (template.kind !== 'patrol') return this.assemblyPoint()
+    const objectives = this.patrolWaypoints(template, camp)
+    const stage = Math.min(active.patrolStage ?? 0, objectives.length)
+    return stage <= 0 ? this.assemblyPoint() : objectives[Math.min(stage - 1, objectives.length - 1)]
+  }
+
   private updatePatrolMarch(template: RecruitPatrolMissionTemplate, camp: CampRuntime, leader: NPC, campAlerted: boolean): void {
     const active = this.active
     if (!active) return
@@ -468,6 +493,34 @@ export class BanditMissionController {
     this.setRoute(this.buildRoute(leader.combatPosition, objective), leader.combatPosition)
     this.assignLeader(objective)
     this.assignFollowers()
+  }
+
+  private resumePlayerOnlyPatrol(): void {
+    const active = this.active
+    if (!active) return
+    this.route = []
+    this.routeIndex = 0
+    this.setPhase('MARCHING', 0, active.patrolStage ?? 0)
+  }
+
+  private updatePlayerOnlyPatrol(template: RecruitPatrolMissionTemplate, camp: CampRuntime): void {
+    const active = this.active
+    if (!active) return
+    const objectives = this.patrolWaypoints(template, camp.center)
+    const stage = Math.min(active.patrolStage ?? 0, objectives.length)
+    const campAlerted = camp.mission.some(npc => npc.encounterIsAlerted)
+    if (campAlerted && this.remainingEnemies > 0) {
+      this.setPhase('ENGAGING', 0, stage)
+      return
+    }
+    const objective = objectives[stage]
+    if (!objective || this.player().combatPosition.distanceToSquared(objective) > 64) return
+    if (stage === this.patrolEncounterStage(template, active.id, camp.center) && this.remainingEnemies > 0) {
+      for (const bandit of camp.mission) if (!bandit.dead) bandit.triggerEncounterAlert()
+      this.setPhase('ENGAGING', 0, stage)
+      return
+    }
+    this.setPhase('MARCHING', 0, stage + 1)
   }
 
   private setRoute(route: THREE.Vector3[], from: THREE.Vector3, routeStage = 0): void {

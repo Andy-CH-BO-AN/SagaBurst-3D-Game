@@ -51,6 +51,7 @@ const mission = (
   risk: RecruitMissionRisk,
   preferredCampIndex: number,
   requiresEnlistmentMerit = 0,
+  requiresCompletions = 0,
 ): RecruitBanditMissionTemplate => ({
   id,
   kind: 'bandit',
@@ -64,7 +65,7 @@ const mission = (
   risk,
   preferredCampIndex,
   requiresEnlistmentMerit,
-  requiresCompletions: 0,
+  requiresCompletions,
   storyOnce: false,
 })
 
@@ -98,7 +99,7 @@ const patrol = (
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
-  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2),
+  mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
 
   patrol(
     'recruit-patrol-01',

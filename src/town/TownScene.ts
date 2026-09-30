@@ -453,7 +453,7 @@ export class TownScene {
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${merit.total === 0 ? '\n\n本次未對任務目標造成有效貢獻。個人軍功：0' : ''}`)
-    this.button(panel, '返回小鎮', () => this.fastReturnFromMission())
+    this.button(panel, '返回小鎮', () => result.defense ? this.settleTownDefenseInPlace() : this.fastReturnFromMission())
     if (!result.defense && complete && result.stats.survived && this.mission.missionLeader) this.button(panel, '跟隊伍走回去', () => {
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       this.missionResultOpen = false
@@ -463,17 +463,70 @@ export class TownScene {
   private fastReturnFromMission(): void {
     const active = this.profile.activeMission
     if (!active) return
+    if (active.kind === 'town-defense') { this.settleTownDefenseInPlace(); return }
     const next = clearCareerMission(this.profile, active.id)
     if (!this.commit(next)) {
       const panel = this.openPanel('返回狀態尚未保存', '任務結算仍安全保留。請重試保存後返回小鎮。')
       this.button(panel, '重試返回小鎮', () => this.fastReturnFromMission())
       return
     }
-    if (active.kind !== 'town-defense') this.mission.cleanupMission(active.targetCampId)
+    this.mission.cleanupMission(active.targetCampId)
     this.inventory.sheathAll()
     this.missionResultOpen = false
     this.dispose()
     this.onRestart(next)
+  }
+  private restoreResidentForTown(resident: Resident): void {
+    resident.npc.dismountFromMount()
+    resident.npc.respawn()
+    resident.npc.endExternalThreat()
+    resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
+    resident.cycle = -1
+    resident.walkTime = 0
+    this.externalThreatActors.delete(resident.npc)
+    if (resident.homeMount) {
+      resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
+      resident.npc.mountVehicle(resident.homeMount)
+    }
+  }
+  private clearMissionCombatShots(): void {
+    for (const shot of this.shots ?? []) shot.arrow.destroy()
+    this.shots = []
+  }
+  private restPlayerInTown(): void {
+    this.careerMounts.restInTown()
+    this.inventory.sheathAll()
+    this.player.clearTownAction()
+    this.player.setHp(this.player.maxHp)
+    this.player.setStamina(MAX_STAMINA)
+    this.player.setArrowCount(PLAYER_ARROW_CAPACITY)
+    this.hp.setFill(1)
+    this.stamina.setFill(1)
+    this.quiver.setArrowCount(this.player.arrowCount)
+  }
+  private settleTownDefenseInPlace(): void {
+    const active = this.profile.activeMission
+    if (!active || active.kind !== 'town-defense' || !active.result) return
+    const next = clearCareerMission(this.profile, active.id)
+    if (!this.commit(next)) {
+      const panel = this.openPanel('返回狀態尚未保存', '守城結算仍安全保留。請重試，軍功不會重複發放。')
+      this.button(panel, '重試原地結算', () => this.settleTownDefenseInPlace())
+      return
+    }
+
+    this.defense.cleanupMission()
+    this.clearMissionCombatShots()
+    for (const resident of this.residents) {
+      if (resident.spec.role.includes('_') || resident.spec.role === 'captain' || resident.spec.role === 'civilian') this.restoreResidentForTown(resident)
+    }
+    this.world.restoreTownDamage()
+    this.navigation.sync(this.world.obstacles)
+    this.restPlayerInTown()
+    this.missionResultOpen = false
+    this.target = null
+    this.hasPreviousTip = false
+    this.notice = '守城結束。駐軍與居民已歸位，城鎮服務恢復。'
+    if (this.panel) this.closePanel()
   }
   private settleReturnedMissionInPlace(): void {
     const active = this.profile.activeMission
@@ -487,30 +540,13 @@ export class TownScene {
     }
 
     this.mission.cleanupMission(active.targetCampId)
+    this.clearMissionCombatShots()
     for (const resident of this.residents) {
       if (!missionResidents.has(resident.npc)) continue
-      resident.npc.dismountFromMount()
-      resident.npc.respawn()
-      resident.npc.endExternalThreat()
-      resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
-      resident.cycle = -1
-      resident.walkTime = 0
-      this.externalThreatActors.delete(resident.npc)
-      if (resident.homeMount) {
-        resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
-        resident.npc.mountVehicle(resident.homeMount)
-      }
+      this.restoreResidentForTown(resident)
     }
 
-    this.careerMounts.restInTown()
-    this.inventory.sheathAll()
-    this.player.clearTownAction()
-    this.player.setHp(this.player.maxHp)
-    this.player.setStamina(MAX_STAMINA)
-    this.player.setArrowCount(PLAYER_ARROW_CAPACITY)
-    this.hp.setFill(1)
-    this.stamina.setFill(1)
-    this.quiver.setArrowCount(this.player.arrowCount)
+    this.restPlayerInTown()
     this.missionResultOpen = false
     this.target = null
     this.hasPreviousTip = false

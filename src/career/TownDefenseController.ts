@@ -146,6 +146,17 @@ export class TownDefenseController {
     return this.releasedEnemies
   }
 
+  cleanupMission(): void {
+    this.disposeEnemies()
+    this.groups.length = 0
+    this.preparationStarted = false
+    this.preparationElapsed = 0
+    this.attackElapsed = 0
+    this.reserveCharged = false
+    this.combatOrdersIssued = false
+    this.guide.hide()
+  }
+
   private prepareDeployment(): void {
     const plans = createTownDefenseGroups(this.residents.map(resident => resident.spec))
     for (const plan of plans) {
