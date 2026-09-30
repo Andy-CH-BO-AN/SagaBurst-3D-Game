@@ -2,70 +2,13 @@
 
 **English** | [繁體中文](./README.zh-TW.md)
 
-**SagaBurst** is a browser-based 3D action RPG prototype built with **Three.js**, **TypeScript**, and **Vite**.
+**SagaBurst** is a browser-based 3D action game about fighting alongside and commanding large Viking and Roman armies.
 
-SagaBurst includes **Custom Battle**, **Defense Campaign**, and **Career Town Hub**. Custom Battle lets you build both armies; Defense Campaign has nine Roman/Viking stages; Career starts in a persistent faction town.
-
-## ⚔️ At a Glance
-
-| Area | Current support |
-| --- | --- |
-| Battle size | **1 vs 1 up to 200 vs 200 AI troops** |
-| Factions | Viking and Roman |
-| Unit progression | T1 / T2 / T3 presets and equipment |
-| Deployment | Formation Battle or Scattered Battle |
-| Player side | Viking or Roman |
-| Player loadout | Melee, ranged, shield, mounted or on foot |
-| Combat | Melee, bows, pila, shields, lances, cavalry, horse impact |
-| Army command | Select troop groups or the whole army and issue Attack, Defend, Charge, or Formation orders |
-| Spectating | Start as spectator or continue as spectator after player death |
-| Defense Campaign | 9 sequential defense stages for Roman and Viking, with per-faction progression |
-| Replay | REMATCH with the same configuration or return to setup |
-| Platform | Desktop browser, keyboard + mouse |
-
-The project is actively evolving, with current work focused on combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
-
-## 🏘️ Career Town Hub
-
-Choose **CAREER** from the main menu, select Roman or Viking, and choose one T1 starter weapon once. Existing careers keep their faction, appointed rank, merit, and collections. Roman **vinum 村** uses timber-framed plaster houses, stone foundations and tiled roofs; Viking **økse 村** uses timber longhouses, snowy thatch roofs and civilians in muted wool tunics and brown trousers. Entry builds and warms the village, actors, animations and shaders before spawning the player. Starter cards show actual weapon models and catalog stats for sword, axe, spear, bow and javelin.
-
-- Move with **WASD**, run with **Shift**, and face a nearby service character to **E** talk. **Q / Esc** closes dialogue. Camera look is available immediately on entry; attacks recover normally into Shift sprint. The captain appoints one eligible rank at a time; deployment remains unavailable, with rank-specific duty dialogue and no navigation button.
-- Every peaceful entry starts on foot with weapons and shield put away. **Tab** opens the existing equipment UI to draw owned gear allowed by your appointed rank. Ownership and equipment preferences remain saved; empty-hand clicks do not attack or aim. Town sheathing does not change Campaign loadouts.
-- All three service buildings face the central square. Find merchants under shop porches and the captain/deployment soldier beside the training-yard entrance, with a small barracks immediately beside that gate. Overhead question marks mark service actors. Attached English signs read WEAPON SHOP / HORSE SHOP / BARRACKS; buildings have no floating name labels. Weapon racks display real catalog models, and the open-front stable houses five horses in mixed existing coats. Weapon/hero-mount prices remain previews. The Black Cat and Maki share T1/T2/T3 horse purchases (200/500/1000 merit), gated by appointed rank and ownership of the preceding tier; town riding is not yet available.
-- Town population is **60 T2 training troops** (10 melee cavalry, 10 horse archers, 20 ranged infantry, 20 melee infantry), **20 civilians**, and **5 service actors**. The 20 cavalry horses, captain’s hero mount, and five mixed-coat stable horses are additional runtime entities (111 non-player entities total); the shopkeeper cat is counted once among the 85 principal actors. The T4 Roman captain rides a Corgi, and the T4 Viking captain rides a separate Black Cat.
-- Peaceful dialogue comes from a centralized faction/rank catalog: Roman discipline and appointments, Viking blunt humor, brief cat narration, persisted introductions, and one nearby civilian ambient line every 12 seconds.
-- The map matches the outpost boundary (600 × 600 m), with trees, real outpost campfires and five ten-person camp layouts reserved for future bandit missions. Buildings, props and actors block movement; finely sampled paving follows the physics terrain.
-- The first effective hit on any resident or building immediately starts town-wide retaliation and displays actual HP removed. Defeat reads「弱者必須服從法律」and returns to the named village. Civilians have 50 HP and draw `gladius_rusty`; Maki mounts the same stable cat. Training targets and training projectiles never cause crime, rewards, or friendly damage.
-- Death deducts up to **100 available merit** once and returns you to a restored town. Defeating all 85 principal actors switches faction, resets appointed rank to Recruit, and starts a new enlistment merit baseline while retaining lifetime merit and collections. Reloading an unfinished event preserves hostility, deaths, and destroyed buildings.
-- Rank eligibility uses `totalMerit - enlistmentMeritBase` at 0 / 300 / 900 / 5000 / 20000. Appointment requires the captain; earning merit or loading a save never automatically promotes you. This hub does not yet award Career merit from ordinary Campaign results or implement Career Recruit battles / command authority.
-
-## 🏰 Defense Campaign
-
-Choose **Roman Defense** or **Viking Defense**, configure the defending army for the selected stage, and hold the faction's outpost against a growing assault force.
-
-- Stages **1–9** unlock sequentially after victory.
-- Roman and Viking progression are stored separately in the browser.
-- Each stage has its own defender cap, tier limits, cavalry cap, attacker size, attacker tier mix, and reinforcement tier.
-- Destroying the entire attacking army wins immediately; otherwise scheduled cavalry reinforcements can still arrive during a long defense.
-- Stage 9 is the final Defense Campaign stage.
-- T1 defenders remain selectable in every stage, so players can deliberately run lower-tier challenge armies.
-- When **Squads** command grouping is selected, the normal start button becomes **ASSIGN SQUADS**. A second setup step shows only deployed preset+tier rows, lets the player distribute them across squads 1–8, caps each squad at **30** units, and requires every defender to be assigned before the campaign can start.
-
-| Stage | Defender cap | Defender tier rule | Attacker force |
-| --- | ---: | --- | --- |
-| 1 | 80 | T2+T3 ≤ 50 · T3 ≤ 10 | 100 T2 |
-| 2 | 85 | T2+T3 ≤ 50 · T3 ≤ 10 | 110 T2 |
-| 3 | 90 | T2+T3 ≤ 55 · T3 ≤ 10 | 120 T2 |
-| 4 | 90 | T3 ≤ 10 | 100 T2 + 30 T3 |
-| 5 | 90 | T3 ≤ 30 | 70 T2 + 70 T3 |
-| 6 | 90 | T3 ≤ 60 | 30 T2 + 120 T3 |
-| 7 | 90 | T2+T3 ≤ 90 | 160 T3 |
-| 8 | 90 | T2+T3 ≤ 90 | 180 T3 |
-| 9 | 90 | T2+T3 ≤ 90 | 200 T3 |
+The README focuses on what players need to know: **how to start, available game modes, controls, and army commands**.
 
 ## 🚀 Quick Start
 
-You need **Node.js** and **npm** installed.
+SagaBurst currently targets **desktop browsers with keyboard + mouse**.
 
 ```bash
 git clone https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game.git
@@ -74,157 +17,54 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite in a desktop browser.
+Open the local URL printed by Vite.
 
-The Custom Battle Setup UI appears before the heavy 3D assets are loaded. After clicking **START BATTLE**, the game attempts to capture the mouse for camera control.
+When a battle starts, click the game view to capture the mouse. Press `Esc` to release the cursor, then click the game again to resume camera control.
 
-Press `Esc` to release the cursor. Click the battle screen again to resume pointer lock.
+## 🎮 Game Modes
 
-> SagaBurst is currently designed for desktop keyboard + mouse controls.
+### ⚔️ Custom Battle
 
-## 🎯 Your First Battle
+Build your own Viking vs Roman battle.
 
-1. Open **Army Setup** and configure Viking and Roman forces.
-2. Choose **Formation Battle** or **Scattered Battle**.
-3. Choose whether the player fights for the **Vikings** or **Romans**.
-4. Open **Player Loadout** and choose melee weapon, ranged weapon, shield, and mounted/on-foot start.
-5. Optional: enable **Spectator** to enter with a free-flying camera instead of spawning a player character.
-6. Click **START BATTLE**.
-7. Fight alongside the selected allied army or observe the battle.
-8. The battle ends when either configured AI army is eliminated.
-9. Use **REMATCH** to replay the same setup or **BACK TO SETUP** to configure another battle.
+- Configure **1–200 AI troops per side**.
+- Mix infantry, ranged units, cavalry, and mounted ranged units.
+- Choose **Formation Battle** or **Scattered Battle** deployment.
+- Choose the player's faction, weapons, shield, and mounted/on-foot start.
+- Start as the player or enable **Spectator** to watch the AI battle.
+- Use **Preset** or **Squad** command grouping before deployment.
 
-If both AI armies are eliminated at the same time, the result is a **DRAW**.
+The player joins the selected faction as an additional fighter and does not count toward the configured AI troop total.
 
-## 🛡️ Build the Battle You Want
+### 🏰 Defense Campaign
 
-Each side can field **1–200 AI troops**. Army sizes can be asymmetric, including scenarios such as `1 vs 200` or `200 vs 1`.
+Choose **Roman Defense** or **Viking Defense** and defend the faction outpost.
 
-Quick presets are available for:
+- Each faction has **9 stages**.
+- Winning unlocks the next stage.
+- Roman and Viking progression are saved separately.
+- Each stage changes the available defender force and the enemy assault.
+- You can organize defenders into squads before battle when Squad grouping is enabled.
 
-- **10 vs 10**
-- **25 vs 25**
-- **50 vs 50**
-- **100 vs 100**
-- **200 vs 200**
+### 🏘️ Career
 
-You can also build both armies manually.
+Start a persistent career as a Roman or Viking.
 
-Changing an army preset only changes army composition. It preserves the selected **Battle Mode**, **Player Faction**, **Player Loadout**, and **Spectator** setting.
+- Choose a faction and starter weapon.
+- Explore your faction town.
+- Talk to service NPCs with `E`.
+- Manage owned equipment through the character/inventory UI.
+- Progress through the career rank and merit systems as supported by the current build.
 
-The player is an additional participant on the selected side and does **not** count toward that faction's configured 1–200 AI troop total or army-survival victory count.
+Career gameplay is still being expanded, so some future missions and progression paths may not yet be available.
 
-Player HP is independently configurable from **1–9999** in Army Setup. The default Player and NPC HP is **200**.
+### 🐈 Hero Mount Free Ride
 
-### Deployment modes
+Choose the hero-mount ride option from the main menu to test special mounts such as the **Black Cat** or **Corgi** in an open riding area.
 
-**Formation Battle**
+Free ride uses the normal movement, sprint, jump, and mount controls.
 
-Viking and Roman armies spawn in deterministic formations on opposite sides of the battlefield.
-
-**Scattered Battle**
-
-The Player, Viking NPCs, and Roman NPCs are deterministically scattered across the battlefield while normal Viking-vs-Roman faction, friendly-fire, and victory rules remain unchanged.
-
-### Player faction
-
-**Viking Player**
-
-- Viking NPCs are allies.
-- Roman NPCs are enemies.
-- Formation Battle starts the player on the Viking (+Z) side facing the Roman army.
-
-**Roman Player**
-
-- Roman NPCs are allies.
-- Viking NPCs are enemies.
-- Formation Battle starts the player on the Roman (-Z) side facing the Viking army.
-
-## 🪖 Unit Roster
-
-Each faction has its own unit preset catalog. Every preset supports **T1 / T2 / T3**.
-
-A preset defines the starting loadout. Live combat behavior is determined by the unit's current weapon, shield, mount state, and combat rules.
-
-### Viking presets
-
-| Unit | Battlefield role |
-| --- | --- |
-| Viking Veteran | Shielded sword infantry with same-tier round shield |
-| Spearman | Foot Lance anti-cavalry unit with a same-tier sword sidearm |
-| Archer | Foot Bow unit with a fixed T1 dagger fallback |
-| Sword Cavalry | Mounted sword + round-shield unit |
-| Lancer | Mounted Lance unit built around high-speed charge attacks |
-| Mounted Archer | Mounted Bow unit with a fixed T1 dagger fallback |
-
-### Roman presets
-
-| Unit | Battlefield role |
-| --- | --- |
-| Heavy Infantry | Gladius + Scutum defensive frontline |
-| Spearman | Foot Lance anti-cavalry unit |
-| Archer | Foot Bow unit with a fixed T1 Gladius fallback |
-| Javelin Infantry | Pilum/Javelin ranged unit with a fixed T1 Gladius fallback |
-| Sword Cavalry | Mounted Gladius + Scutum unit |
-| Lancer | Mounted Lance charge unit |
-| Mounted Archer | Mounted Bow unit with a fixed T1 Gladius fallback |
-
-## 🧰 Player Loadout & Starting State
-
-Before starting the battle, choose:
-
-- one melee weapon
-- one ranged weapon
-- an optional shield
-- whether to begin **Mounted** or **On Foot**
-
-Player equipment is independent from Player Faction, so Viking and Roman gear can be mixed freely.
-
-### Available loadout categories
-
-- **Melee** — Viking swords, Roman gladii, or T1 / T2 / T3 Lances
-- **Ranged** — Viking bows or Roman pila
-- **Shield** — Viking round shields, Roman scuta, or no shield
-- **Starting state** — Mounted creates and mounts the normal starting horse; On Foot does not create that horse
-
-An explicit custom loadout gives the player only the selected starting equipment rather than also granting unrelated top-tier gear.
-
-Army presets and Reset preserve the selected Player Loadout.
-
-### Bow and Pilum behavior
-
-Bow and Pilum controls intentionally differ:
-
-- **Bow** — hold right mouse to aim, hold left mouse to draw, then release left mouse to fire.
-- **Pilum** — hold right mouse to aim and click left mouse to commit the throw.
-
-Entering ranged aim still unequips an equipped shield using the existing ranged-weapon behavior.
-Holding right mouse enters first-person ranged aiming. With a Bow, keep holding right mouse after firing to watch the arrow's trajectory in first person, then hold left mouse again to load the next arrow. Releasing right mouse returns to third person. With a Pilum, the camera returns to third person when the projectile leaves the hand; release and press right mouse again to start the next throw.
-
-### Legacy configuration compatibility
-
-Battle configurations without `playerLoadout` keep the legacy default start:
-
-- Steel Lance
-- Elven Runebow
-- Round Shield T3
-- Mounted
-
-Initial Spectator mode overrides the loadout and does not create a starting horse.
-
-## ☠️ Death, Spectator Mode & Replay
-
-You can enable **Spectator** before battle to start directly with a free-flying camera.
-
-The player's starting horse is separate from the spare horses placed in the faction camps.
-
-**Player death is permanent for the current battle.** After dying, the player does not respawn and instead switches to free spectator mode while the remaining Viking and Roman NPCs continue fighting until the battle ends.
-
-**REMATCH** starts a fresh battle using the same configuration.
-
-Mounted save/load preserves the player's mounted state and the mount's world position. Loaded save inventory overrides fresh-battle starting equipment.
-
-## 🎮 Controls
+## 🕹️ Controls
 
 | Control | Action |
 | --- | --- |
@@ -233,26 +73,35 @@ Mounted save/load preserves the player's mounted state and the mount's world pos
 | `Shift` | Sprint |
 | `Space` | Jump |
 | Left Mouse Button | Melee attack when not aiming |
-| Hold Right Mouse Button + hold/release Left Mouse Button | Aim / draw / fire bow |
-| Hold Right Mouse Button + click Left Mouse Button | Aim / throw Pilum |
-| `E` | Pick up equipment / mount horse / dismount |
-| `Tab` or `I` | Open character & inventory |
-| Mouse wheel | Cycle owned melee weapons by default; in command mode, select a troop group or order |
-| `Q` | Toggle command wheel mode; go back one level when a command submenu is open |
-| Viking: `1`–`6` + `` ` `` / Roman: `1`–`7` + `` ` `` | Select a friendly troop group; `` ` `` selects ALL and opens the Army Command menu |
-| Army Command `1` / `2` / `3` / `4` | Attack / Charge / Defend / Formation |
-| Army Command `` ` `` | Go back one command-menu level; the same key selects ALL from the troop list |
-| Formation: `E` or Left Mouse Button | Confirm the formation at the center-crosshair location |
-| Formation: `Q` or `` ` `` | Return to the command menu |
-| `Esc` | Close UI / release pointer lock |
+| Hold Right Mouse + hold/release Left Mouse | Aim / draw / fire Bow |
+| Hold Right Mouse + click Left Mouse | Aim / throw Pilum |
+| `E` | Interact / pick up equipment / mount / dismount |
+| `Tab` or `I` | Character and inventory |
+| Mouse wheel | Switch owned melee weapons; in command mode, select targets or orders |
+| `Q` | Enter command-wheel mode / go back one command level |
+| Middle Mouse Button | Confirm the highlighted command target or order |
+| `Esc` | Close UI / release mouse lock |
+
+### Ranged combat
+
+- **Bow:** hold Right Mouse to aim, hold Left Mouse to draw, then release Left Mouse to fire.
+- **Pilum:** hold Right Mouse to aim, then click Left Mouse to throw.
+- Right Mouse enters first-person ranged aiming. Bow aiming stays active while Right Mouse remains held; Pilum returns to third person after the throw.
 
 ## 📯 Army Commands
 
-Army Command grouping is selected in the battle setup before deployment and remains fixed for the whole battle. Preset grouping remains the default. In both Custom Battle and Defense Campaign, squad grouping changes the launch action to **ASSIGN SQUADS** and opens a second setup step. Custom Battle assigns only the selected Player Faction; Defense Campaign assigns defenders. Zero-count preset+tier rows are hidden, every relevant unit must be assigned, and each squad is capped at 30. A squad may intentionally mix tiers, infantry, ranged units, and cavalry. Squad HUD entries show living / total members. Press `Q` to give the mouse wheel to command selection; press it again from the target list to return the wheel to owned melee weapons. Ranged weapons still appear through right-click aiming. The first available target is highlighted by default; in command mode, scrolling upward from it reaches ALL, while scrolling moves through the visible targets. Middle-click enters the highlighted target's command panel. Attack is highlighted first, the command wheel moves between Attack / Charge / Defend / Formation, and middle-click confirms. `Q` goes back from a command submenu or formation placement without changing wheel mode. Formation placement can be confirmed with `E`, left click, or middle click.
+You can command one troop group, one squad, or the whole army depending on the grouping chosen before deployment.
 
-Select a troop group with its faction shortcut, then choose an order from the command menu.
+### Mouse-wheel command flow
 
-### Group shortcuts
+1. Press `Q` to enter command mode.
+2. Use the mouse wheel to highlight a troop group, squad, or **ALL**.
+3. Press Middle Mouse Button to select it.
+4. Use the mouse wheel to choose **Attack**, **Charge**, **Defend**, or **Formation**.
+5. Press Middle Mouse Button to issue the selected order.
+6. Press `Q` to return to the previous command level or leave command selection.
+
+### Keyboard shortcuts
 
 | Viking | Group | Roman | Group |
 | --- | --- | --- | --- |
@@ -263,195 +112,34 @@ Select a troop group with its faction shortcut, then choose an order from the co
 | `5` | Lancer | `5` | Sword Cavalry |
 | `6` | Mounted Archer | `6` | Lancer |
 | — | — | `7` | Mounted Archer |
-| `` ` `` | ALL | `` ` `` | ALL |
+| <kbd>&#96;</kbd> | ALL | <kbd>&#96;</kbd> | ALL |
 
-T1 / T2 / T3 units that belong to the same preset are commanded together.
+After selecting a command target:
 
-### Orders
-
-| Key | Order | Battlefield behavior |
+| Key | Order | What it does |
 | --- | --- | --- |
-| `1` | **Attack** | Normal aggressive behavior using the unit's **current equipment stance**. Units pursue and engage enemies. |
-| `2` | **Charge** | Aggressive pursuit with sprinting while stamina allows. It does not add a separate tactical damage multiplier. |
-| `3` | **Defend** | Hold position. Units may face and attack enemies already within the valid range of their current weapon, but do not chase; mounted archers do not orbit. |
-| `4` | **Formation** | Choose a destination with the center crosshair. Units move into deterministic ranks, then automatically switch to **Defend** after the active formation participants arrive. |
-| `` ` `` | **Back** | Return to the previous command-menu level without issuing a new order. The same key selects ALL from the troop list. |
+| `1` | **Attack** | Pursue and fight enemies normally |
+| `2` | **Charge** | Aggressively pursue enemies and sprint when possible |
+| `3` | **Defend** | Hold the current position and fight enemies that enter range |
+| `4` | **Formation** | Move the selected troops into a formation at a chosen location |
+| `Q` | **Back** | Return to the previous command level |
 
 ### Formation placement
 
 After choosing **Formation**:
 
-1. Keep using the mouse to aim the center crosshair at the desired terrain position.
-2. The game displays a live formation preview.
-3. Press `E`, left-click, or middle-click to confirm.
-4. Press `` ` `` to return to the command menu. Formation placement intentionally does not use `Esc`, because `Esc` releases pointer lock.
-5. Blocked or otherwise invalid placements are rejected.
+1. Aim the center crosshair at the desired ground position.
+2. Check the formation preview.
+3. Press `E`, Left Mouse Button, or Middle Mouse Button to confirm.
+4. Press `Q` to cancel and return to the command menu.
 
-A single troop group uses ranks of up to **10 units per row**. **ALL** uses up to **50 units per row**. The final row is centered, and the formation faces the camera's horizontal direction at confirmation time.
+Blocked or invalid positions cannot be confirmed.
 
-### Viking Charge stance
+## ☠️ Battle & Progress Notes
 
-For Viking foot **Veterans, Spearmen, and Archers**, Charge also changes the active combat stance:
-
-- **Charge** switches them to sword-kind melee with no shield.
-- **Attack after Charge** keeps that current sword/no-shield stance.
-- **Defend** restores their specialist equipment: Veteran shield, Spearman lance, or Archer bow.
-- **Formation** ends in Defend after arrival, so it also restores those defensive/specialist loadouts when the formation completes.
-
-Roman units and Viking cavalry keep their normal equipment behavior when commands change.
-
-## 🏹 Combat & RPG Systems
-
-SagaBurst currently includes:
-
-- **Melee combat** — daggers, swords, greatswords, and lances
-- **Archery** — aim, draw, and release bow attacks
-- **Pilum throwing** — Roman ranged throwing attacks with dedicated input behavior
-- **Mounted combat** — cavalry Lance charges and mounted ranged combat
-- **Tiered equipment** — T1 / T2 / T3 Viking and Roman gear with distinct combat values
-- **Shields** — Viking round shields and Roman scuta
-- **Equipment pickups** — collect camp equipment with `E`
-- **Arrow supplies** — refill ranged ammunition from camp pickups
-- **Horses** — mount and dismount available horses with `E`
-- **Character progression** — player combat feeds the existing RPG skill and progression systems
-- **Save / Load** — restores progression, inventory, equipped shield, mounted state, mount appearance, and mount position
-
-## 🏕️ Battle Camps
-
-Normal Custom Battles include a support camp for each faction.
-
-Each camp provides player-usable equipment, including:
-
-- T1 / T2 / T3 melee weapons
-- T1 / T2 / T3 ranged weapons
-- T1 / T2 / T3 shields
-- one Lance
-- arrow supplies
-- five spare horses
-
-Mounted troops use their own assigned mounts. The five spare horses at each camp are separate and remain available to the player.
-
-## ⚖️ Combat Rules & Balance
-
-Combat behavior is evaluated from the unit's **current equipment and mount state**, not from a permanent runtime class identity.
-
-| Rule | Current behavior |
-| --- | --- |
-| Default HP | Player 200 / NPC 200 |
-| Lance progression | T1 30 / T2 45 / T3 60 base damage, 3.9m reach |
-| Foot Lance anti-cavalry | Unmounted Lance attacker vs a **currently mounted** target: ×2 damage. The bonus ends after the target dismounts. |
-| Mounted Lance charge | Mounted Lance attack above 10 m/s: ×3 damage |
-| Charge + Horse Impact | A successful Lance charge suppresses Horse Impact for that same frame so damage does not double-dip; a missed Lance attack does not suppress impact |
-| Horse Impact | All controlled mounts can damage hostile targets above 4 m/s using `round(8 + speed × 1.5 × sprintMultiplier)`; sprint multiplier is ×1.5 and same-target cooldown is 0.6s |
-| Berserker condition | Viking + on foot + active Sword combat state + no shield: move speed ×1.3, melee damage ×1.2, melee attack rate ×1.2 |
-| Bow | Damage ×0.5, attack rate ×1.3, NPC engagement range 50m on foot / 15m mounted |
-| Javelin | Damage ×1.5, attack rate ×0.7, NPC engagement range 30m on foot / 15m mounted |
-| Shields | T1 10% / T2 15% / T3 20% damage reduction. While mounted, shield reduction is applied before damage is routed to the horse. |
-
-Mounted targets route incoming combat damage to the horse first. When the horse dies, the rider dismounts and subsequent anti-cavalry checks use the rider's new unmounted state.
-
-## 🧪 Developer / QA
-
-Normal gameplay is fully driven by Custom Battle configuration. There is no separate hardcoded **Standard** battle mode.
-
-### Large-battle profiling scenarios
-
-The `devcombat` mode includes reproducible battle presets used for performance profiling:
-
-| Query | Scenario |
-| --- | --- |
-| `?devcombat=a` | 50 vs 50 infantry control scenario |
-| `?devcombat=b` | 100 vs 100 infantry scaling scenario |
-| `?devcombat=c` | 100 vs 100 mixed army scenario |
-| `?devcombat=d` | 100 vs 100 cavalry / horse-archer stress scenario |
-| `?devcombat` | Legacy fixed 50 vs 50 mounted developer scenario |
-
-`devcombat` exposes a runtime profiling HUD with:
-
-- wall-clock FPS
-- CPU frame work
-- NPC update time
-- collision time
-- projectile / impact work
-- renderer submit time
-- draw calls
-- triangle count
-- horse count
-- LOD statistics
-
-Current profiling shows that large-battle performance is primarily constrained by the **render path / draw-call pressure**, while entity collision cost is comparatively small.
-
-The profiling infrastructure is intentionally separated from normal gameplay and only runs in developer combat mode.
-
-### Other QA modes
-
-| Query | Purpose |
-| --- | --- |
-| `?devmodels=humans` | Humanoid model / animation studio |
-| `?devmodels=mounts` | Horse, saddle, rider, gait, jump, and dismount QA studio |
-| `?legacyhumanoids` | Use the legacy humanoid rendering path as a modifier |
-| `?nolock` | Disable normal pointer-lock requirements for browser QA |
-
-Examples:
-
-```text
-http://localhost:5173/?devcombat=b&nolock
-http://localhost:5173/?devcombat=c&nolock
-http://localhost:5173/?devcombat=d&nolock
-http://localhost:5173/?devmodels=humans&nolock
-http://localhost:5173/?devmodels=mounts&nolock
-```
-
-## 🧱 Combat Data Architecture
-
-Combat values are split into authoritative data sources instead of being hardcoded across Player / NPC / UI code:
-
-- `src/rpg/WeaponDatabase.ts` — weapon base stats and `combatKind`
-- `src/combat/CombatBalance.ts` — HP defaults, multipliers, ranges, cooldowns, Lance rules, Berserker rules, and Mount Impact formula
-- `src/battle/UnitPresetCatalog.ts` — faction unit presets and T1 / T2 / T3 starting loadouts
-- `src/combat/DamageRouter.ts` — shared shield, rider, mount, death, and dismount damage routing
-- `src/combat/MountImpact.ts` — shared swept-path mount impact resolution for Player and NPC cavalry
-
-The intended runtime model is:
-
-```text
-Unit + Faction + Current Equipment + Current Mount State + CombatBalance
-= Current Combat Behavior
-```
-
-## 🧰 Development Commands
-
-```bash
-# Start development server
-npm run dev
-
-# Run tests
-npm test
-
-# Type-check and build production bundle
-npm run build
-
-# Preview the production build
-npm run preview
-```
-
-## 🛠️ Tech Stack
-
-- Three.js
-- TypeScript
-- Vite
-- Vitest
-- Playwright
-
-## 🗺️ Roadmap
-
-- **T4 Elite units — not implemented yet.** Future faction-specific elites may include concepts such as a shield-bearing Viking **Varangian Captain** and a Roman **Centurion**. The goal is to add distinct elite battlefield roles rather than simply scaling T3 stats upward.
-- Continue improving 200 vs 200 combat behavior, cavalry interactions, animation fidelity, and render-path performance.
-
-## 🚧 Project Status
-
-SagaBurst is an actively evolving 3D action RPG prototype focused on large AI battles, melee and ranged combat, mounted gameplay, equipment progression, and browser-based 3D character systems.
-
-The game currently supports Custom Battles from **1 vs 1 up to 200 vs 200 AI troops**, including infantry, ranged units, cavalry, and mounted ranged units across three equipment tiers.
-
-Current development is centered on improving combat behavior, animation fidelity, large-battle rendering performance, and the Custom Battle experience.
+- In **Custom Battle**, player death switches you to spectator mode while the remaining armies keep fighting.
+- Use **REMATCH** to replay the same Custom Battle setup.
+- Custom Battle unit presets currently use **T1 / T2 / T3** equipment tiers.
+- Battlefield camps provide equipment, ammunition, and spare horses that the player can use.
+- Defense Campaign progress is saved separately for Roman and Viking.
+- Career keeps its own faction, rank, merit, and owned equipment progress.
