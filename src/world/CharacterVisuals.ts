@@ -46,6 +46,7 @@ export type HumanoidAnimationState =
   | 'mountedLance'
   | 'mounted'
   | 'death'
+  | 'hit'
 
 export interface HumanoidAnimationPlayOptions {
   fadeSeconds?: number
@@ -55,6 +56,7 @@ export interface HumanoidAnimationPlayOptions {
 }
 
 export interface HumanoidAnimationController {
+  playHitReaction?(): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
   setPoseLayersEnabled?(enabled: boolean): void

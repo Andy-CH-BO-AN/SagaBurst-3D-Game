@@ -1,0 +1,371 @@
+{
+  "sourceIdleBounds": [
+    -0.0033585564233362675,
+    10.29116153717041
+  ],
+  "uniformScaleBaked": 0.16999335414275607,
+  "idleHeightM": 1.750000006772126,
+  "idleMinY": -3.643999946234544e-07,
+  "neckLengthM": 0.06310871904279719,
+  "shoulderWidthM": 0.5386868948029219,
+  "sourceMeshNames": [
+    "Bandit_Hammer",
+    "Body_Low",
+    "eye_Low",
+    "Armor_Low",
+    "Bag",
+    "Knife"
+  ],
+  "hammerParent": "hand_r",
+  "clips": [
+    {
+      "clip": "idle",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@idle.fbx",
+      "sourceSha256": "04485a3430122ca95c3ed216633bb0b755fd607d2773ca2890ad518de872ff9f",
+      "firstFrame": 2,
+      "lastFrame": 102,
+      "sourceFps": 30,
+      "loop": true,
+      "duration": 3.3333333333333335
+    },
+    {
+      "clip": "walk",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@walk.fbx",
+      "sourceSha256": "6343d5b735a0572ca3d8fd13a88a9a3b5643a94943278357af98de2a46f91ead",
+      "firstFrame": 2,
+      "lastFrame": 33,
+      "sourceFps": 30,
+      "loop": true,
+      "duration": 1.0333333333333334
+    },
+    {
+      "clip": "run",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@run_forward.fbx",
+      "sourceSha256": "bf467cf3cbc0e2d700b90a82a9fd146907029c7b7096e9826b966fe9c1bf6ad5",
+      "firstFrame": 2,
+      "lastFrame": 26,
+      "sourceFps": 30,
+      "loop": true,
+      "duration": 0.8
+    },
+    {
+      "clip": "swordSlash",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@attack.fbx",
+      "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+      "firstFrame": 2,
+      "lastFrame": 47,
+      "sourceFps": 30,
+      "loop": false,
+      "duration": 0.48
+    },
+    {
+      "clip": "hit",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@hit_damage.fbx",
+      "sourceSha256": "fef4b51a4640dfa72d47c039c3f92ab9f0f13fd907d3fb3a9da79d6c096ff1c6",
+      "firstFrame": 2,
+      "lastFrame": 32,
+      "sourceFps": 30,
+      "loop": false,
+      "duration": 1
+    },
+    {
+      "clip": "death",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@falling_back.fbx",
+      "sourceSha256": "a669cc13c648da5b7e3ab8ffeb7f0a75f32cbbe8244e6a828e16a41dc5a3aea2",
+      "firstFrame": 2,
+      "lastFrame": 61,
+      "sourceFps": 30,
+      "loop": false,
+      "duration": 1.9666666666666666
+    }
+  ],
+  "lods": [
+    {
+      "level": 0,
+      "sha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+      "bytes": 16319948,
+      "triangles": 36365,
+      "skins": 1,
+      "bones": 69,
+      "materials": [
+        {
+          "name": "Mat_armor",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_weapon",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Body",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Eye",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        }
+      ],
+      "clips": {
+        "death": {
+          "duration": 1.9666666984558105,
+          "minGroundY": 0.0015868883894770915,
+          "maxGroundY": 0.0709997431090988,
+          "firstFrameHeightM": 1.6911178032204763,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "hit": {
+          "duration": 1,
+          "minGroundY": 0.000527936076773021,
+          "maxGroundY": 0.0024438864636517153,
+          "firstFrameHeightM": 1.6911182156140327,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "idle": {
+          "duration": 3.3333332538604736,
+          "minGroundY": -0.0005957901220095276,
+          "maxGroundY": 0.0024631567748655287,
+          "firstFrameHeightM": 1.7500005334266748,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "run": {
+          "duration": 0.800000011920929,
+          "minGroundY": -0.00282266734450143,
+          "maxGroundY": 0.048823447243972,
+          "firstFrameHeightM": 1.6306729266164548,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "swordSlash": {
+          "duration": 0.47999998927116394,
+          "minGroundY": -0.00019770690500324375,
+          "maxGroundY": 0.002714356840384603,
+          "firstFrameHeightM": 1.6911178099797546,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "walk": {
+          "duration": 1.0333333015441895,
+          "minGroundY": -0.0004280483569293822,
+          "maxGroundY": 0.00890930314500952,
+          "firstFrameHeightM": 1.7344594271557718,
+          "maxHammerLocalMatrixDeviation": 0
+        }
+      }
+    },
+    {
+      "level": 1,
+      "sha256": "8456eec59ac09a5172af8c91145017b81a6092bb04bb660a4bd51b9f3aad26e1",
+      "bytes": 5407876,
+      "triangles": 18903,
+      "skins": 1,
+      "bones": 69,
+      "materials": [
+        {
+          "name": "Mat_armor",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_weapon",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Body",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Eye",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        }
+      ],
+      "clips": {
+        "death": {
+          "duration": 1.9666666984558105,
+          "minGroundY": 0.0014206489826009755,
+          "maxGroundY": 0.07075515863742672,
+          "firstFrameHeightM": 1.6910467458270255,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "hit": {
+          "duration": 1,
+          "minGroundY": 0.00039780091510400686,
+          "maxGroundY": 0.0024116263845292488,
+          "firstFrameHeightM": 1.6910471669134077,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "idle": {
+          "duration": 3.3333332538604736,
+          "minGroundY": -0.0006553021548570798,
+          "maxGroundY": 0.002382588978191282,
+          "firstFrameHeightM": 1.7499310863169355,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "run": {
+          "duration": 0.800000011920929,
+          "minGroundY": -0.0029107024288878578,
+          "maxGroundY": 0.048823447243972,
+          "firstFrameHeightM": 1.6303105181748714,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "swordSlash": {
+          "duration": 0.47999998927116394,
+          "minGroundY": -0.00029333419043644604,
+          "maxGroundY": 0.002709479318362843,
+          "firstFrameHeightM": 1.6910467531090385,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "walk": {
+          "duration": 1.0333333015441895,
+          "minGroundY": -6.28585181526749e-06,
+          "maxGroundY": 0.009153846472038044,
+          "firstFrameHeightM": 1.7337359680955435,
+          "maxHammerLocalMatrixDeviation": 0
+        }
+      }
+    },
+    {
+      "level": 2,
+      "sha256": "15c18265c6bb9e8a86b8ed84db75e083319344858696a708f56d54f850c88c9e",
+      "bytes": 1887188,
+      "triangles": 5816,
+      "skins": 1,
+      "bones": 69,
+      "materials": [
+        {
+          "name": "Mat_armor",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_weapon",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Body",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        },
+        {
+          "name": "Mat_Eye",
+          "baseColor": true,
+          "normal": true,
+          "metallicRoughness": true,
+          "ao": true
+        }
+      ],
+      "clips": {
+        "death": {
+          "duration": 1.9666666984558105,
+          "minGroundY": 0.0010798201004840282,
+          "maxGroundY": 0.06973253753220185,
+          "firstFrameHeightM": 1.6912125700156873,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "hit": {
+          "duration": 1,
+          "minGroundY": 0.00014168318177768988,
+          "maxGroundY": 0.0022050477183318384,
+          "firstFrameHeightM": 1.6912130201130078,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "idle": {
+          "duration": 3.3333332538604736,
+          "minGroundY": -0.0009163366903325765,
+          "maxGroundY": 0.002055734494025614,
+          "firstFrameHeightM": 1.7501270747538262,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "run": {
+          "duration": 0.800000011920929,
+          "minGroundY": -0.0028743341291496602,
+          "maxGroundY": 0.048713072468108354,
+          "firstFrameHeightM": 1.6315863329757412,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "swordSlash": {
+          "duration": 0.47999998927116394,
+          "minGroundY": -0.0005436157871254652,
+          "maxGroundY": 0.00255432948874165,
+          "firstFrameHeightM": 1.6912126051068115,
+          "maxHammerLocalMatrixDeviation": 0
+        },
+        "walk": {
+          "duration": 1.0333333015441895,
+          "minGroundY": -0.0004989492187910736,
+          "maxGroundY": 0.009418277583948568,
+          "firstFrameHeightM": 1.7341778656722395,
+          "maxHammerLocalMatrixDeviation": 0
+        }
+      }
+    }
+  ],
+  "coordinateConvention": {
+    "up": "+Y",
+    "forward": "+Z",
+    "runtimeScale": [
+      1,
+      1,
+      1
+    ],
+    "rootMotion": "No armature object translation/scale tracks; original in-place locomotion and intentional local death fall retained"
+  },
+  "handGrip": "Source RightHand rigid hammer; source run frame 8 right-finger rotations baked into all selected actions",
+  "embeddedTextureDimensions": {
+    "lod0": [
+      [
+        1024,
+        1024
+      ],
+      [
+        2048,
+        2048
+      ]
+    ],
+    "lod1": [
+      [
+        1024,
+        1024
+      ]
+    ],
+    "lod2": [
+      [
+        512,
+        512
+      ]
+    ]
+  }
+}
