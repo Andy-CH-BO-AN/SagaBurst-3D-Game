@@ -39,9 +39,16 @@ export class ThirdPersonCamera {
     this._updateAimDirection()
   }
 
+  setPitch(value: number): void {
+    this.pitch = THREE.MathUtils.clamp(value, MIN_PITCH, MAX_PITCH)
+    this._updateAimDirection()
+  }
+
   get cameraYaw(): number {
     return this.yaw
   }
+
+  get cameraPitch(): number { return this.pitch }
 
   /** Direction represented by the orbit reticle, corrected for the camera's player look-at offset. */
   getAimDirection(target: THREE.Vector3): THREE.Vector3 {

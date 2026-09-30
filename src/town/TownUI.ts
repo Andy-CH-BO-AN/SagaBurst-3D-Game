@@ -17,6 +17,9 @@ export function installTownStyles(): void {
     .town-product { border:1px solid #77654866; border-radius:5px; padding:12px; background:#0002; display:flex; flex-direction:column; align-items:flex-start }
     .town-product strong { font-size:14px; color:#ead7b2 } .town-product small { color:#b7a78c; margin-top:4px }
     .town-ambient { position:fixed; transform:translate(-50%,-100%); max-width:280px; z-index:95; background:#201d18e8; color:#ffe6b5; padding:8px 12px; border:1px solid #967950; border-radius:5px; font:14px/1.4 system-ui; pointer-events:none }
+    #career-mission-guide { position:fixed; left:50%; bottom:155px; transform:translateX(-50%); z-index:94; pointer-events:none; text-align:center; color:#fff1c6; text-shadow:0 2px 5px #000; font:600 15px/1.4 system-ui }
+    .mission-guide-arrow { width:42px; height:42px; margin:0 auto 4px; color:#f4d287; font:40px/42px system-ui; opacity:.58; transform-origin:center; transition:transform .12s linear,opacity .2s }
+    .mission-guide-label { padding:5px 10px; border-radius:4px; background:#15120ea8; border:1px solid #b6955e66 }
     #career-entry { position:fixed; inset:0; overflow:auto; z-index:1000; padding:clamp(20px,5vh,60px) clamp(20px,6vw,100px); box-sizing:border-box; background:radial-gradient(ellipse at 30% 0,#473a28,#171b1f 65%); color:#ead8b8; font:16px/1.6 system-ui }
     #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif } #career-entry select { padding:10px 16px; color:#ead8b8; background:#332d24; border:1px solid #92754e; border-radius:4px; font-size:16px }
     .town-starters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin:22px 0 }

@@ -81,6 +81,7 @@ export class BattleStatsTracker {
   constructor(
     events: CombatEventStream,
     private readonly trackStructureStats = true,
+    private readonly acceptEvent: (event: CombatEvent) => boolean = () => true,
   ) {
     this.unsubscribe = events.subscribe(event => this._onEvent(event))
   }
@@ -145,6 +146,7 @@ export class BattleStatsTracker {
   }
 
   private _onEvent(event: CombatEvent): void {
+    if (!this.acceptEvent(event)) return
     if (event.type === 'damage_applied') {
       if (event.source.actorType === 'player') {
         this.playerTotals.damageDealt += event.appliedDamage

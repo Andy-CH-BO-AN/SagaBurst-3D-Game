@@ -23,6 +23,7 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
   defend: '防禦',
   charge: '衝鋒',
   formation: '列陣',
+  follow: '跟隨',
   mixed: '混合',
 }
 

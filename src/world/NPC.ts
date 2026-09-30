@@ -56,6 +56,7 @@ import {
 import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
   MAX_STAMINA,
@@ -184,6 +185,10 @@ export class NPC {
     facing: THREE.Vector3
     reached: boolean
   } | null = null
+  private followTarget: NPC | Player | null = null
+  private followSlotIndex = -1
+  private followLocalOffset = new THREE.Vector3()
+  private followCombatActive = false
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
@@ -244,6 +249,9 @@ export class NPC {
   private currentHp: number
 
   private state: AIState = AIState.IDLE
+  private encounterOrigin: THREE.Vector3 | null = null
+  private encounterAlerted = true
+  private encounterLeash = Infinity
   private alertTimer = 0
   private attackTimer = 0
   private attackHitProcessed = false
@@ -335,6 +343,32 @@ export class NPC {
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
+  get activeFollowTarget(): NPC | Player | null { return this.followTarget }
+  get activeFollowSlotIndex(): number { return this.followSlotIndex }
+  get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
+  get encounterIsAlerted(): boolean { return this.encounterAlerted }
+
+  /** Keeps camp Bandits on the existing combat AI while gating target knowledge until alert. */
+  configureBanditEncounter(origin: THREE.Vector3, leash = 58): void {
+    this.encounterOrigin = origin.clone()
+    this.encounterLeash = leash
+    this.encounterAlerted = false
+    if (!this.dead) this.state = AIState.IDLE
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+  }
+
+  triggerEncounterAlert(): void {
+    if (this.dead) return
+    this.encounterAlerted = true
+    if (this.state === AIState.IDLE) {
+      this.state = AIState.ALERT
+      this.alertTimer = .4
+      this.alertSprite.visible = true
+    }
+    this._targetAcquisitionInitialized = false
+  }
 
   isFormationTargetReached(commandId: number): boolean {
     return this.formationTarget?.commandId === commandId && this.formationTarget.reached
@@ -752,6 +786,9 @@ export class NPC {
 
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -768,6 +805,9 @@ export class NPC {
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
     this.tacticalOrder = 'formation'
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
     this.formationTarget = {
       commandId,
       position: target.clone(),
@@ -775,6 +815,27 @@ export class NPC {
       reached: false,
     }
     this.state = AIState.CHASE
+  }
+
+  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted)): void {
+    if (this.dead || target === this) return
+    this._clearNavigationPath()
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
+    this._cancelEquipmentCombatState()
+    this.tacticalOrder = 'follow'
+    this.followTarget = target
+    this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
+    this.followLocalOffset.copy(localOffset)
+    this.followCombatActive = false
+    const position = followSlotWorldPosition(target.combatPosition, target.group.rotation.y, this.followLocalOffset)
+    this.formationTarget = {
+      commandId: -1,
+      position,
+      facing: new THREE.Vector3(Math.sin(target.group.rotation.y), 0, Math.cos(target.group.rotation.y)),
+      reached: false,
+    }
+    this.state = AIState.IDLE
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -851,6 +912,7 @@ export class NPC {
 
     this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.combatProfileId))
     if (this.currentHp > 0 && amount > 0 && this.faction === Faction.BANDIT) this.rig.animation?.playHitReaction?.()
+    if (amount > 0) this.encounterAlerted = true
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
       this.alertTimer = 0.4
@@ -1489,6 +1551,21 @@ export class NPC {
       return
     }
 
+    if (
+      this.encounterOrigin
+      && this.encounterAlerted
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
+    ) {
+      this.encounterAlerted = false
+      this.state = AIState.IDLE
+      this._cachedTargetIsPlayer = false
+      this._cachedTargetNpc = null
+      this._targetAcquisitionInitialized = false
+      this._clearNavigationPath()
+      this._clearObstacleDetour()
+      this._clearSiegeFallback()
+    }
+
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     this.isSprinting = false
@@ -1505,7 +1582,21 @@ export class NPC {
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
-    if (this.tacticalOrder === 'formation' && this.formationTarget) {
+    if (this.tacticalOrder === 'follow') {
+      const contact = nearbyNPCs.some(other => other !== this && !other.dead && other.faction !== this.faction && other.combatPosition.distanceToSquared(this.combatPosition) <= 64)
+      if (contact) {
+        this.followCombatActive = true
+        this._targetAcquisitionInitialized = false
+      } else if (this.followCombatActive) {
+        const targetGone = this._cachedTargetNpc?.dead ?? !this._cachedTargetIsPlayer
+        const targetFar = this._cachedTargetNpc ? this._cachedTargetNpc.combatPosition.distanceToSquared(this.combatPosition) > 36 * 36 : false
+        if (targetGone || targetFar) {
+          this.followCombatActive = false
+          this.state = AIState.IDLE
+        }
+      }
+    }
+    if ((this.tacticalOrder === 'formation' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget) {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
@@ -1558,9 +1649,10 @@ export class NPC {
           this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
         }
 
-        if (targetInfo && !targetInfo.isDead) {
+        if ((!this.encounterOrigin || this.encounterAlerted) && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          if (dist <= DETECTION_RADIUS) {
+          const detectionRadius = this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
+          if (dist <= detectionRadius) {
             this.state = AIState.ALERT
             this.alertTimer = 0.6
             this.alertSprite.visible = true
@@ -1607,7 +1699,7 @@ export class NPC {
         }
 
         const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
-        const maxDetectionDistance = DETECTION_RADIUS * 1.5
+        const maxDetectionDistance = this.tacticalOrder === 'follow' ? 36 : DETECTION_RADIUS * 1.5
         if (distSq > maxDetectionDistance * maxDetectionDistance) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
@@ -2171,11 +2263,23 @@ export class NPC {
     const target = this.formationTarget
     if (!target) return
 
+    if (this.tacticalOrder === 'follow') {
+      const leader = this.followTarget
+      if (!leader || leader.dead) {
+        this.state = AIState.IDLE
+        return
+      }
+      followSlotWorldPosition(leader.combatPosition, leader.group.rotation.y, this.followLocalOffset, target.position)
+      target.facing.set(Math.sin(leader.group.rotation.y), 0, Math.cos(leader.group.rotation.y))
+      target.reached = false
+    }
+
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
     const distance = moveDir.length()
-    if (distance <= FORMATION_ARRIVAL_DISTANCE) {
+    const arrivalDistance = this.tacticalOrder === 'follow' ? FOLLOW_THRESHOLDS.holdDistance : FORMATION_ARRIVAL_DISTANCE
+    if (distance <= arrivalDistance) {
       target.reached = true
       this._faceDirection(target.facing)
       this.state = AIState.IDLE
@@ -2224,7 +2328,9 @@ export class NPC {
     // Face the travel direction while moving so directional movement does not
     // classify a distant slot behind the final formation facing as backward.
     this._faceDirection(moveDir)
-    this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, dt)
+    const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
+    const baseSpeed = this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.2 : baseSpeed, dt, followCatchUp)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
   }
 

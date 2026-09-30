@@ -864,7 +864,7 @@ export class Game {
       this.input,
       this.armyCommandUI,
       formationController,
-      (order) => this.soundManager.playCommanderCommand(playerFaction, order),
+      (order) => { if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order) },
       campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
       (order) => {
         if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true

@@ -45,7 +45,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   if (profile.townEvent?.id !== id || profile.townEvent.state !== 'hostile') return profile
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }
@@ -101,5 +101,6 @@ export function purchaseTownHorse(profile: CareerProfile, id: string): CareerPro
   next.availableMerit -= item.price
   next.ownedHorseTiers = [...horseTiers(profile), item.tier as 1 | 2 | 3]
   if (!next.ownedMounts.includes('horse')) next.ownedMounts.push('horse')
+  next.selectedMountId = item.id as 'horse-t1' | 'horse-t2' | 'horse-t3'
   return next
 }

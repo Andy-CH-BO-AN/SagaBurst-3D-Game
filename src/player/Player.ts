@@ -277,6 +277,9 @@ export class Player {
 
     this._buildMesh(2)
 
+    const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
+    if (heroCombat) this.setMaxHp(heroCombat.maxHp)
+
     // Build default initial weapons (Steel Sword & Recurve Longbow)
     this.rebuildMeleeWeapon('steel_sword')
     this.rebuildRangedWeapon('recurve_longbow')
