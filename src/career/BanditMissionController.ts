@@ -246,12 +246,9 @@ export class BanditMissionController {
     return [...camp.ambient, ...camp.mission, ...this.friendlies]
   }
 
-  cleanupMission(): void {
-    const active = this.active
-    if (!active) return
-    const campId = active.targetCampId
+  cleanupMission(campId = this.active?.targetCampId): void {
     this.disposeMissionEntities()
-    if (this.camps[campId] && this.camps[campId].ambient.length === 0) this.spawnAmbient(campId, 2)
+    if (campId !== undefined && this.camps[campId] && this.camps[campId].ambient.length === 0) this.spawnAmbient(campId, 2)
     this.guide.hide()
   }
 

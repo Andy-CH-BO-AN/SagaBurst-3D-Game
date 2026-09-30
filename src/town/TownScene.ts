@@ -44,9 +44,10 @@ import { townMeleeBuildingContact, townMeleeContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TownEquipment } from './TownEquipment'
 import { TOWN_RULES, TownEvent, townRoster, townCaptainProfile, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownActorSpec, type TownResult } from './TownRules'
+import { MAX_STAMINA } from '../movement/MovementBalance'
 
 let sound: SoundManager
-interface Resident { spec: TownActorSpec; npc: NPC; target?: THREE.Vector3; cycle: number; walkTime: number }
+interface Resident { spec: TownActorSpec; npc: NPC; homeMount?: Mount; target?: THREE.Vector3; cycle: number; walkTime: number }
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; age: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', deployment: '出戰步兵', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian' }
 export class TownScene {
@@ -144,10 +145,11 @@ export class TownScene {
       const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : { ...UNIT_PRESETS[preset].tierLoadouts[spec.role === 'captain' ? 3 : TOWN_RULES.garrisonTier] }
       const npc = new NPC(this.scene, spec.x, spec.z, Faction.TOWN, civilian ? 'roman' : ranger ? 'viking' : profile.faction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, ranger || captain ? 4 : TOWN_RULES.garrisonTier, cavalry, loadout, civilian ? undefined : preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : captain?.visualAssetId, ranger ? 'ranger' : captain?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, profile.faction)
       npc.setTownPeaceful(); npc.group.rotation.y = Math.PI
-      if (cavalry) { const mount = new Mount(this.scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); this.mounts.push(mount) }
+      let homeMount: Mount | undefined
+      if (cavalry) { const mount = new Mount(this.scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); this.mounts.push(mount); homeMount = mount }
       if (NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : captain ? 2 : 2.2)) }
       const training = spec.role.includes('_'), target = training ? this.world.addTarget(spec.x, spec.z - (ranged ? 3 : 1.5), ranged) : undefined
-      this.residents.push({ spec, npc, target, cycle: -1, walkTime: 0 }); this.event.register(spec.id, npc)
+      this.residents.push({ spec, npc, homeMount, target, cycle: -1, walkTime: 0 }); this.event.register(spec.id, npc)
     }
     progress('預熱動畫、材質與陰影…')
     this.camera.position.set(0, 24, 42); this.camera.lookAt(0, 0, 0)
@@ -450,27 +452,69 @@ export class TownScene {
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${merit.total === 0 ? '\n\n本次未對任務目標造成有效貢獻。個人軍功：0' : ''}`)
-    this.button(panel, '返回小鎮', () => this.returnFromMission())
+    this.button(panel, '返回小鎮', () => this.fastReturnFromMission())
     if (!result.defense && complete && result.stats.survived && this.mission.missionLeader) this.button(panel, '跟隊伍走回去', () => {
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       this.missionResultOpen = false
       this.closePanel()
     })
   }
-  private returnFromMission(): void {
+  private fastReturnFromMission(): void {
     const active = this.profile.activeMission
     if (!active) return
     const next = clearCareerMission(this.profile, active.id)
     if (!this.commit(next)) {
       const panel = this.openPanel('返回狀態尚未保存', '任務結算仍安全保留。請重試保存後返回小鎮。')
-      this.button(panel, '重試返回小鎮', () => this.returnFromMission())
+      this.button(panel, '重試返回小鎮', () => this.fastReturnFromMission())
       return
     }
-    if (active.kind !== 'town-defense') this.mission.cleanupMission()
+    if (active.kind !== 'town-defense') this.mission.cleanupMission(active.targetCampId)
     this.inventory.sheathAll()
     this.missionResultOpen = false
     this.dispose()
     this.onRestart(next)
+  }
+  private settleReturnedMissionInPlace(): void {
+    const active = this.profile.activeMission
+    if (!active || active.kind === 'town-defense' || active.phase !== 'RETURNING') return
+    const missionResidents = new Set(this.mission.friendlies)
+    const next = clearCareerMission(this.profile, active.id)
+    if (!this.commit(next)) {
+      const panel = this.openPanel('返回狀態尚未保存', '隊伍已返抵小鎮，但任務結算尚未寫入。請重試，軍功不會重複發放。')
+      this.button(panel, '重試原地結算', () => this.settleReturnedMissionInPlace())
+      return
+    }
+
+    this.mission.cleanupMission(active.targetCampId)
+    for (const resident of this.residents) {
+      if (!missionResidents.has(resident.npc)) continue
+      resident.npc.dismountFromMount()
+      resident.npc.respawn()
+      resident.npc.endExternalThreat()
+      resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
+      resident.cycle = -1
+      resident.walkTime = 0
+      this.externalThreatActors.delete(resident.npc)
+      if (resident.homeMount) {
+        resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
+        resident.npc.mountVehicle(resident.homeMount)
+      }
+    }
+
+    this.careerMounts.restInTown()
+    this.inventory.sheathAll()
+    this.player.clearTownAction()
+    this.player.setHp(this.player.maxHp)
+    this.player.setStamina(MAX_STAMINA)
+    this.player.setArrowCount(PLAYER_ARROW_CAPACITY)
+    this.hp.setFill(1)
+    this.stamina.setFill(1)
+    this.quiver.setArrowCount(this.player.arrowCount)
+    this.missionResultOpen = false
+    this.target = null
+    this.hasPreviousTip = false
+    this.notice = '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
+    if (this.panel) this.closePanel()
   }
   private serviceAvailable(id: string): boolean {
     if (this.defense?.servicesLocked) return false
@@ -906,7 +950,7 @@ export class TownScene {
         const missionOutcome = this.defense.active ? this.defense.evaluate(this.player.dead) : this.mission.evaluate(this.player.dead)
         if (missionOutcome && !this.panel) this.finishMission(missionOutcome)
         else if (!this.profile.activeMission && this.player.dead && !this.panel) this.showAmbientDefeat()
-        else if (!this.defense.active && this.mission.returnComplete && !this.panel) this.returnFromMission()
+        else if (!this.defense.active && this.mission.returnComplete && !this.panel) this.settleReturnedMissionInPlace()
       }
     }
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)

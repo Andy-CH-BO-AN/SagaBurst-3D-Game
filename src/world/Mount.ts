@@ -288,6 +288,33 @@ export class Mount {
     if (!this.dead) this.state = MountState.IDLE
   }
 
+  restoreForTown(x: number, z: number, yaw: number): void {
+    this.riderNpc = null
+    this.riderFaction = null
+    this.currentHp = this.maxHp
+    this.state = MountState.IDLE
+    this.deathTimer = 3
+    this.group.visible = true
+    this.group.position.set(x, getTerrainHeight(x, z), z)
+    this.group.rotation.set(0, yaw, 0)
+    this.previousPosition.copy(this.group.position)
+    this.movementSpeed = 0
+    this.isSprinting = false
+    this.skipImpactThisFrame = true
+    this.velY = 0
+    this.onGround = true
+    this.ridePitch = 0
+    this.visualHold = false
+    this.hasGroundedOnce = true
+    this.impactTimes.clear()
+    this.wanderTimer = 0
+    this._pickWanderTarget()
+    this.horseVisual?.playStudioClip('idle')
+    this.proceduralVisual?.playStudioClip('idle')
+    this.horseVisual?.setLocomotion(0)
+    this.proceduralVisual?.setLocomotion(0)
+  }
+
   takeDamage(amount: number): boolean {
     if (this.dead) return false
     this.currentHp = Math.max(0, this.currentHp - amount)

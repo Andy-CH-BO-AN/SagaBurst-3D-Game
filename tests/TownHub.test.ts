@@ -211,6 +211,54 @@ describe('Town input and isolation regressions', () => {
 
 
 describe('Town orchestration transitions', () => {
+  it('settles a physical mission return in the existing Town scene and restores the extracted garrison', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const profile = createCareerProfile('roman')
+    profile.activeMission = {
+      id: 'mission-returning', templateId: 'recruit-bandits-01', kind: 'bandit', phase: 'RETURNING',
+      targetCampId: 2, targetActorIds: [], friendlyActorIds: ['captain', 'infantry'], acceptedAt: Date.now(),
+      routeStage: 0, result: { outcome: 'victory', stats: { damageDealt: 10, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, merit: { damage: 1, kills: 1, contribution: 1, total: 3 }, claimed: true },
+    }
+    const captain = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
+    const infantry = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
+    const bystander = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
+    const homeMount = { restoreForTown: vi.fn() }
+    town.profile = profile
+    town.mission = {
+      friendlies: [captain, infantry],
+      cleanupMission: vi.fn((campId: number) => {
+        expect(campId).toBe(2)
+        expect(town.profile.activeMission).toBeUndefined()
+      }),
+    }
+    town.residents = [
+      { spec: { x: 25, z: 11, yaw: -.5 }, npc: captain, homeMount, cycle: 5, walkTime: 4 },
+      { spec: { x: 12, z: 7 }, npc: infantry, cycle: 3, walkTime: 2 },
+      { spec: { x: 0, z: 0 }, npc: bystander, cycle: 1, walkTime: 1 },
+    ]
+    town.externalThreatActors = new Set([captain, infantry, bystander])
+    town.commit = vi.fn((next: typeof profile) => { town.profile = next; return true })
+    town.careerMounts = { restInTown: vi.fn() }
+    town.inventory = { sheathAll: vi.fn() }
+    const playerPosition = new THREE.Vector3(9, 1, -4)
+    town.player = { position: playerPosition, maxHp: 120, clearTownAction: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), setArrowCount: vi.fn(), arrowCount: 30 }
+    town.hp = { setFill: vi.fn() }; town.stamina = { setFill: vi.fn() }; town.quiver = { setArrowCount: vi.fn() }
+    town.missionResultOpen = true; town.target = 'captain'; town.hasPreviousTip = true; town.notice = ''; town.panel = null
+    town.dispose = vi.fn(); town.onRestart = vi.fn(); town.closePanel = vi.fn()
+
+    town.settleReturnedMissionInPlace()
+
+    expect(town.profile.activeMission).toBeUndefined()
+    expect(town.mission.cleanupMission).toHaveBeenCalledExactlyOnceWith(2)
+    expect(captain.respawn).toHaveBeenCalledOnce(); expect(infantry.respawn).toHaveBeenCalledOnce(); expect(bystander.respawn).not.toHaveBeenCalled()
+    expect(homeMount.restoreForTown).toHaveBeenCalledExactlyOnceWith(25, 11, -.5)
+    expect(captain.mountVehicle).toHaveBeenCalledExactlyOnceWith(homeMount)
+    expect(town.externalThreatActors.has(captain)).toBe(false); expect(town.externalThreatActors.has(infantry)).toBe(false); expect(town.externalThreatActors.has(bystander)).toBe(true)
+    expect(town.careerMounts.restInTown).toHaveBeenCalledOnce(); expect(town.player.setHp).toHaveBeenCalledWith(120); expect(town.player.setStamina).toHaveBeenCalledWith(100)
+    expect(playerPosition).toEqual(new THREE.Vector3(9, 1, -4)); expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
+    town.settleReturnedMissionInPlace()
+    expect(town.commit).toHaveBeenCalledOnce(); expect(town.mission.cleanupMission).toHaveBeenCalledOnce()
+  })
   it('the first close frontal house swing damages the wall and starts hostility even after the blade has swept sideways', () => {
     const town = Object.create(TownScene.prototype) as any
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root: new THREE.Group() })
