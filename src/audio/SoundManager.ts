@@ -20,6 +20,8 @@ const BOW_RELEASE_VOLUME = 0.2
 const MAX_BOW_RELEASE_VOICES = 6
 const MAX_NPC_GALLOP_VOICES = 8
 const MAX_BATTLE_IMPACT_VOICES = 16
+const TOWN_ALARM_STRIKES = 6
+const TOWN_ALARM_INTERVAL_SECONDS = 1
 
 type AudioAsset =
   | 'swordHit'
@@ -105,6 +107,12 @@ export class SoundManager {
 
   private readonly careerVoices = new Set<CareerAudioAsset>()
   private readonly careerLastPlayed = new Map<CareerAudioAsset, number>()
+  private readonly careerSpeechPending = new Set<CareerAudioAsset>()
+  private readonly careerSources = new Map<CareerAudioAsset, AudioBufferSourceNode[]>()
+  private careerGeneration = 0
+  private careerSpeechTail: Promise<void> = Promise.resolve()
+  private finishCareerSpeech: (() => void) | null = null
+  private finishTownAlarm: (() => void) | null = null
 
   constructor() {
     void this.preload()
@@ -245,36 +253,127 @@ export class SoundManager {
     })
   }
 
-  /** Fetch/decode only the requested Career cue; pending and active copies are deduplicated. */
+  /** One small speech channel: preserve event order without delaying mission movement. */
   playCareerMissionVoice(faction: AudioFaction, cue: CareerMissionVoiceCue): void {
-    void this._playCareerAsset(`${faction}:${cue}`)
+    const asset: CareerAudioAsset = `${faction}:${cue}`
+    if (this.careerSpeechPending.has(asset)) return
+    const generation = this.careerGeneration
+    this.careerSpeechPending.add(asset)
+    const play = async () => {
+      try {
+        if (generation !== this.careerGeneration) return
+        const source = await this._playCareerAsset(asset, generation)
+        if (!source || generation !== this.careerGeneration) return
+        await new Promise<void>(resolve => {
+          const finish = () => {
+            source.removeEventListener('ended', finish)
+            if (this.finishCareerSpeech === finish) this.finishCareerSpeech = null
+            resolve()
+          }
+          this.finishCareerSpeech = finish
+          source.addEventListener('ended', finish, { once: true })
+        })
+      } catch {
+        // Failed optional audio must not block subsequent mission speech.
+      } finally {
+        if (generation === this.careerGeneration) this.careerSpeechPending.delete(asset)
+      }
+    }
+    this.careerSpeechTail = this.careerSpeechTail.then(play, play)
   }
 
-  /** Resolves at the alarm's onset (or failure), so warnings can follow its actual start. */
-  playTownAlarm(): Promise<boolean> {
-    return this._playCareerAsset('townAlarm')
+  /** Optionally wait until the sixth bell's tail ends before the commander speaks. */
+  async playTownAlarm(waitForEnd = false): Promise<boolean> {
+    const generation = this.careerGeneration
+    const source = await this._playCareerAsset('townAlarm', generation)
+    if (!source || generation !== this.careerGeneration) return false
+    if (!waitForEnd) return true
+    const sources = this.careerSources.get('townAlarm')!
+    const last = sources[sources.length - 1]
+    return new Promise<boolean>(resolve => {
+      const finish = () => {
+        last.removeEventListener('ended', finish)
+        if (this.finishTownAlarm === finish) this.finishTownAlarm = null
+        resolve(generation === this.careerGeneration)
+      }
+      this.finishTownAlarm = finish
+      last.addEventListener('ended', finish, { once: true })
+    })
   }
 
-  private async _playCareerAsset(asset: CareerAudioAsset): Promise<boolean> {
+  /** Retain decoded buffers, but discard active/pending speech from the old mission or scene. */
+  cancelCareerAudio(): void {
+    this.careerGeneration++
+    this.finishCareerSpeech?.()
+    this.finishTownAlarm?.()
+    this.careerSpeechTail = Promise.resolve()
+    this.careerSpeechPending.clear()
+    for (const sources of this.careerSources.values()) {
+      for (const source of sources) {
+        try { source.stop(); source.disconnect() } catch { /* Already ended or unavailable. */ }
+      }
+    }
+    this.careerSources.clear()
+    this.careerVoices.clear()
+    this.careerLastPlayed.clear()
+  }
+
+  private async ensureCareerAudioRunning(): Promise<boolean> {
+    try {
+      if (!this.ctx) this.unlockAudio()
+      const ctx = this.ctx
+      if (!ctx) return false
+      if (ctx.state === 'suspended') await ctx.resume()
+      return ctx.state === 'running'
+    } catch {
+      return false
+    }
+  }
+
+  private async _playCareerAsset(asset: CareerAudioAsset, generation = this.careerGeneration): Promise<AudioBufferSourceNode | null> {
     const now = Date.now()
-    if (this.careerVoices.has(asset) || now - (this.careerLastPlayed.get(asset) ?? -Infinity) < 1000) return false
+    if (this.careerVoices.has(asset) || now - (this.careerLastPlayed.get(asset) ?? -Infinity) < 1000) return null
     this.careerVoices.add(asset)
     let started = false
     try {
       const buffer = await this._load(asset)
-      // Do not queue stale mission speech behind a browser autoplay wall.
-      if (!buffer || this.ctx?.state !== 'running') return false
-      const source = this._startOneShot(buffer)
-      if (!source) return false
+      // Cached buffers need resume too. Denied audio is dropped, not saved for later autoplay.
+      if (!buffer || generation !== this.careerGeneration || !await this.ensureCareerAudioRunning()) return null
+      if (generation !== this.careerGeneration) return null
+      const sources = this.startCareerSources(asset, buffer)
+      if (!sources) return null
       started = true
       this.careerLastPlayed.set(asset, Date.now())
-      source.addEventListener('ended', () => this.careerVoices.delete(asset), { once: true })
-      return true
+      this.careerSources.set(asset, sources)
+      sources[sources.length - 1].addEventListener('ended', () => {
+        if (this.careerSources.get(asset) === sources) {
+          this.careerSources.delete(asset)
+          this.careerVoices.delete(asset)
+        }
+      }, { once: true })
+      return sources[0]
     } catch {
-      return false
+      return null
     } finally {
-      if (!started) this.careerVoices.delete(asset)
+      if (!started && generation === this.careerGeneration) this.careerVoices.delete(asset)
     }
+  }
+
+  private startCareerSources(asset: CareerAudioAsset, buffer: AudioBuffer): AudioBufferSourceNode[] | null {
+    const sources: AudioBufferSourceNode[] = []
+    const count = asset === 'townAlarm' ? TOWN_ALARM_STRIKES : 1
+    for (let strike = 0; strike < count; strike++) {
+      // Preserve each bell's decay while scheduling six urgent, evenly spaced strikes.
+      const source = this._startOneShot(buffer, 1, strike * TOWN_ALARM_INTERVAL_SECONDS)
+      if (!source) {
+        for (const started of sources) {
+          try { started.stop(); started.disconnect() } catch { /* Optional audio. */ }
+        }
+        return null
+      }
+      sources.push(source)
+    }
+    return sources
   }
 
   private _init(): AudioContext {
@@ -422,7 +521,7 @@ export class SoundManager {
     return true
   }
 
-  private _startOneShot(buffer: AudioBuffer, volume = 1): AudioBufferSourceNode | null {
+  private _startOneShot(buffer: AudioBuffer, volume = 1, delaySeconds = 0): AudioBufferSourceNode | null {
     try {
       const ctx = this._init()
       const source = ctx.createBufferSource()
@@ -431,7 +530,8 @@ export class SoundManager {
       gain.gain.value = volume
       source.connect(gain)
       gain.connect(ctx.destination)
-      source.start()
+      if (delaySeconds > 0) source.start(ctx.currentTime + delaySeconds)
+      else source.start()
       return source
     } catch {
       return null

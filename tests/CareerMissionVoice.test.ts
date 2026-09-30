@@ -6,10 +6,12 @@ import { createCareerProfile } from '../src/career/CareerProfile'
 import { createActiveCareerMission } from '../src/career/CareerMissionState'
 import { townRoster } from '../src/town/TownRules'
 
-const audio = vi.hoisted(() => ({ playCareerMissionVoice: vi.fn(), playTownAlarm: vi.fn(async () => true) }))
+const audio = vi.hoisted(() => ({ playCareerMissionVoice: vi.fn(), playTownAlarm: vi.fn(async () => true), playCommanderCommand: vi.fn(), cancelCareerAudio: vi.fn() }))
 vi.mock('../src/audio/SoundManager', () => ({ SoundManager: class {
   playCareerMissionVoice = audio.playCareerMissionVoice
   playTownAlarm = audio.playTownAlarm
+  playCommanderCommand = audio.playCommanderCommand
+  cancelCareerAudio = audio.cancelCareerAudio
 } }))
 
 function townHarness(faction: 'roman' | 'viking' = 'roman') {
@@ -64,15 +66,29 @@ describe('Career mission voice events', () => {
   })
 
   it.each(['roman', 'viking'] as const)('starts alarm then %s warning only once after Town Defense starts', async faction => {
+    let finishAlarm!: (played: boolean) => void
+    audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness(faction)
     town.acceptMission('recruit-town-defense-01'); town.acceptMission('recruit-town-defense-01')
     expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
     expect(audio.playTownAlarm).toHaveBeenCalledOnce()
+    town.careerCommandCue = null
+    town.defense.reserveHasCharged = false
+    town.updateCareerCommandCue() // First resumed gameplay frame.
+    expect(audio.playCommanderCommand).not.toHaveBeenCalled()
     expect(town.defense.startActiveMission.mock.invocationCallOrder[0]).toBeLessThan(audio.playTownAlarm.mock.invocationCallOrder[0])
-    await vi.advanceTimersByTimeAsync(449)
+    expect(audio.playTownAlarm).toHaveBeenCalledWith(true)
+    await vi.advanceTimersByTimeAsync(8000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1)
+    finishAlarm(true)
+    await Promise.resolve()
     expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith(faction, 'townDefense')
+    town.profile.activeMission.phase = 'ATTACKING'
+    town.updateCareerCommandCue()
+    expect(audio.playCommanderCommand).not.toHaveBeenCalled()
+    town.defense.reserveHasCharged = true // First effective military hit.
+    town.updateCareerCommandCue(); town.updateCareerCommandCue()
+    expect(audio.playCommanderCommand).toHaveBeenCalledExactlyOnceWith(faction, 'charge')
   })
 
   it.each(['save', 'start'])('stays silent on Town Defense %s failure', async failure => {
@@ -85,24 +101,35 @@ describe('Career mission voice events', () => {
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
   })
 
-  it('measures the warning delay from actual alarm start even with a slow lazy load', async () => {
-    let startAlarm!: (started: boolean) => void
-    audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { startAlarm = resolve }))
+  it('waits for alarm completion rather than a guessed timer, including slow lazy loading', async () => {
+    let finishAlarm!: (played: boolean) => void
+    audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
     town.acceptMission('recruit-town-defense-01')
-    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(20000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
-    startAlarm(true)
-    await vi.advanceTimersByTimeAsync(450)
+    finishAlarm(true)
+    await Promise.resolve()
     expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('roman', 'townDefense')
   })
 
   it.each(['disposed', 'settled'])('discards a delayed warning after the scene is %s', async state => {
+    let finishAlarm!: (played: boolean) => void
+    audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
     town.acceptMission('recruit-town-defense-01')
     if (state === 'disposed') town.disposed = true
     else delete town.profile.activeMission
+    finishAlarm(true)
     await vi.advanceTimersByTimeAsync(500)
+    expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+  })
+
+  it('does not announce a cancelled or unavailable alarm sequence', async () => {
+    audio.playTownAlarm.mockResolvedValueOnce(false)
+    const town = townHarness()
+    town.acceptMission('recruit-town-defense-01')
+    await Promise.resolve()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
   })
 
@@ -115,6 +142,25 @@ describe('Career mission voice events', () => {
     expect((phase === 'PREPARING' ? town.defense : town.mission).startActiveMission).toHaveBeenCalledOnce()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+  })
+
+  it('cancels old mission audio only after a successful identity-changing save', () => {
+    const town = townHarness()
+    // Instantiate the same shared audio dependency used by the real scene.
+    town.playMissionVoice('missionAccepted')
+    town.store.save = vi.fn(() => true)
+    const commit = (TownScene.prototype as any).commit.bind(town)
+    const next = { ...town.profile, activeMission: createActiveCareerMission('recruit-bandits-01', 0, 3, 0) }
+    town.store.save.mockReturnValueOnce(false)
+    expect(commit(next)).toBe(false)
+    expect(audio.cancelCareerAudio).not.toHaveBeenCalled()
+    expect(commit(next)).toBe(true)
+    expect(audio.cancelCareerAudio).toHaveBeenCalledOnce()
+    audio.cancelCareerAudio.mockClear()
+    expect(commit({ ...next, activeMission: { ...next.activeMission, phase: 'MARCHING' } })).toBe(true)
+    expect(audio.cancelCareerAudio).not.toHaveBeenCalled()
+    expect(commit({ ...town.profile, activeMission: undefined })).toBe(true)
+    expect(audio.cancelCareerAudio).toHaveBeenCalledOnce()
   })
 
   it.each(['living', 'dead', 'save-failed'])('physical return is voiced only for a living party on success: %s', state => {

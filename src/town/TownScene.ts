@@ -122,6 +122,7 @@ export class TownScene {
   private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, _onCampaign: () => void, private readonly onRestart: (p: CareerProfile) => void) {
     installTownStyles()
     sound ??= new SoundManager()
+    sound.cancelCareerAudio()
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     this.world = new TownWorld(profile.faction, this.scene)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
@@ -234,6 +235,7 @@ export class TownScene {
   }
   private commit(profile: CareerProfile): boolean {
     if (!this.store.save(profile)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (profile.activeMission?.id !== this.profile.activeMission?.id || profile.faction !== this.profile.faction) sound?.cancelCareerAudio()
     this.profile = profile; return true
   }
   private key(e: KeyboardEvent): void {
@@ -381,10 +383,8 @@ export class TownScene {
   }
   private async playTownDefenseAlert(): Promise<void> {
     const missionId = this.profile.activeMission?.id
-    await (sound ??= new SoundManager()).playTownAlarm()
-    setTimeout(() => {
-      if (!this.disposed && this.profile.activeMission?.id === missionId) this.playMissionVoice('townDefense')
-    }, 450)
+    const played = await (sound ??= new SoundManager()).playTownAlarm(true)
+    if (played && !this.disposed && this.profile.activeMission?.id === missionId) this.playMissionVoice('townDefense')
   }
   private acceptMission(templateId: string): void {
     const fresh = this.store.load()
@@ -1013,6 +1013,9 @@ export class TownScene {
     }
     if (cue === this.careerCommandCue) return
     this.careerCommandCue = cue
+    // The new warning already announces Town Defense's opening defensive order.
+    // Keep the tactical/cue state, but do not stack the legacy Defend speech over it.
+    if (active?.kind === 'town-defense' && cue === 'defend') return
     if (cue) sound?.playCommanderCommand(this.profile.faction, cue)
   }
   private updateCareerHorseAudio(): void {
@@ -1144,6 +1147,7 @@ export class TownScene {
   dispose(): void {
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
+    sound?.cancelCareerAudio()
     document.getElementById('controls-hint')!.textContent = this.previousControls
     document.getElementById('quiver-hud')!.style.display = ''
     this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input.dispose(); this.panel?.remove(); this.equipment.close(); this.hud.remove(); this.hint.remove(); this.pointerPrompt.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.player?.dispose(); this.ambientLabel.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); document.exitPointerLock?.()
