@@ -303,4 +303,19 @@ describe('Career profile persistence', () => {
     expect(parseCareerProfile({ version: 1, faction: 'gaul' })).toBeNull()
     expect(parseCareerProfile({ version: 2, faction: 'roman' })).toBeNull()
   })
+
+  it('restores active mission casualties, phase, route and defense progress', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = {
+      id: 'reload-mission', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: ['target-a', 'target-b'], friendlyActorIds: ['captain', 'melee_infantry-0'],
+      deadTargetActorIds: ['target-a', 'unknown'], deadFriendlyActorIds: ['melee_infantry-0'],
+      routeStage: 7, defenseElapsed: 19.5, acceptedAt: 1,
+    }
+    const parsed = parseCareerProfile(profile)
+    expect(parsed?.activeMission).toMatchObject({
+      id: 'reload-mission', phase: 'RETURNING', deadTargetActorIds: ['target-a'],
+      deadFriendlyActorIds: ['melee_infantry-0'], routeStage: 7, defenseElapsed: 19.5,
+    })
+  })
 })

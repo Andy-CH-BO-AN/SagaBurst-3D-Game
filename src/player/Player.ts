@@ -76,6 +76,8 @@ export interface ArrowLaunchEvent {
   visualKind: 'arrow' | 'pilum'
 }
 
+export const PLAYER_ARROW_CAPACITY = 30
+
 export class Player {
   readonly faction = Faction.PLAYER
   readonly group: THREE.Group
@@ -144,7 +146,7 @@ export class Player {
   private pilumProjectileReleased = false
   private pilumReadyAfterThrow = false
   private readonly pendingArrowTarget = new THREE.Vector3()
-  private arrows = 30
+  private arrows = PLAYER_ARROW_CAPACITY
   private isDead = false
   private readonly deathFade = new DeathFadeController()
   public spectatorOnly = false

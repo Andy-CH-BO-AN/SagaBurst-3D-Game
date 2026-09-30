@@ -15,7 +15,6 @@ export class PlayerInput {
   }
 
   private readonly allowUnlockedInput = window.location.search.includes('nolock')
-  private entryFreeLook = false
   // Movement & Action keys
   readonly keys: Record<string, boolean> = {}
 
@@ -39,14 +38,11 @@ export class PlayerInput {
 
   private _syncPointerLockState(): void {
     const locked = typeof document !== "undefined" && document.pointerLockElement !== null
-    if (locked) this.entryFreeLook = false
-    this.isLocked = locked || this.allowUnlockedInput || this.entryFreeLook
+    this.isLocked = locked || this.allowUnlockedInput
   }
 
-  constructor(options: { freeLookOnEntry?: boolean } = {}) {
-    this.entryFreeLook = options.freeLookOnEntry ?? false
+  constructor() {
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Escape') { this.entryFreeLook = false; this._syncPointerLockState() }
       if (!this.keys[e.code]) this._keyPresses.add(e.code)
       this.keys[e.code] = true
       if (e.code === 'KeyE') {
@@ -115,8 +111,6 @@ export class PlayerInput {
     }, { signal: this.listeners.signal })
 
     document.addEventListener('mousemove', (e) => {
-      // Town may allow initial free-look before browser pointer-lock permission is acquired.
-      // Pressing ESC to release pointer lock safely prevents camera rotation while navigating UI.
       if (!this.isLocked) return
       this._dx += e.movementX
       this._dy += e.movementY

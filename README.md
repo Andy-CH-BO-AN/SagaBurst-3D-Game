@@ -54,13 +54,12 @@ Start a persistent career as a Roman or Viking.
 - Explore your faction town.
 - Talk to service NPCs with `E`.
 - Manage owned equipment through the character/inventory UI.
-- Talk to the deployment soldier to accept Recruit clearance, patrol, or Town Defense missions. Your town's existing captain leads the clearance/patrol party—no duplicate captain is spawned. Assemble with the team and follow the translucent camera-relative guide arrow toward the current objective.
-- Bandits patrol their own camps unaware of the player until approached or hit. Unofficial attacks on roaming bandits grant neither merit nor a penalty.
-- Only your personal damage and kills against the active mission roster earn military merit; watching allies finish the mission does not.
+- Talk to the deployment soldier to accept Recruit clearance, patrol, or Town Defense missions.
+- Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.
+- Bandits patrol their camps until they notice an approaching threat or are attacked.
+- Contribute damage and kills to earn mission merit.
 - Buy T1–T3 horses in sequence, then press `Tab` and use the Mount section to ride, switch, or dismiss an owned mount.
 - Earn promotion eligibility through missions and ask the captain to appoint the next rank. An appointed Captain or Commander uses the faction's T4 hero.
-
-The Recruit board is deliberately compact and repeatable: four bandit clearances, two patrol routes with uncertain encounters, and one late one-time Town Defense battle. Promotion remains merit-based—roughly ten normally contributed missions reach Soldier eligibility; the catalog does not require ten distinct templates.
 
 ### 🐈 Hero Mount Free Ride
 

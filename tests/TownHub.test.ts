@@ -181,6 +181,20 @@ describe('Town input and isolation regressions', () => {
     for (let i = 0; i < 120; i++) if (npc.updateTownPeace(.05, 20, true, i % 60 === 0, 0, i % 60 * .05)) releases++
     expect(releases).toBeGreaterThan(0); expect((npc as any).arrows).toBe(arrows); expect(search).not.toHaveBeenCalled()
   })
+  it('hides the held training pilum on release and restores it only for the next throw or combat order', () => {
+    const npc = new NPC(new THREE.Scene(), 40, 20, Faction.ENEMY, 'roman', AIType.RANGED, 'Training javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
+    const arrows = (npc as any).arrows, pivot = (npc as any).bowPivot as THREE.Group
+    let released = false
+    for (let i = 0; i < 80; i++) {
+      if (npc.updateTownPeace(.05, 20, true, i === 0, 0, i * .05)) { released = true; break }
+    }
+    expect(released).toBe(true); expect(pivot.visible).toBe(false); expect((npc as any).arrows).toBe(arrows)
+    while ((npc as any).animator.busy) npc.updateTownPeace(.05, 20, true, false)
+    expect(pivot.visible).toBe(false)
+    npc.updateTownPeace(.05, 20, true, true); expect(pivot.visible).toBe(true)
+    ;(npc as any).bowPivot.visible = false
+    npc.assignFormationTarget(9, new THREE.Vector3(5, 0, 5), new THREE.Vector3(0, 0, 1)); expect(pivot.visible).toBe(true)
+  })
   it('same-town residents never acquire each other and no player army command controller exists in Town', () => {
     const a = civilian(), b = civilian(), player = new Player(new THREE.Scene()); a.beginTownHostility(); b.beginTownHostility()
     const target = (a as any)._findTarget(player, [b]); expect(target.isPlayer).toBe(true); expect(target.npc).toBeUndefined(); expect(a.squadId).toBeUndefined()

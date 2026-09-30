@@ -76,15 +76,24 @@ export class TownDefenseController {
     if (plans.some(plan => plan.actorIds.length !== 10 || plan.actorIds.some(id => !byId.has(id)))) return false
     this.groups.length = 0
     for (const plan of plans) this.groups.push({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)!), fallbackApplied: false })
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    const deadCivilians = new Set(active.deadCivilianActorIds ?? [])
+    for (const resident of this.residents) {
+      if ((deadFriendlies.has(resident.spec.id) || deadCivilians.has(resident.spec.id)) && !resident.npc.dead) resident.npc.takeDamage(999999)
+    }
     this.spawnAttackers(active)
     this.tracker = new BattleStatsTracker(this.events, false, event => acceptsCareerMissionStat(active, event))
     this.prepareDeployment()
-    this.preparationStarted = false
+    this.preparationStarted = active.phase !== 'PREPARING'
     this.preparationElapsed = 0
-    this.attackElapsed = 0
+    this.attackElapsed = active.defenseElapsed ?? 0
     this.reserveCharged = false
     this.combatOrdersIssued = false
-    if (active.phase !== 'PREPARING') this.setPhase('PREPARING')
+    if (active.phase !== 'PREPARING') {
+      this.beginAttack()
+      if (this.attackElapsed >= 4) this.issueCombatOrders()
+      for (const group of this.attackGroups) if (this.attackElapsed >= group.delaySeconds) this.releaseAttackGroup(group)
+    }
     return true
   }
 
@@ -104,13 +113,14 @@ export class TownDefenseController {
       if (townDefenseFailureLocked(this.civilianDeaths) && active.phase !== 'FAILURE_LOCKED') this.setPhase('FAILURE_LOCKED')
       else if (this.remainingEnemies === 0 && active.phase !== 'VICTORY_LOCKED') this.setPhase('VICTORY_LOCKED')
     }
+    this.persistRuntimeProgress()
     this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
   }
 
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
     const active = this.active
     if (!active || active.result || active.phase === 'PREPARING' || active.phase === 'RESULT') return null
-    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, active.targetActorIds.length === 50 && this.enemies.length === 50, this.remainingEnemies)
+    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, active.targetActorIds.length === 50 && this.enemies.length + (active.deadTargetActorIds?.length ?? 0) === 50, this.remainingEnemies)
   }
 
   snapshot(): BattleStatsSnapshot {
@@ -227,7 +237,9 @@ export class TownDefenseController {
         const presetId = `${enemyFaction}_${kind === 'melee' ? 'sword_cavalry' : kind === 'lancer' ? 'lancer' : 'horse_archer'}` as UnitPresetId
         const x = anchor.x + (index % 5 - 2) * 5 + groupIndex * .7
         const z = anchor.z + Math.floor(index / 5) * 6
-        const npc = new NPC(this.scene, x, z, Faction.ENEMY, enemyFaction, kind === 'horse-archer' ? AIType.RANGED : AIType.MELEE, `Raider ${actorIndex + 1}`, 2, true, { ...UNIT_PRESETS[presetId].tierLoadouts[2] }, presetId, undefined, active.targetActorIds[actorIndex++], this.events.emit)
+        const actorId = active.targetActorIds[actorIndex++]
+        if ((active.deadTargetActorIds ?? []).includes(actorId)) continue
+        const npc = new NPC(this.scene, x, z, Faction.ENEMY, enemyFaction, kind === 'horse-archer' ? AIType.RANGED : AIType.MELEE, `Raider ${actorIndex}`, 2, true, { ...UNIT_PRESETS[presetId].tierLoadouts[2] }, presetId, undefined, actorId, this.events.emit)
         npc.respawnEnabled = false
         const mount = new Mount(this.scene, MountType.HORSE, x, z)
         npc.mountVehicle(mount)
@@ -248,8 +260,28 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.phase === phase) return true
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, phase, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }
+    profile.activeMission = { ...active, phase, defenseElapsed: this.attackElapsed, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }
     return this.commit(profile)
+  }
+
+  private persistRuntimeProgress(): void {
+    const active = this.active
+    if (!active || active.result) return
+    const deadTargets = new Set(active.deadTargetActorIds ?? [])
+    for (const enemy of this.enemies) if (enemy.dead) deadTargets.add(enemy.combatantId)
+    const deadFriendlies = this.defenders.filter(npc => npc.dead).map(npc => npc.combatantId).sort()
+    if (this.captain?.dead) deadFriendlies.push(this.captain.combatantId)
+    deadFriendlies.sort()
+    const deadCivilians = this.civilians.filter(npc => npc.dead).map(npc => npc.combatantId).sort()
+    const targetIds = [...deadTargets].filter(id => active.targetActorIds.includes(id)).sort()
+    const same = targetIds.join('|') === [...(active.deadTargetActorIds ?? [])].sort().join('|')
+      && deadFriendlies.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
+      && deadCivilians.join('|') === [...(active.deadCivilianActorIds ?? [])].sort().join('|')
+      && Math.abs((active.defenseElapsed ?? 0) - this.attackElapsed) < 1
+    if (same) return
+    const profile = cloneCareerProfile(this.readProfile())
+    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: deadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed }
+    this.commit(profile)
   }
 
   private anchorVector(key: keyof typeof TOWN_DEFENSE_LAYOUT): THREE.Vector3 {

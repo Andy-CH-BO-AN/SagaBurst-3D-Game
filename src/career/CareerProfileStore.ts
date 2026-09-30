@@ -73,6 +73,11 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     phase: raw.phase as CareerMissionPhase,
     targetActorIds,
     friendlyActorIds,
+    deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds).filter(id => targetActorIds.includes(id)),
+    deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
+    deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
+    routeStage: nonNegativeInteger(raw.routeStage),
+    defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }

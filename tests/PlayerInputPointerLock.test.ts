@@ -34,13 +34,13 @@ describe("PlayerInput Pointer Lock Synchronization", () => {
     expect(input.isLocked).toBe(false)
   })
 
-  it("Town can look immediately on entry; releasing a later pointer lock still stops look", () => {
+  it("Town ignores mouse look until a real pointer lock exists", () => {
     const listeners: Record<string, Function[]> = {}
     ;(globalThis as any).window = { location: { search: '' }, addEventListener: () => {} }
     ;(globalThis as any).document = { pointerLockElement: null, addEventListener: (name: string, fn: Function) => { (listeners[name] ??= []).push(fn) } }
-    const input = new PlayerInput({ freeLookOnEntry: true })
+    const input = new PlayerInput()
     listeners.mousemove.forEach(fn => fn({ movementX: 30, movementY: 4 }))
-    expect(input.consumeMouseDelta()).toEqual({ dx: 30, dy: 4 })
+    expect(input.consumeMouseDelta()).toEqual({ dx: 0, dy: 0 })
     ;(globalThis as any).document.pointerLockElement = {}
     listeners.pointerlockchange.forEach(fn => fn())
     ;(globalThis as any).document.pointerLockElement = null

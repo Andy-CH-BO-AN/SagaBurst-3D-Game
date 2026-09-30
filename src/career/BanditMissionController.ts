@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
@@ -7,7 +6,7 @@ import type { Player } from '../player/Player'
 import { getTerrainHeight } from '../world/Terrain'
 import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownWorld } from '../town/TownWorld'
-import { townSitePoint } from '../town/TownRules'
+import { townSitePoint, type TownActorSpec } from '../town/TownRules'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import {
   getRecruitMissionTemplate,
@@ -27,9 +26,17 @@ interface CampRuntime {
 
 const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null } as const
 const DETECTION_RANGE = 18
+const MISSION_LEADER_MARCH_SPEED = 4.4
 
 export function selectLivingMissionLeader<T extends { dead: boolean }>(current: T | null, friendlies: readonly T[]): T | null {
   return current && !current.dead ? current : friendlies.find(npc => !npc.dead) ?? null
+}
+
+export function selectMissionInfantryActorIds<T extends { spec: { role: string }; npc: { dead: boolean; combatantId: string } }>(residents: readonly T[], count: number): string[] {
+  return residents
+    .filter(resident => resident.spec.role === 'melee_infantry' && !resident.npc.dead)
+    .slice(0, Math.max(0, count))
+    .map(resident => resident.npc.combatantId)
 }
 
 export class BanditMissionController {
@@ -40,8 +47,6 @@ export class BanditMissionController {
   private tracker: BattleStatsTracker | null = null
   private leader: NPC | null = null
   private commandId = 1
-  private followerTimer = 0
-  private waitingForPlayer = false
   private waitingForFollowers = false
   private route: THREE.Vector3[] = []
   private routeIndex = 0
@@ -51,6 +56,7 @@ export class BanditMissionController {
     private readonly world: TownWorld,
     private readonly navigation: NavigationWorld,
     private readonly missionCaptain: NPC,
+    private readonly residents: readonly { spec: TownActorSpec; npc: NPC }[],
     private readonly player: () => Player,
     private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean,
@@ -89,12 +95,15 @@ export class BanditMissionController {
   createMission(template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate, campId: number): ActiveCareerMission {
     const enemyCount = template.kind === 'patrol' ? template.encounterBanditCount : template.banditCount
     const friendlySoldiers = Math.max(0, template.friendlyCombatants - 2)
-    return createActiveCareerMission(template.id, campId, enemyCount, friendlySoldiers, undefined, template.kind, this.missionCaptain.combatantId)
+    const available = selectMissionInfantryActorIds(this.residents, friendlySoldiers)
+    const mission = createActiveCareerMission(template.id, campId, enemyCount, 0, undefined, template.kind, this.missionCaptain.combatantId)
+    mission.friendlyActorIds = [this.missionCaptain.combatantId, ...available]
+    return mission
   }
 
   startActiveMission(): boolean {
     const active = this.active
-    if (!active || active.result) return false
+    if (!active) return false
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     if (!template || template.kind === 'town-defense' || !camp) return false
@@ -103,17 +112,40 @@ export class BanditMissionController {
     this.disposeCamp(camp.ambient)
     camp.ambient = []
     const encounterCenter = template.kind === 'patrol' ? this.patrolEncounterPoint(template, active.id, camp.center) : undefined
-    active.targetActorIds.forEach((actorId, index) => camp.mission.push(this.spawnBandit(camp, actorId, index, encounterCenter)))
+    const deadTargets = new Set(active.deadTargetActorIds ?? [])
+    active.targetActorIds.forEach((actorId, index) => {
+      if (active.result) return
+      if (!deadTargets.has(actorId)) camp.mission.push(this.spawnBandit(camp, actorId, index, encounterCenter))
+    })
     this.spawnFriendlyParty(active)
     this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptMissionEvent(active, event))
     for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
-    this.setRoute(this.buildMissionRoute(template, this.assemblyPoint(), camp.center), this.assemblyPoint())
-    this.assignAssembly()
-    if (active.phase !== 'ASSEMBLING') this.setPhase('ASSEMBLING')
+    const routeStage = active.routeStage ?? 0
+    if (active.phase === 'RETURNING') {
+      this.setRoute(this.buildRoute(this.missionObjective(template, active, camp.center), this.assemblyPoint()), this.missionObjective(template, active, camp.center), routeStage)
+      this.positionPartyForReload(routeStage)
+      this.assignLeader(this.assemblyPoint())
+      this.assignFollowers()
+    } else if (active.phase === 'RESULT' && active.result) {
+      const objective = this.missionObjective(template, active, camp.center)
+      this.setRoute(this.buildRoute(objective, this.assemblyPoint()), objective)
+      this.positionPartyForReload(0)
+    } else {
+      this.setRoute(this.buildMissionRoute(template, this.assemblyPoint(), camp.center), this.assemblyPoint(), routeStage)
+      if (active.phase === 'ASSEMBLING') this.assignAssembly()
+      else if (active.phase === 'MARCHING') {
+        this.positionPartyForReload(routeStage)
+        this.assignLeader(camp.center)
+        this.assignFollowers()
+      } else if (active.phase === 'ENGAGING') {
+        this.positionPartyForReload(this.route.length - 1)
+        for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+      }
+    }
     return true
   }
 
-  updateFlow(dt: number, cameraYaw: number): void {
+  updateFlow(_dt: number, cameraYaw: number): void {
     const active = this.active
     if (!active || active.phase === 'RESULT') { this.guide.hide(); return }
     const camp = this.camps[active.targetCampId]
@@ -123,44 +155,40 @@ export class BanditMissionController {
 
     if (active.phase === 'ASSEMBLING' && this.player().combatPosition.distanceTo(leader.combatPosition) <= 12) {
       if (this.setPhase('MARCHING')) {
-        this.assignLeader(this.currentRouteTarget(camp.center))
+        this.assignLeader(camp.center)
         this.assignFollowers()
       }
     }
     if (this.phase === 'MARCHING') {
-      if (!this.waitingForPlayer && !this.waitingForFollowers) this.advanceRoute(leader, camp.center)
-      const playerDistance = this.player().combatPosition.distanceTo(leader.combatPosition)
-      if (!this.waitingForPlayer && playerDistance > 35) {
-        this.waitingForPlayer = true
-        this.assignLeader(leader.combatPosition.clone())
-      } else if (this.waitingForPlayer && playerDistance < 20) {
-        this.waitingForPlayer = false
-        this.assignLeader(this.currentRouteTarget(camp.center))
-      }
+      if (!this.waitingForFollowers) this.advanceRoute(leader)
       const followersReady = this.followersReadyRatio() >= .75
       if (!followersReady && !this.waitingForFollowers) {
         this.waitingForFollowers = true
         this.assignLeader(leader.combatPosition.clone())
       } else if (followersReady && this.waitingForFollowers) {
         this.waitingForFollowers = false
-        if (!this.waitingForPlayer) this.assignLeader(this.currentRouteTarget(camp.center))
+        this.assignLeader(camp.center)
       }
-      this.followerTimer -= dt
-      if (this.followerTimer <= 0) { this.followerTimer = .7; this.assignFollowers() }
       const campAlerted = camp.mission.some(npc => npc.encounterIsAlerted)
-      if (campAlerted || !this.waitingForPlayer && !this.waitingForFollowers && leader.combatPosition.distanceTo(camp.center) < 24) {
+      if (campAlerted || !this.waitingForFollowers && leader.combatPosition.distanceTo(camp.center) < 24) {
         if (this.setPhase('ENGAGING')) {
           for (const friendly of this.friendlies) friendly.setTacticalOrder('charge')
         }
       }
     }
     if (this.phase === 'RETURNING') {
-      this.followerTimer -= dt
-      if (this.followerTimer <= 0) { this.followerTimer = .7; this.assignFollowers() }
+      this.advanceRoute(leader)
+    }
+    if (this.phase === 'ENGAGING') {
+      for (const friendly of this.friendlies) {
+        if (!friendly.dead && friendly.tacticalOrder !== 'charge') friendly.setTacticalOrder('charge')
+      }
     }
 
-    const target = this.guideTarget(active, camp.center)
-    this.guide.update(active.phase, this.player().combatPosition, cameraYaw, target, this.remainingEnemies, this.waitingForPlayer, active.kind === 'patrol')
+    this.persistRuntimeProgress()
+    const current = this.active ?? active
+    const target = this.guideTarget(current, camp.center)
+    this.guide.update(current.phase, this.player().combatPosition, cameraYaw, target, this.remainingEnemies, false, current.kind === 'patrol')
   }
 
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
@@ -177,9 +205,13 @@ export class BanditMissionController {
   }
 
   startReturning(): boolean {
-    if (!this.active || !this.ensureLivingLeader() || !this.leader || !this.setPhase('RETURNING')) return false
-    this.setRoute(this.buildRoute(this.leader.combatPosition, this.assemblyPoint()), this.leader.combatPosition)
-    this.assignLeader(this.currentRouteTarget(this.assemblyPoint()))
+    const active = this.active
+    const template = active ? getRecruitMissionTemplate(active.templateId) : null
+    const camp = active ? this.camps[active.targetCampId] : null
+    if (!active || !template || template.kind === 'town-defense' || !camp || !this.ensureLivingLeader() || !this.leader || !this.setPhase('RETURNING', 0)) return false
+    const start = this.missionObjective(template, active, camp.center)
+    this.setRoute(this.buildRoute(start, this.assemblyPoint()), start)
+    this.assignLeader(this.assemblyPoint())
     this.assignFollowers()
     return true
   }
@@ -190,6 +222,17 @@ export class BanditMissionController {
     for (const bandit of [...camp.ambient, ...camp.mission]) bandit.triggerEncounterAlert()
   }
 
+  provokeGroupFor(target: NPC): void {
+    const camp = this.camps.find(candidate => candidate.ambient.includes(target) || candidate.mission.includes(target))
+    if (camp) this.provokeCamp(camp.id)
+  }
+
+  provokeCamp(campId: number): void {
+    const camp = this.camps[campId]
+    if (!camp) return
+    for (const bandit of [...camp.ambient, ...camp.mission]) bandit.provokeEncounter()
+  }
+
   isMissionTarget(npc: NPC): boolean {
     return Boolean(this.active?.targetActorIds.includes(npc.combatantId))
   }
@@ -197,7 +240,10 @@ export class BanditMissionController {
   isAmbientTarget(npc: NPC): boolean { return this.camps.some(camp => camp.ambient.includes(npc)) }
 
   combatPeersFor(npc: NPC): NPC[] {
-    if (this.friendlies.includes(npc)) return [...this.friendlies, ...this.missionBandits]
+    if (this.friendlies.includes(npc)) return [
+      ...this.friendlies,
+      ...(this.phase === 'ENGAGING' ? this.missionBandits : [...this.ambientBandits, ...this.missionBandits]),
+    ]
     const camp = this.camps.find(candidate => candidate.ambient.includes(npc) || candidate.mission.includes(npc))
     if (!camp) return this.fieldNpcs
     return [...camp.ambient, ...camp.mission, ...this.friendlies]
@@ -235,30 +281,22 @@ export class BanditMissionController {
     const z = source.z + Math.cos(angle) * radius
     const npc = new NPC(this.scene, x, z, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 1, false, BANDIT_LOADOUT, undefined, undefined, actorId, this.events.emit)
     npc.respawnEnabled = false
-    npc.configureBanditEncounter(encounterCenter ?? camp.center)
+    const origin = encounterCenter ?? camp.center
+    npc.configureBanditEncounter(origin, this.banditPatrolRoute(origin, camp.id, index))
     return npc
   }
 
   private spawnFriendlyParty(active: ActiveCareerMission): void {
-    const faction = this.readProfile().faction
-    const presetId = (faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker') as UnitPresetId
-    const assembly = this.assemblyPoint()
-    this.leader = this.missionCaptain
-    this.friendlies.push(this.missionCaptain)
-    active.friendlyActorIds.slice(1).forEach((actorId, followerIndex) => {
-      const index = followerIndex + 1
-      const x = assembly.x + (index % 3 - 1) * 1.8
-      const z = assembly.z + Math.floor(index / 3) * 1.8
-      const npc = new NPC(
-        this.scene, x, z, Faction.TOWN, faction, AIType.MELEE,
-        `Friendly Soldier ${index}`,
-        1, false,
-        { ...UNIT_PRESETS[presetId].tierLoadouts[1], mountId: null },
-        presetId, 1, actorId, this.events.emit,
-      )
-      npc.respawnEnabled = false
-      this.friendlies.push(npc)
-    })
+    const residentsById = new Map(this.residents.map(resident => [resident.npc.combatantId, resident.npc]))
+    for (const actorId of active.friendlyActorIds) {
+      const npc = residentsById.get(actorId)
+      if (npc) this.friendlies.push(npc)
+    }
+    this.leader = this.friendlies.find(npc => npc.combatantId === this.missionCaptain.combatantId && !npc.dead)
+      ?? this.friendlies.find(npc => !npc.dead)
+      ?? null
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    for (const friendly of this.friendlies) if (deadFriendlies.has(friendly.combatantId) && !friendly.dead) friendly.takeDamage(999999)
   }
 
   private acceptMissionEvent(active: ActiveCareerMission, event: CombatEvent): boolean {
@@ -269,11 +307,11 @@ export class BanditMissionController {
     const observers = [this.player().combatPosition, ...this.friendlies.filter(npc => !npc.dead).map(npc => npc.combatPosition)]
     for (const camp of this.camps) {
       const bandits = [...camp.ambient, ...camp.mission].filter(npc => !npc.dead)
-      if (bandits.length === 0 || bandits.some(npc => npc.encounterIsAlerted)) continue
+      if (bandits.length === 0) continue
       const detected = bandits.some(bandit => observers.some(observer => (
         observer.distanceTo(bandit.combatPosition) <= DETECTION_RANGE && this.hasLineOfSight(observer, bandit.combatPosition)
       )))
-      if (detected) for (const bandit of bandits) bandit.triggerEncounterAlert()
+      if (detected) for (const bandit of bandits) if (bandit.encounterAggroState !== 'provoked') bandit.triggerEncounterAlert()
     }
   }
 
@@ -297,12 +335,12 @@ export class BanditMissionController {
     const center = this.assemblyPoint()
     for (let index = 0; index < this.friendlies.length; index++) {
       const offset = new THREE.Vector3((index % 3 - 1) * 1.8, 0, Math.floor(index / 3) * 1.8)
-      this.friendlies[index].assignFormationTarget(this.commandId++, center.clone().add(offset), new THREE.Vector3(-1, 0, 0))
+      this.friendlies[index].assignFormationTarget(this.commandId++, center.clone().add(offset), new THREE.Vector3(-1, 0, 0), MISSION_LEADER_MARCH_SPEED)
     }
   }
 
   private assignLeader(target: THREE.Vector3): void {
-    this.leader?.assignFormationTarget(this.commandId++, target, target.clone().sub(this.leader?.combatPosition ?? target).setY(0).normalize())
+    this.leader?.assignFormationTarget(this.commandId++, target, target.clone().sub(this.leader?.combatPosition ?? target).setY(0).normalize(), MISSION_LEADER_MARCH_SPEED)
   }
 
   private assignFollowers(): void {
@@ -319,10 +357,15 @@ export class BanditMissionController {
     if (fallback === this.leader) return true
     if (!fallback) { this.leader = null; return false }
     this.leader = fallback
-    if (this.phase === 'MARCHING') this.assignLeader(this.currentRouteTarget(this.camps[this.active?.targetCampId ?? -1]?.center ?? this.assemblyPoint()))
-    else if (this.phase === 'RETURNING') this.assignLeader(this.currentRouteTarget(this.assemblyPoint()))
-    else this.leader.setTacticalOrder('attack')
-    this.assignFollowers()
+    if (this.phase === 'MARCHING') {
+      this.assignLeader(this.camps[this.active?.targetCampId ?? -1]?.center ?? this.assemblyPoint())
+      this.assignFollowers()
+    } else if (this.phase === 'RETURNING') {
+      this.assignLeader(this.assemblyPoint())
+      this.assignFollowers()
+    } else {
+      for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+    }
     return true
   }
 
@@ -339,11 +382,11 @@ export class BanditMissionController {
     return ready / followers.length
   }
 
-  private setPhase(phase: CareerMissionPhase): boolean {
+  private setPhase(phase: CareerMissionPhase, routeStage = this.routeIndex): boolean {
     const active = this.active
     if (!active || active.phase === phase) return true
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, phase, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }
+    profile.activeMission = { ...active, phase, routeStage, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }
     return this.commit(profile)
   }
 
@@ -351,7 +394,17 @@ export class BanditMissionController {
     this.navigation.beginFrame()
     const result = this.navigation.queryPath(from, to)
     if (result.status !== 'path') return [to.clone()]
-    return result.path.map(cell => this.navigation.grid.cellToWorld(cell, getTerrainHeight(from.x, from.z)))
+    const raw = result.path.map(cell => {
+      const point = this.navigation.grid.cellToWorld(cell)
+      point.y = getTerrainHeight(point.x, point.z)
+      return point
+    })
+    const route: THREE.Vector3[] = []
+    for (const point of raw) {
+      if (route.length === 0 || route[route.length - 1].distanceToSquared(point) >= 324) route.push(point)
+    }
+    if (!route.length || route[route.length - 1].distanceToSquared(to) > 1) route.push(to.clone())
+    return route
   }
 
   private buildMissionRoute(
@@ -384,26 +437,26 @@ export class BanditMissionController {
     return candidates[stableIndex].clone()
   }
 
-  private setRoute(route: THREE.Vector3[], from: THREE.Vector3): void {
+  private setRoute(route: THREE.Vector3[], from: THREE.Vector3, routeStage = 0): void {
     this.route = route.filter((point, index) => index === route.length - 1 || point.distanceToSquared(from) > 16)
-    this.routeIndex = 0
+    this.routeIndex = Math.min(Math.max(0, routeStage), Math.max(0, this.route.length - 1))
   }
 
   private currentRouteTarget(fallback: THREE.Vector3): THREE.Vector3 {
     return this.route[this.routeIndex] ?? fallback
   }
 
-  private advanceRoute(leader: NPC, fallback: THREE.Vector3): void {
-    const target = this.currentRouteTarget(fallback)
+  private advanceRoute(leader: NPC): void {
+    const target = this.route[this.routeIndex]
+    if (!target) return
     if (leader.combatPosition.distanceToSquared(target) > 16 || this.routeIndex >= this.route.length - 1) return
     this.routeIndex++
-    this.assignLeader(this.currentRouteTarget(fallback))
+    this.persistRuntimeProgress()
   }
 
   private guideTarget(active: ActiveCareerMission, camp: THREE.Vector3): THREE.Vector3 | null {
     if (active.phase === 'ASSEMBLING') return this.assemblyPoint()
     if (active.phase === 'ENGAGING') return camp
-    if (this.waitingForPlayer && this.leader) return this.leader.combatPosition
     return this.currentRouteTarget(active.phase === 'RETURNING' ? this.assemblyPoint() : camp)
   }
 
@@ -413,12 +466,64 @@ export class BanditMissionController {
     this.tracker?.dispose()
     this.tracker = null
     for (const camp of this.camps) { this.disposeCamp(camp.mission); camp.mission = [] }
-    this.disposeCamp(this.friendlies.filter(npc => npc !== this.missionCaptain))
     this.friendlies.length = 0
     this.leader = null
-    this.waitingForPlayer = false
     this.waitingForFollowers = false
     this.route = []
     this.routeIndex = 0
+  }
+
+  private missionObjective(
+    template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate,
+    active: ActiveCareerMission,
+    camp: THREE.Vector3,
+  ): THREE.Vector3 {
+    return template.kind === 'patrol' ? this.patrolEncounterPoint(template, active.id, camp) : camp
+  }
+
+  private positionPartyForReload(stage: number): void {
+    if (!this.leader || this.friendlies.length === 0) return
+    const anchor = this.route[Math.min(Math.max(0, stage), Math.max(0, this.route.length - 1))] ?? this.assemblyPoint()
+    let slot = 0
+    for (const friendly of this.friendlies) {
+      if (friendly.dead) continue
+      const offset = friendly === this.leader ? new THREE.Vector3() : new THREE.Vector3((slot++ % 3 - 1) * 1.8, 0, Math.floor(slot / 3) * 1.8)
+      const point = anchor.clone().add(offset)
+      point.y = getTerrainHeight(point.x, point.z)
+      if (friendly.mount && !friendly.mount.dead) friendly.mount.group.position.copy(point)
+      else friendly.group.position.copy(point)
+    }
+  }
+
+  private persistRuntimeProgress(): void {
+    const active = this.active
+    if (!active || active.result && active.phase !== 'RETURNING') return
+    const deadTargets = new Set(active.deadTargetActorIds ?? [])
+    for (const target of this.missionBandits) if (target.dead) deadTargets.add(target.combatantId)
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    for (const friendly of this.friendlies) if (friendly.dead) deadFriendlies.add(friendly.combatantId)
+    const targetIds = [...deadTargets].filter(id => active.targetActorIds.includes(id)).sort()
+    const friendlyIds = [...deadFriendlies].filter(id => active.friendlyActorIds.includes(id)).sort()
+    const sameTargets = targetIds.join('|') === [...(active.deadTargetActorIds ?? [])].sort().join('|')
+    const sameFriendlies = friendlyIds.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
+    if (sameTargets && sameFriendlies && (active.routeStage ?? 0) === this.routeIndex) return
+    const profile = cloneCareerProfile(this.readProfile())
+    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, routeStage: this.routeIndex }
+    this.commit(profile)
+  }
+
+  private banditPatrolRoute(origin: THREE.Vector3, campId: number, actorIndex: number): THREE.Vector3[] {
+    const points: THREE.Vector3[] = []
+    const phase = campId * .73 + actorIndex * .31
+    for (let index = 0; index < 5; index++) {
+      const angle = phase + index * Math.PI * 2 / 5
+      const candidate = new THREE.Vector3(origin.x + Math.sin(angle) * 18, 0, origin.z + Math.cos(angle) * 18)
+      const cell = this.navigation.grid.findNearestWalkableCell(candidate, 8)
+      if (!cell) continue
+      const point = this.navigation.grid.cellToWorld(cell)
+      point.y = getTerrainHeight(point.x, point.z)
+      if (!points.some(existing => existing.distanceToSquared(point) < 9)) points.push(point)
+    }
+    return points.length >= 2 ? points : [origin.clone()]
   }
 }

@@ -27,6 +27,22 @@ export class TownEquipment extends InventoryManager {
       else this.rangedEnabled = true
     }
   }
+  prepareForCombat(): void {
+    this.restoreForHostile()
+    if (this.meleeEnabled || this.rangedEnabled) return
+    const fallback = [this.read().starterWeaponId, careerTownWeapon(this.read())]
+      .find((id): id is string => Boolean(id && canUseCareerEquipment(this.read(), id)))
+    if (!fallback || !super.equipWeapon(fallback)) return
+    this.drawn.add(fallback)
+    if (WEAPONS[fallback]?.type === 'ranged') this.rangedEnabled = true
+    else this.meleeEnabled = true
+  }
+  sheathAll(): void {
+    this.meleeEnabled = false
+    this.rangedEnabled = false
+    this.shieldEnabled = false
+    this.drawn.clear()
+  }
   override get inventoryStacks() { return super.inventoryStacks.filter(({ item }) => canUseCareerEquipment(this.read(), item.id)) }
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override equipWeapon(id: string): boolean {

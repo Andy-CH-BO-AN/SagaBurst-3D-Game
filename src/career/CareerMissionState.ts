@@ -27,6 +27,11 @@ export interface ActiveCareerMission {
   phase: CareerMissionPhase
   targetActorIds: string[]
   friendlyActorIds: string[]
+  deadTargetActorIds?: string[]
+  deadFriendlyActorIds?: string[]
+  deadCivilianActorIds?: string[]
+  routeStage?: number
+  defenseElapsed?: number
   civilianActorIds?: string[]
   acceptedAt: number
   result?: CareerMissionResult
@@ -82,7 +87,10 @@ export function createTownDefenseMission(
 export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: CombatEvent): boolean {
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return false
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
-  return event.source.actorType === 'player' && mission.targetActorIds.includes(event.target.targetId)
+  if (event.source.actorType !== 'player') return false
+  if (mission.targetActorIds.includes(event.target.targetId)) return true
+  return event.type === 'damage_applied'
+    && Boolean(event.target.ownerActorId && mission.targetActorIds.includes(event.target.ownerActorId))
 }
 
 export function resolveCareerMissionOutcome(

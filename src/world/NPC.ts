@@ -88,6 +88,8 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
+export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
+
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
@@ -184,6 +186,7 @@ export class NPC {
     position: THREE.Vector3
     facing: THREE.Vector3
     reached: boolean
+    speedLimit?: number
   } | null = null
   private followTarget: NPC | Player | null = null
   private followSlotIndex = -1
@@ -250,7 +253,7 @@ export class NPC {
 
   private state: AIState = AIState.IDLE
   private encounterOrigin: THREE.Vector3 | null = null
-  private encounterAlerted = true
+  private encounterAggro: BanditAggroState = 'alerted'
   private encounterLeash = Infinity
   private alertTimer = 0
   private attackTimer = 0
@@ -346,13 +349,18 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get encounterIsAlerted(): boolean { return this.encounterAlerted }
+  get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
+  get encounterAggroState(): BanditAggroState { return this.encounterAggro }
 
   /** Keeps camp Bandits on the existing combat AI while gating target knowledge until alert. */
-  configureBanditEncounter(origin: THREE.Vector3, leash = 58): void {
+  configureBanditEncounter(origin: THREE.Vector3, patrolWaypoints: readonly THREE.Vector3[] = [], leash = 58): void {
     this.encounterOrigin = origin.clone()
     this.encounterLeash = leash
-    this.encounterAlerted = false
+    this.encounterAggro = 'idle'
+    if (patrolWaypoints.length > 0) {
+      this.waypoints = patrolWaypoints.map(point => point.clone())
+      this.currentWaypointIdx = 0
+    }
     if (!this.dead) this.state = AIState.IDLE
     this._cachedTargetIsPlayer = false
     this._cachedTargetNpc = null
@@ -361,13 +369,33 @@ export class NPC {
 
   triggerEncounterAlert(): void {
     if (this.dead) return
-    this.encounterAlerted = true
+    if (this.encounterAggro === 'provoked') return
+    if (
+      this.encounterAggro === 'returning'
+      && this.encounterOrigin
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
+    ) return
+    this.encounterAggro = 'alerted'
+    this.formationTarget = null
+    this.tacticalOrder = 'attack'
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
       this.alertTimer = .4
       this.alertSprite.visible = true
     }
     this._targetAcquisitionInitialized = false
+  }
+
+  provokeEncounter(): void {
+    if (this.dead || !this.encounterOrigin) return
+    this.encounterAggro = 'provoked'
+    this.formationTarget = null
+    this.tacticalOrder = 'attack'
+    this.state = AIState.ALERT
+    this.alertTimer = .2
+    this.alertSprite.visible = true
+    this._targetAcquisitionInitialized = false
+    this._clearNavigationPath()
   }
 
   isFormationTargetReached(commandId: number): boolean {
@@ -582,12 +610,30 @@ export class NPC {
     this.animator.cancel()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
   }
+  beginExternalThreat(): void {
+    if (this.dead || this.townHostile) return
+    this.animator.cancel()
+    this.setTacticalOrder('charge')
+    this.state = AIState.CHASE
+    this._targetAcquisitionInitialized = false
+    this._restoreCombatReadyRangedVisual()
+  }
+  endExternalThreat(): void {
+    if (this.dead || this.townHostile) return
+    this.setTownPeaceful()
+    this.setTacticalOrder('attack')
+    this.state = AIState.IDLE
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+  }
   beginTownHostility(): void {
     this.townHostile = true
     if (this.dead) return
     this.animator.cancel()
     this.tacticalOrder = 'charge'
     this.state = AIState.CHASE
+    this._restoreCombatReadyRangedVisual()
     if (this.townCategory === 'civilian' && !this.townArmed) {
       this.townArmed = true
       this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
@@ -600,6 +646,7 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted)
     if (training && startAttack && !this.animator.busy) {
+      if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
       this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
     }
     if (training && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
@@ -609,6 +656,7 @@ export class NPC {
       this.bowVisual?.update(charge, this._tmpRangedTarget, true)
     }
     const events = this.animator.update(dt, distance)
+    if (training && this.rangedCombatKind === 'javelin' && events.projectileRelease) this.bowPivot.visible = false
     if (this.isMounted) this._syncToMount()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
     return events.projectileRelease
@@ -748,6 +796,12 @@ export class NPC {
     this.bowVisual?.hideArrow()
   }
 
+  private _restoreCombatReadyRangedVisual(): void {
+    if (!this.hasActiveRangedWeapon) return
+    this.swordPivot.visible = false
+    this.bowPivot.visible = true
+  }
+
   private _isVikingFootSpecialist(): boolean {
     return this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
@@ -796,9 +850,10 @@ export class NPC {
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
     else if (order === 'charge') this._enterVikingChargeStance()
+    this._restoreCombatReadyRangedVisual()
   }
 
-  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
+  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number): void {
     if (this.dead) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -813,8 +868,10 @@ export class NPC {
       position: target.clone(),
       facing: facing.clone().setY(0).normalize(),
       reached: false,
+      speedLimit,
     }
     this.state = AIState.CHASE
+    this._restoreCombatReadyRangedVisual()
   }
 
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted)): void {
@@ -836,6 +893,7 @@ export class NPC {
       reached: false,
     }
     this.state = AIState.IDLE
+    this._restoreCombatReadyRangedVisual()
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -912,7 +970,6 @@ export class NPC {
 
     this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.combatProfileId))
     if (this.currentHp > 0 && amount > 0 && this.faction === Faction.BANDIT) this.rig.animation?.playHitReaction?.()
-    if (amount > 0) this.encounterAlerted = true
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
       this.alertTimer = 0.4
@@ -1551,19 +1608,23 @@ export class NPC {
       return
     }
 
+    if (this.encounterOrigin && this.encounterAggro === 'provoked' && player.dead) this._beginEncounterReturn()
     if (
       this.encounterOrigin
-      && this.encounterAlerted
+      && this.encounterAggro === 'alerted'
       && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
+    ) this._beginEncounterReturn()
+    if (
+      this.encounterOrigin
+      && this.encounterAggro === 'returning'
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) <= 9
     ) {
-      this.encounterAlerted = false
+      this.encounterAggro = 'idle'
+      this.formationTarget = null
+      this.tacticalOrder = 'attack'
       this.state = AIState.IDLE
-      this._cachedTargetIsPlayer = false
-      this._cachedTargetNpc = null
-      this._targetAcquisitionInitialized = false
       this._clearNavigationPath()
       this._clearObstacleDetour()
-      this._clearSiegeFallback()
     }
 
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
@@ -1646,10 +1707,10 @@ export class NPC {
       case AIState.IDLE: {
         this.alertSprite.visible = false
         if (this.tacticalOrder !== 'defend') {
-          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
+          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 
-        if ((!this.encounterOrigin || this.encounterAlerted) && targetInfo && !targetInfo.isDead) {
+        if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
           const detectionRadius = this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
           if (dist <= detectionRadius) {
@@ -2228,7 +2289,17 @@ export class NPC {
     }
   }
 
-  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean): void {
+  private _beginEncounterReturn(): void {
+    if (!this.encounterOrigin || this.dead) return
+    this.encounterAggro = 'returning'
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this.assignFormationTarget(-2, this.encounterOrigin, this.encounterOrigin.clone().sub(this.combatPosition).setY(0).normalize())
+    this.encounterAggro = 'returning'
+  }
+
+  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
@@ -2239,14 +2310,16 @@ export class NPC {
       dir.y = 0
       dir.normalize()
       if (!skipBoidsAndObstacles) {
-        dir.copy(getObstacleAvoidanceDirection(
-          this.combatPosition,
-          dir,
-          this._movementObstacleRadius(),
-          this._movementObstacleHeight(),
-          0,
-          obstacles,
-        ))
+        const route = this._resolveNavigationMoveTarget(target, obstacles, navigationWorld)
+        if (route === 'path') dir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+        else dir.copy(getObstacleAvoidanceDirection(
+            this.combatPosition,
+            dir,
+            this._movementObstacleRadius(),
+            this._movementObstacleHeight(),
+            0,
+            obstacles,
+          ))
       }
       this._faceTarget(target)
       this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
@@ -2329,7 +2402,7 @@ export class NPC {
     // classify a distant slot behind the final formation facing as backward.
     this._faceDirection(moveDir)
     const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
-    const baseSpeed = this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED
+    const baseSpeed = Math.min(this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, target.speedLimit ?? Infinity)
     this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.2 : baseSpeed, dt, followCatchUp)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
   }

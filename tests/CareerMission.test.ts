@@ -8,6 +8,8 @@ import { canUseCareerMount, findSafeCareerMountPosition, ownedCareerMountIds } f
 import { preserveHpRatio, resolveCareerCombatProfile, resolveCareerHeroAsset } from '../src/career/CareerPlayerProfile'
 import { missionGuideArrowAngle } from '../src/career/MissionGuide'
 import { Faction } from '../src/combat/CombatFaction'
+import { calculatePlayerMeleeDamage } from '../src/combat/PlayerMeleeDamage'
+import { selectMissionInfantryActorIds } from '../src/career/BanditMissionController'
 
 const playerStats = (damageDealt: number, kills: number, survived = true) => ({
   damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0,
@@ -71,6 +73,29 @@ describe('Mission identity, attribution and claim', () => {
     const event = (targetId: string) => ({ type: 'damage_applied' as const, source, target: { targetId, targetType: 'npc' as const, name: 'Bandit' }, method: 'projectile' as const, requestedDamage: 20, appliedDamage: 20 })
     expect(acceptsCareerMissionStat(mission, event(mission.targetActorIds[0]))).toBe(true)
     expect(acceptsCareerMissionStat(mission, event('ambient:2:0'))).toBe(false)
+    expect(acceptsCareerMissionStat(mission, {
+      ...event('mount:horse'),
+      target: { targetId: 'mount:horse', targetType: 'mount', name: 'War horse', ownerActorId: mission.targetActorIds[0] },
+    })).toBe(true)
+    expect(acceptsCareerMissionStat(mission, {
+      type: 'actor_killed', source,
+      target: { targetId: 'mount:horse', targetType: 'mount', name: 'War horse', ownerActorId: mission.targetActorIds[0] },
+      method: 'melee',
+    })).toBe(false)
+  })
+
+  it('shares T4, skill, berserker and mounted-lance damage rules with normal battles', () => {
+    const ordinary = calculatePlayerMeleeDamage({
+      baseDamage: 20, combatKind: 'sword', isLance: false, isMounted: false, mountSpeed: 0,
+      oneHandedMultiplier: 1, faction: 'roman', hasShield: false,
+    })
+    const chargedHero = calculatePlayerMeleeDamage({
+      baseDamage: 20, combatKind: 'lance', isLance: true, isMounted: true, mountSpeed: 12,
+      oneHandedMultiplier: 1.3, faction: 'viking', hasShield: false, heroAssetId: 'viking-hero-t4',
+    })
+    expect(ordinary).toEqual({ damage: 20, isCharge: false })
+    expect(chargedHero.isCharge).toBe(true)
+    expect(chargedHero.damage).toBeGreaterThan(ordinary.damage * 3)
   })
 
   it('can bind the exact existing Town captain as Mission Leader instead of cloning one', () => {
@@ -78,6 +103,17 @@ describe('Mission identity, attribution and claim', () => {
     expect(mission.kind).toBe('patrol')
     expect(mission.friendlyActorIds[0]).toBe('captain')
     expect(mission.friendlyActorIds.slice(1)).toHaveLength(4)
+  })
+
+  it('draws mission soldiers only from living existing melee infantry', () => {
+    const residents = [
+      { spec: { role: 'melee_cavalry' }, npc: { dead: false, combatantId: 'cavalry' } },
+      { spec: { role: 'melee_infantry' }, npc: { dead: false, combatantId: 'infantry-a' } },
+      { spec: { role: 'melee_infantry' }, npc: { dead: true, combatantId: 'infantry-dead' } },
+      { spec: { role: 'ranged_cavalry' }, npc: { dead: false, combatantId: 'mounted-archer' } },
+      { spec: { role: 'melee_infantry' }, npc: { dead: false, combatantId: 'infantry-b' } },
+    ]
+    expect(selectMissionInfantryActorIds(residents, 2)).toEqual(['infantry-a', 'infantry-b'])
   })
 
   it('prioritizes player death in the final-target frame and waits for roster registration', () => {
