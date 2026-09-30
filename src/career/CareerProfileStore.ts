@@ -113,6 +113,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     routeStage: nonNegativeInteger(raw.routeStage),
     patrolStage: nonNegativeInteger(raw.patrolStage),
     defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
+    defensePreparationElapsed: nonNegativeNumber(raw.defensePreparationElapsed),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
     ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),

@@ -19,13 +19,12 @@ import {
   formationSlots,
   resolveTownDefenseOutcome,
   shouldChargeReserve,
-  shouldFallback,
   townDefenseFailureLocked,
   type TownDefenseGroupId,
 } from './TownDefenseState'
 
 export interface TownDefenseResident { spec: TownActorSpec; npc: NPC }
-interface RuntimeGroup { id: TownDefenseGroupId; members: NPC[]; fallbackApplied: boolean }
+interface RuntimeGroup { id: TownDefenseGroupId; members: NPC[] }
 interface RuntimeAttackGroup { id: string; delaySeconds: number; members: NPC[]; released: boolean }
 
 export class TownDefenseController {
@@ -36,7 +35,6 @@ export class TownDefenseController {
   readonly groups: RuntimeGroup[] = []
   private attackGroups: RuntimeAttackGroup[] = []
   private tracker: BattleStatsTracker | null = null
-  private preparationStarted = false
   private preparationElapsed = 0
   private attackElapsed = 0
   private reserveCharged = false
@@ -61,12 +59,14 @@ export class TownDefenseController {
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
   get captain(): NPC | null { return this.residents.find(resident => resident.spec.role === 'captain')?.npc ?? null }
   get releasedEnemies(): NPC[] { return this.attackGroups.filter(group => group.released).flatMap(group => group.members) }
+  get waitingEnemies(): NPC[] { return this.attackGroups.filter(group => !group.released).flatMap(group => group.members) }
   get fieldNpcs(): NPC[] { return [...this.defenders, ...(this.captain ? [this.captain] : []), ...this.civilians, ...this.releasedEnemies] }
   get remainingEnemies(): number { return this.enemies.filter(enemy => !enemy.dead).length }
   get civilianDeaths(): number { return this.civilians.filter(civilian => civilian.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
   get servicesLocked(): boolean { return Boolean(this.active && this.phase !== 'RESULT' && this.phase !== 'RESET') }
   get preparationRemaining(): number { return Math.max(0, TOWN_DEFENSE_PREPARATION_SECONDS - this.preparationElapsed) }
+  get reserveHasCharged(): boolean { return this.reserveCharged }
 
   startActiveMission(): boolean {
     const active = this.active
@@ -76,7 +76,7 @@ export class TownDefenseController {
     const byId = new Map(this.residents.map(resident => [resident.spec.id, resident.npc]))
     if (plans.some(plan => plan.actorIds.length !== 10 || plan.actorIds.some(id => !byId.has(id)))) return false
     this.groups.length = 0
-    for (const plan of plans) this.groups.push({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)!), fallbackApplied: false })
+    for (const plan of plans) this.groups.push({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)!) })
     const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
     const deadCivilians = new Set(active.deadCivilianActorIds ?? [])
     for (const resident of this.residents) {
@@ -85,8 +85,7 @@ export class TownDefenseController {
     this.spawnAttackers(active)
     this.tracker = new BattleStatsTracker(this.events, false, event => acceptsCareerMissionStat(active, event), active.playerStats)
     this.prepareDeployment()
-    this.preparationStarted = active.phase !== 'PREPARING'
-    this.preparationElapsed = 0
+    this.preparationElapsed = active.defensePreparationElapsed ?? 0
     this.attackElapsed = active.defenseElapsed ?? 0
     this.reserveCharged = false
     this.combatOrdersIssued = false
@@ -104,9 +103,8 @@ export class TownDefenseController {
     const rally = this.anchorVector('playerRallyPoint')
     this.statsCheckpointElapsed += Math.max(0, dt)
     if (active.phase === 'PREPARING') {
-      if (this.player().combatPosition.distanceTo(rally) <= 8) this.preparationStarted = true
-      if (this.preparationStarted) this.preparationElapsed += dt
-      if (this.preparationElapsed >= TOWN_DEFENSE_PREPARATION_SECONDS && this.deploymentReady() && this.setPhase('ATTACKING')) this.beginAttack()
+      this.preparationElapsed += dt
+      if (this.preparationElapsed >= TOWN_DEFENSE_PREPARATION_SECONDS && this.setPhase('ATTACKING')) this.beginAttack()
     } else {
       this.attackElapsed += dt
       if (!this.combatOrdersIssued && this.attackElapsed >= 4) this.issueCombatOrders()
@@ -149,7 +147,6 @@ export class TownDefenseController {
   cleanupMission(): void {
     this.disposeEnemies()
     this.groups.length = 0
-    this.preparationStarted = false
     this.preparationElapsed = 0
     this.attackElapsed = 0
     this.reserveCharged = false
@@ -163,12 +160,17 @@ export class TownDefenseController {
       const runtime = this.groups.find(group => group.id === plan.id)!
       const anchor = TOWN_DEFENSE_LAYOUT[plan.anchor]
       const leader = runtime.members[0]
-      leader.assignFormationTarget(this.commandId++, this.anchorVector(plan.anchor), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ))
-      for (let index = 1; index < runtime.members.length; index++) runtime.members[index].assignFollowTarget(leader, index - 1)
+      if (plan.mounted) {
+        const slots = formationSlots(anchor, runtime.members.length, true)
+        runtime.members.forEach((member, index) => member.assignFormationTarget(this.commandId++, this.withTerrain(slots[index]), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ)))
+      } else {
+        leader.assignFormationTarget(this.commandId++, this.anchorVector(plan.anchor), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ))
+        for (let index = 1; index < runtime.members.length; index++) runtime.members[index].assignFollowTarget(leader, index - 1)
+      }
     }
     const shelters = civilianShelterSlots(this.civilians.length)
     this.civilians.forEach((civilian, index) => civilian.assignFormationTarget(this.commandId++, this.withTerrain(shelters[index]), new THREE.Vector3(0, 0, 1)))
-    this.captain?.assignFormationTarget(this.commandId++, this.anchorVector('cavalryReserve'), new THREE.Vector3(0, 0, 1))
+    this.captain?.assignFormationTarget(this.commandId++, this.anchorVector('captainReserve'), new THREE.Vector3(0, 0, 1))
   }
 
   private beginAttack(): void {
@@ -184,64 +186,22 @@ export class TownDefenseController {
   }
 
   private updateScriptedDefense(): void {
-    const south = this.groups.find(group => group.id === 'A')!
-    const west = this.groups.find(group => group.id === 'B')!
-    const frontlineContact = this.releasedEnemies.some(enemy => !enemy.dead && (
-      south.members.some(defender => !defender.dead && defender.combatPosition.distanceTo(enemy.combatPosition) < 8)
-      || west.members.some(defender => !defender.dead && defender.combatPosition.distanceTo(enemy.combatPosition) < 8)
-    ))
-    const enemiesInside = this.releasedEnemies.filter(enemy => !enemy.dead && enemy.combatPosition.distanceTo(this.anchorVector('townCenter')) < 62).length
-    const southBreached = this.releasedEnemies.some(enemy => !enemy.dead && enemy.combatPosition.z < 47 && Math.abs(enemy.combatPosition.x) < 38)
-    const westBreached = this.releasedEnemies.some(enemy => !enemy.dead && enemy.combatPosition.x > -54 && Math.abs(enemy.combatPosition.z - 18) < 34)
-    if (shouldChargeReserve(this.reserveCharged, frontlineContact, southBreached || westBreached, enemiesInside)) {
+    const firstFriendlyDeath = this.defenders.some(defender => defender.dead)
+      || this.captain?.dead === true
+      || this.civilians.some(civilian => civilian.dead)
+    if (shouldChargeReserve(this.reserveCharged, firstFriendlyDeath)) {
       this.reserveCharged = true
-      for (const member of this.groups.find(group => group.id === 'E')!.members) member.setTacticalOrder('charge')
-    }
-    for (const [front, ranged, breached, fallbackKey] of [
-      ['A', 'C', southBreached, 'inner-south'],
-      ['B', 'D', westBreached, 'inner-west'],
-    ] as const) {
-      const frontline = this.groups.find(group => group.id === front)!
-      if (!frontline.fallbackApplied && shouldFallback(frontline.members.filter(npc => !npc.dead).length, breached)) {
-        this.applyFallback(frontline, fallbackKey)
-        this.applyFallback(this.groups.find(group => group.id === ranged)!, fallbackKey)
-      }
+      this.issueCombatOrders()
     }
   }
 
   private issueCombatOrders(): void {
     this.combatOrdersIssued = true
     for (const group of this.groups) {
-      const order = group.id === 'F' ? 'attack' : 'defend'
+      const order = group.id === 'E' && this.reserveCharged ? 'charge' : group.id === 'F' || this.reserveCharged ? 'attack' : 'defend'
       for (const member of group.members) member.setTacticalOrder(order)
     }
-    this.captain?.setTacticalOrder('defend')
-  }
-
-  private deploymentReady(): boolean {
-    const plans = createTownDefenseGroups(this.residents.map(resident => resident.spec))
-    const groupsReady = plans.every(plan => {
-      const runtime = this.groups.find(group => group.id === plan.id)!
-      const anchor = this.anchorVector(plan.anchor)
-      return runtime.members.filter(member => !member.dead && member.combatPosition.distanceTo(anchor) <= 18).length >= 7
-    })
-    const shelter = this.anchorVector('civilianShelter')
-    const civiliansReady = this.civilians.filter(civilian => !civilian.dead && civilian.combatPosition.distanceTo(shelter) <= 12).length >= 16
-    return groupsReady && civiliansReady
-  }
-
-  private applyFallback(group: RuntimeGroup, key: 'inner-south' | 'inner-west' | 'inner-east'): void {
-    if (group.fallbackApplied) return
-    group.fallbackApplied = true
-    const centers = { 'inner-south': new THREE.Vector3(0, 0, 18), 'inner-west': new THREE.Vector3(-18, 0, 1), 'inner-east': new THREE.Vector3(18, 0, 1) }
-    const center = centers[key]
-    const angleBase = key === 'inner-south' ? 0 : key === 'inner-west' ? Math.PI / 2 : -Math.PI / 2
-    const living = group.members.filter(member => !member.dead)
-    living.forEach((member, index) => {
-      const angle = angleBase + (index - (living.length - 1) / 2) * .13
-      const target = center.clone().add(new THREE.Vector3(Math.sin(angle) * 4, 0, Math.cos(angle) * 4))
-      member.assignFormationTarget(this.commandId++, this.withTerrain(target), center.clone().negate().normalize())
-    })
+    this.captain?.setTacticalOrder(this.reserveCharged ? 'charge' : 'defend')
   }
 
   private spawnAttackers(active: ActiveCareerMission): void {
@@ -279,7 +239,7 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.phase === phase) return true
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, phase, defenseElapsed: this.attackElapsed, playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }
+    profile.activeMission = { ...active, phase, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }
     const saved = this.commit(profile)
     if (saved) this.statsCheckpointElapsed = 0
     return saved
@@ -302,9 +262,10 @@ export class TownDefenseController {
       && deadFriendlies.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
       && deadCivilians.join('|') === [...(active.deadCivilianActorIds ?? [])].sort().join('|')
       && Math.abs((active.defenseElapsed ?? 0) - this.attackElapsed) < 1
+      && Math.abs((active.defensePreparationElapsed ?? 0) - this.preparationElapsed) < 1
     if (same && !statsCheckpointReached) return
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: deadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, ...(playerStats ? { playerStats } : {}) }
+    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: deadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, ...(playerStats ? { playerStats } : {}) }
     if (this.commit(profile)) this.statsCheckpointElapsed = 0
   }
 

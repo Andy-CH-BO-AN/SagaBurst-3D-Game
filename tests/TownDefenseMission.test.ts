@@ -1,16 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, claimCareerMission, clearCareerMission } from '../src/career/CareerProfile'
 import { acceptsCareerMissionStat, createTownDefenseMission } from '../src/career/CareerMissionState'
 import {
   TOWN_DEFENSE_ATTACK_GROUPS,
   TOWN_DEFENSE_CIVILIAN_LIMIT,
   TOWN_DEFENSE_LAYOUT,
+  TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
   createTownDefenseGroups,
   formationSlots,
   resolveTownDefenseOutcome,
   shouldChargeReserve,
-  shouldFallback,
   townDefenseEnemyTotals,
 } from '../src/career/TownDefenseState'
 import { Faction } from '../src/combat/CombatFaction'
@@ -18,6 +18,7 @@ import { townRoster } from '../src/town/TownRules'
 import { TownDefenseController } from '../src/career/TownDefenseController'
 import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../src/combat/CombatAttribution'
+import { parseCareerProfile } from '../src/career/CareerProfileStore'
 
 const stats = (damageDealt = 0, kills = 0, survived = true) => ({ damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 })
 
@@ -49,6 +50,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(TOWN_DEFENSE_LAYOUT.southApproach.z).toBeGreaterThan(TOWN_DEFENSE_LAYOUT.southMeleeLine.z)
     expect(formationSlots(TOWN_DEFENSE_LAYOUT.southMeleeLine, 10)).toHaveLength(10)
     expect(new Set(formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, 10, true).map(slot => slot.x)).size).toBe(2)
+    expect(formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, 10, true).every(slot => slot.distanceTo(formationSlots(TOWN_DEFENSE_LAYOUT.captainReserve, 1, true)[0]) > 8)).toBe(true)
   })
 
   it('defines exactly 50 enemy cavalry with the required composition across three concurrent attack groups', () => {
@@ -68,6 +70,50 @@ describe('Recruit Town Defense layout and rosters', () => {
 })
 
 describe('Recruit Town Defense outcome, orders and rewards', () => {
+  it('starts the attack on the countdown even if the player never visits the rally marker', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-timed-start')
+    const controller = Object.create(TownDefenseController.prototype) as any
+    controller.readProfile = () => profile
+    controller.commit = (next: typeof profile) => { profile = next; return true }
+    controller.player = () => ({ combatPosition: { distanceTo: () => 1000 } })
+    controller.residents = []; controller.enemies = []; controller.attackElapsed = 0
+    controller.preparationElapsed = 0; controller.statsCheckpointElapsed = 0; controller.tracker = null
+    controller.guide = { updateTownDefense: vi.fn() }
+    controller.beginAttack = vi.fn(); controller.persistRuntimeProgress = vi.fn()
+    controller.updateFlow(TOWN_DEFENSE_PREPARATION_SECONDS - .1, 0)
+    expect(profile.activeMission.phase).toBe('PREPARING')
+    controller.updateFlow(.1, 0)
+    expect(profile.activeMission.phase).toBe('ATTACKING')
+    expect(controller.beginAttack).toHaveBeenCalledOnce()
+    expect(profile.activeMission.defensePreparationElapsed).toBeCloseTo(TOWN_DEFENSE_PREPARATION_SECONDS)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(profile)))?.activeMission?.defensePreparationElapsed).toBeCloseTo(TOWN_DEFENSE_PREPARATION_SECONDS)
+  })
+
+  it('holds the frontline while the first defender death sends captain and cavalry to charge', () => {
+    const soldier = () => ({ dead: false, combatPosition: { distanceTo: () => 100 }, setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn() })
+    const captain = soldier()
+    const groups = (['A', 'B', 'C', 'D', 'E', 'F'] as const).map(id => ({ id, members: Array.from({ length: 10 }, soldier) }))
+    const controller = Object.create(TownDefenseController.prototype) as any
+    controller.groups = groups
+    controller.residents = [{ spec: { role: 'captain' }, npc: captain }]
+    controller.attackGroups = []
+    controller.reserveCharged = false
+    controller.issueCombatOrders()
+    expect(captain.setTacticalOrder).toHaveBeenLastCalledWith('defend')
+    expect(groups.find(group => group.id === 'E')!.members.every(member => member.setTacticalOrder.mock.lastCall?.[0] === 'defend')).toBe(true)
+
+    groups[0].members[0].dead = true
+    controller.updateScriptedDefense()
+    expect(captain.setTacticalOrder).toHaveBeenLastCalledWith('charge')
+    expect(groups.find(group => group.id === 'E')!.members.every(member => member.setTacticalOrder.mock.lastCall?.[0] === 'charge')).toBe(true)
+    expect(groups.filter(group => group.id !== 'E').flatMap(group => group.members).every(member => member.setTacticalOrder.mock.lastCall?.[0] === 'attack')).toBe(true)
+    expect(groups.slice(0, 4).flatMap(group => group.members).every(member => member.assignFormationTarget.mock.calls.length === 0)).toBe(true)
+    controller.issueCombatOrders()
+    expect(captain.setTacticalOrder).toHaveBeenLastCalledWith('charge')
+    expect(groups.find(group => group.id === 'E')!.members.every(member => member.setTacticalOrder.mock.lastCall?.[0] === 'charge')).toBe(true)
+  })
+
   it('accounts for stable attacker ids without double-counting persisted deaths', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-registration')
@@ -135,20 +181,10 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(resolveTownDefenseOutcome(false, 0, true, 0)).toBe('victory')
   })
 
-  it('triggers reserve charge once from contact, breach, or inner pressure', () => {
-    expect(shouldChargeReserve(false, false, false, 3)).toBe(false)
-    expect(shouldChargeReserve(false, true, false, 0)).toBe(true)
-    expect(shouldChargeReserve(true, true, true, 99)).toBe(false)
-  })
-
-  it('falls back on four survivors or a breached line', () => {
-    expect(shouldFallback(5, false)).toBe(false)
-    expect(shouldFallback(4, false)).toBe(true)
-    expect(shouldFallback(10, true)).toBe(true)
-  })
-
-  it('keeps ranged fallback positions outside the civilian center', () => {
-    for (const group of groupsWithFallback()) expect(group.fallback).not.toBe('civilian-center')
+  it('triggers the reserve charge only on the first friendly death', () => {
+    expect(shouldChargeReserve(false, false)).toBe(false)
+    expect(shouldChargeReserve(false, true)).toBe(true)
+    expect(shouldChargeReserve(true, true)).toBe(false)
   })
 
   it('creates stable mission rosters for 50 enemies, 61 military defenders, and 20 civilians', () => {
@@ -212,7 +248,3 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(clearCareerMission(claim.profile, 'defense-crime').townEvent).toEqual({ id: 'crime', state: 'hostile' })
   })
 })
-
-function groupsWithFallback() {
-  return createTownDefenseGroups(townRoster()) as Array<{ fallback: string }>
-}

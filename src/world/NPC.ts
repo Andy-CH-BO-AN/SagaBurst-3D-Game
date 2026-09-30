@@ -191,9 +191,12 @@ export class NPC {
   private followTarget: NPC | Player | null = null
   private followSlotIndex = -1
   private followLocalOffset = new THREE.Vector3()
+  private readonly followSmoothedLeaderPosition = new THREE.Vector3()
+  private followSmoothedLeaderYaw = 0
   private followCombatActive = false
   private followNavigationActive = false
   private followNavigationCheckRemaining = 0
+  private followGoalSyncRemaining = 0
   private readonly followNavigationGoal = new THREE.Vector3()
 
   get meleeCombatKind(): 'sword' | 'lance' {
@@ -880,7 +883,7 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
 
-  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted)): void {
+  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number): void {
     if (this.dead || target === this) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -890,6 +893,8 @@ export class NPC {
     this.followTarget = target
     this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
     this.followLocalOffset.copy(localOffset)
+    this.followSmoothedLeaderPosition.copy(target.combatPosition)
+    this.followSmoothedLeaderYaw = target.group.rotation.y
     this.followCombatActive = false
     this._resetFollowNavigation()
     this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
@@ -899,6 +904,7 @@ export class NPC {
       position,
       facing: new THREE.Vector3(Math.sin(target.group.rotation.y), 0, Math.cos(target.group.rotation.y)),
       reached: false,
+      speedLimit: marchSpeed,
     }
     this.state = AIState.IDLE
     this._restoreCombatReadyRangedVisual()
@@ -1136,6 +1142,7 @@ export class NPC {
   private _resetFollowNavigation(): void {
     this.followNavigationActive = false
     this.followNavigationCheckRemaining = 0
+    this.followGoalSyncRemaining = 0
     this.followNavigationGoal.set(0, 0, 0)
   }
 
@@ -2356,8 +2363,19 @@ export class NPC {
         this.state = AIState.IDLE
         return
       }
-      followSlotWorldPosition(leader.combatPosition, leader.group.rotation.y, this.followLocalOffset, target.position)
-      target.facing.set(Math.sin(leader.group.rotation.y), 0, Math.cos(leader.group.rotation.y))
+      const leaderPosition = leader.combatPosition
+      const leaderYaw = leader.group.rotation.y
+      if (this.followSmoothedLeaderPosition.distanceToSquared(leaderPosition) > 1600) {
+        this.followSmoothedLeaderPosition.copy(leaderPosition)
+        this.followSmoothedLeaderYaw = leaderYaw
+      } else {
+        const blend = 1 - Math.exp(-dt / .35)
+        this.followSmoothedLeaderPosition.lerp(leaderPosition, blend)
+        const yawDelta = Math.atan2(Math.sin(leaderYaw - this.followSmoothedLeaderYaw), Math.cos(leaderYaw - this.followSmoothedLeaderYaw))
+        this.followSmoothedLeaderYaw += yawDelta * blend
+      }
+      followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset, target.position)
+      target.facing.set(Math.sin(this.followSmoothedLeaderYaw), 0, Math.cos(this.followSmoothedLeaderYaw))
       target.reached = false
     }
 
@@ -2365,7 +2383,11 @@ export class NPC {
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
     const distance = moveDir.length()
-    const arrivalDistance = this.tacticalOrder === 'follow' ? FOLLOW_THRESHOLDS.holdDistance : FORMATION_ARRIVAL_DISTANCE
+    const arrivalDistance = this.tacticalOrder === 'follow'
+      ? FOLLOW_THRESHOLDS.holdDistance
+      : this.mount
+        ? target.reached ? 2.4 : 1.2
+        : target.reached ? 1 : FORMATION_ARRIVAL_DISTANCE
     if (distance <= arrivalDistance) {
       target.reached = true
       if (this.tacticalOrder === 'follow' && this.followNavigationActive) {
@@ -2396,6 +2418,7 @@ export class NPC {
           if (!this.followNavigationActive) {
             this.followNavigationActive = true
             this.followNavigationGoal.copy(target.position)
+            this.followGoalSyncRemaining = 2
             this._clearNavigationPath()
           }
         } else if (this.followNavigationActive) {
@@ -2404,6 +2427,13 @@ export class NPC {
         }
       }
       if (this.followNavigationActive && navigationWorld) {
+        this.followGoalSyncRemaining -= dt
+        if (this.followGoalSyncRemaining <= 0) {
+          this.followGoalSyncRemaining = 2
+          if (this.followNavigationGoal.distanceToSquared(target.position) >= 16) {
+            this.followNavigationGoal.copy(target.position)
+          }
+        }
         navigationGoal = this.followNavigationGoal
         if (this.combatPosition.distanceToSquared(navigationGoal) <= 9) {
           this.followNavigationActive = false
@@ -2460,8 +2490,11 @@ export class NPC {
     // classify a distant slot behind the final formation facing as backward.
     this._faceDirection(moveDir)
     const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
-    const baseSpeed = Math.min(this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, target.speedLimit ?? Infinity)
-    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.2 : baseSpeed, dt, followCatchUp)
+    const followSprint = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.regroupDistance
+    const baseSpeed = this.mount
+      ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
+      : target.speedLimit ?? FORMATION_MOVE_SPEED
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
   }
 
@@ -2638,5 +2671,26 @@ export class NPC {
     this._rangedVisibleTargetHoldFrames = 0
     this._targetAcquisitionInitialized = false
     for (const cb of this.onRespawnCallbacks) cb(this)
+  }
+
+  restoreForTown(): void {
+    this.respawn()
+    this._cancelEquipmentCombatState()
+    this.townArmed = false
+    if (this.loadout) {
+      this._setActiveMeleeWeapon(this.loadout.meleeWeaponId ?? null)
+      this.shieldId = this.loadout.shieldId ?? null
+      this.rebuildShield()
+    }
+    this.arrows = this.rangedWeaponId ? 30 : 0
+    this.rangedActive = Boolean(this.rangedWeaponId)
+    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this.stamina = MAX_STAMINA
+    this.isSprinting = false
+    this.chargeSprintLatched = false
+    this.setTacticalOrder('attack')
+    this.setTownPeaceful()
+    this.rig.animation?.update(0)
   }
 }

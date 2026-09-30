@@ -115,6 +115,33 @@ describe('Permanent Player Death & Spectator Camera', () => {
       expect(player.position.z).toBeCloseTo(30, 0)
     })
 
+    it('restores a dead Career player in place for movement and damage after Town settlement', () => {
+      const player = new Player(new THREE.Scene(), 'roman')
+      const hpBar = { setFill: vi.fn() } as any
+      player.setPosition(12, getTerrainHeight(12, 20) + .9, 20)
+      const position = player.position.clone()
+      player.takeDamage(250, hpBar)
+      const input = createMockInput() as any
+      const staminaBar = { setFill: vi.fn() } as any
+      const quiver = { setAiming: vi.fn(), setChargeRatio: vi.fn(), setShieldBlocked: vi.fn(), setArrowCount: vi.fn() } as any
+      const sound = { playSwing: vi.fn(), playHit: vi.fn() } as any
+      for (let index = 0; index < 200; index++) player.update(.016, input, 0, new THREE.Vector3(), [], staminaBar, quiver, sound)
+      expect(player.group.visible).toBe(false)
+
+      player.restoreForTown()
+      expect(player.dead).toBe(false)
+      expect(player.targetable).toBe(true)
+      expect(player.group.visible).toBe(true)
+      expect(player.position).toEqual(position)
+      expect(player.combatAnimationAction).toBe('idle')
+      expect([player.hp, player.staminaValue, player.arrowCount]).toEqual([player.maxHp, 100, 30])
+      input.keys.KeyW = true
+      player.update(.1, input, 0, new THREE.Vector3(), [], staminaBar, quiver, sound)
+      expect(player.position.z).toBeLessThan(position.z)
+      expect(player.takeDamage(10, hpBar)).toBe(true)
+      expect(player.hp).toBeLessThan(player.maxHp)
+    })
+
     it('handles mounted player death cleanly without snapping to horse ground center', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene)

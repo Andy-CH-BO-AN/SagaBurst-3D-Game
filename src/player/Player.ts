@@ -649,6 +649,25 @@ export class Player {
     this.pendingRangedWeapon = undefined
   }
 
+  restoreForTown(): void {
+    this.isDead = false
+    this.deathFade.reset(this.group)
+    this._cancelEquipmentAction()
+    this.pendingRangedWeapon = undefined
+    this.pendingBowChargeTime = 0
+    this.pendingArcheryMultiplier = 1
+    this.nockedArrowReleased = false
+    this.isSprinting = false
+    this.bowCooldownTimer = 0
+    this.pilumCooldownTimer = 0
+    this.animator.setLocomotion(0, this.isMounted)
+    this.animator.cancel()
+    this.rig.animation?.update(0)
+    this.setHp(this.maxHp)
+    this.setStamina(MAX_STAMINA)
+    this.setArrowCount(PLAYER_ARROW_CAPACITY)
+  }
+
   update(
     dt: number,
     input: PlayerInput,

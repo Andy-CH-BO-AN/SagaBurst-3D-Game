@@ -197,6 +197,27 @@ describe('Town input and isolation regressions', () => {
     ;(npc as any).bowPivot.visible = false
     npc.assignFormationTarget(9, new THREE.Vector3(5, 0, 5), new THREE.Vector3(0, 0, 1)); expect(pivot.visible).toBe(true)
   })
+  it.each(['ranged_infantry', 'ranged_cavalry'])('restores full Town ranged ammo before a second defense for %s', role => {
+    const loadout = { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null }
+    const npc = new NPC(new THREE.Scene(), 40, 20, Faction.TOWN, 'roman', AIType.RANGED, role, 2, role === 'ranged_cavalry', loadout)
+    npc.setTownPeaceful()
+    ;(npc as any).arrows = 0
+    ;(npc as any).rangedActive = false
+    npc.takeDamage(npc.maxHp)
+    npc.restoreForTown()
+    expect(npc.dead).toBe(false)
+    expect(npc.hp).toBe(npc.maxHp)
+    expect((npc as any).arrows).toBe(30)
+    expect(npc.hasActiveRangedWeapon).toBe(true)
+    expect((npc as any).bowPivot.visible).toBe(true)
+    expect(npc.hostileToPlayer).toBe(false)
+    npc.beginExternalThreat()
+    expect((npc as any).arrows).toBe(30)
+    ;(npc as any).arrows = 0
+    npc.restoreForTown()
+    expect((npc as any).arrows).toBe(30)
+    expect(npc.hasActiveRangedWeapon).toBe(true)
+  })
   it('same-town residents never acquire each other and no player army command controller exists in Town', () => {
     const a = civilian(), b = civilian(), player = new Player(new THREE.Scene()); a.beginTownHostility(); b.beginTownHostility()
     const target = (a as any)._findTarget(player, [b]); expect(target.isPlayer).toBe(true); expect(target.npc).toBeUndefined(); expect(a.squadId).toBeUndefined()
@@ -213,6 +234,34 @@ describe('Town input and isolation regressions', () => {
 
 
 describe('Town orchestration transitions', () => {
+  it('explains zero merit after real but sub-threshold damage', () => {
+    const town = Object.create(TownScene.prototype) as any
+    town.mission = { friendlies: [] }
+    town.openPanel = vi.fn(() => ({}))
+    town.button = vi.fn()
+    const result = { outcome: 'failure', stats: { damageDealt: 12, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }, merit: { damage: 0, kills: 0, contribution: 0, total: 0 }, claimed: true }
+    town.openMissionResult(result, false)
+    expect(town.openPanel.mock.calls[0][1]).toContain('有效傷害未達 20 點軍功門檻')
+    expect(town.openPanel.mock.calls[0][1]).not.toContain('未對任務目標造成有效貢獻')
+  })
+
+  it('offers and starts the physical return when the player survives but every mission AI dies', () => {
+    const town = Object.create(TownScene.prototype) as any
+    const callbacks = new Map<string, () => void>()
+    town.mission = { friendlies: [{ dead: true }], startReturning: vi.fn(() => true) }
+    town.openPanel = vi.fn(() => ({}))
+    town.button = vi.fn((_panel: unknown, label: string, callback: () => void) => { callbacks.set(label, callback) })
+    town.closePanel = vi.fn()
+    const result = { outcome: 'victory', stats: { damageDealt: 12, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, merit: { damage: 1, kills: 1, contribution: 1, total: 3 }, claimed: true }
+
+    town.openMissionResult(result, false)
+    expect(callbacks.has('自行走回小鎮')).toBe(true)
+    callbacks.get('自行走回小鎮')!()
+    expect(town.mission.startReturning).toHaveBeenCalledOnce()
+    expect(town.missionResultOpen).toBe(false)
+    expect(town.closePanel).toHaveBeenCalledOnce()
+  })
+
   it('keeps Town identity while ranged projectiles follow dynamic player hostility', () => {
     const scene = new THREE.Scene()
     const source = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Town javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
@@ -252,6 +301,46 @@ describe('Town orchestration transitions', () => {
     expect(town.player.hp).toBeLessThan(hpBefore)
   })
 
+  it('does not let player melee, arrows, or stray building hits turn a career battle into Town hostility', () => {
+    const scene = new THREE.Scene()
+    const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Defender', 2, false)
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
+    town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp: { destroyed: false, takeDamage: vi.fn() }, obstacles: [] }], targets: [], obstacles: [] }
+    town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
+    town.defense = { releasedEnemies: [] }
+    town.residents = [{ npc: ally }]
+    town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
+    town.player = {
+      position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
+      getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
+      isHitFrame: () => true, markHitProcessed: vi.fn(),
+    }
+    town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
+    town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn(); town.hitResident = vi.fn()
+    town.melee()
+    expect(town.hitResident).not.toHaveBeenCalled()
+
+    let alive = true
+    const arrow = {
+      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, 1, 2) },
+      destroy() { alive = false },
+      get isAlive() { return alive },
+    }
+    town.shots = [{ arrow, training: false, player: true, age: 0 }]
+    town.updateShots(.1)
+    expect(town.hitResident).not.toHaveBeenCalled()
+    expect(alive).toBe(true)
+
+    town.hitResident = TownScene.prototype['hitResident']
+    town.hitResident(ally, 12)
+    town.damageBuilding(0, 12)
+    expect(town.prepareDamage).not.toHaveBeenCalled()
+    expect(town.world.buildings[0].hp.takeDamage).not.toHaveBeenCalled()
+    expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
   it('settles a physical mission return in the existing Town scene and restores the extracted garrison', () => {
     const town = Object.create(TownScene.prototype) as any
     const profile = createCareerProfile('roman')
@@ -260,9 +349,9 @@ describe('Town orchestration transitions', () => {
       targetCampId: 2, targetActorIds: [], friendlyActorIds: ['captain', 'infantry'], acceptedAt: Date.now(),
       routeStage: 0, result: { outcome: 'victory', stats: { damageDealt: 10, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, merit: { damage: 1, kills: 1, contribution: 1, total: 3 }, claimed: true },
     }
-    const captain = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
-    const infantry = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
-    const bystander = { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() }
+    const captain = { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
+    const infantry = { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
+    const bystander = { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
     const homeMount = { restoreForTown: vi.fn() }
     town.profile = profile
     town.mission = {
@@ -282,7 +371,7 @@ describe('Town orchestration transitions', () => {
     town.careerMounts = { restInTown: vi.fn() }
     town.inventory = { sheathAll: vi.fn() }
     const playerPosition = new THREE.Vector3(9, 1, -4)
-    town.player = { position: playerPosition, maxHp: 120, clearTownAction: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), setArrowCount: vi.fn(), arrowCount: 30 }
+    town.player = { position: playerPosition, restoreForTown: vi.fn(), arrowCount: 30 }
     town.hp = { setFill: vi.fn() }; town.stamina = { setFill: vi.fn() }; town.quiver = { setArrowCount: vi.fn() }
     town.missionResultOpen = true; town.target = 'captain'; town.hasPreviousTip = true; town.notice = ''; town.panel = null
     town.dispose = vi.fn(); town.onRestart = vi.fn(); town.closePanel = vi.fn()
@@ -291,11 +380,11 @@ describe('Town orchestration transitions', () => {
 
     expect(town.profile.activeMission).toBeUndefined()
     expect(town.mission.cleanupMission).toHaveBeenCalledExactlyOnceWith(2)
-    expect(captain.respawn).toHaveBeenCalledOnce(); expect(infantry.respawn).toHaveBeenCalledOnce(); expect(bystander.respawn).not.toHaveBeenCalled()
+    expect(captain.restoreForTown).toHaveBeenCalledOnce(); expect(infantry.restoreForTown).toHaveBeenCalledOnce(); expect(bystander.restoreForTown).not.toHaveBeenCalled()
     expect(homeMount.restoreForTown).toHaveBeenCalledExactlyOnceWith(25, 11, -.5)
     expect(captain.mountVehicle).toHaveBeenCalledExactlyOnceWith(homeMount)
     expect(town.externalThreatActors.has(captain)).toBe(false); expect(town.externalThreatActors.has(infantry)).toBe(false); expect(town.externalThreatActors.has(bystander)).toBe(true)
-    expect(town.careerMounts.restInTown).toHaveBeenCalledOnce(); expect(town.player.setHp).toHaveBeenCalledWith(120); expect(town.player.setStamina).toHaveBeenCalledWith(100)
+    expect(town.careerMounts.restInTown).toHaveBeenCalledOnce(); expect(town.player.restoreForTown).toHaveBeenCalledOnce()
     expect(playerPosition).toEqual(new THREE.Vector3(9, 1, -4)); expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
     town.settleReturnedMissionInPlace()
     expect(town.commit).toHaveBeenCalledOnce(); expect(town.mission.cleanupMission).toHaveBeenCalledOnce()
@@ -310,7 +399,7 @@ describe('Town orchestration transitions', () => {
     }
     const makeResident = (role: string, index: number) => ({
       spec: { id: `${role}-${index}`, role, index, x: index, z: -index },
-      npc: { group: new THREE.Group(), dismountFromMount: vi.fn(), respawn: vi.fn(), endExternalThreat: vi.fn(), mountVehicle: vi.fn() },
+      npc: { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() },
       cycle: 4, walkTime: 3,
     })
     const residents = [
@@ -327,7 +416,7 @@ describe('Town orchestration transitions', () => {
     town.commit = vi.fn((next: typeof profile) => { town.profile = next; return true })
     town.careerMounts = { restInTown: vi.fn() }; town.inventory = { sheathAll: vi.fn() }
     const playerPosition = new THREE.Vector3(4, 1, -2)
-    town.player = { position: playerPosition, maxHp: 120, clearTownAction: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), setArrowCount: vi.fn(), arrowCount: 30 }
+    town.player = { position: playerPosition, restoreForTown: vi.fn(), arrowCount: 30 }
     town.hp = { setFill: vi.fn() }; town.stamina = { setFill: vi.fn() }; town.quiver = { setArrowCount: vi.fn() }
     town.missionResultOpen = true; town.target = 'captain'; town.hasPreviousTip = true; town.notice = ''; town.panel = {}
     town.closePanel = vi.fn(); town.dispose = vi.fn(); town.onRestart = vi.fn()
@@ -336,12 +425,13 @@ describe('Town orchestration transitions', () => {
 
     expect(town.profile.activeMission).toBeUndefined()
     expect(town.defense.cleanupMission).toHaveBeenCalledOnce()
-    expect(residents.every(resident => resident.npc.respawn.mock.calls.length === 1)).toBe(true)
+    expect(residents.every(resident => resident.npc.restoreForTown.mock.calls.length === 1)).toBe(true)
     expect(town.world.restoreTownDamage).toHaveBeenCalledOnce()
     expect(town.navigation.sync).toHaveBeenCalledExactlyOnceWith(town.world.obstacles)
     expect(projectile.destroy).toHaveBeenCalledOnce()
     expect(town.externalThreatActors.size).toBe(0)
     expect(town.careerMounts.restInTown).toHaveBeenCalledOnce()
+    expect(town.player.restoreForTown).toHaveBeenCalledOnce()
     expect(playerPosition).toEqual(new THREE.Vector3(4, 1, -2))
     expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
     town.settleTownDefenseInPlace()

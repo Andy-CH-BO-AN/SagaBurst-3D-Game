@@ -50,6 +50,7 @@ describe('Recruit mission catalog and merit', () => {
 
   it('gives spectators zero and scales low, normal and high personal contribution', () => {
     expect(calculateRecruitMissionMerit(playerStats(0, 0), 'victory').total).toBe(0)
+    expect(calculateRecruitMissionMerit(playerStats(12, 0, false), 'failure').total).toBe(0)
     expect(calculateRecruitMissionMerit(playerStats(20, 0), 'victory').total).toBe(3)
     expect(calculateRecruitMissionMerit(playerStats(180, 0), 'victory').total).toBe(21)
     expect(calculateRecruitMissionMerit(playerStats(250, 1), 'victory').total).toBe(30)
@@ -140,7 +141,7 @@ describe('Mission identity, attribution and claim', () => {
     expect(shouldPersistMissionRoute(6, 8, 8)).toBe(true)
   })
 
-  it('waits for both the returning party and player before completing the physical return', () => {
+  it('completes physical return when the captain and player arrive, without waiting for every soldier', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'return-both', 'bandit', 'captain')
     profile.activeMission.phase = 'RETURNING'
@@ -153,19 +154,51 @@ describe('Mission identity, attribution and claim', () => {
     const follower = { dead: false, combatPosition: new THREE.Vector3(300, 0, 300) }
     controller.leader = leader
     controller.friendlies = [leader, follower]
-    expect(controller.partyReturned).toBe(false)
+    expect(controller.partyReturned).toBe(true)
     expect(controller.playerReturned).toBe(false)
     expect(controller.returnComplete).toBe(false)
-    follower.combatPosition.copy(assembly)
-    expect(controller.partyReturned).toBe(true)
     player.combatPosition.copy(assembly)
     expect(controller.returnComplete).toBe(true)
+    follower.combatPosition.copy(assembly)
     leader.combatPosition.set(300, 0, 300)
     expect(controller.playerReturned).toBe(true)
     expect(controller.returnComplete).toBe(false)
     leader.dead = true; follower.dead = true
     expect(controller.partyReturned).toBe(true)
     expect(controller.returnComplete).toBe(true)
+  })
+
+  it('holds the captain outside a bandit camp until the soldiers regroup, without waiting for the player', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-02', 0, 12, 0, 'assault-regroup', 'bandit', 'captain')
+    profile.activeMission.phase = 'MARCHING'
+    const stage = new THREE.Vector3(130, 0, -130)
+    const leader = { dead: false, combatPosition: stage.clone(), setTacticalOrder: vi.fn() }
+    const followers = Array.from({ length: 18 }, () => ({ dead: false, combatPosition: new THREE.Vector3(0, 0, 0), setTacticalOrder: vi.fn() }))
+    const bandit = { dead: false, encounterIsAlerted: false, triggerEncounterAlert: vi.fn() }
+    const controller = Object.create(BanditMissionController.prototype) as any
+    controller.readProfile = () => profile
+    controller.commit = (next: typeof profile) => { profile = next; return true }
+    controller.player = () => ({ combatPosition: new THREE.Vector3(500, 0, 500) })
+    controller.camps = [{ id: 0, center: new THREE.Vector3(170, 0, -165), ambient: [], mission: [bandit] }]
+    controller.friendlies = [leader, ...followers]
+    controller.leader = leader
+    controller.route = []; controller.routeIndex = 0; controller.perceptionElapsed = 0; controller.statsCheckpointElapsed = 0
+    controller.guide = { update: vi.fn() }
+    controller.detectCampProximity = vi.fn(); controller.persistRuntimeProgress = vi.fn(); controller.advanceRoute = vi.fn()
+    controller.marchObjective = () => stage
+
+    controller.updateFlow(.016, 0)
+    expect(profile.activeMission.phase).toBe('MARCHING')
+    expect(leader.setTacticalOrder).not.toHaveBeenCalled()
+    for (const follower of followers.slice(0, 13)) follower.combatPosition.copy(stage)
+    controller.updateFlow(.016, 0)
+    expect(profile.activeMission.phase).toBe('MARCHING')
+    followers[13].combatPosition.copy(stage)
+    controller.updateFlow(.016, 0)
+    expect(profile.activeMission.phase).toBe('ENGAGING')
+    expect(bandit.triggerEncounterAlert).toHaveBeenCalledOnce()
+    expect([leader, ...followers].every(soldier => soldier.setTacticalOrder.mock.calls[0]?.[0] === 'charge')).toBe(true)
   })
 
   it('rebuilds a reloaded patrol from the previous semantic objective instead of Town', () => {
@@ -227,7 +260,12 @@ describe('Mission identity, attribution and claim', () => {
     }
     expect(controller.evaluate(false)).toBe('victory')
 
-    profile.activeMission.phase = 'RETURNING'
+    expect(controller.startReturning()).toBe(true)
+    expect(profile.activeMission.phase).toBe('RETURNING')
+    expect(controller.missionLeader).toBeNull()
+    expect(controller.route).toHaveLength(0)
+    controller.updateFlow(.2, 0)
+    expect(controller.guide.update).toHaveBeenLastCalledWith('RETURNING', player.combatPosition, 0, controller.assemblyPoint(), 0, false, true)
     player.combatPosition.copy(controller.assemblyPoint())
     expect(controller.partyReturned).toBe(true)
     expect(controller.returnComplete).toBe(true)

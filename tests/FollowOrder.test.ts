@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../src/battle/FollowOrder'
+import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition, returnFollowLocalOffset } from '../src/battle/FollowOrder'
 import { AIType, Faction, NPC } from '../src/world/NPC'
+import type { Mount } from '../src/world/Mount'
 import { Player } from '../src/player/Player'
 import { selectLivingMissionLeader } from '../src/career/BanditMissionController'
 
@@ -26,6 +27,52 @@ describe('FOLLOW tactical geometry', () => {
     expect(followLocalOffset(0, true).length()).toBeGreaterThan(followLocalOffset(0, false).length())
     expect(FOLLOW_THRESHOLDS.holdDistance).toBeLessThan(FOLLOW_THRESHOLDS.runDistance)
     expect(FOLLOW_THRESHOLDS.runDistance).toBeLessThan(FOLLOW_THRESHOLDS.regroupDistance)
+  })
+
+  it('fits all eighteen large-mission followers within the Town return muster', () => {
+    const returning = Array.from({ length: 18 }, (_, index) => returnFollowLocalOffset(index, 18))
+    expect(new Set(returning.map(slot => `${slot.x}:${slot.z}`)).size).toBe(18)
+    expect(Math.max(...returning.map(slot => slot.length()))).toBeLessThan(18)
+    expect(followLocalOffset(17).length()).toBeGreaterThan(18)
+  })
+
+  it('smooths a captain turn instead of instantly swinging followers across the road', () => {
+    const scene = new THREE.Scene()
+    const leader = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Leader', 1, false)
+    const follower = new NPC(scene, 0, -10, Faction.TOWN, 'roman', AIType.MELEE, 'Follower', 1, false)
+    follower.assignFollowTarget(leader, 0, new THREE.Vector3(0, 0, -10), 7.5)
+    leader.group.rotation.y = Math.PI
+    const internal = follower as unknown as {
+      _updateFormationMovement: (dt: number, peers: NPC[], obstacles: never[], skip: boolean, navigation: null) => void
+      formationTarget: { position: THREE.Vector3; speedLimit?: number }
+    }
+    internal._updateFormationMovement(.016, [], [], true, null)
+    expect(internal.formationTarget.position.z).toBeLessThan(-8)
+    expect(internal.formationTarget.speedLimit).toBe(7.5)
+  })
+
+  it('keeps an arrived cavalry formation stationary through small plaza collision pushes', () => {
+    const scene = new THREE.Scene()
+    const rider = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Reserve', 1, true)
+    const mount = {
+      group: new THREE.Group(),
+      baseSpeed: 7,
+      addControlledMovement(direction: THREE.Vector3, speed: number, dt: number) { this.group.position.addScaledVector(direction, speed * dt) },
+    }
+    rider.mount = mount as unknown as Mount
+    rider.assignFormationTarget(1, new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1))
+    const internal = rider as unknown as {
+      _updateFormationMovement: (dt: number, peers: NPC[], obstacles: never[], skip: boolean, navigation: null) => void
+      formationTarget: { reached: boolean }
+    }
+    internal._updateFormationMovement(.1, [], [], true, null)
+    expect(internal.formationTarget.reached).toBe(true)
+    mount.group.position.x = 2.8
+    internal._updateFormationMovement(.1, [], [], true, null)
+    expect(mount.group.position.x).toBe(2.8)
+    mount.group.position.x = 3.8
+    internal._updateFormationMovement(.1, [], [], true, null)
+    expect(mount.group.position.x).toBeLessThan(3.8)
   })
 
   it('clears FOLLOW when switching to FORMATION, ATTACK, DEFEND, or CHARGE', () => {

@@ -3,7 +3,7 @@ import type { TownActorSpec, TownRole } from '../town/TownRules'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
-export const TOWN_DEFENSE_PREPARATION_SECONDS = 15
+export const TOWN_DEFENSE_PREPARATION_SECONDS = 45
 
 export type TownDefensePhase = 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESULT' | 'RESET'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -25,6 +25,7 @@ export const TOWN_DEFENSE_LAYOUT = {
   westMeleeLine: { x: -67, z: 18, facingX: -1, facingZ: 0 },
   westRangedLine: { x: -55, z: 18, facingX: -1, facingZ: 0 },
   cavalryReserve: { x: 23, z: 14, facingX: 0, facingZ: 1 },
+  captainReserve: { x: 23, z: 25, facingX: 0, facingZ: 1 },
   horseArcherWing: { x: 54, z: 45, facingX: -1, facingZ: 0 },
   townCenter: { x: 0, z: 0, facingX: 0, facingZ: 1 },
   civilianShelter: { x: 0, z: -3, facingX: 0, facingZ: 1 },
@@ -36,7 +37,6 @@ export interface TownDefenseGroupPlan {
   actorIds: string[]
   role: 'frontline' | 'ranged-support' | 'reserve' | 'mounted-flank'
   anchor: keyof typeof TOWN_DEFENSE_LAYOUT
-  fallback: 'inner-south' | 'inner-west' | 'inner-east'
   initialOrder: TownDefenseOrder
   mounted: boolean
 }
@@ -51,12 +51,12 @@ export function createTownDefenseGroups(roster: readonly TownActorSpec[]): TownD
   const cavalry = takeRole(roster, 'melee_cavalry')
   const horseArchers = takeRole(roster, 'ranged_cavalry')
   return [
-    { id: 'A', actorIds: melee.slice(0, 10), role: 'frontline', anchor: 'southMeleeLine', fallback: 'inner-south', initialOrder: 'DEFEND', mounted: false },
-    { id: 'B', actorIds: melee.slice(10, 20), role: 'frontline', anchor: 'westMeleeLine', fallback: 'inner-west', initialOrder: 'DEFEND', mounted: false },
-    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-support', anchor: 'southRangedLine', fallback: 'inner-south', initialOrder: 'DEFEND', mounted: false },
-    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-support', anchor: 'westRangedLine', fallback: 'inner-west', initialOrder: 'DEFEND', mounted: false },
-    { id: 'E', actorIds: cavalry, role: 'reserve', anchor: 'cavalryReserve', fallback: 'inner-east', initialOrder: 'DEFEND', mounted: true },
-    { id: 'F', actorIds: horseArchers, role: 'mounted-flank', anchor: 'horseArcherWing', fallback: 'inner-east', initialOrder: 'SKIRMISH', mounted: true },
+    { id: 'A', actorIds: melee.slice(0, 10), role: 'frontline', anchor: 'southMeleeLine', initialOrder: 'DEFEND', mounted: false },
+    { id: 'B', actorIds: melee.slice(10, 20), role: 'frontline', anchor: 'westMeleeLine', initialOrder: 'DEFEND', mounted: false },
+    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-support', anchor: 'southRangedLine', initialOrder: 'DEFEND', mounted: false },
+    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-support', anchor: 'westRangedLine', initialOrder: 'DEFEND', mounted: false },
+    { id: 'E', actorIds: cavalry, role: 'reserve', anchor: 'cavalryReserve', initialOrder: 'DEFEND', mounted: true },
+    { id: 'F', actorIds: horseArchers, role: 'mounted-flank', anchor: 'horseArcherWing', initialOrder: 'SKIRMISH', mounted: true },
   ]
 }
 
@@ -114,11 +114,6 @@ export function townDefenseFailureLocked(civilianDeaths: number): boolean {
   return civilianDeaths > TOWN_DEFENSE_CIVILIAN_LIMIT
 }
 
-export function shouldChargeReserve(alreadyCharged: boolean, frontlineContact: boolean, lineBreached: boolean, enemiesInside: number): boolean {
-  return !alreadyCharged && (frontlineContact || lineBreached || enemiesInside >= 4)
+export function shouldChargeReserve(alreadyCharged: boolean, firstFriendlyDeath: boolean): boolean {
+  return !alreadyCharged && firstFriendlyDeath
 }
-
-export function shouldFallback(survivors: number, lineBreached: boolean): boolean {
-  return survivors <= 4 || lineBreached
-}
-

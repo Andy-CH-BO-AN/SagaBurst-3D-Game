@@ -41,6 +41,7 @@ export interface ActiveCareerMission {
   routeStage?: number
   patrolStage?: number
   defenseElapsed?: number
+  defensePreparationElapsed?: number
   civilianActorIds?: string[]
   mountState?: CareerMissionMountState
   acceptedAt: number
