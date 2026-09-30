@@ -50,7 +50,4 @@ T4 的三層資產已移除 `Helmet3` 和 `Praetorian_face_mask` 的節點、網
 - 三層鞋護脛三角面：5,590 / 1,830 / 942；全角色仍在 64,000 / 22,000 / 7,000 預算內。LOD0 相較替換前整體少 1,070 面。
 - 最終 GLB 再次通過資產 audit、9 項專項測試與 production build。逐位元比對修改前 T4：各 LOD 13 個保留身體網格、244 個動畫通道、骨骼 rest transforms 與 inverse bind matrices 未改動。
 - 最終匯出已檢查正面、側面、背面及 3/4 視角，以及 walk/run/swordSlash/mounted/death 取樣；另進入標準 10v10 以 T4 玩家實際移動、揮劍和收招。近距離腳踝包覆改善，來源露趾開口仍可見。最後一次使用者指示不再細修遠距離模型，因此不承諾低 LOD 所有細小接縫完全消失。
-- 結構報告與完整截圖位於 ignored `output/roman-greaves/`；下列兩張為本次保留的 review 圖。完整測試的兩項既有千分位失敗同上，未修改其程式。
-
-![T4 全身](images/roman-t4/full-body.jpg)
-![涼鞋與腳踝包覆](images/roman-t4/footwear.jpg)
+- 結構報告與完整截圖位於 ignored `output/roman-greaves/`。完整測試的兩項既有千分位失敗同上，未修改其程式。
