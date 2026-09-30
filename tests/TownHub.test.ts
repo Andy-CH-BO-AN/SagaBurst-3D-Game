@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { applyCivilianAppearance } from '../src/world/CivilianAppearance'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../src/career/CareerProfile'
+import { createActiveCareerMission } from '../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
 import { TownEvent, townRoster, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../src/town/TownRules'
 import { TownEquipment, canUseCareerEquipment } from '../src/town/TownEquipment'
@@ -341,6 +342,160 @@ describe('Town orchestration transitions', () => {
     expect(town.activateHostility).not.toHaveBeenCalled()
   })
 
+  it('abandons a field mission before the first illegal Town hit starts Town Crime', () => {
+    const scene = new THREE.Scene()
+    const resident = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Resident', 2, false)
+    const town = Object.create(TownScene.prototype) as any
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'crime-abandon', 'bandit', 'captain')
+    town.profile = profile
+    town.event = { hostile: false }
+    town.commit = vi.fn((next: typeof profile) => { town.profile = next; return true })
+    town.mission = { cleanupMission: vi.fn() }
+    town.clearMissionCombatShots = vi.fn()
+    town.activateHostility = vi.fn()
+    town.persistCasualties = vi.fn()
+    town.damageNumbers = { spawn: vi.fn() }
+
+    const hpBefore = resident.hp
+    town.hitResident(resident, 12)
+    expect(resident.hp).toBeLessThan(hpBefore)
+    expect(town.profile.activeMission).toBeUndefined()
+    expect(town.profile.townEvent?.state).toBe('hostile')
+    expect(town.mission.cleanupMission).toHaveBeenCalledExactlyOnceWith(0)
+    expect(town.clearMissionCombatShots).toHaveBeenCalledOnce()
+    expect(town.activateHostility).toHaveBeenCalledOnce()
+
+    const blocked = Object.create(TownScene.prototype) as any
+    blocked.profile = profile
+    blocked.event = { hostile: false }
+    blocked.commit = vi.fn(() => false)
+    blocked.mission = { cleanupMission: vi.fn() }
+    blocked.clearMissionCombatShots = vi.fn()
+    blocked.activateHostility = vi.fn()
+    blocked.damageNumbers = { spawn: vi.fn() }
+    blocked.hitResident(resident, 12)
+    expect(blocked.mission.cleanupMission).not.toHaveBeenCalled()
+    expect(blocked.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it('protects mission and external-threat allies during legal combat while peaceful Town Crime remains possible', () => {
+    const scene = new THREE.Scene()
+    const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Mission captain', 2, false)
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { activeMission: { kind: 'bandit', phase: 'ENGAGING' } }
+    town.externalThreatActors = new Set()
+    town.world = { buildings: [], targets: [], obstacles: [] }
+    town.mission = { ambientBandits: [], missionBandits: [], friendlies: [ally] }
+    town.defense = { releasedEnemies: [] }
+    town.residents = [{ npc: ally }]
+    town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
+    town.player = {
+      position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
+      getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
+      isHitFrame: () => true, markHitProcessed: vi.fn(),
+    }
+    town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
+    town.hitResident = vi.fn()
+    town.melee()
+    expect(town.hitResident).not.toHaveBeenCalled()
+
+    let alive = true
+    const arrow = {
+      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, 1, 2) },
+      destroy() { alive = false },
+      get isAlive() { return alive },
+    }
+    town.hitResident.mockClear()
+    town.shots = [{ arrow, training: false, player: true, age: 0 }]
+    town.updateShots(.1)
+    expect(town.hitResident).not.toHaveBeenCalled()
+    expect(alive).toBe(true)
+
+    town.profile.activeMission = undefined
+    town.mission.friendlies = []
+    town.externalThreatActors.add(ally)
+    town.melee()
+    expect(town.hitResident).not.toHaveBeenCalled()
+    town.externalThreatActors.clear()
+    town.melee()
+    expect(town.hitResident).toHaveBeenCalledWith(ally, expect.any(Number))
+  })
+
+  it('blocks damage and Town Crime on a mission ally and their home mount', () => {
+    const scene = new THREE.Scene()
+    const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Mission ally', 2, false)
+    const horse = { dead: false, currentHp: 100, riderNpc: ally, group: new THREE.Group() }
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { activeMission: { kind: 'patrol', phase: 'ENGAGING' } }
+    town.mission = { friendlies: [ally] }
+    town.externalThreatActors = new Set()
+    town.residents = [{ npc: ally, homeMount: horse }]
+    town.stableHorses = []
+    town.prepareDamage = vi.fn(() => true)
+    town.activateHostility = vi.fn()
+    const hp = ally.hp, mountHp = horse.currentHp
+    town.hitResident(ally, 20)
+    town.hitResident(horse, 20)
+    expect(ally.hp).toBe(hp)
+    expect(horse.currentHp).toBe(mountHp)
+    expect(town.prepareDamage).not.toHaveBeenCalled()
+    expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it('dismounts Maki when enemy fire kills the black cat during Town Defense', () => {
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
+    town.world = { buildings: [], targets: [] }
+    town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
+    town.defense = { active: true, releasedEnemies: [], peersFor: vi.fn(() => []) }
+    town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }
+    const cat = { dead: false, group: new THREE.Group(), takeDamage: vi.fn(function (this: any) { this.dead = true }) }
+    cat.group.position.set(0, 0, 1)
+    const ranger = { mount: cat, dismountFromMount: vi.fn(function (this: any) { this.mount = null }) }
+    town.residents = [{ spec: { role: 'ranger' }, npc: ranger }]
+    town.cat = cat
+    town.stableHorses = []
+    const source = { faction: Faction.ENEMY }
+    let alive = true
+    const arrow = {
+      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 200,
+      update() { this.mesh.position.set(0, 1, 2) },
+      destroy() { alive = false },
+      get isAlive() { return alive },
+    }
+    town.shots = [{ arrow, training: false, player: false, source, age: 0 }]
+    town.updateShots(.1)
+    expect(cat.takeDamage).toHaveBeenCalledWith(200)
+    expect(ranger.dismountFromMount).toHaveBeenCalledOnce()
+    expect(alive).toBe(false)
+  })
+
+  it('plays mission commands only when their spoken meaning matches the phase', () => {
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = { faction: 'roman', activeMission: { kind: 'bandit', phase: 'ASSEMBLING' } }
+    town.defense = { reserveHasCharged: false }
+    town.careerCommandCue = null
+    for (const phase of ['ASSEMBLING', 'MARCHING', 'RETURNING']) {
+      town.profile.activeMission.phase = phase
+      town.updateCareerCommandCue()
+      expect(town.careerCommandCue).toBeNull()
+    }
+    town.profile.activeMission.phase = 'ENGAGING'
+    town.updateCareerCommandCue()
+    expect(town.careerCommandCue).toBe('attack')
+    town.profile.activeMission = { kind: 'town-defense', phase: 'PREPARING' }
+    town.updateCareerCommandCue()
+    expect(town.careerCommandCue).toBe('defend')
+    town.profile.activeMission.phase = 'ATTACKING'
+    town.updateCareerCommandCue()
+    expect(town.careerCommandCue).toBe('attack')
+    town.defense.reserveHasCharged = true
+    town.updateCareerCommandCue()
+    expect(town.careerCommandCue).toBe('charge')
+  })
+
   it('settles a physical mission return in the existing Town scene and restores the extracted garrison', () => {
     const town = Object.create(TownScene.prototype) as any
     const profile = createCareerProfile('roman')
@@ -405,11 +560,13 @@ describe('Town orchestration transitions', () => {
     const residents = [
       ...Array.from({ length: 60 }, (_, index) => makeResident(index < 20 ? 'melee_infantry' : index < 40 ? 'ranged_infantry' : index < 50 ? 'melee_cavalry' : 'ranged_cavalry', index)),
       makeResident('captain', 0),
+      makeResident('ranger', 0),
       ...Array.from({ length: 20 }, (_, index) => makeResident('civilian', index)),
     ]
     const projectile = { destroy: vi.fn() }
     town.profile = profile; town.residents = residents; town.shots = [{ arrow: projectile }]
     town.defense = { cleanupMission: vi.fn() }
+    town.cat = { restoreForTown: vi.fn(), catVisual: { setEquipmentVisible: vi.fn() } }
     town.world = { obstacles: [], restoreTownDamage: vi.fn() }
     town.navigation = { sync: vi.fn() }
     town.externalThreatActors = new Set(residents.map(resident => resident.npc))
@@ -426,6 +583,8 @@ describe('Town orchestration transitions', () => {
     expect(town.profile.activeMission).toBeUndefined()
     expect(town.defense.cleanupMission).toHaveBeenCalledOnce()
     expect(residents.every(resident => resident.npc.restoreForTown.mock.calls.length === 1)).toBe(true)
+    expect(town.cat.restoreForTown).toHaveBeenCalledOnce()
+    expect(town.cat.catVisual.setEquipmentVisible).toHaveBeenCalledWith(false)
     expect(town.world.restoreTownDamage).toHaveBeenCalledOnce()
     expect(town.navigation.sync).toHaveBeenCalledExactlyOnceWith(town.world.obstacles)
     expect(projectile.destroy).toHaveBeenCalledOnce()

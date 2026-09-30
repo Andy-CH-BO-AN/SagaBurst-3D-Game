@@ -94,6 +94,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   ) return undefined
   const targetActorIds = uniqueStrings(raw.targetActorIds)
   const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
+  if (template.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
   if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
@@ -114,6 +115,8 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     patrolStage: nonNegativeInteger(raw.patrolStage),
     defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
     defensePreparationElapsed: nonNegativeNumber(raw.defensePreparationElapsed),
+    defenseReserveCharged: raw.defenseReserveCharged === true,
+    defenseCatDead: raw.defenseCatDead === true,
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
     ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),

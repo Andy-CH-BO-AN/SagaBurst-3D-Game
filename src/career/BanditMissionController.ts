@@ -138,16 +138,17 @@ export class BanditMissionController {
     for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
     const routeStage = active.routeStage ?? 0
     if (active.phase === 'RETURNING') {
-      this.setRoute(this.buildRoute(this.missionObjective(template, active, camp.center), this.assemblyPoint()), this.missionObjective(template, active, camp.center), routeStage)
+      const departure = this.marchTarget(template, active, camp.center)
+      this.setRoute(this.buildRoute(departure, this.assemblyPoint()), departure, routeStage)
       this.positionPartyForReload(routeStage)
       this.assignLeader(this.assemblyPoint())
       this.assignFollowers()
     } else if (active.phase === 'RESULT' && active.result) {
-      const objective = this.missionObjective(template, active, camp.center)
+      const objective = this.marchTarget(template, active, camp.center)
       this.setRoute(this.buildRoute(objective, this.assemblyPoint()), objective)
       this.positionPartyForReload(0)
     } else {
-      const objective = this.missionObjective(template, active, camp.center)
+      const objective = this.marchTarget(template, active, camp.center)
       const segmentStart = this.missionSegmentStart(template, active, camp.center)
       this.setRoute(this.buildRoute(segmentStart, objective), segmentStart, routeStage)
       if (active.phase === 'ASSEMBLING') this.assignAssembly()
@@ -177,7 +178,7 @@ export class BanditMissionController {
     this.statsCheckpointElapsed += Math.max(0, dt)
     const hasLeader = this.ensureLivingLeader() && Boolean(this.leader)
     const leader = this.leader
-    const objective = this.missionObjective(template, active, camp.center)
+    const objective = this.marchTarget(template, active, camp.center)
 
     if (leader && active.phase === 'ASSEMBLING' && this.player().combatPosition.distanceTo(leader.combatPosition) <= 12) {
       if (this.setPhase('MARCHING')) {
@@ -243,7 +244,7 @@ export class BanditMissionController {
       this.routeIndex = 0
       return true
     }
-    const start = this.missionObjective(template, active, camp.center)
+    const start = this.marchTarget(template, active, camp.center)
     this.setRoute(this.buildRoute(start, this.assemblyPoint()), start)
     this.assignLeader(this.assemblyPoint())
     this.assignFollowers()
@@ -399,7 +400,7 @@ export class BanditMissionController {
       const camp = this.camps[active?.targetCampId ?? -1]
       const template = active ? getRecruitMissionTemplate(active.templateId) : null
       const objective = active && camp && template && template.kind !== 'town-defense'
-        ? this.missionObjective(template, active, camp.center)
+        ? this.marchTarget(template, active, camp.center)
         : this.assemblyPoint()
       this.assignLeader(objective)
       this.assignFollowers()
@@ -570,14 +571,27 @@ export class BanditMissionController {
     active: ActiveCareerMission,
     camp: THREE.Vector3,
   ): THREE.Vector3 {
-    if (template.kind !== 'patrol') return this.marchObjective(camp)
+    if (template.kind !== 'patrol') return camp
     const objectives = this.patrolWaypoints(template, camp)
     return objectives[Math.min(active.patrolStage ?? 0, objectives.length - 1)] ?? camp
+  }
+
+  private marchTarget(
+    template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate,
+    active: ActiveCareerMission,
+    camp: THREE.Vector3,
+  ): THREE.Vector3 {
+    return template.kind === 'patrol' ? this.missionObjective(template, active, camp) : this.marchObjective(camp)
   }
 
   private marchObjective(camp: THREE.Vector3): THREE.Vector3 {
     const towardTown = this.assemblyPoint().clone().sub(camp).setY(0).normalize()
     const stage = camp.clone().addScaledVector(towardTown, 42)
+    if (this.navigation?.grid) {
+      if (this.world?.obstacles) this.navigation.sync(this.world.obstacles)
+      const cell = this.navigation.grid.findNearestWalkableCell(stage, 4)
+      if (cell) stage.copy(this.navigation.grid.cellToWorld(cell))
+    }
     stage.y = getTerrainHeight(stage.x, stage.z)
     return stage
   }

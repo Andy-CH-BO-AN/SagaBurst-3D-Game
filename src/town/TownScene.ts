@@ -173,7 +173,7 @@ export class TownScene {
     this.navigation.sync(this.world.obstacles)
     const missionCaptain = this.residents.find(resident => resident.spec.role === 'captain')!.npc
     this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p))
-    this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p))
+    this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat)
     this.careerMounts = new CareerMountController(
       this.scene,
       () => this.player,
@@ -381,9 +381,10 @@ export class TownScene {
     if (template.kind === 'town-defense') {
       const defenders = this.residents.filter(resident => resident.spec.role.includes('_')).map(resident => resident.spec.id)
       const captain = this.residents.find(resident => resident.spec.role === 'captain')?.spec.id
+      const ranger = this.residents.find(resident => resident.spec.role === 'ranger')?.spec.id
       const civilians = this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.spec.id)
-      if (defenders.length !== 60 || !captain || civilians.length !== 20) { this.openPanel('任務建立失敗', '城鎮駐軍或平民名單不完整。'); return }
-      const mission = createTownDefenseMission([...defenders, captain], civilians)
+      if (defenders.length !== 60 || !captain || !ranger || civilians.length !== 20) { this.openPanel('任務建立失敗', '城鎮駐軍或平民名單不完整。'); return }
+      const mission = createTownDefenseMission([...defenders, captain, ranger], civilians)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
       if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }
@@ -517,8 +518,11 @@ export class TownScene {
     this.defense.cleanupMission()
     this.clearMissionCombatShots()
     for (const resident of this.residents) {
-      if (resident.spec.role.includes('_') || resident.spec.role === 'captain' || resident.spec.role === 'civilian') this.restoreResidentForTown(resident)
+      if (resident.spec.role.includes('_') || resident.spec.role === 'captain' || resident.spec.role === 'ranger' || resident.spec.role === 'civilian') this.restoreResidentForTown(resident)
     }
+    const catSpot = townSitePoint('stable', -3, 8)
+    this.cat.restoreForTown(catSpot.x, catSpot.z, catSpot.yaw)
+    this.cat.catVisual?.setEquipmentVisible(false)
     this.world.restoreTownDamage()
     this.navigation.sync(this.world.obstacles)
     this.restPlayerInTown()
@@ -563,8 +567,17 @@ export class TownScene {
   /** Persist before applying the first effective hit; failure leaves the target unchanged. */
   private prepareDamage(): boolean {
     if (this.event.hostile) return true
-    const p = cloneCareerProfile(this.profile); p.townEvent = { id: crypto.randomUUID(), state: 'hostile' }
-    return this.commit(p)
+    const active = this.profile.activeMission
+    if (active?.kind === 'town-defense') return false
+    const p = active ? clearCareerMission(this.profile, active.id) : cloneCareerProfile(this.profile)
+    p.townEvent = { id: crypto.randomUUID(), state: 'hostile' }
+    if (!this.commit(p)) return false
+    if (active) {
+      this.mission.cleanupMission(active.targetCampId)
+      this.clearMissionCombatShots()
+      this.missionResultOpen = false
+    }
+    return true
   }
   private activateHostility(shout = true): void {
     if (this.event.hostile) return
@@ -577,8 +590,23 @@ export class TownScene {
     this.chargeSpeakerId = speaker?.spec.id ?? null
     if (shout && speaker) sound.playCommanderCommand(this.profile.faction, 'charge')
   }
+  private isProtectedTownAlly(target: NPC | Mount): boolean {
+    const active = this.profile?.activeMission
+    const combatProtected = active?.kind === 'town-defense'
+      || active?.phase === 'ENGAGING'
+      || (this.externalThreatActors?.size ?? 0) > 0
+    if (combatProtected) {
+      if (target instanceof NPC) return target.faction === Faction.TOWN
+      return target === this.cat || (this.stableHorses ?? []).includes(target)
+        || (this.residents ?? []).some(resident => resident.homeMount === target)
+    }
+    const ally = target instanceof NPC
+      ? target
+      : target.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
+    return Boolean(ally && (this.mission?.friendlies?.includes(ally) || this.externalThreatActors?.has(ally)))
+  }
   private hitResident(npc: NPC | Mount, amount: number): void {
-    if (this.profile?.activeMission || npc.dead || amount <= 0 || !this.prepareDamage()) return
+    if (this.isProtectedTownAlly(npc) || npc.dead || amount <= 0 || !this.prepareDamage()) return
     let applied = 0
     const position = npc instanceof NPC ? npc.combatPosition.clone() : npc.group.position.clone()
     if (npc instanceof NPC) applied = damageNpc(npc, amount).appliedDamage
@@ -593,7 +621,7 @@ export class TownScene {
   private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3): void {
     const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
     const townOwned = b.ownerFaction !== Faction.BANDIT
-    if (townOwned && this.profile?.activeMission) return
+    if (townOwned && (this.profile?.activeMission?.kind === 'town-defense' || this.profile?.activeMission?.phase === 'ENGAGING' || (this.externalThreatActors?.size ?? 0) > 0)) return
     if (townOwned && !this.prepareDamage()) return
     const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
     const { appliedDamage } = b.hp.takeDamage(amount)
@@ -627,6 +655,7 @@ export class TownScene {
       emit: this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
+    if (this.defense.active) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
     else if ((source?.meleeCombatKind ?? this.inventory.equippedMelee?.combatKind) === 'lance') sound?.playLanceImpact(target.currentLod, !source)
@@ -655,6 +684,7 @@ export class TownScene {
   }
   private updateShots(dt: number): void {
     for (const s of this.shots) {
+      if (!s.arrow.isAlive) continue
       const from = s.arrow.mesh.position.clone(); s.age += dt
       s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
       const to = s.arrow.mesh.position, delta = to.clone().sub(from), length = delta.length(), ray = new THREE.Ray(from, delta.normalize())
@@ -673,14 +703,13 @@ export class TownScene {
         if (distance < nearest) { nearest = distance; hit = () => {} }
       }
       const targets: Array<Player | NPC | Mount> = s.player
-        ? this.profile?.activeMission
-          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.releasedEnemies]
-          : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.releasedEnemies, ...this.residents.map(r => r.npc).filter(npc => !this.mission.friendlies.includes(npc)), this.cat, ...this.stableHorses]
+        ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.releasedEnemies,
+          ...[...this.residents.map(r => r.npc), ...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])].filter(target => !this.isProtectedTownAlly(target))]
         : s.source?.faction === Faction.BANDIT
           ? [this.player, ...this.mission.combatPeersFor(s.source).filter(npc => npc.faction !== s.source!.faction)]
           : this.defense.active && s.source
             ? s.source.faction === Faction.ENEMY
-              ? [this.player, ...this.defense.peersFor(s.source)]
+              ? [this.player, ...this.defense.peersFor(s.source), ...(this.cat && !this.cat.dead ? [this.cat] : [])]
               : this.defense.releasedEnemies
           : s.source?.faction === Faction.TOWN
             ? s.source.hostileToPlayer
@@ -696,6 +725,10 @@ export class TownScene {
         if (distance < nearest) { nearest = distance; hit = () => {
           if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile')
           else if (target instanceof NPC && (target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source)
+          else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
+            this.cat.takeDamage(s.arrow.damage)
+            if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
+          }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage)
         } }
       }
@@ -747,7 +780,7 @@ export class TownScene {
         return
       }
     }
-    for (const target of this.profile?.activeMission ? [] : [...this.residents.map(r => r.npc).filter(npc => !this.mission.friendlies.includes(npc)), this.cat, ...this.stableHorses]) {
+    for (const target of [...this.residents.map(r => r.npc), ...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])].filter(target => !this.isProtectedTownAlly(target))) {
       if (target.dead) continue
       const center = target instanceof NPC ? target.combatPosition.clone() : target.group.position.clone(); center.y += 1
       const line = new THREE.Ray(this.player.position, center.clone().sub(this.player.position).normalize())
@@ -937,15 +970,22 @@ export class TownScene {
         applyMountImpactDamage(mount, target, target.combatPosition, this.elapsed, damage => this.hitFieldNpc(target, damage, 'mount-impact'))
       }
     }
+    if (this.ranger.mount === this.cat && !this.cat.dead && !this.ranger.dead) {
+      for (const target of this.grid.getNearby(this.cat.group.position, 2.5)) {
+        if (target.faction !== Faction.ENEMY || target.dead || !checkMountImpact(this.cat, target.combatPosition, .5)) continue
+        applyMountImpactDamage(this.cat, target, target.combatPosition, this.elapsed, damage => this.hitFieldNpc(target, damage, 'mount-impact', this.ranger))
+      }
+    }
     this.careerMounts.update(dt)
   }
   private updateCareerCommandCue(): void {
     const active = this.profile.activeMission
     let cue: AudioCommand | null = null
     if (active?.kind === 'town-defense') {
-      if (active.phase === 'PREPARING' || active.phase === 'ATTACKING') cue = this.defense.reserveHasCharged ? 'charge' : 'defend'
-    } else if (active && active.phase !== 'RESULT' && active.phase !== 'RESET') {
-      cue = active.phase === 'ENGAGING' ? 'attack' : 'formation'
+      if (active.phase === 'PREPARING') cue = 'defend'
+      else if (active.phase === 'ATTACKING' || active.phase === 'FAILURE_LOCKED') cue = this.defense.reserveHasCharged ? 'charge' : 'attack'
+    } else if (active?.phase === 'ENGAGING') {
+      cue = 'attack'
     }
     if (cue === this.careerCommandCue) return
     this.careerCommandCue = cue
@@ -954,7 +994,7 @@ export class TownScene {
   private updateCareerHorseAudio(): void {
     const candidates: HorseGallopCandidate[] = []
     const playerMount = this.player.currentMount
-    if (playerMount && !playerMount.dead) candidates.push({
+    if (playerMount && !playerMount.dead && playerMount.type === MountType.HORSE) candidates.push({
       id: playerMount,
       active: playerMount.movementSpeed >= 7.5,
       lod: playerMount.currentLod,
@@ -964,7 +1004,7 @@ export class TownScene {
     const actors = this.defense.active ? this.defense.fieldNpcs : this.mission.fieldNpcs
     for (const actor of actors) {
       const mount = actor.mount
-      if (!mount || mount.dead || actor.dead || mount === playerMount) continue
+      if (!mount || mount.dead || mount.type !== MountType.HORSE || actor.dead || mount === playerMount) continue
       candidates.push({
         id: mount,
         active: mount.movementSpeed >= 7.5,
@@ -1048,7 +1088,7 @@ export class TownScene {
       this.updateCareerHorseAudio()
       for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
       for (const m of this.mounts) { m.setCameraDistance(m.group.position.distanceTo(this.camera.position)); if (m.dead) m.update(dt, this.world.obstacles) }
-      if (!this.event.hostile) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
+      if (!this.event.hostile && !this.cat.dead && !this.cat.riderNpc) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
       this.resolveBodies(); this.updateShots(dt); this.orbit.update(this.input, dt); this.interaction()
       const townOutcome = this.event.evaluate(this.player.dead)
       if (townOutcome && !this.panel) this.finish(townOutcome)

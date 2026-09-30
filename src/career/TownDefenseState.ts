@@ -7,7 +7,7 @@ export const TOWN_DEFENSE_PREPARATION_SECONDS = 45
 
 export type TownDefensePhase = 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESULT' | 'RESET'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
-export type TownDefenseOrder = 'FOLLOW' | 'DEFEND' | 'SKIRMISH' | 'CHARGE' | 'FALLBACK'
+export type TownDefenseOrder = 'ATTACK' | 'DEFEND' | 'SKIRMISH' | 'CHARGE'
 
 export interface TownDefenseAnchor {
   x: number
@@ -26,6 +26,7 @@ export const TOWN_DEFENSE_LAYOUT = {
   westRangedLine: { x: -55, z: 18, facingX: -1, facingZ: 0 },
   cavalryReserve: { x: 23, z: 14, facingX: 0, facingZ: 1 },
   captainReserve: { x: 23, z: 25, facingX: 0, facingZ: 1 },
+  rangerFlank: { x: -45, z: 37, facingX: -1, facingZ: 0 },
   horseArcherWing: { x: 54, z: 45, facingX: -1, facingZ: 0 },
   townCenter: { x: 0, z: 0, facingX: 0, facingZ: 1 },
   civilianShelter: { x: 0, z: -3, facingX: 0, facingZ: 1 },
@@ -51,10 +52,10 @@ export function createTownDefenseGroups(roster: readonly TownActorSpec[]): TownD
   const cavalry = takeRole(roster, 'melee_cavalry')
   const horseArchers = takeRole(roster, 'ranged_cavalry')
   return [
-    { id: 'A', actorIds: melee.slice(0, 10), role: 'frontline', anchor: 'southMeleeLine', initialOrder: 'DEFEND', mounted: false },
-    { id: 'B', actorIds: melee.slice(10, 20), role: 'frontline', anchor: 'westMeleeLine', initialOrder: 'DEFEND', mounted: false },
-    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-support', anchor: 'southRangedLine', initialOrder: 'DEFEND', mounted: false },
-    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-support', anchor: 'westRangedLine', initialOrder: 'DEFEND', mounted: false },
+    { id: 'A', actorIds: melee.slice(0, 10), role: 'frontline', anchor: 'southMeleeLine', initialOrder: 'ATTACK', mounted: false },
+    { id: 'B', actorIds: melee.slice(10, 20), role: 'frontline', anchor: 'westMeleeLine', initialOrder: 'ATTACK', mounted: false },
+    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-support', anchor: 'southRangedLine', initialOrder: 'ATTACK', mounted: false },
+    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-support', anchor: 'westRangedLine', initialOrder: 'ATTACK', mounted: false },
     { id: 'E', actorIds: cavalry, role: 'reserve', anchor: 'cavalryReserve', initialOrder: 'DEFEND', mounted: true },
     { id: 'F', actorIds: horseArchers, role: 'mounted-flank', anchor: 'horseArcherWing', initialOrder: 'SKIRMISH', mounted: true },
   ]
@@ -87,12 +88,12 @@ export function civilianShelterSlots(count = 20): THREE.Vector3[] {
 }
 
 export type EnemyCavalryKind = 'melee' | 'lancer' | 'horse-archer'
-export interface TownDefenseAttackGroup { id: 'south' | 'west' | 'east'; delaySeconds: number; approach: keyof typeof TOWN_DEFENSE_LAYOUT; composition: Record<EnemyCavalryKind, number> }
+export interface TownDefenseAttackGroup { id: 'south' | 'west' | 'east'; approach: keyof typeof TOWN_DEFENSE_LAYOUT; composition: Record<EnemyCavalryKind, number> }
 
 export const TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
-  { id: 'south', delaySeconds: 0, approach: 'southApproach', composition: { melee: 8, lancer: 4, 'horse-archer': 3 } },
-  { id: 'west', delaySeconds: 10, approach: 'westStableApproach', composition: { melee: 7, lancer: 3, 'horse-archer': 5 } },
-  { id: 'east', delaySeconds: 22, approach: 'eastBarracksApproach', composition: { melee: 5, lancer: 8, 'horse-archer': 7 } },
+  { id: 'south', approach: 'southApproach', composition: { melee: 8, lancer: 4, 'horse-archer': 3 } },
+  { id: 'west', approach: 'westStableApproach', composition: { melee: 7, lancer: 3, 'horse-archer': 5 } },
+  { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 5, lancer: 8, 'horse-archer': 7 } },
 ]
 
 export function townDefenseEnemyTotals(): Record<EnemyCavalryKind, number> {
@@ -114,6 +115,6 @@ export function townDefenseFailureLocked(civilianDeaths: number): boolean {
   return civilianDeaths > TOWN_DEFENSE_CIVILIAN_LIMIT
 }
 
-export function shouldChargeReserve(alreadyCharged: boolean, firstFriendlyDeath: boolean): boolean {
-  return !alreadyCharged && firstFriendlyDeath
+export function shouldChargeReserve(alreadyCharged: boolean, effectiveGarrisonDamage: boolean): boolean {
+  return !alreadyCharged && effectiveGarrisonDamage
 }

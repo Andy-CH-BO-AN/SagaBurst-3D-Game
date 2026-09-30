@@ -201,6 +201,28 @@ describe('Mission identity, attribution and claim', () => {
     expect([leader, ...followers].every(soldier => soldier.setTacticalOrder.mock.calls[0]?.[0] === 'charge')).toBe(true)
   })
 
+  it('guides the player to the real camp while snapping the AI staging point to walkable ground', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-02', 0, 12, 0, 'separate-guide-stage', 'bandit', 'captain')
+    profile.activeMission.phase = 'MARCHING'
+    const controller = Object.create(BanditMissionController.prototype) as any
+    controller.readProfile = () => profile
+    controller.assemblyPoint = () => new THREE.Vector3(0, 0, 0)
+    controller.world = { obstacles: [] }
+    const snapped = new THREE.Vector3(121, 0, -119)
+    controller.navigation = { sync: vi.fn(), grid: { findNearestWalkableCell: vi.fn(() => ({ x: 1, z: 2 })), cellToWorld: vi.fn(() => snapped.clone()) } }
+    const camp = new THREE.Vector3(170, 0, -165)
+    const template = RECRUIT_MISSION_CATALOG.find(mission => mission.id === 'recruit-bandits-02')!
+
+    const marchTarget = controller.marchTarget(template, profile.activeMission, camp)
+    const guideTarget = controller.guideTarget(profile.activeMission, camp)
+    expect(controller.navigation.grid.findNearestWalkableCell).toHaveBeenCalledOnce()
+    expect(controller.navigation.sync).toHaveBeenCalledWith([])
+    expect(marchTarget.x).toBe(snapped.x)
+    expect(marchTarget.z).toBe(snapped.z)
+    expect(guideTarget).toBe(camp)
+  })
+
   it('rebuilds a reloaded patrol from the previous semantic objective instead of Town', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-patrol-01', 0, 4, 0, 'patrol-reload-segment', 'patrol', 'captain')
