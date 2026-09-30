@@ -43,11 +43,17 @@ export interface CareerProfile {
   version: 1
   faction: CharacterFaction
 
-  /** Lifetime earned merit. Never decreases and determines rank / purchasable tier. */
+  /** Lifetime earned merit. Never decreases; appointments use merit earned during this enlistment. */
   totalMerit: number
   /** Spendable merit. Purchases deduct this without affecting rank. */
   availableMerit: number
   rank: CareerRank
+  enlistmentMeritBase: number
+  equipment?: { melee?: string; ranged?: string; shield?: string | null }
+  starterWeaponId?: string
+  townDialogueSeen?: string[]
+  ownedHorseTiers?: (1 | 2 | 3)[]
+  townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
   ownedWeapons: string[]
   ownedArmors: string[]
@@ -102,6 +108,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
+    enlistmentMeritBase: 0,
     ownedWeapons: [],
     ownedArmors: [],
     ownedMounts: [],
@@ -169,7 +176,7 @@ export function claimCareerBattle(
 
   const totalMerit = current.totalMerit + meritBreakdown.total
   const availableMerit = current.availableMerit + meritBreakdown.total
-  const newRank = resolveCareerRank(totalMerit)
+  const newRank = current.rank
 
   const profile = cloneCareerProfile(current)
   profile.totalMerit = totalMerit
@@ -263,6 +270,10 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.equipment ? { equipment: { ...profile.equipment } } : {}),
+    ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
+    ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
+    ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
     ownedWeapons: [...profile.ownedWeapons],
     ownedArmors: [...profile.ownedArmors],
     ownedMounts: [...profile.ownedMounts],
@@ -270,4 +281,17 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     lifetimeStats: { ...profile.lifetimeStats },
     claimedBattleIds: [...profile.claimedBattleIds],
   }
+}
+
+export const CAREER_RANKS: CareerRank[] = ['recruit', 'soldier', 'veteran', 'captain', 'commander']
+export function enlistmentMerit(profile: CareerProfile): number {
+  return Math.max(0, profile.totalMerit - profile.enlistmentMeritBase)
+}
+export function eligibleRank(profile: CareerProfile): CareerRank {
+  return resolveCareerRank(enlistmentMerit(profile))
+}
+export function promoteCareer(profile: CareerProfile): CareerProfile | null {
+  const next = CAREER_RANKS[CAREER_RANKS.indexOf(profile.rank) + 1]
+  if (!next || enlistmentMerit(profile) < CAREER_RANK_THRESHOLDS[next]) return null
+  return { ...cloneCareerProfile(profile), rank: next }
 }

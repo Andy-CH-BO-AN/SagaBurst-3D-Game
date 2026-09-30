@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { InventoryManager } from '../src/rpg/InventoryManager'
 import { Player } from '../src/player/Player'
 import type { PlayerInput } from '../src/player/PlayerInput'
 import type { StaminaBar } from '../src/ui/StaminaBar'
@@ -138,6 +139,19 @@ describe('Player Directional Movement & Stamina', () => {
   })
 
   describe('Sprint Eligibility and Stamina Drain', () => {
+    it('town action cancellation clears the swing latch so Shift can sprint again', () => {
+      const attack = createMockInput(); attack.consumeLeftClick = () => true; attack.isLocked = true
+      const inventory = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: '', shieldId: null })
+      player.update(.016, attack, 0, cameraAimPoint, [], staminaBar, quiverUI, soundManager, inventory)
+      expect(player.swinging).toBe(true)
+      player.clearTownAction()
+      expect(player.swinging).toBe(false)
+      player.setStamina(100)
+      const from = player.position.clone()
+      updatePlayer(player, .1, createMockInput({ KeyW: true, ShiftLeft: true }))
+      expect(horizontalDistance(player.position, from)).toBeCloseTo(1.6, 5)
+      expect(player.staminaValue).toBeLessThan(100)
+    })
     it('allows sprint on forward directions (W, W+A, W+D) and drains stamina', () => {
       player.setStamina(100)
       const input = createMockInput({ KeyW: true, ShiftLeft: true })

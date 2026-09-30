@@ -1,3 +1,4 @@
+import { CIVILIAN_PROFILE } from '../town/TownRules'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
@@ -78,10 +79,8 @@ export enum AIState {
   DEAD = 'DEAD',
 }
 
-export enum Faction {
-  PLAYER = 'PLAYER', // Allied with Player
-  ENEMY = 'ENEMY',   // Hostile to Player
-}
+export { Faction } from '../combat/CombatFaction'
+import { Faction } from '../combat/CombatFaction'
 
 export enum AIType {
   MELEE = 'MELEE',
@@ -369,6 +368,8 @@ export class NPC {
     visualAssetId?: HeroAssetId,
     combatProfileId?: T4CombatProfileId,
     specialCombatProfile?: 'maki-ranger',
+    readonly townCategory?: 'civilian',
+    civilianStyle?: CharacterFaction,
   ) {
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -380,7 +381,7 @@ export class NPC {
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
     this.currentHp = this.maxHp
     this.loadout = loadout
     this.presetId = presetId
@@ -445,6 +446,8 @@ export class NPC {
       faction: this.characterFaction,
       tier: this.tier === 4 ? 3 : this.tier,
       isPlayer: false,
+      civilian: townCategory === 'civilian',
+      civilianStyle,
     } as const
     const allowLegacyFixture = import.meta.env.MODE === 'test'
       || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
@@ -526,6 +529,54 @@ export class NPC {
 
     this.group.position.copy(basePos)
     scene.add(this.group)
+  }
+
+  private townArmed = false
+  private townHostile = false
+  private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
+  setTownPeaceful(): void {
+    this.townHostile = false
+    this.respawnEnabled = false
+    this.animator.cancel()
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+  }
+  beginTownHostility(): void {
+    this.townHostile = true
+    if (this.dead) return
+    this.animator.cancel()
+    this.tacticalOrder = 'charge'
+    this.state = AIState.CHASE
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.townArmed = true
+      this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
+      this.swordPivot.visible = true
+    }
+  }
+  /** Peace uses animation and assigned motion only: no battle target search or A*. */
+  updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
+    if (this.dead) { this.animator.update(dt, distance); return false }
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setLocomotion(speed, this.isMounted)
+    if (training && startAttack && !this.animator.busy) {
+      this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
+    }
+    if (training && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
+      const charge = Math.min(1, trainingPhase / 1.3)
+      this.animator.poseBow(charge)
+      this._tmpRangedTarget.set(0, 1.3, 4).applyQuaternion(this.group.quaternion).add(this.group.position)
+      this.bowVisual?.update(charge, this._tmpRangedTarget, true)
+    }
+    const events = this.animator.update(dt, distance)
+    if (this.isMounted) this._syncToMount()
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    return events.projectileRelease
+  }
+  dispose(): void {
+    this.animator.cancel()
+    this.rig.animation?.stop()
+    this.alertSprite.material.map?.dispose()
+    this.alertSprite.material.dispose()
+    this.group.removeFromParent()
   }
 
   mountVehicle(mount: Mount): void {
@@ -1156,7 +1207,7 @@ export class NPC {
     let bestDistSq = Infinity
 
     if (
-      this.faction === Faction.ENEMY
+      this.targetsPlayer
       && !this._cachedTargetIsPlayer
       && player.targetable
       && !player.dead
@@ -1221,7 +1272,7 @@ export class NPC {
 
   private _isCachedTargetValid(player: Player): boolean {
     if (this._cachedTargetIsPlayer) {
-      return this.faction === Faction.ENEMY && player.targetable && !player.dead
+      return this.targetsPlayer && player.targetable && !player.dead
     }
     if (this._cachedTargetNpc !== null) {
       return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
@@ -1356,7 +1407,7 @@ export class NPC {
     let closestDistSq = Infinity
 
     // Check Player separately because Player is not stored in the NPC spatial grids.
-    if (this.faction === Faction.ENEMY && player.targetable) {
+    if (this.targetsPlayer && player.targetable) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const dSq = this.combatPosition.distanceToSquared(playerPos)
       if (dSq < closestDistSq) {

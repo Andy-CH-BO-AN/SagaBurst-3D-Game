@@ -4,6 +4,7 @@ export interface MainMenuActions {
   onCustomBattle: () => void
   onCampaign: () => void
   onReference: () => void
+  onCareer?: () => void
 }
 
 export class MainMenuUI {
@@ -23,6 +24,7 @@ export class MainMenuUI {
       </div>
 
       <div class="main-menu-grid">
+        <button type="button" class="main-menu-card campaign" id="main-menu-career"><strong>生涯模式</strong><span>CAREER</span><small>探索陣營小鎮、交談、任命與出戰</small></button>
         <button type="button" class="main-menu-card" id="main-menu-custom">
           <strong>自訂戰鬥</strong>
           <span>CUSTOM BATTLE</span>
@@ -48,6 +50,7 @@ export class MainMenuUI {
     parent.appendChild(container)
     this.container = container
 
+    container.querySelector('#main-menu-career')?.addEventListener('click', () => actions.onCareer?.())
     container.querySelector('#main-menu-custom')?.addEventListener('click', actions.onCustomBattle)
     container.querySelector('#main-menu-campaign')?.addEventListener('click', actions.onCampaign)
     container.querySelector('#main-menu-reference')?.addEventListener('click', actions.onReference)

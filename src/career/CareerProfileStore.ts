@@ -4,6 +4,7 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
 import {
   cloneCareerProfile,
+  CAREER_RANKS,
   resolveCareerRank,
   type CareerLifetimeStats,
   type CareerProfile,
@@ -67,12 +68,32 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const ownedHeroes = uniqueStrings(raw.ownedHeroes ?? raw.unlockedHeroes)
     .filter((id): id is HeroAssetId => isHeroAssetId(id))
 
+  const enlistmentMeritBase = raw.enlistmentMeritBase === undefined ? 0
+    : typeof raw.enlistmentMeritBase === 'number' && Number.isFinite(raw.enlistmentMeritBase) && raw.enlistmentMeritBase >= 0
+      ? Math.min(totalMerit, Math.floor(raw.enlistmentMeritBase)) : totalMerit
+  const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
+  const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
+  const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
+  const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
+  const townEvent = raw.townEvent as CareerProfile['townEvent']
+  if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
   return {
     version: 1,
     faction: raw.faction,
     totalMerit,
     availableMerit,
-    rank: resolveCareerRank(totalMerit),
+    rank,
+    enlistmentMeritBase,
+    ...(equipment ? { equipment: {
+      melee: typeof equipment.melee === 'string' ? equipment.melee : undefined,
+      ranged: typeof equipment.ranged === 'string' ? equipment.ranged : undefined,
+      shield: typeof equipment.shield === 'string' ? equipment.shield : null,
+    } } : {}),
+    ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
+      ? { starterWeaponId: raw.starterWeaponId } : {}),
+    ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
+    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|cat|captain|deployment|soldier-outpost)$/.test(key)) } : {}),
+    ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ownedWeapons,
     ownedArmors,
     ownedMounts,
@@ -85,20 +106,19 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
 export class CareerProfileStore {
   constructor(private readonly storage: Storage = localStorage) {}
 
-  load(): CareerProfile | null {
+  loadChecked(): { profile: CareerProfile | null; error?: string } {
     try {
       const raw = this.storage.getItem(CAREER_STORAGE_KEY)
-      if (!raw) return null
-      const parsed = parseCareerProfile(JSON.parse(raw))
-      if (!parsed) {
-        console.warn('[CareerProfileStore] Invalid career save — ignoring it.')
-        return null
-      }
-      return parsed
-    } catch {
-      console.warn('[CareerProfileStore] Corrupt career save — ignoring it.')
-      return null
-    }
+      if (raw === null) return { profile: null }
+      const profile = parseCareerProfile(JSON.parse(raw))
+      return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
+    } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
+  }
+
+  load(): CareerProfile | null {
+    const result = this.loadChecked()
+    if (result.error) console.warn('[CareerProfileStore]', result.error)
+    return result.profile
   }
 
   save(profile: CareerProfile): boolean {

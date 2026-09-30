@@ -1,3 +1,4 @@
+import { Faction } from '../combat/CombatFaction'
 import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
@@ -76,6 +77,7 @@ export interface ArrowLaunchEvent {
 }
 
 export class Player {
+  readonly faction = Faction.PLAYER
   readonly group: THREE.Group
 
   private characterVisualGroup: THREE.Group
@@ -630,6 +632,18 @@ export class Player {
     this.pilumCooldownTimer = getRangedCooldown(getRangedCombatKind(equippedRanged) ?? 'javelin') / (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)
   }
 
+  dispose(): void {
+    this.animator.cancel()
+    this.rig.animation?.stop()
+    this.onFireArrow = null
+    this.group.removeFromParent()
+  }
+
+  clearTownAction(): void {
+    this._cancelEquipmentAction()
+    this.pendingRangedWeapon = undefined
+  }
+
   update(
     dt: number,
     input: PlayerInput,
@@ -651,8 +665,8 @@ export class Player {
     }
     this.hitEventPending = false
 
-    const equippedMelee = inventoryManager?.equippedMelee
-    const equippedRanged = inventoryManager?.equippedRanged
+    const equippedMelee = inventoryManager?.meleeEnabled === false ? undefined : inventoryManager?.equippedMelee
+    const equippedRanged = inventoryManager?.rangedEnabled === false ? undefined : inventoryManager?.equippedRanged
 
     const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
@@ -660,11 +674,11 @@ export class Player {
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
 
-    if (input.isRightMouseDown && equippedRanged && inventoryManager?.equippedShield) {
+    if (input.isRightMouseDown && equippedRanged && inventoryManager?.shieldEnabled !== false && inventoryManager?.equippedShield) {
       inventoryManager.unequipShield()
     }
     
-    const equippedShield = inventoryManager?.equippedShield ?? null
+    const equippedShield = inventoryManager?.shieldEnabled === false ? null : inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
@@ -672,7 +686,7 @@ export class Player {
     this.animator.setEquipment(equippedMelee?.combatKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
     const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
     quiverUI.setShieldBlocked?.(blockedAim)
-    const wantAim = input.isRightMouseDown && !equippedShield
+    const wantAim = input.isRightMouseDown && Boolean(equippedRanged) && !equippedShield
     const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
     if (!input.isRightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
@@ -737,7 +751,7 @@ export class Player {
       && (this.aiming || this.pilumReadyAfterThrow || this.animator.currentAction === 'pilumThrow')
     const showingRanged = isPilum ? showingHeldPilum : this.aiming || this.animator.currentAction === 'bowRelease'
     const hidingMeleeForRanged = this.aiming || rangedActionActive || showingHeldPilum
-    this.swordPivot.visible = !hidingMeleeForRanged
+    this.swordPivot.visible = Boolean(equippedMelee) && !hidingMeleeForRanged
     this.rig.animation?.setSwordHandShape?.(!hidingMeleeForRanged && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     this.bowPivot.visible = showingRanged
 
@@ -854,7 +868,7 @@ export class Player {
         this.pilumProjectileReleased = false
         this.pilumReadyAfterThrow = this.arrows > 0
         this.bowPivot.visible = this.pilumReadyAfterThrow
-        this.swordPivot.visible = !this.pilumReadyAfterThrow
+        this.swordPivot.visible = Boolean(equippedMelee) && !this.pilumReadyAfterThrow
         this.rig.animation?.setSwordHandShape?.(!this.pilumReadyAfterThrow && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
       }
       this.isSwinging = false

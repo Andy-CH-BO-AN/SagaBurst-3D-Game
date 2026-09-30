@@ -138,7 +138,7 @@ describe('Career progression and spending', () => {
     expect(claim.meritAwarded).toBe(126)
     expect(claim.profile.totalMerit).toBe(416)
     expect(claim.profile.availableMerit).toBe(166)
-    expect(claim.newRank).toBe('soldier')
+    expect(claim.newRank).toBe('recruit') // Merit qualifies; only the captain appoints.
   })
 
   it('spending merit never reduces lifetime merit or rank', () => {

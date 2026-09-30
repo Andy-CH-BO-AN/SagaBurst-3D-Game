@@ -8,6 +8,8 @@ export interface CharacterVisualConfig {
   faction: CharacterFaction
   tier: 1 | 2 | 3
   isPlayer: boolean
+  civilian?: boolean
+  civilianStyle?: CharacterFaction
 }
 
 export interface ArmRig {

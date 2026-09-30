@@ -1,3 +1,4 @@
+import { applyCivilianAppearance } from './CivilianAppearance'
 import { CharacterEquipmentPose, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
@@ -887,7 +888,7 @@ export class HumanoidAssetRegistry {
       })
       const preserveOriginalLod2 = import.meta.env.DEV && typeof window !== 'undefined'
         && new URLSearchParams(window.location.search).has('humanoidLod2Original')
-      if (config.faction === 'roman' && index === 2 && !preserveOriginalLod2 && template.romanLod2Consolidation) {
+      if (config.faction === 'roman' && !config.civilian && index === 2 && !preserveOriginalLod2 && template.romanLod2Consolidation) {
         const representationControl = consolidateRomanLod2(level, template.romanLod2Consolidation)
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
         cullRomanLod2TinyDetails(level)
@@ -896,6 +897,7 @@ export class HumanoidAssetRegistry {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))
       }
+      if (config.civilian) applyCivilianAppearance(level, config.civilianStyle ?? 'roman')
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       mixers.push(new THREE.AnimationMixer(level))
       const animations = template.animationClips?.[index] ?? gltf.animations

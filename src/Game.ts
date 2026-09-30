@@ -540,6 +540,8 @@ export class Game {
   private readonly npcFactionGrids: Record<Faction, SpatialGrid<NPC>> = {
     [Faction.PLAYER]: new SpatialGrid<NPC>(20),
     [Faction.ENEMY]: new SpatialGrid<NPC>(20),
+    [Faction.TOWN]: new SpatialGrid<NPC>(20),
+    [Faction.BANDIT]: new SpatialGrid<NPC>(20),
   }
   public readonly devGridStats = {
     queriesPerFrame: 0,
@@ -2531,8 +2533,7 @@ export class Game {
     // 1. NPC Grid Build
     if (profile) t0 = performance.now()
     this.npcGrid.clear()
-    this.npcFactionGrids[Faction.PLAYER].clear()
-    this.npcFactionGrids[Faction.ENEMY].clear()
+    for (const grid of Object.values(this.npcFactionGrids)) grid.clear()
     for (const npc of this.npcs) {
       if (npc.hp <= 0) continue
       this.npcGrid.insert(npc)
