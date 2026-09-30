@@ -49,6 +49,23 @@ function parseLifetimeStats(value: unknown): CareerLifetimeStats {
 const MISSION_PHASES: CareerMissionPhase[] = ['ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
 const CAREER_MOUNT_IDS: CareerMountId[] = ['horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
 
+function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const activeMountId = CAREER_MOUNT_IDS.includes(raw.activeMountId as CareerMountId)
+    ? raw.activeMountId as CareerMountId
+    : undefined
+  const rawHp = raw.hp && typeof raw.hp === 'object' ? raw.hp as Record<string, unknown> : {}
+  const hp: Partial<Record<CareerMountId, number>> = {}
+  for (const id of CAREER_MOUNT_IDS) {
+    if (typeof rawHp[id] === 'number' && Number.isFinite(rawHp[id]) && (rawHp[id] as number) >= 0) hp[id] = rawHp[id] as number
+  }
+  const unavailable = uniqueStrings(raw.unavailable)
+    .filter((id): id is CareerMountId => CAREER_MOUNT_IDS.includes(id as CareerMountId))
+  if (!activeMountId && Object.keys(hp).length === 0 && unavailable.length === 0) return undefined
+  return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
+}
+
 function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
@@ -64,6 +81,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   const targetActorIds = uniqueStrings(raw.targetActorIds)
   const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
   if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
+  const mountState = parseMissionMountState(raw.mountState)
 
   const mission: ActiveCareerMission = {
     id: raw.id,
@@ -79,6 +97,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     routeStage: nonNegativeInteger(raw.routeStage),
     defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
+    ...(mountState ? { mountState } : {}),
     ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }
   if (raw.result && typeof raw.result === 'object') {

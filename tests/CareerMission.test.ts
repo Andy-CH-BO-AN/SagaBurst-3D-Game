@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { RECRUIT_MISSION_CATALOG, availableRecruitMissions } from '../src/career/CareerMissionCatalog'
 import { calculateRecruitMissionMerit } from '../src/career/CareerMissionMeritPolicy'
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome } from '../src/career/CareerMissionState'
-import { claimCareerMission, createCareerProfile } from '../src/career/CareerProfile'
+import { claimCareerMission, cloneCareerProfile, createCareerProfile } from '../src/career/CareerProfile'
+import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { canUseCareerMount, findSafeCareerMountPosition, ownedCareerMountIds } from '../src/career/CareerMountController'
 import { preserveHpRatio, resolveCareerCombatProfile, resolveCareerHeroAsset } from '../src/career/CareerPlayerProfile'
 import { missionGuideArrowAngle } from '../src/career/MissionGuide'
 import { Faction } from '../src/combat/CombatFaction'
 import { calculatePlayerMeleeDamage } from '../src/combat/PlayerMeleeDamage'
-import { selectMissionInfantryActorIds } from '../src/career/BanditMissionController'
+import { selectMissionInfantryActorIds, shouldPersistMissionRoute } from '../src/career/BanditMissionController'
 
 const playerStats = (damageDealt: number, kills: number, survived = true) => ({
   damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0,
@@ -116,6 +117,13 @@ describe('Mission identity, attribution and claim', () => {
     expect(selectMissionInfantryActorIds(residents, 2)).toEqual(['infantry-a', 'infantry-b'])
   })
 
+  it('checkpoints route progress coarsely instead of writing every route node', () => {
+    expect(shouldPersistMissionRoute(0, 1, 8)).toBe(false)
+    expect(shouldPersistMissionRoute(0, 2, 8)).toBe(false)
+    expect(shouldPersistMissionRoute(0, 3, 8)).toBe(true)
+    expect(shouldPersistMissionRoute(6, 8, 8)).toBe(true)
+  })
+
   it('prioritizes player death in the final-target frame and waits for roster registration', () => {
     expect(resolveCareerMissionOutcome(true, true, 0)).toBe('failure')
     expect(resolveCareerMissionOutcome(false, false, 0)).toBeNull()
@@ -135,6 +143,23 @@ describe('Mission identity, attribution and claim', () => {
 })
 
 describe('Career mounts and appointed T4 identity', () => {
+  it('round-trips active-outing mount HP and death state without sharing clone references', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-02', 1, 12, 0, 'mount-outing')
+    profile.activeMission.mountState = {
+      activeMountId: 'horse-t1',
+      hp: { 'horse-t1': 43, corgi: 0 },
+      unavailable: ['corgi'],
+    }
+    const loaded = parseCareerProfile(profile)!
+    const copy = cloneCareerProfile(loaded)
+    expect(loaded.activeMission?.mountState).toEqual(profile.activeMission.mountState)
+    copy.activeMission!.mountState!.hp['horse-t1'] = 10
+    copy.activeMission!.mountState!.unavailable.push('horse-t1')
+    expect(loaded.activeMission?.mountState?.hp['horse-t1']).toBe(43)
+    expect(loaded.activeMission?.mountState?.unavailable).toEqual(['corgi'])
+  })
+
   it('keeps legacy horse ownership as T1 and distinguishes every purchased tier', () => {
     const profile = createCareerProfile('roman'); profile.ownedMounts = ['horse']; profile.rank = 'recruit'
     expect(ownedCareerMountIds(profile)).toEqual(['horse-t1'])

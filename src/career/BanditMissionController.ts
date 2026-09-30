@@ -15,7 +15,6 @@ import {
 } from './CareerMissionCatalog'
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
-import { FOLLOW_THRESHOLDS, followSlotWorldPosition } from '../battle/FollowOrder'
 
 interface CampRuntime {
   id: number
@@ -39,6 +38,11 @@ export function selectMissionInfantryActorIds<T extends { spec: { role: string }
     .map(resident => resident.npc.combatantId)
 }
 
+export function shouldPersistMissionRoute(savedStage: number, currentStage: number, lastStage: number): boolean {
+  return Math.abs(currentStage - savedStage) >= 3
+    || lastStage >= 0 && currentStage === lastStage && savedStage !== currentStage
+}
+
 export class BanditMissionController {
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
@@ -47,7 +51,6 @@ export class BanditMissionController {
   private tracker: BattleStatsTracker | null = null
   private leader: NPC | null = null
   private commandId = 1
-  private waitingForFollowers = false
   private route: THREE.Vector3[] = []
   private routeIndex = 0
 
@@ -135,7 +138,7 @@ export class BanditMissionController {
       if (active.phase === 'ASSEMBLING') this.assignAssembly()
       else if (active.phase === 'MARCHING') {
         this.positionPartyForReload(routeStage)
-        this.assignLeader(camp.center)
+        this.assignLeader(this.missionObjective(template, active, camp.center))
         this.assignFollowers()
       } else if (active.phase === 'ENGAGING') {
         this.positionPartyForReload(this.route.length - 1)
@@ -149,28 +152,22 @@ export class BanditMissionController {
     const active = this.active
     if (!active || active.phase === 'RESULT') { this.guide.hide(); return }
     const camp = this.camps[active.targetCampId]
-    if (!camp || !this.ensureLivingLeader() || !this.leader) return
+    const template = getRecruitMissionTemplate(active.templateId)
+    if (!camp || !template || template.kind === 'town-defense' || !this.ensureLivingLeader() || !this.leader) return
     const leader = this.leader
+    const objective = this.missionObjective(template, active, camp.center)
     this.detectCampProximity()
 
     if (active.phase === 'ASSEMBLING' && this.player().combatPosition.distanceTo(leader.combatPosition) <= 12) {
       if (this.setPhase('MARCHING')) {
-        this.assignLeader(camp.center)
+        this.assignLeader(objective)
         this.assignFollowers()
       }
     }
     if (this.phase === 'MARCHING') {
-      if (!this.waitingForFollowers) this.advanceRoute(leader)
-      const followersReady = this.followersReadyRatio() >= .75
-      if (!followersReady && !this.waitingForFollowers) {
-        this.waitingForFollowers = true
-        this.assignLeader(leader.combatPosition.clone())
-      } else if (followersReady && this.waitingForFollowers) {
-        this.waitingForFollowers = false
-        this.assignLeader(camp.center)
-      }
+      this.advanceRoute(leader)
       const campAlerted = camp.mission.some(npc => npc.encounterIsAlerted)
-      if (campAlerted || !this.waitingForFollowers && leader.combatPosition.distanceTo(camp.center) < 24) {
+      if (campAlerted || leader.combatPosition.distanceTo(objective) < 24) {
         if (this.setPhase('ENGAGING')) {
           for (const friendly of this.friendlies) friendly.setTacticalOrder('charge')
         }
@@ -358,7 +355,13 @@ export class BanditMissionController {
     if (!fallback) { this.leader = null; return false }
     this.leader = fallback
     if (this.phase === 'MARCHING') {
-      this.assignLeader(this.camps[this.active?.targetCampId ?? -1]?.center ?? this.assemblyPoint())
+      const active = this.active
+      const camp = this.camps[active?.targetCampId ?? -1]
+      const template = active ? getRecruitMissionTemplate(active.templateId) : null
+      const objective = active && camp && template && template.kind !== 'town-defense'
+        ? this.missionObjective(template, active, camp.center)
+        : this.assemblyPoint()
+      this.assignLeader(objective)
       this.assignFollowers()
     } else if (this.phase === 'RETURNING') {
       this.assignLeader(this.assemblyPoint())
@@ -367,19 +370,6 @@ export class BanditMissionController {
       for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
     }
     return true
-  }
-
-  private followersReadyRatio(): number {
-    if (!this.leader) return 0
-    const followers = this.friendlies.filter(npc => npc !== this.leader && !npc.dead)
-    if (followers.length === 0) return 1
-    let ready = 0
-    const slot = new THREE.Vector3()
-    for (const follower of followers) {
-      followSlotWorldPosition(this.leader.combatPosition, this.leader.group.rotation.y, follower.activeFollowLocalOffset, slot)
-      if (follower.combatPosition.distanceTo(slot) <= FOLLOW_THRESHOLDS.regroupDistance) ready++
-    }
-    return ready / followers.length
   }
 
   private setPhase(phase: CareerMissionPhase, routeStage = this.routeIndex): boolean {
@@ -442,22 +432,19 @@ export class BanditMissionController {
     this.routeIndex = Math.min(Math.max(0, routeStage), Math.max(0, this.route.length - 1))
   }
 
-  private currentRouteTarget(fallback: THREE.Vector3): THREE.Vector3 {
-    return this.route[this.routeIndex] ?? fallback
-  }
-
   private advanceRoute(leader: NPC): void {
     const target = this.route[this.routeIndex]
     if (!target) return
     if (leader.combatPosition.distanceToSquared(target) > 16 || this.routeIndex >= this.route.length - 1) return
     this.routeIndex++
-    this.persistRuntimeProgress()
   }
 
   private guideTarget(active: ActiveCareerMission, camp: THREE.Vector3): THREE.Vector3 | null {
     if (active.phase === 'ASSEMBLING') return this.assemblyPoint()
-    if (active.phase === 'ENGAGING') return camp
-    return this.currentRouteTarget(active.phase === 'RETURNING' ? this.assemblyPoint() : camp)
+    if (active.phase === 'RETURNING') return this.assemblyPoint()
+    const template = getRecruitMissionTemplate(active.templateId)
+    if (!template || template.kind === 'town-defense') return camp
+    return this.missionObjective(template, active, camp)
   }
 
   private disposeCamp(group: NPC[]): void { for (const npc of group) npc.dispose() }
@@ -468,7 +455,6 @@ export class BanditMissionController {
     for (const camp of this.camps) { this.disposeCamp(camp.mission); camp.mission = [] }
     this.friendlies.length = 0
     this.leader = null
-    this.waitingForFollowers = false
     this.route = []
     this.routeIndex = 0
   }
@@ -506,7 +492,10 @@ export class BanditMissionController {
     const friendlyIds = [...deadFriendlies].filter(id => active.friendlyActorIds.includes(id)).sort()
     const sameTargets = targetIds.join('|') === [...(active.deadTargetActorIds ?? [])].sort().join('|')
     const sameFriendlies = friendlyIds.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
-    if (sameTargets && sameFriendlies && (active.routeStage ?? 0) === this.routeIndex) return
+    const casualtiesChanged = !sameTargets || !sameFriendlies
+    const savedRouteStage = active.routeStage ?? 0
+    const routeCheckpointReached = shouldPersistMissionRoute(savedRouteStage, this.routeIndex, this.route.length - 1)
+    if (!casualtiesChanged && !routeCheckpointReached) return
     const profile = cloneCareerProfile(this.readProfile())
     profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, routeStage: this.routeIndex }
     this.commit(profile)

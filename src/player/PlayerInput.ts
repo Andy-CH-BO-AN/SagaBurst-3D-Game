@@ -38,11 +38,14 @@ export class PlayerInput {
 
   private _syncPointerLockState(): void {
     const locked = typeof document !== "undefined" && document.pointerLockElement !== null
-    this.isLocked = locked || this.allowUnlockedInput
+    const nextLocked = locked || this.allowUnlockedInput
+    if (!nextLocked) this.clear()
+    this.isLocked = nextLocked
   }
 
   constructor() {
     window.addEventListener('keydown', (e) => {
+      if (!this.isLocked) return
       if (!this.keys[e.code]) this._keyPresses.add(e.code)
       this.keys[e.code] = true
       if (e.code === 'KeyE') {
@@ -54,6 +57,7 @@ export class PlayerInput {
     }, { signal: this.listeners.signal })
 
     window.addEventListener('mousedown', (e) => {
+      if (!this.isLocked) return
       if (e.button === 0) {
         if (this.allowUnlockedInput && this.isRightMouseDown) {
           this.isLeftMouseDown = !this.isLeftMouseDown

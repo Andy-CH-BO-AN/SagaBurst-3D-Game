@@ -1,6 +1,22 @@
 import { describe, it, expect } from "vitest"
 import { PlayerInput } from "../src/player/PlayerInput"
 
+function inputHarness(search = '') {
+  const windowListeners: Record<string, Function[]> = {}
+  const documentListeners: Record<string, Function[]> = {}
+  ;(globalThis as any).window = {
+    location: { search },
+    addEventListener: (name: string, fn: Function) => { (windowListeners[name] ??= []).push(fn) },
+    removeEventListener: () => {},
+  }
+  ;(globalThis as any).document = {
+    pointerLockElement: null,
+    addEventListener: (name: string, fn: Function) => { (documentListeners[name] ??= []).push(fn) },
+    removeEventListener: () => {},
+  }
+  return { input: new PlayerInput(), windowListeners, documentListeners }
+}
+
 describe("PlayerInput Pointer Lock Synchronization", () => {
   it("PlayerInput created while document.pointerLockElement already exists -> isLocked === true", () => {
     ;(globalThis as any).window = {
@@ -78,5 +94,36 @@ describe("PlayerInput Pointer Lock Synchronization", () => {
     ;(globalThis as any).document.pointerLockElement = null
     listeners["pointerlockchange"]?.forEach(cb => cb(new Event("pointerlockchange")))
     expect(input.isLocked).toBe(false)
+  })
+
+  it('ignores movement and combat input while unlocked and clears held input on unlock', () => {
+    const { input, windowListeners, documentListeners } = inputHarness()
+    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
+    windowListeners.mousedown.forEach(fn => fn({ button: 0 }))
+    windowListeners.mousedown.forEach(fn => fn({ button: 2 }))
+    expect(input.keys.KeyW).toBeUndefined()
+    expect(input.consumeLeftClick()).toBe(false)
+    expect(input.isRightMouseDown).toBe(false)
+
+    ;(globalThis as any).document.pointerLockElement = {}
+    documentListeners.pointerlockchange.forEach(fn => fn())
+    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
+    windowListeners.mousedown.forEach(fn => fn({ button: 2 }))
+    expect(input.keys.KeyW).toBe(true)
+    expect(input.isRightMouseDown).toBe(true)
+
+    ;(globalThis as any).document.pointerLockElement = null
+    documentListeners.pointerlockchange.forEach(fn => fn())
+    expect(input.keys.KeyW).toBeUndefined()
+    expect(input.isRightMouseDown).toBe(false)
+  })
+
+  it('keeps explicit nolock QA input enabled', () => {
+    const { input, windowListeners } = inputHarness('?nolock')
+    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
+    windowListeners.mousedown.forEach(fn => fn({ button: 0 }))
+    expect(input.isLocked).toBe(true)
+    expect(input.keys.KeyW).toBe(true)
+    expect(input.consumeLeftClick()).toBe(true)
   })
 })

@@ -190,6 +190,7 @@ export class TownScene {
         this.mission.startActiveMission()
       }
       if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.inventory.prepareForCombat()
+      this.careerMounts.restoreActiveMount()
     }
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()

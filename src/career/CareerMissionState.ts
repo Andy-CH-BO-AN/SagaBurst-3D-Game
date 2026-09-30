@@ -1,5 +1,6 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
+import type { CareerMountId } from './CareerProfile'
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -19,6 +20,12 @@ export interface CareerMissionResult {
   defense?: { civilianSurvived: number; civilianDeaths: number }
 }
 
+export interface CareerMissionMountState {
+  activeMountId?: CareerMountId
+  hp: Partial<Record<CareerMountId, number>>
+  unavailable: CareerMountId[]
+}
+
 export interface ActiveCareerMission {
   id: string
   templateId: string
@@ -33,6 +40,7 @@ export interface ActiveCareerMission {
   routeStage?: number
   defenseElapsed?: number
   civilianActorIds?: string[]
+  mountState?: CareerMissionMountState
   acceptedAt: number
   result?: CareerMissionResult
 }

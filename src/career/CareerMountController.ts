@@ -70,7 +70,15 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly commit: (profile: CareerProfile) => boolean,
     private readonly obstacles: () => readonly ObstacleData[],
     private readonly occupied: () => readonly THREE.Vector3[],
-  ) {}
+  ) {
+    const state = this.readProfile().activeMission?.mountState
+    if (!state) return
+    for (const id of Object.keys(state.hp) as CareerMountId[]) {
+      const value = state.hp[id]
+      if (MOUNTS[id] && typeof value === 'number') this.hp.set(id, value)
+    }
+    for (const id of state.unavailable) if (MOUNTS[id]) this.unavailable.add(id)
+  }
 
   list(): EquipmentMountItem[] {
     const profile = this.readProfile()
@@ -91,6 +99,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
     if (this.active?.id === id && !this.active.mount.dead) {
       if (!this.player().isMounted) this.player().mountVehicle(this.active.mount)
+      this.persistOutingState(id)
       this.statusText = `${config.name}已騎乘。`
       return true
     }
@@ -102,28 +111,51 @@ export class CareerMountController implements EquipmentMountAdapter {
     )
     if (!position) return this.fail('附近空間不足，請移到較空曠的位置。')
 
-    const next = cloneCareerProfile(profile)
-    next.selectedMountId = id
-    if (!this.commit(next)) return this.fail('保存失敗，坐騎沒有變更。')
-
     const previous = this.active
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, id.startsWith('horse-t') ? (Number(id.charAt(id.length - 1)) - 1) as 0 | 1 | 2 : 0)
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
-    mount.onDeathCallbacks.push(() => {
-      this.hp.set(id, 0)
-      this.unavailable.add(id)
-      this.statusText = `${config.name}已倒下；本次出城不能再次召喚。`
-    })
-    if (previous) this.removeActive(previous)
+    this.installDeathPersistence(id, mount)
+    if (previous) this.hp.set(previous.id, previous.mount.currentHp)
+    const previousHp = this.hp.get(id)
+    this.hp.set(id, mount.currentHp)
+    const next = cloneCareerProfile(profile)
+    next.selectedMountId = id
+    if (next.activeMission) next.activeMission.mountState = this.outingState(id)
+    if (!this.commit(next)) {
+      if (previousHp === undefined) this.hp.delete(id)
+      else this.hp.set(id, previousHp)
+      mount.dispose()
+      return this.fail('保存失敗，坐騎沒有變更。')
+    }
+
+    if (previous) this.removeMountVisual(previous)
     this.active = { id, mount }
     this.player().mountVehicle(mount)
     this.statusText = `${config.name}已騎乘。`
     return true
   }
 
+  restoreActiveMount(): boolean {
+    const profile = this.readProfile()
+    const id = profile.activeMission?.mountState?.activeMountId
+    if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
+    const position = findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
+    if (!position) return false
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, id.startsWith('horse-t') ? (Number(id.charAt(id.length - 1)) - 1) as 0 | 1 | 2 : 0)
+    mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
+    this.installDeathPersistence(id, mount)
+    this.active = { id, mount }
+    this.player().mountVehicle(mount)
+    this.statusText = `${MOUNTS[id].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
+    return true
+  }
+
   dismiss(): boolean {
     if (!this.active) return false
-    this.removeActive(this.active)
+    const entry = this.active
+    this.hp.set(entry.id, entry.mount.currentHp)
+    if (!this.persistOutingState(undefined)) return this.fail('保存失敗，坐騎仍保持召喚。')
+    this.removeMountVisual(entry)
     this.active = null
     this.statusText = '坐騎已收起。'
     return true
@@ -134,13 +166,18 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!active) return
     active.mount.setCameraDistance(active.mount.group.position.distanceTo(this.player().position))
     if (active.mount.dead) active.mount.update(dt, this.obstacles() as ObstacleData[])
-    this.hp.set(active.id, active.mount.currentHp)
+    if (this.hp.get(active.id) !== active.mount.currentHp) {
+      this.hp.set(active.id, active.mount.currentHp)
+      this.persistOutingState(active.id)
+    }
   }
 
   restInTown(): void {
-    this.dismiss()
+    if (this.active) this.removeMountVisual(this.active)
+    this.active = null
     this.unavailable.clear()
     this.hp.clear()
+    this.persistOutingState(undefined)
     this.statusText = '坐騎已在馬廄完成休整。'
   }
 
@@ -148,12 +185,44 @@ export class CareerMountController implements EquipmentMountAdapter {
   get activeMountId(): CareerMountId | null { return this.active?.id ?? null }
 
   dispose(): void {
-    if (this.active) this.removeActive(this.active)
+    if (this.active) {
+      if (this.hp.get(this.active.id) !== this.active.mount.currentHp) {
+        this.hp.set(this.active.id, this.active.mount.currentHp)
+        this.persistOutingState(this.active.id)
+      }
+      this.removeMountVisual(this.active)
+    }
     this.active = null
   }
 
-  private removeActive(entry: { id: CareerMountId; mount: Mount }): void {
-    this.hp.set(entry.id, entry.mount.currentHp)
+  private installDeathPersistence(id: CareerMountId, mount: Mount): void {
+    mount.onDeathCallbacks.push(() => {
+      this.hp.set(id, 0)
+      this.unavailable.add(id)
+      this.persistOutingState(id)
+      this.statusText = `${MOUNTS[id].name}已倒下；本次出城不能再次召喚。`
+    })
+  }
+
+  private outingState(activeMountId: CareerMountId | undefined): NonNullable<CareerProfile['activeMission']>['mountState'] {
+    const hp: Partial<Record<CareerMountId, number>> = {}
+    for (const [id, value] of this.hp) hp[id] = Math.max(0, value)
+    return {
+      ...(activeMountId ? { activeMountId } : {}),
+      hp,
+      unavailable: [...this.unavailable],
+    }
+  }
+
+  private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
+    const profile = this.readProfile()
+    if (!profile.activeMission) return true
+    const next = cloneCareerProfile(profile)
+    next.activeMission!.mountState = this.outingState(activeMountId)
+    return this.commit(next)
+  }
+
+  private removeMountVisual(entry: { id: CareerMountId; mount: Mount }): void {
     if (this.player().currentMount === entry.mount) this.player().dismountFromMount()
     entry.mount.dispose()
   }

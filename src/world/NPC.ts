@@ -192,6 +192,9 @@ export class NPC {
   private followSlotIndex = -1
   private followLocalOffset = new THREE.Vector3()
   private followCombatActive = false
+  private followNavigationActive = false
+  private followNavigationCheckRemaining = 0
+  private readonly followNavigationGoal = new THREE.Vector3()
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
@@ -843,6 +846,7 @@ export class NPC {
     this.followTarget = null
     this.followSlotIndex = -1
     this.followCombatActive = false
+    this._resetFollowNavigation()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -863,6 +867,7 @@ export class NPC {
     this.followTarget = null
     this.followSlotIndex = -1
     this.followCombatActive = false
+    this._resetFollowNavigation()
     this.formationTarget = {
       commandId,
       position: target.clone(),
@@ -885,6 +890,8 @@ export class NPC {
     this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
     this.followLocalOffset.copy(localOffset)
     this.followCombatActive = false
+    this._resetFollowNavigation()
+    this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
     const position = followSlotWorldPosition(target.combatPosition, target.group.rotation.y, this.followLocalOffset)
     this.formationTarget = {
       commandId: -1,
@@ -1123,6 +1130,12 @@ export class NPC {
 
   private _clearNavigationPath(): void {
     this._navigationPath.clear()
+  }
+
+  private _resetFollowNavigation(): void {
+    this.followNavigationActive = false
+    this.followNavigationCheckRemaining = 0
+    this.followNavigationGoal.set(0, 0, 0)
   }
 
   private _resolveNavigationMoveTarget(
@@ -2354,20 +2367,64 @@ export class NPC {
     const arrivalDistance = this.tacticalOrder === 'follow' ? FOLLOW_THRESHOLDS.holdDistance : FORMATION_ARRIVAL_DISTANCE
     if (distance <= arrivalDistance) {
       target.reached = true
+      if (this.tacticalOrder === 'follow' && this.followNavigationActive) {
+        this.followNavigationActive = false
+        this._clearNavigationPath()
+      }
       this._faceDirection(target.facing)
       this.state = AIState.IDLE
       return
     }
     moveDir.normalize()
 
-    const navigationRoute = !skipBoidsAndObstacles
-      ? this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
-      : 'direct'
+    let navigationRoute: NavigationRouteKind = 'direct'
+    let navigationGoal = target.position
+    if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
+      this.followNavigationCheckRemaining -= dt
+      if (this.followNavigationCheckRemaining <= 0) {
+        this.followNavigationCheckRemaining = .65 + this._initialStaggerPhase * .35
+        const blocked = distance > FOLLOW_THRESHOLDS.runDistance && findBlockingObstacleAlongPath(
+          this.combatPosition,
+          target.position,
+          this._movementObstacleRadius(),
+          this._movementObstacleHeight(),
+          0,
+          obstacles,
+        ) !== null
+        if (blocked) {
+          if (!this.followNavigationActive) {
+            this.followNavigationActive = true
+            this.followNavigationGoal.copy(target.position)
+            this._clearNavigationPath()
+          }
+        } else if (this.followNavigationActive) {
+          this.followNavigationActive = false
+          this._clearNavigationPath()
+        }
+      }
+      if (this.followNavigationActive && navigationWorld) {
+        navigationGoal = this.followNavigationGoal
+        if (this.combatPosition.distanceToSquared(navigationGoal) <= 9) {
+          this.followNavigationActive = false
+          this._clearNavigationPath()
+        } else {
+          navigationRoute = this._navigationPath.resolveMoveTarget(
+            this.combatPosition,
+            navigationGoal,
+            navigationWorld,
+            true,
+            this._tmpNavigationTarget,
+          )
+        }
+      }
+    } else if (!skipBoidsAndObstacles) {
+      navigationRoute = this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
+    }
     if (navigationRoute === 'path') {
       moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
       this._clearObstacleDetour()
     } else if (navigationRoute === 'pending' || navigationRoute === 'unreachable') {
-      this._applyPersistentObstacleDetour(moveDir, target.position, dt, obstacles)
+      this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
     } else {
       this._clearObstacleDetour()
     }
