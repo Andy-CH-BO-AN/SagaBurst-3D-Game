@@ -38,7 +38,7 @@ export function selectLivingMissionLeader<T extends { dead: boolean }>(current: 
 
 export function selectMissionInfantryActorIds<T extends { spec: { role: string }; npc: { dead: boolean; combatantId: string } }>(residents: readonly T[], count: number): string[] {
   return residents
-    .filter(resident => resident.spec.role === 'melee_infantry' && !resident.npc.dead)
+    .filter(resident => (resident.spec.role === 'melee_infantry' || resident.spec.role === 'spearman_infantry') && !resident.npc.dead)
     .slice(0, Math.max(0, count))
     .map(resident => resident.npc.combatantId)
 }

@@ -10,15 +10,16 @@ import type { TownActorSpec } from '../town/TownRules'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { acceptsCareerMissionStat, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
+import type { NavigationWorld } from '../navigation/NavigationWorld'
 import {
   TOWN_DEFENSE_ATTACK_GROUPS,
   TOWN_DEFENSE_LAYOUT,
   TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
+  concentricDefenseSlots,
   createTownDefenseGroups,
   formationSlots,
   resolveTownDefenseOutcome,
-  shouldChargeReserve,
   townDefenseFailureLocked,
   type TownDefenseGroupId,
 } from './TownDefenseState'
@@ -48,6 +49,7 @@ export class TownDefenseController {
     private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean,
     private readonly blackCat: Mount,
+    private readonly navigation: NavigationWorld,
   ) {}
 
   get active(): ActiveCareerMission | undefined {
@@ -59,9 +61,10 @@ export class TownDefenseController {
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
   get captain(): NPC | null { return this.residents.find(resident => resident.spec.role === 'captain')?.npc ?? null }
   get ranger(): NPC | null { return this.residents.find(resident => resident.spec.role === 'ranger')?.npc ?? null }
+  get sergeant(): NPC | null { return this.residents.find(resident => resident.spec.role === 'deployment')?.npc ?? null }
   get releasedEnemies(): NPC[] { return this.attackGroups.filter(group => group.released).flatMap(group => group.members) }
   get waitingEnemies(): NPC[] { return this.attackGroups.filter(group => !group.released).flatMap(group => group.members) }
-  get fieldNpcs(): NPC[] { return [...this.defenders, ...(this.captain ? [this.captain] : []), ...(this.ranger ? [this.ranger] : []), ...this.civilians, ...this.releasedEnemies] }
+  get fieldNpcs(): NPC[] { return [...this.defenders, ...(this.captain ? [this.captain] : []), ...(this.ranger ? [this.ranger] : []), ...(this.sergeant ? [this.sergeant] : []), ...this.civilians, ...this.releasedEnemies] }
   get remainingEnemies(): number { return this.enemies.filter(enemy => !enemy.dead).length }
   get civilianDeaths(): number { return this.civilians.filter(civilian => civilian.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
@@ -92,6 +95,8 @@ export class TownDefenseController {
     this.attackElapsed = active.defenseElapsed ?? 0
     this.reserveCharged = active.defenseReserveCharged === true
       || Boolean(this.captain && deadFriendlies.has(this.captain.combatantId))
+      || Boolean(this.ranger && deadFriendlies.has(this.ranger.combatantId))
+      || Boolean(this.sergeant && deadFriendlies.has(this.sergeant.combatantId))
       || this.defenders.some(defender => deadFriendlies.has(defender.combatantId))
     if (active.phase !== 'PREPARING') {
       this.beginAttack()
@@ -139,7 +144,7 @@ export class TownDefenseController {
   peersFor(npc: NPC): NPC[] {
     if (npc.faction === Faction.ENEMY) {
       const insideTown = npc.combatPosition.distanceTo(this.anchorVector('townCenter')) < 45
-      return [...this.defenders, ...(this.captain && !this.captain.dead ? [this.captain] : []), ...(this.ranger && !this.ranger.dead ? [this.ranger] : []), ...(insideTown ? this.civilians : [])]
+      return [...this.defenders, ...(this.captain && !this.captain.dead ? [this.captain] : []), ...(this.ranger && !this.ranger.dead ? [this.ranger] : []), ...(this.sergeant && !this.sergeant.dead ? [this.sergeant] : []), ...(insideTown ? this.civilians : [])]
     }
     return this.releasedEnemies
   }
@@ -154,60 +159,56 @@ export class TownDefenseController {
   }
 
   private prepareDeployment(): void {
-    const plans = createTownDefenseGroups(this.residents.map(resident => resident.spec))
-    for (const plan of plans) {
-      const runtime = this.groups.find(group => group.id === plan.id)!
-      const anchor = TOWN_DEFENSE_LAYOUT[plan.anchor]
-      const leader = runtime.members[0]
-      if (plan.mounted) {
-        const slots = formationSlots(anchor, runtime.members.length, true)
-        runtime.members.forEach((member, index) => member.assignFormationTarget(this.commandId++, this.withTerrain(slots[index]), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ)))
-      } else {
-        leader.assignFormationTarget(this.commandId++, this.anchorVector(plan.anchor), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ))
-        for (let index = 1; index < runtime.members.length; index++) runtime.members[index].assignFollowTarget(leader, index - 1)
-      }
+    const byGroup = (id: TownDefenseGroupId) => this.groups.find(group => group.id === id)?.members ?? []
+    const occupied: { point: THREE.Vector3; spacing: number }[] = []
+    const place = (point: THREE.Vector3, spacing: number) => this.walkable(point, occupied, spacing)
+    const melee = [...byGroup('A'), ...byGroup('B'), ...(this.sergeant ? [this.sergeant] : [])]
+    const ranged = [...byGroup('C'), ...byGroup('D')]
+    const screen = byGroup('F')
+    const assignRing = (members: NPC[], radii: number[], phase: number) => {
+      const slots = concentricDefenseSlots(members.length, radii, phase)
+      members.forEach((member, index) => {
+        const slot = place(slots[index], member.isMounted ? 5 : 2.2)
+        const facing = slot.clone().sub(this.anchorVector('townCenter')).setY(0).normalize()
+        member.assignFormationTarget(this.commandId++, slot, facing, undefined, 'defend')
+      })
     }
+    assignRing(ranged, [12.5, 16], .12)
+    assignRing(melee, [21, 25], .28)
+    assignRing(screen, [30, 35], .48)
+    const reserve = byGroup('E')
+    const reserveSlots = formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, reserve.length, true)
+    reserve.forEach((member, index) => member.assignFormationTarget(this.commandId++, place(reserveSlots[index], 5), new THREE.Vector3(0, 0, 1), undefined, 'defend'))
     const shelters = civilianShelterSlots(this.civilians.length)
-    this.civilians.forEach((civilian, index) => civilian.assignFormationTarget(this.commandId++, this.withTerrain(shelters[index]), new THREE.Vector3(0, 0, 1)))
-    this.captain?.assignFormationTarget(this.commandId++, this.anchorVector('captainReserve'), new THREE.Vector3(0, 0, 1))
+    this.civilians.forEach((civilian, index) => civilian.assignFormationTarget(this.commandId++, place(shelters[index], 1.8), new THREE.Vector3(0, 0, 1)))
+    this.captain?.assignFormationTarget(this.commandId++, place(concentricDefenseSlots(1, [18], 2.5)[0], 5), new THREE.Vector3(0, 0, 1), undefined, 'defend')
     if (this.ranger && !this.ranger.dead) {
       if (!this.blackCat.dead && this.ranger.mount !== this.blackCat) this.ranger.mountVehicle(this.blackCat)
       if (!this.blackCat.dead) this.blackCat.catVisual?.setEquipmentVisible(true)
       const flank = TOWN_DEFENSE_LAYOUT.rangerFlank
-      this.ranger.assignFormationTarget(this.commandId++, this.anchorVector('rangerFlank'), new THREE.Vector3(flank.facingX, 0, flank.facingZ))
+      this.ranger.assignFormationTarget(this.commandId++, place(this.anchorVector('rangerFlank'), this.blackCat.dead ? 2.2 : 5), new THREE.Vector3(flank.facingX, 0, flank.facingZ), undefined, 'defend')
     }
   }
 
   private beginAttack(): void {
-    const plans = createTownDefenseGroups(this.residents.map(resident => resident.spec))
-    for (const plan of plans) {
-      const runtime = this.groups.find(group => group.id === plan.id)!
-      const anchor = TOWN_DEFENSE_LAYOUT[plan.anchor]
-      const slots = formationSlots(anchor, runtime.members.length, plan.mounted)
-      runtime.members.forEach((member, index) => member.assignFormationTarget(this.commandId++, this.withTerrain(slots[index]), new THREE.Vector3(anchor.facingX, 0, anchor.facingZ)))
-    }
-    this.issueCombatOrders()
-    if (this.ranger && !this.ranger.dead) this.ranger.setTacticalOrder('attack')
+    if (this.reserveCharged) this.issueCombatOrders()
     for (const group of this.attackGroups) this.releaseAttackGroup(group)
   }
 
   noteEffectiveFriendlyDamage(target: NPC): void {
-    if ((this.phase !== 'ATTACKING' && this.phase !== 'FAILURE_LOCKED') || !shouldChargeReserve(this.reserveCharged,
-      target === this.captain || this.groups.some(group => group.members.includes(target)))) return
+    if ((this.phase !== 'ATTACKING' && this.phase !== 'FAILURE_LOCKED') || this.reserveCharged
+      || !(target === this.captain || target === this.ranger || target === this.sergeant || this.groups.some(group => group.members.includes(target)))) return
     this.reserveCharged = true
-    for (const member of this.groups.find(group => group.id === 'E')?.members ?? []) {
-      if (!member.dead) member.setTacticalOrder('charge')
-    }
-    if (this.captain && !this.captain.dead) this.captain.setTacticalOrder('charge')
+    this.issueCombatOrders()
     this.persistRuntimeProgress()
   }
 
   private issueCombatOrders(): void {
     for (const group of this.groups) {
-      const order = group.id === 'E' ? this.reserveCharged ? 'charge' : 'defend' : 'attack'
-      for (const member of group.members) member.setTacticalOrder(order)
+      const order = group.id === 'E' ? 'charge' : 'attack'
+      for (const member of group.members) if (!member.dead) member.setTacticalOrder(order)
     }
-    this.captain?.setTacticalOrder(this.reserveCharged ? 'charge' : 'defend')
+    for (const actor of [this.captain, this.ranger, this.sergeant]) if (actor && !actor.dead) actor.setTacticalOrder('attack')
   }
 
   private spawnAttackers(active: ActiveCareerMission): void {
@@ -259,6 +260,7 @@ export class TownDefenseController {
     const deadFriendlies = this.defenders.filter(npc => npc.dead).map(npc => npc.combatantId).sort()
     if (this.captain?.dead) deadFriendlies.push(this.captain.combatantId)
     if (this.ranger?.dead) deadFriendlies.push(this.ranger.combatantId)
+    if (this.sergeant?.dead) deadFriendlies.push(this.sergeant.combatantId)
     deadFriendlies.sort()
     const deadCivilians = this.civilians.filter(npc => npc.dead).map(npc => npc.combatantId).sort()
     const targetIds = [...deadTargets].filter(id => active.targetActorIds.includes(id)).sort()
@@ -286,6 +288,27 @@ export class TownDefenseController {
   private withTerrain(point: THREE.Vector3): THREE.Vector3 {
     point.y = getTerrainHeight(point.x, point.z)
     return point
+  }
+
+  private walkable(point: THREE.Vector3, occupied: { point: THREE.Vector3; spacing: number }[], spacing: number): THREE.Vector3 {
+    const grid = this.navigation.grid
+    for (const radius of [0, 2, 4, 6, 8, 10, 12]) {
+      for (let step = 0; step < (radius === 0 ? 1 : 12); step++) {
+        const angle = step * Math.PI / 6
+        const candidate = new THREE.Vector3(point.x + Math.sin(angle) * radius, 0, point.z + Math.cos(angle) * radius)
+        const cell = grid.findNearestWalkableCell(candidate, 2)
+        if (!cell) continue
+        const snapped = grid.cellToWorld(cell)
+        if (occupied.some(other => snapped.distanceToSquared(other.point) < ((spacing + other.spacing) / 2) ** 2)) continue
+        const result = this.withTerrain(snapped)
+        occupied.push({ point: result, spacing })
+        return result
+      }
+    }
+    const fallback = grid.findNearestWalkableCell(point, 16)
+    const result = this.withTerrain(fallback ? grid.cellToWorld(fallback) : point)
+    occupied.push({ point: result, spacing })
+    return result
   }
 
   private disposeEnemies(): void {

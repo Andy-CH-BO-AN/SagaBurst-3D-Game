@@ -34,6 +34,7 @@ describe('Recruit mission catalog and merit', () => {
     expect(defense.storyOnce).toBe(true)
     expect(defense.requiresCompletions).toBe(5)
     expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 50, 20, 10])
+    expect(defense.friendlyCombatants).toBe(64)
     let profile = createCareerProfile('roman')
     expect(availableRecruitMissions(profile)).toHaveLength(2)
     profile.careerMissionCompletions = 1
@@ -46,6 +47,12 @@ describe('Recruit mission catalog and merit', () => {
     expect(availableRecruitMissions(profile)).toHaveLength(7)
     profile.completedCareerMissionTemplateIds = [defense.id]
     expect(availableRecruitMissions(profile)).toHaveLength(6)
+    for (const rank of ['soldier', 'veteran', 'captain', 'commander'] as const) {
+      profile.rank = rank
+      expect(availableRecruitMissions(profile).map(mission => mission.id)).toEqual(availableRecruitMissions({ ...profile, rank: 'recruit' }).map(mission => mission.id))
+    }
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
+    expect(availableRecruitMissions(profile)).toEqual([])
   })
 
   it('gives spectators zero and scales low, normal and high personal contribution', () => {
@@ -123,15 +130,16 @@ describe('Mission identity, attribution and claim', () => {
     expect(mission.friendlyActorIds.slice(1)).toHaveLength(4)
   })
 
-  it('draws mission soldiers only from living existing melee infantry', () => {
+  it('draws mission soldiers from living existing sword and spear infantry', () => {
     const residents = [
       { spec: { role: 'melee_cavalry' }, npc: { dead: false, combatantId: 'cavalry' } },
       { spec: { role: 'melee_infantry' }, npc: { dead: false, combatantId: 'infantry-a' } },
       { spec: { role: 'melee_infantry' }, npc: { dead: true, combatantId: 'infantry-dead' } },
       { spec: { role: 'ranged_cavalry' }, npc: { dead: false, combatantId: 'mounted-archer' } },
       { spec: { role: 'melee_infantry' }, npc: { dead: false, combatantId: 'infantry-b' } },
+      { spec: { role: 'spearman_infantry' }, npc: { dead: false, combatantId: 'spear' } },
     ]
-    expect(selectMissionInfantryActorIds(residents, 2)).toEqual(['infantry-a', 'infantry-b'])
+    expect(selectMissionInfantryActorIds(residents, 3)).toEqual(['infantry-a', 'infantry-b', 'spear'])
   })
 
   it('checkpoints route progress coarsely instead of writing every route node', () => {

@@ -20,14 +20,8 @@ export const TOWN_DEFENSE_LAYOUT = {
   southApproach: { x: 0, z: 145, facingX: 0, facingZ: -1 },
   westStableApproach: { x: -145, z: 20, facingX: 1, facingZ: 0 },
   eastBarracksApproach: { x: 145, z: 45, facingX: -1, facingZ: 0 },
-  southMeleeLine: { x: 0, z: 58, facingX: 0, facingZ: 1 },
-  southRangedLine: { x: 0, z: 47, facingX: 0, facingZ: 1 },
-  westMeleeLine: { x: -67, z: 18, facingX: -1, facingZ: 0 },
-  westRangedLine: { x: -55, z: 18, facingX: -1, facingZ: 0 },
-  cavalryReserve: { x: 23, z: 14, facingX: 0, facingZ: 1 },
-  captainReserve: { x: 23, z: 25, facingX: 0, facingZ: 1 },
-  rangerFlank: { x: -45, z: 37, facingX: -1, facingZ: 0 },
-  horseArcherWing: { x: 54, z: 45, facingX: -1, facingZ: 0 },
+  cavalryReserve: { x: 25, z: -4, facingX: 0, facingZ: 1 },
+  rangerFlank: { x: -28, z: -28, facingX: -1, facingZ: 0 },
   townCenter: { x: 0, z: 0, facingX: 0, facingZ: 1 },
   civilianShelter: { x: 0, z: -3, facingX: 0, facingZ: 1 },
   playerRallyPoint: { x: 0, z: 51, facingX: 0, facingZ: 1 },
@@ -36,8 +30,7 @@ export const TOWN_DEFENSE_LAYOUT = {
 export interface TownDefenseGroupPlan {
   id: TownDefenseGroupId
   actorIds: string[]
-  role: 'frontline' | 'ranged-support' | 'reserve' | 'mounted-flank'
-  anchor: keyof typeof TOWN_DEFENSE_LAYOUT
+  role: 'melee-ring' | 'ranged-ring' | 'reserve' | 'outer-screen'
   initialOrder: TownDefenseOrder
   mounted: boolean
 }
@@ -48,17 +41,31 @@ const takeRole = (roster: readonly TownActorSpec[], role: TownRole): string[] =>
 
 export function createTownDefenseGroups(roster: readonly TownActorSpec[]): TownDefenseGroupPlan[] {
   const melee = takeRole(roster, 'melee_infantry')
+  const spearmen = takeRole(roster, 'spearman_infantry')
   const ranged = takeRole(roster, 'ranged_infantry')
-  const cavalry = takeRole(roster, 'melee_cavalry')
+  const cavalry = [...takeRole(roster, 'melee_cavalry'), ...takeRole(roster, 'lancer_cavalry')]
   const horseArchers = takeRole(roster, 'ranged_cavalry')
   return [
-    { id: 'A', actorIds: melee.slice(0, 10), role: 'frontline', anchor: 'southMeleeLine', initialOrder: 'ATTACK', mounted: false },
-    { id: 'B', actorIds: melee.slice(10, 20), role: 'frontline', anchor: 'westMeleeLine', initialOrder: 'ATTACK', mounted: false },
-    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-support', anchor: 'southRangedLine', initialOrder: 'ATTACK', mounted: false },
-    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-support', anchor: 'westRangedLine', initialOrder: 'ATTACK', mounted: false },
-    { id: 'E', actorIds: cavalry, role: 'reserve', anchor: 'cavalryReserve', initialOrder: 'DEFEND', mounted: true },
-    { id: 'F', actorIds: horseArchers, role: 'mounted-flank', anchor: 'horseArcherWing', initialOrder: 'SKIRMISH', mounted: true },
+    { id: 'A', actorIds: melee, role: 'melee-ring', initialOrder: 'DEFEND', mounted: false },
+    { id: 'B', actorIds: spearmen, role: 'melee-ring', initialOrder: 'DEFEND', mounted: false },
+    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-ring', initialOrder: 'DEFEND', mounted: false },
+    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-ring', initialOrder: 'DEFEND', mounted: false },
+    { id: 'E', actorIds: cavalry, role: 'reserve', initialOrder: 'DEFEND', mounted: true },
+    { id: 'F', actorIds: horseArchers, role: 'outer-screen', initialOrder: 'DEFEND', mounted: true },
   ]
+}
+
+/** Interleave members across the rows so each ring has room to fight and move. */
+export function concentricDefenseSlots(count: number, radii: readonly number[], phase = 0): THREE.Vector3[] {
+  const center = TOWN_DEFENSE_LAYOUT.civilianShelter
+  const rows = radii.map((radius, row) => ({ radius, count: Math.floor(count / radii.length) + (row < count % radii.length ? 1 : 0) }))
+  const used = rows.map(() => 0)
+  return Array.from({ length: count }, (_, index) => {
+    const row = index % radii.length
+    const ordinal = used[row]++
+    const angle = phase + (ordinal + row * .25) * Math.PI * 2 / rows[row].count
+    return new THREE.Vector3(center.x + Math.sin(angle) * rows[row].radius, 0, center.z + Math.cos(angle) * rows[row].radius)
+  })
 }
 
 export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted = false): THREE.Vector3[] {
@@ -113,8 +120,4 @@ export function resolveTownDefenseOutcome(playerDead: boolean, civilianDeaths: n
 
 export function townDefenseFailureLocked(civilianDeaths: number): boolean {
   return civilianDeaths > TOWN_DEFENSE_CIVILIAN_LIMIT
-}
-
-export function shouldChargeReserve(alreadyCharged: boolean, effectiveGarrisonDamage: boolean): boolean {
-  return !alreadyCharged && effectiveGarrisonDamage
 }

@@ -187,6 +187,7 @@ export class NPC {
     facing: THREE.Vector3
     reached: boolean
     speedLimit?: number
+    arrivalOrder?: TacticalOrder
   } | null = null
   private followTarget: NPC | Player | null = null
   private followSlotIndex = -1
@@ -260,6 +261,7 @@ export class NPC {
   private state: AIState = AIState.IDLE
   private encounterOrigin: THREE.Vector3 | null = null
   private encounterAggro: BanditAggroState = 'alerted'
+  private playerHitFocus = 0
   private encounterLeash = Infinity
   private alertTimer = 0
   private attackTimer = 0
@@ -363,6 +365,7 @@ export class NPC {
     this.encounterOrigin = origin.clone()
     this.encounterLeash = leash
     this.encounterAggro = 'idle'
+    this.playerHitFocus = 0
     if (patrolWaypoints.length > 0) {
       this.waypoints = patrolWaypoints.map(point => point.clone())
       this.currentWaypointIdx = 0
@@ -375,7 +378,7 @@ export class NPC {
 
   triggerEncounterAlert(): void {
     if (this.dead) return
-    if (this.encounterAggro === 'provoked') return
+    if (this.encounterAggro === 'provoked' || this.encounterAggro === 'alerted') return
     if (
       this.encounterAggro === 'returning'
       && this.encounterOrigin
@@ -394,13 +397,29 @@ export class NPC {
 
   provokeEncounter(): void {
     if (this.dead || !this.encounterOrigin) return
+    const firstDetection = this.encounterAggro === 'idle' || this.encounterAggro === 'returning'
     this.encounterAggro = 'provoked'
     this.formationTarget = null
     this.tacticalOrder = 'attack'
-    this.state = AIState.ALERT
-    this.alertTimer = .2
-    this.alertSprite.visible = true
+    if (firstDetection && this.state === AIState.IDLE) {
+      this.state = AIState.ALERT
+      this.alertTimer = .2
+      this.alertSprite.visible = true
+    }
     this._targetAcquisitionInitialized = false
+    this._clearNavigationPath()
+  }
+
+  /** An effective Player hit interrupts a stale NPC target and makes Player the combat target. */
+  retaliateAgainstPlayer(): void {
+    if (this.dead || !this.targetsPlayer) return
+    this.playerHitFocus = 10
+    this._cachedTargetIsPlayer = true
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = true
+    this._targetReacquireFramesRemaining = 0
+    this.formationTarget = null
+    if (this.state === AIState.IDLE) this.state = AIState.CHASE
     this._clearNavigationPath()
   }
 
@@ -861,13 +880,13 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
 
-  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number): void {
+  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder): void {
     if (this.dead) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
-    this.tacticalOrder = 'formation'
+    this.tacticalOrder = arrivalOrder ?? 'formation'
     this.followTarget = null
     this.followSlotIndex = -1
     this.followCombatActive = false
@@ -878,6 +897,7 @@ export class NPC {
       facing: facing.clone().setY(0).normalize(),
       reached: false,
       speedLimit,
+      arrivalOrder,
     }
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
@@ -1557,6 +1577,11 @@ export class NPC {
     let closestTarget = null
     let closestDistSq = Infinity
 
+    if (this.playerHitFocus > 0 && this.targetsPlayer && player.targetable && !player.dead) {
+      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+      return { position: playerPos, isDead: false, isPlayer: true }
+    }
+
     // Check Player separately because Player is not stored in the NPC spatial grids.
     if (this.targetsPlayer && player.targetable) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
@@ -1629,6 +1654,8 @@ export class NPC {
       return
     }
 
+    this.playerHitFocus = Math.max(0, this.playerHitFocus - dt)
+
     if (this.encounterOrigin && this.encounterAggro === 'provoked' && player.dead) this._beginEncounterReturn()
     if (
       this.encounterOrigin
@@ -1641,6 +1668,7 @@ export class NPC {
       && this.combatPosition.distanceToSquared(this.encounterOrigin) <= 9
     ) {
       this.encounterAggro = 'idle'
+      this.playerHitFocus = 0
       this.formationTarget = null
       this.tacticalOrder = 'attack'
       this.state = AIState.IDLE
@@ -1678,7 +1706,7 @@ export class NPC {
         }
       }
     }
-    if ((this.tacticalOrder === 'formation' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget) {
+    if ((this.tacticalOrder === 'formation' || this.tacticalOrder === 'defend' && this.formationTarget?.arrivalOrder === 'defend' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget) {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
@@ -2390,6 +2418,10 @@ export class NPC {
         : target.reached ? 1 : FORMATION_ARRIVAL_DISTANCE
     if (distance <= arrivalDistance) {
       target.reached = true
+      if (target.arrivalOrder === 'defend') {
+        this.formationTarget = null
+        this._restoreVikingDefensiveStance()
+      }
       if (this.tacticalOrder === 'follow' && this.followNavigationActive) {
         this.followNavigationActive = false
         this._clearNavigationPath()

@@ -1,4 +1,4 @@
-import { enlistmentMerit, type CareerProfile } from './CareerProfile'
+import { CAREER_RANKS, enlistmentMerit, type CareerProfile, type CareerRank } from './CareerProfile'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
 export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
@@ -13,6 +13,7 @@ interface RecruitMissionCommon {
   requiresEnlistmentMerit: number
   requiresCompletions: number
   storyOnce: boolean
+  minRank: CareerRank
 }
 
 export interface RecruitBanditMissionTemplate extends RecruitMissionCommon {
@@ -67,6 +68,7 @@ const mission = (
   requiresEnlistmentMerit,
   requiresCompletions,
   storyOnce: false,
+  minRank: 'recruit',
 })
 
 const patrol = (
@@ -90,6 +92,7 @@ const patrol = (
   requiresEnlistmentMerit,
   requiresCompletions: 0,
   storyOnce: false,
+  minRank: 'recruit',
 })
 
 /**
@@ -131,7 +134,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     briefing: '敵方騎兵正在逼近城鎮。加入守軍，守住防線並保護居民。',
     targetArea: 'career-town',
     friendlySoldiers: 60,
-    friendlyCombatants: 62,
+    friendlyCombatants: 64,
     enemyCount: 50,
     civilianCount: 20,
     maxCivilianDeaths: 10,
@@ -139,6 +142,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     requiresEnlistmentMerit: 120,
     requiresCompletions: 5,
     storyOnce: true,
+    minRank: 'recruit',
   },
 ]
 
@@ -151,12 +155,13 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
 }
 
 export function availableRecruitMissions(profile: CareerProfile): RecruitMissionTemplate[] {
-  if (profile.rank !== 'recruit' || profile.activeMission) return []
+  if (profile.activeMission) return []
   const merit = enlistmentMerit(profile)
   const completions = profile.careerMissionCompletions ?? 0
   const completedStory = profile.completedCareerMissionTemplateIds ?? []
   return RECRUIT_MISSION_CATALOG.filter(template => (
-    merit >= template.requiresEnlistmentMerit
+    CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
+    && merit >= template.requiresEnlistmentMerit
     && completions >= template.requiresCompletions
     && (!template.storyOnce || !completedStory.includes(template.id))
   ))
