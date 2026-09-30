@@ -10,11 +10,11 @@ import {
   type BaseUnitTier as UnitTier,
 } from '../battle/UnitPresetCatalog'
 
-type ReferenceSubTab = 'balance' | 'viking' | 'roman' | 'weapons' | 'shields'
+type ReferenceSubTab = 'viking' | 'roman' | 'heroes' | 'weapons' | 'shields' | 'balance'
 
 export class BattleReferenceUI {
   private container: HTMLElement | null = null
-  private activeSubTab: ReferenceSubTab = 'balance'
+  private activeSubTab: ReferenceSubTab = 'viking'
   private onBackCallback: (() => void) | null = null
 
   mount(parent: HTMLElement = document.body, onBack?: () => void): void {
@@ -53,6 +53,20 @@ export class BattleReferenceUI {
         this._refreshSubTabs()
       })
     })
+    this.container?.querySelectorAll<HTMLElement>('.reference-hero-link').forEach(button => {
+      button.addEventListener('click', () => {
+        const heroId = button.dataset.heroId
+        if (!heroId) return
+        this.activeSubTab = 'heroes'
+        this._refreshSubTabs()
+        requestAnimationFrame(() => {
+          this.container?.querySelector<HTMLElement>(`#hero-card-${heroId}`)?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          })
+        })
+      })
+    })
   }
 
   private _refreshSubTabs(): void {
@@ -74,6 +88,8 @@ export class BattleReferenceUI {
           ${presets.map(p => {
             const hasShield = Object.values(p.tierLoadouts).some(l => !!l.shieldId)
             const isMounted = Object.values(p.tierLoadouts).some(l => !!l.mountId)
+            const heroProfile = T4_UNIT_PROFILES[p.id]
+            const heroAsset = HERO_ASSETS[heroProfile.visualAssetId]
             return `
               <div class="reference-preset-card">
                 <div class="reference-preset-header">
@@ -83,7 +99,11 @@ export class BattleReferenceUI {
                     <span class="reference-badge ${isMounted ? 'badge-mounted' : 'badge-neutral'}">${isMounted ? '騎乘' : '步兵'}</span>
                   </div>
                 </div>
-                <p class="reference-preset-desc">${p.description} T4 Hero：${HERO_ASSETS[T4_UNIT_PROFILES[p.id].visualAssetId].nameZh}。</p>
+                <p class="reference-preset-desc">${p.description}</p>
+                <button type="button" class="reference-hero-link" data-hero-id="${heroProfile.visualAssetId}">
+                  <span>T4 英雄：<b>${heroAsset.nameZh}</b></span>
+                  <em>查看介紹 →</em>
+                </button>
                 <div class="reference-preset-traits">
                   ${p.traits.map(t => `<div class="reference-trait-badge">${getTraitDescription(t)}</div>`).join('')}
                 </div>
@@ -111,18 +131,82 @@ export class BattleReferenceUI {
         </div>
       `
 
+    const heroEntries = [
+      {
+        id: 'viking-hero-t4' as const,
+        mark: 'V',
+        factionClass: 'viking',
+        role: '維京 · T4 英雄',
+        tags: ['強力進攻', '快速出手', '追擊'],
+        description: '身經百戰的維京精銳，以強勁的攻擊和快速出手壓制敵人。適合帶頭進攻，或追擊脫離隊伍的敵兵。',
+        note: '騎兵型態坐騎：黑貓',
+      },
+      {
+        id: 'roman-hero-t4' as const,
+        mark: 'SPQR',
+        factionClass: 'roman',
+        role: '羅馬 · T4 英雄',
+        tags: ['堅守前線', '傷害減免', '強力反擊'],
+        description: '羅馬軍團的精銳衛士，能承受更多攻擊，並以強力打擊迎戰敵人。適合配合友軍守住要道，或穩步推進戰線。',
+        note: '騎兵型態坐騎：柯基',
+      },
+      {
+        id: 'maki-archer-t4' as const,
+        mark: 'R',
+        factionClass: 'ranger',
+        role: '雙陣營 · T4 弓兵英雄',
+        tags: ['遠距接戰', '靈活移動', '弓身近戰'],
+        description: '身手靈活的遠程獵手，擅長拉開距離、持續射擊。敵人逼近時，也能以弓身近戰應急，但保持距離更能發揮優勢。',
+        note: '維京與羅馬的步弓兵共用英雄',
+      },
+    ]
+
+    const renderHeroCards = () => `
+      <div class="reference-hero-intro">
+        <h3>英雄 <span>HEROES</span></h3>
+        <p>T4 英雄擁有獨立的外觀與戰鬥特色。這裡只整理玩法定位；詳細數值仍以遊戲內戰鬥規則為準。</p>
+      </div>
+      <div class="reference-hero-grid">
+        ${heroEntries.map(hero => {
+          const asset = HERO_ASSETS[hero.id]
+          return `
+            <article id="hero-card-${hero.id}" class="reference-hero-card hero-${hero.factionClass}">
+              <div class="reference-hero-visual" aria-hidden="true">
+                <span class="reference-hero-tier">T4</span>
+                <strong>${hero.mark}</strong>
+                <small>${hero.factionClass === 'viking' ? 'VIKING' : hero.factionClass === 'roman' ? 'ROMAN' : 'RANGER'}</small>
+              </div>
+              <div class="reference-hero-content">
+                <div class="reference-hero-heading">
+                  <h3>${asset.nameZh}</h3>
+                  <span>${asset.nameEn}</span>
+                </div>
+                <div class="reference-hero-role">${hero.role}</div>
+                <div class="reference-hero-tags">
+                  ${hero.tags.map(tag => `<span>${tag}</span>`).join('')}
+                </div>
+                <p>${hero.description}</p>
+                <div class="reference-hero-note">${hero.note}</div>
+              </div>
+            </article>
+          `
+        }).join('')}
+      </div>
+    `
+
     return `
         <div id="setup-reference-panel" class="setup-tab-panel active reference-page">
           <div class="reference-panel-heading">
-            <h2>兵種與戰鬥數值參考</h2><span>UNITS &amp; COMBAT BALANCE</span>
+            <h2>兵種、英雄與武器</h2><span>UNITS, HEROES &amp; WEAPONS</span>
           </div>
 
           <div class="reference-subtabs-nav">
-            <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'balance' ? 'active' : ''}" data-ref-subtab="balance">戰鬥數值</button>
             <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'viking' ? 'active' : ''}" data-ref-subtab="viking">維京兵種</button>
             <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'roman' ? 'active' : ''}" data-ref-subtab="roman">羅馬兵種</button>
+            <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'heroes' ? 'active' : ''}" data-ref-subtab="heroes">英雄</button>
             <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'weapons' ? 'active' : ''}" data-ref-subtab="weapons">武器</button>
             <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'shields' ? 'active' : ''}" data-ref-subtab="shields">盾牌</button>
+            <button type="button" class="ref-subtab-btn ${this.activeSubTab === 'balance' ? 'active' : ''}" data-ref-subtab="balance">戰鬥數值</button>
           </div>
 
           <div class="reference-subpanels-container">
@@ -179,7 +263,12 @@ export class BattleReferenceUI {
               ${renderPresetList(romanPresets)}
             </div>
 
-            <!-- 4. 武器 -->
+            <!-- 4. 英雄 -->
+            <div id="ref-subpanel-heroes" class="ref-subpanel ${this.activeSubTab === 'heroes' ? 'active' : ''}" data-ref-subpanel="heroes">
+              ${renderHeroCards()}
+            </div>
+
+            <!-- 5. 武器 -->
             <div id="ref-subpanel-weapons" class="ref-subpanel ${this.activeSubTab === 'weapons' ? 'active' : ''}" data-ref-subpanel="weapons">
               <table class="reference-weapons-table">
                 <thead>
@@ -218,7 +307,7 @@ export class BattleReferenceUI {
               </table>
             </div>
 
-            <!-- 5. 盾牌 -->
+            <!-- 6. 盾牌 -->
             <div id="ref-subpanel-shields" class="ref-subpanel ${this.activeSubTab === 'shields' ? 'active' : ''}" data-ref-subpanel="shields">
               <table class="reference-weapons-table">
                 <thead>
