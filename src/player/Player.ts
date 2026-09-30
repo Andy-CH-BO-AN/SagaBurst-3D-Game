@@ -76,6 +76,8 @@ export interface ArrowLaunchEvent {
   visualKind: 'arrow' | 'pilum'
 }
 
+export const PLAYER_ARROW_CAPACITY = 30
+
 export class Player {
   readonly faction = Faction.PLAYER
   readonly group: THREE.Group
@@ -144,7 +146,7 @@ export class Player {
   private pilumProjectileReleased = false
   private pilumReadyAfterThrow = false
   private readonly pendingArrowTarget = new THREE.Vector3()
-  private arrows = 30
+  private arrows = PLAYER_ARROW_CAPACITY
   private isDead = false
   private readonly deathFade = new DeathFadeController()
   public spectatorOnly = false
@@ -276,6 +278,9 @@ export class Player {
     this.shieldPivot = new THREE.Group()
 
     this._buildMesh(2)
+
+    const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
+    if (heroCombat) this.setMaxHp(heroCombat.maxHp)
 
     // Build default initial weapons (Steel Sword & Recurve Longbow)
     this.rebuildMeleeWeapon('steel_sword')
@@ -642,6 +647,25 @@ export class Player {
   clearTownAction(): void {
     this._cancelEquipmentAction()
     this.pendingRangedWeapon = undefined
+  }
+
+  restoreForTown(): void {
+    this.isDead = false
+    this.deathFade.reset(this.group)
+    this._cancelEquipmentAction()
+    this.pendingRangedWeapon = undefined
+    this.pendingBowChargeTime = 0
+    this.pendingArcheryMultiplier = 1
+    this.nockedArrowReleased = false
+    this.isSprinting = false
+    this.bowCooldownTimer = 0
+    this.pilumCooldownTimer = 0
+    this.animator.setLocomotion(0, this.isMounted)
+    this.animator.cancel()
+    this.rig.animation?.update(0)
+    this.setHp(this.maxHp)
+    this.setStamina(MAX_STAMINA)
+    this.setArrowCount(PLAYER_ARROW_CAPACITY)
   }
 
   update(

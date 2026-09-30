@@ -7,8 +7,11 @@ import {
   CAREER_RANKS,
   resolveCareerRank,
   type CareerLifetimeStats,
+  type CareerMountId,
   type CareerProfile,
 } from './CareerProfile'
+import { getRecruitMissionTemplate } from './CareerMissionCatalog'
+import type { ActiveCareerMission, CareerMissionPhase } from './CareerMissionState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
 
@@ -41,6 +44,114 @@ function parseLifetimeStats(value: unknown): CareerLifetimeStats {
     structureDamage: nonNegativeNumber(input.structureDamage),
     breaches: nonNegativeInteger(input.breaches),
   }
+}
+
+function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerStats'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const stats = {
+    damageDealt: nonNegativeNumber(raw.damageDealt),
+    damageTaken: nonNegativeNumber(raw.damageTaken),
+    kills: nonNegativeInteger(raw.kills),
+    structureDamage: nonNegativeNumber(raw.structureDamage),
+    structuresDestroyed: nonNegativeInteger(raw.structuresDestroyed),
+    gateBreaches: nonNegativeInteger(raw.gateBreaches),
+  }
+  return Object.values(stats).some(value => value > 0) ? stats : undefined
+}
+
+const MISSION_PHASES: CareerMissionPhase[] = ['ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
+
+function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const activeMountId = CAREER_MOUNT_IDS.includes(raw.activeMountId as CareerMountId)
+    ? raw.activeMountId as CareerMountId
+    : undefined
+  const rawHp = raw.hp && typeof raw.hp === 'object' ? raw.hp as Record<string, unknown> : {}
+  const hp: Partial<Record<CareerMountId, number>> = {}
+  for (const id of CAREER_MOUNT_IDS) {
+    if (typeof rawHp[id] === 'number' && Number.isFinite(rawHp[id]) && (rawHp[id] as number) >= 0) hp[id] = rawHp[id] as number
+  }
+  const unavailable = uniqueStrings(raw.unavailable)
+    .filter((id): id is CareerMountId => CAREER_MOUNT_IDS.includes(id as CareerMountId))
+  if (!activeMountId && Object.keys(hp).length === 0 && unavailable.length === 0) return undefined
+  return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
+}
+
+function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const template = typeof raw.templateId === 'string' ? getRecruitMissionTemplate(raw.templateId) : null
+  if (
+    typeof raw.id !== 'string' || !raw.id
+    || !template
+    || !Number.isInteger(raw.targetCampId) || (template.kind === 'town-defense'
+      ? raw.targetCampId !== -1
+      : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
+    || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
+  ) return undefined
+  const targetActorIds = uniqueStrings(raw.targetActorIds)
+  const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
+  if (template.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
+  if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
+  const mountState = parseMissionMountState(raw.mountState)
+  const playerStats = parseMissionPlayerStats(raw.playerStats)
+
+  const mission: ActiveCareerMission = {
+    id: raw.id,
+    templateId: template.id,
+    kind: template.kind,
+    targetCampId: raw.targetCampId as number,
+    phase: raw.phase as CareerMissionPhase,
+    targetActorIds,
+    friendlyActorIds,
+    deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds).filter(id => targetActorIds.includes(id)),
+    deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
+    deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
+    ...(playerStats ? { playerStats } : {}),
+    routeStage: nonNegativeInteger(raw.routeStage),
+    patrolStage: nonNegativeInteger(raw.patrolStage),
+    defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
+    defensePreparationElapsed: nonNegativeNumber(raw.defensePreparationElapsed),
+    defenseReserveCharged: raw.defenseReserveCharged === true,
+    defenseCatDead: raw.defenseCatDead === true,
+    acceptedAt: nonNegativeInteger(raw.acceptedAt),
+    ...(mountState ? { mountState } : {}),
+    ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
+  }
+  if (raw.result && typeof raw.result === 'object') {
+    const result = raw.result as Record<string, unknown>
+    const player = result.stats && typeof result.stats === 'object' ? result.stats as Record<string, unknown> : {}
+    const merit = result.merit && typeof result.merit === 'object' ? result.merit as Record<string, unknown> : {}
+    if (result.outcome === 'victory' || result.outcome === 'failure') {
+      mission.result = {
+        outcome: result.outcome,
+        claimed: result.claimed === true,
+        stats: {
+          damageDealt: nonNegativeNumber(player.damageDealt),
+          damageTaken: nonNegativeNumber(player.damageTaken),
+          kills: nonNegativeInteger(player.kills),
+          structureDamage: nonNegativeNumber(player.structureDamage),
+          structuresDestroyed: nonNegativeInteger(player.structuresDestroyed),
+          gateBreaches: nonNegativeInteger(player.gateBreaches),
+          survived: player.survived === true,
+        },
+        merit: {
+          damage: nonNegativeInteger(merit.damage),
+          kills: nonNegativeInteger(merit.kills),
+          contribution: nonNegativeInteger(merit.contribution),
+          total: nonNegativeInteger(merit.total),
+        },
+        ...(result.defense && typeof result.defense === 'object' ? { defense: {
+          civilianSurvived: nonNegativeInteger((result.defense as Record<string, unknown>).civilianSurvived),
+          civilianDeaths: nonNegativeInteger((result.defense as Record<string, unknown>).civilianDeaths),
+        } } : {}),
+      }
+    }
+  }
+  return mission
 }
 
 export function parseCareerProfile(value: unknown): CareerProfile | null {
@@ -76,6 +187,10 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
   const townEvent = raw.townEvent as CareerProfile['townEvent']
+  const activeMission = parseActiveMission(raw.activeMission)
+  const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
+    ? raw.selectedMountId as CareerMountId
+    : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
   return {
     version: 1,
@@ -94,6 +209,10 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|cat|captain|deployment|soldier-outpost)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
+    ...(selectedMountId ? { selectedMountId } : {}),
+    ...(activeMission ? { activeMission } : {}),
+    ...(raw.careerMissionCompletions !== undefined ? { careerMissionCompletions: nonNegativeInteger(raw.careerMissionCompletions) } : {}),
+    ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),
     ownedWeapons,
     ownedArmors,
     ownedMounts,

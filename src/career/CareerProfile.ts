@@ -2,6 +2,8 @@ import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
+import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
 import {
   calculateMerit,
   type CareerBattleOutcome,
@@ -12,6 +14,7 @@ import {
 export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
 export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
 export type CareerPurchaseTier = 1 | 2 | 3 | 4
+export type CareerMountId = 'horse-t1' | 'horse-t2' | 'horse-t3' | 'black-cat' | 'corgi'
 
 export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
   recruit: 0,
@@ -53,6 +56,10 @@ export interface CareerProfile {
   starterWeaponId?: string
   townDialogueSeen?: string[]
   ownedHorseTiers?: (1 | 2 | 3)[]
+  selectedMountId?: CareerMountId
+  activeMission?: ActiveCareerMission
+  careerMissionCompletions?: number
+  completedCareerMissionTemplateIds?: string[]
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
   ownedWeapons: string[]
@@ -78,6 +85,12 @@ export interface CareerBattleClaim {
   alreadyClaimed: boolean
   previousRank: CareerRank
   newRank: CareerRank
+}
+
+export interface CareerMissionClaim {
+  profile: CareerProfile
+  meritAwarded: number
+  alreadyClaimed: boolean
 }
 
 export interface CareerPurchaseRequest {
@@ -201,6 +214,52 @@ export function claimCareerBattle(
   }
 }
 
+export function claimCareerMission(
+  current: CareerProfile,
+  missionId: string,
+  outcome: CareerMissionOutcome,
+  stats: BattleStatsSnapshot['player'],
+): CareerMissionClaim {
+  const active = current.activeMission
+  if (!active || active.id !== missionId) {
+    return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: false }
+  }
+  if (current.claimedBattleIds.includes(missionId)) {
+    return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
+  }
+
+  const merit = calculateRecruitMissionMerit(stats, outcome)
+  const profile = cloneCareerProfile(current)
+  profile.totalMerit += merit.total
+  profile.availableMerit += merit.total
+  profile.claimedBattleIds.push(missionId)
+  profile.lifetimeStats.battles += 1
+  if (outcome === 'victory') {
+    profile.lifetimeStats.victories += 1
+    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
+    if (active.kind === 'town-defense' && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
+      profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
+    }
+  }
+  if (!stats.survived) profile.lifetimeStats.deaths += 1
+  profile.lifetimeStats.kills += Math.max(0, Math.floor(stats.kills))
+  profile.lifetimeStats.damage += Math.max(0, stats.damageDealt)
+  profile.activeMission = {
+    ...active,
+    phase: 'RESULT',
+    targetActorIds: [...active.targetActorIds],
+    friendlyActorIds: [...active.friendlyActorIds],
+    result: { outcome, stats: { ...stats }, merit, claimed: true },
+  }
+  return { profile, meritAwarded: merit.total, alreadyClaimed: false }
+}
+
+export function clearCareerMission(current: CareerProfile, missionId: string): CareerProfile {
+  const profile = cloneCareerProfile(current)
+  if (profile.activeMission?.id === missionId) delete profile.activeMission
+  return profile
+}
+
 export function purchaseCareerContent(
   current: CareerProfile,
   request: CareerPurchaseRequest,
@@ -274,6 +333,28 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
     ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
+    ...(profile.activeMission ? { activeMission: {
+      ...profile.activeMission,
+      targetActorIds: [...profile.activeMission.targetActorIds],
+      friendlyActorIds: [...profile.activeMission.friendlyActorIds],
+      ...(profile.activeMission.deadTargetActorIds ? { deadTargetActorIds: [...profile.activeMission.deadTargetActorIds] } : {}),
+      ...(profile.activeMission.deadFriendlyActorIds ? { deadFriendlyActorIds: [...profile.activeMission.deadFriendlyActorIds] } : {}),
+      ...(profile.activeMission.deadCivilianActorIds ? { deadCivilianActorIds: [...profile.activeMission.deadCivilianActorIds] } : {}),
+      ...(profile.activeMission.playerStats ? { playerStats: { ...profile.activeMission.playerStats } } : {}),
+      ...(profile.activeMission.mountState ? { mountState: {
+        ...profile.activeMission.mountState,
+        hp: { ...profile.activeMission.mountState.hp },
+        unavailable: [...profile.activeMission.mountState.unavailable],
+      } } : {}),
+      ...(profile.activeMission.result ? { result: {
+        ...profile.activeMission.result,
+        stats: { ...profile.activeMission.result.stats },
+        merit: { ...profile.activeMission.result.merit },
+        ...(profile.activeMission.result.defense ? { defense: { ...profile.activeMission.result.defense } } : {}),
+      } } : {}),
+      ...(profile.activeMission.civilianActorIds ? { civilianActorIds: [...profile.activeMission.civilianActorIds] } : {}),
+    } } : {}),
+    ...(profile.completedCareerMissionTemplateIds ? { completedCareerMissionTemplateIds: [...profile.completedCareerMissionTemplateIds] } : {}),
     ownedWeapons: [...profile.ownedWeapons],
     ownedArmors: [...profile.ownedArmors],
     ownedMounts: [...profile.ownedMounts],

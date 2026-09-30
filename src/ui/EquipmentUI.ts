@@ -7,6 +7,21 @@ import type { SkillManager } from '../rpg/SkillManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { getTierBadge, getTierColor } from '../rpg/WeaponDatabase'
 
+export interface EquipmentMountItem {
+  id: string
+  name: string
+  tier: number
+  active: boolean
+  available: boolean
+}
+
+export interface EquipmentMountAdapter {
+  statusText: string
+  list(): EquipmentMountItem[]
+  activate(id: string): boolean
+  dismiss(): boolean
+}
+
 export class EquipmentUI {
   private modal: HTMLElement
   private ohLvlEl: HTMLElement
@@ -28,17 +43,17 @@ export class EquipmentUI {
     this.inventoryListEl = document.getElementById('inventory-list')!
   }
 
-  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void): void {
+  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
     if (this.isOpen) {
       this.close()
     } else {
-      this.open(skillManager, inventoryManager, onEquipChanged)
+      this.open(skillManager, inventoryManager, onEquipChanged, mounts)
     }
   }
 
-  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void): void {
+  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
     this.isOpen = true
-    this.updateModal(skillManager, inventoryManager, onEquipChanged)
+    this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
     this.modal.classList.add('visible')
   }
 
@@ -47,7 +62,7 @@ export class EquipmentUI {
     this.modal.classList.remove('visible')
   }
 
-  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void): void {
+  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
     const { oneHanded, archery } = skillManager.skillState
 
     // One-Handed XP
@@ -102,12 +117,41 @@ export class EquipmentUI {
         btn.addEventListener('click', () => {
           if (isEquipped && item.type === 'shield') inventoryManager.unequipShield()
           else inventoryManager.equipWeapon(item.id)
-          this.updateModal(skillManager, inventoryManager, onEquipChanged)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
           if (onEquipChanged) onEquipChanged()
         })
       }
 
       this.inventoryListEl.appendChild(card)
     })
+
+    if (mounts) {
+      const title = document.createElement('div')
+      title.className = 'modal-section-title inventory-wide'
+      title.textContent = '坐騎 Mounts'
+      this.inventoryListEl.appendChild(title)
+      for (const mount of mounts.list()) {
+        const card = document.createElement('div')
+        card.className = `inventory-card ${mount.active ? 'equipped' : ''}`
+        card.innerHTML = `
+          <div class="inv-item-header"><span class="inv-item-name">${mount.name} T${mount.tier}</span></div>
+          <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.available ? '可騎乘' : '本次無法使用'}</div>
+          <button class="btn-equip ${mount.active ? 'is-active' : ''}" ${mount.available ? '' : 'disabled'}>${mount.active ? '【收起】' : '【騎乘】'}</button>
+        `
+        const button = card.querySelector('button')!
+        button.addEventListener('click', () => {
+          if (mount.active) mounts.dismiss()
+          else mounts.activate(mount.id)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
+        })
+        this.inventoryListEl.appendChild(card)
+      }
+      if (mounts.statusText) {
+        const status = document.createElement('p')
+        status.className = 'inv-item-desc inventory-wide'
+        status.textContent = mounts.statusText
+        this.inventoryListEl.appendChild(status)
+      }
+    }
   }
 }

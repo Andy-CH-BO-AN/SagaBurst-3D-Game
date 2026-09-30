@@ -60,6 +60,7 @@ export class DamageableObstacle {
 
   private _currentHp: number
   private _destroyed = false
+  private readonly initialParent: THREE.Object3D | null
   private readonly _onDestroyedCallbacks = new Set<(obstacle: DamageableObstacle) => void>()
 
   constructor(options: DamageableObstacleOptions) {
@@ -71,6 +72,7 @@ export class DamageableObstacle {
     this.maxHp = options.maxHp
     this._currentHp = options.maxHp
     this.root = options.root
+    this.initialParent = options.root.parent
     this.hitMeshes = options.hitMeshes ?? [options.root]
     this.ownerFaction = options.ownerFaction ?? null
   }
@@ -135,6 +137,14 @@ export class DamageableObstacle {
     }
 
     return true
+  }
+
+  /** Restore a scene-owned obstacle for an in-place scenario reset. */
+  restore(): void {
+    this._currentHp = this.maxHp
+    this._destroyed = false
+    this.root.visible = true
+    if (!this.root.parent && this.initialParent) this.initialParent.add(this.root)
   }
 
   onDestroyed(callback: (obstacle: DamageableObstacle) => void): () => void {

@@ -74,6 +74,7 @@ const ORDER_LABELS: Record<TacticalOrder, string> = {
   defend: '防禦',
   charge: '衝鋒',
   formation: '列陣',
+  follow: '跟隨',
 }
 
 export function tacticalOrderLabel(order: TacticalOrder | 'mixed'): string {

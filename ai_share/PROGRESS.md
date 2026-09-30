@@ -8,7 +8,7 @@ _Last updated: 2026-09-30_
 
 ## Current Status
 
-- Career Town Hub（`codex/career-town-hub`，未合併）：vinum／økse 村莊、校場入口兵營、分批預熱後生成玩家、實體碰撞與首次命中扣血、集中 Roman／Viking 階級對話已接上；T1–T3 戰馬逐階購買，其他商品仍展示。出戰入口暫停開放，五處外圍 BANDIT 營地只準備場景。保留收起武裝、首次有效傷害立即敵對、同一黑貓反擊與冪等結算；村名用於返回按鈕。
+- Career Town Hub 的 Recruit 任務板採精簡可重複設計：4 個剿匪、2 條巡邏路線與 1 個一次性大型 Town Defense；正常貢獻約 10 場可達 Soldier 軍功，不以模板數或完成數自動晉升。剿匪／巡邏直接徵調城內同一位既有隊長，不生成替身，並共用穩定 FOLLOW 隊形、分段導航、落隊等待及相機相對引導箭頭。Town Defense 重用 60 名駐軍與 20 名平民，對抗三波共 50 名 T2 騎兵，含撤離、預備隊、內線退守及平民傷亡鎖定結果。敵方戰馬承受正常傷害、死亡後騎士下馬，且死亡動畫會繼續更新。官方名單外的自由戰鬥不給軍功也不觸發小鎮罪行。T1–T3 戰馬可從 Tab 召喚、切換與遣返；Captain／Commander 玩家會切換為陣營 T4 英雄並保留運行中狀態。
 
 - 柯基來源替換（`codex/corgi-source-mount`，未合併）：採用 leijiaoshou 的 CC BY 4.0 `corgi dog`，保留來源網格與貼圖；獨立骨架／mixer、三層 LOD、九個動作。使用貼背薄坐墊，已移除長方體座架。`?devmodels=corgi&rider=roman-t2|roman-t4|maki-t4&nolock` 可切換驗收騎士；坐墊表面貼合共用於預覽及既有 Player／NPC；依新模型收窄髖部展開，膝踝貼合身側，Maki 另依腿長調整。騎乘揮擊固定骨盆並把轉身留給上胸，避免腿隨步戰攻擊扭入坐騎。已與 main 的 T4 英雄正式兵種整合接軌，預覽沿用共用 HeroAssetCatalog。
 

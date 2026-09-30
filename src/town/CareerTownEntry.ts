@@ -19,7 +19,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
   const start = async (profile: CareerProfile): Promise<void> => {
     // Request inside the entry button gesture, before asynchronous loading consumes it.
     if (!location.search.includes('nolock') && navigator.userActivation?.isActive) {
-      try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Town entry free-look remains available. */ }
+      try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries pointer lock after loading. */ }
     }
     form.remove()
     const loading = document.createElement('div'); loading.textContent = '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)

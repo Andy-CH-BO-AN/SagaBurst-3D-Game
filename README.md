@@ -54,9 +54,12 @@ Start a persistent career as a Roman or Viking.
 - Explore your faction town.
 - Talk to service NPCs with `E`.
 - Manage owned equipment through the character/inventory UI.
-- Progress through the career rank and merit systems as supported by the current build.
-
-Career gameplay is still being expanded, so some future missions and progression paths may not yet be available.
+- Talk to the deployment soldier to accept Recruit clearance, patrol, or Town Defense missions.
+- Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.
+- Bandits patrol their camps until they notice an approaching threat or are attacked.
+- Contribute damage and kills to earn mission merit.
+- Buy T1–T3 horses in sequence, then press `Tab` and use the Mount section to ride, switch, or dismiss an owned mount.
+- Earn promotion eligibility through missions and ask the captain to appoint the next rank. An appointed Captain or Commander uses the faction's T4 hero.
 
 ### 🐈 Hero Mount Free Ride
 

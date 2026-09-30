@@ -117,7 +117,7 @@ import {
 } from './debug/RendererCostIsolation'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
 import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
-import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
@@ -165,10 +165,9 @@ import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
-  calculateLanceChargeDamage,
   getAntiCavalryMultiplier,
-  getBerserkerModifiers,
 } from './combat/CombatBalance'
+import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
 import { WeaponPickup } from './world/WeaponPickup'
 import { resolveMountImpacts } from './combat/MountImpact'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
@@ -864,7 +863,7 @@ export class Game {
       this.input,
       this.armyCommandUI,
       formationController,
-      (order) => this.soundManager.playCommanderCommand(playerFaction, order),
+      (order) => { if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order) },
       campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
       (order) => {
         if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true
@@ -2061,16 +2060,6 @@ export class Game {
     }, 4000)
   }
 
-  // ── Shared: Lance Charge Bonus (C-5) ──
-  /** Returns the final damage after applying lance charge multiplier.
-   *  Pure — does NOT mutate mount state. Caller sets skipImpactThisFrame only on confirmed hit. */
-  private _applyLanceChargeBonus(combatKind: string | undefined, isLance: boolean, baseDamage: number): { damage: number; isCharge: boolean } {
-    const mount = this.player.isMounted ? this.player.currentMount : null
-    const speed = mount ? mount.movementSpeed : 0
-    const result = calculateLanceChargeDamage(baseDamage, combatKind ?? (isLance ? 'lance' : 'sword'), this.player.isMounted, speed)
-    return { damage: result.damage, isCharge: result.skipImpact }
-  }
-
   private _tryDamageObstacleWithMelee(
     gripPosition: THREE.Vector3,
     tipPosition: THREE.Vector3,
@@ -2128,16 +2117,17 @@ export class Game {
     }
 
     const combatKind = equippedMelee.combatKind ?? (equippedMelee.isLance ? 'lance' : 'sword')
-    const baseDamage = equippedMelee.damageMax
-    const berserker = getBerserkerModifiers(
-      this.player.characterFaction,
-      this.player.isMounted,
+    const { damage, isCharge } = calculatePlayerMeleeDamage({
+      baseDamage: equippedMelee.damageMax,
       combatKind,
-      this.player.hasShield
-    )
-
-    const { damage: chargedDamage, isCharge } = this._applyLanceChargeBonus(combatKind, equippedMelee.isLance === true, baseDamage)
-    const damage = applyHeroOutgoingDamage(Math.round(chargedDamage * this.skillManager.getOneHandedMultiplier() * berserker.meleeDamageMultiplier), this.player.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.player.heroAssetId] : null)
+      isLance: equippedMelee.isLance === true,
+      isMounted: this.player.isMounted,
+      mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
+      oneHandedMultiplier: this.skillManager.getOneHandedMultiplier(),
+      faction: this.player.characterFaction,
+      hasShield: this.player.hasShield,
+      heroAssetId: this.player.heroAssetId ?? undefined,
+    })
 
     if (combatKind === 'lance' || equippedMelee.isLance) {
       const currTipPos = this.player.getSwordTipPosition()

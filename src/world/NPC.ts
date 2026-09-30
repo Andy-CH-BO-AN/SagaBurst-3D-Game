@@ -56,6 +56,7 @@ import {
 import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
+import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
 import {
   MAX_STAMINA,
@@ -86,6 +87,8 @@ export enum AIType {
   MELEE = 'MELEE',
   RANGED = 'RANGED',
 }
+
+export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
@@ -183,7 +186,18 @@ export class NPC {
     position: THREE.Vector3
     facing: THREE.Vector3
     reached: boolean
+    speedLimit?: number
   } | null = null
+  private followTarget: NPC | Player | null = null
+  private followSlotIndex = -1
+  private followLocalOffset = new THREE.Vector3()
+  private readonly followSmoothedLeaderPosition = new THREE.Vector3()
+  private followSmoothedLeaderYaw = 0
+  private followCombatActive = false
+  private followNavigationActive = false
+  private followNavigationCheckRemaining = 0
+  private followGoalSyncRemaining = 0
+  private readonly followNavigationGoal = new THREE.Vector3()
 
   get meleeCombatKind(): 'sword' | 'lance' {
     const w = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : null
@@ -244,6 +258,9 @@ export class NPC {
   private currentHp: number
 
   private state: AIState = AIState.IDLE
+  private encounterOrigin: THREE.Vector3 | null = null
+  private encounterAggro: BanditAggroState = 'alerted'
+  private encounterLeash = Infinity
   private alertTimer = 0
   private attackTimer = 0
   private attackHitProcessed = false
@@ -335,6 +352,57 @@ export class NPC {
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
+  get activeFollowTarget(): NPC | Player | null { return this.followTarget }
+  get activeFollowSlotIndex(): number { return this.followSlotIndex }
+  get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
+  get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
+  get encounterAggroState(): BanditAggroState { return this.encounterAggro }
+
+  /** Keeps camp Bandits on the existing combat AI while gating target knowledge until alert. */
+  configureBanditEncounter(origin: THREE.Vector3, patrolWaypoints: readonly THREE.Vector3[] = [], leash = 58): void {
+    this.encounterOrigin = origin.clone()
+    this.encounterLeash = leash
+    this.encounterAggro = 'idle'
+    if (patrolWaypoints.length > 0) {
+      this.waypoints = patrolWaypoints.map(point => point.clone())
+      this.currentWaypointIdx = 0
+    }
+    if (!this.dead) this.state = AIState.IDLE
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+  }
+
+  triggerEncounterAlert(): void {
+    if (this.dead) return
+    if (this.encounterAggro === 'provoked') return
+    if (
+      this.encounterAggro === 'returning'
+      && this.encounterOrigin
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
+    ) return
+    this.encounterAggro = 'alerted'
+    this.formationTarget = null
+    this.tacticalOrder = 'attack'
+    if (this.state === AIState.IDLE) {
+      this.state = AIState.ALERT
+      this.alertTimer = .4
+      this.alertSprite.visible = true
+    }
+    this._targetAcquisitionInitialized = false
+  }
+
+  provokeEncounter(): void {
+    if (this.dead || !this.encounterOrigin) return
+    this.encounterAggro = 'provoked'
+    this.formationTarget = null
+    this.tacticalOrder = 'attack'
+    this.state = AIState.ALERT
+    this.alertTimer = .2
+    this.alertSprite.visible = true
+    this._targetAcquisitionInitialized = false
+    this._clearNavigationPath()
+  }
 
   isFormationTargetReached(commandId: number): boolean {
     return this.formationTarget?.commandId === commandId && this.formationTarget.reached
@@ -542,11 +610,29 @@ export class NPC {
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
   private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
+  get hostileToPlayer(): boolean { return this.targetsPlayer }
   setTownPeaceful(): void {
     this.townHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+  }
+  beginExternalThreat(): void {
+    if (this.dead || this.townHostile) return
+    this.animator.cancel()
+    this.setTacticalOrder('charge')
+    this.state = AIState.CHASE
+    this._targetAcquisitionInitialized = false
+    this._restoreCombatReadyRangedVisual()
+  }
+  endExternalThreat(): void {
+    if (this.dead || this.townHostile) return
+    this.setTownPeaceful()
+    this.setTacticalOrder('attack')
+    this.state = AIState.IDLE
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
   }
   beginTownHostility(): void {
     this.townHostile = true
@@ -554,6 +640,7 @@ export class NPC {
     this.animator.cancel()
     this.tacticalOrder = 'charge'
     this.state = AIState.CHASE
+    this._restoreCombatReadyRangedVisual()
     if (this.townCategory === 'civilian' && !this.townArmed) {
       this.townArmed = true
       this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
@@ -566,6 +653,7 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted)
     if (training && startAttack && !this.animator.busy) {
+      if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
       this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
     }
     if (training && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow' && !this.animator.busy) {
@@ -575,6 +663,7 @@ export class NPC {
       this.bowVisual?.update(charge, this._tmpRangedTarget, true)
     }
     const events = this.animator.update(dt, distance)
+    if (training && this.rangedCombatKind === 'javelin' && events.projectileRelease) this.bowPivot.visible = false
     if (this.isMounted) this._syncToMount()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
     return events.projectileRelease
@@ -714,6 +803,12 @@ export class NPC {
     this.bowVisual?.hideArrow()
   }
 
+  private _restoreCombatReadyRangedVisual(): void {
+    if (!this.hasActiveRangedWeapon) return
+    this.swordPivot.visible = false
+    this.bowPivot.visible = true
+  }
+
   private _isVikingFootSpecialist(): boolean {
     return this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
@@ -752,6 +847,10 @@ export class NPC {
 
   setTacticalOrder(order: TacticalOrder): void {
     this.formationTarget = null
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
+    this._resetFollowNavigation()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -759,22 +858,56 @@ export class NPC {
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
     else if (order === 'charge') this._enterVikingChargeStance()
+    this._restoreCombatReadyRangedVisual()
   }
 
-  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3): void {
+  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number): void {
     if (this.dead) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
     this.tacticalOrder = 'formation'
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
+    this._resetFollowNavigation()
     this.formationTarget = {
       commandId,
       position: target.clone(),
       facing: facing.clone().setY(0).normalize(),
       reached: false,
+      speedLimit,
     }
     this.state = AIState.CHASE
+    this._restoreCombatReadyRangedVisual()
+  }
+
+  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number): void {
+    if (this.dead || target === this) return
+    this._clearNavigationPath()
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
+    this._cancelEquipmentCombatState()
+    this.tacticalOrder = 'follow'
+    this.followTarget = target
+    this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
+    this.followLocalOffset.copy(localOffset)
+    this.followSmoothedLeaderPosition.copy(target.combatPosition)
+    this.followSmoothedLeaderYaw = target.group.rotation.y
+    this.followCombatActive = false
+    this._resetFollowNavigation()
+    this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
+    const position = followSlotWorldPosition(target.combatPosition, target.group.rotation.y, this.followLocalOffset)
+    this.formationTarget = {
+      commandId: -1,
+      position,
+      facing: new THREE.Vector3(Math.sin(target.group.rotation.y), 0, Math.cos(target.group.rotation.y)),
+      reached: false,
+      speedLimit: marchSpeed,
+    }
+    this.state = AIState.IDLE
+    this._restoreCombatReadyRangedVisual()
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
@@ -1004,6 +1137,13 @@ export class NPC {
 
   private _clearNavigationPath(): void {
     this._navigationPath.clear()
+  }
+
+  private _resetFollowNavigation(): void {
+    this.followNavigationActive = false
+    this.followNavigationCheckRemaining = 0
+    this.followGoalSyncRemaining = 0
+    this.followNavigationGoal.set(0, 0, 0)
   }
 
   private _resolveNavigationMoveTarget(
@@ -1489,6 +1629,25 @@ export class NPC {
       return
     }
 
+    if (this.encounterOrigin && this.encounterAggro === 'provoked' && player.dead) this._beginEncounterReturn()
+    if (
+      this.encounterOrigin
+      && this.encounterAggro === 'alerted'
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
+    ) this._beginEncounterReturn()
+    if (
+      this.encounterOrigin
+      && this.encounterAggro === 'returning'
+      && this.combatPosition.distanceToSquared(this.encounterOrigin) <= 9
+    ) {
+      this.encounterAggro = 'idle'
+      this.formationTarget = null
+      this.tacticalOrder = 'attack'
+      this.state = AIState.IDLE
+      this._clearNavigationPath()
+      this._clearObstacleDetour()
+    }
+
     const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     this.isSprinting = false
@@ -1505,7 +1664,21 @@ export class NPC {
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
-    if (this.tacticalOrder === 'formation' && this.formationTarget) {
+    if (this.tacticalOrder === 'follow') {
+      const contact = nearbyNPCs.some(other => other !== this && !other.dead && other.faction !== this.faction && other.combatPosition.distanceToSquared(this.combatPosition) <= 64)
+      if (contact) {
+        this.followCombatActive = true
+        this._targetAcquisitionInitialized = false
+      } else if (this.followCombatActive) {
+        const targetGone = this._cachedTargetNpc?.dead ?? !this._cachedTargetIsPlayer
+        const targetFar = this._cachedTargetNpc ? this._cachedTargetNpc.combatPosition.distanceToSquared(this.combatPosition) > 36 * 36 : false
+        if (targetGone || targetFar) {
+          this.followCombatActive = false
+          this.state = AIState.IDLE
+        }
+      }
+    }
+    if ((this.tacticalOrder === 'formation' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget) {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
@@ -1555,12 +1728,13 @@ export class NPC {
       case AIState.IDLE: {
         this.alertSprite.visible = false
         if (this.tacticalOrder !== 'defend') {
-          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles)
+          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 
-        if (targetInfo && !targetInfo.isDead) {
+        if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          if (dist <= DETECTION_RADIUS) {
+          const detectionRadius = this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
+          if (dist <= detectionRadius) {
             this.state = AIState.ALERT
             this.alertTimer = 0.6
             this.alertSprite.visible = true
@@ -1607,7 +1781,7 @@ export class NPC {
         }
 
         const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
-        const maxDetectionDistance = DETECTION_RADIUS * 1.5
+        const maxDetectionDistance = this.tacticalOrder === 'follow' ? 36 : DETECTION_RADIUS * 1.5
         if (distSq > maxDetectionDistance * maxDetectionDistance) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
@@ -2136,7 +2310,17 @@ export class NPC {
     }
   }
 
-  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean): void {
+  private _beginEncounterReturn(): void {
+    if (!this.encounterOrigin || this.dead) return
+    this.encounterAggro = 'returning'
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this.assignFormationTarget(-2, this.encounterOrigin, this.encounterOrigin.clone().sub(this.combatPosition).setY(0).normalize())
+    this.encounterAggro = 'returning'
+  }
+
+  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
@@ -2147,14 +2331,16 @@ export class NPC {
       dir.y = 0
       dir.normalize()
       if (!skipBoidsAndObstacles) {
-        dir.copy(getObstacleAvoidanceDirection(
-          this.combatPosition,
-          dir,
-          this._movementObstacleRadius(),
-          this._movementObstacleHeight(),
-          0,
-          obstacles,
-        ))
+        const route = this._resolveNavigationMoveTarget(target, obstacles, navigationWorld)
+        if (route === 'path') dir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+        else dir.copy(getObstacleAvoidanceDirection(
+            this.combatPosition,
+            dir,
+            this._movementObstacleRadius(),
+            this._movementObstacleHeight(),
+            0,
+            obstacles,
+          ))
       }
       this._faceTarget(target)
       this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
@@ -2171,26 +2357,105 @@ export class NPC {
     const target = this.formationTarget
     if (!target) return
 
+    if (this.tacticalOrder === 'follow') {
+      const leader = this.followTarget
+      if (!leader || leader.dead) {
+        this.state = AIState.IDLE
+        return
+      }
+      const leaderPosition = leader.combatPosition
+      const leaderYaw = leader.group.rotation.y
+      if (this.followSmoothedLeaderPosition.distanceToSquared(leaderPosition) > 1600) {
+        this.followSmoothedLeaderPosition.copy(leaderPosition)
+        this.followSmoothedLeaderYaw = leaderYaw
+      } else {
+        const blend = 1 - Math.exp(-dt / .35)
+        this.followSmoothedLeaderPosition.lerp(leaderPosition, blend)
+        const yawDelta = Math.atan2(Math.sin(leaderYaw - this.followSmoothedLeaderYaw), Math.cos(leaderYaw - this.followSmoothedLeaderYaw))
+        this.followSmoothedLeaderYaw += yawDelta * blend
+      }
+      followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset, target.position)
+      target.facing.set(Math.sin(this.followSmoothedLeaderYaw), 0, Math.cos(this.followSmoothedLeaderYaw))
+      target.reached = false
+    }
+
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
     const distance = moveDir.length()
-    if (distance <= FORMATION_ARRIVAL_DISTANCE) {
+    const arrivalDistance = this.tacticalOrder === 'follow'
+      ? FOLLOW_THRESHOLDS.holdDistance
+      : this.mount
+        ? target.reached ? 2.4 : 1.2
+        : target.reached ? 1 : FORMATION_ARRIVAL_DISTANCE
+    if (distance <= arrivalDistance) {
       target.reached = true
+      if (this.tacticalOrder === 'follow' && this.followNavigationActive) {
+        this.followNavigationActive = false
+        this._clearNavigationPath()
+      }
       this._faceDirection(target.facing)
       this.state = AIState.IDLE
       return
     }
     moveDir.normalize()
 
-    const navigationRoute = !skipBoidsAndObstacles
-      ? this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
-      : 'direct'
+    let navigationRoute: NavigationRouteKind = 'direct'
+    let navigationGoal = target.position
+    if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
+      this.followNavigationCheckRemaining -= dt
+      if (this.followNavigationCheckRemaining <= 0) {
+        this.followNavigationCheckRemaining = .65 + this._initialStaggerPhase * .35
+        const blocked = distance > FOLLOW_THRESHOLDS.runDistance && findBlockingObstacleAlongPath(
+          this.combatPosition,
+          target.position,
+          this._movementObstacleRadius(),
+          this._movementObstacleHeight(),
+          0,
+          obstacles,
+        ) !== null
+        if (blocked) {
+          if (!this.followNavigationActive) {
+            this.followNavigationActive = true
+            this.followNavigationGoal.copy(target.position)
+            this.followGoalSyncRemaining = 2
+            this._clearNavigationPath()
+          }
+        } else if (this.followNavigationActive) {
+          this.followNavigationActive = false
+          this._clearNavigationPath()
+        }
+      }
+      if (this.followNavigationActive && navigationWorld) {
+        this.followGoalSyncRemaining -= dt
+        if (this.followGoalSyncRemaining <= 0) {
+          this.followGoalSyncRemaining = 2
+          if (this.followNavigationGoal.distanceToSquared(target.position) >= 16) {
+            this.followNavigationGoal.copy(target.position)
+          }
+        }
+        navigationGoal = this.followNavigationGoal
+        if (this.combatPosition.distanceToSquared(navigationGoal) <= 9) {
+          this.followNavigationActive = false
+          this._clearNavigationPath()
+        } else {
+          navigationRoute = this._navigationPath.resolveMoveTarget(
+            this.combatPosition,
+            navigationGoal,
+            navigationWorld,
+            true,
+            this._tmpNavigationTarget,
+          )
+        }
+      }
+    } else if (!skipBoidsAndObstacles) {
+      navigationRoute = this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
+    }
     if (navigationRoute === 'path') {
       moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
       this._clearObstacleDetour()
     } else if (navigationRoute === 'pending' || navigationRoute === 'unreachable') {
-      this._applyPersistentObstacleDetour(moveDir, target.position, dt, obstacles)
+      this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
     } else {
       this._clearObstacleDetour()
     }
@@ -2224,7 +2489,12 @@ export class NPC {
     // Face the travel direction while moving so directional movement does not
     // classify a distant slot behind the final formation facing as backward.
     this._faceDirection(moveDir)
-    this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : FORMATION_MOVE_SPEED, dt)
+    const followCatchUp = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.runDistance
+    const followSprint = this.tacticalOrder === 'follow' && distance > FOLLOW_THRESHOLDS.regroupDistance
+    const baseSpeed = this.mount
+      ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
+      : target.speedLimit ?? FORMATION_MOVE_SPEED
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
   }
 
@@ -2401,5 +2671,26 @@ export class NPC {
     this._rangedVisibleTargetHoldFrames = 0
     this._targetAcquisitionInitialized = false
     for (const cb of this.onRespawnCallbacks) cb(this)
+  }
+
+  restoreForTown(): void {
+    this.respawn()
+    this._cancelEquipmentCombatState()
+    this.townArmed = false
+    if (this.loadout) {
+      this._setActiveMeleeWeapon(this.loadout.meleeWeaponId ?? null)
+      this.shieldId = this.loadout.shieldId ?? null
+      this.rebuildShield()
+    }
+    this.arrows = this.rangedWeaponId ? 30 : 0
+    this.rangedActive = Boolean(this.rangedWeaponId)
+    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this.stamina = MAX_STAMINA
+    this.isSprinting = false
+    this.chargeSprintLatched = false
+    this.setTacticalOrder('attack')
+    this.setTownPeaceful()
+    this.rig.animation?.update(0)
   }
 }
