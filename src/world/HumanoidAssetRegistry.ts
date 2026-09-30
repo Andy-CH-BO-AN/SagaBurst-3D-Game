@@ -1,4 +1,5 @@
 import { applyCivilianAppearance } from './CivilianAppearance'
+import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
@@ -36,7 +37,7 @@ import type {
 
 export interface HumanoidAnimationBinding {
   clip: HumanoidAnimationState
-  source: 'Kevin Iglesias' | 'Quaternius'
+  source: 'Kevin Iglesias' | 'Quaternius' | 'tokeshi'
   sourceClip: string
   loop: boolean
   duration: number
@@ -132,6 +133,7 @@ function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefin
 }
 
 export interface HumanoidAssetDescriptor {
+  animationContract?: 'bandit'
   assetId: string
   faction: CharacterFaction
   heightM: number
@@ -373,6 +375,8 @@ function firstSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh {
   return result
 }
 
+const hitOverlayClips = new WeakMap<THREE.AnimationClip, THREE.AnimationClip>()
+
 export class MixerController implements HumanoidAnimationController {
   equipmentLayers: CharacterEquipmentPose[] = []
   private readonly equipmentState = createEquipmentPoseState()
@@ -434,9 +438,28 @@ export class MixerController implements HumanoidAnimationController {
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
   private readonly swordMeshes: THREE.SkinnedMesh[] = []
   private swordHandEnabled = false
+  private readonly hitReactions: THREE.AnimationAction[] = []
+
+  /** Authored upper-body recoil is additive: never cancels an AI attack or its hit clock. */
+  playHitReaction(): void {
+    if (this.current === 'death') return
+    this.catchUpInactive()
+    for (const action of this.hitReactions) action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(.65).play()
+  }
 
   constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel) {
     this.pendingMixerDt = mixers.map(() => 0)
+    mixers.forEach((mixer, index) => {
+      const source = clipsPerLevel[index].find(clip => clip.name === 'hit')
+      if (!source) return
+      let clip = hitOverlayClips.get(source)
+      if (!clip) {
+        clip = new THREE.AnimationClip('hit-overlay', source.duration, source.tracks.filter(track => /^(spine|chest|upper_chest|neck|head|clavicle_|upper_arm_|lower_arm_|hand_|LeftHand|RightHand)/.test(track.name)).map(track => track.clone()))
+        THREE.AnimationUtils.makeClipAdditive(clip, 0, clip, 30)
+        hitOverlayClips.set(source, clip)
+      }
+      this.hitReactions.push(mixer.clipAction(clip))
+    })
     for (const mixer of mixers) (mixer.getRoot() as THREE.Object3D).traverse(object => {
       if (object instanceof THREE.SkinnedMesh && object.morphTargetDictionary?.bowGrip !== undefined) this.bowMeshes.push(object)
     })
@@ -500,6 +523,7 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
+    if (state === 'death') for (const action of this.hitReactions) action.stop()
     const bindings = this.poseLayersEnabled ? this.actions : this.rawActions
     const next = bindings.get(state) ?? []
     if (next.length !== this.mixers.length) return false
@@ -672,8 +696,10 @@ export function validateHumanoidManifest(faction: CharacterFaction, manifest: Hu
   if (manifest.metrics.shoulderWidthM > targetShoulder + 0.01) throw new Error(`${faction} shoulder width is outside tolerance`)
   if (Math.abs(manifest.metrics.neckLengthM - (descriptor?.neckLengthM ?? 0.09)) > 0.015) throw new Error(`${faction} neck length is outside tolerance`)
   if (manifest.animations) {
-    const required: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
-    if (faction === 'viking') required.push('axeAttack1H', 'axeAttack2H')
+    const required: HumanoidAnimationState[] = descriptor?.animationContract === 'bandit'
+      ? ['idle', 'walk', 'run', 'swordSlash', 'hit', 'death']
+      : ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
+    if (faction === 'viking' && descriptor?.animationContract !== 'bandit') required.push('axeAttack1H', 'axeAttack2H')
     const embedded = new Set(manifest.animations.embedded.map((binding) => binding.clip))
     if (required.some((clip) => !embedded.has(clip))) throw new Error(`${faction} manifest is missing a canonical animation binding`)
   }
@@ -752,7 +778,10 @@ export class HumanoidAssetRegistry {
         for (const name of ['socket_hand_l', 'socket_hand_r', 'socket_back', 'socket_head', 'socket_pelvis', 'socket_foot_l', 'socket_foot_r', 'sole_l', 'sole_r']) {
           if (!level.scene.getObjectByName(name)) throw new Error(`${assetId}: missing required socket ${name}`)
         }
-        if (!manifest.swordGripFrames || !manifest.handGripFrames) throw new Error(`${assetId}: missing asset grip calibration`)
+        if (descriptor.animationContract === 'bandit') {
+          const hammer = level.scene.getObjectByName('Bandit_Hammer')
+          if (!hammer || hammer.parent?.name !== 'hand_r' || !level.scene.getObjectByName('hammer_tip')) throw new Error(`${assetId}: missing authored hammer attachment`)
+        } else if (!manifest.swordGripFrames || !manifest.handGripFrames) throw new Error(`${assetId}: missing asset grip calibration`)
       }
       if (manifest.handShapeMode === 'authored') continue
       prepareBladeGrip(level.scene, faction)
@@ -797,9 +826,9 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadAll(): Promise<void> {
-    await Promise.all((['viking', 'roman'] as const).map(async faction => {
+    await Promise.all([this.preloadAsset(BANDIT_ASSET), ...(['viking', 'roman'] as const).map(async faction => {
       this.templates.set(faction, await this.loadTemplate(faction, faction))
-    }))
+    })])
   }
 
   /**

@@ -341,11 +341,13 @@ export class NPC {
   }
 
   getWeaponTipPosition(): THREE.Vector3 {
+    if (this.banditHammerTip) return this.banditHammerTip.getWorldPosition(this._tmpWeaponTip)
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getTopTipPosition(this._tmpWeaponTip)
     return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
+    if (this.banditHammerGrip) return this.banditHammerGrip.getWorldPosition(target)
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getGripPosition(target)
     return weaponGripWorld(this.swordGripPivot, target)
   }
@@ -452,13 +454,17 @@ export class NPC {
     const allowLegacyFixture = import.meta.env.MODE === 'test'
       || (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('legacyhumanoids'))
     const visual = HumanoidAssetRegistry.ready
-      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, visualConfig, this.visualAssetId)
+      ? HumanoidAssetRegistry.createCharacterVisual(this.characterVisualGroup, visualConfig, faction === Faction.BANDIT ? 'bandit' : this.visualAssetId)
       : allowLegacyFixture
         ? buildCharacterVisual(this.characterVisualGroup, visualConfig)
         : (() => { throw new Error(`${visualConfig.faction} humanoid assets were not preloaded`) })()
     this.bodyMesh = visual.bodyMesh as THREE.Group
     this.headMesh = visual.headMesh as THREE.Mesh
     this.rig = visual.rig
+    if (faction === Faction.BANDIT) {
+      this.banditHammerTip = this.bodyMesh.getObjectByName('hammer_tip')
+      this.banditHammerGrip = this.bodyMesh.getObjectByName('hammer_grip')
+    }
     if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
       this.characterVisualGroup.updateWorldMatrix(true, true)
       this.rig.pelvis.getWorldPosition(this._tmpPelvisWorld)
@@ -532,6 +538,8 @@ export class NPC {
   }
 
   private townArmed = false
+  private banditHammerTip?: THREE.Object3D
+  private banditHammerGrip?: THREE.Object3D
   private townHostile = false
   private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   setTownPeaceful(): void {
@@ -630,6 +638,7 @@ export class NPC {
   }
 
   rebuildShield(): void {
+    if (this.faction === Faction.BANDIT) return
     if (this.builtShieldId === this.shieldId) return
     this.builtShieldId = this.shieldId
     this.animator?.cancel()
@@ -663,7 +672,7 @@ export class NPC {
     while (this.swordGripPivot.children.length > 0) {
       this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
-    if (this.specialCombatProfile === 'maki-ranger') return
+    if (this.specialCombatProfile === 'maki-ranger' || this.faction === Faction.BANDIT) return
     this.swordTipLocal.copy(
       WeaponMeshFactory.buildNpcMelee(
         this.characterFaction,
@@ -769,6 +778,7 @@ export class NPC {
   }
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
+    if (this.faction === Faction.BANDIT) return 'swordSlash'
     if (this.specialCombatProfile === 'maki-ranger') return 'axeAttack2H'
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
     if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.shieldId ? 'axeAttack1H' : 'axeAttack2H'
@@ -840,6 +850,7 @@ export class NPC {
     if (this.state === AIState.DEAD) return false
 
     this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.combatProfileId))
+    if (this.currentHp > 0 && amount > 0 && this.faction === Faction.BANDIT) this.rig.animation?.playHitReaction?.()
     if (this.state === AIState.IDLE) {
       this.state = AIState.ALERT
       this.alertTimer = 0.4

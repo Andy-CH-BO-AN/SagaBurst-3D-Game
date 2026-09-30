@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "id": "bandit",
+  "status": "ready",
+  "skeleton": "project-humanoid-v1",
+  "source": {
+    "title": "Fantasy Bandit",
+    "author": "tokeshi",
+    "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+    "license": "CGTrader Royalty Free (no AI)",
+    "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+    "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+    "archives": {
+      "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+      "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+    }
+  },
+  "attribution": "Fantasy Bandit by tokeshi / CGTrader. Licensed for incorporated game use; no standalone redistribution.",
+  "modifications": [
+    "Uniform measured 1.75 m idle height; preserved source mesh, UVs and skinning",
+    "Canonical bone aliases and cached sockets",
+    "Original rigid hammer parented to right hand",
+    "Source clips and existing three-level LOD policy; PBR 2K/1K/512 maps",
+    "Source run grip baked into right finger chains for every clip; walking wrist preserved",
+    "Per-clip ground calibration baked into hips; no runtime grounding correction",
+    "DirectX body/armor/weapon normal green channel inverted for glTF; original eye normal retained",
+    "Original attack retimed through existing .252 second hit event, .48 second duration"
+  ],
+  "handShapeMode": "authored",
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "metrics": {
+    "heightM": 1.750000006772126,
+    "shoulderWidthM": 0.5386868948029219,
+    "neckLengthM": 0.06310871904279719,
+    "triangles": {
+      "lod0": 36365,
+      "lod1": 18903,
+      "lod2": 5816
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    }
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@idle.fbx",
+        "sourceSha256": "04485a3430122ca95c3ed216633bb0b755fd607d2773ca2890ad518de872ff9f",
+        "firstFrame": 2,
+        "lastFrame": 102,
+        "sourceFps": 30,
+        "loop": true,
+        "duration": 3.3333333333333335
+      },
+      {
+        "clip": "walk",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@walk.fbx",
+        "sourceSha256": "6343d5b735a0572ca3d8fd13a88a9a3b5643a94943278357af98de2a46f91ead",
+        "firstFrame": 2,
+        "lastFrame": 33,
+        "sourceFps": 30,
+        "loop": true,
+        "duration": 1.0333333333333334
+      },
+      {
+        "clip": "run",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@run_forward.fbx",
+        "sourceSha256": "bf467cf3cbc0e2d700b90a82a9fd146907029c7b7096e9826b966fe9c1bf6ad5",
+        "firstFrame": 2,
+        "lastFrame": 26,
+        "sourceFps": 30,
+        "loop": true,
+        "duration": 0.8
+      },
+      {
+        "clip": "swordSlash",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "hit",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@hit_damage.fbx",
+        "sourceSha256": "fef4b51a4640dfa72d47c039c3f92ab9f0f13fd907d3fb3a9da79d6c096ff1c6",
+        "firstFrame": 2,
+        "lastFrame": 32,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 1.0
+      },
+      {
+        "clip": "death",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@falling_back.fbx",
+        "sourceSha256": "a669cc13c648da5b7e3ab8ffeb7f0a75f32cbbe8244e6a828e16a41dc5a3aea2",
+        "firstFrame": 2,
+        "lastFrame": 61,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 1.9666666666666666
+      }
+    ],
+    "runtimeGenerated": []
+  },
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "fileSha256": {
+    "lod0": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "lod1": "8456eec59ac09a5172af8c91145017b81a6092bb04bb660a4bd51b9f3aad26e1",
+    "lod2": "15c18265c6bb9e8a86b8ed84db75e083319344858696a708f56d54f850c88c9e"
+  },
+  "attackRetiming": {
+    "sourceContactFrame": 30,
+    "sourceFrameRange": [
+      2,
+      47
+    ],
+    "duration": 0.48,
+    "hitTime": 0.252,
+    "method": "piecewise linear through original NPC sword contact; combat rules unchanged"
+  }
+}
