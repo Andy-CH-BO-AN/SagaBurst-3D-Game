@@ -1,0 +1,11 @@
+{
+  "mission/roman/mission_accepted.wav": "Mission accepted. Follow the captain's lead.",
+  "mission/roman/follow.wav": "Follow me! Stay in formation!",
+  "mission/roman/return.wav": "Back to town. Stay together.",
+  "mission/roman/town_defense.wav": "Enemy cavalry approaching! To the line!",
+  "mission/viking/mission_accepted.wav": "You're in. Follow the captain's lead.",
+  "mission/viking/follow.wav": "With me! Move!",
+  "mission/viking/return.wav": "Back to town! Stay close!",
+  "mission/viking/town_defense.wav": "Riders incoming! To the line!",
+  "sfx/town_alarm.wav": "Medieval town warning bell"
+}

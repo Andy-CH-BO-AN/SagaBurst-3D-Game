@@ -54,7 +54,8 @@ Start a persistent career as a Roman or Viking.
 - Explore your faction town.
 - Talk to service NPCs with `E`.
 - Manage owned equipment through the character/inventory UI.
-- Talk to the Sergeant Major (士官長) for Recruit clearance, patrol, and Town Defense missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense. Promoted ranks retain access to unlocked Recruit missions.
+- Talk to the Sergeant Major (士官長) for unlocked clearance, patrol, and Town Defense missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense.
+- Promoted ranks retain access to previously unlocked Recruit missions.
 - Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.
 - Bandits patrol their camps until they notice an approaching threat or are attacked.
 - Contribute damage and kills to earn mission merit.

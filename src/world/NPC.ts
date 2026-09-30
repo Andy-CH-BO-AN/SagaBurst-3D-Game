@@ -379,11 +379,7 @@ export class NPC {
   triggerEncounterAlert(): void {
     if (this.dead) return
     if (this.encounterAggro === 'provoked' || this.encounterAggro === 'alerted') return
-    if (
-      this.encounterAggro === 'returning'
-      && this.encounterOrigin
-      && this.combatPosition.distanceToSquared(this.encounterOrigin) > this.encounterLeash * this.encounterLeash
-    ) return
+    if (this.encounterAggro === 'returning') return
     this.encounterAggro = 'alerted'
     this.formationTarget = null
     this.tacticalOrder = 'attack'
@@ -397,7 +393,7 @@ export class NPC {
 
   provokeEncounter(): void {
     if (this.dead || !this.encounterOrigin) return
-    const firstDetection = this.encounterAggro === 'idle' || this.encounterAggro === 'returning'
+    const firstDetection = this.encounterAggro === 'idle'
     this.encounterAggro = 'provoked'
     this.formationTarget = null
     this.tacticalOrder = 'attack'
@@ -1004,7 +1000,7 @@ export class NPC {
 
     this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.combatProfileId))
     if (this.currentHp > 0 && amount > 0 && this.faction === Faction.BANDIT) this.rig.animation?.playHitReaction?.()
-    if (this.state === AIState.IDLE) {
+    if (this.state === AIState.IDLE && !this.encounterOrigin) {
       this.state = AIState.ALERT
       this.alertTimer = 0.4
       this.alertSprite.visible = true
@@ -1763,9 +1759,14 @@ export class NPC {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
           const detectionRadius = this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
           if (dist <= detectionRadius) {
-            this.state = AIState.ALERT
-            this.alertTimer = 0.6
-            this.alertSprite.visible = true
+            if (this.encounterOrigin) {
+              // Awareness was already announced by idle -> alerted/provoked.
+              this.state = AIState.CHASE
+            } else {
+              this.state = AIState.ALERT
+              this.alertTimer = 0.6
+              this.alertSprite.visible = true
+            }
           }
         }
         break

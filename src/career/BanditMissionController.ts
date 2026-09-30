@@ -49,6 +49,7 @@ export function shouldPersistMissionRoute(savedStage: number, currentStage: numb
 }
 
 export class BanditMissionController {
+  onMarchStarted: (() => void) | null = null
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
   readonly camps: CampRuntime[]
@@ -184,6 +185,7 @@ export class BanditMissionController {
       if (this.setPhase('MARCHING')) {
         this.assignLeader(objective)
         this.assignFollowers()
+        this.onMarchStarted?.()
       }
     }
     if (leader && this.phase === 'MARCHING') {
