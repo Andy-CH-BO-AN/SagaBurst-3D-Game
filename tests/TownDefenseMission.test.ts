@@ -15,6 +15,9 @@ import {
 } from '../src/career/TownDefenseState'
 import { Faction } from '../src/combat/CombatFaction'
 import { townRoster } from '../src/town/TownRules'
+import { TownDefenseController } from '../src/career/TownDefenseController'
+import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
+import { CombatEventStream } from '../src/combat/CombatAttribution'
 
 const stats = (damageDealt = 0, kills = 0, survived = true) => ({ damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 })
 
@@ -65,6 +68,57 @@ describe('Recruit Town Defense layout and rosters', () => {
 })
 
 describe('Recruit Town Defense outcome, orders and rewards', () => {
+  it('accounts for stable attacker ids without double-counting persisted deaths', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-registration')
+    profile.activeMission.phase = 'ATTACKING'
+    const player = { dead: false } as any
+    const controller = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
+    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 0 })
+    ;(controller as any).player = () => player; (controller as any).readProfile = () => profile; (controller as any).commit = (next: typeof profile) => { profile = next; return true }
+    controller.enemies.push(...profile.activeMission.targetActorIds.map(combatantId => ({ combatantId, dead: false }) as any))
+
+    controller.enemies[0].dead = true
+    ;(controller as any).persistRuntimeProgress()
+    expect(profile.activeMission?.deadTargetActorIds).toEqual([profile.activeMission?.targetActorIds[0]])
+    for (const enemy of controller.enemies) enemy.dead = true
+    ;(controller as any).persistRuntimeProgress()
+    expect(profile.activeMission?.deadTargetActorIds).toHaveLength(50)
+    expect(controller.evaluate(false)).toBe('victory')
+
+    const saved = profile
+    const reloaded = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
+    Object.assign(reloaded, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 0 })
+    ;(reloaded as any).player = () => player; (reloaded as any).readProfile = () => profile; (reloaded as any).commit = (next: typeof profile) => { profile = next; return true }
+    profile = { ...saved, activeMission: { ...saved.activeMission!, deadTargetActorIds: [saved.activeMission!.targetActorIds[0]] } }
+    reloaded.enemies.push(...profile.activeMission!.targetActorIds.slice(1).map(combatantId => ({ combatantId, dead: true }) as any))
+    ;(reloaded as any).persistRuntimeProgress()
+    expect(reloaded.evaluate(false)).toBe('victory')
+  })
+
+  it('checkpoints and resumes Town Defense player contribution without deriving kills from casualties', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-stats')
+    profile.activeMission.phase = 'ATTACKING'
+    const active = profile.activeMission
+    const events = new CombatEventStream()
+    const controller = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
+    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 5 })
+    ;(controller as any).player = () => ({ dead: false }); (controller as any).readProfile = () => profile; (controller as any).commit = (next: typeof profile) => { profile = next; return true }
+    ;(controller as any).tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
+    const source = { actorId: 'player', actorType: 'player' as const, allegiance: Faction.PLAYER, characterFaction: 'roman' as const }
+    const target = { targetId: active.targetActorIds[0], targetType: 'npc' as const, name: 'Raider' }
+    events.emit({ type: 'damage_applied', source, target, method: 'projectile', requestedDamage: 90, appliedDamage: 90 })
+    events.emit({ type: 'actor_killed', source, target, method: 'projectile' })
+    ;(controller as any).persistRuntimeProgress()
+    expect(profile.activeMission?.playerStats).toMatchObject({ damageDealt: 90, kills: 1 })
+
+    const resumedEvents = new CombatEventStream()
+    const resumed = new BattleStatsTracker(resumedEvents, false, event => acceptsCareerMissionStat(profile.activeMission!, event), profile.activeMission?.playerStats)
+    resumedEvents.emit({ type: 'damage_applied', source, target: { ...target, targetId: active.targetActorIds[1] }, method: 'melee', requestedDamage: 35, appliedDamage: 35 })
+    expect(resumed.checkpoint()).toMatchObject({ damageDealt: 125, kills: 1 })
+  })
+
   it('allows ten civilian deaths but locks failure at eleven', () => {
     expect(resolveTownDefenseOutcome(false, TOWN_DEFENSE_CIVILIAN_LIMIT, true, 0)).toBe('victory')
     expect(resolveTownDefenseOutcome(false, TOWN_DEFENSE_CIVILIAN_LIMIT + 1, true, 0)).toBe('failure')

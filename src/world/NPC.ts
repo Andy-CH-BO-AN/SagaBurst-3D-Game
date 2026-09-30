@@ -607,6 +607,7 @@ export class NPC {
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
   private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
+  get hostileToPlayer(): boolean { return this.targetsPlayer }
   setTownPeaceful(): void {
     this.townHostile = false
     this.respawnEnabled = false

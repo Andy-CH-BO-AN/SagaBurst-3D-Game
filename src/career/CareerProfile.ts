@@ -340,6 +340,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.deadTargetActorIds ? { deadTargetActorIds: [...profile.activeMission.deadTargetActorIds] } : {}),
       ...(profile.activeMission.deadFriendlyActorIds ? { deadFriendlyActorIds: [...profile.activeMission.deadFriendlyActorIds] } : {}),
       ...(profile.activeMission.deadCivilianActorIds ? { deadCivilianActorIds: [...profile.activeMission.deadCivilianActorIds] } : {}),
+      ...(profile.activeMission.playerStats ? { playerStats: { ...profile.activeMission.playerStats } } : {}),
       ...(profile.activeMission.mountState ? { mountState: {
         ...profile.activeMission.mountState,
         hp: { ...profile.activeMission.mountState.hp },

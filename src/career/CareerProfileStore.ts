@@ -46,6 +46,20 @@ function parseLifetimeStats(value: unknown): CareerLifetimeStats {
   }
 }
 
+function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerStats'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const stats = {
+    damageDealt: nonNegativeNumber(raw.damageDealt),
+    damageTaken: nonNegativeNumber(raw.damageTaken),
+    kills: nonNegativeInteger(raw.kills),
+    structureDamage: nonNegativeNumber(raw.structureDamage),
+    structuresDestroyed: nonNegativeInteger(raw.structuresDestroyed),
+    gateBreaches: nonNegativeInteger(raw.gateBreaches),
+  }
+  return Object.values(stats).some(value => value > 0) ? stats : undefined
+}
+
 const MISSION_PHASES: CareerMissionPhase[] = ['ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
 const CAREER_MOUNT_IDS: CareerMountId[] = ['horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
 
@@ -82,6 +96,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
   if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
   const mountState = parseMissionMountState(raw.mountState)
+  const playerStats = parseMissionPlayerStats(raw.playerStats)
 
   const mission: ActiveCareerMission = {
     id: raw.id,
@@ -94,7 +109,9 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds).filter(id => targetActorIds.includes(id)),
     deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
+    ...(playerStats ? { playerStats } : {}),
     routeStage: nonNegativeInteger(raw.routeStage),
+    patrolStage: nonNegativeInteger(raw.patrolStage),
     defenseElapsed: nonNegativeNumber(raw.defenseElapsed),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),

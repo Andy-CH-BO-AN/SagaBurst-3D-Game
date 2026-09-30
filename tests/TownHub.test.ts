@@ -211,6 +211,45 @@ describe('Town input and isolation regressions', () => {
 
 
 describe('Town orchestration transitions', () => {
+  it('keeps Town identity while ranged projectiles follow dynamic player hostility', () => {
+    const scene = new THREE.Scene()
+    const source = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Town javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
+    source.setTownPeaceful()
+    const town = Object.create(TownScene.prototype) as any
+    town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
+    town.world = { buildings: [], targets: [] }
+    town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
+    town.defense = { active: false, releasedEnemies: [] }
+    town.hp = { setFill: vi.fn() }; town.inventory = { shieldEnabled: false }
+    town.hitFieldNpc = vi.fn(); town.hitResident = vi.fn(); town.damageBuilding = vi.fn()
+    const damagePlayerFromNpc = vi.spyOn(town, 'damagePlayerFromNpc')
+    const shot = () => {
+      let alive = true
+      const arrow = {
+        mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 10,
+        update: vi.fn(function (this: any) { this.mesh.position.set(0, 1, 2) }),
+        destroy: vi.fn(() => { alive = false }),
+        get isAlive() { return alive },
+      }
+      return { arrow, training: false, player: false, source, age: 0 }
+    }
+
+    town.shots = [shot()]
+    town.updateShots(.1)
+    expect(source.faction).toBe(Faction.TOWN)
+    expect(source.hostileToPlayer).toBe(false)
+    expect(damagePlayerFromNpc).not.toHaveBeenCalled()
+
+    source.beginTownHostility()
+    const hpBefore = town.player.hp
+    town.shots = [shot()]
+    town.updateShots(.1)
+    expect(source.faction).toBe(Faction.TOWN)
+    expect(source.hostileToPlayer).toBe(true)
+    expect(damagePlayerFromNpc).toHaveBeenCalledExactlyOnceWith(source, 10, 'projectile')
+    expect(town.player.hp).toBeLessThan(hpBefore)
+  })
+
   it('settles a physical mission return in the existing Town scene and restores the extracted garrison', () => {
     const town = Object.create(TownScene.prototype) as any
     const profile = createCareerProfile('roman')

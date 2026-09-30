@@ -103,7 +103,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   patrol(
     'recruit-patrol-01',
     '南路巡邏',
-    '跟隨隊長巡查城鎮外圍道路。保持隊伍，不要落隊；途中可能遭遇敵人。',
+    '跟隨隊長巡查城鎮外圍道路。保持隊伍，不要落隊，依序完成沿線巡查。',
     'south-road',
     6,
     4,
@@ -112,7 +112,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   patrol(
     'recruit-patrol-02',
     '林線巡邏',
-    '沿森林邊緣完成巡邏。敵軍活動增加，做好接敵準備。',
+    '沿森林邊緣完成例行巡邏。地形複雜，跟緊隊長並保持警戒。',
     'forest-line',
     8,
     7,

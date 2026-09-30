@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { RECRUIT_MISSION_CATALOG, availableRecruitMissions } from '../src/career/CareerMissionCatalog'
 import { calculateRecruitMissionMerit } from '../src/career/CareerMissionMeritPolicy'
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome } from '../src/career/CareerMissionState'
@@ -8,9 +8,12 @@ import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { canUseCareerMount, findSafeCareerMountPosition, ownedCareerMountIds } from '../src/career/CareerMountController'
 import { preserveHpRatio, resolveCareerCombatProfile, resolveCareerHeroAsset } from '../src/career/CareerPlayerProfile'
 import { missionGuideArrowAngle } from '../src/career/MissionGuide'
+import { fieldMissionEngagementLabel, fieldMissionHud } from '../src/career/CareerMissionPresentation'
 import { Faction } from '../src/combat/CombatFaction'
 import { calculatePlayerMeleeDamage } from '../src/combat/PlayerMeleeDamage'
-import { selectMissionInfantryActorIds, shouldPersistMissionRoute } from '../src/career/BanditMissionController'
+import { BanditMissionController, selectMissionInfantryActorIds, shouldPersistMissionRoute } from '../src/career/BanditMissionController'
+import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
+import { CombatEventStream } from '../src/combat/CombatAttribution'
 
 const playerStats = (damageDealt: number, kills: number, survived = true) => ({
   damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0,
@@ -65,6 +68,17 @@ describe('Mission identity, attribution and claim', () => {
     expect(missionGuideArrowAngle(10, 0, 0)).toBeCloseTo(0)
     expect(Math.abs(missionGuideArrowAngle(-10, 0, 0))).toBeCloseTo(Math.PI)
     expect(missionGuideArrowAngle(-10, 0, Math.PI / 2)).toBeCloseTo(-Math.PI / 2)
+  })
+
+  it('never reveals the ambush size during a patrol while Bandit clearance shows the remaining count', () => {
+    expect(fieldMissionEngagementLabel('patrol', 7)).toBe('巡邏遭遇伏擊 · 解除威脅')
+    expect(fieldMissionHud('patrol', 'MARCHING', 7)).not.toContain('7')
+    expect(fieldMissionHud('patrol', 'ENGAGING', 7)).not.toContain('7')
+    expect(fieldMissionEngagementLabel('bandit', 7)).toContain('7')
+    expect(fieldMissionHud('bandit', 'ENGAGING', 7)).toContain('7')
+    for (const mission of RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'patrol')) {
+      expect(mission.briefing).not.toMatch(/遭遇|敵人|敵軍|Bandit/i)
+    }
   })
 
   it('creates stable roster identities and never counts Ambient or other-camp targets', () => {
@@ -122,6 +136,120 @@ describe('Mission identity, attribution and claim', () => {
     expect(shouldPersistMissionRoute(0, 2, 8)).toBe(false)
     expect(shouldPersistMissionRoute(0, 3, 8)).toBe(true)
     expect(shouldPersistMissionRoute(6, 8, 8)).toBe(true)
+  })
+
+  it('waits for both the returning party and player before completing the physical return', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'return-both', 'bandit', 'captain')
+    profile.activeMission.phase = 'RETURNING'
+    const controller = Object.create(BanditMissionController.prototype) as any
+    const player = { combatPosition: new THREE.Vector3(300, 0, 300) }
+    controller.readProfile = () => profile
+    controller.player = () => player
+    const assembly = controller.assemblyPoint()
+    controller.leader = { combatPosition: assembly.clone() }
+    expect(controller.partyReturned).toBe(true)
+    expect(controller.playerReturned).toBe(false)
+    expect(controller.returnComplete).toBe(false)
+    player.combatPosition.copy(assembly)
+    expect(controller.returnComplete).toBe(true)
+    controller.leader.combatPosition.set(300, 0, 300)
+    expect(controller.playerReturned).toBe(true)
+    expect(controller.returnComplete).toBe(false)
+  })
+
+  it('persists Bandit mission player totals and resumes accumulation without crediting friendly kills', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'stats-bandit', 'bandit', 'captain')
+    profile.activeMission.phase = 'ENGAGING'
+    const active = profile.activeMission
+    const events = new CombatEventStream()
+    const controller = Object.create(BanditMissionController.prototype) as any
+    controller.readProfile = () => profile
+    controller.commit = (next: typeof profile) => { profile = next; return true }
+    controller.camps = [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [{ combatantId: active.targetActorIds[0], dead: false }] }]
+    controller.friendlies = []; controller.route = []; controller.routeIndex = 0; controller.statsCheckpointElapsed = 5
+    controller.tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
+    const playerSource = { actorId: 'player', actorType: 'player' as const, allegiance: Faction.PLAYER, characterFaction: 'roman' as const }
+    const friendlySource = { actorId: 'captain', actorType: 'npc' as const, allegiance: Faction.TOWN, characterFaction: 'roman' as const }
+    const target = { targetId: active.targetActorIds[0], targetType: 'npc' as const, name: 'Bandit' }
+    events.emit({ type: 'damage_applied', source: playerSource, target, method: 'melee', requestedDamage: 120, appliedDamage: 120 })
+    events.emit({ type: 'actor_killed', source: playerSource, target, method: 'melee' })
+    events.emit({ type: 'actor_killed', source: friendlySource, target: { ...target, targetId: active.targetActorIds[1] }, method: 'melee' })
+    controller.persistRuntimeProgress()
+    expect(profile.activeMission?.playerStats).toMatchObject({ damageDealt: 120, kills: 1 })
+
+    const resumedEvents = new CombatEventStream()
+    const resumed = new BattleStatsTracker(resumedEvents, false, event => acceptsCareerMissionStat(profile.activeMission!, event), profile.activeMission?.playerStats)
+    resumedEvents.emit({ type: 'damage_applied', source: playerSource, target, method: 'projectile', requestedDamage: 45, appliedDamage: 45 })
+    expect(resumed.checkpoint()).toMatchObject({ damageDealt: 165, kills: 1 })
+  })
+
+  it('updates ambient Bandit perception without an active mission and after every friendly is dead', () => {
+    let profile = createCareerProfile('roman')
+    const alert = vi.fn()
+    const bandit = { dead: false, combatantId: 'ambient:0:0', combatPosition: new THREE.Vector3(), encounterAggroState: 'idle', triggerEncounterAlert: alert }
+    const controller = Object.create(BanditMissionController.prototype) as any
+    controller.readProfile = () => profile
+    controller.player = () => ({ combatPosition: new THREE.Vector3(2, 0, 0), dead: false })
+    controller.camps = [{ id: 0, center: new THREE.Vector3(), ambient: [bandit], mission: [] }]
+    controller.friendlies = []; controller.world = { obstacles: [] }; controller.guide = { hide: vi.fn(), update: vi.fn() }
+    controller.perceptionElapsed = .2
+    controller.updateFlow(.2, 0)
+    expect(alert).toHaveBeenCalledOnce()
+
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'all-friendlies-dead', 'bandit', 'captain')
+    profile.activeMission.phase = 'ENGAGING'
+    controller.commit = (next: typeof profile) => { profile = next; return true }
+    controller.friendlies = [{ dead: true, combatantId: 'captain' }]
+    controller.leader = null; controller.route = []; controller.routeIndex = 0; controller.tracker = null; controller.statsCheckpointElapsed = 0
+    bandit.encounterAggroState = 'returning'; alert.mockClear(); controller.perceptionElapsed = .2
+    controller.updateFlow(.2, 0)
+    expect(alert).toHaveBeenCalledOnce()
+    bandit.encounterAggroState = 'provoked'; alert.mockClear(); controller.perceptionElapsed = .2
+    controller.updateFlow(.2, 0)
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  it('resumes a patrol after its encounter and requires every meaningful patrol objective before victory', () => {
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createActiveCareerMission('recruit-patrol-01', 0, 4, 0, 'patrol-route', 'patrol', 'captain')
+    profile.activeMission.phase = 'ENGAGING'
+    const leader = {
+      dead: false, combatantId: 'captain', combatPosition: new THREE.Vector3(), tacticalOrder: 'charge',
+      assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn(),
+    }
+    const missionBandits = profile.activeMission.targetActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(500, 0, 500) }))
+    const controller = Object.create(BanditMissionController.prototype) as any
+    controller.readProfile = () => profile
+    controller.commit = (next: typeof profile) => { profile = next; return true }
+    controller.player = () => ({ combatPosition: new THREE.Vector3(400, 0, 400), dead: false })
+    controller.camps = [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: missionBandits }]
+    controller.friendlies = [leader]; controller.leader = leader; controller.world = { obstacles: [] }
+    controller.navigation = { beginFrame: vi.fn(), queryPath: vi.fn(() => ({ status: 'blocked' })) }
+    controller.guide = { hide: vi.fn(), update: vi.fn() }; controller.route = []; controller.routeIndex = 0
+    controller.tracker = null; controller.statsCheckpointElapsed = 0; controller.perceptionElapsed = 0
+    const template = RECRUIT_MISSION_CATALOG.find(mission => mission.id === 'recruit-patrol-01') as any
+    const objectives = controller.patrolWaypoints(template, controller.camps[0].center)
+    profile.activeMission.patrolStage = controller.patrolEncounterStage(template, profile.activeMission.id, controller.camps[0].center)
+
+    controller.updateFlow(.2, 0)
+    expect(profile.activeMission.phase).toBe('MARCHING')
+    expect(controller.evaluate(false)).toBeNull()
+
+    let reloaded = false
+    while ((profile.activeMission?.patrolStage ?? 0) < objectives.length) {
+      const stage = profile.activeMission!.patrolStage ?? 0
+      leader.combatPosition.copy(objectives[stage])
+      controller.updateFlow(.2, 0)
+      if (!reloaded && (profile.activeMission?.patrolStage ?? 0) < objectives.length) {
+        profile = parseCareerProfile(profile)!
+        reloaded = true
+      }
+      if ((profile.activeMission?.patrolStage ?? 0) < objectives.length) expect(controller.evaluate(false)).toBeNull()
+    }
+    expect(reloaded).toBe(true)
+    expect(controller.evaluate(false)).toBe('victory')
   })
 
   it('prioritizes player death in the final-target frame and waits for roster registration', () => {

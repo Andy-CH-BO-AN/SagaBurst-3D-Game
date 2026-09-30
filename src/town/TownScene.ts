@@ -34,6 +34,7 @@ import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, claimCareerMission, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, getRecruitMissionTemplate, patrolPreferredCamp } from '../career/CareerMissionCatalog'
 import { BanditMissionController } from '../career/BanditMissionController'
+import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { TownDefenseController } from '../career/TownDefenseController'
 import { CareerMountController } from '../career/CareerMountController'
 import { preserveHpRatio, resolveCareerHeroAsset } from '../career/CareerPlayerProfile'
@@ -357,7 +358,7 @@ export class TownScene {
       details.textContent = template.kind === 'town-defense'
         ? `${template.briefing}\n所屬 Career Town\n玩家 1 · AI Captain 1 · 現有駐軍 ${template.friendlySoldiers}\n敵方 T2 騎兵 ${template.enemyCount} · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
-          ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n可能遭遇 Bandits ${template.encounterBanditCount} · 風險 ${template.risk}`
+          ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n任務內容 沿線巡查 · 風險 ${template.risk}`
           : `${template.briefing}\n城外 Bandit Camp ${template.preferredCampIndex + 1}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\nBandits ${template.banditCount} · 風險 ${template.risk}`
       details.style.whiteSpace = 'pre-line'
       row.append(title, details)
@@ -629,7 +630,11 @@ export class TownScene {
             ? s.source.faction === Faction.ENEMY
               ? [this.player, ...this.defense.peersFor(s.source)]
               : this.defense.releasedEnemies
-          : s.source?.faction === Faction.PLAYER || s.source?.faction === Faction.TOWN
+          : s.source?.faction === Faction.TOWN
+            ? s.source.hostileToPlayer
+              ? [this.player]
+              : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+          : s.source?.faction === Faction.PLAYER
             ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
             : [this.player]
       for (const target of targets) {
@@ -957,7 +962,11 @@ export class TownScene {
     const missionHud = this.profile.activeMission
       ? this.profile.activeMission.kind === 'town-defense'
         ? `\nTOWN DEFENSE ${this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
-        : `\n${this.profile.activeMission.kind === 'patrol' ? '巡邏任務' : '剿匪任務'} ${this.profile.activeMission.phase} · 剩餘 ${this.mission.remainingEnemies}`
+        : fieldMissionHud(
+          this.profile.activeMission.kind === 'patrol' ? 'patrol' : 'bandit',
+          this.profile.activeMission.phase,
+          this.mission.remainingEnemies,
+        )
       : ''
     this.hud.textContent = `${this.profile.faction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${missionHud}`
     this.damageNumbers.update(dt, this.camera)

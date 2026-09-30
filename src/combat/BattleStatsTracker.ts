@@ -16,6 +16,8 @@ export interface PlayerBattleStats {
   survived: boolean
 }
 
+export type PlayerBattleStatsCheckpoint = Omit<PlayerBattleStats, 'survived'>
+
 export interface SquadBattleStats {
   squadId: SquadId
   damageDealt: number
@@ -73,7 +75,7 @@ function emptySquadTotals(): MutableSquadTotals {
  * not battle duration or hit count.
  */
 export class BattleStatsTracker {
-  private readonly playerTotals = emptyCombatTotals()
+  private readonly playerTotals: MutableCombatTotals
   private readonly squads = new Map<SquadId, MutableSquadTotals>()
   private readonly registeredSquadActors = new Set<string>()
   private readonly unsubscribe: () => void
@@ -82,8 +84,22 @@ export class BattleStatsTracker {
     events: CombatEventStream,
     private readonly trackStructureStats = true,
     private readonly acceptEvent: (event: CombatEvent) => boolean = () => true,
+    initialPlayerTotals: Partial<PlayerBattleStatsCheckpoint> = {},
   ) {
+    const value = (input: number | undefined): number => Number.isFinite(input) && (input ?? 0) > 0 ? input! : 0
+    this.playerTotals = {
+      damageDealt: value(initialPlayerTotals.damageDealt),
+      damageTaken: value(initialPlayerTotals.damageTaken),
+      kills: Math.floor(value(initialPlayerTotals.kills)),
+      structureDamage: value(initialPlayerTotals.structureDamage),
+      structuresDestroyed: Math.floor(value(initialPlayerTotals.structuresDestroyed)),
+      gateBreaches: Math.floor(value(initialPlayerTotals.gateBreaches)),
+    }
     this.unsubscribe = events.subscribe(event => this._onEvent(event))
+  }
+
+  checkpoint(): PlayerBattleStatsCheckpoint {
+    return { ...this.playerTotals }
   }
 
   registerNpc(npc: NPC): void {

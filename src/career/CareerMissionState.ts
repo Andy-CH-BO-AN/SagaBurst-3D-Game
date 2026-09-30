@@ -1,4 +1,4 @@
-import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import type { CareerMountId } from './CareerProfile'
 
@@ -37,7 +37,9 @@ export interface ActiveCareerMission {
   deadTargetActorIds?: string[]
   deadFriendlyActorIds?: string[]
   deadCivilianActorIds?: string[]
+  playerStats?: PlayerBattleStatsCheckpoint
   routeStage?: number
+  patrolStage?: number
   defenseElapsed?: number
   civilianActorIds?: string[]
   mountState?: CareerMissionMountState

@@ -310,12 +310,13 @@ describe('Career profile persistence', () => {
       id: 'reload-mission', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
       phase: 'RETURNING', targetActorIds: ['target-a', 'target-b'], friendlyActorIds: ['captain', 'melee_infantry-0'],
       deadTargetActorIds: ['target-a', 'unknown'], deadFriendlyActorIds: ['melee_infantry-0'],
-      routeStage: 7, defenseElapsed: 19.5, acceptedAt: 1,
+      playerStats: { damageDealt: 310, damageTaken: 20, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      routeStage: 7, patrolStage: 2, defenseElapsed: 19.5, acceptedAt: 1,
     }
     const parsed = parseCareerProfile(profile)
     expect(parsed?.activeMission).toMatchObject({
       id: 'reload-mission', phase: 'RETURNING', deadTargetActorIds: ['target-a'],
-      deadFriendlyActorIds: ['melee_infantry-0'], routeStage: 7, defenseElapsed: 19.5,
+      deadFriendlyActorIds: ['melee_infantry-0'], playerStats: { damageDealt: 310, kills: 2 }, routeStage: 7, patrolStage: 2, defenseElapsed: 19.5,
     })
   })
 })
