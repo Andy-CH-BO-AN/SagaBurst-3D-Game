@@ -338,18 +338,19 @@ describe('Battle setup and standalone reference UI', () => {
     ui.destroy()
   })
 
-  it('keeps five reference sub-tabs and switches them independently', () => {
+  it('keeps six reference sub-tabs and switches them independently', () => {
     const ui = new BattleReferenceUI()
     ui.mount(container, () => {})
 
     const subBtns = container.querySelectorAll('.ref-subtab-btn')
-    expect(subBtns.length).toBe(5)
+    expect(subBtns.length).toBe(6)
     const balanceBtn = subBtns.find((button: any) => button.dataset.refSubtab === 'balance')
     const weaponsBtn = subBtns.find((button: any) => button.dataset.refSubtab === 'weapons')
     const panels = container.querySelectorAll('.ref-subpanel')
     const balancePanel = panels.find((panel: any) => panel.dataset.refSubpanel === 'balance')
     const weaponsPanel = panels.find((panel: any) => panel.dataset.refSubpanel === 'weapons')
 
+    balanceBtn?.click()
     expect(balanceBtn?.classList.contains('active')).toBe(true)
     expect(balancePanel?.classList.contains('active')).toBe(true)
 

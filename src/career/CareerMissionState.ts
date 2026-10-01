@@ -37,6 +37,7 @@ export interface ActiveCareerMission {
   deadTargetActorIds?: string[]
   deadFriendlyActorIds?: string[]
   deadCivilianActorIds?: string[]
+  playerDead?: boolean
   playerStats?: PlayerBattleStatsCheckpoint
   routeStage?: number
   patrolStage?: number
@@ -90,7 +91,7 @@ export function createTownDefenseMission(
     kind: 'town-defense',
     targetCampId: -1,
     phase: 'PREPARING',
-    targetActorIds: Array.from({ length: 50 }, (_, index) => `${id}:attacker:${index}`),
+    targetActorIds: Array.from({ length: 70 }, (_, index) => `${id}:attacker:${index}`),
     friendlyActorIds: [...friendlyActorIds],
     civilianActorIds: [...civilianActorIds],
     acceptedAt: Date.now(),
@@ -110,7 +111,10 @@ export function resolveCareerMissionOutcome(
   playerDead: boolean,
   rosterRegistrationComplete: boolean,
   remainingTargets: number,
+  friendlyCombatantsAlive: number = 0,
+  objectiveComplete = true,
 ): CareerMissionOutcome | null {
-  if (playerDead) return 'failure'
-  return rosterRegistrationComplete && remainingTargets === 0 ? 'victory' : null
+  if (rosterRegistrationComplete && objectiveComplete && remainingTargets === 0) return 'victory'
+  if (playerDead && friendlyCombatantsAlive === 0 && (remainingTargets > 0 || !objectiveComplete)) return 'failure'
+  return null
 }

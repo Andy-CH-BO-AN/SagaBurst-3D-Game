@@ -181,7 +181,8 @@ export class BanditMissionController {
     const leader = this.leader
     const objective = this.marchTarget(template, active, camp.center)
 
-    if (leader && active.phase === 'ASSEMBLING' && this.player().combatPosition.distanceTo(leader.combatPosition) <= 12) {
+    if (!hasLeader && !this.player().dead && active.phase === 'ASSEMBLING') this.setPhase('MARCHING')
+    if (leader && active.phase === 'ASSEMBLING' && (this.player().dead || this.player().combatPosition.distanceTo(leader.combatPosition) <= 12)) {
       if (this.setPhase('MARCHING')) {
         this.assignLeader(objective)
         this.assignFollowers()
@@ -211,7 +212,7 @@ export class BanditMissionController {
         else this.resumePlayerOnlyPatrol()
       }
     }
-    if (template.kind === 'patrol' && this.phase === 'MARCHING' && !hasLeader) this.updatePlayerOnlyPatrol(template, camp)
+    if (template.kind === 'patrol' && this.phase === 'MARCHING' && !hasLeader && !this.player().dead) this.updatePlayerOnlyPatrol(template, camp)
 
     this.persistRuntimeProgress()
     const current = this.active ?? active
@@ -225,8 +226,14 @@ export class BanditMissionController {
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     const patrolComplete = template?.kind !== 'patrol' || Boolean(camp && (active.patrolStage ?? 0) >= this.patrolWaypoints(template, camp.center).length)
-    const registrationComplete = active.targetActorIds.length > 0 && (template?.kind === 'patrol' ? patrolComplete : active.phase === 'ENGAGING')
-    return resolveCareerMissionOutcome(playerDead, registrationComplete, this.remainingEnemies)
+    const accountedIds = new Set([
+      ...this.missionBandits.map(npc => npc.combatantId),
+      ...(active.deadTargetActorIds ?? []),
+    ])
+    const registrationComplete = active.targetActorIds.length > 0 && active.targetActorIds.every(id => accountedIds.has(id))
+    const friendlyIds = new Set(active.friendlyActorIds)
+    const friendlyAlive = this.friendlies.filter(npc => friendlyIds.has(npc.combatantId) && !npc.dead).length
+    return resolveCareerMissionOutcome(playerDead, registrationComplete, this.remainingEnemies, friendlyAlive, patrolComplete)
   }
 
   snapshot(): BattleStatsSnapshot {
@@ -326,11 +333,11 @@ export class BanditMissionController {
       const npc = residentsById.get(actorId)
       if (npc) this.friendlies.push(npc)
     }
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    for (const friendly of this.friendlies) if (deadFriendlies.has(friendly.combatantId) && !friendly.dead) friendly.takeDamage(999999)
     this.leader = this.friendlies.find(npc => npc.combatantId === this.missionCaptain.combatantId && !npc.dead)
       ?? this.friendlies.find(npc => !npc.dead)
       ?? null
-    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
-    for (const friendly of this.friendlies) if (deadFriendlies.has(friendly.combatantId) && !friendly.dead) friendly.takeDamage(999999)
   }
 
   private acceptMissionEvent(active: ActiveCareerMission, event: CombatEvent): boolean {
@@ -619,7 +626,7 @@ export class BanditMissionController {
     }
   }
 
-  private persistRuntimeProgress(): void {
+  persistRuntimeProgress(forceStats = false): void {
     const active = this.active
     if (!active || active.result && active.phase !== 'RETURNING') return
     const deadTargets = new Set(active.deadTargetActorIds ?? [])
@@ -635,10 +642,11 @@ export class BanditMissionController {
     const routeCheckpointReached = shouldPersistMissionRoute(savedRouteStage, this.routeIndex, this.route.length - 1)
     const playerStats = this.tracker?.checkpoint() ?? active.playerStats
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
-    const statsCheckpointReached = statsChanged && this.statsCheckpointElapsed >= STATS_CHECKPOINT_SECONDS
-    if (!casualtiesChanged && !routeCheckpointReached && !statsCheckpointReached) return
+    const statsCheckpointReached = statsChanged && (forceStats || this.statsCheckpointElapsed >= STATS_CHECKPOINT_SECONDS)
+    const playerDead = this.player().dead
+    if (!casualtiesChanged && !routeCheckpointReached && !statsCheckpointReached && Boolean(active.playerDead) === playerDead) return
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, routeStage: this.routeIndex, ...(playerStats ? { playerStats } : {}) }
+    profile.activeMission = { ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, routeStage: this.routeIndex, ...(playerStats ? { playerStats } : {}) }
     if (this.commit(profile)) this.statsCheckpointElapsed = 0
   }
 

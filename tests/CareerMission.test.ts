@@ -33,7 +33,7 @@ describe('Recruit mission catalog and merit', () => {
     for (const mission of bandits) expect(mission.friendlyCombatants).toBe(mission.friendlySoldiers + 2)
     expect(defense.storyOnce).toBe(true)
     expect(defense.requiresCompletions).toBe(5)
-    expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 50, 20, 10])
+    expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 70, 20, 10])
     expect(defense.friendlyCombatants).toBe(64)
     let profile = createCareerProfile('roman')
     expect(availableRecruitMissions(profile)).toHaveLength(2)
@@ -154,6 +154,7 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'return-both', 'bandit', 'captain')
     profile.activeMission.phase = 'RETURNING'
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     const player = { combatPosition: new THREE.Vector3(300, 0, 300) }
     controller.readProfile = () => profile
     controller.player = () => player
@@ -185,6 +186,7 @@ describe('Mission identity, attribution and claim', () => {
     const followers = Array.from({ length: 18 }, () => ({ dead: false, combatPosition: new THREE.Vector3(0, 0, 0), setTacticalOrder: vi.fn() }))
     const bandit = { dead: false, encounterIsAlerted: false, triggerEncounterAlert: vi.fn() }
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.player = () => ({ combatPosition: new THREE.Vector3(500, 0, 500) })
@@ -214,6 +216,7 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission = createActiveCareerMission('recruit-bandits-02', 0, 12, 0, 'separate-guide-stage', 'bandit', 'captain')
     profile.activeMission.phase = 'MARCHING'
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.assemblyPoint = () => new THREE.Vector3(0, 0, 0)
     controller.world = { obstacles: [] }
@@ -239,6 +242,7 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission.routeStage = 3
     profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.camps = [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: [] }]
     controller.events = new CombatEventStream()
@@ -271,6 +275,7 @@ describe('Mission identity, attribution and claim', () => {
     const deadFriendlies = profile.activeMission.friendlyActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(), tacticalOrder: 'charge', setTacticalOrder: vi.fn() }))
     const deadBandits = profile.activeMission.targetActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(), encounterIsAlerted: false }))
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.player = () => player
@@ -308,6 +313,7 @@ describe('Mission identity, attribution and claim', () => {
     const active = profile.activeMission
     const events = new CombatEventStream()
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.camps = [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [{ combatantId: active.targetActorIds[0], dead: false }] }]
@@ -333,6 +339,7 @@ describe('Mission identity, attribution and claim', () => {
     const alert = vi.fn()
     const bandit = { dead: false, combatantId: 'ambient:0:0', combatPosition: new THREE.Vector3(), encounterAggroState: 'idle', triggerEncounterAlert: alert }
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.player = () => ({ combatPosition: new THREE.Vector3(2, 0, 0), dead: false })
     controller.camps = [{ id: 0, center: new THREE.Vector3(), ambient: [bandit], mission: [] }]
@@ -364,6 +371,7 @@ describe('Mission identity, attribution and claim', () => {
     }
     const missionBandits = profile.activeMission.targetActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(500, 0, 500) }))
     const controller = Object.create(BanditMissionController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.player = () => ({ combatPosition: new THREE.Vector3(400, 0, 400), dead: false })
@@ -395,8 +403,8 @@ describe('Mission identity, attribution and claim', () => {
     expect(controller.evaluate(false)).toBe('victory')
   })
 
-  it('prioritizes player death in the final-target frame and waits for roster registration', () => {
-    expect(resolveCareerMissionOutcome(true, true, 0)).toBe('failure')
+  it('prioritizes the objective in the final-target frame and waits for roster registration', () => {
+    expect(resolveCareerMissionOutcome(true, true, 0)).toBe('victory')
     expect(resolveCareerMissionOutcome(false, false, 0)).toBeNull()
     expect(resolveCareerMissionOutcome(false, true, 0)).toBe('victory')
   })

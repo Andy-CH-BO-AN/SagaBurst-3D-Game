@@ -63,10 +63,10 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, 10, true).every(slot => slot.x > 20)).toBe(true)
   })
 
-  it('defines exactly 50 enemy cavalry with the required composition across three concurrent attack groups', () => {
+  it('defines exactly 70 enemy cavalry with the required composition across three concurrent attack groups', () => {
     expect(TOWN_DEFENSE_ATTACK_GROUPS).toHaveLength(3)
-    expect(townDefenseEnemyTotals()).toEqual({ melee: 20, lancer: 15, 'horse-archer': 15 })
-    expect(TOWN_DEFENSE_ATTACK_GROUPS.map(group => Object.values(group.composition).reduce((a, b) => a + b, 0))).toEqual([15, 15, 20])
+    expect(townDefenseEnemyTotals()).toEqual({ melee: 28, lancer: 21, 'horse-archer': 21 })
+    expect(TOWN_DEFENSE_ATTACK_GROUPS.map(group => Object.values(group.composition).reduce((a, b) => a + b, 0))).toEqual([21, 21, 28])
     expect(TOWN_DEFENSE_ATTACK_GROUPS.map(group => group.approach)).toEqual(['southApproach', 'westStableApproach', 'eastBarracksApproach'])
     expect(TOWN_DEFENSE_ATTACK_GROUPS.every(group => !('delaySeconds' in group))).toBe(true)
   })
@@ -89,6 +89,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     const actors = roster.filter(spec => spec.role.includes('_') || ['captain', 'ranger', 'deployment', 'civilian'].includes(spec.role))
       .map(spec => ({ spec, npc: { dead: false, isMounted: spec.role.includes('cavalry') || spec.role === 'captain' || spec.role === 'ranger', mount: null as unknown, assignFormationTarget: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) } }))
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: groups.map(group => ({ id: group.id, members: group.actorIds.map(id => actors.find(actor => actor.spec.id === id)!.npc) })), residents: actors, navigation, blackCat: { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }, commandId: 0 })
     controller.prepareDeployment()
     const positions = actors.map(actor => actor.npc.assignFormationTarget.mock.lastCall?.[1] as THREE.Vector3)
@@ -108,6 +109,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-timed-start')
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.blackCat = { dead: false }
@@ -125,14 +127,15 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(parseCareerProfile(JSON.parse(JSON.stringify(profile)))?.activeMission?.defensePreparationElapsed).toBeCloseTo(TOWN_DEFENSE_PREPARATION_SECONDS)
   })
 
-  it('starts all 50 attackers together while all defenders hold until a military hit', () => {
+  it('starts all 70 attackers together while all defenders hold until a military hit', () => {
     const soldier = () => ({ dead: false, combatPosition: { distanceTo: () => 100 }, setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn() })
     const captain = soldier()
     const groups = (['A', 'B', 'C', 'D', 'E', 'F'] as const).map(id => ({ id, members: Array.from({ length: 10 }, soldier) }))
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     controller.groups = groups
     controller.residents = [{ spec: { role: 'captain' }, npc: captain }]
-    controller.attackGroups = [15, 15, 20].map(count => ({ members: Array.from({ length: count }, soldier), released: false }))
+    controller.attackGroups = [21, 21, 28].map(count => ({ members: Array.from({ length: count }, soldier), released: false }))
     controller.reserveCharged = false
     controller.commandId = 0
     controller.beginAttack()
@@ -148,6 +151,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'civilian').map(spec => ({ spec, npc: actor() }))
     const blackCat = { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: [], residents, blackCat, attackGroups: [], commandId: 0, navigation: { grid: { findNearestWalkableCell: () => null } } })
     const byId = new Map(residents.map(resident => [resident.spec.id, resident.npc]))
     controller.groups.push(...createTownDefenseGroups(roster).map(plan => ({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)) })))
@@ -170,6 +174,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     profile.activeMission = createTownDefenseMission(['captain'], [], 'first-hit-charge')
     profile.activeMission.phase = 'ATTACKING'
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     Object.assign(controller, { groups, residents: [{ spec: { role: 'captain' }, npc: captain }, { spec: { role: 'ranger' }, npc: ranger }, { spec: { role: 'deployment' }, npc: sergeant }, { spec: { role: 'civilian' }, npc: civilian }], reserveCharged: false })
     controller.readProfile = () => profile
     controller.persistRuntimeProgress = vi.fn()
@@ -208,7 +213,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(profile.activeMission?.deadTargetActorIds).toEqual([profile.activeMission?.targetActorIds[0]])
     for (const enemy of controller.enemies) enemy.dead = true
     ;(controller as any).persistRuntimeProgress()
-    expect(profile.activeMission?.deadTargetActorIds).toHaveLength(50)
+    expect(profile.activeMission?.deadTargetActorIds).toHaveLength(70)
     expect(controller.evaluate(false)).toBe('victory')
 
     const saved = profile
@@ -250,6 +255,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     profile.activeMission.phase = 'ATTACKING'
     const ranger = { combatantId: 'ranger', dead: true }
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     Object.assign(controller, {
       residents: [{ spec: { role: 'ranger' }, npc: ranger }], enemies: [], groups: [],
       blackCat: { dead: true }, attackElapsed: 1, preparationElapsed: TOWN_DEFENSE_PREPARATION_SECONDS,
@@ -273,6 +279,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'deployment')
       .map(spec => ({ spec, npc: { combatantId: spec.id, dead: spec.role === 'deployment', takeDamage: vi.fn(function (this: any) { this.dead = true }) } }))
     const controller = Object.create(TownDefenseController.prototype) as any
+    controller.player = () => ({ dead: false })
     Object.assign(controller, { residents, enemies: [], enemyMounts: [], groups: createTownDefenseGroups(roster).map(plan => ({ id: plan.id, members: plan.actorIds.map(id => residents.find(resident => resident.spec.id === id)!.npc) })), attackElapsed: 1, preparationElapsed: 45, tracker: null, statsCheckpointElapsed: 0, blackCat: { dead: false } })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
@@ -296,24 +303,24 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(resolveTownDefenseOutcome(false, TOWN_DEFENSE_CIVILIAN_LIMIT + 1, true, 0)).toBe('failure')
   })
 
-  it('gives player death priority while captain death is absent from the outcome contract', () => {
-    expect(resolveTownDefenseOutcome(true, 0, true, 0)).toBe('failure')
+  it('prioritizes defeated enemies over player and captain casualties', () => {
+    expect(resolveTownDefenseOutcome(true, 0, true, 0)).toBe('victory')
     expect(resolveTownDefenseOutcome(false, 0, true, 0)).toBe('victory')
   })
 
-  it('waits for all 50 registered attackers and all remaining enemies', () => {
+  it('waits for all 70 registered attackers and all remaining enemies', () => {
     expect(resolveTownDefenseOutcome(false, 0, false, 0)).toBeNull()
     expect(resolveTownDefenseOutcome(false, 0, true, 1)).toBeNull()
     expect(resolveTownDefenseOutcome(false, 0, true, 0)).toBe('victory')
   })
 
-  it('creates stable mission rosters for 50 enemies, 60 garrison plus captain, Maki and sergeant, and 20 civilians', () => {
+  it('creates stable mission rosters for 70 enemies, 60 garrison plus captain, Maki and sergeant, and 20 civilians', () => {
     const roster = townRoster()
     const military = roster.filter(actor => actor.role.includes('_') || actor.role === 'captain' || actor.role === 'ranger' || actor.role === 'deployment').map(actor => actor.id)
     const civilians = roster.filter(actor => actor.role === 'civilian').map(actor => actor.id)
     const mission = createTownDefenseMission(military, civilians, 'defense-stable')
     expect(mission.kind).toBe('town-defense')
-    expect(mission.targetActorIds).toHaveLength(50)
+    expect(mission.targetActorIds).toHaveLength(70)
     expect(mission.friendlyActorIds).toHaveLength(63)
     expect(mission.friendlyActorIds).toContain('ranger')
     expect(mission.friendlyActorIds).toContain('deployment')
