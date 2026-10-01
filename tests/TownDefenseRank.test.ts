@@ -23,7 +23,7 @@ vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({
 
 describe('Town Defense difficulty follows appointed rank', () => {
   it.each([
-    ['recruit', 60, [18, 18, 24], { melee: 24, lancer: 18, 'horse-archer': 18 }],
+    ['recruit', 50, [15, 15, 20], { melee: 20, lancer: 15, 'horse-archer': 15 }],
     ['soldier', 70, [21, 21, 28], { melee: 28, lancer: 21, 'horse-archer': 21 }],
   ] as const)('keeps %s display, roster and three lanes consistent at %s enemies', (rank, count, lanes, totals) => {
     const profile = createCareerProfile('roman')
@@ -38,7 +38,7 @@ describe('Town Defense difficulty follows appointed rank', () => {
     expect(townDefenseAttackGroups(count).map(group => Object.values(group.composition).reduce((sum, n) => sum + n, 0))).toEqual(lanes)
     expect(townDefenseAttackGroups(count).map(group => group.id)).toEqual(['south', 'west', 'east'])
     // Reading a Soldier's board must not overwrite the Recruit catalog entry.
-    expect(getRecruitMissionTemplate('recruit-town-defense-01')).toMatchObject({ enemyCount: 60 })
+    expect(getRecruitMissionTemplate('recruit-town-defense-01')).toMatchObject({ enemyCount: 50 })
   })
 
   it.each(['veteran', 'captain', 'commander'] as const)('retains the current 70-enemy baseline for %s', rank => {
@@ -61,7 +61,7 @@ describe('Town Defense difficulty follows appointed rank', () => {
         expect(controller.enemyMounts).toHaveLength(townDefenseEnemyCount(rank))
         expect(controller.enemies.map((npc: any) => npc.combatantId)).toEqual(mission.targetActorIds)
         expect(controller.enemies.every((npc: any) => npc.tier === 2 && npc.isMounted && !npc.respawnEnabled)).toBe(true)
-        expect(controller.attackGroups.map((group: any) => group.members.length)).toEqual(rank === 'recruit' ? [18, 18, 24] : [21, 21, 28])
+        expect(controller.attackGroups.map((group: any) => group.members.length)).toEqual(rank === 'recruit' ? [15, 15, 20] : [21, 21, 28])
       } finally { controller.disposeEnemies() }
     }
   })
@@ -81,7 +81,7 @@ describe('Town Defense difficulty follows appointed rank', () => {
       enemies: active.targetActorIds.slice(2).map(combatantId => ({ combatantId, dead: false })),
     }) as TownDefenseController
     expect(active.targetActorIds).toHaveLength(townDefenseEnemyCount(rank))
-    expect(townDefenseAttackGroups(active.targetActorIds.length).map(group => Object.values(group.composition).reduce((sum, n) => sum + n, 0))).toEqual(rank === 'recruit' ? [18, 18, 24] : [21, 21, 28])
+    expect(townDefenseAttackGroups(active.targetActorIds.length).map(group => Object.values(group.composition).reduce((sum, n) => sum + n, 0))).toEqual(rank === 'recruit' ? [15, 15, 20] : [21, 21, 28])
     expect(controller.evaluate(true)).toBe('failure')
     controller.enemies.length = 0
     expect(controller.evaluate(false)).toBeNull() // Incomplete registration never wins.

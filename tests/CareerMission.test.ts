@@ -33,7 +33,7 @@ describe('Recruit mission catalog and merit', () => {
     for (const mission of bandits) expect(mission.friendlyCombatants).toBe(mission.friendlySoldiers + 2)
     expect(defense.storyOnce).toBe(true)
     expect(defense.requiresCompletions).toBe(5)
-    expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 60, 20, 10])
+    expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 50, 20, 10])
     expect(defense.friendlyCombatants).toBe(64)
     let profile = createCareerProfile('roman')
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(2)
