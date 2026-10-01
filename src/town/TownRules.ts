@@ -1,5 +1,5 @@
-import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from '../career/CareerProfile'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { cloneCareerProfile, getCareerPurchaseTier, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile } from '../career/CareerProfile'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
@@ -75,9 +75,12 @@ export function careerTownWeapon(profile: CareerProfile): string {
   return profile.ownedWeapons.find(id => WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && id !== 'maki-ranger-bow') ?? 'gladius_rusty'
 }
 export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4; price: number }
-// Weapon / hero prices remain previews. Horse tiers are purchased through the canonical catalog.
+// Hero fixed equipment is not part of the ordinary Career collection.
+export function isTownShopWeapon(id: string): boolean {
+  return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow' && id !== T4_RANGER_BOW_RANGED_ID
+}
 export const TOWN_PRODUCTS: TownProduct[] = [
-  ...Object.values(WEAPONS).filter(w => w.id !== 'maki-ranger-bow').map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
+  ...Object.values(WEAPONS).filter(w => isTownShopWeapon(w.id)).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
   ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
   { id: 'horse-t1', category: 'mount', name: '普通戰馬 · T1', tier: 1, price: 200 },
   { id: 'horse-t2', category: 'mount', name: '受訓戰馬 · T2', tier: 2, price: 500 },
@@ -117,4 +120,13 @@ export function purchaseTownHorse(profile: CareerProfile, id: string): CareerPro
   if (!next.ownedMounts.includes('horse')) next.ownedMounts.push('horse')
   next.selectedMountId = item.id as 'horse-t1' | 'horse-t2' | 'horse-t3'
   return next
+}
+
+/** Resolve every purchase field from the catalog; callers supply only a product ID. */
+export function purchaseTownEquipment(profile: CareerProfile, productId: string): CareerPurchaseResult {
+  const item = TOWN_PRODUCTS.find(product => product.id === productId && product.category !== 'mount')
+  if (!item || item.category === 'mount') return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'invalid-id' }
+  return purchaseCareerContent(profile, {
+    id: item.id, kind: item.category, requiredTier: item.tier, cost: item.price,
+  })
 }

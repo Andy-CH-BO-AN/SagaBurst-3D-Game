@@ -10,7 +10,7 @@ import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
-import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile } from '../world/ArrowProjectile'
 import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { damageNpc, damagePlayer } from '../combat/DamageRouter'
@@ -25,7 +25,7 @@ import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareer
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownHorse } from './TownRules'
+import { isTownProductOwned, purchaseTownHorse, purchaseTownEquipment } from './TownRules'
 import { getCareerPurchaseTier } from '../career/CareerProfile'
 import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
@@ -294,15 +294,39 @@ export class TownScene {
       this.openDeploymentPanel(greeting, context, firstOutpost)
     } else {
       const mount = id !== 'merchant', panel = this.openPanel(NAMES[id], greeting)
-      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 戰馬依 T1 → T2 → T3 購買；購買後按 Tab 騎乘／收起' : ' · 目前僅展示價目'); panel.append(summary)
+      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 戰馬依 T1 → T2 → T3 購買；購買後按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
       const showProducts = () => {
         panel.querySelector('.town-products')?.remove()
         const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
-        for (const item of TOWN_PRODUCTS.filter(i => (i.category === 'mount') === mount)) {
+        let section = ''
+        for (const item of TOWN_PRODUCTS.filter(i => (i.category === 'mount') === mount).sort((a, b) => {
+          const group = (item: typeof a) => item.category === 'armor' ? 2 : WEAPONS[item.id]?.type === 'ranged' ? 1 : 0
+          return mount ? 0 : group(a) - group(b)
+        })) {
+          if (!mount) {
+            const heading = item.category === 'armor' ? '盾牌' : WEAPONS[item.id]?.type === 'ranged' ? '遠程武器' : '近戰武器'
+            if (heading !== section) { const h = document.createElement('h3'); h.textContent = heading; list.append(h); section = heading }
+          }
           const row = document.createElement('article'); row.className = 'town-product'
           const title = document.createElement('strong'); title.textContent = item.name
           const meta = document.createElement('small'); meta.textContent = 'T' + item.tier + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item)
           row.append(title, meta)
+          if (!mount) {
+            const status = productStatus(this.profile, item)
+            const button = document.createElement('button'); button.className = 'town-button'
+            button.textContent = status === '已擁有' || status === '軍階未解鎖' ? status : this.profile.availableMerit < item.price ? '餘額不足' : '購買'
+            button.disabled = status !== '已解鎖・餘額足夠'
+            button.onclick = () => {
+              const result = purchaseTownEquipment(this.profile, item.id)
+              if (!result.purchased) {
+                const message = result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
+                this.talk(id, message); return
+              }
+              if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
+              this.talk(id, '購買成功：' + item.name + '\n按 Tab 選擇裝備。')
+            }
+            row.append(button); list.append(row); continue
+          }
           this.button(row, item.id.startsWith('horse-t') && !isTownProductOwned(this.profile, item) ? '購買' : '查看', () => {
             const current = this.profile, owned = isTownProductOwned(current, item), tierUnlocked = getCareerPurchaseTier(current.rank) >= item.tier
             let message = selectTownDialogue({ ...context, isOwned: owned, tierUnlocked, hasEnoughMerit: current.availableMerit >= item.price }, 'product')

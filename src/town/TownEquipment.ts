@@ -2,10 +2,10 @@ import { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from '../career/CareerProfile'
-import { careerTownWeapon } from './TownRules'
+import { careerTownWeapon, isTownShopWeapon } from './TownRules'
 export function canUseCareerEquipment(profile: CareerProfile, id: string): boolean {
   const item = WEAPONS[id] ?? ARMORS[id]
-  return Boolean(item && item.tier <= getCareerPurchaseTier(profile.rank) && id !== 'maki-ranger-bow'
+  return Boolean(item && item.tier <= getCareerPurchaseTier(profile.rank) && (Boolean(ARMORS[id]) || isTownShopWeapon(id))
     && (Boolean(ARMORS[id]) ? profile.ownedArmors : profile.ownedWeapons).includes(id))
 }
 /** Temporary hand state is separate from persisted preferences and ownership. */
@@ -18,7 +18,15 @@ export class TownEquipment extends InventoryManager {
     super({ meleeWeaponId: careerTownWeapon(read()), rangedWeaponId: '', shieldId: null })
     this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })) })
   }
+  private syncOwnership(): void {
+    const profile = this.read()
+    const existing = new Set(this.saveState.items.map(item => item.id))
+    for (const id of new Set([...profile.ownedWeapons, ...profile.ownedArmors])) {
+      if (!existing.has(id)) this.addWeapon(id)
+    }
+  }
   restoreForHostile(): void {
+    this.syncOwnership()
     for (const id of Object.values(this.read().equipment ?? {})) {
       if (!id || !canUseCareerEquipment(this.read(), id) || !super.equipWeapon(id)) continue
       this.drawn.add(id)
@@ -43,10 +51,11 @@ export class TownEquipment extends InventoryManager {
     this.shieldEnabled = false
     this.drawn.clear()
   }
-  override get inventoryStacks() { return super.inventoryStacks.filter(({ item }) => canUseCareerEquipment(this.read(), item.id)) }
+  override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.filter(({ item }) => canUseCareerEquipment(this.read(), item.id)) }
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override equipWeapon(id: string): boolean {
     if (!canUseCareerEquipment(this.read(), id)) return false
+    this.syncOwnership()
     const item = WEAPONS[id] ?? ARMORS[id], profile = cloneCareerProfile(this.read())
     const slot = Boolean(ARMORS[id]) ? 'shield' : item.type === 'ranged' ? 'ranged' : 'melee'
     profile.equipment = { ...profile.equipment, [slot]: id }
