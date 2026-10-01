@@ -1,5 +1,6 @@
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, enlistmentMerit, type CareerProfile, type CareerRank } from './CareerProfile'
+import { townDefenseEnemyCount } from './TownDefenseState'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
 export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
@@ -144,7 +145,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     targetArea: 'career-town',
     friendlySoldiers: 60,
     friendlyCombatants: 64,
-    enemyCount: 70,
+    enemyCount: townDefenseEnemyCount('recruit'),
     civilianCount: 20,
     maxCivilianDeaths: 10,
     risk: '極高',
@@ -179,5 +180,7 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
     && (template.kind !== 'cavalry-sweep' || Boolean(resolveCareerReliefMount(profile)))
     && (template.kind !== 'enemy-town-assault' || isEnemyTownAssaultUnlocked(profile))
     && (!template.storyOnce || !completedStory.includes(template.id))
-  ))
+  )).map(template => template.kind === 'town-defense'
+    ? { ...template, enemyCount: townDefenseEnemyCount(profile.rank) }
+    : template)
 }

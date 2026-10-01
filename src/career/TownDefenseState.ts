@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { TownActorSpec, TownRole } from '../town/TownRules'
+import type { CareerRank } from './CareerProfile'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
@@ -103,8 +104,23 @@ export const TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
   { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 7, lancer: 11, 'horse-archer': 10 } },
 ]
 
-export function townDefenseEnemyTotals(): Record<EnemyCavalryKind, number> {
-  return TOWN_DEFENSE_ATTACK_GROUPS.reduce((total, group) => {
+const RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
+  { id: 'south', approach: 'southApproach', composition: { melee: 9, lancer: 5, 'horse-archer': 4 } },
+  { id: 'west', approach: 'westStableApproach', composition: { melee: 9, lancer: 3, 'horse-archer': 6 } },
+  { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 6, lancer: 10, 'horse-archer': 8 } },
+]
+
+export function townDefenseEnemyCount(rank: CareerRank = 'recruit'): 60 | 70 {
+  return rank === 'recruit' ? 60 : 70
+}
+
+/** The accepted roster fixes difficulty; reload must not derive it from a new rank. */
+export function townDefenseAttackGroups(enemyCount = 70): readonly TownDefenseAttackGroup[] {
+  return enemyCount === 60 ? RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS : TOWN_DEFENSE_ATTACK_GROUPS
+}
+
+export function townDefenseEnemyTotals(enemyCount = 70): Record<EnemyCavalryKind, number> {
+  return townDefenseAttackGroups(enemyCount).reduce((total, group) => {
     total.melee += group.composition.melee
     total.lancer += group.composition.lancer
     total['horse-archer'] += group.composition['horse-archer']

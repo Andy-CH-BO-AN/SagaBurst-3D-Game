@@ -219,7 +219,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(profile.activeMission?.deadTargetActorIds).toEqual([profile.activeMission?.targetActorIds[0]])
     for (const enemy of controller.enemies) enemy.dead = true
     ;(controller as any).persistRuntimeProgress()
-    expect(profile.activeMission?.deadTargetActorIds).toHaveLength(70)
+    expect(profile.activeMission?.deadTargetActorIds).toHaveLength(60)
     expect(controller.evaluate(false)).toBe('victory')
 
     const saved = profile
@@ -320,13 +320,13 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(resolveTownDefenseOutcome(false, 0, true, 0)).toBe('victory')
   })
 
-  it('creates stable mission rosters for 70 enemies, 60 garrison plus captain, Maki and sergeant, and 20 civilians', () => {
+  it('creates Recruit rosters for 60 enemies, 60 garrison plus captain, Maki and sergeant, and 20 civilians', () => {
     const roster = townRoster()
     const military = roster.filter(actor => actor.role.includes('_') || actor.role === 'captain' || actor.role === 'ranger' || actor.role === 'deployment').map(actor => actor.id)
     const civilians = roster.filter(actor => actor.role === 'civilian').map(actor => actor.id)
     const mission = createTownDefenseMission(military, civilians, 'defense-stable')
     expect(mission.kind).toBe('town-defense')
-    expect(mission.targetActorIds).toHaveLength(70)
+    expect(mission.targetActorIds).toHaveLength(60)
     expect(mission.friendlyActorIds).toHaveLength(63)
     expect(mission.friendlyActorIds).toContain('ranger')
     expect(mission.friendlyActorIds).toContain('deployment')
