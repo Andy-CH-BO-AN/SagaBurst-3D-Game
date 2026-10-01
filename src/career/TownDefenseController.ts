@@ -14,7 +14,7 @@ import { acceptsCareerMissionStat, type ActiveCareerMission, type CareerMissionO
 import { MissionGuide } from './MissionGuide'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import {
-  TOWN_DEFENSE_ATTACK_GROUPS,
+  townDefenseAttackGroups,
   TOWN_DEFENSE_LAYOUT,
   TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
@@ -153,7 +153,7 @@ export class TownDefenseController {
       ...this.enemies.map(enemy => enemy.combatantId),
       ...(active.deadTargetActorIds ?? []),
     ])
-    const registrationComplete = expectedIds.size === 70 && [...expectedIds].every(id => accountedIds.has(id))
+    const registrationComplete = (expectedIds.size === 50 || expectedIds.size === 70) && [...expectedIds].every(id => accountedIds.has(id))
     const friendlyIds = new Set(active.friendlyActorIds)
     const combatDefendersAlive = [...this.defenders, this.captain, this.ranger, this.sergeant]
       .filter(npc => npc && friendlyIds.has(npc.combatantId) && !npc.dead).length
@@ -301,7 +301,7 @@ export class TownDefenseController {
   private spawnAttackers(active: ActiveCareerMission): void {
     const enemyFaction = this.readProfile().faction === 'roman' ? 'viking' : 'roman'
     let actorIndex = 0
-    this.attackGroups = TOWN_DEFENSE_ATTACK_GROUPS.map((group, groupIndex) => {
+    this.attackGroups = townDefenseAttackGroups(active.targetActorIds.length).map((group, groupIndex) => {
       const members: NPC[] = []
       const kinds = (['melee', 'lancer', 'horse-archer'] as const).flatMap(kind => Array.from({ length: group.composition[kind] }, () => kind))
       const anchor = TOWN_DEFENSE_LAYOUT[group.approach]

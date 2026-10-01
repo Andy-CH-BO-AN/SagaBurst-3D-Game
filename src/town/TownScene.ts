@@ -547,7 +547,7 @@ export class TownScene {
       const deployment = this.residents.find(resident => resident.spec.role === 'deployment')?.spec.id
       const civilians = this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.spec.id)
       if (defenders.length !== 60 || !captain || !ranger || !deployment || civilians.length !== 20) { this.openPanel('任務建立失敗', '城鎮駐軍或平民名單不完整。'); return }
-      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians)
+      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians, undefined, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
       if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }
