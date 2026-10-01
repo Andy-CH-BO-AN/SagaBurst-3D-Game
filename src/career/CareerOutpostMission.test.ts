@@ -13,6 +13,8 @@ import { careerMountAppearanceVariant } from './CareerMountController'
 import { applyCampaignBreachOrders } from '../campaign/CampaignGate'
 import type { NPC } from '../world/NPC'
 import { calculateMerit } from './MeritCalculator'
+import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
+import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
 
 const stats = { player: { damageDealt: 250, damageTaken: 10, kills: 3, structureDamage: 500, structuresDestroyed: 1, gateBreaches: 1, survived: true }, squads: [] }
 function soldier(): CareerProfile {
@@ -27,6 +29,24 @@ function storage() {
 }
 
 describe('Career Outpost unlocks and results', () => {
+  it.each([
+    ['soldier', 10], ['veteran', 10], ['captain', 60], ['commander', 60],
+  ] as const)('starts %s Outpost assaults after %s seconds, including reload', (rank, seconds) => {
+    for (const stage of [1, 2, 3] as const) {
+      const profile = parseCareerProfile(JSON.parse(JSON.stringify({ ...mission(stage), rank, totalMerit: 10000 })))!
+      const launch = createCareerOutpostLaunch(profile)
+      expect(launch.deploymentSeconds).toBe(seconds)
+      const runtime = new DefenseCampaignRuntime({ ...launch.capabilities, deploymentSeconds: launch.deploymentSeconds })
+      const state = { playerDead: false, originalDefendersAlive: 80, defendersAlive: 80, attackersAlive: 100, reinforcementSpawned: false }
+      expect(runtime.getSnapshot().deploymentRemainingSeconds).toBe(seconds)
+      expect(runtime.update(seconds - .5, state)).toEqual([])
+      expect(runtime.getSnapshot().deploymentRemainingSeconds).toBe(.5)
+      expect(runtime.update(.5, state)).toEqual(['assault_started'])
+      expect(runtime.getSnapshot().activePhase).toBe('assault')
+      expect(runtime.update(1, state)).toEqual([])
+    }
+  })
+
   it('requires Soldier, a previous victory, and no active mission', () => {
     expect(acceptCareerOutpost(createCareerProfile('roman'), 1, 'recruit')).toBeNull()
     expect(isCareerOutpostUnlocked(soldier(), 1)).toBe(true)
@@ -53,7 +73,7 @@ describe('Career Outpost unlocks and results', () => {
   it('awards battle-policy merit once, including after persistence and reload', () => {
     const current = mission(), store = new CareerProfileStore(storage())
     const claim = claimCareerOutpost(current, 'outpost-battle', 'victory', stats)
-    const merit = calculateMerit(stats, 'victory', 'defense').total
+    const merit = calculateMerit(stats, 'victory', 'defense', 'mission').total
     expect(claim.meritAwarded).toBe(merit)
     expect(claim.profile.totalMerit).toBe(current.totalMerit + merit)
     expect(claim.profile.availableMerit).toBe(current.availableMerit + merit)
@@ -114,9 +134,21 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
       expect(captain.setTacticalOrder).toHaveBeenCalledWith('attack')
       expect(BattleSpawner.createSpawnPlan(defenders).playerSpawn).toBeDefined()
       expect(BattleSpawner.createSpawnPlan(attackers).npcSpecs).toHaveLength([100, 110, 120][stageId - 1])
-      expect(defenseCampaignCapabilities(launch)).toEqual({ reinforcementsEnabled: false, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false })
+      const stage = getDefenseCampaignStage(stageId)
+      const cavalry = roster.filter(spec => spec.cavalry)
+      expect(cavalry).toHaveLength(stage.defenderDeployment.cavalryCap!)
+      expect(cavalry.every(spec => spec.presetId === `${faction}_lancer` && spec.tier === 3)).toBe(true)
+      const t1 = roster.filter(spec => spec.tier === 1)
+      expect(t1).toHaveLength([30, 35, 35][stageId - 1])
+      expect(t1.every(spec => spec.presetId === `${faction}_archer` && spec.loadout?.rangedWeaponId === 'wooden_shortbow')).toBe(true)
+      const spearmen = roster.filter(spec => spec.presetId === `${faction}_spearman`).length
+      const melee = roster.length - t1.length - cavalry.length - spearmen
+      expect(Math.abs(spearmen - melee)).toBeLessThanOrEqual(1)
+      expect(defenseCampaignCapabilities(launch)).toEqual({ reinforcementsEnabled: true, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false })
       expect(launch.playerLoadout.startMounted).toBe(false)
-      expect(() => createDefenseCampaignWaveConfig(launch, 'reinforcement')).toThrow('disabled')
+      const relief = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs
+      expect(relief).toHaveLength(50)
+      expect(relief.every(spec => spec.characterFaction === faction && spec.cavalry && spec.tier === 1)).toBe(true)
     }
   })
   it.each([1, 2, 3] as const)('preserves the selected T%i horse appearance through Career reload and launch', tier => {
@@ -155,7 +187,18 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
     expect(equipment.rangedEnabled).toBe(starter !== 'gladius_rusty')
     expect(createCareerOutpostLaunch(profile).playerLoadout.startMounted).toBe(false)
   })
-  it('does not schedule relief and resolves victory and defeat without a relief wave', () => {
+  it('schedules Campaign reinforcements once after 120 assault seconds, including Player death', () => {
+    const launch = createCareerOutpostLaunch(mission())
+    const state = { playerDead: false, originalDefendersAlive: 80, defendersAlive: 80, attackersAlive: 100, reinforcementSpawned: false }
+    const runtime = new DefenseCampaignRuntime({ ...launch.capabilities, deploymentSeconds: launch.deploymentSeconds })
+    expect(runtime.update(10, state)).toEqual(['assault_started'])
+    expect(runtime.update(119.9, { ...state, playerDead: true })).toEqual([])
+    expect(runtime.update(.1, { ...state, playerDead: true })).toEqual(['reinforcement_due'])
+    expect(runtime.update(1, { ...state, playerDead: true, reinforcementSpawned: true })).toEqual([])
+    expect(runtime.getSnapshot().reinforcementTriggered).toBe(true)
+  })
+
+  it('still supports battles that explicitly disable reinforcements', () => {
     const state = { playerDead: false, originalDefendersAlive: 80, defendersAlive: 80, attackersAlive: 100, reinforcementSpawned: false }
     const runtime = new DefenseCampaignRuntime({ reinforcementsEnabled: false })
     expect(runtime.update(60, state)).toEqual(['assault_started'])
@@ -167,5 +210,20 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
     defeat.update(60, state)
     expect(defeat.update(1, { ...state, playerDead: true, originalDefendersAlive: 0, defendersAlive: 0 })).toEqual(['battle_defeat'])
     expect(defeat.update(180, state)).toEqual([])
+  })
+})
+
+describe('Outpost damage merit matches Home Defense', () => {
+  it.each([0, 19, 20, 99, 100, 450, 999])('uses the same damage merit for %s damage and persists the increased award once', damageDealt => {
+    const battleStats = { player: { ...stats.player, damageDealt }, squads: [] }
+    const expectedDamage = calculateRecruitMissionMerit(battleStats.player, 'victory').damage
+    const claim = claimCareerOutpost(mission(), 'outpost-battle', 'victory', battleStats)
+    expect(claim.meritBreakdown.characterDamage).toBe(expectedDamage)
+    expect(claim.meritBreakdown).toMatchObject({ victory: 80, kills: 24, survival: 20 })
+    const reloaded = parseCareerProfile(JSON.parse(JSON.stringify(claim.profile)))!
+    expect(reloaded.outpostBattleRecords![0].merit.characterDamage).toBe(expectedDamage)
+    const duplicate = claimCareerOutpost(reloaded, 'outpost-battle', 'victory', battleStats)
+    expect(duplicate.meritAwarded).toBe(0)
+    expect(duplicate.profile.totalMerit).toBe(claim.profile.totalMerit)
   })
 })

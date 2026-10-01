@@ -35,7 +35,7 @@ export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpo
 export function claimCareerOutpost(current: CareerProfile, missionId: string, outcome: 'victory' | 'defeat', stats: BattleStatsSnapshot) {
   const mission = current.activeOutpostMission
   if (!mission || mission.id !== missionId) throw new Error('Career Outpost mission does not match')
-  const claim = claimCareerBattle(current, { battleId: missionId, outcome, role: 'defense', stats })
+  const claim = claimCareerBattle(current, { battleId: missionId, outcome, role: 'defense', stats }, 'mission')
   if (claim.alreadyClaimed) return claim
   const profile = claim.profile
   profile.outpostBattleRecords = [...(profile.outpostBattleRecords ?? []), {

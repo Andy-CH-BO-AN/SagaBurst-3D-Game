@@ -48,7 +48,7 @@ export class DefenseCampaignRuntime {
   private reinforcementTriggered = false
   private battleFinished = false
 
-  constructor(private readonly options: { reinforcementsEnabled?: boolean; eliminationObjective?: boolean } = {}) {
+  constructor(private readonly options: { reinforcementsEnabled?: boolean; eliminationObjective?: boolean; deploymentSeconds?: number } = {}) {
     if (options.eliminationObjective) this.phase = 'assault'
   }
 
@@ -58,7 +58,7 @@ export class DefenseCampaignRuntime {
       activePhase: this.phase,
       deploymentRemainingSeconds: Math.max(
         0,
-        this.options.eliminationObjective ? 0 : DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds - this.deploymentElapsed,
+        this.options.eliminationObjective ? 0 : (this.options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds) - this.deploymentElapsed,
       ),
       assaultElapsedSeconds: this.assaultElapsed,
       reinforcementRemainingSeconds: Math.max(
@@ -113,7 +113,7 @@ export class DefenseCampaignRuntime {
 
     if (this.phase === 'deployment') {
       this.deploymentElapsed += Math.max(0, dt)
-      if (this.deploymentElapsed >= DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds) {
+      if (this.deploymentElapsed >= (this.options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds)) {
         this.phase = 'assault'
         this.assaultElapsed = 0
         events.push('assault_started')

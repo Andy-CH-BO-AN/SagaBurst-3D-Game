@@ -71,10 +71,11 @@ describe('Game routes Campaign and Career separately', () => {
     expect(store.load()!.claimedBattleIds).toEqual(['battle'])
     vi.unstubAllGlobals()
   })
-  it('blocks Career reinforcement queue and commander gate mutation at the runtime boundary', () => {
+  it('queues all Campaign reinforcements for Career Defense while keeping commander gate control disabled', () => {
     const { game } = harness()
     delete game._queueDefenseCampaignWave
-    expect(game._queueDefenseCampaignWave('reinforcement')).toBe(0)
+    expect(game._queueDefenseCampaignWave('reinforcement')).toBe(50)
+    expect(game.campaignSpawnQueue.every((spec: any) => spec.characterFaction === 'roman' && spec.cavalry)).toBe(true)
     const gate = { toggle: vi.fn() }; game.previewCampaignGate = gate
     game._toggleCampaignGate()
     expect(gate.toggle).not.toHaveBeenCalled()

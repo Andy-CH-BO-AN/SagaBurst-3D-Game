@@ -8,7 +8,7 @@ import {
   TOWN_DEFENSE_LAYOUT,
   TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
-  concentricDefenseSlots,
+  horseshoeDefenseSlots,
   createTownDefenseGroups,
   formationSlots,
   resolveTownDefenseOutcome,
@@ -27,6 +27,34 @@ const stats = (damageDealt = 0, kills = 0, survived = true) => ({ damageDealt, k
 describe('Recruit Town Defense layout and rosters', () => {
   const roster = townRoster()
   const groups = createTownDefenseGroups(roster)
+
+  it('arms civilians when enemies reach ten metres and returns them to shelter beyond that range', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission([], [], 'civilian-range')
+    const civilian = { townCategory: 'civilian', dead: false, hostileToPlayer: false, combatPosition: new THREE.Vector3(), armTownCivilian: vi.fn(), setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn() }
+    const enemy = { combatPosition: new THREE.Vector3(10, 0, 0) }
+    const controller = Object.assign(Object.create(TownDefenseController.prototype), {
+      readProfile: () => profile, player: () => ({ dead: true }), peersFor: () => [enemy],
+      residents: [{ spec: { role: 'civilian' }, npc: civilian }], civilianCombat: new Set(), commandId: 1,
+      walkable: vi.fn(() => new THREE.Vector3()),
+    })
+    controller.updateCivilianOrder(civilian)
+    expect(civilian.armTownCivilian).not.toHaveBeenCalled()
+    profile.activeMission.phase = 'ATTACKING'
+    enemy.combatPosition.x = 10.01
+    controller.updateCivilianOrder(civilian)
+    expect(civilian.armTownCivilian).not.toHaveBeenCalled()
+    enemy.combatPosition.x = 10
+    controller.updateCivilianOrder(civilian)
+    expect(civilian.armTownCivilian).toHaveBeenCalledWith('gladius_rusty')
+    expect(civilian.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('attack')
+    enemy.combatPosition.x = 9
+    controller.updateCivilianOrder(civilian)
+    expect(civilian.setTacticalOrder).toHaveBeenCalledOnce()
+    enemy.combatPosition.x = 10.01
+    controller.updateCivilianOrder(civilian)
+    expect(civilian.assignFormationTarget).toHaveBeenCalledOnce()
+  })
 
   it('splits the existing 60 garrison into six groups of ten without duplicate actors', () => {
     expect(groups).toHaveLength(6)
@@ -50,17 +78,24 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(groups.find(group => group.id === 'F')).toMatchObject({ role: 'outer-screen', initialOrder: 'DEFEND', mounted: true })
   })
 
-  it('generates separated concentric slots and a clear cavalry reserve', () => {
-    const ranged = concentricDefenseSlots(20, [12.5, 16], .12)
-    const melee = concentricDefenseSlots(21, [21, 25], .28)
-    const screen = concentricDefenseSlots(10, [30, 35], .48)
-    const distance = (point: { x: number; z: number }) => Math.hypot(point.x - TOWN_DEFENSE_LAYOUT.civilianShelter.x, point.z - TOWN_DEFENSE_LAYOUT.civilianShelter.z)
+  it('forms three front-facing horseshoe layers, with spears outside swords and ranged troops', () => {
+    const ranged = horseshoeDefenseSlots(20, [10, 13])
+    const melee = horseshoeDefenseSlots(11, [18])
+    const spears = horseshoeDefenseSlots(10, [24])
+    const center = TOWN_DEFENSE_LAYOUT.civilianShelter
+    const distance = (point: { x: number; z: number }) => Math.hypot(point.x - center.x, point.z - center.z - 4)
     expect(Math.max(...civilianShelterSlots().map(distance))).toBeLessThan(Math.min(...ranged.map(distance)))
     expect(Math.max(...ranged.map(distance))).toBeLessThan(Math.min(...melee.map(distance)))
-    expect(Math.max(...melee.map(distance))).toBeLessThan(Math.min(...screen.map(distance)))
-    expect(new Set([...ranged, ...melee, ...screen].map(slot => `${slot.x.toFixed(2)}:${slot.z.toFixed(2)}`)).size).toBe(51)
+    expect(Math.max(...melee.map(distance))).toBeLessThan(Math.min(...spears.map(distance)))
+    expect([...ranged, ...melee, ...spears].every(slot => slot.z >= center.z + 4)).toBe(true)
+    expect(new Set([...ranged, ...melee, ...spears].map(slot => `${slot.x.toFixed(2)}:${slot.z.toFixed(2)}`)).size).toBe(41)
     expect(new Set(formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, 10, true).map(slot => slot.x)).size).toBe(2)
-    expect(formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, 10, true).every(slot => slot.x > 20)).toBe(true)
+    const horseArchers = formationSlots(TOWN_DEFENSE_LAYOUT.horseArcherLine, 10, true, 10)
+    expect(new Set(horseArchers.map(slot => slot.x)).size).toBe(1)
+    expect(horseArchers.every(slot => slot.z > center.z)).toBe(true)
+    const civilians = civilianShelterSlots()
+    expect(Math.max(...civilians.map(slot => slot.x)) - Math.min(...civilians.map(slot => slot.x))).toBe(8)
+    expect(Math.max(...civilians.map(slot => slot.z)) - Math.min(...civilians.map(slot => slot.z))).toBe(6)
   })
 
   it('defines exactly 70 enemy cavalry with the required composition across three concurrent attack groups', () => {
@@ -79,7 +114,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(slots.every(slot => slot.distanceTo(formationSlots(TOWN_DEFENSE_LAYOUT.townCenter, 1)[0]) < 10)).toBe(true)
   })
 
-  it('snaps ring slots away from buildings without stacking defenders or horses', () => {
+  it('keeps the rear open and the horse archers in one line when snapping away from buildings', () => {
     const navigation = new NavigationWorld()
     navigation.sync([
       { box: new THREE.Box3(new THREE.Vector3(-9, -10, -41), new THREE.Vector3(9, 10, -27)), isBarricade: false },
@@ -100,14 +135,19 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(new Set(positions.map(point => `${point.x}:${point.z}`)).size).toBe(positions.length)
     const center = TOWN_DEFENSE_LAYOUT.civilianShelter
     const radius = (id: string) => { const point = actors.find(actor => actor.spec.id === id)!.npc.assignFormationTarget.mock.lastCall![1] as THREE.Vector3; return Math.hypot(point.x - center.x, point.z - center.z) }
-    expect(radius('captain')).toBeLessThan(radius('melee_infantry-0'))
+    expect(radius('spearman_infantry-0')).toBeGreaterThan(radius('melee_infantry-0'))
+    expect(radius('melee_infantry-0')).toBeGreaterThan(radius('ranged_infantry-0'))
     expect(radius('deployment')).toBeGreaterThan(radius('ranged_infantry-0'))
     expect(radius('ranger')).toBeGreaterThan(radius('melee_infantry-0'))
+    expect(actors.filter(actor => actor.spec.role !== 'civilian').every(actor => actor.npc.assignFormationTarget.mock.lastCall![1].z >= center.z)).toBe(true)
+    const horseArchers = actors.filter(actor => actor.spec.role === 'ranged_cavalry').map(actor => actor.npc.assignFormationTarget.mock.lastCall![1] as THREE.Vector3)
+    expect(new Set(horseArchers.map(point => point.x)).size).toBe(1)
   })
 })
 
 describe('Recruit Town Defense outcome, orders and rewards', () => {
   it('starts the attack on the countdown even if the player never visits the rally marker', () => {
+    expect(TOWN_DEFENSE_PREPARATION_SECONDS).toBe(20)
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-timed-start')
     const controller = Object.create(TownDefenseController.prototype) as any

@@ -4,7 +4,7 @@ import type { TownActorSpec, TownRole } from '../town/TownRules'
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
-export const TOWN_DEFENSE_PREPARATION_SECONDS = 45
+export const TOWN_DEFENSE_PREPARATION_SECONDS = 20
 
 export type TownDefensePhase = 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESULT' | 'RESET'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -21,8 +21,9 @@ export const TOWN_DEFENSE_LAYOUT = {
   southApproach: { x: 0, z: 145, facingX: 0, facingZ: -1 },
   westStableApproach: { x: -145, z: 20, facingX: 1, facingZ: 0 },
   eastBarracksApproach: { x: 145, z: 45, facingX: -1, facingZ: 0 },
-  cavalryReserve: { x: 25, z: -4, facingX: 0, facingZ: 1 },
-  rangerFlank: { x: -28, z: -28, facingX: -1, facingZ: 0 },
+  cavalryReserve: { x: -27, z: 30, facingX: 0, facingZ: 1 },
+  horseArcherLine: { x: 27, z: 22, facingX: 1, facingZ: 0 },
+  rangerFlank: { x: -20, z: 5, facingX: -1, facingZ: 0 },
   townCenter: { x: 0, z: 0, facingX: 0, facingZ: 1 },
   civilianShelter: { x: 0, z: -3, facingX: 0, facingZ: 1 },
   playerRallyPoint: { x: 0, z: 51, facingX: 0, facingZ: 1 },
@@ -56,21 +57,20 @@ export function createTownDefenseGroups(roster: readonly TownActorSpec[]): TownD
   ]
 }
 
-/** Interleave members across the rows so each ring has room to fight and move. */
-export function concentricDefenseSlots(count: number, radii: readonly number[], phase = 0): THREE.Vector3[] {
+/** Front and flank arcs leave the town-facing rear open behind the civilians. */
+export function horseshoeDefenseSlots(count: number, radii: readonly number[]): THREE.Vector3[] {
   const center = TOWN_DEFENSE_LAYOUT.civilianShelter
   const rows = radii.map((radius, row) => ({ radius, count: Math.floor(count / radii.length) + (row < count % radii.length ? 1 : 0) }))
   const used = rows.map(() => 0)
   return Array.from({ length: count }, (_, index) => {
     const row = index % radii.length
     const ordinal = used[row]++
-    const angle = phase + (ordinal + row * .25) * Math.PI * 2 / rows[row].count
-    return new THREE.Vector3(center.x + Math.sin(angle) * rows[row].radius, 0, center.z + Math.cos(angle) * rows[row].radius)
+    const angle = rows[row].count === 1 ? 0 : -Math.PI / 2 + ordinal * Math.PI / (rows[row].count - 1)
+    return new THREE.Vector3(center.x + Math.sin(angle) * rows[row].radius, 0, center.z + 4 + Math.cos(angle) * rows[row].radius)
   })
 }
 
-export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted = false): THREE.Vector3[] {
-  const columns = mounted ? 2 : 5
+export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted = false, columns = mounted ? 2 : 5): THREE.Vector3[] {
   const spacing = mounted ? 4.2 : 2.2
   const forward = new THREE.Vector3(anchor.facingX, 0, anchor.facingZ).normalize()
   const right = new THREE.Vector3(forward.z, 0, -forward.x)
@@ -85,13 +85,11 @@ export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted
 
 export function civilianShelterSlots(count = 20): THREE.Vector3[] {
   const center = TOWN_DEFENSE_LAYOUT.civilianShelter
+  const rows = Math.ceil(count / 5)
   return Array.from({ length: count }, (_, index) => {
-    const group = Math.floor(index / 5)
-    const within = index % 5
-    const groupAngle = group * Math.PI / 2 + Math.PI / 4
-    const angle = groupAngle + (within - 2) * .14
-    const radius = 4.5 + within % 2 * 1.2
-    return new THREE.Vector3(center.x + Math.sin(angle) * radius, 0, center.z + Math.cos(angle) * radius)
+    const row = Math.floor(index / 5)
+    const column = index % 5 - (Math.min(5, count - row * 5) - 1) / 2
+    return new THREE.Vector3(center.x + column * 2, 0, center.z + (row - (rows - 1) / 2) * 2)
   })
 }
 

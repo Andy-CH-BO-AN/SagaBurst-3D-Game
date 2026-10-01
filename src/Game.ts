@@ -804,7 +804,7 @@ export class Game {
       }
       const capabilities = defenseCampaignCapabilities(campaignConfig)
       const relief = campaignConfig.careerMissionKind === 'outpost-relief'
-      this.defenseCampaignRuntime = new DefenseCampaignRuntime({ ...capabilities, eliminationObjective: relief })
+      this.defenseCampaignRuntime = new DefenseCampaignRuntime({ ...capabilities, eliminationObjective: relief, deploymentSeconds: campaignConfig.deploymentSeconds })
       if (relief) {
         initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs)
         this.navigationWorld.sync(this.obstacles)

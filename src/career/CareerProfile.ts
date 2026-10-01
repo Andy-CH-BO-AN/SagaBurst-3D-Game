@@ -168,12 +168,13 @@ export function isCareerPurchaseTierUnlocked(
 export function claimCareerBattle(
   current: CareerProfile,
   result: CareerBattleResult,
+  damagePolicy: 'battle' | 'mission' = 'battle',
 ): CareerBattleClaim {
   const battleId = result.battleId.trim()
   if (!battleId) throw new Error('Career battleId must not be empty')
 
   const previousRank = current.rank
-  const meritBreakdown = calculateMerit(result.stats, result.outcome, result.role)
+  const meritBreakdown = calculateMerit(result.stats, result.outcome, result.role, damagePolicy)
 
   if (current.claimedBattleIds.includes(battleId)) {
     return {

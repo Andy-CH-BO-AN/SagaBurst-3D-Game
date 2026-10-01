@@ -262,7 +262,7 @@ describe('Relief result and Game integration', () => {
     expect(game.defenseCampaignHud.showResult.mock.calls[0][0]).toBe(outcome)
     const saved = store.load()!
     expect(saved.outpostBattleRecords?.[0]).toMatchObject({ kind: 'outpost-relief', outcome, stats: { survived: false }, merit: { survival: 0 } })
-    expect(saved.totalMerit).toBe(profile.totalMerit + calculateMerit(stats, outcome, 'defense').total)
+    expect(saved.totalMerit).toBe(profile.totalMerit + calculateMerit(stats, outcome, 'defense', 'mission').total)
     expect(saved.completedOutpostStages).toEqual([1, 2, 3])
     expect(claimCareerOutpost(saved, 'relief', outcome, stats).alreadyClaimed).toBe(true)
     expect(parseCareerProfile(saved)?.outpostBattleRecords).toEqual(saved.outpostBattleRecords)
