@@ -483,7 +483,7 @@ export class TownScene {
     if (!next) { this.openPanel('無法接受任務', '需完成 Outpost I–III、擁有合法坐騎且沒有進行中的任務。'); return }
     const launch = createCareerOutpostLaunch(next)
     if (!this.commit(next)) return
-    this.dispose()
+    this.dispose(true)
     this.onCampaign(launch)
   }
 
@@ -494,7 +494,7 @@ export class TownScene {
     if (!next) { this.openPanel('無法接受任務', '任務尚未解鎖或已有任務進行中。'); return }
     const launch = createCareerOutpostLaunch(next)
     if (!this.commit(next)) return
-    this.dispose()
+    this.dispose(true)
     this.onCampaign(launch)
   }
 
@@ -1384,13 +1384,14 @@ export class TownScene {
     document.getElementById('quiver-hud')!.style.display = this.inventory.rangedEnabled ? '' : 'none'
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera); this.raf = requestAnimationFrame(t => this.frame(t))
   }
-  dispose(): void {
+  dispose(preservePointerLock = false): void {
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
     sound?.cancelCareerAudio()
     document.getElementById('controls-hint')!.textContent = this.previousControls
     document.getElementById('quiver-hud')!.style.display = ''
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input.dispose(); this.panel?.remove(); this.equipment.close(); this.hud.remove(); this.hint.remove(); this.pointerPrompt.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.player?.dispose(); this.ambientLabel.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove(); document.exitPointerLock?.()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input.dispose(); this.panel?.remove(); this.equipment.close(); this.hud.remove(); this.hint.remove(); this.pointerPrompt.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.player?.dispose(); this.ambientLabel.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    if (!preservePointerLock) document.exitPointerLock?.()
   }
 
   private updatePointerPrompt(): void {
