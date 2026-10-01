@@ -2,9 +2,9 @@ import { installTownStyles, starterThumbnails } from './TownUI'
 import { createCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import type { DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
-import { CampaignSetupUI } from '../ui/CampaignSetupUI'
+import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
 import { TownScene } from './TownScene'
-import { grantStarter, STARTER_WEAPONS, townCampaignTarget } from './TownRules'
+import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: DefenseCampaignLaunchConfig) => Promise<void>, home: () => void): void {
@@ -26,13 +26,11 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
       sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
-      const town = await TownScene.create(container, profile, () => {
-        const setup = new CampaignSetupUI()
-        setup.mount(document.body, async config => {
-          sessionStorage.removeItem(TOWN_ENTRY_KEY)
-          sessionStorage.setItem('sagaburst_campaign_config', JSON.stringify(config))
-          await launchCampaign(config)
-        }, () => { setup.destroy(); void start(town.profile) }, townCampaignTarget(town.profile.faction), true)
+      const town = await TownScene.create(container, profile, config => {
+        if (!config?.careerMissionId) return
+        sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, config.careerMissionId)
+        sessionStorage.removeItem(TOWN_ENTRY_KEY)
+        void launchCampaign(config)
       }, p => { void start(p) }, message => { loading.textContent = message })
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()

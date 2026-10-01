@@ -5,6 +5,8 @@
  */
 import { Game } from './Game'
 import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
+import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
@@ -101,6 +103,21 @@ async function bootstrap(): Promise<void> {
 
   // 2. Trusted replay / reload state is stored in sessionStorage, but must
   // still pass validation before it can bypass the official menu.
+  const careerStore = new CareerProfileStore()
+  const outpostProfile = careerStore.loadChecked().profile
+  if (outpostProfile?.activeOutpostMission) {
+    const mission = outpostProfile.activeOutpostMission
+    if (outpostProfile.claimedBattleIds.includes(mission.id)) {
+      if (!careerStore.save(clearCareerOutpost(outpostProfile))) throw new Error('無法保存 Outpost 返回狀態')
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    } else {
+      // Rebuild from Career state rather than trusting a free Campaign setup loadout.
+      await launchGame(undefined, createCareerOutpostLaunch(outpostProfile))
+      return
+    }
+  }
+  sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
   let savedCampaign: DefenseCampaignLaunchConfig | null = null
   try {
     const raw = sessionStorage.getItem('sagaburst_campaign_config')
@@ -109,6 +126,8 @@ async function bootstrap(): Promise<void> {
       const validation = validateDefenseCampaignLaunchConfig(parsed)
       if (
         validation.valid
+        && !parsed.careerMissionId
+        && parsed.capabilities === undefined
         && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)
       ) {
         savedCampaign = parsed

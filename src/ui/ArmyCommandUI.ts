@@ -59,6 +59,8 @@ export class ArmyCommandUI {
     document.getElementById('hud')?.appendChild(this.root)
   }
 
+  setEnabled(enabled: boolean): void { this.root.hidden = !enabled; this.root.style.display = enabled ? '' : 'none' }
+
   render(
     entries: readonly ArmyCommandHudEntry[],
     submenuOpen: boolean,

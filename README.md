@@ -55,6 +55,7 @@ Start a persistent career as a Roman or Viking.
 - Talk to service NPCs with `E`.
 - Manage owned equipment through the character/inventory UI.
 - Talk to the Sergeant Major (士官長) for unlocked clearance, patrol, and Town Defense missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense.
+- Soldier and higher ranks can accept Outpost Duty I–III from the Sergeant Major. Defend with the AI garrison using your owned equipment; victory unlocks the next duty. No horse is required. There are no reinforcements or player army/gate commands. Results award Career battle merit and return you to your town; Campaign progress is separate.
 - Promoted ranks retain access to previously unlocked Recruit missions.
 - Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.
 - Bandits patrol their camps until they notice an approaching threat or are attacked.

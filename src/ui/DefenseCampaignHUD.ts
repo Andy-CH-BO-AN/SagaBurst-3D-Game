@@ -21,6 +21,7 @@ export class DefenseCampaignHUD {
   constructor(
     private readonly stageId: number,
     defenderFaction: CampaignFaction,
+    private readonly options: { reinforcementsEnabled?: boolean; returnToTown?: boolean; meritAwarded?: () => number } = {},
   ) {
     const root = document.createElement('div')
     root.id = 'defense-campaign-hud'
@@ -76,6 +77,12 @@ export class DefenseCampaignHUD {
       return
     }
 
+    if (snapshot.phase === 'defeat' && this.options.reinforcementsEnabled === false) {
+      this.phaseEl.textContent = 'DEFEAT'
+      this.timerEl.textContent = '戰鬥結束'
+      return
+    }
+
     const defeatLocked = snapshot.phase === 'defeat'
     if (snapshot.activePhase === 'deployment') {
       this.phaseEl.textContent = defeatLocked
@@ -86,7 +93,9 @@ export class DefenseCampaignHUD {
       this.phaseEl.textContent = defeatLocked
         ? 'DEFEAT LOCKED · ASSAULT'
         : '攻城戰 · ASSAULT'
-      this.timerEl.textContent = reinforcementSpawned
+      this.timerEl.textContent = this.options.reinforcementsEnabled === false
+        ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s`
+        : reinforcementSpawned
         ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s · 援軍已全數抵達`
         : snapshot.reinforcementTriggered
           ? '援軍進場中…'
@@ -112,7 +121,9 @@ export class DefenseCampaignHUD {
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
     const statsHtml = renderBattleStats(stats, showSquadStats)
-    const victoryMessage = this.stageId < 9
+    const victoryMessage = this.options.returnToTown
+      ? (this.stageId < 3 ? `Outpost ${['I', 'II', 'III'][this.stageId - 1]} 完成，下一個 Outpost 已解鎖。` : 'Outpost Duty 三關全部完成。')
+      : this.stageId < 9
       ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`
       : '敵軍已全數殲滅，Defense Campaign 全部通關。'
     modal.innerHTML = `
@@ -125,14 +136,15 @@ export class DefenseCampaignHUD {
               ? '玩家與原始守軍全滅。戰場仍會繼續模擬。'
               : '守方已全數陣亡，戰役結束。'
         }</p>
+        ${this.options.returnToTown ? `<p>Career 軍功 +${this.options.meritAwarded?.() ?? 0}（已保存）</p>` : ''}
         ${statsHtml}
         <div class="campaign-result-actions">
           ${!victory && allowObserve ? '<button type="button" id="campaign-result-observe">繼續觀戰</button>' : ''}
           ${victory && onNext
             ? `<button type="button" id="campaign-result-next">下一關 STAGE ${this.stageId + 1} →</button>`
             : ''}
-          <button type="button" id="campaign-result-replay">重玩 STAGE ${this.stageId}</button>
-          <button type="button" id="campaign-result-home">回首頁</button>
+          ${this.options.returnToTown ? '' : `<button type="button" id="campaign-result-replay">重玩 STAGE ${this.stageId}</button>`}
+          <button type="button" id="campaign-result-home">${this.options.returnToTown ? '返回 Career Town' : '回首頁'}</button>
         </div>
       </div>
     `

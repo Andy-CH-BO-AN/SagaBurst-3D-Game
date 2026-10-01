@@ -1,3 +1,4 @@
+import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
@@ -58,6 +59,9 @@ export interface CareerProfile {
   ownedHorseTiers?: (1 | 2 | 3)[]
   selectedMountId?: CareerMountId
   activeMission?: ActiveCareerMission
+  activeOutpostMission?: CareerOutpostMission
+  completedOutpostStages?: CareerOutpostStageId[]
+  outpostBattleRecords?: CareerOutpostRecord[]
   careerMissionCompletions?: number
   completedCareerMissionTemplateIds?: string[]
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
@@ -329,6 +333,9 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.activeOutpostMission ? { activeOutpostMission: { ...profile.activeOutpostMission } } : {}),
+    ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
+    ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit } })) } : {}),
     ...(profile.equipment ? { equipment: { ...profile.equipment } } : {}),
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),

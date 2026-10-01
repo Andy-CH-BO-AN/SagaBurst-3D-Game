@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { getCareerPurchaseTier, cloneCareerProfile, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
+import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 
@@ -25,6 +26,12 @@ export function careerMountType(id: CareerMountId): MountType {
   if (id === 'black-cat') return MountType.BLACK_CAT
   if (id === 'corgi') return MountType.CORGI
   return MountType.HORSE
+}
+
+export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {
+  if (id === 'horse-t2') return 1
+  if (id === 'horse-t3') return 2
+  return 0
 }
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
@@ -112,7 +119,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!position) return this.fail('附近空間不足，請移到較空曠的位置。')
 
     const previous = this.active
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, id.startsWith('horse-t') ? (Number(id.charAt(id.length - 1)) - 1) as 0 | 1 | 2 : 0)
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     if (previous) this.hp.set(previous.id, previous.mount.currentHp)
@@ -141,7 +148,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
     const position = findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, id.startsWith('horse-t') ? (Number(id.charAt(id.length - 1)) - 1) as 0 | 1 | 2 : 0)
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }

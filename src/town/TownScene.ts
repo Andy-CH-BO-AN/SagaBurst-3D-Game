@@ -19,6 +19,10 @@ import { SpatialGrid } from '../world/SpatialGrid'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
+import type { DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
+import { acceptCareerOutpost, isCareerOutpostUnlocked, CAREER_OUTPOST_STAGES, type CareerOutpostStageId } from '../career/CareerOutpostMission'
+import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
 import { isTownProductOwned, purchaseTownHorse } from './TownRules'
@@ -108,7 +112,7 @@ export class TownScene {
   private missionResultOpen = false
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
-  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: () => void, onRestart: (p: CareerProfile) => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
+  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: DefenseCampaignLaunchConfig) => void, onRestart: (p: CareerProfile) => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     try {
       progress('載入人物、坐騎與動畫…')
@@ -119,7 +123,7 @@ export class TownScene {
       try { await town.initialize(progress); return town } catch (error) { town.dispose(); throw error }
     } catch (error) { renderer.dispose(); throw error }
   }
-  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, _onCampaign: () => void, private readonly onRestart: (p: CareerProfile) => void) {
+  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: DefenseCampaignLaunchConfig) => void, private readonly onRestart: (p: CareerProfile) => void) {
     installTownStyles()
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
@@ -343,6 +347,20 @@ export class TownScene {
       outpost.textContent = selectTownDialogue(context, 'soldierFirstOutpost')
       panel.append(outpost)
     }
+    if (this.profile.rank !== 'recruit') {
+      const heading = document.createElement('h3'); heading.textContent = 'Outpost Duty'; panel.append(heading)
+      for (const stageId of CAREER_OUTPOST_STAGES) {
+        const stage = getDefenseCampaignStage(stageId)
+        const unlocked = isCareerOutpostUnlocked(this.profile, stageId)
+        const completed = this.profile.completedOutpostStages?.includes(stageId)
+        const row = document.createElement('article'); row.className = 'town-product'
+        const title = document.createElement('strong'); title.textContent = 'Outpost ' + ['I', 'II', 'III'][stageId - 1]
+        const details = document.createElement('small'); details.textContent = `防守 ${stage.defenderDeployment.maxUnits} vs ${stage.attackerArmy.totalUnits} · ${completed ? 'Completed' : unlocked ? 'Available' : 'Locked until Outpost ' + ['I', 'II'][stageId - 2] + ' Victory'} · 玩家額外加入駐軍`
+        row.append(title, details)
+        if (unlocked) this.button(row, '接受防守任務', () => this.acceptOutpost(stageId))
+        panel.append(row)
+      }
+    }
     const missions = availableRecruitMissions(this.profile)
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
     for (const template of missions) {
@@ -365,6 +383,17 @@ export class TownScene {
       panel.append(gate)
     }
   }
+  private acceptOutpost(stageId: CareerOutpostStageId): void {
+    const fresh = this.store.loadChecked().profile
+    if (!fresh) { this.openPanel('無法接受任務', '無法讀取 Career profile。'); return }
+    const next = acceptCareerOutpost(fresh, stageId)
+    if (!next) { this.openPanel('無法接受任務', '任務尚未解鎖或已有任務進行中。'); return }
+    const launch = createCareerOutpostLaunch(next)
+    if (!this.commit(next)) return
+    this.dispose()
+    this.onCampaign(launch)
+  }
+
   private restoreActiveCareerMission(): void {
     const { profile } = this
     if (profile.activeMission) {

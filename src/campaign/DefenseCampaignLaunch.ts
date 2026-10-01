@@ -13,6 +13,7 @@ import {
   type PlayerLoadoutConfig,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
+import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -45,13 +46,33 @@ import {
   type CampaignUnitRole,
 } from './CampaignConfig'
 
+export interface DefenseCampaignCapabilities {
+  reinforcementsEnabled: boolean
+  playerCommandsEnabled: boolean
+  gateControlEnabled: boolean
+  attackerHeroesEnabled: boolean
+}
+
+export function defenseCampaignCapabilities(config?: DefenseCampaignLaunchConfig): DefenseCampaignCapabilities {
+  return {
+    reinforcementsEnabled: true,
+    playerCommandsEnabled: true,
+    gateControlEnabled: true,
+    attackerHeroesEnabled: true,
+    ...config?.capabilities,
+  }
+}
+
 export interface DefenseCampaignLaunchConfig {
   type: 'defense'
+  capabilities?: Partial<DefenseCampaignCapabilities>
+  careerMissionId?: string
   defenderFaction: CampaignFaction
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
   playerHeroId?: PlayerHeroId | null
+  playerMountAppearanceVariant?: HorseAppearanceVariant
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
 }
@@ -390,8 +411,10 @@ function createWaveArmy(
         }
       }
     }
-    putCount(side(attacker), resolveCampaignRolePreset(attacker, 'frontline'), 4, 1)
-    putCount(side(attacker), resolveCampaignAttackerRolePresets(attacker, 'ranged')[0], 4, 1)
+    if (defenseCampaignCapabilities(launch).attackerHeroesEnabled) {
+      putCount(side(attacker), resolveCampaignRolePreset(attacker, 'frontline'), 4, 1)
+      putCount(side(attacker), resolveCampaignAttackerRolePresets(attacker, 'ranged')[0], 4, 1)
+    }
   } else {
     putCount(
       side(defender),
@@ -413,6 +436,9 @@ export function createDefenseCampaignWaveConfig(
     throw new Error(`Invalid Defense Campaign config: ${validation.errors.join('; ')}`)
   }
 
+  if (wave === 'reinforcement' && !defenseCampaignCapabilities(launch).reinforcementsEnabled) {
+    throw new Error('Reinforcements are disabled for this battle')
+  }
   const armies = createWaveArmy(launch, wave)
   return {
     mode: 'formation',
