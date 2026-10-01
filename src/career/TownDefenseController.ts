@@ -251,16 +251,18 @@ export class TownDefenseController {
   }
 
   private beginAttack(): void {
+    // Restore the same resident counterattack after reload in either Town war.
+    if (this.reserveCharged) this.issueCombatOrders()
     if (this.assault) {
       for (const npc of this.enemies) if (!npc.dead) npc.setTacticalOrder('attack')
       return
     }
-    if (this.reserveCharged) this.issueCombatOrders()
     for (const group of this.attackGroups) this.releaseAttackGroup(group)
   }
 
   noteEffectiveFriendlyDamage(target: NPC): void {
-    if (this.assault) return
+    // "Friendly" here means resident defenders: hostile to Player in Assault.
+    // Both missions release their defensive formation on effective military damage.
     if ((this.phase !== 'ATTACKING' && this.phase !== 'FAILURE_LOCKED') || this.reserveCharged
       || !(target === this.captain || target === this.ranger || target === this.sergeant || this.groups.some(group => group.members.includes(target)))) return
     this.reserveCharged = true

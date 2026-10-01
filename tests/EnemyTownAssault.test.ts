@@ -63,6 +63,15 @@ function fixture(faction: 'roman' | 'viking', assault = true) {
   return { controller, player, residents, navigation, scene, profile: () => profile, setProfile: (p: typeof profile) => { profile = p } }
 }
 
+function townHarness(f: ReturnType<typeof fixture>) {
+  const town = Object.create(TownScene.prototype) as any
+  Object.assign(town, { profile: f.profile(), defense: f.controller, player: f.player, camera: new THREE.PerspectiveCamera(), orbit: { cameraYaw: 0 }, world: { obstacles: [] }, navigation: f.navigation,
+    grid: new SpatialGrid(4), defenseEnemyGrid: new SpatialGrid(8), defenseTownGrid: new SpatialGrid(8), neighbors: [], hp: { setFill: vi.fn() },
+    inventory: { shieldEnabled: false }, careerMounts: { activeMount: null, update: vi.fn() }, cat: new Mount(f.scene, MountType.BLACK_CAT, -34, 20), elapsed: 0, shots: [], updateCareerCommandCue: vi.fn(), damageNumbers: { spawn: vi.fn() } })
+  dispose.push(() => town.cat.dispose())
+  return town
+}
+
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy Town assault`, () => {
   it('creates exactly three squads of 30 including Player and uses real T4 heroes', () => {
     const roster = createAssaultRoster(faction)
@@ -137,6 +146,38 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
     attacker.group.position.set(400, 0, 400)
     f.controller.updateCivilianOrder(civilian)
     expect(civilian.tacticalOrder).toBe('formation')
+  })
+
+  it.each(['player-melee', 'npc-projectile', 'npc-mount-impact'] as const)('reuses resident counterattack on effective %s damage and restores it after reload', method => {
+    const f = fixture(faction), town = townHarness(f), military = f.controller.groups.find(g => g.id === 'A')!.members[0]
+    const attacker = f.controller.enemies.find(npc => !npc.isMounted && npc.aiType === AIType.MELEE)!
+    // Preparation still blocks hits and must not release defenders early.
+    town.hitFieldNpc(military, 20, 'melee', attacker)
+    expect(f.controller.reserveHasCharged).toBe(false)
+    f.controller.updateFlow(10, 0)
+    town.hitFieldNpc(f.controller.civilians[0], 20, 'melee', attacker)
+    town.hitFieldNpc(military, 0, 'melee', attacker)
+    expect(f.controller.reserveHasCharged).toBe(false)
+    expect(military.tacticalOrder).toBe('defend')
+    const orders = f.controller.military.map(npc => vi.spyOn(npc, 'setTacticalOrder'))
+    town.hitFieldNpc(military, 20, method === 'npc-projectile' ? 'projectile' : method === 'npc-mount-impact' ? 'mount-impact' : 'melee', method === 'player-melee' ? undefined : attacker)
+    expect(f.controller.reserveHasCharged).toBe(true)
+    for (const group of f.controller.groups) expect(group.members.every(npc => npc.tacticalOrder === (group.id === 'E' ? 'charge' : 'attack'))).toBe(true)
+    for (const leader of [f.controller.captain, f.controller.ranger, f.controller.sergeant]) expect(leader!.tacticalOrder).toBe('attack')
+    town.hitFieldNpc(military, 20, 'melee', attacker)
+    orders.forEach(spy => expect(spy).toHaveBeenCalledOnce())
+    // Exercise actual NPC navigation, not just the issued order. Defend formation
+    // formerly bypassed target acquisition and stayed motionless indefinitely.
+    attacker.group.position.copy(military.group.position).x += 6
+    const start = military.combatPosition.clone()
+    for (let i = 0; i < 20; i++) military.update(.05, f.player, [attacker], [military, attacker], [], town.hp, vi.fn(), vi.fn(), false, 0, null, null, f.navigation)
+    expect(military.combatPosition.distanceTo(start)).toBeGreaterThan(.1)
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!
+    expect(saved.activeMission!.defenseReserveCharged).toBe(true)
+    f.setProfile(saved)
+    expect(f.controller.startActiveMission()).toBe(true)
+    expect(f.controller.military.every(npc => npc.tacticalOrder !== 'defend')).toBe(true)
+    expect(f.controller.groups.find(g => g.id === 'E')!.members.every(npc => npc.tacticalOrder === 'charge')).toBe(true)
   })
 
   it('objectives ignore civilians, permit AI victory after death and prioritize mutual destruction', () => {
@@ -222,11 +263,7 @@ describe('shared Town wartime and settlement', () => {
   })
 
   it('preparation orchestration updates civilian movement while freezing military and blocks damage and projectiles', () => {
-    const f = fixture('roman'), town = Object.create(TownScene.prototype) as any
-    Object.assign(town, { profile: f.profile(), defense: f.controller, player: f.player, camera: new THREE.PerspectiveCamera(), orbit: { cameraYaw: 0 }, world: { obstacles: [] }, navigation: f.navigation,
-      grid: new SpatialGrid(4), defenseEnemyGrid: new SpatialGrid(8), defenseTownGrid: new SpatialGrid(8), neighbors: [], hp: { setFill: vi.fn() },
-      inventory: { shieldEnabled: false }, careerMounts: { activeMount: null, update: vi.fn() }, cat: new Mount(f.scene, MountType.BLACK_CAT, -34, 20), elapsed: 0, shots: [], updateCareerCommandCue: vi.fn() })
-    dispose.push(() => town.cat.dispose())
+    const f = fixture('roman'), town = townHarness(f)
     const military = f.controller.military[0], civilian = f.controller.civilians[0], attacker = f.controller.enemies[0]
     const updateMilitary = vi.spyOn(military, 'update'), updateAttacker = vi.spyOn(attacker, 'update'), updateCivilian = vi.spyOn(civilian, 'update')
     town.updateDefenseCombat(1)
@@ -243,5 +280,27 @@ describe('shared Town wartime and settlement', () => {
     expect(military.hp).toBe(before); expect(town.shots).toHaveLength(0)
     f.controller.updateFlow(9, 0)
     expect(town.enforceAssaultPreparationLock()).toBe(false)
+  })
+
+  it('allows Tab equipment during preparation while retaining action locks and dead-player restrictions', () => {
+    const f = fixture('roman'), town = townHarness(f)
+    vi.stubGlobal('document', { exitPointerLock: vi.fn() })
+    town.input = { clear: vi.fn() }
+    town.skills = {}; town.equipment = { visible: false, open: vi.fn() }
+    const key = (code: string) => ({ code, repeat: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() })
+    for (const code of ['KeyE', 'KeyQ', 'KeyG']) {
+      const e = key(code); town.key(e)
+      expect(e.preventDefault).toHaveBeenCalledOnce()
+      expect(town.equipment.open).not.toHaveBeenCalled()
+    }
+    const tab = key('Tab'); town.key(tab)
+    expect(tab.preventDefault).toHaveBeenCalledOnce()
+    expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts)
+    // Closing the modal is handled before preparation guards as in normal Town.
+    town.equipment.visible = true; town.closePanel = vi.fn()
+    town.key(key('Tab')); expect(town.closePanel).toHaveBeenCalledOnce()
+    town.equipment.visible = false; town.equipment.open.mockClear()
+    f.player.takeDamage(999999, town.hp)
+    town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
   })
 })
