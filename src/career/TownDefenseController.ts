@@ -18,7 +18,7 @@ import {
   TOWN_DEFENSE_LAYOUT,
   TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
-  concentricDefenseSlots,
+  horseshoeDefenseSlots,
   createTownDefenseGroups,
   formationSlots,
   resolveTownDefenseOutcome,
@@ -203,21 +203,29 @@ export class TownDefenseController {
     const byGroup = (id: TownDefenseGroupId) => this.groups.find(group => group.id === id)?.members ?? []
     const occupied: { point: THREE.Vector3; spacing: number }[] = []
     const place = (point: THREE.Vector3, spacing: number) => this.walkable(point, occupied, spacing)
-    const melee = [...byGroup('A'), ...byGroup('B'), ...(this.sergeant ? [this.sergeant] : [])]
+    const melee = [...byGroup('A'), ...(this.sergeant ? [this.sergeant] : [])]
+    const spearmen = byGroup('B')
     const ranged = [...byGroup('C'), ...byGroup('D')]
     const screen = byGroup('F')
-    const assignRing = (members: NPC[], radii: number[], phase: number) => {
-      const slots = concentricDefenseSlots(members.length, radii, phase)
+    const assignArc = (members: NPC[], radii: number[]) => {
+      const slots = horseshoeDefenseSlots(members.length, radii)
       members.forEach((member, index) => {
         const slot = place(slots[index], member.isMounted ? 5 : 2.2)
-        const facing = slot.clone().sub(this.anchorVector('townCenter')).setY(0).normalize()
+        const facing = slot.clone().sub(this.anchorVector('civilianShelter')).setY(0).normalize()
         if (this.assault) this.positionNpc(member, slot, facing)
         member.assignFormationTarget(this.commandId++, slot, facing, undefined, 'defend')
       })
     }
-    assignRing(ranged, [12.5, 16], .12)
-    assignRing(melee, [21, 25], .28)
-    assignRing(screen, [30, 35], .48)
+    assignArc(ranged, [10, 13])
+    assignArc(melee, [18])
+    assignArc(spearmen, [24])
+    const screenAnchor = TOWN_DEFENSE_LAYOUT.horseArcherLine
+    const screenSlots = formationSlots(screenAnchor, screen.length, true, screen.length)
+    screen.forEach((member, index) => {
+      const point = place(screenSlots[index], 4), facing = new THREE.Vector3(screenAnchor.facingX, 0, screenAnchor.facingZ)
+      if (this.assault) this.positionNpc(member, point, facing)
+      member.assignFormationTarget(this.commandId++, point, facing, undefined, 'defend')
+    })
     const reserve = byGroup('E')
     const reserveSlots = formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, reserve.length, true)
     reserve.forEach((member, index) => {
@@ -228,7 +236,7 @@ export class TownDefenseController {
     const shelters = civilianShelterSlots(this.civilians.length)
     this.civilians.forEach((civilian, index) => civilian.assignFormationTarget(this.commandId++, place(shelters[index], 1.8), new THREE.Vector3(0, 0, 1)))
     if (this.captain) {
-      const point = place(concentricDefenseSlots(1, [18], 2.5)[0], 5), facing = new THREE.Vector3(0, 0, 1)
+      const point = place(new THREE.Vector3(0, 0, 17), 5), facing = new THREE.Vector3(0, 0, 1)
       if (this.assault) this.positionNpc(this.captain, point, facing)
       this.captain.assignFormationTarget(this.commandId++, point, facing, undefined, 'defend')
     }

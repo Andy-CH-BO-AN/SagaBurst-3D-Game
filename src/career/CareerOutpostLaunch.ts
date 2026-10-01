@@ -20,11 +20,17 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
   const t3 = Math.min(stage.defenderDeployment.tierCapacity[3], upper)
   const t2 = upper - t3
   const t1 = stage.defenderDeployment.maxUnits - upper
-  const ranged = { 1: Math.floor(t1 / 4), 2: Math.floor(t2 / 4), 3: Math.floor(t3 / 4) }
-  // Replace one ordinary defender with the faction's T4 Captain; keep the AI total intact.
+  const cavalry = stage.defenderDeployment.cavalryCap ?? t3
+  const infantryT3 = Math.max(0, t3 - cavalry)
+  const cavalryT2 = Math.max(0, cavalry - t3)
+  const infantryT2 = t2 - cavalryT2
+  // The Captain occupies one melee slot; every T1 is a bow archer and cavalry
+  // uses the strongest available tiers before splitting the remaining infantry.
   const defenderArmy: Record<string, UnitTierCounts> = {
-    [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: t1 - ranged[1] - 1, 2: t2 - ranged[2], 3: t3 - ranged[3], 4: 1 },
-    [resolveCampaignRolePreset(profile.faction, 'ranged')]: ranged,
+    [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: 0, 2: Math.floor(infantryT2 / 2) - 1, 3: Math.floor(infantryT3 / 2), 4: 1 },
+    [`${profile.faction}_spearman`]: { 1: 0, 2: Math.ceil(infantryT2 / 2), 3: Math.ceil(infantryT3 / 2) },
+    [`${profile.faction}_archer`]: { 1: t1, 2: 0, 3: 0 },
+    [resolveCampaignRolePreset(profile.faction, 'lancer')]: { 1: 0, 2: cavalryT2, 3: Math.min(cavalry, t3) },
   }
   const legal = (id: string | null | undefined, type: 'melee' | 'ranged' | 'shield') => {
     const candidates = [id, profile.starterWeaponId, ...(type === 'shield' ? profile.ownedArmors : profile.ownedWeapons)]
@@ -36,13 +42,14 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
   const mount = relief ? resolveCareerReliefMount(profile) : profile.selectedMountId
   return {
     type: 'defense', defenderFaction: profile.faction, stageId: mission.stageId,
+    deploymentSeconds: profile.rank === 'captain' || profile.rank === 'commander' ? 60 : 10,
     defenderArmy: relief ? {
       [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: 8, 2: 0, 3: 0 },
       [resolveCampaignRolePreset(profile.faction, 'ranged')]: { 1: 2, 2: 0, 3: 0 },
     } : defenderArmy, careerMissionKind: mission.kind, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
     ...(relief ? { careerReliefPhase: mission.reliefPhase ?? 'march' } : {}),
     playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
-    capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false },
+    capabilities: { reinforcementsEnabled: !relief, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false },
     playerLoadout: {
       meleeWeaponId: legal(profile.equipment?.melee, 'melee') ?? 'gladius_rusty',
       rangedWeaponId: legal(profile.equipment?.ranged, 'ranged') ?? 'wooden_shortbow',

@@ -645,7 +645,8 @@ export class Player {
   }
 
   clearTownAction(): void {
-    this._cancelEquipmentAction()
+    // Observer and result panels clear input after the death clip has started.
+    if (!this.isDead) this._cancelEquipmentAction()
     this.pendingRangedWeapon = undefined
   }
 

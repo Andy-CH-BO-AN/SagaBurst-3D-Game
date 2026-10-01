@@ -65,6 +65,7 @@ export function defenseCampaignCapabilities(config?: DefenseCampaignLaunchConfig
 
 export interface DefenseCampaignLaunchConfig {
   type: 'defense'
+  deploymentSeconds?: number
   capabilities?: Partial<DefenseCampaignCapabilities>
   careerMissionId?: string
   careerMissionKind?: 'outpost-defense' | 'outpost-relief'
@@ -153,6 +154,9 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   if (config.type !== 'defense') errors.push('Campaign type must be defense')
+  if (config.deploymentSeconds !== undefined && (!Number.isFinite(config.deploymentSeconds) || config.deploymentSeconds <= 0)) {
+    errors.push('Deployment seconds must be a positive finite number')
+  }
   if (
     config.commandGrouping !== undefined
     && config.commandGrouping !== 'preset'

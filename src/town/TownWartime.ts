@@ -7,7 +7,7 @@ export function townWartimePeers(actor: NPC, actors: readonly NPC[]): NPC[] {
   return actors.filter(target => !target.dead && townWartimeHostile(actor, target))
 }
 export function civilianShouldFight(distance: number, preparation: boolean): boolean {
-  return !preparation && distance <= 3
+  return !preparation && distance <= 10
 }
 export function civilianWartimeWeapon(faction: 'roman' | 'viking'): string {
   return faction === 'roman' ? 'gladius_rusty' : 'viking_axe_t1'

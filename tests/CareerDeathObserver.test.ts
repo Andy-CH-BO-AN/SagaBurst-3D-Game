@@ -193,6 +193,26 @@ function townFixture() {
 }
 
 describe('Town mission death observer orchestration', () => {
+  it.each([true, false])('preserves the death clip when opening observer=%s or a result panel and keeps it advancing', observer => {
+    const { town, player } = townFixture()
+    const animation = { play: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(), has: vi.fn(() => true), stop: vi.fn() }
+    ;(player as any).rig.animation = animation
+    town.world = { obstacles: [] }
+    if (!observer) town.profile.activeMission = undefined
+    player.takeDamage(99999, town.hp)
+    if (!observer) player.clearTownAction()
+    expect(animation.play).toHaveBeenLastCalledWith('death', { fadeSeconds: .12, loop: false })
+    town.panel = {}
+    for (let index = 1; index <= 30; index++) town.frame(index * 16)
+    expect(animation.update).toHaveBeenCalledTimes(30)
+    expect(animation.update.mock.calls.every(([dt]) => dt > 0)).toBe(true)
+    expect(town.updateFieldCombat).not.toHaveBeenCalled()
+    expect(player.group.visible).toBe(true)
+    for (let index = 31; index <= 200; index++) town.frame(index * 16)
+    expect(player.group.visible).toBe(false)
+    player.dispose()
+  })
+
   it('enters the existing spectator controller immediately, leaves Player dead and blocks equipment, interaction and collision', () => {
     const { town, player, controls } = townFixture()
     player.takeDamage(99999, town.hp)

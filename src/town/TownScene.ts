@@ -1311,10 +1311,12 @@ export class TownScene {
     if (this.disposed) return
     this.updatePointerPrompt()
     const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
+    // Keep the collapse playing even when death immediately opens a result panel.
+    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
       const playerLocked = this.enforceAssaultPreparationLock()
-      if (!playerLocked) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+      if (!this.player.dead && !playerLocked) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
       this.player.group.updateWorldMatrix(true, true)
       if (!this.player.dead && !playerLocked) this.melee()
       if (this.event.hostile) this.updateHostile(dt)

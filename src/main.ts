@@ -51,11 +51,14 @@ async function launchGame(
 ): Promise<void> {
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
-  loading.style.cssText = 'position:absolute;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
-  loading.textContent = '正在載入寫實人物與戰馬資產…'
+  loading.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
+  loading.setAttribute('role', 'status')
+  loading.textContent = campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
   document.body.appendChild(loading)
 
   try {
+    // Let the overlay paint before cached assets lead into synchronous scene creation.
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     ;(window as any).game = await Game.create(container!, battleConfig, campaignConfig)
     loading.remove()
   } catch (error: unknown) {
@@ -130,6 +133,7 @@ async function bootstrap(): Promise<void> {
         && !parsed.careerMissionKind
         && !parsed.careerReliefPhase
         && parsed.capabilities === undefined
+        && parsed.deploymentSeconds === undefined
         && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)
       ) {
         savedCampaign = parsed
