@@ -1,7 +1,7 @@
 import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
-import type { CareerMountId, CareerRank } from './CareerProfile'
-import { townDefenseEnemyCount } from './TownDefenseState'
+import type { CareerMountId } from './CareerProfile'
+import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -87,16 +87,17 @@ export function createActiveCareerMission(
 export function createTownDefenseMission(
   friendlyActorIds: string[],
   civilianActorIds: string[],
-  id = createCareerMissionId('recruit-town-defense-01'),
-  rank: CareerRank = 'recruit',
+  id?: string,
+  templateId = TOWN_DEFENSE_TEMPLATE_ID,
 ): ActiveCareerMission {
+  const missionId = id ?? createCareerMissionId(templateId)
   return {
-    id,
-    templateId: 'recruit-town-defense-01',
+    id: missionId,
+    templateId,
     kind: 'town-defense',
     targetCampId: -1,
     phase: 'PREPARING',
-    targetActorIds: Array.from({ length: townDefenseEnemyCount(rank) }, (_, index) => `${id}:attacker:${index}`),
+    targetActorIds: Array.from({ length: townDefenseEnemyCount(templateId) }, (_, index) => `${missionId}:attacker:${index}`),
     friendlyActorIds: [...friendlyActorIds],
     civilianActorIds: [...civilianActorIds],
     acceptedAt: Date.now(),

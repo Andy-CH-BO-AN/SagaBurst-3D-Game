@@ -7,6 +7,9 @@ export function installTownStyles(): void {
   const style = document.createElement('style'); style.id = 'town-styles'
   style.textContent = `
     .town-panel { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px,calc(100vw - 48px)); box-sizing:border-box; max-height:85vh; overflow:auto; z-index:1000; padding:26px 30px; color:#f1e4cb; background:linear-gradient(125deg,#30291f,#181b1b); border:1px solid #95784f; border-top:4px solid #ba995e; border-radius:8px; box-shadow:0 24px 100px #000c; font:15px/1.65 system-ui }
+    .town-mission-tabs { display:flex; gap:10px; margin:12px 0 18px; position:sticky; top:-26px; background:#25231f; padding:10px 0; z-index:1 }
+    .town-mission-tabs .town-button { flex:1; margin:0 }
+    .town-mission-tabs [aria-pressed="true"] { background:#765c35; border-color:#f0cc86; color:#fff0c9 }
     .town-panel h2 { margin:5px 0 16px; font:700 27px/1.3 Georgia,serif; color:#ffe5af }
     .town-panel p { margin:12px 0; white-space:pre-line }
     .town-eyebrow { font:11px/1.5 Georgia,serif; letter-spacing:.2em; color:#bb9e71 }

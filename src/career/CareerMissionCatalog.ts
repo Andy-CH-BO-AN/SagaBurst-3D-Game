@@ -1,6 +1,6 @@
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, enlistmentMerit, type CareerProfile, type CareerRank } from './CareerProfile'
-import { townDefenseEnemyCount } from './TownDefenseState'
+import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
 export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
@@ -138,14 +138,14 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   mission('recruit-bandits-04', '深入敵營', 10, 20, '極高', 4, 120),
 
   {
-    id: 'recruit-town-defense-01',
+    id: TOWN_DEFENSE_TEMPLATE_ID,
     kind: 'town-defense',
-    name: '家門口的戰爭 · Town Defense',
+    name: '家門口的戰爭 · 菜兵守城',
     briefing: '敵方騎兵正在逼近城鎮。加入守軍，守住防線並保護居民。',
     targetArea: 'career-town',
     friendlySoldiers: 60,
     friendlyCombatants: 64,
-    enemyCount: townDefenseEnemyCount('recruit'),
+    enemyCount: townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID),
     civilianCount: 20,
     maxCivilianDeaths: 10,
     risk: '極高',
@@ -153,6 +153,23 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     requiresCompletions: 5,
     storyOnce: true,
     minRank: 'recruit',
+  },
+  {
+    id: SOLDIER_TOWN_DEFENSE_TEMPLATE_ID,
+    kind: 'town-defense',
+    name: '守衛家園 · 士兵守城',
+    briefing: '敵方大隊騎兵正在逼近城鎮。加入守軍，守住防線並保護居民。',
+    targetArea: 'career-town',
+    friendlySoldiers: 60,
+    friendlyCombatants: 64,
+    enemyCount: townDefenseEnemyCount(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID),
+    civilianCount: 20,
+    maxCivilianDeaths: 10,
+    risk: '極高',
+    requiresEnlistmentMerit: 0,
+    requiresCompletions: 0,
+    storyOnce: true,
+    minRank: 'soldier',
   },
 ]
 
@@ -180,7 +197,15 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
     && (template.kind !== 'cavalry-sweep' || Boolean(resolveCareerReliefMount(profile)))
     && (template.kind !== 'enemy-town-assault' || isEnemyTownAssaultUnlocked(profile))
     && (!template.storyOnce || !completedStory.includes(template.id))
-  )).map(template => template.kind === 'town-defense'
-    ? { ...template, enemyCount: townDefenseEnemyCount(profile.rank) }
-    : template)
+  ))
+}
+
+export type CareerMissionPage = 'recruit' | 'soldier'
+
+export function careerMissionPage(template: RecruitMissionTemplate): CareerMissionPage {
+  return template.kind === 'enemy-town-assault' || template.minRank !== 'recruit' ? 'soldier' : 'recruit'
+}
+
+export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): RecruitMissionTemplate[] {
+  return availableRecruitMissions(profile).filter(template => careerMissionPage(template) === page)
 }

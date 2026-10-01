@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import type { TownActorSpec, TownRole } from '../town/TownRules'
-import type { CareerRank } from './CareerProfile'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
+export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
 export const TOWN_DEFENSE_PREPARATION_SECONDS = 45
 
@@ -110,8 +110,10 @@ const RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
   { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 5, lancer: 8, 'horse-archer': 7 } },
 ]
 
-export function townDefenseEnemyCount(rank: CareerRank = 'recruit'): 50 | 70 {
-  return rank === 'recruit' ? 50 : 70
+export function townDefenseEnemyCount(templateId = TOWN_DEFENSE_TEMPLATE_ID): 50 | 70 {
+  if (templateId === TOWN_DEFENSE_TEMPLATE_ID) return 50
+  if (templateId === SOLDIER_TOWN_DEFENSE_TEMPLATE_ID) return 70
+  throw new Error('Unknown Town Defense mission: ' + templateId)
 }
 
 /** The accepted roster fixes difficulty; reload must not derive it from a new rank. */
