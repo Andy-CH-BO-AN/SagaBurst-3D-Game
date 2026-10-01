@@ -110,6 +110,7 @@ export class ArmyCommandController {
     private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
     private readonly inventory: InventoryManager | null = null,
     groupingMode: CommandGroupingMode = 'preset',
+    private readonly commandsEnabled = true,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -141,6 +142,11 @@ export class ArmyCommandController {
   get grouping(): CommandGroupingMode { return this.groupingMode }
 
   update(): void {
+    if (!this.commandsEnabled) {
+      let step: -1 | 0 | 1
+      while ((step = this.input.consumeWheelStep()) !== 0) this._cycleWeapon(step)
+      return
+    }
     const rosterChanged = this._syncRosterSelection()
     if (rosterChanged && !this.submenuOpen && !this.formation?.isPlacementMode) {
       this._renderUi()
@@ -344,6 +350,7 @@ export class ArmyCommandController {
   }
 
   postUpdate(): void {
+    if (!this.commandsEnabled) return
     this.formation?.updateCompletion()
   }
 
@@ -446,6 +453,7 @@ export class ArmyCommandController {
   }
 
   private _renderUi(): void {
+    if (!this.commandsEnabled) { this.ui.setEnabled(false); return }
     const ownedWeapons = this.inventory?.inventoryStacks.filter(({ item, quantity }) =>
       quantity > 0 && item.type === 'melee',
     ) ?? []

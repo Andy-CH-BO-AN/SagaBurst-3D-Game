@@ -48,6 +48,8 @@ export class DefenseCampaignRuntime {
   private reinforcementTriggered = false
   private battleFinished = false
 
+  constructor(private readonly options: { reinforcementsEnabled?: boolean } = {}) {}
+
   getSnapshot(): DefenseCampaignRuntimeSnapshot {
     return {
       phase: this.result ?? this.phase,
@@ -72,8 +74,15 @@ export class DefenseCampaignRuntime {
     if (this.battleFinished) return []
     const events: DefenseCampaignRuntimeEvent[] = []
 
+    if (this.options.reinforcementsEnabled === false && state.playerDead && state.defendersAlive <= 0) {
+      this.battleFinished = true
+      this.result = 'defeat'
+      return ['battle_defeat']
+    }
+
     if (
-      this.result === null
+      this.options.reinforcementsEnabled !== false
+      && this.result === null
       && DEFENSE_CAMPAIGN_RULES.lockDefeatWhenPlayerAndOriginalDefendersEliminated
       && !state.reinforcementSpawned
       && state.playerDead
@@ -118,7 +127,8 @@ export class DefenseCampaignRuntime {
     }
 
     if (
-      !this.reinforcementTriggered
+      this.options.reinforcementsEnabled !== false
+      && !this.reinforcementTriggered
       && this.assaultElapsed >= DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds
     ) {
       this.reinforcementTriggered = true

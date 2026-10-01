@@ -34,7 +34,7 @@ describe('Peaceful dialogue', () => {
     expect(new Set(lines).size).toBe(3)
     for (const line of lines) { expect(line).toContain('黑貓'); expect(line).not.toMatch(/[「」]/) }
     const mission = selectTownDialogue({ ...context, npcRole: 'deployment', playerRank: 'soldier' }, 'soldierFirstOutpost')
-    expect(mission).toContain('其中一名士兵'); expect(mission).toMatch(/尚未開放|還沒開/)
+    expect(mission).toContain('其中一名士兵'); expect(mission).toContain('Outpost Duty')
   })
   it('formats merit from current rules and never invents a new rank', () => {
     const line = selectTownDialogue({ townFaction: 'roman', npcRole: 'captain', playerRank: 'veteran', nextRank: 'captain', promotionEligible: true }, 'promotion')

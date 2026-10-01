@@ -1,3 +1,4 @@
+import { isCareerOutpostStageId, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -155,6 +156,34 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   return mission
 }
 
+function parseOutpostMission(value: unknown): CareerOutpostMission | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (typeof raw.id !== 'string' || !raw.id.trim() || raw.kind !== 'outpost-defense' || !isCareerOutpostStageId(raw.stageId)) return undefined
+  return { id: raw.id.trim(), kind: 'outpost-defense', stageId: raw.stageId, acceptedAt: nonNegativeInteger(raw.acceptedAt) }
+}
+
+function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
+  const mission = parseOutpostMission(value)
+  if (!mission) return undefined
+  const raw = value as Record<string, unknown>
+  if (raw.outcome !== 'victory' && raw.outcome !== 'defeat') return undefined
+  if (!raw.stats || typeof raw.stats !== 'object' || !raw.merit || typeof raw.merit !== 'object') return undefined
+  const stats = raw.stats as Record<string, unknown>, merit = raw.merit as Record<string, unknown>
+  return {
+    ...mission, outcome: raw.outcome, completed: raw.outcome === 'victory',
+    stats: {
+      damageDealt: nonNegativeNumber(stats.damageDealt), damageTaken: nonNegativeNumber(stats.damageTaken),
+      kills: nonNegativeInteger(stats.kills), survived: stats.survived === true,
+      structureDamage: nonNegativeNumber(stats.structureDamage), structuresDestroyed: nonNegativeInteger(stats.structuresDestroyed), gateBreaches: nonNegativeInteger(stats.gateBreaches),
+    },
+    merit: {
+      victory: nonNegativeInteger(merit.victory), kills: nonNegativeInteger(merit.kills), characterDamage: nonNegativeInteger(merit.characterDamage), survival: nonNegativeInteger(merit.survival),
+      structureDamage: nonNegativeInteger(merit.structureDamage), gateBreaches: nonNegativeInteger(merit.gateBreaches), total: nonNegativeInteger(merit.total),
+    },
+  }
+}
+
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
@@ -189,6 +218,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
   const townEvent = raw.townEvent as CareerProfile['townEvent']
   const activeMission = parseActiveMission(raw.activeMission)
+  const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? raw.selectedMountId as CareerMountId
     : undefined
@@ -212,6 +242,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(activeMission ? { activeMission } : {}),
+    ...(activeOutpostMission ? { activeOutpostMission } : {}),
+    ...(Array.isArray(raw.completedOutpostStages) ? { completedOutpostStages: [...new Set(raw.completedOutpostStages.filter(isCareerOutpostStageId))] } : {}),
+    ...(Array.isArray(raw.outpostBattleRecords) ? { outpostBattleRecords: raw.outpostBattleRecords.map(parseOutpostRecord).filter((record): record is CareerOutpostRecord => Boolean(record)) } : {}),
     ...(raw.careerMissionCompletions !== undefined ? { careerMissionCompletions: nonNegativeInteger(raw.careerMissionCompletions) } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),
     ownedWeapons,

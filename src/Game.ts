@@ -150,6 +150,13 @@ import {
   positionDefenseCampaignReinforcements,
   type DefenseCampaignLaunchConfig,
 } from './campaign/DefenseCampaignLaunch'
+import { CareerProfileStore } from './career/CareerProfileStore'
+import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } from './career/CareerOutpostMission'
+import type { CareerProfile } from './career/CareerProfile'
+import { TownEquipment } from './town/TownEquipment'
+import { resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
+import { TOWN_ENTRY_KEY } from './town/CareerTownEntry'
+import { defenseCampaignCapabilities } from './campaign/DefenseCampaignLaunch'
 import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
 import {
   completeDefenseCampaignStage,
@@ -423,6 +430,9 @@ export class Game {
   private readonly defenseCampaignConfig: DefenseCampaignLaunchConfig | null
   private defenseCampaignRuntime: DefenseCampaignRuntime | null = null
   private defenseCampaignHud: DefenseCampaignHUD | null = null
+  private careerProfile: CareerProfile | null = null
+  private careerMeritAwarded = 0
+  private readonly careerStore = new CareerProfileStore()
   private campaignOriginalDefenders: NPC[] = []
   private campaignReinforcementSpawned = false
   private campaignAttackersStarted = false
@@ -554,6 +564,10 @@ export class Game {
   ) {
     this.renderer = renderer
     this.defenseCampaignConfig = campaignConfig ?? null
+    if (campaignConfig?.careerMissionId) {
+      this.careerProfile = this.careerStore.loadChecked().profile
+      if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId) throw new Error('Career Outpost launch does not match saved mission')
+    }
     // Defense Campaign player-side units are defenders, so structure damage / breach
     // is not a valid performance statistic for them. Custom Battle remains generic.
     this.battleStats = new BattleStatsTracker(this.combatEvents, !campaignConfig)
@@ -782,10 +796,12 @@ export class Game {
         if (npc.mount) npc.mount.group.rotation.y = defenderFacingYaw
         npc.setTacticalOrder(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
       }
-      this.defenseCampaignRuntime = new DefenseCampaignRuntime()
+      const capabilities = defenseCampaignCapabilities(campaignConfig)
+      this.defenseCampaignRuntime = new DefenseCampaignRuntime(capabilities)
       this.defenseCampaignHud = new DefenseCampaignHUD(
         campaignConfig.stageId,
         campaignConfig.defenderFaction,
+        { reinforcementsEnabled: capabilities.reinforcementsEnabled, returnToTown: Boolean(campaignConfig.careerMissionId), meritAwarded: () => this.careerMeritAwarded },
       )
     } else if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
@@ -847,6 +863,18 @@ export class Game {
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
+    if (this.careerProfile) {
+      const inventory = new TownEquipment(() => this.careerProfile!, profile => {
+        if (!this.careerStore.save(profile)) return false
+        this.careerProfile = profile
+        return true
+      })
+      inventory.prepareForCombat()
+      this.inventoryManager = inventory
+      this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.player.maxHp))
+      this.player.setHp(this.player.maxHp)
+      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
+    }
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
@@ -872,6 +900,7 @@ export class Game {
       },
       this.inventoryManager,
       activeBattleConfig?.commandGrouping ?? 'preset',
+      defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled,
     )
 
 
@@ -1513,6 +1542,7 @@ export class Game {
   private _queueDefenseCampaignWave(wave: 'attackers' | 'reinforcement'): number {
     const campaign = this.defenseCampaignConfig
     if (!campaign) return 0
+    if (wave === 'reinforcement' && !defenseCampaignCapabilities(campaign).reinforcementsEnabled) return 0
     if (this.campaignSpawnWave !== null) return 0
 
     const config = createDefenseCampaignWaveConfig(campaign, wave)
@@ -1573,22 +1603,50 @@ export class Game {
   ): void {
     if (!this.defenseCampaignHud) return
     const campaign = this.defenseCampaignConfig
-    const onNext = result === 'victory' && campaign && campaign.stageId < 9
+    const onNext = result === 'victory' && campaign && !campaign.careerMissionId && campaign.stageId < 9
       ? () => this._returnToNextDefenseCampaignSetup()
       : undefined
 
     const stats = this.battleStats.snapshot(this.npcs, this.player)
+    if (campaign?.careerMissionId) {
+      const fresh = this.careerStore.loadChecked().profile
+      if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
+      const claim = claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
+      if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
+      this.careerProfile = claim.profile
+      this.careerMeritAwarded = claim.profile.outpostBattleRecords?.find(record => record.id === campaign.careerMissionId)?.merit.total ?? 0
+    }
     this.defenseCampaignHud.showResult(
       result,
       () => {
         window.location.reload()
       },
-      () => this._returnToHome(),
+      () => campaign?.careerMissionId ? this._returnToCareerTown() : this._returnToHome(),
       allowObserve,
       onNext,
       stats,
       campaign?.commandGrouping === 'squad',
     )
+  }
+
+  private _showCareerOutpostSaveRetry(result: 'victory' | 'defeat'): void {
+    if (document.pointerLockElement) document.exitPointerLock()
+    const modal = document.createElement('div'); modal.id = 'campaign-result-modal'
+    const card = document.createElement('div'); card.className = 'campaign-result-card'
+    const message = document.createElement('p'); message.textContent = 'Career 結算尚未保存，請重試。'
+    const retry = document.createElement('button'); retry.textContent = '重試保存軍功'
+    retry.onclick = () => { modal.remove(); this._showDefenseCampaignResult(result) }
+    card.append(message, retry); modal.append(card); document.body.append(modal)
+  }
+
+  private _returnToCareerTown(): void {
+    const profile = this.careerStore.loadChecked().profile
+    if (!profile || !this.careerStore.save(clearCareerOutpost(profile))) { this._showNotify('無法保存返回狀態，請重試'); return }
+    sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+    sessionStorage.removeItem('sagaburst_campaign_config')
+    sessionStorage.removeItem('sagaburst_battle_config')
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    window.location.href = window.location.pathname
   }
 
   private _returnToNextDefenseCampaignSetup(): void {
@@ -1670,7 +1728,7 @@ export class Game {
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)
       } else if (event === 'battle_victory') {
-        completeDefenseCampaignStage(campaign.defenderFaction, campaign.stageId)
+        if (!campaign.careerMissionId) completeDefenseCampaignStage(campaign.defenderFaction, campaign.stageId)
         if (this.campaignSpawnWave === 'reinforcement') {
           this.campaignSpawnQueue = []
           this.campaignSpawnQueueIndex = 0
@@ -1687,7 +1745,7 @@ export class Game {
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',
       this.campaignAttackersStarted,
-      !this.player.dead && this.controlMode !== 'spectator',
+      defenseCampaignCapabilities(campaign).gateControlEnabled && !this.player.dead && this.controlMode !== 'spectator',
     )
     hud.update(
       runtime.getSnapshot(),
@@ -1808,6 +1866,7 @@ export class Game {
   }
 
   private _toggleCampaignGate(): void {
+    if (!defenseCampaignCapabilities(this.defenseCampaignConfig ?? undefined).gateControlEnabled) return
     const gate = this.previewCampaignGate
     if (!gate || this.player.dead || this.controlMode === 'spectator'
       || this.equipmentUI.visible) return
@@ -1869,6 +1928,7 @@ export class Game {
   }
 
   _saveGame(): void {
+    if (this.defenseCampaignConfig?.careerMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
@@ -1901,6 +1961,7 @@ export class Game {
   }
 
   _loadGame(): void {
+    if (this.defenseCampaignConfig?.careerMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')

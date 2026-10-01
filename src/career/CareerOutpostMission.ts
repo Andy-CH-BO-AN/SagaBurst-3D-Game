@@ -1,0 +1,51 @@
+import type { BattleStatsSnapshot, PlayerBattleStats } from '../combat/BattleStatsTracker'
+import { claimCareerBattle, cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import type { MeritBreakdown } from './MeritCalculator'
+
+export const CAREER_OUTPOST_SESSION_KEY = 'sagaburst_career_outpost_mission'
+export const CAREER_OUTPOST_STAGES = [1, 2, 3] as const
+export type CareerOutpostStageId = typeof CAREER_OUTPOST_STAGES[number]
+export interface CareerOutpostMission {
+  id: string
+  kind: 'outpost-defense'
+  stageId: CareerOutpostStageId
+  acceptedAt: number
+}
+export interface CareerOutpostRecord extends CareerOutpostMission {
+  outcome: 'victory' | 'defeat'
+  completed: boolean
+  stats: PlayerBattleStats
+  merit: MeritBreakdown
+}
+export function isCareerOutpostStageId(value: unknown): value is CareerOutpostStageId {
+  return CAREER_OUTPOST_STAGES.includes(value as CareerOutpostStageId)
+}
+export function isCareerOutpostUnlocked(profile: CareerProfile, stageId: CareerOutpostStageId): boolean {
+  return profile.rank !== 'recruit' && (stageId === 1 || Boolean(profile.completedOutpostStages?.includes((stageId - 1) as CareerOutpostStageId)))
+}
+export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpostStageId, id: string = crypto.randomUUID()): CareerProfile | null {
+  if (!isCareerOutpostUnlocked(current, stageId) || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+  const profile = cloneCareerProfile(current)
+  profile.activeOutpostMission = { id, kind: 'outpost-defense', stageId, acceptedAt: Date.now() }
+  return profile
+}
+export function claimCareerOutpost(current: CareerProfile, missionId: string, outcome: 'victory' | 'defeat', stats: BattleStatsSnapshot) {
+  const mission = current.activeOutpostMission
+  if (!mission || mission.id !== missionId) throw new Error('Career Outpost mission does not match')
+  const claim = claimCareerBattle(current, { battleId: missionId, outcome, role: 'defense', stats })
+  if (claim.alreadyClaimed) return claim
+  const profile = claim.profile
+  profile.outpostBattleRecords = [...(profile.outpostBattleRecords ?? []), {
+    ...mission, outcome, completed: outcome === 'victory', stats: { ...stats.player }, merit: { ...claim.meritBreakdown },
+  }]
+  if (outcome === 'victory') {
+    profile.completedOutpostStages = [...new Set([...(profile.completedOutpostStages ?? []), mission.stageId])]
+    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
+  }
+  return claim
+}
+export function clearCareerOutpost(current: CareerProfile): CareerProfile {
+  const profile = cloneCareerProfile(current)
+  delete profile.activeOutpostMission
+  return profile
+}
