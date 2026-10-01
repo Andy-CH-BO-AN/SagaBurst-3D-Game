@@ -96,6 +96,7 @@ export class CareerReliefMarchController {
     npcs: readonly NPC[],
     private readonly breach: THREE.Vector3,
     private readonly followVoice: () => void,
+    private readonly onChargeTriggered: () => void,
     private readonly chargeVoice: () => void,
     private readonly resumeCharged = false,
   ) {
@@ -132,6 +133,7 @@ export class CareerReliefMarchController {
     if (distance > RELIEF_CHARGE_DISTANCE && !this.captain.dead && !this.maki.dead) return
     this.charged = true
     for (const npc of this.rescue) if (!npc.dead) npc.setTacticalOrder('charge')
+    this.onChargeTriggered()
     if (!this.captain.dead) this.chargeVoice()
   }
   get hasCharged(): boolean { return this.charged }

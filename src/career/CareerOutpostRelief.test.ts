@@ -116,7 +116,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     const captain = rescue.find(npc => npc.name === 'Captain')!
     expect(captain.combatPosition.distanceTo(breach)).toBeCloseTo(50)
     const follow = vi.fn(), charge = vi.fn()
-    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, charge, config.careerReliefPhase === 'charge')
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, vi.fn(), charge, config.careerReliefPhase === 'charge')
     controller.start(); controller.start(); controller.update(); controller.update()
     expect(controller.hasCharged).toBe(true)
     expect(follow).not.toHaveBeenCalled(); expect(charge).not.toHaveBeenCalled()
@@ -126,6 +126,42 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
       expect(rider.assignFormationTarget).not.toHaveBeenCalled()
     }
   })
+  it.each(['Captain', 'Maki'])('saves Charge when %s dies beyond 50m and reloads without replaying march or voice', leader => {
+    const profile = acceptCareerOutpostRelief(ready(faction), 'leader-death')!
+    const store = new CareerProfileStore(storage()); expect(store.save(profile)).toBe(true)
+    const config = createCareerOutpostLaunch(profile)
+    const makeRescue = (currentConfig: typeof config) => createCareerReliefSpawnPlan(currentConfig).npcSpecs.filter(spec => spec.squadId).map(spec => ({
+      ...spec, dead: false, combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
+      assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn(),
+    }))
+    const rescue = makeRescue(config)
+    const breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
+    const captain = rescue.find(npc => npc.name === 'Captain')!
+    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(50)
+    const game = Object.assign(Object.create(Game.prototype), {
+      careerStore: store, careerProfile: profile, defenseCampaignConfig: config, _showNotify: vi.fn(),
+    }) as { _persistCareerReliefCharge: () => void; careerProfile: CareerProfile }
+    const persist = vi.fn(() => game._persistCareerReliefCharge()), follow = vi.fn(), charge = vi.fn()
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, persist, charge)
+    controller.start()
+    rescue.find(npc => npc.name === leader)!.dead = true
+    controller.update(); controller.update()
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(charge).toHaveBeenCalledTimes(leader === 'Captain' ? 0 : 1)
+    expect(store.load()!.activeOutpostMission!.reliefPhase).toBe('charge')
+    expect(game.careerProfile.activeOutpostMission!.reliefPhase).toBe('charge')
+    for (const rider of rescue.filter(npc => !npc.dead)) expect(rider.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+
+    const reloadedConfig = createCareerOutpostLaunch(store.load()!), reloadedRescue = makeRescue(reloadedConfig)
+    const reloadFollow = vi.fn(), reloadPersist = vi.fn(), reloadCharge = vi.fn()
+    const reloaded = new CareerReliefMarchController(reloadedRescue as unknown as NPC[], breach, reloadFollow, reloadPersist, reloadCharge, reloadedConfig.careerReliefPhase === 'charge')
+    reloaded.start(); reloaded.update()
+    expect(reloadFollow).not.toHaveBeenCalled(); expect(reloadPersist).not.toHaveBeenCalled(); expect(reloadCharge).not.toHaveBeenCalled()
+    for (const rider of reloadedRescue) {
+      expect(rider.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+      expect(rider.assignFormationTarget).not.toHaveBeenCalled(); expect(rider.assignFollowTarget).not.toHaveBeenCalled()
+    }
+  })
   it('marches using mount speed, separates both squads, and charges once at 50m', () => {
     const plan = createCareerReliefSpawnPlan(launch(faction))
     const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,
@@ -133,7 +169,8 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
     const captain = rescue.find(npc => npc.name === 'Captain')!, maki = rescue.find(npc => npc.name === 'Maki')!
     const follow = vi.fn(), charge = vi.fn(), breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
-    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, charge)
+    const triggered = vi.fn()
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, triggered, charge)
     controller.start(); controller.start()
     expect(follow).toHaveBeenCalledTimes(1)
     expect(captain.assignFormationTarget.mock.calls[0][3]).toBe(12)
@@ -146,6 +183,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 50.1)); controller.update()
     expect(charge).not.toHaveBeenCalled()
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 50, 50)); controller.update(); controller.update()
+    expect(triggered).toHaveBeenCalledTimes(1)
     expect(charge).toHaveBeenCalledTimes(1); expect(controller.hasCharged).toBe(true)
     for (const rider of rescue) expect(rider.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
   })

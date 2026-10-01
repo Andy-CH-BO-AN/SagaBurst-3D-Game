@@ -812,15 +812,9 @@ export class Game {
         const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
         this.reliefMarch = new CareerReliefMarchController(this.npcs, new THREE.Vector3(placement.centerX, 0, placement.frontZ),
           () => this.soundManager.playCareerMissionVoice(campaignConfig.defenderFaction, 'follow'),
-          () => {
-            const fresh = this.careerStore.loadChecked().profile
-            if (!fresh || !fresh.activeOutpostMission || fresh.activeOutpostMission.id !== campaignConfig.careerMissionId) return
-            if (fresh.activeOutpostMission.reliefPhase === 'charge') return
-            const next = { ...fresh, activeOutpostMission: { ...fresh.activeOutpostMission, reliefPhase: 'charge' as const } }
-            if (this.careerStore.save(next)) this.careerProfile = next
-            else this._showNotify('無法保存衝鋒進度；重新載入可能重播命令。')
-            this.soundManager.playCommanderCommand(campaignConfig.defenderFaction, 'charge')
-          }, campaignConfig.careerReliefPhase === 'charge')
+          () => this._persistCareerReliefCharge(),
+          () => this.soundManager.playCommanderCommand(campaignConfig.defenderFaction, 'charge'),
+          campaignConfig.careerReliefPhase === 'charge')
         this.reliefMarch.start()
       }
       this.defenseCampaignHud = new DefenseCampaignHUD(
@@ -1558,6 +1552,16 @@ export class Game {
       this._aimTargetRegistry.registerMount(mount)
     }
     return spawned
+  }
+
+  private _persistCareerReliefCharge(): void {
+    const fresh = this.careerStore.loadChecked().profile
+    const mission = fresh?.activeOutpostMission
+    if (!fresh || !mission || mission.kind !== 'outpost-relief'
+      || mission.id !== this.defenseCampaignConfig?.careerMissionId || mission.reliefPhase === 'charge') return
+    const next = { ...fresh, activeOutpostMission: { ...mission, reliefPhase: 'charge' as const } }
+    if (this.careerStore.save(next)) this.careerProfile = next
+    else this._showNotify('無法保存衝鋒進度；重新載入可能重播命令。')
   }
 
   private _campaignFactionAlive(faction: 'roman' | 'viking'): number {

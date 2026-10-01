@@ -26,7 +26,7 @@ export class DefenseCampaignHUD {
     const root = document.createElement('div')
     root.id = 'defense-campaign-hud'
     root.innerHTML = `
-      <div class="campaign-hud-stage">STAGE <span data-stage></span></div>
+      <div class="campaign-hud-stage">${this.options.relief ? '' : 'STAGE '}<span data-stage></span></div>
       <div class="campaign-hud-phase" data-phase></div>
       <div class="campaign-hud-gate" data-gate></div>
       <div class="campaign-hud-counts">
