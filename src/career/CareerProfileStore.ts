@@ -159,8 +159,11 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
 function parseOutpostMission(value: unknown): CareerOutpostMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
-  if (typeof raw.id !== 'string' || !raw.id.trim() || raw.kind !== 'outpost-defense' || !isCareerOutpostStageId(raw.stageId)) return undefined
-  return { id: raw.id.trim(), kind: 'outpost-defense', stageId: raw.stageId, acceptedAt: nonNegativeInteger(raw.acceptedAt) }
+  if (typeof raw.id !== 'string' || !raw.id.trim() || (raw.kind !== 'outpost-defense' && raw.kind !== 'outpost-relief') || !isCareerOutpostStageId(raw.stageId)) return undefined
+  if (raw.kind === 'outpost-relief' && raw.stageId !== 3) return undefined
+  return { id: raw.id.trim(), kind: raw.kind, stageId: raw.stageId, acceptedAt: nonNegativeInteger(raw.acceptedAt),
+    ...(raw.kind === 'outpost-relief' && (raw.reliefPhase === 'march' || raw.reliefPhase === 'charge') ? { reliefPhase: raw.reliefPhase } : {}),
+  }
 }
 
 function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {

@@ -48,7 +48,9 @@ export class DefenseCampaignRuntime {
   private reinforcementTriggered = false
   private battleFinished = false
 
-  constructor(private readonly options: { reinforcementsEnabled?: boolean } = {}) {}
+  constructor(private readonly options: { reinforcementsEnabled?: boolean; eliminationObjective?: boolean } = {}) {
+    if (options.eliminationObjective) this.phase = 'assault'
+  }
 
   getSnapshot(): DefenseCampaignRuntimeSnapshot {
     return {
@@ -56,7 +58,7 @@ export class DefenseCampaignRuntime {
       activePhase: this.phase,
       deploymentRemainingSeconds: Math.max(
         0,
-        DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds - this.deploymentElapsed,
+        this.options.eliminationObjective ? 0 : DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds - this.deploymentElapsed,
       ),
       assaultElapsedSeconds: this.assaultElapsed,
       reinforcementRemainingSeconds: Math.max(
@@ -73,6 +75,21 @@ export class DefenseCampaignRuntime {
   ): DefenseCampaignRuntimeEvent[] {
     if (this.battleFinished) return []
     const events: DefenseCampaignRuntimeEvent[] = []
+    if (this.options.eliminationObjective) {
+      this.assaultElapsed += Math.max(0, dt)
+      // Annihilation wins even if the last friendly dies in the same frame.
+      if (state.attackersAlive === 0) {
+        this.battleFinished = true
+        this.result = 'victory'
+        return ['battle_victory']
+      }
+      if (state.playerDead && state.defendersAlive === 0 && state.attackersAlive > 0) {
+        this.battleFinished = true
+        this.result = 'defeat'
+        return ['battle_defeat']
+      }
+      return []
+    }
 
     if (this.options.reinforcementsEnabled === false && state.playerDead && state.defendersAlive <= 0) {
       this.battleFinished = true
