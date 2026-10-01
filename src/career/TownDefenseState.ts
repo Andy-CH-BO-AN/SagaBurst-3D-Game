@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { TownActorSpec, TownRole } from '../town/TownRules'
+import { CAREER_RANKS, type CareerRank } from './CareerProfile'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
@@ -108,15 +109,30 @@ const RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
   { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 5, lancer: 8, 'horse-archer': 7 } },
 ]
 
-export function townDefenseEnemyCount(templateId = TOWN_DEFENSE_TEMPLATE_ID): 50 | 70 {
+export function townDefenseEnemyCount(templateId = TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'soldier'): number {
   if (templateId === TOWN_DEFENSE_TEMPLATE_ID) return 50
-  if (templateId === SOLDIER_TOWN_DEFENSE_TEMPLATE_ID) return 70
+  if (templateId === SOLDIER_TOWN_DEFENSE_TEMPLATE_ID) return Math.round(50 * 1.1 ** Math.max(1, CAREER_RANKS.indexOf(rank)))
   throw new Error('Unknown Town Defense mission: ' + templateId)
 }
 
 /** The accepted roster fixes difficulty; reload must not derive it from a new rank. */
 export function townDefenseAttackGroups(enemyCount = 70): readonly TownDefenseAttackGroup[] {
-  return enemyCount === 50 ? RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS : TOWN_DEFENSE_ATTACK_GROUPS
+  if (enemyCount === 50) return RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS
+  if (enemyCount === 70) return TOWN_DEFENSE_ATTACK_GROUPS // Preserve already accepted legacy rosters.
+  const apportion = (count: number, weights: number[]): number[] => {
+    const total = weights.reduce((sum, weight) => sum + weight, 0)
+    const exact = weights.map(weight => count * weight / total)
+    const result = exact.map(Math.floor)
+    const order = exact.map((value, index) => ({ index, fraction: value - result[index] })).sort((a, b) => b.fraction - a.fraction)
+    const remainder = count - result.reduce((sum, value) => sum + value, 0)
+    for (let index = 0; index < remainder; index++) result[order[index].index]++
+    return result
+  }
+  const laneCounts = apportion(enemyCount, [15, 15, 20])
+  return RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS.map((group, index) => {
+    const [melee, lancer, archers] = apportion(laneCounts[index], Object.values(group.composition))
+    return { ...group, composition: { melee, lancer, 'horse-archer': archers } }
+  })
 }
 
 export function townDefenseEnemyTotals(enemyCount = 70): Record<EnemyCavalryKind, number> {

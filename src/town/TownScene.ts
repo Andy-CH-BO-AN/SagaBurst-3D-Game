@@ -38,7 +38,7 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, claimCareerMission, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
-import { BanditMissionController } from '../career/BanditMissionController'
+import { BanditMissionController, selectMissionCavalryActorIds } from '../career/BanditMissionController'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { careerTownFaction, acceptEnemyTownAssault } from '../career/EnemyTownAssault'
@@ -501,8 +501,10 @@ export class TownScene {
   private restoreActiveCareerMission(): void {
     const { profile } = this
     if (profile.activeMission) {
-      if (profile.activeMission.kind === 'cavalry-sweep') {
-        const position = sweepPlayerSpawn(profile.activeMission.mountedMarchProgress ?? 0)
+      if (profile.activeMission.kind === 'cavalry-sweep' && profile.activeMission.phase !== 'ASSEMBLING') {
+        const saved = profile.activeMission.mountedMarchPosition
+        const anchor = saved ? new THREE.Vector3(saved.x, 0, saved.z) : undefined
+        const position = sweepPlayerSpawn(anchor)
         position.y = getTerrainHeight(position.x, position.z) + .9
         this.player.group.position.copy(position)
         this.player.faceDirection(Math.sin(SWEEP_YAW), Math.cos(SWEEP_YAW))
@@ -543,9 +545,12 @@ export class TownScene {
     if (fresh.activeMission || this.event.hostile || fresh.townEvent?.state === 'hostile') { this.openPanel('無法接受任務', '目前已有任務或小鎮處於敵對狀態。'); return }
     if (this.player.dead || this.mission.fieldNpcs.some(npc => npc.inCombat || npc.encounterIsAlerted)) { this.openPanel('無法接受任務', '你目前仍在另一場交戰中。'); return }
     if (template.kind === 'cavalry-sweep') {
-      const next = acceptCavalrySweep(fresh)
+      const next = acceptCavalrySweep(fresh, undefined, selectMissionCavalryActorIds(this.residents, 59))
       if (!next || !this.commit(next)) return
-      this.dispose(); this.onRestart(next)
+      if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，重新載入後可恢復同一支騎兵隊伍。'); return }
+      this.careerMounts.activate(next.selectedMountId!)
+      this.inventory.prepareForCombat()
+      this.closePanel()
       return
     }
     if (template.kind === 'enemy-town-assault') {
@@ -562,7 +567,7 @@ export class TownScene {
       const deployment = this.residents.find(resident => resident.spec.role === 'deployment')?.spec.id
       const civilians = this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.spec.id)
       if (defenders.length !== 60 || !captain || !ranger || !deployment || civilians.length !== 20) { this.openPanel('任務建立失敗', '城鎮駐軍或平民名單不完整。'); return }
-      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians, undefined, template.id)
+      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians, undefined, template.id, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
       if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }
@@ -640,7 +645,7 @@ export class TownScene {
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
     this.button(panel, '返回 Career Town', () => result.defense ? this.settleTownDefenseInPlace() : this.fastReturnFromMission())
-    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && this.profile?.activeMission?.kind !== 'cavalry-sweep' && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
@@ -652,6 +657,7 @@ export class TownScene {
     const active = this.profile.activeMission
     if (!active) return
     if (active.kind === 'town-defense') { this.settleTownDefenseInPlace(); return }
+    if (active.kind === 'cavalry-sweep') { this.settleReturnedMissionInPlace(); return }
     const next = clearCareerMission(this.profile, active.id)
     if (!this.commit(next)) {
       const panel = this.openPanel('返回狀態尚未保存', '任務結算仍安全保留。請重試保存後返回小鎮。')
@@ -723,7 +729,7 @@ export class TownScene {
   }
   private settleReturnedMissionInPlace(): void {
     const active = this.profile.activeMission
-    if (!active || active.kind === 'town-defense' || active.phase !== 'RETURNING') return
+    if (!active || active.kind === 'town-defense' || (active.phase !== 'RETURNING' && !(active.kind === 'cavalry-sweep' && active.result))) return
     const missionResidents = new Set(this.mission.friendlies)
     const next = clearCareerMission(this.profile, active.id)
     if (!this.commit(next)) {
@@ -732,7 +738,8 @@ export class TownScene {
       return
     }
 
-    this.mission.cleanupMission(active.targetCampId)
+    if (active.kind === 'cavalry-sweep') this.mission.cleanupMission(active.targetCampId, true)
+    else this.mission.cleanupMission(active.targetCampId)
     this.clearMissionCombatShots()
     for (const resident of this.residents) {
       if (!missionResidents.has(resident.npc)) continue
@@ -740,10 +747,11 @@ export class TownScene {
     }
 
     this.restPlayerInTown()
+    if (active.kind === 'cavalry-sweep' && active.phase !== 'RETURNING') this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
     this.missionResultOpen = false
     this.target = null
     this.hasPreviousTip = false
-    this.notice = '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
+    this.notice = active.kind === 'cavalry-sweep' ? '清剿結束。駐軍已返營，臨時騎兵正在離開。' : '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
     if (this.panel) this.closePanel()
   }
   private serviceAvailable(id: string): boolean {
@@ -1091,11 +1099,18 @@ export class TownScene {
         applyMountImpactDamage(npcMount, target, target.combatPosition, this.elapsed, damage => this.hitFieldNpc(target, damage, 'mount-impact', rider))
       }
     }
-    for (const npcMount of this.mission.cavalryMounts) {
+    this.careerMounts.update(dt)
+  }
+  private updateDepartingCavalry(dt: number): void {
+    this.mission.updateDepartingCavalry?.()
+    for (const npc of this.mission.departingNpcs ?? []) {
+      npc.update(dt, this.player, [], [], this.world.obstacles, this.hp, () => {}, () => {}, false,
+        npc.group.position.distanceTo(this.camera.position), null, null, this.navigation)
+    }
+    for (const npcMount of this.mission.cavalryMounts ?? []) {
       npcMount.setCameraDistance(npcMount.group.position.distanceTo(this.camera.position))
       if (npcMount.dead || !npcMount.riderNpc) npcMount.update(dt, this.world.obstacles)
     }
-    this.careerMounts.update(dt)
   }
   private updateExternalThreatAssignments(): void {
     const bandits = [...this.mission.ambientBandits, ...this.mission.missionBandits].filter(npc => !npc.dead)
@@ -1324,6 +1339,7 @@ export class TownScene {
       else {
         this.updateFieldCombat(dt)
       }
+      this.updateDepartingCavalry(dt)
       this.updateCareerHorseAudio()
       for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
       for (const m of this.mounts) { m.setCameraDistance(m.group.position.distanceTo(this.camera.position)); if (m.dead) m.update(dt, this.world.obstacles) }
@@ -1350,7 +1366,7 @@ export class TownScene {
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.profile.activeMission.kind === 'cavalry-sweep'
-        ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
+        ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
         ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '進攻準備 ' + Math.ceil(this.defense.preparationRemaining) : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/63'}`
         : this.profile.activeMission.kind === 'town-defense'

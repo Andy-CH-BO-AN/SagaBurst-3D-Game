@@ -4,7 +4,7 @@ import { acceptCavalrySweep, createCavalrySweepMission, createSweepRoster, CAVAL
 import { availableRecruitMissions } from '../src/career/CareerMissionCatalog'
 import { CAREER_RANKS, claimCareerMission, clearCareerMission, createCareerProfile } from '../src/career/CareerProfile'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
-import { BanditMissionController } from '../src/career/BanditMissionController'
+import { BanditMissionController, selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
 import { MountedMissionMarchController } from '../src/career/MountedMissionMarch'
 import { MAX_COMMAND_SQUAD_SIZE } from '../src/battle/CommandTarget'
 import { NPC, Faction } from '../src/world/NPC'
@@ -12,6 +12,9 @@ import { damageNpc } from '../src/combat/DamageRouter'
 import { CombatEventStream } from '../src/combat/CombatAttribution'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { TownWorld } from '../src/town/TownWorld'
+import { townRoster } from '../src/town/TownRules'
+import { Mount, MountType } from '../src/world/Mount'
+import { TownScene } from '../src/town/TownScene'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
 
@@ -28,19 +31,39 @@ beforeAll(async () => { await installBlackCatTestAsset(); await installCorgiTest
 afterEach(() => vi.unstubAllGlobals())
 
 function ready() { return { ...createCareerProfile('roman'), ownedHorseTiers: [1] as (1 | 2 | 3)[] } }
-function fixture() {
-  let profile = acceptCavalrySweep(ready(), 'sweep')!
+function fixture(garrisonCount = 0, joinAssembly = true) {
+  const scene = new THREE.Scene(), roster = createSweepRoster('roman')
+  const cavalrySpecs = townRoster().filter(spec => spec.role === 'captain' || spec.role.includes('cavalry'))
+  const residents = Array.from({ length: garrisonCount }, (_, index) => {
+    const spec = { ...cavalrySpecs[index % cavalrySpecs.length], id: `garrison:${index}` }
+    const spawn = roster[index]
+    const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'roman', spawn.aiType, spec.id, spawn.tier, true, spawn.loadout, spawn.presetId, undefined, spec.id)
+    const mount = new Mount(scene, MountType.HORSE, spec.x, spec.z)
+    npc.setTownPeaceful(); npc.mountVehicle(mount)
+    return { spec, npc, homeMount: mount }
+  })
+  let profile = acceptCavalrySweep(ready(), 'sweep', selectMissionCavalryActorIds(residents, 59))!
   const player = { dead: false, combatPosition: sweepPlayerSpawn() }
   const controller = Object.create(BanditMissionController.prototype) as any
   Object.assign(controller, {
-    scene: new THREE.Scene(), world: { obstacles: [] }, navigation: new NavigationWorld(),
+    scene, residents, world: { obstacles: [], camps: [{ spawnPoints: [new THREE.Vector3()] }] }, navigation: new NavigationWorld(),
     readProfile: () => profile, commit: vi.fn((next: typeof profile) => { profile = next; return true }), player: () => player,
-    camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [] }], friendlies: [], cavalryMounts: [],
-    guide: { hide: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
+    camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [] }], friendlies: [], cavalryMounts: [], temporaryCavalry: [], departingCavalry: [], commandId: 1,
+    guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     statsCheckpointElapsed: 0, onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null,
   })
   controller.startActiveMission()
-  return { controller, player, profile: () => profile, reload: () => { profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; controller.startActiveMission() } }
+  const assemble = () => {
+    for (const npc of controller.friendlies) {
+      const target = (npc as any).formationTarget
+      if (!target || npc.dead) continue
+      npc.mount?.group.position.copy(target.position); npc.group.position.copy(target.position); target.reached = true
+    }
+    player.combatPosition.copy(controller.leader.combatPosition).add(new THREE.Vector3(0, 0, 6))
+    controller.updateFlow(.1, 0)
+  }
+  if (joinAssembly) assemble()
+  return { controller, player, residents, assemble, profile: () => profile, reload: () => { profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; controller.startActiveMission() } }
 }
 
 describe('Cavalry Sweep eligibility', () => {
@@ -100,6 +123,85 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
 })
 
 describe('Sweep runtime and checkpoint', () => {
+  it('accepts a sweep in place, saves the borrowed roster and keeps the existing Town scene', () => {
+    const f = fixture(21, false), town = Object.create(TownScene.prototype) as any
+    town.profile = ready(); town.store = { load: () => town.profile }; town.residents = f.residents
+    town.event = { hostile: false }; town.player = { dead: false, group: new THREE.Group(), faceDirection: vi.fn() }
+    town.mission = { fieldNpcs: [], startActiveMission: vi.fn(() => true) }
+    town.commit = vi.fn(next => { town.profile = next; return true })
+    town.careerMounts = { activate: vi.fn() }; town.inventory = { prepareForCombat: vi.fn() }
+    town.closePanel = vi.fn(); town.dispose = vi.fn(); town.onRestart = vi.fn()
+    const position = town.player.group.position.clone()
+    town.acceptMission(CAVALRY_SWEEP_ID)
+    expect(town.profile.activeMission.friendlyActorIds.slice(0, 21)).toEqual(selectMissionCavalryActorIds(f.residents, 59))
+    expect(town.mission.startActiveMission).toHaveBeenCalledOnce()
+    expect(town.careerMounts.activate).toHaveBeenCalledWith('horse-t1')
+    expect(town.closePanel).toHaveBeenCalledOnce()
+    expect(town.player.group.position).toEqual(position)
+    expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()
+    f.controller.dispose()
+    for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
+  })
+  it('walks existing cavalry from their home positions to the barracks muster and waits for Player before marching', () => {
+    const f = fixture(21, false), c = f.controller
+    expect(f.profile().activeMission!.phase).toBe('ASSEMBLING')
+    for (const resident of f.residents) expect(resident.npc.combatPosition).toEqual(new THREE.Vector3(resident.spec.x, resident.homeMount.group.position.y, resident.spec.z))
+    expect(c.onMarchStarted).not.toHaveBeenCalled()
+    f.player.combatPosition.set(-200, 0, 200)
+    for (const npc of c.friendlies) {
+      const target = (npc as any).formationTarget
+      npc.mount.group.position.copy(target.position); target.reached = true
+    }
+    c.updateFlow(.1, 0)
+    expect(f.profile().activeMission!.phase).toBe('ASSEMBLING')
+    f.assemble()
+    expect(f.profile().activeMission!.phase).toBe('MARCHING')
+    expect(c.onMarchStarted).toHaveBeenCalledOnce()
+    expect((c.leader as any).formationTarget.position).toEqual(SWEEP_CENTER)
+    c.dispose()
+    for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
+  })
+  it.each([21, 59])('borrows %s mounted garrison actors and creates only the missing cavalry', count => {
+    const f = fixture(count), c = f.controller
+    expect(c.friendlies).toHaveLength(59)
+    expect(c.temporaryCavalry).toHaveLength(59 - count)
+    expect(c.cavalryMounts).toHaveLength(59 - count)
+    for (const resident of f.residents) {
+      expect(c.friendlies).toContain(resident.npc)
+      expect(resident.npc.mount).toBe(resident.homeMount)
+    }
+    expect(c.leader).toBe(f.residents.find(resident => resident.spec.role === 'captain')!.npc)
+    const leader = c.leader
+    expect(c.friendlies.every((npc: NPC) => npc === leader || npc.activeFollowTarget !== null)).toBe(true)
+    const ids = [...f.profile().activeMission!.friendlyActorIds]
+    const casualty = c.friendlies.find((npc: NPC) => npc !== leader && f.residents.some(resident => resident.npc === npc))
+    casualty.takeDamage(999999); c.updateFlow(5, 0); f.reload()
+    expect(f.profile().activeMission!.friendlyActorIds).toEqual(ids)
+    expect(f.profile().activeMission!.deadFriendlyActorIds).toContain(casualty.combatantId)
+    expect(casualty.dead).toBe(true)
+    expect(c.friendlies.filter((npc: NPC) => npc.combatantId === casualty.combatantId)).toEqual([casualty])
+    c.dispose()
+    expect(f.residents.every(resident => resident.npc.group.parent === c.scene && resident.homeMount.group.parent === c.scene)).toBe(true)
+    for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
+  })
+  it('uses Bandit cleanup while borrowed actors remain and temporary cavalry leave before disposal', () => {
+    const f = fixture(21), c = f.controller
+    const borrowed = f.residents.map(resident => resident.npc)
+    const temporary = [...c.temporaryCavalry]
+    c.commit(clearCareerMission(f.profile(), 'sweep'))
+    c.cleanupMission(0, true)
+    expect(c.missionBandits).toHaveLength(0); expect(c.ambientBandits).toHaveLength(2)
+    expect(c.friendlies).toHaveLength(0); expect(c.departingNpcs).toHaveLength(38)
+    expect(temporary.every(rider => rider.npc.group.parent === c.scene && rider.npc.tacticalOrder === 'formation')).toBe(true)
+    expect(borrowed.every(npc => npc.group.parent === c.scene)).toBe(true)
+    expect(c.combatPeersFor(temporary[0].npc)).toEqual([])
+    for (const rider of temporary) rider.mount.group.position.x = -285
+    c.updateDepartingCavalry()
+    expect(c.departingNpcs).toHaveLength(0); expect(c.cavalryMounts).toHaveLength(0)
+    expect(temporary.every(rider => rider.npc.group.parent === null && rider.mount.group.parent === null)).toBe(true)
+    c.dispose()
+    for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
+  })
   it('spawns exactly 40 existing Bandits with hammers and 59 mounted cavalry, then alerts the whole mob once', () => {
     const f = fixture(), c = f.controller
     expect(c.missionBandits).toHaveLength(40); expect(c.friendlies).toHaveLength(59); expect(c.cavalryMounts).toHaveLength(59)
@@ -110,7 +212,7 @@ describe('Sweep runtime and checkpoint', () => {
     for (const npc of c.friendlies.filter((n: NPC) => n !== captain && n !== maki)) expect(npc.activeFollowTarget).toBe(npc.squadId === 1 ? captain : maki)
     expect((captain as any).formationTarget.speedLimit).toBe(Math.min(...c.cavalryMounts.map((m: any) => m.baseSpeed)))
     expect((captain as any).formationTarget.speedLimit).toBeGreaterThan(7.5)
-    expect((captain as any).formationTarget.position.z).toBe(SWEEP_CAPTAIN_START.z)
+    expect((captain as any).formationTarget.position.z).toBe(SWEEP_CENTER.z)
     c.updateFlow(.1, 0)
     expect(c.missionBandits.every((npc: NPC) => !npc.encounterIsAlerted)).toBe(true)
     expect(c.onMarchStarted).toHaveBeenCalledOnce()
@@ -156,12 +258,44 @@ describe('Sweep runtime and checkpoint', () => {
     expect(checkpoint.damageDealt).toBeGreaterThan(0); expect(checkpoint.kills).toBe(1)
     f.reload()
     expect(f.profile().activeMission!.phase).toBe('MARCHING')
-    expect(f.profile().activeMission!.mountedMarchProgress).toBe(60)
+    expect(f.profile().activeMission!.mountedMarchPosition).toEqual({ x: SWEEP_CAPTAIN_START.x + 60, z: c.leader.combatPosition.z })
     expect(c.leader.combatPosition.x).toBe(SWEEP_CAPTAIN_START.x + 60)
     expect(c.tracker.checkpoint()).toEqual(checkpoint)
     expect(c.friendlies).toHaveLength(58); expect(c.missionBandits).toHaveLength(39)
     expect(c.onMarchStarted).toHaveBeenCalledOnce()
     c.dispose()
+  })
+  it('reuses the Bandit return route after victory and reloads the surviving party without respawning enemies', () => {
+    const f = fixture(21), c = f.controller
+    c.leader.mount.group.position.copy(SWEEP_CENTER)
+    c.missionBandits.forEach((npc: NPC) => npc.takeDamage(999999))
+    c.friendlies[1].takeDamage(999999)
+    c.persistRuntimeProgress(true)
+    const claimed = claimCareerMission(f.profile(), 'sweep', 'victory', { damageDealt: 20, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true })
+    c.commit(claimed.profile)
+    f.reload()
+    expect(c.phase).toBe('RESULT'); expect(c.missionBandits).toHaveLength(0)
+    expect(c.friendlies.filter((npc: NPC) => !npc.dead)).toHaveLength(58)
+    const leaderPosition = c.leader.combatPosition.clone()
+    expect(c.startReturning()).toBe(true)
+    expect(c.phase).toBe('RETURNING'); expect(c.leader.combatPosition).toEqual(leaderPosition)
+    expect(c.friendlies.filter((npc: NPC) => !npc.dead && npc !== c.leader).every((npc: NPC) => npc.activeFollowTarget === c.leader)).toBe(true)
+    const assembly = c.assemblyPoint()
+    expect(c.leader.formationTarget.position).toEqual(assembly)
+    c.leader.mount.group.position.set(80, 0, -140)
+    c.updateFlow(5, 0)
+    f.reload()
+    expect(c.phase).toBe('RETURNING'); expect(c.missionBandits).toHaveLength(0)
+    expect(c.leader.combatPosition.x).toBe(80); expect(c.leader.combatPosition.z).toBe(-140)
+    expect(c.leader.formationTarget.position).toEqual(assembly)
+    expect(c.onMarchStarted).toHaveBeenCalledOnce(); expect(c.onSweepCharge).not.toHaveBeenCalled()
+    c.leader.mount.group.position.copy(assembly)
+    f.player.combatPosition.copy(SWEEP_CENTER)
+    expect(c.partyReturned).toBe(true); expect(c.returnComplete).toBe(false)
+    f.player.combatPosition.copy(assembly)
+    expect(c.returnComplete).toBe(true)
+    c.dispose()
+    for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
   })
   it.each([[true, 1, 1, null], [true, 0, 1, 'failure'], [false, 0, 1, null], [true, 0, 0, 'victory'], [false, 1, 0, 'victory']] as const)('objective priority: dead=%s cavalry=%s bandits=%s => %s', (dead, allies, enemies, expected) => {
     const f = fixture(), c = f.controller
