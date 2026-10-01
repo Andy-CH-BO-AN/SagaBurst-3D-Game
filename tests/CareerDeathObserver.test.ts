@@ -1,3 +1,4 @@
+import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../src/career/BanditMissionController'
@@ -219,15 +220,26 @@ describe('Town mission death observer orchestration', () => {
     player.dispose()
   })
 
-  it('keeps field AI, mission updates and projectiles running while observer moves; shows result only on outcome', () => {
+  it.each(['bandit', 'cavalry-sweep'])('keeps %s AI, mission updates and projectiles running while observer moves; shows result only on outcome', kind => {
     const { town, player } = townFixture()
     player.takeDamage(99999, town.hp)
+    if (kind === 'cavalry-sweep') town.profile.activeMission = createCavalrySweepMission('observer')
     const npc = { update: vi.fn(), combatPosition: new THREE.Vector3(), group: new THREE.Group(), dead: false }
-    town.mission.fieldNpcs = [npc]; town.mission.combatPeersFor = () => []; town.mission.ambientBandits = []; town.mission.missionBandits = []
+    town.mission.friendlies = []; town.mission.cavalryMounts = []; town.mission.fieldNpcs = [npc]; town.mission.combatPeersFor = () => []; town.mission.ambientBandits = []; town.mission.missionBandits = []
     town.residents = []; town.externalThreatActors = new Set(); town.world = { obstacles: [] }
     town.navigation = { sync: vi.fn(), beginFrame: vi.fn() }
     town.grid = { clear: vi.fn(), insert: vi.fn(), getNearbyInto: () => [] }; town.neighbors = []
     town.careerMounts = { activeMount: null, update: vi.fn() }
+    if (kind === 'cavalry-sweep') {
+      const bandit = { update: vi.fn(), combatPosition: new THREE.Vector3(), group: new THREE.Group(), dead: false, faction: 'BANDIT' }
+      const mount = { group: new THREE.Group(), previousPosition: new THREE.Vector3(-1, 0, 0), movementSpeed: 15, isSprinting: true, canImpact: vi.fn(() => true), setCameraDistance: vi.fn(), riderNpc: npc, dead: false }
+      mount.group.position.x = 1
+      Object.assign(npc, { mount })
+      town.mission.friendlies = [npc]; town.mission.cavalryMounts = [mount]
+      town.mission.fieldNpcs = [npc, bandit]; town.mission.missionBandits = [bandit]
+      town.grid.getNearby = () => [bandit]
+      town.hitFieldNpc = vi.fn()
+    }
     town.updateCareerCommandCue = vi.fn(); town.updateExternalThreatAssignments = vi.fn()
     town.updateFieldCombat = TownScene.prototype['updateFieldCombat']
     const projectile = { isAlive: true, mesh: { position: new THREE.Vector3(0, 5, 0) }, update: vi.fn(), destroy: vi.fn() }
@@ -240,6 +252,7 @@ describe('Town mission death observer orchestration', () => {
     expect(town.orbit.update).not.toHaveBeenCalled()
     expect(town.melee).not.toHaveBeenCalled()
     expect(npc.update).toHaveBeenCalledOnce()
+    if (kind === 'cavalry-sweep') expect(town.hitFieldNpc).toHaveBeenCalledWith(town.mission.missionBandits[0], expect.any(Number), 'mount-impact', npc)
     expect(town.mission.updateFlow).toHaveBeenCalledOnce()
     expect(town.updateShots).toHaveBeenCalledOnce()
     expect(projectile.update).toHaveBeenCalledOnce()
