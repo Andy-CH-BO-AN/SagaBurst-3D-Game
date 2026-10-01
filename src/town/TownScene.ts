@@ -37,7 +37,7 @@ import { SkillManager } from '../rpg/SkillManager'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, claimCareerMission, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
-import { availableRecruitMissions, getRecruitMissionTemplate, patrolPreferredCamp } from '../career/CareerMissionCatalog'
+import { availableRecruitMissions, availableCareerMissionsForPage, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { BanditMissionController } from '../career/BanditMissionController'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -115,6 +115,7 @@ export class TownScene {
   private defense!: TownDefenseController
   private careerMounts!: CareerMountController
   private missionResultOpen = false
+  private deploymentPage?: CareerMissionPage
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private preparationAnchor: THREE.Vector3 | null = null
@@ -401,35 +402,49 @@ export class TownScene {
       panel.append(badge)
       return
     }
-    if (firstOutpost) {
-      const outpost = document.createElement('p'); outpost.className = 'town-summary'
-      outpost.textContent = selectTownDialogue(context, 'soldierFirstOutpost')
-      panel.append(outpost)
+    const selectedPage = this.profile.rank === 'recruit' ? 'recruit' : this.deploymentPage ?? 'soldier'
+    this.deploymentPage = selectedPage
+    const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
+    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務']] as const) {
+      const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
+      tab.setAttribute('aria-pressed', String(page === selectedPage))
+      tab.disabled = page === 'soldier' && this.profile.rank === 'recruit'
+      if (tab.disabled) tab.textContent += ' · 升階解鎖'
+      tab.onclick = () => { this.deploymentPage = page; this.openDeploymentPanel(greeting, context, firstOutpost) }
+      tabs.append(tab)
     }
-    if (this.profile.rank !== 'recruit') {
-      const heading = document.createElement('h3'); heading.textContent = 'Outpost Duty'; panel.append(heading)
-      for (const stageId of CAREER_OUTPOST_STAGES) {
-        const stage = getDefenseCampaignStage(stageId)
-        const unlocked = isCareerOutpostUnlocked(this.profile, stageId)
-        const completed = this.profile.completedOutpostStages?.includes(stageId)
-        const row = document.createElement('article'); row.className = 'town-product'
-        const title = document.createElement('strong'); title.textContent = 'Outpost ' + ['I', 'II', 'III'][stageId - 1]
-        const details = document.createElement('small'); details.textContent = `防守 ${stage.defenderDeployment.maxUnits} vs ${stage.attackerArmy.totalUnits} · ${completed ? 'Completed' : unlocked ? 'Available' : 'Locked until Outpost ' + ['I', 'II'][stageId - 2] + ' Victory'} · 玩家額外加入駐軍`
-        row.append(title, details)
-        if (unlocked) this.button(row, '接受防守任務', () => this.acceptOutpost(stageId))
-        panel.append(row)
+    panel.append(tabs)
+    if (selectedPage === 'soldier') {
+      if (firstOutpost) {
+        const outpost = document.createElement('p'); outpost.className = 'town-summary'
+        outpost.textContent = selectTownDialogue(context, 'soldierFirstOutpost')
+        panel.append(outpost)
       }
+      if (this.profile.rank !== 'recruit') {
+        const heading = document.createElement('h3'); heading.textContent = 'Outpost Duty'; panel.append(heading)
+        for (const stageId of CAREER_OUTPOST_STAGES) {
+          const stage = getDefenseCampaignStage(stageId)
+          const unlocked = isCareerOutpostUnlocked(this.profile, stageId)
+          const completed = this.profile.completedOutpostStages?.includes(stageId)
+          const row = document.createElement('article'); row.className = 'town-product'
+          const title = document.createElement('strong'); title.textContent = 'Outpost ' + ['I', 'II', 'III'][stageId - 1]
+          const details = document.createElement('small'); details.textContent = `防守 ${stage.defenderDeployment.maxUnits} vs ${stage.attackerArmy.totalUnits} · ${completed ? 'Completed' : unlocked ? 'Available' : 'Locked until Outpost ' + ['I', 'II'][stageId - 2] + ' Victory'} · 玩家額外加入駐軍`
+          row.append(title, details)
+          if (unlocked) this.button(row, '接受防守任務', () => this.acceptOutpost(stageId))
+          panel.append(row)
+        }
+      }
+      const relief = document.createElement('article'); relief.className = 'town-product'
+      const reliefTitle = document.createElement('strong'); reliefTitle.textContent = 'Outpost Relief · 騎兵救援'
+      const reliefDetails = document.createElement('small')
+      const reliefUnlocked = isCareerOutpostReliefUnlocked(this.profile)
+      reliefDetails.textContent = !reliefUnlocked ? '完成 Outpost I–III 後解鎖' : !resolveCareerReliefMount(this.profile) ? '需要一匹目前軍階可使用的自有坐騎' : '50 人騎兵救援隊（含玩家） · 殲滅 60 名敵軍 · 玩家戰死後可繼續觀戰'
+      relief.append(reliefTitle, reliefDetails)
+      if (reliefUnlocked && resolveCareerReliefMount(this.profile)) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
+      panel.append(relief)
     }
-    const relief = document.createElement('article'); relief.className = 'town-product'
-    const reliefTitle = document.createElement('strong'); reliefTitle.textContent = 'Outpost Relief · 騎兵救援'
-    const reliefDetails = document.createElement('small')
-    const reliefUnlocked = isCareerOutpostReliefUnlocked(this.profile)
-    reliefDetails.textContent = !reliefUnlocked ? '完成 Outpost I–III 後解鎖' : !resolveCareerReliefMount(this.profile) ? '需要一匹目前軍階可使用的自有坐騎' : '50 人騎兵救援隊（含玩家） · 殲滅 60 名敵軍 · 玩家戰死後可繼續觀戰'
-    relief.append(reliefTitle, reliefDetails)
-    if (reliefUnlocked && resolveCareerReliefMount(this.profile)) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
-    panel.append(relief)
-    const missions = availableRecruitMissions(this.profile)
-    if (!resolveCareerReliefMount(this.profile)) {
+    const missions = availableCareerMissionsForPage(this.profile, selectedPage)
+    if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = 'Cavalry Sweep · 騎兵清剿'
       const details = document.createElement('small'); details.textContent = '60 騎兵 vs 40 Bandits · 適合熟悉騎乘、衝鋒與騎兵撞擊'
@@ -456,7 +471,7 @@ export class TownScene {
       this.button(row, '接受任務', () => this.acceptMission(template.id))
       list.append(row)
     }
-    if (enlistmentMerit(this.profile) < 60) {
+    if (selectedPage === 'recruit' && enlistmentMerit(this.profile) < 60) {
       const gate = document.createElement('p'); gate.className = 'town-summary'
       gate.textContent = '累積本次入伍軍功後，會逐步開放林線巡邏、敵眾我寡與大型守城任務。'
       panel.append(gate)
@@ -547,7 +562,7 @@ export class TownScene {
       const deployment = this.residents.find(resident => resident.spec.role === 'deployment')?.spec.id
       const civilians = this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.spec.id)
       if (defenders.length !== 60 || !captain || !ranger || !deployment || civilians.length !== 20) { this.openPanel('任務建立失敗', '城鎮駐軍或平民名單不完整。'); return }
-      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians, undefined, fresh.rank)
+      const mission = createTownDefenseMission([...defenders, captain, ranger, deployment], civilians, undefined, template.id)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
       if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }

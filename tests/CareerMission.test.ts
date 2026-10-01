@@ -21,7 +21,7 @@ const playerStats = (damageDealt: number, kills: number, survived = true) => ({
 
 describe('Recruit mission catalog and merit', () => {
   it('defines a compact repeatable board plus a late one-time Town Defense milestone', () => {
-    expect(RECRUIT_MISSION_CATALOG).toHaveLength(9)
+    expect(RECRUIT_MISSION_CATALOG).toHaveLength(10)
     const bandits = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'bandit')
     const patrols = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'patrol')
     const defense = RECRUIT_MISSION_CATALOG.find(mission => mission.kind === 'town-defense')!
@@ -49,7 +49,8 @@ describe('Recruit mission catalog and merit', () => {
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(6)
     for (const rank of ['soldier', 'veteran', 'captain', 'commander'] as const) {
       profile.rank = rank
-      expect(availableRecruitMissions(profile).map(mission => mission.id)).toEqual(availableRecruitMissions({ ...profile, rank: 'recruit' }).map(mission => mission.id))
+      expect(availableRecruitMissions(profile).filter(mission => mission.id !== 'soldier-town-defense-01').map(mission => mission.id)).toEqual(availableRecruitMissions({ ...profile, rank: 'recruit' }).map(mission => mission.id))
+      expect(availableRecruitMissions(profile).some(mission => mission.id === 'soldier-town-defense-01')).toBe(true)
     }
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     expect(availableRecruitMissions(profile)).toEqual([])
