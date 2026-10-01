@@ -151,6 +151,7 @@ import {
   type DefenseCampaignLaunchConfig,
 } from './campaign/DefenseCampaignLaunch'
 import { CareerProfileStore } from './career/CareerProfileStore'
+import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } from './career/CareerOutpostMission'
 import type { CareerProfile } from './career/CareerProfile'
 import { TownEquipment } from './town/TownEquipment'
@@ -446,6 +447,7 @@ export class Game {
   private mounts: Mount[] = []
 
   private obstacles: ObstacleData[] = []
+  private reliefMarch: CareerReliefMarchController | null = null
   private previewCampaignGate: CampaignGateController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
@@ -566,7 +568,7 @@ export class Game {
     this.defenseCampaignConfig = campaignConfig ?? null
     if (campaignConfig?.careerMissionId) {
       this.careerProfile = this.careerStore.loadChecked().profile
-      if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId) throw new Error('Career Outpost launch does not match saved mission')
+      if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId || this.careerProfile.activeOutpostMission.kind !== (campaignConfig.careerMissionKind ?? 'outpost-defense')) throw new Error('Career Outpost launch does not match saved mission')
     }
     // Defense Campaign player-side units are defenders, so structure damage / breach
     // is not a valid performance statistic for them. Custom Battle remains generic.
@@ -620,6 +622,7 @@ export class Game {
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
       outpost.breachController.onBreach(() => {
+        if (campaignConfig?.careerMissionKind === 'outpost-relief') return
         const attackerFaction = outpost.gateController.attackerFaction
         const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
         this.soundManager.playCommanderCommand(attackerFaction, 'charge')
@@ -685,7 +688,8 @@ export class Game {
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
       battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
-      positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
+      if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
+      else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -786,22 +790,37 @@ export class Game {
     if (campaignConfig && battlePlan) {
       const spawned = this._executeBattleSpawnPlan(battlePlan)
       this.campaignOriginalDefenders = spawned.filter(
-        npc => npc.characterFaction === campaignConfig.defenderFaction,
+        npc => npc.characterFaction === campaignConfig.defenderFaction
+          && (campaignConfig.careerMissionKind !== 'outpost-relief' || !npc.squadId),
       )
       const defenderFacingYaw = getCampaignDefenderFacingYaw(campaignConfig.defenderFaction)
-      for (const npc of this.campaignOriginalDefenders) {
+      for (const npc of spawned.filter(npc => npc.characterFaction === campaignConfig.defenderFaction)) {
         // NPC models default to +Z. Campaign forts mirror across Z, so Viking
         // defenders must be rotated toward their -Z front gate at spawn.
-        npc.group.rotation.y = defenderFacingYaw
-        if (npc.mount) npc.mount.group.rotation.y = defenderFacingYaw
+        const heading = campaignConfig.careerMissionKind === 'outpost-relief' && npc.squadId ? defenderFacingYaw + Math.PI : defenderFacingYaw
+        npc.group.rotation.y = heading
+        if (npc.mount) npc.mount.group.rotation.y = heading
         npc.setTacticalOrder(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
       }
       const capabilities = defenseCampaignCapabilities(campaignConfig)
-      this.defenseCampaignRuntime = new DefenseCampaignRuntime(capabilities)
+      const relief = campaignConfig.careerMissionKind === 'outpost-relief'
+      this.defenseCampaignRuntime = new DefenseCampaignRuntime({ ...capabilities, eliminationObjective: relief })
+      if (relief) {
+        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs)
+        this.navigationWorld.sync(this.obstacles)
+        this.campaignAttackersStarted = true
+        const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
+        this.reliefMarch = new CareerReliefMarchController(this.npcs, new THREE.Vector3(placement.centerX, 0, placement.frontZ),
+          () => this.soundManager.playCareerMissionVoice(campaignConfig.defenderFaction, 'follow'),
+          () => this._persistCareerReliefCharge(),
+          () => this.soundManager.playCommanderCommand(campaignConfig.defenderFaction, 'charge'),
+          campaignConfig.careerReliefPhase === 'charge')
+        this.reliefMarch.start()
+      }
       this.defenseCampaignHud = new DefenseCampaignHUD(
         campaignConfig.stageId,
         campaignConfig.defenderFaction,
-        { reinforcementsEnabled: capabilities.reinforcementsEnabled, returnToTown: Boolean(campaignConfig.careerMissionId), meritAwarded: () => this.careerMeritAwarded },
+        { relief, reinforcementsEnabled: capabilities.reinforcementsEnabled, returnToTown: Boolean(campaignConfig.careerMissionId), meritAwarded: () => this.careerMeritAwarded },
       )
     } else if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
@@ -842,7 +861,7 @@ export class Game {
       const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const startingHorse = new Mount(
         this.scene,
-        mountTypeFromId(query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
+        mountTypeFromId(this.careerProfile ? activeBattleConfig?.playerLoadout?.mountId : query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
         playerSpawn.x,
         playerSpawn.z,
         undefined,
@@ -851,7 +870,9 @@ export class Game {
       this.startingHorse = startingHorse
       this.mounts.push(startingHorse)
       this.player.faceDirection(0, isRoman ? 1 : -1)
-      this._mountPlayer(startingHorse)
+      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
+      this._mountPlayer(startingHorse, reliefHeading)
+      if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isRoman ? 0 : Math.PI)
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -1533,6 +1554,16 @@ export class Game {
     return spawned
   }
 
+  private _persistCareerReliefCharge(): void {
+    const fresh = this.careerStore.loadChecked().profile
+    const mission = fresh?.activeOutpostMission
+    if (!fresh || !mission || mission.kind !== 'outpost-relief'
+      || mission.id !== this.defenseCampaignConfig?.careerMissionId || mission.reliefPhase === 'charge') return
+    const next = { ...fresh, activeOutpostMission: { ...mission, reliefPhase: 'charge' as const } }
+    if (this.careerStore.save(next)) this.careerProfile = next
+    else this._showNotify('無法保存衝鋒進度；重新載入可能重播命令。')
+  }
+
   private _campaignFactionAlive(faction: 'roman' | 'viking'): number {
     let alive = 0
     for (const npc of this.npcs) {
@@ -1696,6 +1727,7 @@ export class Game {
     const hud = this.defenseCampaignHud
     if (!campaign || !runtime || !hud) return
 
+    this.reliefMarch?.update()
     // Spawn at most one queued campaign NPC per render frame.
     this._spawnNextDefenseCampaignNpc()
 

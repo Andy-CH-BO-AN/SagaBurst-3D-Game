@@ -7,12 +7,14 @@ import { canUseCareerEquipment } from '../town/TownEquipment'
 import { canUseCareerMount, careerMountAppearanceVariant } from './CareerMountController'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import type { CareerProfile } from './CareerProfile'
-import { isCareerOutpostUnlocked } from './CareerOutpostMission'
+import { isCareerOutpostUnlocked, isCareerOutpostReliefUnlocked, resolveCareerReliefMount } from './CareerOutpostMission'
 
-/** Adapt the stage balance to an AI garrison; the player never occupies a deployment slot. */
+/** Build a trusted Career launch; relief counts Player inside its separate rescue roster. */
 export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampaignLaunchConfig {
   const mission = profile.activeOutpostMission
   if (!mission || !isCareerOutpostUnlocked(profile, mission.stageId)) throw new Error('Career Outpost is locked')
+  const relief = mission.kind === 'outpost-relief'
+  if (relief && (!isCareerOutpostReliefUnlocked(profile) || !resolveCareerReliefMount(profile))) throw new Error('Career relief requires completed Outposts and an owned legal mount')
   const stage = getDefenseCampaignStage(mission.stageId)
   const upper = stage.defenderDeployment.upperTierPoolCap ?? stage.defenderDeployment.maxUnits
   const t3 = Math.min(stage.defenderDeployment.tierCapacity[3], upper)
@@ -31,10 +33,14 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
   }
   // The shared launch schema needs both slots. TownEquipment replaces this transport
   // loadout before input runs and disables any missing, unowned equipment slots.
-  const mount = profile.selectedMountId
+  const mount = relief ? resolveCareerReliefMount(profile) : profile.selectedMountId
   return {
     type: 'defense', defenderFaction: profile.faction, stageId: mission.stageId,
-    defenderArmy, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
+    defenderArmy: relief ? {
+      [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: 8, 2: 0, 3: 0 },
+      [resolveCampaignRolePreset(profile.faction, 'ranged')]: { 1: 2, 2: 0, 3: 0 },
+    } : defenderArmy, careerMissionKind: mission.kind, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
+    ...(relief ? { careerReliefPhase: mission.reliefPhase ?? 'march' } : {}),
     playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
     capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false },
     playerLoadout: {

@@ -67,6 +67,8 @@ export interface DefenseCampaignLaunchConfig {
   type: 'defense'
   capabilities?: Partial<DefenseCampaignCapabilities>
   careerMissionId?: string
+  careerMissionKind?: 'outpost-defense' | 'outpost-relief'
+  careerReliefPhase?: 'march' | 'charge'
   defenderFaction: CampaignFaction
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
@@ -380,7 +382,7 @@ function createWaveArmy(
     // Split each tier bucket using the stage's authoritative role ratios.
     // Reject non-integral allocations instead of silently rounding gameplay data.
     for (const tier of [1, 2, 3] as UnitTier[]) {
-      const tierTotal = stage.attackerArmy.tierCounts[tier]
+      const tierTotal = launch.careerMissionKind === 'outpost-relief' ? (tier === 2 ? 60 : 0) : stage.attackerArmy.tierCounts[tier]
       if (tierTotal === 0) continue
 
       for (const role of ROLE_ORDER) {

@@ -127,6 +127,8 @@ async function bootstrap(): Promise<void> {
       if (
         validation.valid
         && !parsed.careerMissionId
+        && !parsed.careerMissionKind
+        && !parsed.careerReliefPhase
         && parsed.capabilities === undefined
         && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)
       ) {

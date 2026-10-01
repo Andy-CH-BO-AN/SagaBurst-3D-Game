@@ -21,7 +21,7 @@ import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import type { DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
-import { acceptCareerOutpost, isCareerOutpostUnlocked, CAREER_OUTPOST_STAGES, type CareerOutpostStageId } from '../career/CareerOutpostMission'
+import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareerReliefMount, acceptCareerOutpost, isCareerOutpostUnlocked, CAREER_OUTPOST_STAGES, type CareerOutpostStageId } from '../career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
@@ -361,6 +361,14 @@ export class TownScene {
         panel.append(row)
       }
     }
+    const relief = document.createElement('article'); relief.className = 'town-product'
+    const reliefTitle = document.createElement('strong'); reliefTitle.textContent = 'Outpost Relief · 騎兵救援'
+    const reliefDetails = document.createElement('small')
+    const reliefUnlocked = isCareerOutpostReliefUnlocked(this.profile)
+    reliefDetails.textContent = !reliefUnlocked ? '完成 Outpost I–III 後解鎖' : !resolveCareerReliefMount(this.profile) ? '需要一匹目前軍階可使用的自有坐騎' : '50 人騎兵救援隊（含玩家） · 殲滅 60 名敵軍 · 玩家戰死後可繼續觀戰'
+    relief.append(reliefTitle, reliefDetails)
+    if (reliefUnlocked && resolveCareerReliefMount(this.profile)) this.button(relief, '接受騎兵救援', () => this.acceptOutpostRelief())
+    panel.append(relief)
     const missions = availableRecruitMissions(this.profile)
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
     for (const template of missions) {
@@ -383,6 +391,16 @@ export class TownScene {
       panel.append(gate)
     }
   }
+  private acceptOutpostRelief(): void {
+    const fresh = this.store.loadChecked().profile
+    const next = fresh && acceptCareerOutpostRelief(fresh)
+    if (!next) { this.openPanel('無法接受任務', '需完成 Outpost I–III、擁有合法坐騎且沒有進行中的任務。'); return }
+    const launch = createCareerOutpostLaunch(next)
+    if (!this.commit(next)) return
+    this.dispose()
+    this.onCampaign(launch)
+  }
+
   private acceptOutpost(stageId: CareerOutpostStageId): void {
     const fresh = this.store.loadChecked().profile
     if (!fresh) { this.openPanel('無法接受任務', '無法讀取 Career profile。'); return }

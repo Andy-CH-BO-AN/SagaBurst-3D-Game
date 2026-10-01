@@ -21,12 +21,12 @@ export class DefenseCampaignHUD {
   constructor(
     private readonly stageId: number,
     defenderFaction: CampaignFaction,
-    private readonly options: { reinforcementsEnabled?: boolean; returnToTown?: boolean; meritAwarded?: () => number } = {},
+    private readonly options: { reinforcementsEnabled?: boolean; returnToTown?: boolean; relief?: boolean; meritAwarded?: () => number } = {},
   ) {
     const root = document.createElement('div')
     root.id = 'defense-campaign-hud'
     root.innerHTML = `
-      <div class="campaign-hud-stage">STAGE <span data-stage></span></div>
+      <div class="campaign-hud-stage">${this.options.relief ? '' : 'STAGE '}<span data-stage></span></div>
       <div class="campaign-hud-phase" data-phase></div>
       <div class="campaign-hud-gate" data-gate></div>
       <div class="campaign-hud-counts">
@@ -46,7 +46,7 @@ export class DefenseCampaignHUD {
     this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
-    this.stageEl.textContent = String(this.stageId)
+    this.stageEl.textContent = this.options.relief ? 'Outpost Relief · 騎兵救援' : String(this.stageId)
   }
 
   updateGate(state: CampaignGateState, unlocked: boolean, canOperate: boolean): void {
@@ -92,7 +92,7 @@ export class DefenseCampaignHUD {
     } else {
       this.phaseEl.textContent = defeatLocked
         ? 'DEFEAT LOCKED · ASSAULT'
-        : '攻城戰 · ASSAULT'
+        : this.options.relief ? '騎兵救援 · 殲滅剩餘敵軍' : '攻城戰 · ASSAULT'
       this.timerEl.textContent = this.options.reinforcementsEnabled === false
         ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s`
         : reinforcementSpawned
@@ -121,7 +121,7 @@ export class DefenseCampaignHUD {
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
     const statsHtml = renderBattleStats(stats, showSquadStats)
-    const victoryMessage = this.options.returnToTown
+    const victoryMessage = this.options.relief ? 'Outpost 救援完成，剩餘敵軍已全數殲滅。' : this.options.returnToTown
       ? (this.stageId < 3 ? `Outpost ${['I', 'II', 'III'][this.stageId - 1]} 完成，下一個 Outpost 已解鎖。` : 'Outpost Duty 三關全部完成。')
       : this.stageId < 9
       ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`
