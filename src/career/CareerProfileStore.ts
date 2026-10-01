@@ -88,7 +88,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   if (
     typeof raw.id !== 'string' || !raw.id
     || !template
-    || !Number.isInteger(raw.targetCampId) || (template.kind === 'town-defense'
+    || !Number.isInteger(raw.targetCampId) || ((template.kind === 'town-defense' || template.kind === 'enemy-town-assault')
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
@@ -122,7 +122,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     defenseCatDead: raw.defenseCatDead === true,
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
-    ...(template.kind === 'town-defense' ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
+    ...((template.kind === 'town-defense' || template.kind === 'enemy-town-assault') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }
   if (raw.result && typeof raw.result === 'object') {
     const result = raw.result as Record<string, unknown>
@@ -248,6 +248,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(activeMission ? { activeMission } : {}),
     ...(activeOutpostMission ? { activeOutpostMission } : {}),
     ...(Array.isArray(raw.completedOutpostStages) ? { completedOutpostStages: [...new Set(raw.completedOutpostStages.filter(isCareerOutpostStageId))] } : {}),
+    ...(raw.completedOutpostRelief === true ? { completedOutpostRelief: true } : {}),
     ...(Array.isArray(raw.outpostBattleRecords) ? { outpostBattleRecords: raw.outpostBattleRecords.map(parseOutpostRecord).filter((record): record is CareerOutpostRecord => Boolean(record)) } : {}),
     ...(raw.careerMissionCompletions !== undefined ? { careerMissionCompletions: nonNegativeInteger(raw.careerMissionCompletions) } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),

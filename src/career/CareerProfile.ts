@@ -61,6 +61,8 @@ export interface CareerProfile {
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
+  /** Canonical, persistent prerequisite for Enemy Town Assault. */
+  completedOutpostRelief?: boolean
   outpostBattleRecords?: CareerOutpostRecord[]
   careerMissionCompletions?: number
   completedCareerMissionTemplateIds?: string[]
@@ -232,7 +234,9 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
-  const merit = calculateRecruitMissionMerit(stats, outcome)
+  const offense = active.kind === 'enemy-town-assault'
+    ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense') : null
+  const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(stats, outcome)
   const profile = cloneCareerProfile(current)
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
@@ -248,6 +252,10 @@ export function claimCareerMission(
   if (!stats.survived) profile.lifetimeStats.deaths += 1
   profile.lifetimeStats.kills += Math.max(0, Math.floor(stats.kills))
   profile.lifetimeStats.damage += Math.max(0, stats.damageDealt)
+  if (offense) {
+    profile.lifetimeStats.structureDamage += Math.max(0, stats.structureDamage)
+    profile.lifetimeStats.breaches += Math.max(0, Math.floor(stats.gateBreaches))
+  }
   profile.activeMission = {
     ...active,
     phase: 'RESULT',

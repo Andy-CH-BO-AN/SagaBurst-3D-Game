@@ -91,6 +91,8 @@ describe('Recruit Town Defense layout and rosters', () => {
     const controller = Object.create(TownDefenseController.prototype) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: groups.map(group => ({ id: group.id, members: group.actorIds.map(id => actors.find(actor => actor.spec.id === id)!.npc) })), residents: actors, navigation, blackCat: { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }, commandId: 0 })
+    controller.readProfile ??= () => createCareerProfile('roman')
+    controller.military.forEach((npc: any) => { npc.beginExternalThreat ??= vi.fn() })
     controller.prepareDeployment()
     const positions = actors.map(actor => actor.npc.assignFormationTarget.mock.lastCall?.[1] as THREE.Vector3)
     expect(positions).toHaveLength(83)
@@ -138,6 +140,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     controller.attackGroups = [21, 21, 28].map(count => ({ members: Array.from({ length: count }, soldier), released: false }))
     controller.reserveCharged = false
     controller.commandId = 0
+    controller.readProfile ??= () => createCareerProfile('roman')
     controller.beginAttack()
     expect(captain.setTacticalOrder).not.toHaveBeenCalled()
     expect(groups.flatMap(group => group.members).every(member => member.setTacticalOrder.mock.calls.length === 0)).toBe(true)
@@ -156,12 +159,15 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const byId = new Map(residents.map(resident => [resident.spec.id, resident.npc]))
     controller.groups.push(...createTownDefenseGroups(roster).map(plan => ({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)) })))
     controller.attackGroups = []
+    controller.readProfile ??= () => createCareerProfile('roman')
+    controller.military.forEach((npc: any) => { npc.beginExternalThreat ??= vi.fn() })
     controller.prepareDeployment()
     const ranger = residents.find(resident => resident.spec.role === 'ranger')!.npc
     expect(ranger.mountVehicle).toHaveBeenCalledExactlyOnceWith(blackCat)
     expect(blackCat.catVisual.setEquipmentVisible).toHaveBeenCalledWith(true)
     expect(ranger.assignFormationTarget.mock.lastCall?.[1]).toMatchObject({ x: TOWN_DEFENSE_LAYOUT.rangerFlank.x, z: TOWN_DEFENSE_LAYOUT.rangerFlank.z })
     expect(ranger.assignFormationTarget.mock.lastCall?.[4]).toBe('defend')
+    controller.readProfile ??= () => createCareerProfile('roman')
     controller.beginAttack()
     expect(ranger.setTacticalOrder).not.toHaveBeenCalled()
   })
@@ -289,7 +295,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const reloaded = Object.create(TownDefenseController.prototype) as any
     const sergeant = residents.find(resident => resident.spec.role === 'deployment')!.npc
     sergeant.dead = false
-    Object.assign(reloaded, { residents, enemies: [], enemyMounts: [], groups: [], blackCat: { dead: false }, events: new CombatEventStream() })
+    Object.assign(reloaded, { civilianCombat: new Set(), residents, enemies: [], enemyMounts: [], groups: [], blackCat: { dead: false }, events: new CombatEventStream() })
     reloaded.readProfile = () => profile
     reloaded.player = () => ({ dead: false })
     reloaded.spawnAttackers = vi.fn(); reloaded.prepareDeployment = vi.fn(); reloaded.beginAttack = vi.fn()

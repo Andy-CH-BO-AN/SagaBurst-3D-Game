@@ -54,7 +54,8 @@ Start a persistent career as a Roman or Viking.
 - Explore your faction town.
 - Talk to service NPCs with `E`.
 - Manage owned equipment through the character/inventory UI.
-- Talk to the Sergeant Major (士官長) for unlocked clearance, patrol, and Town Defense missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense.
+- **Enemy Town Assault:** Unlocks after winning Outpost Relief (following Outpost I–III). Join a 90-person expedition in three squads against the opposing Career Town. Hold for the 10-second countdown; defeat all 63 military defenders to win. Civilians retreat and fight nearby enemies; their deaths are not required for assault victory. You control only yourself, and death switches to Observer while the battle continues.
+- Talk to the Sergeant Major (士官長) for unlocked clearance, patrol, and Town Defense and Enemy Town Assault missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense.
 - Soldier and higher ranks can accept Outpost Duty I–III from the Sergeant Major. Defend with the AI garrison using your owned equipment; victory unlocks the next duty. No horse is required. There are no reinforcements or player army/gate commands. Results award Career battle merit and return you to your town; Campaign progress is separate.
 - Promoted ranks retain access to previously unlocked Recruit missions.
 - Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.

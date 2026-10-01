@@ -624,6 +624,12 @@ export class NPC {
   private banditHammerTip?: THREE.Object3D
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
+  armTownCivilian(weaponId: string): void {
+    if (this.townCategory !== 'civilian' || this.dead) return
+    this.townArmed = true
+    this._setActiveMeleeWeapon(weaponId)
+    this.swordPivot.visible = true
+  }
   private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
   setTownPeaceful(): void {

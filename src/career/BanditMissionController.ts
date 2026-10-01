@@ -123,7 +123,7 @@ export class BanditMissionController {
     if (!active) return false
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
-    if (!template || template.kind === 'town-defense' || !camp) return false
+    if (!template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault') || !camp) return false
 
     this.disposeMissionEntities()
     this.disposeCamp(camp.ambient)
@@ -175,7 +175,7 @@ export class BanditMissionController {
     if (!active || active.phase === 'RESULT') { this.guide.hide(); return }
     const camp = this.camps[active.targetCampId]
     const template = getRecruitMissionTemplate(active.templateId)
-    if (!camp || !template || template.kind === 'town-defense') return
+    if (!camp || !template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault')) return
     this.statsCheckpointElapsed += Math.max(0, dt)
     const hasLeader = this.ensureLivingLeader() && Boolean(this.leader)
     const leader = this.leader
@@ -247,7 +247,7 @@ export class BanditMissionController {
     const active = this.active
     const template = active ? getRecruitMissionTemplate(active.templateId) : null
     const camp = active ? this.camps[active.targetCampId] : null
-    if (!active || !template || template.kind === 'town-defense' || !camp || !this.setPhase('RETURNING', 0)) return false
+    if (!active || !template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault') || !camp || !this.setPhase('RETURNING', 0)) return false
     if (!this.ensureLivingLeader() || !this.leader) {
       this.route = []
       this.routeIndex = 0
@@ -408,7 +408,7 @@ export class BanditMissionController {
       const active = this.active
       const camp = this.camps[active?.targetCampId ?? -1]
       const template = active ? getRecruitMissionTemplate(active.templateId) : null
-      const objective = active && camp && template && template.kind !== 'town-defense'
+      const objective = active && camp && template && template.kind !== 'town-defense' && template.kind !== 'enemy-town-assault'
         ? this.marchTarget(template, active, camp.center)
         : this.assemblyPoint()
       this.assignLeader(objective)
@@ -558,7 +558,7 @@ export class BanditMissionController {
     if (active.phase === 'ASSEMBLING') return this.assemblyPoint()
     if (active.phase === 'RETURNING') return this.assemblyPoint()
     const template = getRecruitMissionTemplate(active.templateId)
-    if (!template || template.kind === 'town-defense') return camp
+    if (!template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault')) return camp
     return this.missionObjective(template, active, camp)
   }
 
