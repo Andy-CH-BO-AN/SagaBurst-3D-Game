@@ -26,7 +26,7 @@ vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({
 describe('Independent Recruit and Soldier Town Defense missions', () => {
   it.each([
     ['recruit', 50, [15, 15, 20], { melee: 20, lancer: 15, 'horse-archer': 15 }],
-    ['soldier', 70, [21, 21, 28], { melee: 28, lancer: 21, 'horse-archer': 21 }],
+    ['soldier', 55, [17, 16, 22], { melee: 22, lancer: 17, 'horse-archer': 16 }],
   ] as const)('keeps %s display, roster and three lanes consistent at %s enemies', (rank, count, lanes, totals) => {
     const profile = createCareerProfile('roman')
     profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletions = 5
@@ -44,19 +44,22 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
     expect(getRecruitMissionTemplate('recruit-town-defense-01')).toMatchObject({ enemyCount: 50 })
   })
 
-  it.each(['soldier', 'veteran', 'captain', 'commander'] as const)('lets %s choose either fixed mission', rank => {
+  it.each([['soldier', 55], ['veteran', 61], ['captain', 67], ['commander', 73]] as const)('scales %s defense by 1.1 per rank while keeping Recruit fixed', (rank, count) => {
     const profile = createCareerProfile('roman')
     profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletions = 5
     expect(availableRecruitMissions(profile).filter(mission => mission.kind === 'town-defense').map(mission => [mission.id, mission.enemyCount]))
-      .toEqual([[TOWN_DEFENSE_TEMPLATE_ID, 50], [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 70]])
+      .toEqual([[TOWN_DEFENSE_TEMPLATE_ID, 50], [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, count]])
+    const mission = createTownDefenseMission(['captain'], [], 'rank-defense', SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, rank)
+    expect(mission.targetActorIds).toHaveLength(count)
+    expect(Object.values(townDefenseEnemyTotals(count)).reduce((sum, value) => sum + value, 0)).toBe(count)
   })
 
   it.each(['roman', 'viking'] as const)('spawns only registered T2 cavalry for both %s difficulty levels', faction => {
-    for (const rank of ['recruit', 'soldier'] as const) {
+    for (const rank of ['recruit', 'soldier', 'veteran', 'captain', 'commander'] as const) {
       const profile = createCareerProfile(faction)
       profile.rank = rank
       const templateId = rank === 'recruit' ? TOWN_DEFENSE_TEMPLATE_ID : SOLDIER_TOWN_DEFENSE_TEMPLATE_ID
-      const mission = createTownDefenseMission(['captain'], [], `spawn-${faction}-${rank}`, templateId)
+      const mission = createTownDefenseMission(['captain'], [], `spawn-${faction}-${rank}`, templateId, rank)
       profile.activeMission = mission
       const controller = Object.assign(Object.create(TownDefenseController.prototype), {
         scene: new THREE.Scene(), readProfile: () => profile, events: new CombatEventStream(),
@@ -64,11 +67,11 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
       }) as any
       try {
         controller.spawnAttackers(mission)
-        expect(controller.enemies).toHaveLength(townDefenseEnemyCount(templateId))
-        expect(controller.enemyMounts).toHaveLength(townDefenseEnemyCount(templateId))
+        expect(controller.enemies).toHaveLength(townDefenseEnemyCount(templateId, rank))
+        expect(controller.enemyMounts).toHaveLength(townDefenseEnemyCount(templateId, rank))
         expect(controller.enemies.map((npc: any) => npc.combatantId)).toEqual(mission.targetActorIds)
         expect(controller.enemies.every((npc: any) => npc.tier === 2 && npc.isMounted && !npc.respawnEnabled)).toBe(true)
-        expect(controller.attackGroups.map((group: any) => group.members.length)).toEqual(rank === 'recruit' ? [15, 15, 20] : [21, 21, 28])
+        expect(controller.attackGroups.map((group: any) => group.members.length)).toEqual(townDefenseAttackGroups(mission.targetActorIds.length).map(group => Object.values(group.composition).reduce((sum, value) => sum + value, 0)))
       } finally { controller.disposeEnemies() }
     }
   })
@@ -89,7 +92,7 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
       enemies: active.targetActorIds.slice(2).map(combatantId => ({ combatantId, dead: false })),
     }) as TownDefenseController
     expect(active.targetActorIds).toHaveLength(townDefenseEnemyCount(templateId))
-    expect(townDefenseAttackGroups(active.targetActorIds.length).map(group => Object.values(group.composition).reduce((sum, n) => sum + n, 0))).toEqual(rank === 'recruit' ? [15, 15, 20] : [21, 21, 28])
+    expect(townDefenseAttackGroups(active.targetActorIds.length).map(group => Object.values(group.composition).reduce((sum, n) => sum + n, 0))).toEqual(rank === 'recruit' ? [15, 15, 20] : [17, 16, 22])
     expect(controller.evaluate(true)).toBe('failure')
     controller.enemies.length = 0
     expect(controller.evaluate(false)).toBeNull() // Incomplete registration never wins.
@@ -160,7 +163,7 @@ describe('Career mission pages and independent completion', () => {
     expect(availableCareerMissionsForPage(town.profile, 'soldier').some(template => template.id === SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
   })
 
-  it.each([[TOWN_DEFENSE_TEMPLATE_ID, 50], [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 70]] as const)('accepts %s with its own roster even when the player is Soldier', (templateId, count) => {
+  it.each([[TOWN_DEFENSE_TEMPLATE_ID, 50], [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 55]] as const)('accepts %s with its own roster even when the player is Soldier', (templateId, count) => {
     const { town } = board()
     town.acceptMission(templateId)
     expect(town.profile.activeMission.templateId).toBe(templateId)

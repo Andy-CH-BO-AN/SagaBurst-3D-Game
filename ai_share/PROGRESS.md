@@ -1,12 +1,14 @@
 # Warriors: Dedicate Your Heart! — Progress & Handoff Notes
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-10-02_
 
 > This file is a concise handoff, not a changelog or validation archive. Keep only current state, durable decisions, recent milestone outcomes, known limitations, and the next useful investigation. Detailed benchmark runs, screenshot inventories, per-frame evidence, and historical implementation narratives belong in merged PRs / Git history and ignored `output/` diagnostics.
 
 ---
 
 ## Current Status
+
+- 守衛家園的 Soldier 模板按接受時軍階套用菜兵 50 人 × 1.1ⁿ，士兵／老兵／隊長／指揮官為 55／61／67／73 名 T2 騎兵；存檔沿用已接受的目標名單與三路比例。騎兵清剿優先徵調既有騎兵與坐騎，只補生成不足人數；駐軍從原位置走到軍營集合，等玩家加入後一起行軍出城，不瞬移。勝利後可選「跟隊伍走回去」，共用剿匪 RETURNING、跟隨與返營結算流程，保留快速返回；結果與返程重載恢復存活部隊，不重生敵人。接受與結算保留同一城鎮，駐軍歸位、臨時騎兵離場後移除。
 
 - Career Town Hub 的 Recruit 任務板採精簡可重複設計：4 個剿匪、2 條巡邏路線與 1 個一次性大型 Town Defense；正常貢獻約 10 場可達 Soldier 軍功，不以模板數或完成數自動晉升。剿匪／巡邏直接徵調城內同一位既有隊長，不生成替身，並共用穩定 FOLLOW 隊形、分段導航、落隊等待及相機相對引導箭頭。Town Defense 重用 60 名駐軍與 20 名平民，對抗三波共 50 名 T2 騎兵，含撤離、預備隊、內線退守及平民傷亡鎖定結果。敵方戰馬承受正常傷害、死亡後騎士下馬，且死亡動畫會繼續更新。官方名單外的自由戰鬥不給軍功也不觸發小鎮罪行。T1–T3 戰馬可從 Tab 召喚、切換與遣返；Captain／Commander 玩家會切換為陣營 T4 英雄並保留運行中狀態。
 

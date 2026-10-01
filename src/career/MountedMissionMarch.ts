@@ -10,6 +10,7 @@ export class MountedMissionMarchController {
   private readonly captain: NPC
   private readonly maki: NPC
   private readonly rescue: NPC[]
+  private readonly firstSquad: Set<NPC>
   constructor(
     npcs: readonly NPC[],
     private readonly breach: THREE.Vector3,
@@ -17,11 +18,15 @@ export class MountedMissionMarchController {
     private readonly onChargeTriggered: () => boolean | void,
     private readonly chargeVoice: () => void,
     private readonly resumeCharged = false,
-    private readonly options: { chargeDistance?: number; followerCount?: number; playFollow?: boolean; marchTarget?: THREE.Vector3 } = {},
+    private readonly options: {
+      chargeDistance?: number; followerCount?: number; playFollow?: boolean; marchTarget?: THREE.Vector3
+      squads?: readonly [{ leader: NPC | undefined; members: readonly NPC[] }, { leader: NPC | undefined; members: readonly NPC[] }]
+    } = {},
   ) {
-    this.rescue = npcs.filter(npc => npc.squadId === 1 || npc.squadId === 2)
-    this.captain = this.rescue.find(npc => npc.name === 'Captain')!
-    this.maki = this.rescue.find(npc => npc.name === 'Maki')!
+    this.rescue = options.squads ? options.squads.flatMap(squad => [...squad.members]) : npcs.filter(npc => npc.squadId === 1 || npc.squadId === 2)
+    this.firstSquad = new Set(options.squads?.[0].members ?? this.rescue.filter(npc => npc.squadId === 1))
+    this.captain = (options.squads ? options.squads[0].leader : this.rescue.find(npc => npc.name === 'Captain'))!
+    this.maki = (options.squads ? options.squads[1].leader : this.rescue.find(npc => npc.name === 'Maki'))!
     if (this.rescue.some(npc => !npc.dead && !npc.mount)) throw new Error('Mounted mission requires mounted cavalry')
   }
   start(): void {
@@ -41,8 +46,8 @@ export class MountedMissionMarchController {
     let slotA = 1, slotB = 0
     for (const npc of this.rescue) {
       if (npc === this.captain || npc === this.maki) continue
-      const leader = npc.squadId === 1 ? this.captain : this.maki
-      const slot = npc.squadId === 1 ? slotA++ : slotB++
+      const leader = this.firstSquad.has(npc) ? this.captain : this.maki
+      const slot = this.firstSquad.has(npc) ? slotA++ : slotB++
       npc.assignFollowTarget(leader, slot, returnFollowLocalOffset(slot, this.options.followerCount ?? 24, true, 5), speed)
     }
     if (this.options.playFollow !== false) this.followVoice()

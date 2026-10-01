@@ -100,6 +100,9 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
   if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
+  const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
+  const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
+    && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
 
   const mission: ActiveCareerMission = {
     id: raw.id,
@@ -115,6 +118,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     playerDead: raw.playerDead === true,
     ...(playerStats ? { playerStats } : {}),
     mountedMarchProgress: nonNegativeNumber(raw.mountedMarchProgress),
+    ...(mountedMarchPosition ? { mountedMarchPosition } : {}),
     followVoicePlayed: raw.followVoicePlayed === true,
     sweepAlerted: raw.sweepAlerted === true,
     routeStage: nonNegativeInteger(raw.routeStage),

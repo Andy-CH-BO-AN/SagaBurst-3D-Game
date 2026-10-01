@@ -153,7 +153,7 @@ export class TownDefenseController {
       ...this.enemies.map(enemy => enemy.combatantId),
       ...(active.deadTargetActorIds ?? []),
     ])
-    const registrationComplete = (expectedIds.size === 50 || expectedIds.size === 70) && [...expectedIds].every(id => accountedIds.has(id))
+    const registrationComplete = expectedIds.size > 0 && expectedIds.size === active.targetActorIds.length && [...expectedIds].every(id => accountedIds.has(id))
     const friendlyIds = new Set(active.friendlyActorIds)
     const combatDefendersAlive = [...this.defenders, this.captain, this.ranger, this.sergeant]
       .filter(npc => npc && friendlyIds.has(npc.combatantId) && !npc.dead).length
