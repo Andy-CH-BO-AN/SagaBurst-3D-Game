@@ -29,7 +29,7 @@ export interface CareerMissionMountState {
 export interface ActiveCareerMission {
   id: string
   templateId: string
-  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault'
+  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep'
   targetCampId: number
   phase: CareerMissionPhase
   targetActorIds: string[]
@@ -39,6 +39,9 @@ export interface ActiveCareerMission {
   deadCivilianActorIds?: string[]
   playerDead?: boolean
   playerStats?: PlayerBattleStatsCheckpoint
+  mountedMarchProgress?: number
+  followVoicePlayed?: boolean
+  sweepAlerted?: boolean
   routeStage?: number
   patrolStage?: number
   defenseElapsed?: number

@@ -1,0 +1,67 @@
+import * as THREE from 'three'
+import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
+import { returnFollowLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import type { CharacterFaction } from '../world/CharacterVisuals'
+import { AIType, Faction } from '../world/NPC'
+import { townCaptainProfile } from '../town/TownRules'
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { resolveCareerReliefMount } from './CareerOutpostMission'
+import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
+
+export const CAVALRY_SWEEP_ID = 'career-cavalry-sweep'
+export const SWEEP_CHARGE_DISTANCE = 60
+export const SWEEP_DETECTION_RANGE = 80
+// Existing Town terrain, outside its tree/camp ring. Charge lane faces +X.
+export const SWEEP_CENTER = new THREE.Vector3(110, 0, -275)
+export const SWEEP_CAPTAIN_START = new THREE.Vector3(-110, 0, -261)
+export const SWEEP_YAW = Math.PI / 2
+export function sweepPlayerSpawn(progress = 0): THREE.Vector3 {
+  return followSlotWorldPosition(SWEEP_CAPTAIN_START.clone().add(new THREE.Vector3(progress, 0, 0)), SWEEP_YAW, returnFollowLocalOffset(0, 29, true, 5))
+}
+export function sweepBanditPosition(index: number): THREE.Vector3 {
+  return SWEEP_CENTER.clone().add(new THREE.Vector3((Math.floor(index / 8) - 2) * 4, 0, (index % 8 - 3.5) * 3))
+}
+export function acceptCavalrySweep(current: CareerProfile, id = createCareerMissionId(CAVALRY_SWEEP_ID)): CareerProfile | null {
+  const mount = resolveCareerReliefMount(current)
+  if (!mount || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+  const profile = cloneCareerProfile(current)
+  profile.selectedMountId = mount
+  profile.activeMission = createCavalrySweepMission(id)
+  profile.activeMission.mountState = { activeMountId: mount, hp: {}, unavailable: [] }
+  return profile
+}
+export function createCavalrySweepMission(id = createCareerMissionId(CAVALRY_SWEEP_ID)): ActiveCareerMission {
+  return {
+    id, templateId: CAVALRY_SWEEP_ID, kind: 'cavalry-sweep', targetCampId: 0, phase: 'MARCHING',
+    targetActorIds: Array.from({ length: 40 }, (_, index) => `${id}:bandit:${index}`),
+    friendlyActorIds: Array.from({ length: 59 }, (_, index) => `${id}:cavalry:${index}`), acceptedAt: Date.now(),
+  }
+}
+/** T4 leaders reuse the same profiles as Relief; every ordinary soldier is cavalry. */
+export function createSweepRoster(faction: CharacterFaction, progress = 0): NpcSpawnSpec[] {
+  const specs: NpcSpawnSpec[] = []
+  const captain = SWEEP_CAPTAIN_START.clone().add(new THREE.Vector3(progress, 0, 0))
+  const maki = followSlotWorldPosition(captain, SWEEP_YAW, new THREE.Vector3(28, 0, -4.4))
+  for (const squadId of [1, 2] as const) {
+    const count = MAX_COMMAND_SQUAD_SIZE - (squadId === 1 ? 1 : 0)
+    for (let index = 0; index < count; index++) {
+      const leader = index === 0
+      const presetId: UnitPresetId = leader && squadId === 2 ? `${faction}_archer` : `${faction}_${!leader && index % 3 === 0 ? 'lancer' : 'sword_cavalry'}`
+      const hero = leader ? squadId === 1 ? townCaptainProfile(faction) : T4_UNIT_PROFILES[presetId] : undefined
+      const anchor = squadId === 1 ? captain : maki
+      const slot = squadId === 1 ? index : index - 1
+      const position = leader ? anchor : followSlotWorldPosition(anchor, SWEEP_YAW, returnFollowLocalOffset(slot, 29, true, 5))
+      specs.push({
+        x: position.x, z: position.z, faction: Faction.TOWN, characterFaction: faction, aiType: leader && squadId === 2 ? AIType.RANGED : AIType.MELEE,
+        name: leader ? squadId === 1 ? 'Captain' : 'Maki' : `Cavalry ${squadId}-${index}`,
+        tier: leader ? 4 : 1, cavalry: true, respawnEnabled: false, presetId, squadId,
+        loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[hero?.baseLoadoutTier ?? 1], mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
+        ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
+      })
+    }
+  }
+  return specs
+}

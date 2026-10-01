@@ -234,7 +234,7 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
-  const offense = active.kind === 'enemy-town-assault'
+  const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep'
     ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense') : null
   const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(stats, outcome)
   const profile = cloneCareerProfile(current)

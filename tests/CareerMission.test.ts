@@ -21,7 +21,7 @@ const playerStats = (damageDealt: number, kills: number, survived = true) => ({
 
 describe('Recruit mission catalog and merit', () => {
   it('defines a compact repeatable board plus a late one-time Town Defense milestone', () => {
-    expect(RECRUIT_MISSION_CATALOG).toHaveLength(8)
+    expect(RECRUIT_MISSION_CATALOG).toHaveLength(9)
     const bandits = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'bandit')
     const patrols = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'patrol')
     const defense = RECRUIT_MISSION_CATALOG.find(mission => mission.kind === 'town-defense')!
