@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { Player, PLAYER_ARROW_CAPACITY } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
+import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
@@ -69,6 +70,7 @@ export class TownScene {
   readonly inventory: TownEquipment
   private readonly input = new PlayerInput()
   private orbit!: ThirdPersonCamera
+  private spectator: SpectatorCameraController | null = null
   private readonly grid = new SpatialGrid<NPC>(4)
   private readonly defenseEnemyGrid = new SpatialGrid<NPC>(8)
   private readonly defenseTownGrid = new SpatialGrid<NPC>(8)
@@ -193,6 +195,7 @@ export class TownScene {
         ...this.defense.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
       ],
     )
+    this.player.onPlayerDeath = () => this.enterMissionObserver()
     this.restoreActiveCareerMission()
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()
@@ -204,7 +207,7 @@ export class TownScene {
     }
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
     this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
-    this.orbit.update(this.input)
+    if (!this.spectator) this.orbit.update(this.input)
     await renderer.compileAsync(this.scene, this.camera)
     renderer.render(this.scene, this.camera); await yieldFrame()
     this.input.clear()
@@ -221,7 +224,7 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
+    if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
@@ -230,9 +233,9 @@ export class TownScene {
     window.addEventListener('resize', () => { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) }, { signal: this.listeners.signal })
     this.player.onFireArrow = e => this.fire(e.origin, e.direction, e.speed, e.damage, true, false, e.visualKind)
     if (profile.townEvent?.state === 'hostile') { this.inventory.restoreForHostile(); this.activateHostility(false); this.notice = '未結束的小鎮事件已恢復：全鎮仍在追擊。' }
-    this.hp.setFill(1)
+    this.hp.setFill(this.player.hpRatio)
     this.updatePointerPrompt()
-    this.orbit.update(this.input)
+    if (!this.spectator) this.orbit.update(this.input)
     this.last = performance.now()
     this.raf = requestAnimationFrame(t => this.frame(t))
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
@@ -242,10 +245,31 @@ export class TownScene {
     if (profile.activeMission?.id !== this.profile.activeMission?.id || profile.faction !== this.profile.faction) sound?.cancelCareerAudio()
     this.profile = profile; return true
   }
+  private enterMissionObserver(): void {
+    if (!this.profile.activeMission || this.event.hostile || this.spectator) return
+    this.spectator = new SpectatorCameraController(this.camera)
+    this.spectator.initFromCamera()
+    this.input.clear()
+    this.player.clearTownAction()
+    this.equipment.close()
+    this.target = null
+    this.hasPreviousTip = false
+    document.getElementById('controls-hint')!.textContent = 'Observer · WASD 移動 · Mouse 視角 · Space 上升 · Ctrl 下降 · Shift 加速'
+    // Save death immediately, without resolving or claiming the mission.
+    if (!this.profile.activeMission.playerDead) {
+      const next = cloneCareerProfile(this.profile)
+      next.activeMission!.playerDead = true
+      this.commit(next)
+    }
+  }
   private key(e: KeyboardEvent): void {
     if (this.panel || this.equipment.visible) {
       e.stopImmediatePropagation()
       if (['KeyQ', 'Escape', 'Tab'].includes(e.code)) { e.preventDefault(); if (!this.result && !this.missionResultOpen) this.closePanel() }
+      return
+    }
+    if (this.player.dead) {
+      if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
     if (e.repeat) return
@@ -266,7 +290,7 @@ export class TownScene {
   }
   private button(parent: HTMLElement, label: string, action: () => void): void { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b) }
   private talk(id: string, response?: string): void {
-    if (this.event.hostile || !this.serviceAvailable(id)) return
+    if (this.player.dead || this.event.hostile || !this.serviceAvailable(id)) return
     const role = id as DialogueRole, key = this.profile.faction + ':' + id
     const firstMeet = !this.profile.townDialogueSeen?.includes(key)
     const outpostKey = this.profile.faction + ':soldier-outpost'
@@ -446,6 +470,10 @@ export class TownScene {
       }
       if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.inventory.prepareForCombat()
       this.careerMounts.restoreActiveMount()
+      if (profile.activeMission.playerDead || profile.activeMission.result?.stats.survived === false) {
+        this.player.dismountFromMount()
+        this.player.takeDamage(this.player.maxHp * 100, this.hp)
+      }
     }
   }
   private playMissionVoice(cue: CareerMissionVoiceCue): void {
@@ -514,6 +542,7 @@ export class TownScene {
     this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, this.player.maxHp))
     this.player.setStamina(stamina)
     this.player.setArrowCount(arrows)
+    this.player.onPlayerDeath = () => this.enterMissionObserver()
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, true, false, event.visualKind)
     if (mount && !mount.dead) this.player.mountVehicle(mount, mountHeading)
     this.orbit = new ThirdPersonCamera(this.camera, this.player); this.orbit.setYaw(cameraYaw); this.orbit.setPitch(cameraPitch)
@@ -591,6 +620,11 @@ export class TownScene {
     this.careerMounts.restInTown()
     this.inventory.sheathAll()
     this.player.restoreForTown()
+    if (this.spectator) {
+      this.spectator = null
+      document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
+      this.orbit.update(this.input)
+    }
     this.hp.setFill(1)
     this.stamina.setFill(1)
     this.quiver.setArrowCount(this.player.arrowCount)
@@ -772,6 +806,7 @@ export class TownScene {
     else sound?.playSwordHit(0, true)
   }
   private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, player: boolean, training: boolean, kind: 'arrow' | 'pilum', source?: NPC): void {
+    if (player && this.player.dead) return
     if (this.shots.length >= 100 || training && this.shots.filter(s => s.training).length >= 60) return
     const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
     this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind), training, player, source, age: 0 })
@@ -833,7 +868,7 @@ export class TownScene {
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
   private melee(): void {
-    if (!this.inventory.meleeEnabled) { this.hasPreviousTip = false; return }
+    if (this.player.dead || !this.inventory.meleeEnabled) { this.hasPreviousTip = false; return }
     const currentTip = this.player.getSwordTipPosition()
     const previousTip = this.hasPreviousTip ? this.previousTip.clone() : currentTip
     this.previousTip.copy(currentTip); this.hasPreviousTip = true
@@ -884,6 +919,7 @@ export class TownScene {
     }
   }
   private resolveBodies(): void {
+    if (this.player.dead) return
     const playerBody = { position: this.player.group.position, radius: .42, height: 1.8, bottomOffset: .9 }
     for (const r of this.residents) {
       if (this.mission.friendlies.includes(r.npc)) continue
@@ -1137,6 +1173,7 @@ export class TownScene {
     }
   }
   private interaction(): void {
+    if (this.player.dead) { this.target = null; this.hint.textContent = ''; this.hint.style.display = 'none'; return }
     this.target = null; let nearest = 2.6
     if (!this.event.hostile && !this.defense.active) for (const id of ['captain', 'deployment', 'merchant', 'ranger', 'cat']) {
       if (!this.serviceAvailable(id)) continue
@@ -1177,7 +1214,7 @@ export class TownScene {
       this.elapsed += dt
       this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
       this.player.group.updateWorldMatrix(true, true)
-      this.melee()
+      if (!this.player.dead) this.melee()
       if (this.event.hostile) this.updateHostile(dt)
       else if (this.defense.active) this.updateDefenseCombat(dt)
       else {
@@ -1187,7 +1224,15 @@ export class TownScene {
       for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
       for (const m of this.mounts) { m.setCameraDistance(m.group.position.distanceTo(this.camera.position)); if (m.dead) m.update(dt, this.world.obstacles) }
       if (!this.event.hostile && !this.cat.dead && !this.cat.riderNpc) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
-      this.resolveBodies(); this.updateShots(dt); this.orbit.update(this.input, dt); this.interaction()
+      this.resolveBodies(); this.updateShots(dt)
+      if (this.player.dead) this.enterMissionObserver()
+      if (this.player.dead && this.profile.activeMission && !this.profile.activeMission.result) {
+        if (this.defense.active) this.defense.persistRuntimeProgress(true)
+        else this.mission.persistRuntimeProgress(true)
+      }
+      if (this.spectator) this.spectator.update(this.input, dt)
+      else this.orbit.update(this.input, dt)
+      this.interaction()
       const townOutcome = this.event.evaluate(this.player.dead)
       if (townOutcome && !this.panel) this.finish(townOutcome)
       else if (!this.event.hostile) {
@@ -1208,7 +1253,7 @@ export class TownScene {
           this.mission.remainingEnemies,
         )
       : ''
-    this.hud.textContent = `${this.profile.faction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${missionHud}`
+    this.hud.textContent = `${this.profile.faction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     this.damageNumbers.update(dt, this.camera)
     this.updateAmbient()
     this.quiver.setArrowCount(this.player.arrowCount)

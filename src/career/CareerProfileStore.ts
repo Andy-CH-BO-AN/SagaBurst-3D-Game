@@ -112,6 +112,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds).filter(id => targetActorIds.includes(id)),
     deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
+    playerDead: raw.playerDead === true,
     ...(playerStats ? { playerStats } : {}),
     routeStage: nonNegativeInteger(raw.routeStage),
     patrolStage: nonNegativeInteger(raw.patrolStage),

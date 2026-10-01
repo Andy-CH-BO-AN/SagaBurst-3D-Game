@@ -135,7 +135,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     targetArea: 'career-town',
     friendlySoldiers: 60,
     friendlyCombatants: 64,
-    enemyCount: 50,
+    enemyCount: 70,
     civilianCount: 20,
     maxCivilianDeaths: 10,
     risk: '極高',

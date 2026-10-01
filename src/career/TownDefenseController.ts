@@ -116,7 +116,7 @@ export class TownDefenseController {
     } else {
       this.attackElapsed += dt
       if (townDefenseFailureLocked(this.civilianDeaths) && active.phase !== 'FAILURE_LOCKED') this.setPhase('FAILURE_LOCKED')
-      else if (this.remainingEnemies === 0 && active.phase !== 'VICTORY_LOCKED') this.setPhase('VICTORY_LOCKED')
+      else if (!townDefenseFailureLocked(this.civilianDeaths) && this.remainingEnemies === 0 && active.phase !== 'VICTORY_LOCKED') this.setPhase('VICTORY_LOCKED')
     }
     this.persistRuntimeProgress()
     this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
@@ -124,14 +124,17 @@ export class TownDefenseController {
 
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
     const active = this.active
-    if (!active || active.result || active.phase === 'PREPARING' || active.phase === 'RESULT') return null
+    if (!active || active.result || active.phase === 'RESULT') return null
     const expectedIds = new Set(active.targetActorIds)
     const accountedIds = new Set([
       ...this.enemies.map(enemy => enemy.combatantId),
       ...(active.deadTargetActorIds ?? []),
     ])
-    const registrationComplete = expectedIds.size === 50 && [...expectedIds].every(id => accountedIds.has(id))
-    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, registrationComplete, this.remainingEnemies)
+    const registrationComplete = expectedIds.size === 70 && [...expectedIds].every(id => accountedIds.has(id))
+    const friendlyIds = new Set(active.friendlyActorIds)
+    const combatDefendersAlive = [...this.defenders, this.captain, this.ranger, this.sergeant]
+      .filter(npc => npc && friendlyIds.has(npc.combatantId) && !npc.dead).length
+    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, registrationComplete, this.remainingEnemies, combatDefendersAlive)
   }
 
   snapshot(): BattleStatsSnapshot {
@@ -252,7 +255,7 @@ export class TownDefenseController {
     return saved
   }
 
-  private persistRuntimeProgress(): void {
+  persistRuntimeProgress(forceStats = false): void {
     const active = this.active
     if (!active || active.result) return
     const deadTargets = new Set(active.deadTargetActorIds ?? [])
@@ -266,7 +269,7 @@ export class TownDefenseController {
     const targetIds = [...deadTargets].filter(id => active.targetActorIds.includes(id)).sort()
     const playerStats = this.tracker?.checkpoint() ?? active.playerStats
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
-    const statsCheckpointReached = statsChanged && this.statsCheckpointElapsed >= 5
+    const statsCheckpointReached = statsChanged && (forceStats || this.statsCheckpointElapsed >= 5)
     const same = targetIds.join('|') === [...(active.deadTargetActorIds ?? [])].sort().join('|')
       && deadFriendlies.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
       && deadCivilians.join('|') === [...(active.deadCivilianActorIds ?? [])].sort().join('|')
@@ -274,9 +277,10 @@ export class TownDefenseController {
       && Math.abs((active.defensePreparationElapsed ?? 0) - this.preparationElapsed) < 1
       && Boolean(active.defenseReserveCharged) === this.reserveCharged
       && Boolean(active.defenseCatDead) === this.blackCat.dead
-    if (same && !statsCheckpointReached) return
+    const playerDead = this.player().dead
+    if (same && !statsCheckpointReached && Boolean(active.playerDead) === playerDead) return
     const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, deadTargetActorIds: targetIds, deadFriendlyActorIds: deadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, ...(playerStats ? { playerStats } : {}) }
+    profile.activeMission = { ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: deadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, ...(playerStats ? { playerStats } : {}) }
     if (this.commit(profile)) this.statsCheckpointElapsed = 0
   }
 

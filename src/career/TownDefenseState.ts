@@ -98,9 +98,9 @@ export type EnemyCavalryKind = 'melee' | 'lancer' | 'horse-archer'
 export interface TownDefenseAttackGroup { id: 'south' | 'west' | 'east'; approach: keyof typeof TOWN_DEFENSE_LAYOUT; composition: Record<EnemyCavalryKind, number> }
 
 export const TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
-  { id: 'south', approach: 'southApproach', composition: { melee: 8, lancer: 4, 'horse-archer': 3 } },
-  { id: 'west', approach: 'westStableApproach', composition: { melee: 7, lancer: 3, 'horse-archer': 5 } },
-  { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 5, lancer: 8, 'horse-archer': 7 } },
+  { id: 'south', approach: 'southApproach', composition: { melee: 11, lancer: 6, 'horse-archer': 4 } },
+  { id: 'west', approach: 'westStableApproach', composition: { melee: 10, lancer: 4, 'horse-archer': 7 } },
+  { id: 'east', approach: 'eastBarracksApproach', composition: { melee: 7, lancer: 11, 'horse-archer': 10 } },
 ]
 
 export function townDefenseEnemyTotals(): Record<EnemyCavalryKind, number> {
@@ -112,10 +112,12 @@ export function townDefenseEnemyTotals(): Record<EnemyCavalryKind, number> {
   }, { melee: 0, lancer: 0, 'horse-archer': 0 })
 }
 
-export function resolveTownDefenseOutcome(playerDead: boolean, civilianDeaths: number, registrationComplete: boolean, enemiesRemaining: number): 'victory' | 'failure' | null {
-  if (playerDead) return 'failure'
-  if (civilianDeaths > TOWN_DEFENSE_CIVILIAN_LIMIT) return enemiesRemaining === 0 ? 'failure' : null
-  return registrationComplete && enemiesRemaining === 0 ? 'victory' : null
+export function resolveTownDefenseOutcome(playerDead: boolean, civilianDeaths: number, registrationComplete: boolean, enemiesRemaining: number, combatDefendersAlive: number = 0): 'victory' | 'failure' | null {
+  if (registrationComplete && enemiesRemaining === 0) {
+    return civilianDeaths <= TOWN_DEFENSE_CIVILIAN_LIMIT ? 'victory' : 'failure'
+  }
+  if (playerDead && combatDefendersAlive === 0 && enemiesRemaining > 0) return 'failure'
+  return null
 }
 
 export function townDefenseFailureLocked(civilianDeaths: number): boolean {
