@@ -29,7 +29,7 @@ export interface CareerMissionMountState {
 export interface ActiveCareerMission {
   id: string
   templateId: string
-  kind?: 'bandit' | 'patrol' | 'town-defense'
+  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault'
   targetCampId: number
   phase: CareerMissionPhase
   targetActorIds: string[]
@@ -99,10 +99,11 @@ export function createTownDefenseMission(
 }
 
 export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: CombatEvent): boolean {
-  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return false
+  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return mission.kind === 'enemy-town-assault' && event.source.actorType === 'player' && event.target.allegiance === 'ENEMY'
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
   if (event.source.actorType !== 'player') return false
   if (mission.targetActorIds.includes(event.target.targetId)) return true
+  if (mission.kind === 'enemy-town-assault' && mission.civilianActorIds?.includes(event.target.targetId)) return true
   return event.type === 'damage_applied'
     && Boolean(event.target.ownerActorId && mission.targetActorIds.includes(event.target.ownerActorId))
 }

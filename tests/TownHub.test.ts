@@ -285,7 +285,7 @@ describe('Town orchestration transitions', () => {
     town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
     town.world = { buildings: [], targets: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
-    town.defense = { active: false, releasedEnemies: [] }
+    town.defense = { active: false, playerEnemies: [], releasedEnemies: [] }
     town.hp = { setFill: vi.fn() }; town.inventory = { shieldEnabled: false }
     town.hitFieldNpc = vi.fn(); town.hitResident = vi.fn(); town.damageBuilding = vi.fn()
     const damagePlayerFromNpc = vi.spyOn(town, 'damagePlayerFromNpc')
@@ -323,7 +323,7 @@ describe('Town orchestration transitions', () => {
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
     town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp: { destroyed: false, takeDamage: vi.fn() }, obstacles: [] }], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
-    town.defense = { releasedEnemies: [] }
+    town.defense = { playerEnemies: [], releasedEnemies: [] }
     town.residents = [{ npc: ally }]
     town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
     town.player = {
@@ -401,7 +401,7 @@ describe('Town orchestration transitions', () => {
     town.externalThreatActors = new Set()
     town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [ally] }
-    town.defense = { releasedEnemies: [] }
+    town.defense = { playerEnemies: [], releasedEnemies: [] }
     town.residents = [{ npc: ally }]
     town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
     town.player = {
@@ -496,7 +496,7 @@ describe('Town orchestration transitions', () => {
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
     town.world = { buildings: [], targets: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
-    town.defense = { active: true, releasedEnemies: [], peersFor: vi.fn(() => []) }
+    town.defense = { active: true, playerEnemies: [], releasedEnemies: [], peersFor: vi.fn(() => []) }
     town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }
     const cat = { dead: false, group: new THREE.Group(), takeDamage: vi.fn(function (this: any) { this.dead = true }) }
     cat.group.position.set(0, 0, 1)

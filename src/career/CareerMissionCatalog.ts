@@ -39,7 +39,10 @@ export interface RecruitTownDefenseMissionTemplate extends RecruitMissionCommon 
   maxCivilianDeaths: number
 }
 
+export interface EnemyTownAssaultTemplate extends RecruitMissionCommon { kind: 'enemy-town-assault' }
+
 export type RecruitMissionTemplate =
+  | EnemyTownAssaultTemplate
   | RecruitBanditMissionTemplate
   | RecruitPatrolMissionTemplate
   | RecruitTownDefenseMissionTemplate
@@ -101,6 +104,7 @@ const patrol = (
  * the number of templates is not a promotion requirement.
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
+  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '90 人遠征軍 · 3 支小隊 · 擊敗全部敵方軍事守軍', friendlyCombatants: 90, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
   mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
 
