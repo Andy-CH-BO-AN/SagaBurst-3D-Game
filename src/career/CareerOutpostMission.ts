@@ -45,7 +45,10 @@ export function claimCareerOutpost(current: CareerProfile, missionId: string, ou
     profile.completedOutpostStages = [...new Set([...(profile.completedOutpostStages ?? []), mission.stageId])]
     profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
   }
-  if (outcome === 'victory' && mission.kind === 'outpost-relief') profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
+  if (outcome === 'victory' && mission.kind === 'outpost-relief') {
+    profile.completedOutpostRelief = true
+    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
+  }
   return claim
 }
 export function clearCareerOutpost(current: CareerProfile): CareerProfile {

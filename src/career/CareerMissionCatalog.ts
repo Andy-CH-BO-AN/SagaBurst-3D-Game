@@ -158,6 +158,10 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
   return RECRUIT_MISSION_CATALOG.find(template => template.id === id) ?? null
 }
 
+export function isEnemyTownAssaultUnlocked(profile: Pick<CareerProfile, 'completedOutpostRelief'>): boolean {
+  return profile.completedOutpostRelief === true
+}
+
 export function availableRecruitMissions(profile: CareerProfile): RecruitMissionTemplate[] {
   if (profile.activeMission) return []
   const merit = enlistmentMerit(profile)
@@ -167,6 +171,7 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
     CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && merit >= template.requiresEnlistmentMerit
     && completions >= template.requiresCompletions
+    && (template.kind !== 'enemy-town-assault' || isEnemyTownAssaultUnlocked(profile))
     && (!template.storyOnce || !completedStory.includes(template.id))
   ))
 }

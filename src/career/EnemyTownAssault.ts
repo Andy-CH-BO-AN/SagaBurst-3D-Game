@@ -6,9 +6,19 @@ import { Faction, AIType } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { townCaptainProfile, townRoster } from '../town/TownRules'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { availableRecruitMissions } from './CareerMissionCatalog'
 
 export const ENEMY_TOWN_ASSAULT_ID = 'career-enemy-town-assault'
 export const ASSAULT_PREPARATION_SECONDS = 10
+/** Recheck progression at the domain entry point, not just the deployment UI. */
+export function acceptEnemyTownAssault(current: CareerProfile, id?: string): CareerProfile | null {
+  if (current.activeOutpostMission || current.townEvent?.state === 'hostile'
+    || !availableRecruitMissions(current).some(template => template.id === ENEMY_TOWN_ASSAULT_ID)) return null
+  const profile = cloneCareerProfile(current)
+  profile.activeMission = createEnemyTownAssaultMission(id)
+  return profile
+}
 export function enemyTownFaction(faction: CharacterFaction): CharacterFaction { return faction === 'roman' ? 'viking' : 'roman' }
 export function careerTownFaction(profile: { faction: CharacterFaction; activeMission?: ActiveCareerMission }): CharacterFaction {
   return profile.activeMission?.kind === 'enemy-town-assault' ? enemyTownFaction(profile.faction) : profile.faction

@@ -248,6 +248,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(activeMission ? { activeMission } : {}),
     ...(activeOutpostMission ? { activeOutpostMission } : {}),
     ...(Array.isArray(raw.completedOutpostStages) ? { completedOutpostStages: [...new Set(raw.completedOutpostStages.filter(isCareerOutpostStageId))] } : {}),
+    ...(raw.completedOutpostRelief === true ? { completedOutpostRelief: true } : {}),
     ...(Array.isArray(raw.outpostBattleRecords) ? { outpostBattleRecords: raw.outpostBattleRecords.map(parseOutpostRecord).filter((record): record is CareerOutpostRecord => Boolean(record)) } : {}),
     ...(raw.careerMissionCompletions !== undefined ? { careerMissionCompletions: nonNegativeInteger(raw.careerMissionCompletions) } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),

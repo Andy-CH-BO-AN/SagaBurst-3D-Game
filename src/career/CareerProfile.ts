@@ -61,6 +61,8 @@ export interface CareerProfile {
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
+  /** Canonical, persistent prerequisite for Enemy Town Assault. */
+  completedOutpostRelief?: boolean
   outpostBattleRecords?: CareerOutpostRecord[]
   careerMissionCompletions?: number
   completedCareerMissionTemplateIds?: string[]

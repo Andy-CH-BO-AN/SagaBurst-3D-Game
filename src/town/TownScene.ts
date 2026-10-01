@@ -40,7 +40,7 @@ import { availableRecruitMissions, getRecruitMissionTemplate, patrolPreferredCam
 import { BanditMissionController } from '../career/BanditMissionController'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
-import { careerTownFaction, createEnemyTownAssaultMission } from '../career/EnemyTownAssault'
+import { careerTownFaction, acceptEnemyTownAssault } from '../career/EnemyTownAssault'
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
 import { CareerMountController } from '../career/CareerMountController'
@@ -509,7 +509,8 @@ export class TownScene {
     if (fresh.activeMission || this.event.hostile || fresh.townEvent?.state === 'hostile') { this.openPanel('無法接受任務', '目前已有任務或小鎮處於敵對狀態。'); return }
     if (this.player.dead || this.mission.fieldNpcs.some(npc => npc.inCombat || npc.encounterIsAlerted)) { this.openPanel('無法接受任務', '你目前仍在另一場交戰中。'); return }
     if (template.kind === 'enemy-town-assault') {
-      const next = cloneCareerProfile(fresh); next.activeMission = createEnemyTownAssaultMission()
+      const next = acceptEnemyTownAssault(fresh)
+      if (!next) { this.openPanel('無法接受任務', '需先完成 Outpost Relief · 騎兵救援 Victory，且沒有其他任務或小鎮敵對事件。'); return }
       if (!this.commit(next)) return
       this.dispose(); this.onRestart(next)
       return
