@@ -4,7 +4,7 @@ import type { PlayerLoadoutConfig, UnitTierCounts } from '../battle/BattleConfig
 import { getDefenseCampaignStage, resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import type { DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { canUseCareerEquipment } from '../town/TownEquipment'
-import { canUseCareerMount } from './CareerMountController'
+import { canUseCareerMount, careerMountAppearanceVariant } from './CareerMountController'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import type { CareerProfile } from './CareerProfile'
 import { isCareerOutpostUnlocked } from './CareerOutpostMission'
@@ -19,8 +19,9 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
   const t2 = upper - t3
   const t1 = stage.defenderDeployment.maxUnits - upper
   const ranged = { 1: Math.floor(t1 / 4), 2: Math.floor(t2 / 4), 3: Math.floor(t3 / 4) }
+  // Replace one ordinary defender with the faction's T4 Captain; keep the AI total intact.
   const defenderArmy: Record<string, UnitTierCounts> = {
-    [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: t1 - ranged[1], 2: t2 - ranged[2], 3: t3 - ranged[3] },
+    [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: t1 - ranged[1] - 1, 2: t2 - ranged[2], 3: t3 - ranged[3], 4: 1 },
     [resolveCampaignRolePreset(profile.faction, 'ranged')]: ranged,
   }
   const legal = (id: string | null | undefined, type: 'melee' | 'ranged' | 'shield') => {
@@ -34,6 +35,7 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
   return {
     type: 'defense', defenderFaction: profile.faction, stageId: mission.stageId,
     defenderArmy, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
+    playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
     capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false },
     playerLoadout: {
       meleeWeaponId: legal(profile.equipment?.melee, 'melee') ?? 'gladius_rusty',

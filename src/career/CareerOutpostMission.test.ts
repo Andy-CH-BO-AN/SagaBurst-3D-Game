@@ -9,6 +9,9 @@ import { BattleSpawner } from '../battle/BattleSpawner'
 import { completeDefenseCampaignStage, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY, getDefenseCampaignUnlockedStage } from '../campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../campaign/DefenseCampaignRuntime'
 import { TownEquipment } from '../town/TownEquipment'
+import { careerMountAppearanceVariant } from './CareerMountController'
+import { applyCampaignBreachOrders } from '../campaign/CampaignGate'
+import type { NPC } from '../world/NPC'
 import { calculateMerit } from './MeritCalculator'
 
 const stats = { player: { damageDealt: 250, damageTaken: 10, kills: 3, structureDamage: 500, structuresDestroyed: 1, gateBreaches: 1, survived: true }, squads: [] }
@@ -101,13 +104,38 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
       const attackers = createDefenseCampaignWaveConfig(launch, 'attackers')
       const expectedDefenders = [80, 85, 90][stageId - 1]
       expect(calculateArmyTotal(defenders[faction])).toBe(expectedDefenders)
-      expect(BattleSpawner.createSpawnPlan(defenders).npcSpecs).toHaveLength(expectedDefenders)
+      const roster = BattleSpawner.createSpawnPlan(defenders).npcSpecs
+      expect(roster).toHaveLength(expectedDefenders)
+      const captains = roster.filter(spec => spec.tier === 4)
+      expect(captains).toHaveLength(1)
+      expect(captains[0]).toMatchObject({ characterFaction: faction, cavalry: false, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4' })
+      const captain = { ...captains[0], dead: false, setTacticalOrder: vi.fn() }
+      applyCampaignBreachOrders([captain as unknown as NPC], faction === 'roman' ? 'viking' : 'roman')
+      expect(captain.setTacticalOrder).toHaveBeenCalledWith('attack')
       expect(BattleSpawner.createSpawnPlan(defenders).playerSpawn).toBeDefined()
       expect(BattleSpawner.createSpawnPlan(attackers).npcSpecs).toHaveLength([100, 110, 120][stageId - 1])
       expect(defenseCampaignCapabilities(launch)).toEqual({ reinforcementsEnabled: false, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false })
       expect(launch.playerLoadout.startMounted).toBe(false)
       expect(() => createDefenseCampaignWaveConfig(launch, 'reinforcement')).toThrow('disabled')
     }
+  })
+  it.each([1, 2, 3] as const)('preserves the selected T%i horse appearance through Career reload and launch', tier => {
+    const profile: CareerProfile = { ...mission(), rank: tier === 3 ? 'veteran' : 'soldier', totalMerit: 900, availableMerit: 900, ownedHorseTiers: [tier], selectedMountId: `horse-t${tier}` }
+    const store = new CareerProfileStore(storage())
+    expect(store.save(profile)).toBe(true)
+    const reloaded = store.load()!
+    const launch = createCareerOutpostLaunch(reloaded)
+    expect(launch.playerLoadout).toMatchObject({ startMounted: true, mountId: 'horse' })
+    expect(launch.playerMountAppearanceVariant).toBe(tier - 1)
+    expect(launch.playerMountAppearanceVariant).toBe(careerMountAppearanceVariant(reloaded.selectedMountId))
+    expect(reloaded.ownedHorseTiers).toEqual([tier])
+    expect(reloaded.selectedMountId).toBe(profile.selectedMountId)
+  })
+  it('keeps mountless Career launches unmounted and the default appearance for hero mounts', () => {
+    expect(createCareerOutpostLaunch(mission()).playerLoadout.startMounted).toBe(false)
+    expect(careerMountAppearanceVariant('black-cat')).toBe(0)
+    expect(careerMountAppearanceVariant('corgi')).toBe(0)
+    expect(careerMountAppearanceVariant()).toBe(0)
   })
   it('retains formal Campaign reinforcement, heroes, commands and gate capabilities', () => {
     const launch = createCareerOutpostLaunch(mission())

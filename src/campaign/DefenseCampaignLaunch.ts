@@ -13,6 +13,7 @@ import {
   type PlayerLoadoutConfig,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
+import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -71,6 +72,7 @@ export interface DefenseCampaignLaunchConfig {
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
   playerHeroId?: PlayerHeroId | null
+  playerMountAppearanceVariant?: HorseAppearanceVariant
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
 }

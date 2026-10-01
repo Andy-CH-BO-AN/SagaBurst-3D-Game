@@ -844,7 +844,9 @@ export class Game {
         this.scene,
         mountTypeFromId(query.get('mount') ?? activeBattleConfig?.playerLoadout?.mountId),
         playerSpawn.x,
-        playerSpawn.z
+        playerSpawn.z,
+        undefined,
+        campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
       this.mounts.push(startingHorse)
