@@ -12,6 +12,8 @@ export function installTownStyles(): void {
     .town-eyebrow { font:11px/1.5 Georgia,serif; letter-spacing:.2em; color:#bb9e71 }
     .town-button { color:#ecd8ad; background:#453723; border:1px solid #947448; border-radius:4px; padding:9px 15px; margin:8px 9px 0 0; font:600 14px system-ui; cursor:pointer }
     .town-button:hover,.town-button:focus-visible { background:#665033; border-color:#eac683; outline:2px solid #be9a58; outline-offset:2px }
+    .town-button:disabled { opacity:.5; cursor:default }
+    .town-products > h3 { grid-column:1 / -1; margin:12px 0 0; color:#ffe5af; font-size:17px }
     .town-summary { background:#0b101344; border-left:3px solid #b3945e; padding:10px 14px; color:#c4b69e; font-size:13px }
     .town-products { display:grid; grid-template-columns:repeat(auto-fit,minmax(235px,1fr)); gap:10px; margin-top:16px }
     .town-product { border:1px solid #77654866; border-radius:5px; padding:12px; background:#0002; display:flex; flex-direction:column; align-items:flex-start }
