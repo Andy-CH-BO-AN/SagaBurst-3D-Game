@@ -131,7 +131,7 @@ import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
-import { resolveCombatSkill, resolveSkillAdjustedMaxHp, resolveSkillProgressionAward, skillStatesEqual } from './rpg/CombatSkillProgression'
+import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
@@ -2454,7 +2454,16 @@ export class Game {
     const meleeWeapon = event.type === 'damage_applied' && event.weaponId
       ? WEAPONS[event.weaponId] ?? this.inventoryManager.equippedMelee
       : this.inventoryManager.equippedMelee
-    const award = resolveSkillProgressionAward(event, meleeWeapon, this.player.hasShield)
+    const award = resolveActivePlayerSkillProgressionAward(
+      event,
+      {
+        dead: this.player.dead,
+        spectatorOnly: this.player.spectatorOnly,
+        observer: this.controlMode !== 'player',
+      },
+      meleeWeapon,
+      this.player.hasShield,
+    )
     if (!award) return
 
     const before = this.skillManager.skillState
