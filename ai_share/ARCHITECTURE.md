@@ -60,6 +60,7 @@
 - `CareerProfile` 分開 lifetime `totalMerit`、可花費 `availableMerit` 與任命 `rank`。晉升按 enlistment baseline 計算資格，必須明確任命；領獎不自動升階。獎勵以已領 battle／mission ID 保持冪等。
 - `CareerMissionMeritPolicy`／`MeritCalculator` 管理軍功；Recruit/Soldier board 勝場按任務 tier 分開保存，不由當前軍階反推。Duel 擊敗 tier 按 preset 推進，不改 board 勝場。
 - `TownScene` 自有 renderer、input、projectiles、居民與任務更新，不借用 `Game` 迴圈；`TownWorld` 管建物、障礙與場景資源，`TownRules` 管居民配置，`TownEquipment` 管可用裝備及拔出狀態，`TownCombat` 管城鎮命中。
+- `TownMissionSettlement` 集中任務結果保存與返回順序：沿用 `claimCareerMission`／`clearCareerMission`，保存成功後才清理、歸還借用居民及坐騎或重建場景；保存失敗保留現場供重試。守城及清剿原地結算，其他任務依直接返回或步行返抵採取既有恢復方式，TownScene 保留結果 UI 與玩家觀戰控制。
 - visual faction 與 `CombatFaction` 分開；城鎮平時不敵視 Player。首次有效犯罪先保存 hostile event，保存失敗則不施加第一擊；只在死亡／建物摧毀時保存終止狀態。自由遭遇與官方任務不等同城鎮犯罪。
 - `TownEvent` 結算要求完整居民登記；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
 - `CareerTownDialogue` 集中和平對話與 rank 選擇；`TownEquipment` 只允許已擁有且符合軍階的裝備，不把城鎮拔武器狀態寫進其他模式。

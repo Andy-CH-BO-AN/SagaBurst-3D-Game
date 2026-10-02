@@ -36,7 +36,7 @@ import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
-import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, claimCareerMission, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
+import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds } from '../career/BanditMissionController'
 import { CareerDuelController } from '../career/CareerDuelController'
@@ -55,6 +55,7 @@ import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
 import { townMeleeBuildingContact, townMeleeContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TownEquipment } from './TownEquipment'
+import { TownMissionSettlement } from './TownMissionSettlement'
 import { TOWN_RULES, TownEvent, townRoster, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownActorSpec, type TownResult } from './TownRules'
 
 let sound: SoundManager
@@ -118,6 +119,7 @@ export class TownScene {
   private duel!: CareerDuelController
   private defense!: TownDefenseController
   private careerMounts!: CareerMountController
+  private missionSettlement!: TownMissionSettlement
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
   private duelPresetId?: UnitPresetId
@@ -208,6 +210,19 @@ export class TownScene {
         ...this.mission.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
         ...this.defense.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
       ],
+    )
+    const town = this
+    this.missionSettlement = new TownMissionSettlement(
+      { read: () => this.profile, commit: p => this.commit(p) },
+      { field: this.mission, duel: this.duel, defense: this.defense },
+      {
+        residents: this.residents, externalThreatActors: this.externalThreatActors, cat: this.cat,
+        world: this.world, navigation: this.navigation, inventory: this.inventory,
+        get player() { return town.player },
+        clearCombatShots: () => this.clearMissionCombatShots(),
+        restPlayer: () => this.restPlayerInTown(),
+        restart: p => { this.missionResultOpen = false; this.dispose(); this.onRestart(p) },
+      },
     )
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     this.restoreActiveCareerMission()
@@ -694,21 +709,15 @@ export class TownScene {
     this.hp.setFill(this.player.hpRatio)
   }
   private finishMission(outcome: CareerMissionOutcome): void {
-    const active = this.profile.activeMission
-    if (!active || active.result) return
-    const defense = active.kind === 'town-defense'
-    const stats = active.kind === 'duel' ? this.duel.snapshot().player : this.defense.active ? this.defense.snapshot().player : this.mission.snapshot().player
-    const claim = claimCareerMission(this.profile, active.id, outcome, stats)
-    if (defense && claim.profile.activeMission?.result) {
-      claim.profile.activeMission.result.defense = { civilianSurvived: this.defense.civilianSurvived, civilianDeaths: this.defense.civilianDeaths }
-    }
-    if (!this.commit(claim.profile)) {
+    const finished = this.missionSettlement.finish(outcome)
+    if (finished.status === 'ignored') return
+    if (finished.status === 'save-failed') {
       this.missionResultOpen = true
       const panel = this.openPanel('任務結算尚未保存', '保存失敗；軍功尚未入帳，任務結果已保留在目前場景。')
       this.button(panel, '重試保存結算', () => this.finishMission(outcome))
       return
     }
-    this.openMissionResult(this.profile.activeMission!.result!, false)
+    this.openMissionResult(finished.result, false)
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
     this.missionResultOpen = true
@@ -719,7 +728,7 @@ export class TownScene {
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
-    this.button(panel, '返回 Career Town', () => result.defense ? this.settleTownDefenseInPlace() : this.fastReturnFromMission())
+    this.button(panel, '返回 Career Town', () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'duel') {
       if (complete && result.stats.survived) this.button(panel, '跟隊長走回去', () => {
         if (!this.duel.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
@@ -736,37 +745,6 @@ export class TownScene {
       this.missionResultOpen = false
       this.closePanel()
     })
-  }
-  private fastReturnFromMission(): void {
-    const active = this.profile.activeMission
-    if (!active) return
-    if (active.kind === 'town-defense') { this.settleTownDefenseInPlace(); return }
-    if (active.kind === 'cavalry-sweep') { this.settleReturnedMissionInPlace(); return }
-    const next = clearCareerMission(this.profile, active.id)
-    if (!this.commit(next)) {
-      const panel = this.openPanel('返回狀態尚未保存', '任務結算仍安全保留。請重試保存後返回小鎮。')
-      this.button(panel, '重試返回小鎮', () => this.fastReturnFromMission())
-      return
-    }
-    if (active.kind === 'enemy-town-assault') this.defense.cleanupMission()
-    else if (active.kind === 'duel') this.duel.cleanupMission()
-    else this.mission.cleanupMission(active.targetCampId)
-    this.inventory.sheathAll()
-    this.missionResultOpen = false
-    this.dispose()
-    this.onRestart(next)
-  }
-  private restoreResidentForTown(resident: Resident): void {
-    resident.npc.dismountFromMount()
-    resident.npc.restoreForTown()
-    resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
-    resident.cycle = -1
-    resident.walkTime = 0
-    this.externalThreatActors.delete(resident.npc)
-    if (resident.homeMount) {
-      resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
-      resident.npc.mountVehicle(resident.homeMount)
-    }
   }
   private clearMissionCombatShots(): void {
     for (const shot of this.shots ?? []) shot.arrow.destroy()
@@ -785,64 +763,23 @@ export class TownScene {
     this.stamina.setFill(1)
     this.quiver.setArrowCount(this.player.arrowCount)
   }
-  private settleTownDefenseInPlace(): void {
-    const active = this.profile.activeMission
-    if (!active || active.kind !== 'town-defense' || !active.result) return
-    const next = clearCareerMission(this.profile, active.id)
-    if (!this.commit(next)) {
-      const panel = this.openPanel('返回狀態尚未保存', '守城結算仍安全保留。請重試，軍功不會重複發放。')
-      this.button(panel, '重試原地結算', () => this.settleTownDefenseInPlace())
+  private returnToTown(intent: 'direct' | 'arrived'): void {
+    const returned = this.missionSettlement.returnToTown(intent)
+    if (returned.status === 'ignored' || returned.status === 'restarted') return
+    if (returned.status === 'save-failed') {
+      const message = returned.destination === 'defense' ? '守城結算仍安全保留。請重試，軍功不會重複發放。'
+        : returned.destination === 'party' ? '隊伍已返抵小鎮，但任務結算尚未寫入。請重試，軍功不會重複發放。'
+        : '任務結算仍安全保留。請重試保存後返回小鎮。'
+      const panel = this.openPanel('返回狀態尚未保存', message)
+      this.button(panel, returned.destination === 'restart' ? '重試返回小鎮' : '重試原地結算', () => this.returnToTown(returned.destination === 'party' ? 'arrived' : 'direct'))
       return
     }
-
-    this.defense.cleanupMission()
-    this.clearMissionCombatShots()
-    for (const resident of this.residents) {
-      if (resident.spec.role.includes('_') || resident.spec.role === 'captain' || resident.spec.role === 'ranger' || resident.spec.role === 'deployment' || resident.spec.role === 'civilian') this.restoreResidentForTown(resident)
-    }
-    const catSpot = townSitePoint('stable', -3, 8)
-    this.cat.restoreForTown(catSpot.x, catSpot.z, catSpot.yaw)
-    this.cat.catVisual?.setEquipmentVisible(false)
-    this.world.restoreTownDamage()
-    this.navigation.sync(this.world.obstacles)
-    this.restPlayerInTown()
     this.missionResultOpen = false
     this.target = null
     this.hasPreviousTip = false
-    this.notice = '守城結束。駐軍與居民已歸位，城鎮服務恢復。'
-    if (this.panel) this.closePanel()
-  }
-  private settleReturnedMissionInPlace(): void {
-    const active = this.profile.activeMission
-    if (!active || active.kind === 'town-defense' || (active.phase !== 'RETURNING' && !(active.kind === 'cavalry-sweep' && active.result))) return
-    const missionResidents = new Set(active.kind === 'duel' ? this.duel.actors : this.mission.friendlies)
-    const next = clearCareerMission(this.profile, active.id)
-    if (!this.commit(next)) {
-      const panel = this.openPanel('返回狀態尚未保存', '隊伍已返抵小鎮，但任務結算尚未寫入。請重試，軍功不會重複發放。')
-      this.button(panel, '重試原地結算', () => this.settleReturnedMissionInPlace())
-      return
-    }
-
-    if (active.kind === 'duel') this.duel.cleanupMission()
-    else if (active.kind === 'cavalry-sweep') this.mission.cleanupMission(active.targetCampId, true)
-    else this.mission.cleanupMission(active.targetCampId)
-    this.clearMissionCombatShots()
-    for (const resident of this.residents) {
-      if (!missionResidents.has(resident.npc)) continue
-      this.restoreResidentForTown(resident)
-    }
-    if (active.kind === 'duel') {
-      const catSpot = townSitePoint('stable', -3, 8)
-      this.cat.restoreForTown(catSpot.x, catSpot.z, catSpot.yaw)
-      this.cat.catVisual?.setEquipmentVisible(false)
-    }
-
-    this.restPlayerInTown()
-    if (active.kind === 'cavalry-sweep' && active.phase !== 'RETURNING') this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
-    this.missionResultOpen = false
-    this.target = null
-    this.hasPreviousTip = false
-    this.notice = active.kind === 'cavalry-sweep' ? '清剿結束。駐軍已返營，臨時騎兵正在離開。' : '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
+    this.notice = returned.kind === 'defense' ? '守城結束。駐軍與居民已歸位，城鎮服務恢復。'
+      : returned.kind === 'sweep' ? '清剿結束。駐軍已返營，臨時騎兵正在離開。'
+      : '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
     if (this.panel) this.closePanel()
   }
   private serviceAvailable(id: string): boolean {
@@ -1493,7 +1430,7 @@ export class TownScene {
         const missionOutcome = this.duel?.active ? this.duel.evaluate(this.player.dead) : this.defense.active ? this.defense.evaluate(this.player.dead) : this.mission.evaluate(this.player.dead)
         if (missionOutcome && !this.panel) this.finishMission(missionOutcome)
         else if (!this.profile.activeMission && this.player.dead && !this.panel) this.showAmbientDefeat()
-        else if ((this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.settleReturnedMissionInPlace()
+        else if ((this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.returnToTown('arrived')
       }
     }
     else sound?.updateHorseGallopLoops([])

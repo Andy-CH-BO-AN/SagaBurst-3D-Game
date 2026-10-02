@@ -57,7 +57,9 @@ const MARCH_SPEED = 6
 const RETURN_PLAYER_RADIUS = 12
 const DUEL_AREA_CANDIDATES = [112, 135].flatMap(z => [0, 20, -20, 40, -40, 60, -60].map(x => ({ x, z })))
 
-/** Owns the duel flow; TownScene retains entity updates, damage routing, and the established Town restore. */
+/** Owns duel flow; TownScene retains entity updates and damage routing.
+ * TownMissionSettlement owns saved return and resident restoration.
+ */
 export class CareerDuelController {
   readonly events = new CombatEventStream()
   onMarchStarted: (() => void) | null = null

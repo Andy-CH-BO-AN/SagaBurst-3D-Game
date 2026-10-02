@@ -198,32 +198,3 @@ describe('Duel unit/tier page', () => {
     expect(tiers.every(row => !row.children[2].disabled)).toBe(true)
   })
 })
-
-describe('Duel restoration through existing Town lifecycle', () => {
-  it('direct return uses the existing clear, dispose and restart path', () => {
-    const town = harness(); town.acceptDuel('roman_archer', 1)
-    town.dispose = vi.fn(); town.onRestart = vi.fn()
-    town.fastReturnFromMission()
-    expect(town.profile.activeMission).toBeUndefined()
-    expect(town.duel.cleanupMission).toHaveBeenCalledOnce()
-    expect(town.inventory.sheathAll).toHaveBeenCalledOnce()
-    expect(town.dispose).toHaveBeenCalledOnce(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
-  })
-  it('physical return restores residents, home mounts, Black Cat and player through existing helpers', () => {
-    const town = harness(); town.acceptDuel('roman_archer', 1)
-    town.profile.activeMission.phase = 'RETURNING'
-    const npc = { dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn(), group: { rotation: { y: 0 } } }
-    const homeMount = { restoreForTown: vi.fn() }
-    town.residents = [{ spec: { x: 5, z: 6 }, npc, homeMount, cycle: 4, walkTime: 3 }]
-    town.duel.actors = [npc]; town.cat = { restoreForTown: vi.fn(), catVisual: { setEquipmentVisible: vi.fn() } }
-    town.restPlayerInTown = vi.fn()
-    town.settleReturnedMissionInPlace()
-    expect(npc.restoreForTown).toHaveBeenCalledOnce()
-    expect(homeMount.restoreForTown).toHaveBeenCalledExactlyOnceWith(5, 6, Math.PI)
-    expect(npc.mountVehicle).toHaveBeenCalledWith(homeMount)
-    expect(town.cat.restoreForTown).toHaveBeenCalledOnce()
-    expect(town.restPlayerInTown).toHaveBeenCalledOnce()
-    expect(town.clearMissionCombatShots).toHaveBeenCalledTimes(2)
-    expect(town.profile.activeMission).toBeUndefined()
-  })
-})
