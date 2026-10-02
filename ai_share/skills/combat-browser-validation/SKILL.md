@@ -1,167 +1,59 @@
 ---
 name: combat-browser-validation
-description: Validate this Three.js combat game through the GPT Chrome extension, with Playwright CLI fallback when the extension cannot connect. Use after changing Player/NPC combat animation, weapons, bows, shields, projectiles, mounts, spawn scenarios, aiming, grounding, or other browser-visible behavior; also use when interpreting CombatTrajectory console logs, screenshots, or user-reported browser errors.
+description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、動畫、裝備、投射物、坐騎與接地，並判讀軌跡及應用程式錯誤。
 ---
 
-# Combat Browser Validation
+# 戰鬥瀏覽器驗證
 
-Validate the actual WebGL result, not only TypeScript state. Reuse the user's running Vite server when available, isolate one visual hypothesis at a time, and distinguish game errors from browser-extension noise.
+直接使用已安裝的 `playwright` skill 與 Playwright CLI，不依賴 GPT Chrome 擴充套件。共用正在執行的 Vite；預設使用本機有畫面的 Chrome、獨立 QA session 與 `nolock`。若使用者指定既有瀏覽器分頁，使用可連接該分頁的工具；CLI 的獨立 session 不等同使用者分頁。
 
-## Choose the URL
+## 選擇場景
 
-The normal release entry now uses the Custom Battle Setup UI. Do not assume that opening `/` immediately creates a fixed battle.
+實際 host／port 以執行中的 Vite 為準。以下 query 加在該 origin 後：
 
-- Use `http://localhost:5173/` for the normal release entry. With no saved battle config, it shows Custom Battle Setup first; the default preset is 10v10.
-- Use `http://localhost:5173/?nolock` for the same release flow without pointer lock after the battle starts. Prefer this URL for browser automation.
-- A valid `sessionStorage.sagaburst_battle_config` skips the setup UI and launches that saved config directly. For deterministic release QA, use a fresh browser context or clear that key before choosing the intended preset and pressing `START BATTLE`.
-- Use `http://localhost:5173/?devcombat&nolock` for the default combat diagnostic: Tier-3 50v50 cavalry, each side with 25 lancers and 25 horse archers.
-- Use `http://localhost:5173/?devcombat=a&nolock` for Scenario A: 50v50 Infantry.
-- Use `http://localhost:5173/?devcombat=b&nolock` for Scenario B: 100v100 Infantry.
-- Use `http://localhost:5173/?devcombat=c&nolock` for Scenario C: 100v100 Mixed.
-- Use `http://localhost:5173/?devcombat=d&nolock` for Scenario D: 100v100 Cavalry / Horse Archer.
-- Use `http://localhost:5173/?devcombat=all&nolock` only when NPC trajectory logs are necessary. It uses the default 50v50 diagnostic scenario but prints Player and NPC trajectory summaries and can be very noisy.
-- Use `http://localhost:5173/?devmodels=humans&nolock` for the isolated humanoid studio. It is the preferred place to inspect character LODs, skeletons, sword/lance attachments, shields, and authored combat poses without a crowded battle. Current controls include `B` (controller/raw GLB mode), `L` (sword/lance), `Q` (shield), `Space` (pause), `R` (replay), and `H` (skeleton).
-- Use `http://localhost:5173/?devmodels=mounts&nolock` for the isolated Phase-23 horse studio. It shows one realistic horse on a metre grid with a Player-independent Orbit camera. Press `0` to cycle the three stable coat variants, `1`–`9` for idle/walk/trot/canter/gallop/jump/land/hit/death, `Space` to pause, `R` to replay, `H` for the skeleton, `V` for the rider, `L` for sword/lance, `Q` for shield, and `F` to trigger the rider attack. The status HUD must report variant, clip, LOD, one mixer, draw calls, geometry, and textures.
+| URL / query | 用途 |
+| --- | --- |
+| `/?nolock` | 正式主選單與戰鬥流程；有效 Career／session 狀態可能直接恢復 |
+| `/?devmodels=humans&nolock` | 人物 LOD、骨架、握點與 controller／raw clip 比較 |
+| `/?devmodels=mounts&nolock` | Horse 變體、LOD、騎士與動畫 |
+| `/?devmodels=black-cat&nolock`、`/?devmodels=corgi&nolock` | 指定坐騎；可用鍵位以工作室 HUD 為準 |
+| `/?devhero=maki-t4&nolock` | Maki 英雄預覽；其餘英雄 ID 見 `HeroAssetCatalog`／`main.ts` |
+| `/?devcombat&nolock` | 預設 50v50 騎兵診斷，Player 軌跡 |
+| `/?devcombat=a&nolock`、`b`、`c`、`d` | A：50v50 遠程步兵；B：100v100 近戰步兵；C：100v100 混編；D：100v100 騎兵 |
+| `/?devcombat=all&nolock` | 同預設診斷，加 NPC 軌跡；只在需要時啟用，輸出量大 |
 
-Treat query parameters as independent switches: `devcombat` selects a diagnostic scenario / trajectory mode and `nolock` disables pointer lock. For visual combat changes, prove the smallest isolated hypothesis first, then repeat the relevant release or battle scenario. For performance work, use the explicit A/B/C/D scenarios instead of relying on the release preset.
+正式入口由 `src/main.ts` 分流；不要假設 `/` 直接生成戰鬥。可重現 QA 使用獨立 browser session，明確記錄選單、設定與存檔前提，不清除使用者生涯存檔。效能場景與量測改用 [benchmark skill](../sagaburst-performance-benchmark/SKILL.md)。
 
-Raw screenshots, console dumps, benchmark JSON, and per-frame diagnostics belong in ignored `output/`. The task/PR report should summarize only evidence needed for the acceptance criteria. `PROGRESS.md` should receive only a durable conclusion, known limitation, or changed handoff state—not a copied validation report.
+## Playwright CLI 操作
 
-## Run the Validation Workflow
+先讀可用的 `playwright` skill，確認 `npx` 與 CLI help；沿用它的 wrapper，無需建立 Playwright test spec。範例（先把 port 改為實際值）：
 
-For a newly exported or post-processed horse GLB, browser validation is not the first visual gate. First import the raw GLB into a clean Blender scene and render true orthographic front/side views in REST plus the same views at a representative animation frame. Compare them with identically framed source-workfile renders. Do not compress, promote, or load the candidate in the browser while the head, neck, torso, limbs, hooves, mane/tail, or tack are collapsed, exploded, intersecting, or visibly different after round-trip import.
-
-1. Read `ai_share/PROGRESS.md` and identify the exact behavior changed.
-2. Check whether Vite is already running before starting another server. Reuse the user's `npm run dev` process when it exists.
-3. Run `npm test -- --run` and `npm run build` as the code gates.
-4. Choose one hypothesis and one reproducible action. Avoid judging a pose from a crowded battle when a single Player action can prove it.
-5. Hard-reload after constructor, spawn, scenario, rig, or equipment changes. Vite HMR may preserve old `Game`, `Player`, or `NPC` instances.
-6. Capture before, active, and recovery frames when animation timing matters.
-7. Inspect relevant Console entries and compare them with the rendered trajectory.
-8. Repeat the check on the relevant release/battle URL when the isolated diagnostic alone is insufficient.
-9. Report the tested URL/config, action, visual result, relevant logs, and any remaining uncertainty. Keep raw evidence in ignored `output/`; do not copy the full validation transcript into `PROGRESS.md`.
-
-If the user explicitly says not to open or test the browser, do not use browser control. Ask for or inspect the screenshot and copied log they provide, then run only non-browser checks.
-
-## Control Chrome Through the GPT Extension
-
-Use the installed `$chrome:control-chrome` skill whenever Chrome validation depends on the user's existing tab or GPT extension. Read and follow that skill completely before controlling Chrome; its versioned installation path may change, so do not hardcode it here.
-
-Follow these project-specific rules:
-
-1. Connect through the extension runtime and obtain the current browser object as directed by `$chrome:control-chrome`.
-2. Call `browser.user.openTabs()` and choose the game tab by its visible `localhost:5173` URL and title. Never guess a tab ID.
-3. Claim the selected tab with `browser.user.claimTab(tabInfo)`.
-4. Navigate to a `nolock` URL or reload the claimed tab after code changes.
-5. Use screenshots to inspect Three.js output. Canvas objects usually have no useful DOM locator, so use the tab's computer-use/canvas controls for mouse and keyboard input.
-6. Read Console output with the tab development-log API. Filter for `CombatTrajectory` when checking animation traces; separately request `error` and `warn` levels for runtime failures.
-7. End the session exactly as required by `$chrome:control-chrome`, including its final browser cleanup call. Do not perform another Chrome action afterward.
-
-Typical operations after claiming a tab resemble:
-
-```js
-await gameTab.goto("http://localhost:5173/?devcombat&nolock")
-await gameTab.reload()
-await nodeRepl.emitImage(await gameTab.screenshot())
-await gameTab.dev.logs({ levels: ["log", "info"], filter: "CombatTrajectory", limit: 100 })
-await gameTab.dev.logs({ levels: ["error", "warn"], limit: 100 })
+```sh
+rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa open 'http://localhost:5173/?devmodels=humans&nolock' --headed --browser chrome
+rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa snapshot
+rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.sh" -s=combat-qa console
 ```
 
-Use the exact APIs documented by the currently installed Chrome skill if they differ from this example.
+- DOM 控制使用最新 snapshot 的 refs；Three.js 畫面以 screenshot 配合鍵鼠操作判讀。導航／UI 更新後重新 snapshot。
+- 建構子、資產或 spawn 改動後重新載入頁面以重建場景；HMR 保留的舊實例不能作驗收依據。必要時排除資產 cache。
+- 截圖與 console 證據保存於 ignored `output/playwright/`；CLI 預設日誌目錄亦已忽略。完成後僅關閉本次 QA session。
 
-If the Chrome extension remains unavailable after following that skill's connection and cleanup guidance, use the installed Playwright CLI skill against the same URLs. Save screenshots under `output/playwright/`, capture browser console output, and report that fallback explicitly; extension unavailability alone is not a project failure.
+## 驗收範圍
 
-## Read the Debug Overlay
+先驗最小單一假設，再重複相關正式戰鬥流程。動畫捕捉起手／接觸／收招，不只一張靜態姿勢；記錄 URL、設定、操作、畫面與應用程式錯誤。
 
-`?devcombat` creates the overlay implemented in `src/debug/CombatTrajectoryDebugger.ts`:
+- **近戰**：握點不滑動，攻擊向角色正前方／目標區，收招恢復。Lance idle 保留 Sword Idle 身體加固定 attachment；攻擊才加右臂 FK。盾以實際裝備為準，持盾不能拉弓。
+- **弓**：弓身、弦、nock、拉弦手與箭尾對齊，發射起點／方向符合準星。檢查 Player 與真正持弓 NPC；Roman ranged 的 pilum 不能代替弓測試。側身姿勢另外看站立→移動→停止及騎乘，不能僅以箭飛向正前方判定通過。
+- **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的 Horse GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
+- **接地**：側面比較 Player/NPC 鞋底與相同地形，不能只看 physics root 高度。
 
-- yellow: Player
-- blue: ally
-- red: enemy
-- short line: weapon grip to tip
-- retained trail: attack path
-- lime: full bow body
-- cyan: full bow string
-- magenta: nock draw path
-- thin cyan: grip to nock
-- white: hand to nock
-- orange: nocked arrow
-- green: launched-arrow flight path
-- red: five-metre aim guide and target marker
+程式檢查沿用專案 AGENTS，不在瀏覽器流程重複強制整套測試。使用者要求不開瀏覽器時遵守，並明確標記視覺未驗證。
 
-The overlay logs only the Player by default. Use `?devcombat=all` for NPCs, reproduce the smallest useful action, and filter the Console because a large battle can generate thousands of entries.
+## 軌跡與錯誤判讀
 
-## Interpret CombatTrajectory Logs
+`CombatTrajectoryDebugger`：黃／藍／紅為 Player／友軍／敵軍；短線 grip→tip、保留 trail 為攻擊路徑。弓身 lime、弦 cyan、nock 路徑 magenta、手到 nock 白、搭箭橘、飛行路徑綠、準星引導紅。
 
-Expect messages such as:
-
-```text
-[CombatTrajectory] Player swordThrust — 57 samples
-[CombatTrajectory] Player bowDraw — 180 moving samples
-[CombatTrajectory] Player arrowFlight — 87 samples
-```
-
-The following `console.table` reports `start`, `end`, `min`, and `max` bounds:
-
-- Melee action summaries use character-local coordinates. Production humanoid and horse forward is local `+Z` (legacy procedural fixtures use `-Z`); a production thrust should extend clearly toward more-positive Z without a large drop in Y or excessive sideways X travel.
-- Bow draw summaries describe the moving nock path. Judge them with the lime bow body, cyan string, white hand-to-nock line, and actual pose; bounds alone cannot prove the bow faces correctly.
-- Arrow flight summaries use world-space positions. The beginning of the green path should match the arrow at the bow's centre and align with the red aim guide. Y may arc downward later because gravity is expected.
-- Repeated identical tables usually mean the action was repeated. They are not a leak by themselves.
-- Zero moving samples while idle is expected. Zero samples during a visibly completed requested action is suspicious.
-- `NaN`, infinite coordinates, a large unexplained vertical range, or an action path behind the actor indicates a real defect.
-
-## Check Each Combat Family
-
-For melee weapons:
-
-- Confirm the idle weapon does not point into or penetrate the ground.
-- Confirm a thrust travels from guard toward character-forward and returns cleanly.
-- Confirm the hand remains on the grip throughout the action.
-- Confirm an equipped shield stays on the left hand on foot and mounted, including lance use. Bow and legacy two-handed greatsword actions require unequipping the shield.
-
-For bows:
-
-- For Maki, use the [side-on stance and fixed equipment contract](../humanoid-rig-skinning/references/posed-source-characters.md). Check full-body standing hold, moving hold, stopping, and mounted hold in the real game; a correct upper-body preview can hide forward-facing feet or stale loadout choices. After mounting or changing equipment, wait for the production controller to evaluate the new state before freezing and measuring the pose.
-
-- Confirm the upper limb reaches near the forehead.
-- Confirm the bow body curves toward the target while the string and nock sit toward the archer.
-- Confirm the drawing hand meets the centre nock and the arrow tail begins at that same point.
-- Confirm the launched arrow begins at the bow centre and its initial green path agrees with the red aim guide.
-- Check both Player and a true bow-equipped NPC because they share `CharacterBowVisual`; Roman ranged units use pilums instead.
-
-For mounted combat:
-
-- Confirm the rider is seated on the saddle.
-- In the horse studio, cycle all three coats and confirm only the horse body coat changes; tack, mane, tail, hooves, and eyes must remain source-consistent.
-- Confirm the status HUD reports exactly one mixer and the selected LOD/clip; orbit close to and far from the horse to exercise LOD changes.
-- Check mane/tail attachment and card silhouettes in idle, gallop, jump, land, hit, and the final death frame.
-- Toggle the skeleton and rider; confirm pelvis-to-saddle, knees, stirrups, feet, shield, and tack do not visibly intersect.
-- For lance idle, preserve the current Sword-Idle-derived body/hand pose plus the fixed lance attachment. Do **not** reintroduce the retired lance Ready pose, palm-up correction, two-hand support, lance IK, or lance-specific finger morph in unrelated work.
-- During lance attack, confirm only the intended right-arm FK extension advances the weapon while the fixed attachment and existing event timing remain intact.
-- Confirm the lance points generally along character +Z and the left hand retains the shield when a shield is equipped.
-- Use the horse studio `L` / `Q` / `F` controls to compare mounted sword, mounted lance, shielded/unshielded states, and attack/recovery without changing scenarios.
-
-For grounding:
-
-- Hard-reload before judging changes to visual offsets.
-- Inspect Player and NPCs from the side on comparable terrain.
-- Confirm boot soles meet the terrain without sinking or floating; do not infer grounding only from the physics-root position.
-
-## Separate Game Errors from Extension Noise
-
-Normally ignore these when they originate from `contentscript.js` or another extension bundle:
-
-- `MaxListenersExceededWarning`
-- `ObjectMultiplex - orphaned data for stream ...`
-- MetaMask, GPT extension, or extension liveness warnings
-- `favicon.ico 404`
-
-Investigate these as game failures:
-
-- errors referencing `src/`, a Vite module, `Game.ts`, `Player.ts`, `NPC.ts`, `CharacterBowVisual.ts`, or `CharacterCombatAnimator.ts`
-- unhandled `TypeError`, rejected promises, or repeated application exceptions
-- missing project assets other than the favicon
-- `NaN` or infinite values in trajectory output
-- no action samples despite a visibly completed attack
-
-When reporting a failure, copy the first relevant application stack trace, its source file and line, the exact URL, and the action that triggered it. Do not paste the entire extension-warning stream.
+- melee 摘要是角色 local 座標，正式前方 `+Z`；arrow flight 是 world 座標。不要跨座標直接比較，飛行後段重力下墜正常。
+- nock bounds 只能補充外觀，不能證明弓身朝向正確。idle 沒 moving samples 正常；明明完成動作卻無 samples 才需追查。
+- 優先追查 `src/` stack、遺失遊戲資產、未處理例外、NaN／Infinity。擴充套件來源警告或 favicon 404 不等同遊戲故障。
+- 失敗回報第一個相關 stack、URL 與觸發操作；原始日誌留本機，不複製整串進 PROGRESS。

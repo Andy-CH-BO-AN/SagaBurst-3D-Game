@@ -1,6 +1,6 @@
 # 來源、版本與安裝
 
-這份繁體中文版及其三個技能依賴，均來自 [Matt Pocock 的 skills 儲存庫](https://github.com/mattpocock/skills/tree/d81f3a183412e71a5b1e84ca21bc1a35eea03a60)。來源固定在提交 `d81f3a183412e71a5b1e84ca21bc1a35eea03a60`，避免主分支更新後混用不同版本。
+這份繁體中文版及其三個技能依賴，均來自 [Matt Pocock 的 skills 儲存庫](https://github.com/mattpocock/skills/tree/d81f3a183412e71a5b1e84ca21bc1a35eea03a60)。原始匯入來源固定在提交 `d81f3a183412e71a5b1e84ca21bc1a35eea03a60`。本機後續修訂以 Git 差異為準，不宣稱與該提交逐字相同。
 
 | 技能 | 上游目錄 | 本次處理 |
 | --- | --- | --- |

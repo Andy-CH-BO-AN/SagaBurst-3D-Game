@@ -1,105 +1,34 @@
-# Project Rules & Agent Guidelines
+# SagaBurst — 專案開發規則
 
-Welcome to the **3D Web Action RPG (A Tribute to Skyrim)** project!
-If you are an AI agent picking up this project, please read these guidelines carefully to quickly get up to speed.
+## 文件入口
 
-## 1. Core Architecture & Design Philosophy
-- **Licensed External Characters and Mounts**: External GLB/FBX people and mounts are allowed only after source/license, proportions, skeleton/socket, LOD, skinning/deformation, compression, performance, and browser validation. Read `skills/humanoid-rig-skinning/SKILL.md` before changing character assets or their runtime adapter. The Phase-23 horse additionally requires source-derived PBR/groom evidence, one shared rig with independent instance skeletons/mixers, KTX2/Meshopt, three audited LODs, and the isolated mount studio. Procedural weapons/shields and the legacy Black Cat/Corgi save-compatible visuals remain supported.
-- **Vanilla Three.js**: No React Three Fiber. Everything is handled via direct DOM manipulation and vanilla Three.js scene graphs.
-- **Custom Physics Engine**: We do not use Ammo.js, Cannon.js, or Rapier. All physics (gravity, collision, Raycasting, heightmap matching) are handled manually using pure Math and line-segment / sphere intersection tests. See `Terrain.ts` (`getTerrainHeight`, `resolveObstacleCollision`) and `Game.ts`.
-- **Pure Web Audio API**: No external sound files. All audio (swords, bows, hit impacts, UI chimes) are procedurally synthesized using `AudioContext` oscillators and noise buffers. See `SoundManager.ts`.
+`ai_share/` 是文件與專案 skill 的正本；`.agents/`、`.codex/` 的入口或連結不另存副本。依任務讀取，不必每次載入所有文件：
 
-## 2. Key Systems to Understand
-- **Game.ts**: The master orchestrator. Handles the main game loop (`requestAnimationFrame`), entity updates, global collision detection, and UI integration.
-- **NPC.ts**: Universal entity class for both enemies (Bandits, Romans) and allies (Vikings). Driven by a Finite State Machine (IDLE, ALERT, CHASE, ATTACK). They can generate as Cavalry.
-- **Mount.ts / HorseAssetRegistry.ts**: `Mount` owns gameplay state, HP, collision and movement. The registry asynchronously preloads the licensed horse runtime package, shares geometry/material/texture/clip resources, and creates an independent skeleton plus one mixer per horse. Legacy Black Cat/Corgi types retain the previous committed procedural appearance for save compatibility and are not used for new scene spawns; do not restart their external rebuild inside horse work.
-- **Player.ts & PlayerInput.ts**: Handles the capsule avatar, pointer lock camera rotation, jumping, attacking, and drawing bow strings.
-- **RPG Systems**: Look at `WeaponDatabase.ts` for all weapon configurations, `InventoryManager.ts` for items owned, and `SkillManager.ts` for XP and level-ups.
+- [ARCHITECTURE.md](ARCHITECTURE.md)：目前模組職責、跨模組契約與程式入口。
+- [PROGRESS.md](PROGRESS.md)：目前交接狀態與已知限制。
+- [PLAN.md](PLAN.md)：尚未完成的方向；不是已完成階段的歷史表。
+- [EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md)：裝備外觀清單。
 
-## 3. Important Implementation Rules
-- **Maintain Naming Conventions**: Keep consistent naming for HTML DOM IDs (kebab-case) and TypeScript classes/variables (PascalCase/camelCase).
-- **Local +Z is Gameplay Forward**: Imported humanoids and the Phase-23 horse are normalized to local `+Z`; movement headings use `Math.atan2(dx, dz)`. Do not add per-model runtime flips to compensate for a wrongly exported asset.
-- **DOM Overlay over WebGL**: All UI (Health bars, Stamina bars, Inventory Grid) is purely HTML/CSS overlaid on top of the `<canvas>`. Do NOT try to build UI using `three-mesh-ui` or 3D text unless specifically requested. Update DOM elements inside `Game.ts` or dedicated UI classes.
-- **Temporary Validation Files**: 一次性的截圖、量測 JSON、探針及驗收腳本一律放在已忽略的 `output/`（例如 `output/playwright/`、`output/local-diagnostics/`）。不要複製到受版本控制的 `artifacts/` 或 `tools/`，也不要用 `git add -f` 提交；持續維護的程式測試與必要資產另依其用途管理。
-- **Document Only Durable Changes**: 不要機械式地在每個任務結束後同時擴寫 `ARCHITECTURE.md` 與 `PROGRESS.md`。
-  - 只有 durable architecture / contract 改變時才更新 `ARCHITECTURE.md`；一次性驗證流程、raw benchmark、截圖清單與 PR 細節不要放進去。
-  - 只有新的 merged/current milestone 會實質影響後續 handoff、已知限制或下一步方向時才更新 `PROGRESS.md`。
-  - `PROGRESS.md` 必須保持精簡：以 current status、最近成果、已知限制與 next investigation 為主；新內容若取代舊結論，應壓縮或替換舊段落，而不是永久追加完整歷史。
-  - 不要把完整 PR description、逐輪 benchmark table、逐幀比對、截圖數量/清單、暫存路徑或一次性 diagnostic report 複製進 `PROGRESS.md`。詳細證據留在 merged PR / Git history；本機一次性產物留在 ignored `output/`。
+只在契約、交接或方向實際改變時更新對應文件；被新結論取代的內容直接替換。歷史實作與驗收證據查 Git／PR，不複製回以上文件。
 
-## 4. How to Start a New Task
-1. Read `PLAN.md` to see the roadmap context.
-2. Read `PROGRESS.md` to know what was recently implemented.
-3. If the task changes or diagnoses browser-visible combat behavior, read and follow `skills/combat-browser-validation/SKILL.md` before validating it.
-4. Before loading a newly exported horse asset in a browser, import its raw GLB into a clean Blender scene and compare true orthographic front/side REST and representative-animation renders against the working source. Reject collapsed, exploded, intersecting, or mismatched anatomy before compression or browser validation.
-5. Use `?devmodels=mounts&nolock` for isolated horse variant, LOD, skeleton, rider, socket, and animation review before release/stress scenarios.
-6. Use `grep_search` to find relevant methods (e.g., `takeDamage`, `rebuildWeapon`).
-7. Apply surgical edits to existing files using the provided tools.
-8. If the logic gets too complex, add debug logging (`console.log`) or use visual debug meshes (e.g., drawing a sphere at the collision point) to verify math.
+## 專案約束
 
-### Local GitHub and browser workflows
+- 使用 TypeScript、Vite、原生 Three.js 與 HTML/CSS UI；物理／碰撞由既有數學與地形系統處理，不另引入框架或物理引擎。
+- 音效與語音由 `SoundManager` 集中管理，現有音檔與 Web Audio 合成並用；沿用既有載入與播放路徑。
+- 正式人物與坐騎以 local `+Z` 為前方；heading 用 `atan2(dx, dz)`。匯出軸向錯誤應修資產，不加個別 runtime 翻轉補丁。
+- 保留裝備、坐騎與存檔 ID 相容性；共享資產的 geometry/material/texture 不可當作實例專屬資源銷毀。
+- 一次性截圖、探針、量測 JSON 及驗收腳本放在 ignored `output/`。可重建工具、持續維護的測試與必要授權／來源證據才進版控；不強制加入被忽略的診斷產物。
 
-- GitHub PR, issue, review, push, and other authenticated repository operations must use the host machine's local terminal `gh` / `git` credential context. Never create or update a PR from the Codex sandbox: the user cannot access that environment or log in there.
-- If `gh auth status` fails inside the sandbox, do not ask the user to sign in there; rerun the authenticated GitHub operation in the host's local terminal. A successful `git push` does not imply that sandbox `gh` authentication is available.
-- Performance benchmarks that depend on WebGL, GPU timing, headed UI, or local credentials must run in the local environment with the user's installed browser and display. Do not substitute a sandbox browser, in-app browser, headless browser, or software-rendered environment unless the task explicitly requests a non-production diagnostic.
+## 任務相關流程
 
-## 5. Think Before Coding
+| 任務 | 使用的 skill |
+| --- | --- |
+| 人物資產、骨架或蒙皮 | [humanoid-rig-skinning](skills/humanoid-rig-skinning/SKILL.md) |
+| 戰鬥動畫匯入、握持或命中時序 | [add-combat-animation](skills/add-combat-animation/SKILL.md) |
+| 坐騎模型與騎姿 | [mount-from-reference](skills/mount-from-reference/SKILL.md) |
+| 瀏覽器可見的戰鬥／移動修正 | [combat-browser-validation](skills/combat-browser-validation/SKILL.md) |
+| 效能 A/B 或渲染成本歸因 | [sagaburst-performance-benchmark](skills/sagaburst-performance-benchmark/SKILL.md) |
 
-Don't assume. Don't hide confusion. Surface tradeoffs.
+程式變更執行相關測試及 `rtk npm run build`（含 TypeScript 檢查）；跨系統變更執行 `rtk npm test`。純文件修改檢查連結、內容與差異即可。
 
-Before implementing:
-
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them—don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-## 6. Simplicity First
-
-Minimum code that solves the problem. Nothing speculative.
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-- Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 7. Surgical Changes
-
-Touch only what you must. Clean up only your own mess.
-
-When editing existing code:
-
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it—don't delete it.
-
-When your changes create orphans:
-
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-- The test: Every changed line should trace directly to the user's request.
-
-## 8. Goal-Driven Execution
-
-Define success criteria. Loop until verified.
-
-Transform tasks into verifiable goals:
-
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-
-1. `[Step]` → verify: `[check]`
-2. `[Step]` → verify: `[check]`
-3. `[Step]` → verify: `[check]`
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-These guidelines are working if: fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-*Dedicate your heart, and happy coding!*
+GitHub 認證操作使用本機 `gh`／`git` 登入環境，不要求在隔離環境重新登入。GPU 效能驗證使用本機有畫面的 Chrome 與實際 GPU；具體量測規則由 benchmark skill 維護。

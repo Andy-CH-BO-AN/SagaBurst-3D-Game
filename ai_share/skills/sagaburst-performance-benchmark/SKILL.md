@@ -1,146 +1,75 @@
 ---
 name: sagaburst-performance-benchmark
-description: 用固定的 browser lifecycle、warm-up、20 秒取樣與 JSON 輸出，量測 SagaBurst 100v100 Mount Update 與 Renderer Submit；適用於 Mount、NPC、combat scenario 的效能 A/B、hotspot 分析與 Renderer Cost Isolation。
+description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測 SagaBurst 大型戰鬥的 Mount/NPC Update、Renderer Submit 與陰影成本；適用效能 A/B 與 hotspot 歸因。
 ---
 
 # SagaBurst 效能量測
 
-這個 skill 用於 SagaBurst 的可重複效能量測。它只負責啟動瀏覽器、取樣、輸出 raw JSON 與計算比較，不修改遊戲規則、AI、移動、碰撞或動畫品質。
+使用本 skill 的既有 Playwright runner 量測；一般畫面操作另用 [combat-browser-validation](../combat-browser-validation/SKILL.md) 的 Playwright CLI。不要以單張 HUD 或手動取樣代替效能 runner，也不為量測默默改遊戲規則、動畫品質或 AI。
 
 ## 執行環境
 
-- Benchmark 必須在 local repo terminal 執行，使用 local headed Google Chrome、local display 與 local GPU/WebGL context。不要使用 Codex sandbox browser、in-app browser、headless browser 或 software-rendered fallback。
-- macOS 預設使用 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`；若 Chrome 不在該位置，設定 `SAGABURST_CHROME_PATH` 指向本機 Chrome executable。找不到 local Chrome 時應停止並回報，不要靜默改用 Playwright bundled Chromium。
-- GitHub PR、push、issue 或其他需要登入的操作使用 local terminal 的 `gh` / `git` credentials；不要要求使用者在 sandbox 內登入 GitHub。這些操作不屬於 benchmark runner 本身，但同一輪任務若需要發 PR，必須遵守此環境界線。
+- 使用本機有畫面的 Google Chrome、display 與 GPU/WebGL；不以 headless、軟體渲染或 in-app browser 數據宣稱正式效能。
+- macOS 預設 Chrome 路徑為 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`；其他位置以 `SAGABURST_CHROME_PATH` 指定。不靜默改用 bundled Chromium。
+- 從 repo root 執行，先確認既有 Vite 位址；需要時傳 `--host=HOST:PORT`。runner 預設 `127.0.0.1:5173`，使用 DEV profiler／census hooks，不能把其結果稱為未插樁 production build 量測。
+- 每次執行一個 browser process／page，run 間重新導向；baseline/candidate 使用相同硬體、瀏覽器、場景、相機、畫面尺寸與取樣設定，記錄 commit 及插樁差異。JSON、截圖與臨時 builds 放 ignored `output/`。
 
-## 標準規則
+## 選場景與窗口
 
-- 每個 benchmark 使用一個 browser process 與一個 page，run 之間只重新導向 URL。
-- 預設 warm-up 3 秒，之後連續觀察 20 秒；不要用單筆 HUD snapshot 當結果。
-- Before Contact 使用 3 runs，取 median；優先只保留 battle HUD 證明的 `Alive=200`、`Dead=0` windows。舊版沒有 Alive/Dead HUD 時，只有在 `NPC Count=200` 且尚未出現第一次 combat evidence 前，才可標記為 provisional spawn-plan window；第一次 evidence 之後的窗口全部排除。
-- During Combat 預設做 candidate 或 baseline 的 hotspot observation。Scenario E 一開始就是 melee scrum，不等待「接戰前」狀態；它是有效的 combat scenario。
-- Scenario D / F 以 Active Attack、Arrow Count 或 Dead 作為 combat evidence；timeout 必須輸出 failed run，不得把 timeout 當成數據。
-- 每個 run 都輸出完整 Mount subphase、Alive/Dead、Active Attack、sample count、console/page errors 與 raw samples。
-- baseline/candidate 比較必須由 compare script 自動計算 delta 與百分比，不要手算。
+| Scenario | 配置 | NPC／Horse 總數 |
+| --- | --- | --- |
+| D | 100v100 混合騎兵，Formation | 200／200 |
+| E | 100v100 全近戰騎兵，Scattered | 200／200 |
+| F | 100v100 混合騎兵，Scattered | 200／200 |
+| G | 200v200 步兵，Formation | 400／0 |
+| H | 200v200 混編，Formation；每方 60 步兵、60 遠程、40 近戰騎兵、40 騎射 | 400／160 |
+| I | 200v200 混合騎兵，Scattered | 400／400 |
 
-## Scenario 清單
+E/F/G/H/I 使用 initial spectator；D–I 均 no respawn、no camps。配置以 `src/battle/BattleConfig.ts` 的 `PRESET_SCENARIO_*` 與 runner 的 scenario 表為準。J 已有遊戲診斷場景，但目前此 runner 未支援，不直接傳 `--scenario=J`。
 
-- **Scenario D**：100v100 Cavalry / Horse Archer（Formation, 每方 50 Cavalry + 50 Horse Archer, 200 NPC, 200 horses）。
-- **Scenario E**：100v100 All-Melee Cavalry（Scattered, Initial Spectator, No respawn, No camps, 200 NPC, 200 horses）。
-- **Scenario F**：100v100 Mixed Cavalry Stress（Scattered, Initial Spectator, No respawn, No camps, 200 NPC, 200 horses）。
-  每方：
-  - 50 melee cavalry
-  - 50 horse archers
-  全場包含多材質、多骨架、弓箭發射與飛行軌跡，是理想的複合騎兵與渲染壓力場景。
-- **Scenario G**：200v200 Infantry（Formation, 400 NPC, 0 horses）。
-- **Scenario H**：200v200 Mixed（Formation, Initial Spectator, No respawn, No camps, 400 NPC, 160 horses）。每方 60 Infantry、60 Archer、40 Cavalry、40 Horse Archer。
-- **Scenario I**：200v200 Cavalry Stress（Scattered, Initial Spectator, No respawn, No camps, 400 NPC, 400 horses）。每方 100 Cavalry、100 Horse Archer。
+- 一般窗口預設 warm-up 3 秒、觀察 20 秒。注意：目前 before-contact 從 recorder 啟動後收集所有接戰前合格樣本，含 warm-up；during-combat 才按 observationStart 過濾。比較必須使用相同 runner 版本與實際樣本範圍，不能把 before-contact 說成純 warm-up 後 20 秒。
+- **before-contact**：預設 3 runs 取 median。只採 `Alive=該場景 NPC 總數`、`Dead=0` 且未出現攻擊／投射物證據的 samples。解析端保留 spawn-plan provisional 標記，但目前啟動 gate 仍要求初始 Alive/Dead 及 Horse 數正確；缺這些 HUD 的舊版會失敗，不可宣稱自動相容。歷史 provisional 報表不能等同存活數驗證。
+- **during-combat**：預設 1 run 作 hotspot 探索。E 開場即混戰，其餘依 HUD 的 Active Attack／Arrow Count／Dead 等待戰鬥證據；逾時屬失敗，不能當量測值。
+- 明確指定 scenario 與 phase。不要直接使用預設 `all`／before-contact 把開場即混戰的 E 混進比較。
+- 保留成功／失敗狀態、sample count、Alive/Dead、Active Attack、errors 及 raw samples。缺內部 Mount profiler 的 baseline 使用 `--no-subphase`，缺值不得補成 0。
 
-## Renderer Cost Isolation 模式
+## 一般量測與比較
 
-用於快速拆解 `Renderer Submit` 時間的真正瓶頸來源（Shadow vs Pixel/Fill vs Shader/Material complexity vs CPU submission）。
-
-可選 probe（對應 DEV diagnostic switch）：
-- `normal` → `?devcombat=f&nolock`
-- `no-shadow` → `?devcombat=f&nolock&perfNoShadow`
-- `half-resolution` → `?devcombat=f&nolock&perfHalfResolution`
-- `simple-material` → `?devcombat=f&nolock&perfSimpleMaterial`
-
-### Isolation 使用原則
-
-- 第一輪預設 **1 run / probe**，1280x720 headed Chrome，3s warm-up，20s observation。
-- 目的在於找 **magnitude / bottleneck direction**，不要一開始就跑 `4 probes × 3 runs`。
-- 若某個 probe 出現巨大差異（如 Submit 40ms → 25ms），後續才針對該方向做進一步驗證與拆解。
-
-## Fixed-Scene Shadow Isolation (固定場景陰影歸因診斷)
-
-用於精準拆解 Shadow 渲染路徑成本與陰影投射人口結構，完全排除動態戰況（存活數、箭矢數、LOD 分佈、鏡頭）干擾。
-
-### 診斷流程
-
-1. 啟動 Scenario F (`?devcombat=f&nolock`)
-2. 偵測 Combat Evidence (Active Attack > 0 || Arrow Count > 0 || Dead > 0)
-3. 戰況展開固定 4 秒
-4. Simulation Freeze (凍結所有 NPC、戰馬、箭矢推進與鏡頭輸入，保持 requestAnimationFrame 與 Renderer Submit 運作)
-5. **Window A (Shadow ON #1)**: 隔離 RuntimeProfiler，1 秒穩定，4 秒取樣，取 MainPassCensus 與 ShadowPassCensus
-6. **Window B (Shadow OFF)**: 同一畫面不 reload，關閉 shadowMap，隔離 RuntimeProfiler，1 秒穩定，4 秒取樣，取 MainPassCensus 驗證 non-shadow invariant (submissions/triangles 必須完全相等)
-7. **Window C (Shadow ON #2)**: 重新開啟陰影，驗證 Submit 是否無異常 drift 並回到 ON #1 水平
-8. 執行嚴格 Invariant 檢查（Alive/Dead、Arrow、Horse、Camera transform、Main non-shadow calls/tris 必須 100% 吻合）
-9. 輸出 A/B 比較表與 Shadow Pass Census (類別：Horse, Viking Humanoid, Roman Humanoid, Equipment, Other / Static)
-
-## 執行方式
-
-在 repo root 執行：
-
-### 1. 標準 Mount / NPC Benchmark
-```bash
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=D --phase=before-contact --runs=3 --tag=candidate
+```sh
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs --help
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs --scenario=D --phase=before-contact --runs=3 --tag=baseline --out=output/local-diagnostics/d-baseline.json
+# 切到待比較版本、確認同樣設定後執行：
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs --scenario=D --phase=before-contact --runs=3 --tag=candidate --out=output/local-diagnostics/d-candidate.json
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs --scenario=D --baseline=output/local-diagnostics/d-baseline.json --candidate=output/local-diagnostics/d-candidate.json
 ```
 
-Scenario E 的 combat observation：
-```bash
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=E --phase=during-combat --runs=1 --tag=candidate-e-combat
+compare script 計算 median、delta 與百分比，但不驗證兩份輸入的硬體、phase 或場景配置是否可比較；執行前先核對。比較必須同為 baseline/candidate 的配對窗口，不能把舊 PR 報表當當前 baseline。
+
+## Renderer 成本歸因
+
+`mount-benchmark.mjs` 支援 `--render-probe=normal|no-shadow|half-resolution|simple-material`，對應 DEV 的 `perfNoShadow`／`perfHalfResolution`／`perfSimpleMaterial`。先各跑 1 次 F 的 during-combat，1280×720、3 秒 warm-up、20 秒取樣；再針對明顯方向追加驗證。
+
+```sh
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs --scenario=F --phase=during-combat --runs=1 --render-probe=normal --out=output/local-diagnostics/f-normal.json
+# 依序換 probe 與 out 檔名後，比較已完成的四份報表：
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs --scenario=F --normal=output/local-diagnostics/f-normal.json --no-shadow=output/local-diagnostics/f-no-shadow.json --half-resolution=output/local-diagnostics/f-half-resolution.json --simple-material=output/local-diagnostics/f-simple-material.json
 ```
 
-### 2. Scenario F Renderer Isolation Probes
-```bash
-# Probe A: Normal
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=F --phase=during-combat --runs=1 --render-probe=normal \
-  --tag=f-probe-normal --out=output/local-diagnostics/f-probe-normal.json
+## 固定場景陰影診斷
 
-# Probe B: Shadow OFF
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=F --phase=during-combat --runs=1 --render-probe=no-shadow \
-  --tag=f-probe-no-shadow --out=output/local-diagnostics/f-probe-no-shadow.json
+`fixed-scene-shadow-benchmark.mjs` 在戰鬥開始後預設展開 4 秒，freeze 遊戲狀態但保留 render，再測 Shadow ON → OFF → ON。每窗穩定 1 秒、量測 4 秒，計時窗外取 main/shadow census。
 
-# Probe C: Half Resolution
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=F --phase=during-combat --runs=1 --render-probe=half-resolution \
-  --tag=f-probe-half-resolution --out=output/local-diagnostics/f-probe-half-resolution.json
+目前 runner 隨後還執行 shadow-map resolution sequence，預設 `2048,1024,512,256,2048`；`--resolution-only` 可只測此序列。`--shadow-map-size` 與 `--shadow-map-sizes` 擇一，不能同時傳。
 
-# Probe D: Simple Material
-node ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs \
-  --scenario=F --phase=during-combat --runs=1 --render-probe=simple-material \
-  --tag=f-probe-simple-material --out=output/local-diagnostics/f-probe-simple-material.json
+```sh
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs --help
+rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs --scenario=F --out=output/local-diagnostics/f-shadow.json
 ```
 
-### 3. 多 Probe 結果對比
-```bash
-node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs \
-  --scenario=F \
-  --normal=output/local-diagnostics/f-probe-normal.json \
-  --no-shadow=output/local-diagnostics/f-probe-no-shadow.json \
-  --half-resolution=output/local-diagnostics/f-probe-half-resolution.json \
-  --simple-material=output/local-diagnostics/f-probe-simple-material.json
-```
+驗證 Alive/Dead、Arrow、Horse、camera、非 shadow submissions／triangles 在同場景切換前後不變，並檢查返回原設定時的 drift。這是成本歸因，不等同一般動態戰鬥 FPS。
 
-### 4. Fixed-Scene Shadow Breakdown (固定場景陰影與 Census 診斷)
-```bash
-# AGY 本機執行入口（.agents 連結至 ai_share）
-node .agents/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
+## 結果與工具驗證
 
-# 或標準 repo 執行入口
-node ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
-```
-
-## 判讀限制
-
-- Before Contact 是正式 A/B performance comparison；如果沒有可靠 Alive/Dead，或 provisional window 不足，報告不足，不要把 `NPC Count` 當成戰場存活數，也不要補值。
-- E 與 F 的 combat 數據不是無效數據；它應該用來回答亂戰中的 Hotspot 與 Submit 特徵。若兩邊 Alive/Dead 進度不同，只把它當 hotspot context，不能宣稱是嚴格的 FPS 因果 A/B。
-- Fixed-Scene Shadow Isolation 是歸因診斷工具，不是一般 combat FPS benchmark；其結果用於鎖定陰影管線各類 caster 的負載權重。
-- exact main 若沒有內部 Mount profiler，必須明確標記 subphase baseline 來自 profiling-only checkpoint，不要假裝 exact main 有該數據。
-- benchmark script 的 `performance.now()` 只存在於 DEV browser recorder；不要把這套 recorder 複製進 production runtime。
-
-## 完成前檢查
-
-```bash
-node --check ai_share/skills/sagaburst-performance-benchmark/scripts/mount-benchmark.mjs
-node --check ai_share/skills/sagaburst-performance-benchmark/scripts/compare-benchmark.mjs
-node --check ai_share/skills/sagaburst-performance-benchmark/scripts/fixed-scene-shadow-benchmark.mjs
-npm test -- --run
-npm run build
-git diff --check
-```
+- `Renderer Submit` 是 `renderer.render()` 的 CPU 側耗時，可含 driver／GPU back-pressure，不是純 GPU 時間。預設 `renderer.info` 通常只含 main pass；mesh 數不等於 submissions。
+- 動態戰況若 Alive/Dead 或 LOD 分布不同，只能作 hotspot context，不能據此宣稱 FPS 因果收益。舊版缺 profiler／hook 時明確報告限制或 profiling-only checkpoint。
+- 修改 runner 後做 `node --check`、離線解析／比較案例及受影響的本機 browser smoke check；遊戲程式變更才依 AGENTS 跑相關測試與 build。純文件修正不啟動長時間 benchmark。

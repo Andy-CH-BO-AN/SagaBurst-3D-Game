@@ -5,7 +5,7 @@
 - Units: metres; exported scene scale `(1, 1, 1)`.
 - Character root origin: ground projection below the pelvis.
 - Up: `+Y`; production humanoid/horse forward: `+Z`; anatomical right: `-X`. Legacy procedural fixtures retain their own `-Z` convention.
-- Viking height: `1.86 m`; Roman height: `1.78 m`; tolerance `±0.02 m`.
+- Ordinary Viking height: `1.86 m`; ordinary Roman height: `1.78 m`; tolerance `±0.02 m`. Heroes and source-proportion variants use the measured `HumanoidAssetDescriptor` in `HeroAssetCatalog.ts` or their asset descriptor; do not resize them to ordinary faction dimensions.
 - Viking outer shoulder width: at most `0.54 m`; Roman: at most `0.46 m`.
 - Neck landmark length: `0.09 m`, tolerance `±0.015 m`.
 - Knee height: about `0.29 × height`; head height: about `0.13 × height`.
@@ -31,7 +31,7 @@ Sockets may be non-deforming bones or named empties parented to the relevant bon
 
 ## Deformation poses
 
-Approve front and side neutral pose plus: arms overhead, arms forward, elbow 120°, deep knee bend, wide mounted hips, bow draw, shield guard, two-handed thrust, walk extremes, jump tuck, and death side fall. Reject collapsing axillae, candy-wrapper limbs, detached armour, pelvis gaps, or large saddle/leg intersections.
+Use front/side neutral and stress poses for the affected joints: overhead/forward arms, bent elbows and knees, and the supported walk, bow, shield, mounted, jump and death actions. Two-hand stress poses are asset checks, not a requirement to restore the retired two-hand lance gameplay pose. Reject collapsing axillae, candy-wrapper limbs, detached armour, pelvis gaps, or large saddle/leg intersections.
 
 ## Runtime LOD targets
 

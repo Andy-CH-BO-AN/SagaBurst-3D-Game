@@ -5,7 +5,7 @@
 ## 保留來源並建立獨立資產
 
 - 複製各 LOD、manifest、bone-map 與 attribution，保留來源 hash。英雄使用獨立 descriptor、可修改的材質／貼圖副本；普通人物保持原樣。
-- 先離線等比增高，再判斷是否需要局部增壯。同步處理 mesh、node rest translations、inverse bind、socket、握持量測與動畫 position 軌；只改 mesh 會使關節和掛點錯位。輸出 root scale 維持 `(1,1,1)`。
+- 只有需求包含尺寸改變時才離線等比縮放，再判斷是否需要局部體型修正。同步處理 mesh、node rest translations、inverse bind、socket、握持量測與動畫 position 軌；只改 mesh 會使關節和掛點錯位。輸出 root scale 維持 `(1,1,1)`。
 - 量解剖頭頂與裸足面，不沿用 manifest 的含盔整體高度。每層重新量測；減面差異如實記錄。
 - 檢查 loader 依 faction 套用的附件、材質修正、握持與合批。來源 GLB 專用的 hash/audit 或最佳化不能套到變體；用 descriptor 或明確相容性條件限制，不重寫 registry。
 
@@ -21,7 +21,7 @@
 
 - 先確認材質、UV islands 和實際貼圖區域。皮膚／眼睛不跟隨盔甲改色；保留原 UV、法線與可辨識的磨損。不要把整張混合 atlas 乘上深色。
 - 只用色相閾值找金色，會把銹斑判成金邊，也會漏掉被暖色或深色污染的鈕扣中心。以幾何用途和 UV 範圍為主，色彩遮罩為輔；小範圍形態學清理可去碎斑、填補金屬裝飾內孔。
-- 修鈕扣或窄包邊时使用有界 UV 遮罩。Atlas 的不同 islands 可能緊鄰；無界 flood fill 或過度膨脹會跨到皮膚／布料。檢查輸出的影像，不只看遮罩運算是否成功；Pillow 轉出的 numpy view 可能唯讀，需要可寫副本。
+- 修鈕扣或窄包邊時使用有界 UV 遮罩。Atlas 的不同 islands 可能緊鄰；無界 flood fill 或過度膨脹會跨到皮膚／布料。檢查輸出的影像，不只看遮罩運算是否成功；Pillow 轉出的 numpy view 可能唯讀，需要可寫副本。
 - 黑鋼仍需能看清曲面；深色布料在中性照明下與金屬有區別。用 base color 和合理 PBR 參數達成，避免靠極端曝光或粗糙度遮掩錯誤。
 - 同時看正面和背面。背後亮藍可能來自另一件內襯材質或真正穿模，不能只把正面 tunic 改深。低 LOD 的淺色斑也可能是減面後的 UV 邊界，不是皮膚：先查命中的 mesh／triangle／材質再改幾何。
 
