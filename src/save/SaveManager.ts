@@ -20,9 +20,9 @@ export interface PlayerSaveData {
   arrows: number
   skills: {
     oneHanded: SkillDetail
-    twoHanded: SkillDetail
-    ranged: SkillDetail
-    mountedImpact: SkillDetail
+    twoHanded?: SkillDetail
+    ranged?: SkillDetail
+    mountedImpact?: SkillDetail
     /** Legacy pre-four-skill save compatibility. */
     archery?: SkillDetail
   }
