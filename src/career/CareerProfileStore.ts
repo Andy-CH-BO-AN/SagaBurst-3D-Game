@@ -1,5 +1,6 @@
 import { isCareerOutpostStageId, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
+import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
@@ -14,6 +15,7 @@ import {
 } from './CareerProfile'
 import { getRecruitMissionTemplate } from './CareerMissionCatalog'
 import type { ActiveCareerMission, CareerMissionPhase } from './CareerMissionState'
+import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
 
@@ -85,23 +87,29 @@ function parseMissionMountState(value: unknown): ActiveCareerMission['mountState
   return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
 }
 
-function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
+function parseActiveMission(value: unknown, faction: CareerProfile['faction']): ActiveCareerMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   const template = typeof raw.templateId === 'string' ? getRecruitMissionTemplate(raw.templateId) : null
+  const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
+  const duelOpponentActorId = typeof raw.duelOpponentActorId === 'string' ? raw.duelOpponentActorId.trim() : ''
+  const duelCaptainActorId = typeof raw.duelCaptainActorId === 'string' ? raw.duelCaptainActorId.trim() : ''
+  const duelRefereeActorId = typeof raw.duelRefereeActorId === 'string' ? raw.duelRefereeActorId.trim() : duelCaptainActorId
+  if (duel && (!isCareerDuelTier(raw.duelTier) || !isCareerDuelPresetId(raw.duelPresetId)
+    || UNIT_PRESETS[raw.duelPresetId].faction !== faction || !duelOpponentActorId || !duelCaptainActorId || !duelRefereeActorId)) return undefined
   if (
     typeof raw.id !== 'string' || !raw.id
-    || !template
-    || !Number.isInteger(raw.targetCampId) || ((template.kind === 'town-defense' || template.kind === 'enemy-town-assault')
+    || (!template && !duel)
+    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault')
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
   ) return undefined
-  const targetActorIds = uniqueStrings(raw.targetActorIds)
-  const friendlyActorIds = uniqueStrings(raw.friendlyActorIds)
-  if (template.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
-  if (template.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
-  if (targetActorIds.length === 0 || friendlyActorIds.length === 0) return undefined
+  const targetActorIds = duel ? [duelOpponentActorId] : uniqueStrings(raw.targetActorIds)
+  const friendlyActorIds = duel ? (duelRefereeActorId === duelOpponentActorId ? [] : [duelRefereeActorId]) : uniqueStrings(raw.friendlyActorIds)
+  if (template?.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
+  if (template?.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
+  if (targetActorIds.length === 0 || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
@@ -110,8 +118,8 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
 
   const mission: ActiveCareerMission = {
     id: raw.id,
-    templateId: template.id,
-    kind: template.kind,
+    templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
+    kind: duel ? 'duel' : template!.kind,
     targetCampId: raw.targetCampId as number,
     phase: raw.phase as CareerMissionPhase,
     targetActorIds,
@@ -120,6 +128,19 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
     playerDead: raw.playerDead === true,
+    ...(duel ? {
+      duelTier: raw.duelTier as UnitTier,
+      duelPresetId: raw.duelPresetId as UnitPresetId,
+      duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
+      duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
+      duelCombatElapsed: Math.min(DUEL_COMBAT_SECONDS, nonNegativeNumber(raw.duelCombatElapsed)),
+      duelOpponentDead: raw.duelOpponentDead === true || uniqueStrings(raw.deadTargetActorIds).includes(duelOpponentActorId),
+      ...(typeof raw.duelOpponentHp === 'number' && Number.isFinite(raw.duelOpponentHp) && raw.duelOpponentHp >= 0 ? { duelOpponentHp: raw.duelOpponentHp } : {}),
+      ...(typeof raw.duelOpponentMountHp === 'number' && Number.isFinite(raw.duelOpponentMountHp) && raw.duelOpponentMountHp >= 0 ? { duelOpponentMountHp: raw.duelOpponentMountHp } : {}),
+      ...(typeof raw.duelPlayerHp === 'number' && Number.isFinite(raw.duelPlayerHp) && raw.duelPlayerHp >= 0 ? { duelPlayerHp: raw.duelPlayerHp } : {}),
+      ...(typeof raw.duelPlayerStamina === 'number' && Number.isFinite(raw.duelPlayerStamina) && raw.duelPlayerStamina >= 0 ? { duelPlayerStamina: raw.duelPlayerStamina } : {}),
+      ...(typeof raw.duelOpponentAmmo === 'number' && Number.isFinite(raw.duelOpponentAmmo) && raw.duelOpponentAmmo >= 0 ? { duelOpponentAmmo: Math.floor(raw.duelOpponentAmmo) } : {}),
+    } : {}),
     ...(playerStats ? { playerStats } : {}),
     mountedMarchProgress: nonNegativeNumber(raw.mountedMarchProgress),
     ...(mountedMarchPosition ? { mountedMarchPosition } : {}),
@@ -133,7 +154,7 @@ function parseActiveMission(value: unknown): ActiveCareerMission | undefined {
     defenseCatDead: raw.defenseCatDead === true,
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
-    ...((template.kind === 'town-defense' || template.kind === 'enemy-town-assault') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
+    ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }
   if (raw.result && typeof raw.result === 'object') {
     const result = raw.result as Record<string, unknown>
@@ -232,7 +253,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
   const townEvent = raw.townEvent as CareerProfile['townEvent']
-  const activeMission = parseActiveMission(raw.activeMission)
+  const activeMission = parseActiveMission(raw.activeMission, raw.faction)
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
@@ -267,6 +288,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         1: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[1]),
         2: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[2]),
       } } : {}),
+    ...(raw.duelHighestDefeatedTierByPreset && typeof raw.duelHighestDefeatedTierByPreset === 'object'
+      ? { duelHighestDefeatedTierByPreset: Object.fromEntries(Object.entries(raw.duelHighestDefeatedTierByPreset)
+        .filter(([presetId, tier]) => isCareerDuelPresetId(presetId) && isCareerDuelTier(tier))) as Partial<Record<UnitPresetId, UnitTier>> } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),
     ownedWeapons,
     ownedArmors,

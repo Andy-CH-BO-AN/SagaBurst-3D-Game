@@ -147,6 +147,16 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
   return (hash >>> 0) / 4294967296
 }
 
+interface CombatEquipmentSnapshot {
+  meleeWeaponId: string | null
+  meleeDamageOverride: number | undefined
+  rangedWeaponId: string | undefined
+  rangedDamage: number
+  shieldId: string | null
+  ammo: number
+  rangedActive: boolean
+}
+
 export class NPC {
   private static nextCombatantSerial = 1
 
@@ -171,7 +181,8 @@ export class NPC {
     return this._meleeDamageOverride ?? WEAPONS[this.meleeWeaponId ?? '']?.damageMax ?? 20
   }
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
-  public readonly rangedDamage: number
+  private _rangedDamage: number
+  get rangedDamage(): number { return this._rangedDamage }
   public readonly generatedAsCavalry: boolean
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
@@ -179,6 +190,7 @@ export class NPC {
   public meleeWeaponId: string | null = 'steel_sword'
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
+  private originalCombatEquipment: CombatEquipmentSnapshot | null = null
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
 
   private formationTarget: {
@@ -212,6 +224,17 @@ export class NPC {
 
   get hasActiveRangedWeapon(): boolean {
     return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
+  }
+
+  get combatAmmo(): number { return this.arrows }
+
+  /** Restores saved ammunition after selecting a runtime loadout, without changing its canonical equipment. */
+  restoreCombatAmmo(ammo: number): void {
+    this._cancelEquipmentCombatState()
+    this.arrows = this.rangedWeaponId && Number.isFinite(ammo) ? Math.max(0, Math.floor(ammo)) : 0
+    this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null && this.specialCombatProfile !== 'maki-ranger'
+    this.bowPivot.visible = this.hasActiveRangedWeapon || this.specialCombatProfile === 'maki-ranger'
   }
 
   get staminaValue(): number { return this.stamina }
@@ -485,7 +508,7 @@ export class NPC {
       const baseRangedDamage = this.rangedWeaponId ? (WEAPONS[this.rangedWeaponId]?.damageMax ?? 20) : 0
       const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
       const rangedKind = getRangedCombatKind(weapon)
-      this.rangedDamage = this.rangedWeaponId
+      this._rangedDamage = this.rangedWeaponId
         ? applyHeroOutgoingDamage(baseRangedDamage * getRangedDamageMultiplier(rangedKind), combatProfileId)
         : 0
       this.arrows = this.rangedWeaponId ? 30 : 0
@@ -497,7 +520,7 @@ export class NPC {
 
       this.meleeWeaponId = combatProfile.meleeWeaponId
       this.rangedWeaponId = combatProfile.rangedWeaponId
-      this.rangedDamage = combatProfile.rangedDamage ?? 0
+      this._rangedDamage = combatProfile.rangedDamage ?? 0
       this.isUsingLance = combatProfile.isUsingLance
       this.shieldId = combatProfile.shieldId
       this.arrows = this.aiType === AIType.RANGED ? 30 : 0
@@ -566,21 +589,7 @@ export class NPC {
     this.bowGripPivot = new THREE.Group()
     this.bowPivot.add(this.bowGripPivot)
     const rangedKind = this.rangedCombatKind
-    if (rangedKind === 'javelin') {
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
-      this.rig.right.handSocket.add(this.bowPivot)
-      WeaponMeshFactory.buildNpcRanged(this.characterFaction, this.tier === 4 ? 3 : this.tier, this.bowGripPivot)
-    } else {
-      applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
-      this.rig.left.handSocket.add(this.bowPivot)
-      if (rangedKind === 'bow') {
-        this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-        if (this.specialCombatProfile === 'maki-ranger') {
-          const bow = createMakiRangerBowInstance()
-          this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
-        } else this.bowVisual.rebuild(this.rangedWeaponId || 'wooden_shortbow', true)
-      }
-    }
+    this._rebuildActiveRangedVisual()
 
     this.shieldPivot = new THREE.Group()
     this.rig.left.handSocket.add(this.shieldPivot)
@@ -624,22 +633,39 @@ export class NPC {
   private banditHammerTip?: THREE.Object3D
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
+  private duelHostile = false
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
     this.townArmed = true
     this._setActiveMeleeWeapon(weaponId)
     this.swordPivot.visible = true
   }
-  private get targetsPlayer(): boolean { return this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
+  private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
+  /** Local duel hostility never activates Town retaliation or targets other actors. */
+  setDuelHostility(active: boolean): void {
+    if (this.duelHostile === active) return
+    this.duelHostile = active
+    this._cancelEquipmentCombatState()
+    this.setTacticalOrder('attack')
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this._rangedVisibleTargetHoldFrames = 0
+    this.playerHitFocus = 0
+    this.alertSprite.visible = false
+    if (!this.dead) this.state = active ? AIState.CHASE : AIState.IDLE
+    this._restoreCombatReadyRangedVisual()
+  }
   setTownPeaceful(): void {
     this.townHostile = false
+    this.duelHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
   }
   beginExternalThreat(): void {
-    if (this.dead || this.townHostile) return
+    if (this.dead || this.townHostile || this.duelHostile) return
     this.animator.cancel()
     this.setTacticalOrder('charge')
     this.state = AIState.CHASE
@@ -647,7 +673,7 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
   endExternalThreat(): void {
-    if (this.dead || this.townHostile) return
+    if (this.dead || this.townHostile || this.duelHostile) return
     this.setTownPeaceful()
     this.setTacticalOrder('attack')
     this.state = AIState.IDLE
@@ -782,7 +808,7 @@ export class NPC {
     while (this.swordGripPivot.children.length > 0) {
       this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
-    if (this.specialCombatProfile === 'maki-ranger' || this.faction === Faction.BANDIT) return
+    if (!this.meleeWeaponId || this.specialCombatProfile === 'maki-ranger' || this.faction === Faction.BANDIT) return
     this.swordTipLocal.copy(
       WeaponMeshFactory.buildNpcMelee(
         this.characterFaction,
@@ -815,6 +841,89 @@ export class NPC {
     this._rebuildActiveMeleeVisual()
   }
 
+  private _rebuildActiveRangedVisual(): void {
+    this.bowVisual?.hideArrow()
+    this.bowVisual = undefined
+    this.bowGripPivot.clear()
+    this.bowGripPivot.position.set(0, 0, 0)
+    this.bowGripPivot.rotation.set(0, 0, 0)
+    this.bowGripPivot.scale.set(1, 1, 1)
+    const kind = this.rangedCombatKind
+    if (kind === 'javelin') {
+      this.rig.right.handSocket.add(this.bowPivot)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      // The chosen weapon's tier controls its visual, independently of actor tier.
+      WeaponMeshFactory.buildNpcRanged('roman', WEAPONS[this.rangedWeaponId!].tier, this.bowGripPivot)
+    } else {
+      this.rig.left.handSocket.add(this.bowPivot)
+      applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
+      if (kind === 'bow') {
+        this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+        if (this.specialCombatProfile === 'maki-ranger') {
+          const bow = createMakiRangerBowInstance()
+          this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
+        } else this.bowVisual.rebuild(this.rangedWeaponId!, true)
+        this.bowVisual.hideArrow()
+      }
+    }
+    polishWeaponMaterials(this.bowPivot)
+    this.equipmentVisualLOD.register(kind === 'javelin' ? 'pilum' : 'bow', this.bowGripPivot)
+  }
+
+  /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
+  applyTemporaryCombatLoadout(loadout: UnitLoadout): void {
+    if (!this.originalCombatEquipment) {
+      this.originalCombatEquipment = {
+        meleeWeaponId: this.meleeWeaponId,
+        meleeDamageOverride: this._meleeDamageOverride,
+        rangedWeaponId: this.rangedWeaponId,
+        rangedDamage: this.rangedDamage,
+        shieldId: this.shieldId,
+        ammo: this.arrows,
+        rangedActive: this.rangedActive,
+      }
+    }
+    this._cancelEquipmentCombatState()
+    this._meleeDamageOverride = undefined
+    this._setActiveMeleeWeapon(loadout.meleeWeaponId ?? null)
+    this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
+    const rangedWeapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    this._rangedDamage = rangedWeapon
+      ? applyHeroOutgoingDamage(rangedWeapon.damageMax * getRangedDamageMultiplier(this.rangedCombatKind), this.combatProfileId)
+      : 0
+    this.arrows = this.rangedWeaponId ? 30 : 0
+    this.rangedActive = Boolean(this.rangedWeaponId)
+    this._rebuildActiveRangedVisual()
+    this.shieldId = loadout.shieldId ?? null
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    if (this.state === AIState.ATTACK) this.state = AIState.CHASE
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.rig.animation?.update(0)
+  }
+
+  /** Multiple temporary selections still restore the equipment held before the first override. */
+  restoreCombatLoadout(): void {
+    const original = this.originalCombatEquipment
+    if (!original) return
+    this._cancelEquipmentCombatState()
+    this._setActiveMeleeWeapon(original.meleeWeaponId)
+    this._meleeDamageOverride = original.meleeDamageOverride
+    this.rangedWeaponId = original.rangedWeaponId
+    this._rangedDamage = original.rangedDamage
+    this.arrows = original.ammo
+    this.rangedActive = original.rangedActive
+    this._rebuildActiveRangedVisual()
+    this.shieldId = original.shieldId
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this.originalCombatEquipment = null
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.rig.animation?.update(0)
+  }
+
   private _cancelEquipmentCombatState(): void {
     this.animator.cancel()
     this.bowArrowReleased = false
@@ -831,7 +940,7 @@ export class NPC {
   }
 
   private _isVikingFootSpecialist(): boolean {
-    return this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
+    return this.originalCombatEquipment === null && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
       && (this.presetId === 'viking_berserker' || this.presetId === 'viking_spearman' || this.presetId === 'viking_archer')
   }
@@ -1207,7 +1316,8 @@ export class NPC {
   private _isAttackableObstacle(obstacle: ObstacleData | null): obstacle is ObstacleData {
     const damageable = obstacle?.damageable
     return Boolean(
-      damageable
+      !this.duelHostile
+      && damageable
       && !damageable.destroyed
     )
   }
@@ -1403,7 +1513,8 @@ export class NPC {
 
     const considerNpc = (candidate: NPC): void => {
       if (
-        candidate === this
+        this.duelHostile
+        || candidate === this
         || candidate.dead
         || candidate.faction === this.faction
         || candidate === this._cachedTargetNpc
@@ -1452,7 +1563,7 @@ export class NPC {
       return this.targetsPlayer && player.targetable && !player.dead
     }
     if (this._cachedTargetNpc !== null) {
-      return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
+      return !this.duelHostile && !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
     }
     return false
   }
@@ -1580,6 +1691,11 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
+    if (this.duelHostile) {
+      return player.targetable && !player.dead
+        ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true }
+        : null
+    }
     let closestTarget = null
     let closestDistSq = Infinity
 
@@ -2717,6 +2833,7 @@ export class NPC {
   }
 
   restoreForTown(): void {
+    this.restoreCombatLoadout()
     this.respawn()
     this._cancelEquipmentCombatState()
     this.townArmed = false
