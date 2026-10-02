@@ -15,7 +15,7 @@ import {
   setDirectionalShadowMapSize,
 } from './world/Sky'
 import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
-import { Player } from './player/Player'
+import { Player, DEFAULT_PLAYER_MAX_HP } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
@@ -119,7 +119,7 @@ import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan
 import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
-import { T4_RANGER_BOW_RANGED_ID } from './rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
 import { normalizeArmyConfig } from './battle/BattleConfig'
 import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
@@ -131,6 +131,7 @@ import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
+import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
@@ -153,7 +154,7 @@ import {
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } from './career/CareerOutpostMission'
-import { claimCareerMission, clearCareerMission, type CareerProfile } from './career/CareerProfile'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission } from './career/CareerMissionState'
 import {
@@ -273,6 +274,7 @@ import {
   CombatEventStream,
   createNpcCombatActorRef,
   createPlayerCombatActorRef,
+  type CombatEvent,
 } from './combat/CombatAttribution'
 import { BattleStatsTracker } from './combat/BattleStatsTracker'
 import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
@@ -403,6 +405,7 @@ export class Game {
 
   private input: PlayerInput
   private player: Player
+  private basePlayerMaxHp = DEFAULT_PLAYER_MAX_HP
   private thirdPersonCamera: ThirdPersonCamera
   private spectatorController: SpectatorCameraController
   private controlMode: PlayerControlMode = 'player'
@@ -457,6 +460,11 @@ export class Game {
   private careerProfile: CareerProfile | null = null
   private careerMeritAwarded = 0
   private readonly careerStore = new CareerProfileStore()
+  private careerSkillsDirty = false
+  private careerSkillSaveTimer: number | null = null
+  private readonly flushCareerSkillsOnPageHide = (): void => {
+    this._flushCareerSkillProgression()
+  }
   private campaignOriginalDefenders: NPC[] = []
   private campaignReinforcementSpawned = false
   private campaignReinforcementArrived = false
@@ -787,6 +795,7 @@ export class Game {
     const initialPlayerHp = playerHeroId
       ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[playerHeroId])!.maxHp
       : activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+    this.basePlayerMaxHp = initialPlayerHp
     this.player.setMaxHp(initialPlayerHp, true)
 
     const isInitialSpectator = Boolean(activeBattleConfig?.spectator)
@@ -989,6 +998,7 @@ export class Game {
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
+    if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills ?? {})
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
@@ -1000,10 +1010,11 @@ export class Game {
       })
       inventory.prepareForCombat()
       this.inventoryManager = inventory
-      this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.player.maxHp))
+      this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
       this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
+    this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
@@ -1096,6 +1107,7 @@ export class Game {
     this._setupResize()
     this._setupShortcuts()
     if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
+    if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
 
     // Initialise bars
     if (!isInitialSpectator) {
@@ -2012,6 +2024,10 @@ export class Game {
 
     const stats = this.battleStats.snapshot(this.npcs, this.player)
     if (campaign?.careerMissionId) {
+      if (!this._flushCareerSkillProgression()) {
+        this._showCareerOutpostSaveRetry(result)
+        return
+      }
       if (campaign.careerVeteranOutpost && !this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
         this._showCareerOutpostSaveRetry(result)
         return
@@ -2052,6 +2068,7 @@ export class Game {
   }
 
   private _returnToCareerTown(): void {
+    if (!this._flushCareerSkillProgression()) { this._showNotify('無法保存技能進度，請重試'); return }
     const profile = this.careerStore.loadChecked().profile
     const next = this.defenseCampaignConfig?.careerVeteranOutpost
       ? profile?.activeMission ? clearCareerMission(profile, this.defenseCampaignConfig.careerVeteranOutpost.missionId) : profile
@@ -2059,6 +2076,7 @@ export class Game {
     if (!next || !this.careerStore.save(next)) { this._showNotify('無法保存返回狀態，請重試'); return }
     this._disposeCareerOutpostBattleActors()
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
     sessionStorage.removeItem('sagaburst_campaign_config')
     sessionStorage.removeItem('sagaburst_battle_config')
@@ -2407,6 +2425,72 @@ export class Game {
     })
   }
 
+  private _scheduleCareerSkillProgressionFlush(): void {
+    if (!this.careerProfile || !this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
+    this.careerSkillSaveTimer = window.setTimeout(() => {
+      this.careerSkillSaveTimer = null
+      this._flushCareerSkillProgression()
+    }, 600)
+  }
+
+  private _flushCareerSkillProgression(): boolean {
+    if (this.careerSkillSaveTimer !== null) {
+      clearTimeout(this.careerSkillSaveTimer)
+      this.careerSkillSaveTimer = null
+    }
+    if (!this.careerProfile || !this.careerSkillsDirty) return true
+
+    const fresh = this.careerStore.loadChecked().profile ?? this.careerProfile
+    const next = cloneCareerProfile(fresh)
+    next.skills = this.skillManager.skillState
+    if (!this.careerStore.save(next)) return false
+
+    this.careerProfile = next
+    this.careerSkillsDirty = false
+    return true
+  }
+
+  private _awardPlayerSkillXpFromEvent(event: CombatEvent): void {
+    const meleeWeapon = event.type === 'damage_applied' && event.weaponId
+      ? WEAPONS[event.weaponId] ?? this.inventoryManager.equippedMelee
+      : this.inventoryManager.equippedMelee
+    const award = resolveActivePlayerSkillProgressionAward(
+      event,
+      {
+        dead: this.player.dead,
+        spectatorOnly: this.player.spectatorOnly,
+        observer: this.controlMode !== 'player',
+      },
+      meleeWeapon,
+      this.player.hasShield,
+    )
+    if (!award) return
+
+    const before = this.skillManager.skillState
+    const levelsGained = this.skillManager.addXp(award.skill, award.xp, this.soundManager)
+    const after = this.skillManager.skillState
+    if (skillStatesEqual(before, after)) return
+
+    if (this.careerProfile) {
+      const next = cloneCareerProfile(this.careerProfile)
+      next.skills = after
+      this.careerProfile = next
+      this.careerSkillsDirty = true
+      if (levelsGained > 0) this._flushCareerSkillProgression()
+      else this._scheduleCareerSkillProgressionFlush()
+    }
+
+    if (levelsGained > 0) {
+      const oldHp = this.player.hp
+      const newMaxHp = this.careerProfile
+        ? resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp)
+        : resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, after)
+      this.player.setMaxHp(newMaxHp, false)
+      this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+      this.hpBar.setFill(this.player.hpRatio)
+    }
+  }
+
   _saveGame(): void {
     if (this.defenseCampaignConfig?.careerMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
@@ -2421,7 +2505,9 @@ export class Game {
       arrows: this.player.arrowCount,
       skills: {
         oneHanded: skills.oneHanded,
-        archery: skills.archery,
+        twoHanded: skills.twoHanded,
+        ranged: skills.ranged,
+        mountedImpact: skills.mountedImpact,
       },
       inventory: inv,
       mountData: this.player.isMounted && this.player.currentMount ? {
@@ -2465,12 +2551,13 @@ export class Game {
     // 1. Restore player stats, position, skills & inventory first
     this.player.setPosition(data.position.x, data.position.y, data.position.z)
     this.player.setStamina(data.stamina)
-    this.player.setHp(data.hp ?? COMBAT_BALANCE.hp.playerDefault)
     this.player.setArrowCount(data.arrows ?? 30)
 
     if (data.skills) {
       this.skillManager.setSkillState(data.skills)
     }
+    this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState), false)
+    this.player.setHp(data.hp ?? this.player.maxHp)
     if (data.inventory) {
       this.inventoryManager.loadSaveState(data.inventory)
     }
@@ -2665,7 +2752,9 @@ export class Game {
       isLance: equippedMelee.isLance === true,
       isMounted: this.player.isMounted,
       mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
-      oneHandedMultiplier: this.skillManager.getOneHandedMultiplier(),
+      oneHandedMultiplier: this.skillManager.getMultiplier(
+        resolveCombatSkill('melee', equippedMelee, this.player.hasShield)!,
+      ),
       faction: this.player.characterFaction,
       hasShield: this.player.hasShield,
       heroAssetId: this.player.heroAssetId ?? undefined,
@@ -2714,7 +2803,7 @@ export class Game {
               this.soundManager.playLanceImpact(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
-              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+              
             }
             hitNpc = true
             break
@@ -2749,7 +2838,7 @@ export class Game {
               this.soundManager.playSwordHit(0, true)
               this.damageNumbers.spawn(finalDamage, aiCenter)
               this._showEnemyHud(result.targetName, result.hpRatio)
-              this.skillManager.addXp('oneHanded', 45, this.soundManager)
+              
             }
             return
           }
@@ -2942,6 +3031,7 @@ export class Game {
           context,
         ),
         combatEvents: this.combatEvents.emit,
+        playerDamageMultiplier: this.skillManager.getMountedImpactMultiplier(),
         onPlayerMountHitNpcAudio: (damage, attackerMount, npc, result) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           this._tmpHitPos.copy(npc.combatPosition)
@@ -3049,7 +3139,7 @@ export class Game {
       this.quiverUI,
       this.soundManager,
       this.inventoryManager,
-      this.skillManager.getArcheryMultiplier()
+      this.skillManager.getRangedMultiplier()
     )
 
     this._updateDefenseCampaign(dt)
@@ -3265,7 +3355,7 @@ export class Game {
           },
           {
             showEnemyHud: (name, ratio) => this._showEnemyHud(name, ratio),
-            addArcheryXp: (amt) => this.skillManager.addXp('archery', amt, this.soundManager),
+            addArcheryXp: () => {},
             updateMountHp: (ratio) => {
               this.mountHpFill.style.width = `${Math.max(0, ratio * 100)}%`
             },

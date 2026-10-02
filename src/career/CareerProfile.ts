@@ -4,6 +4,7 @@ import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
+import { createDefaultSkillState, normalizeSkillState, type SkillState } from '../rpg/SkillManager'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
 import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
@@ -64,6 +65,8 @@ export interface CareerProfile {
   /** Spendable merit. Purchases deduct this without affecting rank. */
   availableMerit: number
   rank: CareerRank
+  /** Permanent Career combat progression. Never resets when returning to town or changing missions. */
+  skills?: SkillState
   enlistmentMeritBase: number
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
   starterWeaponId?: string
@@ -144,6 +147,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
+    skills: createDefaultSkillState(),
     enlistmentMeritBase: 0,
     ownedWeapons: [],
     ownedArmors: [],
@@ -393,6 +397,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    skills: normalizeSkillState(profile.skills),
     ...(profile.activeOutpostMission ? { activeOutpostMission: { ...profile.activeOutpostMission } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
     ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit } })) } : {}),

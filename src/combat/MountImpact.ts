@@ -68,6 +68,8 @@ export interface MountImpactOptions {
   onDamagePlayer: (damage: number, context?: CombatDamageContext) => DamageResult
   /** Optional combat event sink used by attribution-only consumers such as BattleStats. */
   combatEvents?: CombatEventSink
+  /** Damage multiplier for the player's mount only (Mounted Impact skill). */
+  playerDamageMultiplier?: number
   /** Side-effects for Player mount impacting an enemy NPC (damage numbers, HUD, sound). */
   onPlayerMountHitNpc?: (damage: number, npc: NPC, result: DamageResult) => void
   onPlayerMountHitNpcAudio?: (damage: number, attackerMount: Mount, npc: NPC, result: DamageResult) => void
@@ -112,14 +114,15 @@ export function resolveMountImpacts(
 
         if (checkMountImpact(mount, targetNpc.combatPosition, 0.5)) {
           applyMountImpactDamage(mount, targetNpc, targetNpc.combatPosition, now, (damage) => {
-            const result = damageNpc(targetNpc, damage, {
+            const scaledDamage = Math.round(damage * Math.max(0, options.playerDamageMultiplier ?? 1))
+            const result = damageNpc(targetNpc, scaledDamage, {
               source: createPlayerCombatActorRef(player),
               method: 'mount-impact',
               emit: options.combatEvents,
             })
             if (result.hitSuccess) {
-              options.onPlayerMountHitNpc?.(damage, targetNpc, result)
-              options.onPlayerMountHitNpcAudio?.(damage, mount, targetNpc, result)
+              options.onPlayerMountHitNpc?.(scaledDamage, targetNpc, result)
+              options.onPlayerMountHitNpcAudio?.(scaledDamage, mount, targetNpc, result)
             }
           })
         }

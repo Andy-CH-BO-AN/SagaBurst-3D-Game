@@ -20,7 +20,11 @@ export interface PlayerSaveData {
   arrows: number
   skills: {
     oneHanded: SkillDetail
-    archery: SkillDetail
+    twoHanded?: SkillDetail
+    ranged?: SkillDetail
+    mountedImpact?: SkillDetail
+    /** Legacy pre-four-skill save compatibility. */
+    archery?: SkillDetail
   }
   inventory: {
     items?: { id: string; quantity: number }[]
@@ -44,7 +48,9 @@ export const DEFAULT_SAVE: PlayerSaveData = {
   arrows: 30,
   skills: {
     oneHanded: { level: 1, xp: 0 },
-    archery: { level: 1, xp: 0 },
+    twoHanded: { level: 1, xp: 0 },
+    ranged: { level: 1, xp: 0 },
+    mountedImpact: { level: 1, xp: 0 },
   },
   inventory: {
     items: [
@@ -61,9 +67,11 @@ export const DEFAULT_SAVE: PlayerSaveData = {
 }
 
 export class SaveManager {
+  constructor(private readonly storage: Storage = localStorage) {}
+
   save(data: PlayerSaveData): boolean {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data))
+      this.storage.setItem(SAVE_KEY, JSON.stringify(data))
       return true
     } catch {
       console.warn('[SaveManager] Failed to save:', SAVE_KEY)
@@ -73,7 +81,7 @@ export class SaveManager {
 
   load(): PlayerSaveData {
     try {
-      const raw = localStorage.getItem(SAVE_KEY)
+      const raw = this.storage.getItem(SAVE_KEY)
       if (!raw) return { ...DEFAULT_SAVE }
       const parsed = JSON.parse(raw) as Partial<PlayerSaveData>
 
@@ -108,7 +116,9 @@ export class SaveManager {
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {
           oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },
-          archery: { ...DEFAULT_SAVE.skills.archery, ...parsed.skills?.archery },
+          twoHanded: { ...DEFAULT_SAVE.skills.twoHanded!, ...parsed.skills?.twoHanded },
+          ranged: { ...DEFAULT_SAVE.skills.ranged!, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
+          mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact!, ...parsed.skills?.mountedImpact },
         },
         inventory: inventoryData,
         mountData,
@@ -120,6 +130,6 @@ export class SaveManager {
   }
 
   hasSave(): boolean {
-    return localStorage.getItem(SAVE_KEY) !== null
+    return this.storage.getItem(SAVE_KEY) !== null
   }
 }

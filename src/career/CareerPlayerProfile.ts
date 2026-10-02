@@ -1,5 +1,6 @@
 import { HERO_COMBAT_PROFILE_BY_ASSET, T4_COMBAT_PROFILES, type T4CombatProfileId } from '../battle/T4HeroCatalog'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import { resolveSkillAdjustedMaxHp } from '../rpg/CombatSkillProgression'
 import type { CareerProfile } from './CareerProfile'
 
 export function resolveCareerHeroAsset(
@@ -16,9 +17,10 @@ export function resolveCareerCombatProfile(
   return asset ? HERO_COMBAT_PROFILE_BY_ASSET[asset] : null
 }
 
-export function resolveCareerPlayerMaxHp(profile: Pick<CareerProfile, 'faction' | 'rank'>, normalMaxHp: number): number {
+export function resolveCareerPlayerMaxHp(profile: Pick<CareerProfile, 'faction' | 'rank' | 'skills'>, normalMaxHp: number): number {
   const combatProfile = resolveCareerCombatProfile(profile)
-  return combatProfile ? T4_COMBAT_PROFILES[combatProfile].maxHp : normalMaxHp
+  const baseMaxHp = combatProfile ? T4_COMBAT_PROFILES[combatProfile].maxHp : normalMaxHp
+  return resolveSkillAdjustedMaxHp(baseMaxHp, profile.skills)
 }
 
 export function preserveHpRatio(oldHp: number, oldMaxHp: number, newMaxHp: number): number {

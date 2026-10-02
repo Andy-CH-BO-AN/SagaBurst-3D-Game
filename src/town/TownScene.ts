@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { acceptCavalrySweep, sweepPlayerSpawn, SWEEP_YAW } from '../career/CavalrySweep'
-import { Player, PLAYER_ARROW_CAPACITY } from '../player/Player'
+import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
@@ -34,6 +34,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
+import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
@@ -52,7 +53,7 @@ import { careerTownFaction, acceptEnemyTownAssault } from '../career/EnemyTownAs
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
 import { CareerMountController } from '../career/CareerMountController'
-import { preserveHpRatio, resolveCareerHeroAsset } from '../career/CareerPlayerProfile'
+import { preserveHpRatio, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { createTownDefenseMission, type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
@@ -117,6 +118,8 @@ export class TownScene {
   private hasPreviousTip = false
   private notice = ''
   private readonly store = new CareerProfileStore()
+  private careerSkillsDirty = false
+  private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
   private duel!: CareerDuelController
   private defense!: TownDefenseController
@@ -147,6 +150,7 @@ export class TownScene {
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     this.world = new TownWorld(careerTownFaction(profile), this.scene)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
+    this.skills.setSkillState(profile.skills ?? {})
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -190,6 +194,7 @@ export class TownScene {
     for (const resident of this.residents) { resident.npc.setTownPeaceful(); resident.npc.updateTownPeace(.2, resident.npc.group.position.distanceTo(this.camera.position), false, false) }
     progress('村莊準備完成，生成玩家…')
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile))
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
     this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
@@ -253,7 +258,7 @@ export class TownScene {
       await yieldFrame()
     }
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
-    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.spectator) this.orbit.update(this.input)
     await renderer.compileAsync(this.scene, this.camera)
     renderer.render(this.scene, this.camera); await yieldFrame()
@@ -275,6 +280,7 @@ export class TownScene {
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
+      this.flushCareerSkillProgression()
       if (this.profile.activeMission?.kind === 'veteran-field' && !this.profile.activeMission.result) this.mission.persistRuntimeProgress(true)
     }, { signal: this.listeners.signal })
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
@@ -305,12 +311,80 @@ export class TownScene {
     const played = await sound.playTownAlarm(true)
     if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
-  private commit(profile: CareerProfile): boolean {
-    if (!this.store.save(profile)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
-    if (profile.activeMission?.id !== this.profile.activeMission?.id || profile.faction !== this.profile.faction) sound?.cancelCareerAudio()
-    if (profile.rank !== this.profile.rank) this.deploymentPage = undefined
-    this.profile = profile; return true
+  private clearCareerSkillSaveTimer(): void {
+    if (this.careerSkillSaveTimer === null) return
+    clearTimeout(this.careerSkillSaveTimer)
+    this.careerSkillSaveTimer = null
   }
+
+  private scheduleCareerSkillProgressionFlush(): void {
+    if (!this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
+    this.careerSkillSaveTimer = window.setTimeout(() => {
+      this.careerSkillSaveTimer = null
+      this.flushCareerSkillProgression()
+    }, 600)
+  }
+
+  private flushCareerSkillProgression(): boolean {
+    this.clearCareerSkillSaveTimer()
+    if (!this.careerSkillsDirty) return true
+    const next = cloneCareerProfile(this.profile)
+    next.skills = this.skills.skillState
+    if (!this.store.save(next)) {
+      this.notice = '技能進度保存失敗，請稍後重試。'
+      return false
+    }
+    this.profile = next
+    this.careerSkillsDirty = false
+    return true
+  }
+
+  private commit(profile: CareerProfile): boolean {
+    this.clearCareerSkillSaveTimer()
+    const next = cloneCareerProfile(profile)
+    next.skills = this.skills.skillState
+    if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (next.activeMission?.id !== this.profile.activeMission?.id || next.faction !== this.profile.faction) sound?.cancelCareerAudio()
+    if (next.rank !== this.profile.rank) this.deploymentPage = undefined
+    this.profile = next
+    this.careerSkillsDirty = false
+    return true
+  }
+
+  private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
+    if (!canAwardPlayerSkillProgression({
+      dead: this.player.dead,
+      spectatorOnly: this.player.spectatorOnly,
+      observer: Boolean(this.spectator),
+    })) return
+    if (appliedDamage <= 0) return
+    const skill = resolveCombatSkill(
+      method,
+      this.inventory.equippedMelee,
+      Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
+    )
+    if (!skill) return
+
+    const before = this.skills.skillState
+    const levelsGained = this.skills.addXp(skill, appliedDamage, sound)
+    const after = this.skills.skillState
+    if (skillStatesEqual(before, after)) return
+
+    const next = cloneCareerProfile(this.profile)
+    next.skills = after
+    this.profile = next
+    this.careerSkillsDirty = true
+    if (levelsGained > 0) this.flushCareerSkillProgression()
+    else this.scheduleCareerSkillProgressionFlush()
+
+    if (levelsGained <= 0) return
+    const oldHp = this.player.hp
+    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+    this.player.setMaxHp(newMaxHp, false)
+    this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+    this.hp.setFill(this.player.hpRatio)
+  }
+
   private enterMissionObserver(): void {
     if (!this.profile.activeMission || this.event.hostile || this.spectator) return
     if (this.profile.activeMission.kind === 'duel') {
@@ -767,16 +841,18 @@ export class TownScene {
     if (mount) old.dismountFromMount()
     old.dispose()
     this.player = new Player(this.scene, this.profile.faction, hero)
+    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+    this.player.setMaxHp(newMaxHp, true)
     this.player.group.position.copy(position)
     this.player.faceDirection(Math.sin(facing), Math.cos(facing))
-    this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, this.player.maxHp))
+    this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, newMaxHp))
     this.player.setStamina(stamina)
     this.player.setArrowCount(arrows)
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, true, false, event.visualKind)
     if (mount && !mount.dead) this.player.mountVehicle(mount, mountHeading)
     this.orbit = new ThirdPersonCamera(this.camera, this.player); this.orbit.setYaw(cameraYaw); this.orbit.setPitch(cameraPitch)
-    this.player.update(0, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    this.player.update(0, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     this.hp.setFill(this.player.hpRatio)
   }
   private finishMission(outcome: CareerMissionOutcome): void {
@@ -899,16 +975,30 @@ export class TownScene {
       : target.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
     return Boolean(ally && (this.mission?.friendlies?.includes(ally) || this.missionCombat?.isExternalThreatDefender(ally)))
   }
-  private hitResident(npc: NPC | Mount, amount: number): void {
+  private hitResident(npc: NPC | Mount, amount: number, method: CombatDamageMethod = 'melee'): void {
     if (this.duel?.active) return
     if (this.isProtectedTownAlly(npc) || npc.dead || amount <= 0 || !this.prepareDamage()) return
     let applied = 0
     const position = npc instanceof NPC ? npc.combatPosition.clone() : npc.group.position.clone()
-    if (npc instanceof NPC) applied = damageNpc(npc, amount).appliedDamage
-    else { const before = npc.currentHp; npc.takeDamage(amount); applied = before - npc.currentHp; if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount() }
+    if (npc instanceof NPC) {
+      const playerAmount = method === 'mount-impact'
+        ? Math.round(amount * this.skills.getMountedImpactMultiplier())
+        : amount
+      const result = damageNpc(npc, playerAmount)
+      applied = result.appliedDamage
+      if (applied > 0) this.awardCareerSkillXp(method, applied)
+    } else {
+      const before = npc.currentHp
+      npc.takeDamage(amount)
+      applied = before - npc.currentHp
+      if (applied > 0) this.awardCareerSkillXp(method, applied)
+      if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount()
+    }
     if (applied > 0) {
       this.damageNumbers.spawn(applied, position)
-      sound?.playSwordHit(0, true)
+      if (method === 'projectile') sound?.playProjectileImpact(0, true)
+      else if (method === 'mount-impact') sound?.playHorseImpact(0, true)
+      else sound?.playSwordHit(0, true)
     }
     this.activateHostility(); this.persistCasualties()
   }
@@ -948,13 +1038,17 @@ export class TownScene {
     if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
     if (this.defense?.active && (source ? !townWartimeHostile(source, target) : target.faction !== Faction.ENEMY)) return
-    const result = damageNpc(target, amount, {
+    const playerAmount = !source && method === 'mount-impact'
+      ? Math.round(amount * this.skills.getMountedImpactMultiplier())
+      : amount
+    const result = damageNpc(target, playerAmount, {
       source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player),
       method,
       weaponId: source?.meleeWeaponId ?? (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
+    if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
@@ -1037,7 +1131,7 @@ export class TownScene {
             this.cat.takeDamage(s.arrow.damage)
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
-          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage)
+          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile')
         } }
       }
       if (hit) { hit(); s.arrow.destroy() }
@@ -1058,7 +1152,7 @@ export class TownScene {
       isLance: weapon.isLance === true,
       isMounted: this.player.isMounted,
       mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
-      oneHandedMultiplier: this.skills?.getOneHandedMultiplier?.() ?? 1,
+      oneHandedMultiplier: this.skills.getMultiplier(resolveCombatSkill('melee', weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))!),
       faction: this.player.characterFaction,
       hasShield: this.inventory.shieldEnabled,
       heroAssetId: this.player.heroAssetId ?? undefined,
@@ -1207,6 +1301,14 @@ export class TownScene {
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc && checkMountImpact(mount, this.player.combatPosition, .6)) {
       applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null))
     }
+    const playerMount = this.player.currentMount
+    if (playerMount && !playerMount.dead) {
+      for (const resident of this.residents) {
+        const target = resident.npc
+        if (target.dead || this.isProtectedTownAlly(target) || !checkMountImpact(playerMount, target.combatPosition, .5)) continue
+        applyMountImpactDamage(playerMount, target, target.combatPosition, this.elapsed, amount => this.hitResident(target, amount, 'mount-impact'))
+      }
+    }
     if (!this.cat.dead && status === 'foot') {
       const dir = this.player.position.clone().sub(this.cat.group.position); dir.y = 0
       this.cat.beginControlledFrame(); this.cat.group.rotation.y = Math.atan2(dir.x, dir.z)
@@ -1264,10 +1366,10 @@ export class TownScene {
     this.updatePointerPrompt()
     const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
     // Keep the collapse playing even when death immediately opens a result panel.
-    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
-      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
       this.player.group.updateWorldMatrix(true, true)
       if (!this.player.dead) this.melee()
       if (this.event.hostile) this.updateHostile(dt)
@@ -1330,6 +1432,7 @@ export class TownScene {
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera); this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
     this.duelHud.dispose()
