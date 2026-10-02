@@ -280,8 +280,9 @@ export class TownScene {
       if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
-    if (this.defense?.assault && this.defense.phase === 'PREPARING') {
-      if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
+    // Preparation locks combat/deployment actions, not the player's equipment UI.
+    if (this.defense?.assault && this.defense.phase === 'PREPARING' && e.code !== 'Tab') {
+      if (['KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
     if (e.repeat) return
@@ -859,7 +860,7 @@ export class TownScene {
       emit: this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
-    if (this.defense.active && source?.faction === Faction.ENEMY) this.defense.noteEffectiveFriendlyDamage(target)
+    if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
     else if ((source?.meleeCombatKind ?? this.inventory.equippedMelee?.combatKind) === 'lance') sound?.playLanceImpact(target.currentLod, !source)
