@@ -1,12 +1,28 @@
 ---
 name: grilling
-description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.
+description: 針對計畫、決策或想法，持續深入追問使用者。當使用者想檢驗自己的思考是否周全，或使用任何「grill」觸發語句時使用。
 ---
 
-Interview me relentlessly about every aspect of this until we reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+持續深入訪談使用者，直到雙方達成共同理解。將討論整理成一棵**設計樹**：每項決策都會分岔出依賴它的其他決策。
 
-Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
+以**回合**逐步處理這棵樹。**前緣**是所有前置決策都已確定的決策，也就是你*現在*就能提出、無須猜測尚未收到的答案的問題。每回合一次提出整個前緣的問題：為每題編號，並給出你建議的答案。然後等待使用者回答，再開始下一回合。
 
-If a *fact* can be found by exploring the environment (filesystem, tools, etc.), look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
+每回合使用以下格式：
 
-Do not act on it until I confirm we have reached a shared understanding.
+```
+❓ **Q1** - **<問題標題>**：<問題內容，可以有多個段落，也可以包含多個選項>
+
+➡️ <你建議的答案>
+
+---
+
+❓ **Q2** - **<問題標題>**：<問題內容，可以有多個段落，也可以包含多個選項>
+
+➡️ <你建議的答案>
+```
+
+使用者每回答一回合，設計樹就會改變：已確定的決策會將前緣向外推進，讓依賴它們的問題可以繼續討論。重新計算前緣，再提出下一回合。如果某題的答案取決於這一回合中另一個尚未回答的問題，就應放在*後續*回合，而不是這一回合。
+
+查明*事實*是你的工作，絕不是使用者的工作。當前緣中的某個問題需要環境中的事實（檔案系統、工具等）時，派出子代理查明；凡是你能自行查到的資訊，都不要向使用者索取。不要因此停住整個回合：進行中的探索屬於尚未確定的前置條件，所以只有依賴它的下游問題需要等待子代理回報；前緣中的其餘問題現在就提出。*決策*由使用者做：將每項決策交給使用者，並等待回答。
+
+當前緣為空時，這次討論才算完成：設計樹的每個分支都已走過，沒有任何默默採用的假設。在使用者確認雙方已達成共同理解之前，不要據此採取行動。

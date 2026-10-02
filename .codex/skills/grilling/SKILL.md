@@ -1,21 +1,12 @@
 ---
 name: grilling
-description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.
+description: 針對計畫、決策或想法，持續深入追問使用者。當使用者想檢驗自己的思考是否周全，或使用任何「grill」觸發語句時使用。
 ---
 
-# Codex Skill Adapter
+# Codex 技能入口
 
-Canonical skill source:
+本檔只提供專案內的技能探索入口。執行前，先閱讀並遵循[技能正本](../../../ai_share/skills/grilling/SKILL.md)。
 
-- `ai_share/skills/grilling/SKILL.md`
-- `ai_share/skills/grilling/agents/openai.yaml`
+正本維護於 `ai_share/skills/grilling/`。所有流程只在正本維護；入口與正本有差異時，以正本為準。
 
-This `.codex` file is only a thin adapter for repo-local skill discovery.
-
-## Adapter rules
-
-1. Read the canonical skill file in `ai_share/skills/...` before acting.
-2. Follow the canonical instructions there instead of duplicating logic
-   in this adapter.
-3. If this adapter and the canonical skill ever diverge, treat the
-   `ai_share/skills/...` version as the source of truth.
+介面顯示資訊見[正本設定](../../../ai_share/skills/grilling/agents/openai.yaml)。

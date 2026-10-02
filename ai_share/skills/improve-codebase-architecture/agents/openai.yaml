@@ -1,0 +1,5 @@
+interface:
+  display_name: "改善程式碼庫架構"
+  short_description: "找出架構改善機會，再逐步追問與釐清"
+policy:
+  allow_implicit_invocation: false

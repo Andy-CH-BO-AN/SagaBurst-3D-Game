@@ -1,18 +1,10 @@
 ---
 name: domain-modeling
-description: Antigravity adapter for the domain-modeling skill. Read the canonical skill in ai_share/skills before acting.
+description: 建立並精煉專案的領域模型。討論程式碼庫的術語、撰寫或編輯 GLOSSARY.md，以及記錄或編輯 ADR 時使用。
 ---
 
-# Antigravity Skill Adapter
+# Antigravity 技能入口
 
-Canonical skill source:
+本檔只提供專案內的技能探索入口。執行前，先閱讀並遵循[技能正本](../../../ai_share/skills/domain-modeling/SKILL.md)。
 
-- `ai_share/skills/domain-modeling/SKILL.md`
-
-This `.agents` file is only a thin adapter for repo-local skill discovery.
-
-## Adapter rules
-
-1. Read the canonical skill file in `ai_share/skills/...` before acting.
-2. If this adapter and the canonical skill ever diverge, treat the
-   `ai_share/skills/...` version as the source of truth.
+正本維護於 `ai_share/skills/domain-modeling/`。所有流程只在正本維護；入口與正本有差異時，以正本為準。
