@@ -102,12 +102,12 @@ export function resolveMeleeSkillId(
 export class SkillManager {
   private state: SkillState = createDefaultSkillState()
 
-  private levelupToast: HTMLElement
+  private levelupToast: HTMLElement | null
   private toastTimer: number | null = null
   private readonly toastQueue: string[] = []
 
   constructor() {
-    this.levelupToast = document.getElementById('levelup-toast')!
+    this.levelupToast = typeof document !== 'undefined' ? document.getElementById('levelup-toast') : null
   }
 
   get skillState(): SkillState {
@@ -158,8 +158,8 @@ export class SkillManager {
   }
 
   /**
-   * XP is expected to be actual character HP removed, after shield reduction and
-   * overkill clamping. Structures and mounts must not call this method.
+   * XP is expected to be actual NPC or mount HP removed, after shield reduction
+   * and overkill clamping. Structure damage must not call this method.
    */
   addXp(skill: LegacySkillId, amount: number, soundManager?: SoundManager): number {
     const id: SkillId = skill === 'archery' ? 'ranged' : skill
@@ -186,11 +186,17 @@ export class SkillManager {
   }
 
   private _showLevelUpToast(message: string): void {
+    if (!this.levelupToast) return
     this.toastQueue.push(message)
     if (this.toastTimer === null) this._showNextToast()
   }
 
   private _showNextToast(): void {
+    if (!this.levelupToast) {
+      this.toastQueue.length = 0
+      this.toastTimer = null
+      return
+    }
     const message = this.toastQueue.shift()
     if (!message) {
       this.levelupToast.classList.remove('visible')
