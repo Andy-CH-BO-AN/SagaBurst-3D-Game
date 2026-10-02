@@ -258,6 +258,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(raw.completedOutpostRelief === true ? { completedOutpostRelief: true } : {}),
     ...(Array.isArray(raw.outpostBattleRecords) ? { outpostBattleRecords: raw.outpostBattleRecords.map(parseOutpostRecord).filter((record): record is CareerOutpostRecord => Boolean(record)) } : {}),
     ...(raw.careerMissionCompletions !== undefined ? { careerMissionCompletions: nonNegativeInteger(raw.careerMissionCompletions) } : {}),
+    ...(raw.careerMissionCompletionsByTier && typeof raw.careerMissionCompletionsByTier === 'object'
+      ? { careerMissionCompletionsByTier: {
+        1: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[1]),
+        2: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[2]),
+      } } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),
     ownedWeapons,
     ownedArmors,

@@ -292,7 +292,7 @@ describe('shared Town wartime and settlement', () => {
     expect(stats.kills).toBe(1)
     expect(f.controller.military.filter(n => !n.dead)).toHaveLength(63)
     const claim = claimCareerMission(f.profile(), 'assault-test', 'victory', { ...stats, survived: false })
-    expect(claim.meritAwarded).toBe(calculateMerit({ player: { ...stats, survived: false }, squads: [] }, 'victory', 'offense').total)
+    expect(claim.meritAwarded).toBe(calculateMerit({ player: { ...stats, survived: false }, squads: [] }, 'victory', 'offense', 'mission').total)
     const reload = parseCareerProfile(JSON.parse(JSON.stringify(claim.profile)))!
     expect(claimCareerMission(reload, 'assault-test', 'victory', stats).meritAwarded).toBe(0)
     expect(clearCareerMission(reload, 'assault-test')).toMatchObject({ faction: 'roman', totalMerit: claim.meritAwarded })

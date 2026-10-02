@@ -19,7 +19,7 @@ export function calculateRecruitMissionMerit(
 
   const damageMerit = Math.floor(appliedDamage / RECRUIT_MISSION_MERIT_RULES.damagePerPoint)
   const killMerit = kills * RECRUIT_MISSION_MERIT_RULES.kill
-  const contribution = outcome === 'victory' && stats.survived
+  const contribution = outcome === 'victory'
     ? Math.round(Math.min(
       RECRUIT_MISSION_MERIT_RULES.maxContributionBonus,
       appliedDamage / RECRUIT_MISSION_MERIT_RULES.damageForFullContributionBonus

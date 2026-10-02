@@ -1,5 +1,6 @@
 import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { CAREER_RANKS, enlistmentMerit, type CareerProfile, type CareerRank } from './CareerProfile'
+import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
+import { careerMissionTierForTemplateId } from './CareerMissionTier'
 import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
@@ -167,7 +168,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
     maxCivilianDeaths: 10,
     risk: '極高',
     requiresEnlistmentMerit: 0,
-    requiresCompletions: 0,
+    requiresCompletions: 5,
     storyOnce: true,
     minRank: 'soldier',
   },
@@ -193,7 +194,7 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
   return RECRUIT_MISSION_CATALOG.filter(template => (
     CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && merit >= template.requiresEnlistmentMerit
-    && completions >= template.requiresCompletions
+    && (template.kind === 'town-defense' ? careerMissionCompletionsForTier(profile, careerMissionTier(template)) : completions) >= template.requiresCompletions
     && (template.kind !== 'cavalry-sweep' || Boolean(resolveCareerReliefMount(profile)))
     && (template.kind !== 'enemy-town-assault' || isEnemyTownAssaultUnlocked(profile))
     && (!template.storyOnce || !completedStory.includes(template.id))
@@ -205,7 +206,11 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
 export type CareerMissionPage = 'recruit' | 'soldier'
 
 export function careerMissionPage(template: RecruitMissionTemplate): CareerMissionPage {
-  return template.kind === 'enemy-town-assault' || template.minRank !== 'recruit' ? 'soldier' : 'recruit'
+  return careerMissionTier(template) === 2 ? 'soldier' : 'recruit'
+}
+
+export function careerMissionTier(template: RecruitMissionTemplate): CareerMissionTier {
+  return careerMissionTierForTemplateId(template.id)
 }
 
 export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): RecruitMissionTemplate[] {
