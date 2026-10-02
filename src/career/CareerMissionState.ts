@@ -1,5 +1,6 @@
 import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
+import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
 import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 
@@ -30,7 +31,7 @@ export interface CareerMissionMountState {
 export interface ActiveCareerMission {
   id: string
   templateId: string
-  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep'
+  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel'
   targetCampId: number
   phase: CareerMissionPhase
   targetActorIds: string[]
@@ -40,6 +41,19 @@ export interface ActiveCareerMission {
   deadCivilianActorIds?: string[]
   playerDead?: boolean
   playerStats?: PlayerBattleStatsCheckpoint
+  duelTier?: UnitTier
+  duelPresetId?: UnitPresetId
+  duelOpponentActorId?: string
+  duelCaptainActorId?: string
+  duelRefereeActorId?: string
+  duelCountdownElapsed?: number
+  duelCombatElapsed?: number
+  duelOpponentDead?: boolean
+  duelOpponentHp?: number
+  duelOpponentMountHp?: number
+  duelPlayerHp?: number
+  duelPlayerStamina?: number
+  duelOpponentAmmo?: number
   mountedMarchProgress?: number
   mountedMarchPosition?: { x: number; z: number }
   followVoicePlayed?: boolean
@@ -107,6 +121,13 @@ export function createTownDefenseMission(
 }
 
 export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  if (mission.kind === 'duel') {
+    if (mission.phase !== 'ENGAGING' || !mission.duelOpponentActorId) return false
+    if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return false
+    if (event.type === 'damage_applied' && event.target.targetId === 'player') return event.source.actorId === mission.duelOpponentActorId
+    return event.source.actorType === 'player' && (event.target.targetId === mission.duelOpponentActorId
+      || (event.type === 'damage_applied' && event.target.ownerActorId === mission.duelOpponentActorId))
+  }
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return mission.kind === 'enemy-town-assault' && event.source.actorType === 'player' && event.target.allegiance === 'ENEMY'
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
   if (event.source.actorType !== 'player') return false

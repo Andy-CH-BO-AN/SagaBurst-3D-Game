@@ -3,6 +3,7 @@ import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
 import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
@@ -80,6 +81,8 @@ export interface CareerProfile {
   /** Mission-board tiers are independent of the player's current rank. */
   careerMissionCompletionsByTier?: Partial<Record<CareerMissionTier, number>>
   completedCareerMissionTemplateIds?: string[]
+  /** Each unit preset unlocks only its own next Duel tier. */
+  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, UnitTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
   ownedWeapons: string[]
@@ -259,7 +262,14 @@ export function claimCareerMission(
   profile.lifetimeStats.battles += 1
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
-    recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
+    if (active.kind === 'duel') {
+      if (active.duelPresetId && active.duelTier) {
+        profile.duelHighestDefeatedTierByPreset = {
+          ...profile.duelHighestDefeatedTierByPreset,
+          [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as UnitTier,
+        }
+      }
+    } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
     if (active.kind === 'town-defense' && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
@@ -386,6 +396,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
     ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
     ...(profile.careerMissionCompletionsByTier ? { careerMissionCompletionsByTier: { ...profile.careerMissionCompletionsByTier } } : {}),
+    ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
       targetActorIds: [...profile.activeMission.targetActorIds],
