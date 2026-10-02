@@ -176,11 +176,89 @@ describe('Career skill progression', () => {
 
 
 
-  it('blocks projectile progression when the player dies or enters observer before impact', () => {
-    const npcHit = damageEvent('projectile', 'npc', 35, WEAPONS.elven_runebow.id)
-    const mountHit = damageEvent('projectile', 'mount', 35, WEAPONS.elven_runebow.id)
+  it('allows projectile damage after death but blocks Ranged progression at impact time', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
 
-    for (const event of [npcHit, mountHit]) {
+    const footNpc: any = {
+      dead: false,
+      faction: Faction.ENEMY,
+      shieldId: null,
+      isMounted: false,
+      mount: null,
+      hp: 100,
+      name: 'Late Projectile Target',
+      combatantId: 'late-projectile-target',
+      characterFaction: 'viking',
+      takeDamage(amount: number) {
+        if (this.dead) return false
+        this.hp = Math.max(0, this.hp - amount)
+        this.dead = this.hp <= 0
+        return true
+      },
+      get hpRatio() { return this.hp / 100 },
+    }
+    damageNpc(footNpc, 35, {
+      source: {
+        actorId: 'player',
+        actorType: 'player',
+        allegiance: 'PLAYER' as never,
+        characterFaction: 'roman',
+      },
+      method: 'projectile',
+      weaponId: WEAPONS.elven_runebow.id,
+      emit: stream.emit,
+    })
+
+    const enemyMount: any = {
+      currentHp: 100,
+      maxHp: 100,
+      dead: false,
+      mountDisplayName: '戰馬',
+      group: { uuid: 'late-projectile-mount' },
+      takeDamage(amount: number) {
+        if (this.dead) return false
+        this.currentHp = Math.max(0, this.currentHp - amount)
+        this.dead = this.currentHp <= 0
+        return true
+      },
+    }
+    const mountedNpc: any = {
+      dead: false,
+      faction: Faction.ENEMY,
+      shieldId: null,
+      isMounted: true,
+      mount: enemyMount,
+      name: 'Late Mounted Target',
+      combatantId: 'late-mounted-target',
+      characterFaction: 'viking',
+      dismountFromMount() {
+        this.isMounted = false
+        this.mount = null
+      },
+    }
+    damageNpc(mountedNpc, 35, {
+      source: {
+        actorId: 'player',
+        actorType: 'player',
+        allegiance: 'PLAYER' as never,
+        characterFaction: 'roman',
+      },
+      method: 'projectile',
+      weaponId: WEAPONS.elven_runebow.id,
+      emit: stream.emit,
+    })
+
+    expect(footNpc.hp).toBe(65)
+    expect(enemyMount.currentHp).toBe(65)
+
+    const damageEvents = events.filter(
+      (event): event is Extract<CombatEvent, { type: 'damage_applied' }> => event.type === 'damage_applied',
+    )
+    expect(damageEvents.map(event => event.target.targetType)).toEqual(['npc', 'mount'])
+
+    for (const event of damageEvents) {
       expect(resolveActivePlayerSkillProgressionAward(
         event,
         { dead: true, observer: true },
