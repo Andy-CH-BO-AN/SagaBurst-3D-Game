@@ -5,7 +5,7 @@ import { calculateRecruitMissionMerit } from '../src/career/CareerMissionMeritPo
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome } from '../src/career/CareerMissionState'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile } from '../src/career/CareerProfile'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
-import { canUseCareerMount, findSafeCareerMountPosition, ownedCareerMountIds } from '../src/career/CareerMountController'
+import { canUseCareerMount, careerMountTier, findSafeCareerMountPosition, ownedCareerMountIds } from '../src/career/CareerMountController'
 import { preserveHpRatio, resolveCareerCombatProfile, resolveCareerHeroAsset } from '../src/career/CareerPlayerProfile'
 import { missionGuideArrowAngle } from '../src/career/MissionGuide'
 import { fieldMissionEngagementLabel, fieldMissionHud } from '../src/career/CareerMissionPresentation'
@@ -434,21 +434,23 @@ describe('Career mounts and appointed T4 identity', () => {
     }
     const loaded = parseCareerProfile(profile)!
     const copy = cloneCareerProfile(loaded)
-    expect(loaded.activeMission?.mountState).toEqual(profile.activeMission.mountState)
-    copy.activeMission!.mountState!.hp['horse-t1'] = 10
-    copy.activeMission!.mountState!.unavailable.push('horse-t1')
-    expect(loaded.activeMission?.mountState?.hp['horse-t1']).toBe(43)
+    expect(loaded.activeMission?.mountState).toEqual({ activeMountId: 'horse', hp: { horse: 43, corgi: 0 }, unavailable: ['corgi'] })
+    copy.activeMission!.mountState!.hp.horse = 10
+    copy.activeMission!.mountState!.unavailable.push('horse')
+    expect(loaded.activeMission?.mountState?.hp.horse).toBe(43)
     expect(loaded.activeMission?.mountState?.unavailable).toEqual(['corgi'])
   })
 
-  it('keeps legacy horse ownership as T1 and distinguishes every purchased tier', () => {
+  it('consolidates legacy horse purchases and follows the appointed rank', () => {
     const profile = createCareerProfile('roman'); profile.ownedMounts = ['horse']; profile.rank = 'recruit'
-    expect(ownedCareerMountIds(profile)).toEqual(['horse-t1'])
+    expect(ownedCareerMountIds(profile)).toEqual(['horse'])
     profile.ownedHorseTiers = [1, 2, 3]
-    expect(ownedCareerMountIds(profile)).toEqual(['horse-t1', 'horse-t2', 'horse-t3'])
-    expect(canUseCareerMount(profile, 'horse-t2')).toBe(false)
+    expect(ownedCareerMountIds(profile)).toEqual(['horse'])
+    expect(canUseCareerMount(profile, 'horse-t2')).toBe(true)
+    expect(careerMountTier('horse-t2', profile)).toBe(1)
     profile.rank = 'soldier'
     expect(canUseCareerMount(profile, 'horse-t2')).toBe(true)
+    expect(careerMountTier('horse', profile)).toBe(2)
   })
 
   it('fails safe-position search without changing state when every candidate is blocked', () => {

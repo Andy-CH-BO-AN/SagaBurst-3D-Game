@@ -37,13 +37,13 @@ describe('Career relief unlock and owned mounts', () => {
     expect(acceptCareerOutpostRelief(current, 'two')).toBeNull()
     expect(acceptCareerOutpostRelief({ ...ready(), townEvent: { id: 'hostile', state: 'hostile' } })).toBeNull()
   })
-  it('preserves a legal selection and falls back without granting ownership', () => {
+  it('normalizes legacy selections and falls back without granting ownership', () => {
     const profile = { ...ready(), ownedHorseTiers: [1, 2] as (1 | 2)[], selectedMountId: 'horse-t2' as const }
     const accepted = acceptCareerOutpostRelief(profile)!
-    expect(accepted.selectedMountId).toBe('horse-t2')
-    expect(createCareerOutpostLaunch(accepted)).toMatchObject({ playerLoadout: { startMounted: true, mountId: 'horse' }, playerMountAppearanceVariant: 1 })
+    expect(accepted.selectedMountId).toBe('horse')
+    expect(createCareerOutpostLaunch(accepted)).toMatchObject({ playerLoadout: { startMounted: true, mountId: 'horse' }, playerMountAppearanceVariant: 0 })
     const fallback = acceptCareerOutpostRelief({ ...profile, selectedMountId: 'corgi', ownedMounts: ['corgi'] })!
-    expect(fallback.selectedMountId).toBe('horse-t1')
+    expect(fallback.selectedMountId).toBe('horse')
     expect(fallback.ownedMounts).toEqual(['corgi'])
     expect(fallback.ownedHorseTiers).toEqual([1, 2])
     expect(profile.selectedMountId).toBe('horse-t2')

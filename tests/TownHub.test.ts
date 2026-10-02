@@ -147,10 +147,12 @@ describe('Town settlement, persistence and appointments', () => {
     p.enlistmentMeritBase = p.totalMerit; p.rank = 'commander'; expect(parseCareerProfile(p)?.rank).toBe('recruit')
   })
   it('shop display is pure and appointed rank controls the four states', () => {
-    const p = enlist(), item = TOWN_PRODUCTS.find(i => i.id === 'horse-t2')!, before = JSON.stringify(p)
-    p.ownedHorseTiers = [1]
+    const p = enlist(), item = TOWN_PRODUCTS.find(i => i.id === 'corgi')!
     const unchanged = JSON.stringify(p)
-    expect(productStatus(p, item)).toBe('已解鎖・餘額不足'); expect(JSON.stringify(p)).toBe(unchanged); expect(before).not.toBe(unchanged); p.availableMerit = 1000; expect(productStatus(p, item)).toBe('已解鎖・餘額足夠'); p.rank = 'recruit'; expect(productStatus(p, item)).toBe('軍階未解鎖'); p.ownedHorseTiers.push(2); p.ownedMounts.push('horse'); expect(productStatus(p, item)).toBe('已擁有')
+    expect(productStatus(p, item)).toBe('已解鎖・餘額不足'); expect(JSON.stringify(p)).toBe(unchanged)
+    p.availableMerit = 4000; expect(productStatus(p, item)).toBe('已解鎖・餘額足夠')
+    p.rank = 'recruit'; expect(productStatus(p, item)).toBe('軍階未解鎖')
+    p.ownedMounts.push('corgi'); expect(productStatus(p, item)).toBe('已擁有')
     expect(townCampaignTarget('roman')).toEqual({ defenderFaction: 'roman', stageId: 1 }); expect(townCampaignTarget('viking')).toEqual({ defenderFaction: 'viking', stageId: 1 })
   })
   it('removes collision and invalidates navigation only once when a building is destroyed', () => {

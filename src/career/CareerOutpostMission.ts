@@ -1,5 +1,5 @@
 import type { BattleStatsSnapshot, PlayerBattleStats } from '../combat/BattleStatsTracker'
-import { claimCareerBattle, cloneCareerProfile, recordCareerMissionCompletion, type CareerProfile } from './CareerProfile'
+import { claimCareerBattle, cloneCareerProfile, canonicalCareerMountId, recordCareerMissionCompletion, type CareerProfile } from './CareerProfile'
 import { canUseCareerMount, ownedCareerMountIds } from './CareerMountController'
 import type { CareerMountId } from './CareerProfile'
 import type { MeritBreakdown } from './MeritCalculator'
@@ -60,7 +60,7 @@ export function isCareerOutpostReliefUnlocked(profile: CareerProfile): boolean {
   return profile.rank !== 'recruit' && CAREER_OUTPOST_STAGES.every(stage => profile.completedOutpostStages?.includes(stage))
 }
 export function resolveCareerReliefMount(profile: CareerProfile): CareerMountId | undefined {
-  if (profile.selectedMountId && canUseCareerMount(profile, profile.selectedMountId)) return profile.selectedMountId
+  if (profile.selectedMountId && canUseCareerMount(profile, profile.selectedMountId)) return canonicalCareerMountId(profile.selectedMountId)
   return ownedCareerMountIds(profile).find(id => canUseCareerMount(profile, id))
 }
 export function acceptCareerOutpostRelief(current: CareerProfile, id: string = crypto.randomUUID()): CareerProfile | null {

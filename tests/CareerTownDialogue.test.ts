@@ -50,7 +50,7 @@ describe('Peaceful dialogue', () => {
   })
 })
 
-describe('Starter and progressive horse ownership', () => {
+describe('Starter and military horse ownership', () => {
   it.each([...STARTER_WEAPONS])('grants only %s and keeps empty hands until an explicit legal equip', id => {
     let p = grantStarter(createCareerProfile('roman'), id)
     const inventory = new TownEquipment(() => p, next => { p = next; return true })
@@ -58,24 +58,27 @@ describe('Starter and progressive horse ownership', () => {
     expect(inventory.equipWeapon(id)).toBe(true)
     if (['wooden_shortbow', 'pilum_basic'].includes(id)) { expect(inventory.meleeEnabled).toBe(false); expect(inventory.rangedEnabled).toBe(true) }
   })
-  it('checks current rank, prior tier, balance and duplicates, preserving lifetime merit', () => {
+  it('charges one horse purchase, rejects duplicates and preserves lifetime merit', () => {
     const p = createCareerProfile('roman'); p.totalMerit = 3000; p.availableMerit = 2000
     expect(purchaseTownHorse(p, 'horse-t2')).toBeNull()
-    const t1 = purchaseTownHorse(p, 'horse-t1')!; expect(t1.availableMerit).toBe(1800); expect(p.ownedMounts).toEqual([])
-    expect(purchaseTownHorse(t1, 'horse-t1')).toBeNull(); expect(purchaseTownHorse(t1, 'horse-t2')).toBeNull()
-    t1.rank = 'veteran'; expect(purchaseTownHorse(t1, 'horse-t3')).toBeNull()
-    const t2 = purchaseTownHorse(t1, 'horse-t2')!, t3 = purchaseTownHorse(t2, 'horse-t3')!
-    expect(t3.ownedHorseTiers).toEqual([1, 2, 3]); expect(t3.ownedMounts).toEqual(['horse']); expect(t3.totalMerit).toBe(3000); expect(t3.availableMerit).toBe(300)
-    expect(parseCareerProfile(t3)?.ownedHorseTiers).toEqual([1, 2, 3])
-    expect(purchaseTownHorse(t3, 'black-cat')).toBeNull()
+    const horse = purchaseTownHorse(p, 'horse')!
+    expect(horse.availableMerit).toBe(1800); expect(p.ownedMounts).toEqual([])
+    expect(horse.ownedMounts).toEqual(['horse']); expect(horse.selectedMountId).toBe('horse')
+    expect(horse.totalMerit).toBe(3000)
+    expect(purchaseTownHorse(horse, 'horse')).toBeNull()
+    horse.rank = 'veteran'
+    expect(purchaseTownHorse(horse, 'horse')).toBeNull()
+    expect(parseCareerProfile(horse)?.ownedMounts).toEqual(['horse'])
+    expect(purchaseTownHorse(horse, 'black-cat')).toBeNull()
   })
   it('does not charge insufficient funds or bypass new enlistment rank with retained ownership', () => {
     const p = createCareerProfile('roman'); p.availableMerit = 199
-    expect(purchaseTownHorse(p, 'horse-t1')).toBeNull()
+    expect(purchaseTownHorse(p, 'horse')).toBeNull()
     p.totalMerit = p.availableMerit = 5000; p.rank = 'captain'; p.ownedHorseTiers = [1]; p.ownedMounts = ['horse']; p.townEvent = { id: 'v', state: 'hostile' }
     const next = settleTown(p, 'v', 'town_defeated')
-    expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'horse-t2')!)).toBe('軍階未解鎖')
-    expect(purchaseTownHorse(next, 'horse-t2')).toBeNull(); expect(next.ownedHorseTiers).toEqual([1])
+    expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'horse')!)).toBe('已擁有')
+    expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'corgi')!)).toBe('軍階未解鎖')
+    expect(purchaseTownHorse(next, 'horse')).toBeNull(); expect(next.ownedHorseTiers).toEqual([1])
   })
 })
 

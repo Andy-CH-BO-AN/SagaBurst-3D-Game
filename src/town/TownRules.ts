@@ -1,4 +1,4 @@
-import { cloneCareerProfile, getCareerPurchaseTier, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile } from '../career/CareerProfile'
+import { cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile } from '../career/CareerProfile'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -82,16 +82,13 @@ export function isTownShopWeapon(id: string): boolean {
 export const TOWN_PRODUCTS: TownProduct[] = [
   ...Object.values(WEAPONS).filter(w => isTownShopWeapon(w.id)).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
   ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
-  { id: 'horse-t1', category: 'mount', name: '普通戰馬 · T1', tier: 1, price: 200 },
-  { id: 'horse-t2', category: 'mount', name: '受訓戰馬 · T2', tier: 2, price: 500 },
-  { id: 'horse-t3', category: 'mount', name: '精銳戰馬 · T3', tier: 3, price: 1000 },
+  { id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 },
   { id: 'black-cat', category: 'mount', name: '黑貓英雄坐騎', tier: 4, price: 4000 },
   { id: 'corgi', category: 'mount', name: '柯基英雄坐騎', tier: 4, price: 4000 },
 ]
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
   if (isTownProductOwned(profile, item)) return '已擁有'
   if (getCareerPurchaseTier(profile.rank) < item.tier) return '軍階未解鎖'
-  if (item.id.startsWith('horse-t') && item.tier > 1 && !horseTiers(profile).includes((item.tier - 1) as 1 | 2 | 3)) return '先購買前一階戰馬'
   return profile.availableMerit < item.price ? '已解鎖・餘額不足' : '已解鎖・餘額足夠'
 }
 export function townCampaignTarget(faction: CharacterFaction) { return { defenderFaction: faction, stageId: 1 as const } }
@@ -105,20 +102,18 @@ export function updateRangerMount(ranger: Pick<NPC, 'dead' | 'mount' | 'mountVeh
 export function townCaptainProfile(faction: CharacterFaction) { return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'] }
 export function stableHorsePositions() { return Array.from({ length: TOWN_RULES.stableHorses }, (_, i) => ({ ...townSitePoint('stable', -5.2 + i * 2.6, 1), variant: (i % 3) as 0 | 1 | 2 })) }
 
-export function horseTiers(profile: CareerProfile): readonly (1 | 2 | 3)[] { return profile.ownedHorseTiers ?? (profile.ownedMounts.includes('horse') ? [1] : []) }
 export function isTownProductOwned(profile: CareerProfile, item: TownProduct): boolean {
-  return item.id.startsWith('horse-t') ? horseTiers(profile).includes(item.tier as 1 | 2 | 3)
+  return item.id === 'horse' ? ownsCareerHorse(profile)
     : (item.category === 'weapon' ? profile.ownedWeapons : item.category === 'armor' ? profile.ownedArmors : profile.ownedMounts as string[]).includes(item.id)
 }
 /** Never trust a UI-supplied price/tier; recheck against current rank and ownership. */
 export function purchaseTownHorse(profile: CareerProfile, id: string): CareerProfile | null {
-  const item = TOWN_PRODUCTS.find(p => p.id === id && /^horse-t[123]$/.test(p.id))
+  const item = TOWN_PRODUCTS.find(p => p.id === id && p.id === 'horse')
   if (!item || productStatus(profile, item) !== '已解鎖・餘額足夠') return null
   const next = cloneCareerProfile(profile)
   next.availableMerit -= item.price
-  next.ownedHorseTiers = [...horseTiers(profile), item.tier as 1 | 2 | 3]
   if (!next.ownedMounts.includes('horse')) next.ownedMounts.push('horse')
-  next.selectedMountId = item.id as 'horse-t1' | 'horse-t2' | 'horse-t3'
+  next.selectedMountId = 'horse'
   return next
 }
 

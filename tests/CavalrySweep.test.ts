@@ -78,11 +78,11 @@ describe('Cavalry Sweep eligibility', () => {
   it('falls back from an illegal selection without granting ownership or changing input', () => {
     const profile = { ...ready(), selectedMountId: 'corgi' as const, ownedMounts: ['corgi' as const] }
     const accepted = acceptCavalrySweep(profile)!
-    expect(accepted.selectedMountId).toBe('horse-t1')
+    expect(accepted.selectedMountId).toBe('horse')
     expect(accepted.ownedHorseTiers).toEqual(profile.ownedHorseTiers)
     expect(accepted.ownedMounts).toEqual(profile.ownedMounts)
     expect(profile.selectedMountId).toBe('corgi')
-    expect(acceptCavalrySweep({ ...ready(), selectedMountId: 'horse-t1' })!.selectedMountId).toBe('horse-t1')
+    expect(acceptCavalrySweep({ ...ready(), selectedMountId: 'horse-t1' })!.selectedMountId).toBe('horse')
   })
   it('rejects simultaneous missions or hostile Town events', () => {
     const profile = acceptCavalrySweep(ready())!
@@ -135,7 +135,7 @@ describe('Sweep runtime and checkpoint', () => {
     town.acceptMission(CAVALRY_SWEEP_ID)
     expect(town.profile.activeMission.friendlyActorIds.slice(0, 21)).toEqual(selectMissionCavalryActorIds(f.residents, 59))
     expect(town.mission.startActiveMission).toHaveBeenCalledOnce()
-    expect(town.careerMounts.activate).toHaveBeenCalledWith('horse-t1')
+    expect(town.careerMounts.activate).toHaveBeenCalledWith('horse')
     expect(town.closePanel).toHaveBeenCalledOnce()
     expect(town.player.group.position).toEqual(position)
     expect(town.dispose).not.toHaveBeenCalled(); expect(town.onRestart).not.toHaveBeenCalled()

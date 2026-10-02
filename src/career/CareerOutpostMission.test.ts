@@ -151,17 +151,17 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
       expect(relief.every(spec => spec.characterFaction === faction && spec.cavalry && spec.tier === 1)).toBe(true)
     }
   })
-  it.each([1, 2, 3] as const)('preserves the selected T%i horse appearance through Career reload and launch', tier => {
+  it.each([1, 2, 3] as const)('migrates a selected legacy T%i horse to the military horse through reload and launch', tier => {
     const profile: CareerProfile = { ...mission(), rank: tier === 3 ? 'veteran' : 'soldier', totalMerit: 900, availableMerit: 900, ownedHorseTiers: [tier], selectedMountId: `horse-t${tier}` }
     const store = new CareerProfileStore(storage())
     expect(store.save(profile)).toBe(true)
     const reloaded = store.load()!
     const launch = createCareerOutpostLaunch(reloaded)
     expect(launch.playerLoadout).toMatchObject({ startMounted: true, mountId: 'horse' })
-    expect(launch.playerMountAppearanceVariant).toBe(tier - 1)
+    expect(launch.playerMountAppearanceVariant).toBe(0)
     expect(launch.playerMountAppearanceVariant).toBe(careerMountAppearanceVariant(reloaded.selectedMountId))
     expect(reloaded.ownedHorseTiers).toEqual([tier])
-    expect(reloaded.selectedMountId).toBe(profile.selectedMountId)
+    expect(reloaded.selectedMountId).toBe('horse')
   })
   it('keeps mountless Career launches unmounted and the default appearance for hero mounts', () => {
     expect(createCareerOutpostLaunch(mission()).playerLoadout.startMounted).toBe(false)
