@@ -67,9 +67,11 @@ export const DEFAULT_SAVE: PlayerSaveData = {
 }
 
 export class SaveManager {
+  constructor(private readonly storage: Storage = localStorage) {}
+
   save(data: PlayerSaveData): boolean {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data))
+      this.storage.setItem(SAVE_KEY, JSON.stringify(data))
       return true
     } catch {
       console.warn('[SaveManager] Failed to save:', SAVE_KEY)
@@ -79,7 +81,7 @@ export class SaveManager {
 
   load(): PlayerSaveData {
     try {
-      const raw = localStorage.getItem(SAVE_KEY)
+      const raw = this.storage.getItem(SAVE_KEY)
       if (!raw) return { ...DEFAULT_SAVE }
       const parsed = JSON.parse(raw) as Partial<PlayerSaveData>
 
@@ -128,6 +130,6 @@ export class SaveManager {
   }
 
   hasSave(): boolean {
-    return localStorage.getItem(SAVE_KEY) !== null
+    return this.storage.getItem(SAVE_KEY) !== null
   }
 }
