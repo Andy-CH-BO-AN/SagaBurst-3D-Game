@@ -33,7 +33,8 @@ import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
-import { SkillManager, resolveMeleeSkillId, type SkillId } from '../rpg/SkillManager'
+import { SkillManager } from '../rpg/SkillManager'
+import { resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
@@ -117,6 +118,8 @@ export class TownScene {
   private hasPreviousTip = false
   private notice = ''
   private readonly store = new CareerProfileStore()
+  private careerSkillsDirty = false
+  private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
   private duel!: CareerDuelController
   private defense!: TownDefenseController
@@ -277,6 +280,7 @@ export class TownScene {
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
+      this.flushCareerSkillProgression()
       if (this.profile.activeMission?.kind === 'veteran-field' && !this.profile.activeMission.result) this.mission.persistRuntimeProgress(true)
     }, { signal: this.listeners.signal })
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
@@ -307,33 +311,68 @@ export class TownScene {
     const played = await sound.playTownAlarm(true)
     if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
-  private commit(profile: CareerProfile): boolean {
-    if (!this.store.save(profile)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
-    if (profile.activeMission?.id !== this.profile.activeMission?.id || profile.faction !== this.profile.faction) sound?.cancelCareerAudio()
-    if (profile.rank !== this.profile.rank) this.deploymentPage = undefined
-    this.profile = profile; return true
+  private clearCareerSkillSaveTimer(): void {
+    if (this.careerSkillSaveTimer === null) return
+    clearTimeout(this.careerSkillSaveTimer)
+    this.careerSkillSaveTimer = null
   }
-  private skillForPlayerDamage(method: CombatDamageMethod): SkillId {
-    if (method === 'projectile') return 'ranged'
-    if (method === 'mount-impact') return 'mountedImpact'
-    return resolveMeleeSkillId(
-      this.inventory.equippedMelee,
-      Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
-    )
+
+  private scheduleCareerSkillProgressionFlush(): void {
+    if (!this.careerSkillsDirty || this.careerSkillSaveTimer !== null) return
+    this.careerSkillSaveTimer = window.setTimeout(() => {
+      this.careerSkillSaveTimer = null
+      this.flushCareerSkillProgression()
+    }, 600)
+  }
+
+  private flushCareerSkillProgression(): boolean {
+    this.clearCareerSkillSaveTimer()
+    if (!this.careerSkillsDirty) return true
+    const next = cloneCareerProfile(this.profile)
+    next.skills = this.skills.skillState
+    if (!this.store.save(next)) {
+      this.notice = '技能進度保存失敗，請稍後重試。'
+      return false
+    }
+    this.profile = next
+    this.careerSkillsDirty = false
+    return true
+  }
+
+  private commit(profile: CareerProfile): boolean {
+    this.clearCareerSkillSaveTimer()
+    const next = cloneCareerProfile(profile)
+    next.skills = this.skills.skillState
+    if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (next.activeMission?.id !== this.profile.activeMission?.id || next.faction !== this.profile.faction) sound?.cancelCareerAudio()
+    if (next.rank !== this.profile.rank) this.deploymentPage = undefined
+    this.profile = next
+    this.careerSkillsDirty = false
+    return true
   }
 
   private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
     if (appliedDamage <= 0) return
-    const previousSkills = this.profile.skills ?? this.skills.skillState
-    const levelsGained = this.skills.addXp(this.skillForPlayerDamage(method), appliedDamage, sound)
-    const next = cloneCareerProfile(this.profile)
-    next.skills = this.skills.skillState
-    if (!this.commit(next)) {
-      this.skills.setSkillState(previousSkills)
-      return
-    }
-    if (levelsGained <= 0) return
+    const skill = resolveCombatSkill(
+      method,
+      this.inventory.equippedMelee,
+      Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
+    )
+    if (!skill) return
 
+    const before = this.skills.skillState
+    const levelsGained = this.skills.addXp(skill, appliedDamage, sound)
+    const after = this.skills.skillState
+    if (skillStatesEqual(before, after)) return
+
+    const next = cloneCareerProfile(this.profile)
+    next.skills = after
+    this.profile = next
+    this.careerSkillsDirty = true
+    if (levelsGained > 0) this.flushCareerSkillProgression()
+    else this.scheduleCareerSkillProgressionFlush()
+
+    if (levelsGained <= 0) return
     const oldHp = this.player.hp
     const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
     this.player.setMaxHp(newMaxHp, false)
@@ -942,7 +981,7 @@ export class TownScene {
         : amount
       const result = damageNpc(npc, playerAmount)
       applied = result.appliedDamage
-      if (!result.isMountHit && applied > 0) this.awardCareerSkillXp(method, applied)
+      if (applied > 0) this.awardCareerSkillXp(method, applied)
     } else {
       const before = npc.currentHp
       npc.takeDamage(amount)
@@ -1003,7 +1042,7 @@ export class TownScene {
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
-    if (!source && !result.isMountHit) this.awardCareerSkillXp(method, result.appliedDamage)
+    if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
@@ -1107,7 +1146,7 @@ export class TownScene {
       isLance: weapon.isLance === true,
       isMounted: this.player.isMounted,
       mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
-      oneHandedMultiplier: this.skills.getMultiplier(resolveMeleeSkillId(weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))),
+      oneHandedMultiplier: this.skills.getMultiplier(resolveCombatSkill('melee', weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))!),
       faction: this.player.characterFaction,
       hasShield: this.inventory.shieldEnabled,
       heroAssetId: this.player.heroAssetId ?? undefined,
@@ -1387,6 +1426,7 @@ export class TownScene {
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera); this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
     this.duelHud.dispose()
