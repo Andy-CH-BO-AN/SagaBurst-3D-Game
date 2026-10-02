@@ -91,8 +91,10 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
     restoreForTown: vi.fn(() => events.push('cat')),
     catVisual: { setEquipmentVisible: vi.fn() } as unknown as Mount['catVisual'],
   }
+  const threats = new Set(residents.map(resident => resident.npc))
   const town = {
-    residents, externalThreatActors: new Set(residents.map(resident => resident.npc)), cat,
+    residents, cat,
+    releaseExternalThreat: vi.fn((npc: NPC) => { threats.delete(npc) }),
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('town-repair')) },
     navigation: { sync: vi.fn(() => events.push('navigation')) },
     inventory: { sheathAll: vi.fn(() => events.push('sheath')) },
@@ -109,7 +111,7 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
     return true
   })
   const settlement = new TownMissionSettlement({ read: () => profile, commit }, { field, duel, defense }, town)
-  return { settlement, field, duel, defense, town, events, commit, storage, store, playerStats,
+  return { settlement, field, duel, defense, town, threats, events, commit, storage, store, playerStats,
     profile: () => profile, reload: () => { profile = store.loadChecked().profile! } }
 }
 
@@ -120,6 +122,7 @@ function expectSceneUntouched(f: ReturnType<typeof fixture>) {
   expect(f.duel.cleanupMission).not.toHaveBeenCalled()
   expect(f.defense.cleanupMission).not.toHaveBeenCalled()
   expect(f.town.residents.every(resident => vi.mocked(resident.npc.restoreForTown).mock.calls.length === 0)).toBe(true)
+  expect(f.town.releaseExternalThreat).not.toHaveBeenCalled()
   expect(f.town.cat.restoreForTown).not.toHaveBeenCalled()
   expect(f.town.world.restoreTownDamage).not.toHaveBeenCalled()
   expect(f.town.navigation.sync).not.toHaveBeenCalled()
@@ -246,13 +249,15 @@ describe('Town mission return saving and recovery through the settlement interfa
       expect(resident.npc.dead).toBe(false)
       expect(resident.npc.group.rotation.y).toBe(resident.spec.yaw ?? Math.PI)
       expect(resident.cycle).toBe(-1); expect(resident.walkTime).toBe(0)
-      expect(f.town.externalThreatActors.has(resident.npc)).toBe(false)
+      expect(f.threats.has(resident.npc)).toBe(false)
+      expect(f.town.releaseExternalThreat).toHaveBeenCalledWith(resident.npc)
     }
     expect(captain.homeMount!.restoreForTown).toHaveBeenCalledExactlyOnceWith(25, 11, -.5)
     expect(captain.npc.mountVehicle).toHaveBeenCalledExactlyOnceWith(captain.homeMount)
     expect(bystander.npc.restoreForTown).not.toHaveBeenCalled()
     expect(bystander.cycle).toBe(5); expect(bystander.walkTime).toBe(4)
-    expect(f.town.externalThreatActors.has(bystander.npc)).toBe(true)
+    expect(f.threats.has(bystander.npc)).toBe(true)
+    expect(f.town.releaseExternalThreat).not.toHaveBeenCalledWith(bystander.npc)
     expect(f.town.residents.every(resident => vi.mocked(resident.npc.dispose).mock.calls.length === 0)).toBe(true)
     expect(captain.homeMount!.dispose).not.toHaveBeenCalled()
     expect(f.events.indexOf('shots')).toBeLessThan(f.events.indexOf('resident'))
@@ -275,11 +280,11 @@ describe('Town mission return saving and recovery through the settlement interfa
     for (const resident of f.town.residents) {
       if (resident.spec.role === 'merchant') {
         expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
-        expect(f.town.externalThreatActors.has(resident.npc)).toBe(true)
+        expect(f.threats.has(resident.npc)).toBe(true)
       } else {
         expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
         expect(resident.npc.dead).toBe(false)
-        expect(f.town.externalThreatActors.has(resident.npc)).toBe(false)
+        expect(f.threats.has(resident.npc)).toBe(false)
       }
       expect(resident.npc.dispose).not.toHaveBeenCalled()
     }
