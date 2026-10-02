@@ -146,6 +146,32 @@ describe('Career Duel existing actor and loadout selection', () => {
 })
 
 describe('Career Duel phases, persistence, and damage isolation', () => {
+  it('saves each changed runtime snapshot immediately, retries current values, and does not force unchanged data', () => {
+    const h = harness()
+    h.start('roman_archer', 1, 'ENGAGING')
+    // Persist initial runtime fields before measuring unchanged writes.
+    h.controller.persistRuntimeProgress()
+    h.commit.mockClear()
+    h.controller.persistRuntimeProgress(true)
+    expect(h.commit).not.toHaveBeenCalled()
+    h.setSaving(false)
+    h.player.setHp(60)
+    h.controller.opponent!.restoreCombatAmmo(12)
+    h.controller.update(.1)
+    expect(h.profile.activeMission!.duelCombatElapsed).toBe(0)
+    expect(h.profile.activeMission!.duelPlayerHp).toBe(100)
+    h.player.setHp(41)
+    h.player.setStamina(17)
+    h.controller.opponent!.restoreCombatAmmo(9)
+    h.setSaving(true)
+    h.controller.persistRuntimeProgress()
+    expect(h.profile.activeMission).toMatchObject({ duelCombatElapsed: .1, duelPlayerHp: 41, duelPlayerStamina: 17, duelOpponentAmmo: 9 })
+    h.controller.update(.1)
+    expect(h.profile.activeMission!.duelCombatElapsed).toBe(.2)
+    h.controller.persistRuntimeProgress(true)
+    expect(h.commit).toHaveBeenCalledTimes(3)
+  })
+
   it('blocks melee, projectile, and mount damage before the full five second countdown', () => {
     const h = harness()
     h.start('roman_lancer')

@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../src/town/TownScene'
@@ -186,14 +187,14 @@ function marchHarness(phase = 'ASSEMBLING', save = true) {
   let profile = createCareerProfile('roman')
   profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
   profile.activeMission.phase = phase as any
-  const c = Object.create(BanditMissionController.prototype) as any
+  const c = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
   const leader = { dead: false, combatPosition: new THREE.Vector3(), setTacticalOrder: vi.fn() }
   c.readProfile = () => profile
   c.commit = vi.fn(next => { if (save) profile = next; return save })
   c.player = () => ({ combatPosition: new THREE.Vector3() })
   c.camps = [{ center: new THREE.Vector3(150, 0, 150), ambient: [], mission: [] }]
   c.friendlies = [leader]; c.leader = leader
-  c.route = []; c.routeIndex = 0; c.perceptionElapsed = 0; c.statsCheckpointElapsed = 0
+  c.route = []; c.routeIndex = 0; c.perceptionElapsed = 0
   c.guide = { update: vi.fn() }; c.tracker = null
   c.detectCampProximity = vi.fn(); c.persistRuntimeProgress = vi.fn(); c.advanceRoute = vi.fn()
   c.marchTarget = () => c.camps[0].center

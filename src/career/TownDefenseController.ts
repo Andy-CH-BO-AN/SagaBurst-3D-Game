@@ -9,7 +9,8 @@ import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '..
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownActorSpec } from '../town/TownRules'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import type { CareerProfile } from './CareerProfile'
+import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
@@ -46,7 +47,7 @@ export class TownDefenseController {
   private attackElapsed = 0
   private reserveCharged = false
   private commandId = 100_000
-  private statsCheckpointElapsed = 0
+  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -131,7 +132,7 @@ export class TownDefenseController {
     if (!active || active.phase === 'RESULT' || active.phase === 'RESET') { this.guide.hide(); return }
     if (this.blackCat.dead && this.ranger?.mount === this.blackCat) this.ranger.dismountFromMount()
     const rally = this.anchorVector('playerRallyPoint')
-    this.statsCheckpointElapsed += Math.max(0, dt)
+    this.checkpoint.advance(dt)
     if (active.phase === 'PREPARING') {
       this.preparationElapsed += dt
       if (this.preparationElapsed >= this.preparationSeconds && this.setPhase('ATTACKING')) {
@@ -347,11 +348,7 @@ export class TownDefenseController {
   private setPhase(phase: CareerMissionPhase): boolean {
     const active = this.active
     if (!active || active.phase === phase) return true
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, phase, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }
-    const saved = this.commit(profile)
-    if (saved) this.statsCheckpointElapsed = 0
-    return saved
+    return this.checkpoint.persist(() => ({ ...active, phase, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds], civilianActorIds: [...(active.civilianActorIds ?? [])] }), { immediate: true })
   }
 
   persistRuntimeProgress(forceStats = false): void {
@@ -372,7 +369,6 @@ export class TownDefenseController {
     const targetIds = [...deadTargets].filter(id => active.targetActorIds.includes(id)).sort()
     const playerStats = this.tracker?.checkpoint() ?? active.playerStats
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
-    const statsCheckpointReached = statsChanged && (forceStats || this.statsCheckpointElapsed >= 5)
     const same = targetIds.join('|') === [...(active.deadTargetActorIds ?? [])].sort().join('|')
       && uniqueDeadFriendlies.join('|') === [...(active.deadFriendlyActorIds ?? [])].sort().join('|')
       && deadCivilians.join('|') === [...(active.deadCivilianActorIds ?? [])].sort().join('|')
@@ -381,10 +377,11 @@ export class TownDefenseController {
       && Boolean(active.defenseReserveCharged) === this.reserveCharged
       && Boolean(active.defenseCatDead) === this.blackCat.dead
     const playerDead = this.player().dead
-    if (same && !statsCheckpointReached && Boolean(active.playerDead) === playerDead) return
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: uniqueDeadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, ...(playerStats ? { playerStats } : {}) }
-    if (this.commit(profile)) this.statsCheckpointElapsed = 0
+    this.checkpoint.persist(() => ({ ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: uniqueDeadFriendlies, deadCivilianActorIds: deadCivilians, defenseElapsed: this.attackElapsed, defensePreparationElapsed: this.preparationElapsed, defenseReserveCharged: this.reserveCharged, defenseCatDead: this.blackCat.dead, ...(playerStats ? { playerStats } : {}) }), {
+      immediate: !same || Boolean(active.playerDead) !== playerDead,
+      periodic: statsChanged,
+      force: forceStats,
+    })
   }
 
   private anchorVector(key: keyof typeof TOWN_DEFENSE_LAYOUT): THREE.Vector3 {
@@ -423,7 +420,7 @@ export class TownDefenseController {
     for (const enemy of this.enemies) enemy.dispose()
     for (const mount of this.enemyMounts) mount.dispose()
     this.enemies.length = 0; this.enemyMounts.length = 0; this.attackGroups = []
-    this.statsCheckpointElapsed = 0
+    this.checkpoint.reset()
   }
 
   dispose(): void { this.disposeEnemies(); this.guide.dispose() }

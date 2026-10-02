@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { acceptCavalrySweep, createCavalrySweepMission, createSweepRoster, CAVALRY_SWEEP_ID, SWEEP_CENTER, SWEEP_CAPTAIN_START, sweepBanditPosition, sweepPlayerSpawn } from '../src/career/CavalrySweep'
@@ -44,13 +45,13 @@ function fixture(garrisonCount = 0, joinAssembly = true) {
   })
   let profile = acceptCavalrySweep(ready(), 'sweep', selectMissionCavalryActorIds(residents, 59))!
   const player = { dead: false, combatPosition: sweepPlayerSpawn() }
-  const controller = Object.create(BanditMissionController.prototype) as any
+  const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
   Object.assign(controller, {
     scene, residents, world: { obstacles: [], camps: [{ spawnPoints: [new THREE.Vector3()] }] }, navigation: new NavigationWorld(),
     readProfile: () => profile, commit: vi.fn((next: typeof profile) => { profile = next; return true }), player: () => player,
     camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [] }], friendlies: [], cavalryMounts: [], temporaryCavalry: [], departingCavalry: [], commandId: 1,
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
-    statsCheckpointElapsed: 0, onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null,
+    onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null,
   })
   controller.startActiveMission()
   const assemble = () => {

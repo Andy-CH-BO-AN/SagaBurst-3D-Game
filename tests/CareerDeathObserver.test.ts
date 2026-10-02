@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,12 +22,12 @@ function fieldFixture(kind: 'bandit' | 'patrol' = 'bandit') {
   const player = { dead: true, combatPosition: new THREE.Vector3(400, 0, 400) }
   const leader = { dead: false, combatantId: 'captain', combatPosition: new THREE.Vector3(), tacticalOrder: 'charge', assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }
   const targets = profile.activeMission.targetActorIds.map(combatantId => ({ dead: false, combatantId, combatPosition: new THREE.Vector3(500, 0, 500), encounterIsAlerted: false }))
-  const controller = Object.create(BanditMissionController.prototype) as any
+  const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
   Object.assign(controller, {
     readProfile: () => profile, commit: (next: typeof profile) => { profile = next; return true }, player: () => player,
     camps: [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: targets }],
     friendlies: [leader], leader, world: { obstacles: [] }, navigation: { beginFrame: vi.fn(), queryPath: vi.fn(() => ({ status: 'blocked' })) },
-    guide: { hide: vi.fn(), update: vi.fn() }, route: [], routeIndex: 0, tracker: null, statsCheckpointElapsed: 0, perceptionElapsed: 0,
+    guide: { hide: vi.fn(), update: vi.fn() }, route: [], routeIndex: 0, tracker: null, perceptionElapsed: 0,
   })
   return { controller, player, leader, targets, profile: () => profile, reload: () => { profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))! } }
 }
@@ -122,7 +123,7 @@ describe('Career objectives take priority over player death', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], ['civilian'], 'defense-death')
     profile.activeMission.phase = 'ATTACKING'
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     Object.assign(controller, {
       readProfile: () => profile, groups: [],
       enemies: profile.activeMission.targetActorIds.map((combatantId, index) => ({ combatantId, dead: index >= enemies })),
@@ -139,14 +140,14 @@ describe('Career objectives take priority over player death', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'defense-lock')
     profile.activeMission.phase = 'ATTACKING'
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     Object.assign(controller, {
       readProfile: () => profile, commit: (next: typeof profile) => { profile = next; return true },
       player: () => ({ dead: true, combatPosition: new THREE.Vector3() }), blackCat: { dead: false },
       enemies: profile.activeMission.targetActorIds.map(combatantId => ({ combatantId, dead: false })), groups: [],
       residents: [ { spec: { role: 'captain' }, npc: { combatantId: 'captain', dead: false } },
         ...Array.from({ length: 20 }, (_, i) => ({ spec: { role: 'civilian' }, npc: { combatantId: `civilian-${i}`, dead: i < 11 } })) ],
-      preparationElapsed: 45, attackElapsed: 0, statsCheckpointElapsed: 0, reserveCharged: false, tracker: null, guide: { updateTownDefense: vi.fn() },
+      preparationElapsed: 45, attackElapsed: 0, reserveCharged: false, tracker: null, guide: { updateTownDefense: vi.fn() },
     })
     controller.updateFlow(.1, 0)
     expect(profile.activeMission.phase).toBe('FAILURE_LOCKED')

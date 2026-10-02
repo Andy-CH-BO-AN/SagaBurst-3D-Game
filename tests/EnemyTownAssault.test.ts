@@ -76,6 +76,26 @@ function townHarness(f: ReturnType<typeof fixture>) {
 }
 
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy Town assault`, () => {
+  it('starting a new assault resets the same controller checkpoint clock without a one-second defense clock masking it', () => {
+    const f = fixture(faction)
+    f.controller.updateFlow(4.99, 0)
+    expect(f.profile().activeMission!.playerStats).toBeUndefined()
+    f.setProfile({ ...createCareerProfile(faction), activeMission: createEnemyTownAssaultMission('assault-next') })
+    expect(f.controller.startActiveMission()).toBe(true)
+    f.controller.events.emit({ type: 'damage_applied',
+      source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: faction },
+      target: { targetId: f.profile().activeMission!.targetActorIds[0], targetType: 'npc', name: 'Defender' },
+      method: 'melee', requestedDamage: 100, appliedDamage: 100,
+    })
+    f.controller.updateFlow(.01, 0)
+    expect(f.profile().activeMission!.playerStats).toBeUndefined()
+    expect(f.controller.snapshot().player.damageDealt).toBe(100)
+    f.controller.updateFlow(4.99, 0)
+    expect(f.profile().activeMission).toMatchObject({ id: 'assault-next', phase: 'ATTACKING',
+      defenseElapsed: 0, defensePreparationElapsed: 0, playerStats: { damageDealt: 100 },
+    })
+  })
+
   it('creates exactly three squads of 30 including Player and uses real T4 heroes', () => {
     const roster = createAssaultRoster(faction)
     expect(roster).toHaveLength(89)
