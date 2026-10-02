@@ -85,6 +85,7 @@ export class TownMissionCombat {
 
   /** Also checks current positions because Player attacks precede threat assignment in a frame. */
   isExternalThreatDefender(ally: NPC): boolean {
+    if (this.missions.field.active?.kind === 'veteran-field') return false
     if (this.externalThreatActors.has(ally)) return true
     const resident = this.town.residents.find(candidate => candidate.npc === ally)
     if (!resident || ally.dead || !this.isMilitary(resident.spec)) return false
@@ -97,39 +98,89 @@ export class TownMissionCombat {
 
   private updateField(dt: number, cameraYaw: number, elapsed: number): void {
     const { field } = this.missions
+    const veteranField = field.active?.kind === 'veteran-field'
+    // Veteran battles have explicit, persistent rosters. Build the two membership
+    // sets and shared peer lists once per frame instead of asking the controller
+    // to allocate an all-roster peer array for every actor.
+    const veteranFriendlies = veteranField ? new Set(field.friendlies) : null
+    const veteranEnemies = veteranField ? new Set(field.missionBandits) : null
+    const veteranActors = veteranField
+      ? [...new Set([...field.missionBandits, ...field.friendlies])]
+      : null
+    const veteranFriendlyPeers = veteranField ? [...field.friendlies, ...field.missionBandits] : null
+    const veteranEnemyPeers = veteranField ? [...field.missionBandits, ...field.friendlies] : null
+    const veteranMarchingPeers = veteranField ? [...field.friendlies] : null
     field.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
-    if (field.active?.kind !== 'cavalry-sweep') this.updateExternalThreatAssignments()
-    const missionActors = new Set(field.fieldNpcs)
+    if (veteranField) this.clearExternalThreatActors(veteranFriendlies!)
+    else if (field.active?.kind !== 'cavalry-sweep') this.updateExternalThreatAssignments()
+    const currentVeteran = veteranField ? field.active : undefined
+    const veteranSurvival = currentVeteran?.templateId === 'veteran-tragedy-of-the-scouts'
+    const veteranMarching = veteranField && !veteranSurvival && currentVeteran?.phase === 'MARCHING'
+    const veteranCombatActive = veteranField && (veteranSurvival || currentVeteran?.phase === 'ENGAGING')
+    const veteranPeaceful = veteranField && !veteranSurvival && !veteranMarching && !veteranCombatActive
+    const missionActors = new Set(veteranActors ?? field.fieldNpcs)
     for (const resident of this.town.residents) {
       if (!missionActors.has(resident.npc) && !this.externalThreatActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     }
-    const actors = [...new Set([...field.fieldNpcs, ...this.externalThreatActors])]
-    this.grid.clear(); for (const actor of actors) if (!actor.dead) this.grid.insert(actor)
+    const actors = veteranActors ?? [...new Set([...field.fieldNpcs, ...this.externalThreatActors])]
+    this.grid.clear()
+    if (veteranField) { this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear() }
     for (const actor of actors) {
-      const peers = actor.faction === Faction.BANDIT
-        ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors])]
-        : this.externalThreatActors.has(actor)
-          ? [...field.ambientBandits, ...field.missionBandits, ...this.externalThreatActors]
-          : field.combatPeersFor(actor)
-      actor.update(dt, this.town.player(), peers, this.grid.getNearbyInto(actor.combatPosition, 2, this.neighbors),
+      if (actor.dead) continue
+      this.grid.insert(actor)
+      if (veteranEnemies?.has(actor)) this.defenseEnemyGrid.insert(actor)
+      else if (veteranFriendlies?.has(actor)) this.defenseTownGrid.insert(actor)
+    }
+    for (const actor of actors) {
+      if (veteranPeaceful || veteranMarching && veteranEnemies!.has(actor)) {
+        this.updateFieldActorPeacefully(actor, dt)
+        continue
+      }
+      const peers = veteranField
+        ? veteranMarching ? veteranMarchingPeers! : veteranEnemies!.has(actor) ? veteranEnemyPeers! : veteranFriendlyPeers!
+        : actor.faction === Faction.BANDIT
+          ? [...new Set([...field.combatPeersFor(actor), ...this.externalThreatActors])]
+          : this.externalThreatActors.has(actor)
+            ? [...field.ambientBandits, ...field.missionBandits, ...this.externalThreatActors]
+            : field.combatPeersFor(actor)
+      const nearbyGrid = veteranMarching && veteranFriendlies!.has(actor) ? this.defenseTownGrid : this.grid
+      const hostileGrid = veteranCombatActive
+        ? veteranEnemies!.has(actor) ? this.defenseTownGrid : this.defenseEnemyGrid
+        : null
+      actor.update(dt, this.town.player(), peers, nearbyGrid.getNearbyInto(actor.combatPosition, 2, this.neighbors),
         this.town.obstacles, this.town.hp,
         (damage, isPlayer, targetNpc) => {
           if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
           else if (targetNpc) this.town.hitNpc(targetNpc, damage, 'melee', actor)
         },
         (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
-        false, actor.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation)
+        false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
     }
     const player = this.town.player(), mount = this.town.careerMounts.activeMount
-    if (mount && mount === player.currentMount && !mount.dead) {
-      for (const target of [...field.ambientBandits, ...field.missionBandits]) {
+    const playerImpactTargets = veteranField ? field.missionBandits : [...field.ambientBandits, ...field.missionBandits]
+    if ((!veteranField || veteranCombatActive) && mount && mount === player.currentMount && !mount.dead) {
+      for (const target of playerImpactTargets) {
         if (target.dead || !checkMountImpact(mount, target.combatPosition, .5)) continue
         applyMountImpactDamage(mount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact'))
       }
     }
-    // Mounted field missions share normal impact damage, including during Observer.
-    if (field.active?.kind === 'cavalry-sweep') for (const rider of field.friendlies) {
+    if (veteranField && veteranCombatActive) {
+      for (const rider of actors) {
+        const npcMount = rider.mount
+        if (!npcMount || npcMount.dead || rider.dead) continue
+        const riderIsEnemy = veteranEnemies!.has(rider)
+        if (!riderIsEnemy && !veteranFriendlies!.has(rider)) continue
+        for (const target of this.grid.getNearbyInto(npcMount.group.position, 2.5, this.neighbors)) {
+          const isHostileTarget = riderIsEnemy ? veteranFriendlies!.has(target) : veteranEnemies!.has(target)
+          if (!isHostileTarget || target.dead || !checkMountImpact(npcMount, target.combatPosition, .5)) continue
+          applyMountImpactDamage(npcMount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact', rider))
+        }
+        if (riderIsEnemy && rider.hostileToPlayer && !player.dead && checkMountImpact(npcMount, player.combatPosition, .6)) {
+          applyMountImpactDamage(npcMount, player, player.combatPosition, elapsed, damage => this.town.damagePlayer(rider, damage, 'mount-impact'))
+        }
+      }
+    } else if (field.active?.kind === 'cavalry-sweep') for (const rider of field.friendlies) {
       const npcMount = rider.mount
       if (!npcMount || npcMount.dead || rider.dead) continue
       for (const target of this.grid.getNearby(npcMount.group.position, 2.5)) {
@@ -138,6 +189,21 @@ export class TownMissionCombat {
       }
     }
     this.town.careerMounts.update(dt)
+  }
+
+  private updateFieldActorPeacefully(actor: NPC, dt: number): void {
+    if (actor.mount) {
+      actor.mount.beginControlledFrame()
+      actor.mount.finishControlledFrame(dt, this.town.obstacles)
+    }
+    actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
+  }
+
+  private clearExternalThreatActors(missionFriendlies: ReadonlySet<NPC>): void {
+    for (const actor of this.externalThreatActors) {
+      if (!missionFriendlies.has(actor) && !actor.dead) actor.endExternalThreat()
+    }
+    this.externalThreatActors.clear()
   }
 
   private updateDuel(dt: number, elapsed: number): void {

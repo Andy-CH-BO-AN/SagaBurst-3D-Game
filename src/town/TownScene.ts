@@ -37,8 +37,10 @@ import { SkillManager } from '../rpg/SkillManager'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
-import { availableRecruitMissions, availableCareerMissionsForPage, getRecruitMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
-import { BanditMissionController, selectMissionCavalryActorIds } from '../career/BanditMissionController'
+import { availableRecruitMissions, availableCareerMissionsForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
+import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission } from '../career/VeteranMission'
+import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
+import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn } from '../career/BanditMissionController'
 import { CareerDuelController } from '../career/CareerDuelController'
 import { isCareerDuelUnlocked } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
@@ -268,6 +270,9 @@ export class TownScene {
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
+    window.addEventListener('pagehide', () => {
+      if (this.profile.activeMission?.kind === 'veteran-field' && !this.profile.activeMission.result) this.mission.persistRuntimeProgress(true)
+    }, { signal: this.listeners.signal })
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
     renderer.domElement.addEventListener('click', () => { if (!this.panel && !this.equipment.visible) { if (!location.search.includes('nolock')) this.input.requestPointerLock(renderer.domElement); sound.unlockAudio() } }, { signal: this.listeners.signal })
     document.addEventListener('pointerlockchange', () => this.updatePointerPrompt(), { signal: this.listeners.signal })
@@ -299,6 +304,7 @@ export class TownScene {
   private commit(profile: CareerProfile): boolean {
     if (!this.store.save(profile)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     if (profile.activeMission?.id !== this.profile.activeMission?.id || profile.faction !== this.profile.faction) sound?.cancelCareerAudio()
+    if (profile.rank !== this.profile.rank) this.deploymentPage = undefined
     this.profile = profile; return true
   }
   private enterMissionObserver(): void {
@@ -447,25 +453,28 @@ export class TownScene {
       this.openDeploymentPanel(line, context, firstOutpost)
     })
     if (active) {
-      const template = getRecruitMissionTemplate(active.templateId)
+      const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 Duel · 單挑' : template?.name ?? active.templateId}\n狀態 ${active.phase}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : ` · 目標 Camp ${active.targetCampId + 1}`}`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 Duel · 單挑' : template?.name ?? active.templateId}\n狀態 ${active.phase}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : ` · 目標 Camp ${active.targetCampId + 1}`}`
       panel.append(badge)
       return
     }
-    const selectedPage = this.deploymentPage === 'duel' ? 'duel' : this.profile.rank === 'recruit' ? 'recruit' : this.deploymentPage ?? 'soldier'
+    const defaultPage = defaultCareerMissionPage(this.profile)
+    const requestedPage = this.deploymentPage ?? defaultPage
+    const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['duel', '1v1 Duel · 單挑']] as const) {
+    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['duel', '1v1 Duel · 單挑']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
-      tab.disabled = page === 'soldier' && this.profile.rank === 'recruit'
+      tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
       if (tab.disabled) tab.textContent += ' · 升階解鎖'
       tab.onclick = () => { this.deploymentPage = page; this.openDeploymentPanel(greeting, context, firstOutpost) }
       tabs.append(tab)
     }
     panel.append(tabs)
     if (selectedPage === 'duel') { this.openDuelPage(panel); return }
+    if (selectedPage === 'veteran') { this.openVeteranMissionPage(panel); return }
     if (selectedPage === 'soldier') {
       if (firstOutpost) {
         const outpost = document.createElement('p'); outpost.className = 'town-summary'
@@ -506,6 +515,7 @@ export class TownScene {
     }
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
     for (const template of missions) {
+      if (!('risk' in template)) continue
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = template.name
       const details = document.createElement('small')
@@ -528,6 +538,45 @@ export class TownScene {
       gate.textContent = '累積本次入伍軍功後，會逐步開放林線巡邏、敵眾我寡與大型守城任務。'
       panel.append(gate)
     }
+  }
+  private openVeteranMissionPage(panel: HTMLElement): void {
+    for (const definition of VETERAN_MISSION_CATALOG) {
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = definition.name
+      const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 玩家無指揮權 · 戰死後可觀戰`
+      const availability = getVeteranMissionAvailability(this.profile, definition.id)
+      const accept = document.createElement('button'); accept.className = 'town-button'
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.disabled = !availability.unlocked
+      accept.onclick = () => this.acceptVeteranCareerMission(definition.id)
+      row.append(title, details, accept); panel.append(row)
+    }
+  }
+  private acceptVeteranCareerMission(templateId: string): void {
+    const definition = getVeteranMissionDefinition(templateId)
+    const fresh = this.store.loadChecked().profile
+    if (!definition || !fresh || this.player.dead || this.event.hostile) return
+    const next = acceptVeteranMission(fresh, definition.id)
+    if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
+    if (!this.commit(next)) return
+    if (definition.kind !== 'veteran-field') {
+      const launch = createCareerVeteranOutpostLaunch(next)
+      this.dispose(true); this.onCampaign(launch)
+      return
+    }
+    if (!this.mission.startActiveMission()) { this.openPanel('任務部署失敗', '任務已保存，重新載入後可恢復同一支部隊。'); return }
+    if (definition.objective.kind === 'survive') {
+      const position = veteranPlayerSpawn(definition.id)
+      position.y = getTerrainHeight(position.x, position.z) + .9
+      this.player.group.position.copy(position)
+      this.player.faceDirection(Math.sin(SWEEP_YAW), Math.cos(SWEEP_YAW))
+    }
+    this.careerMounts.activate(next.selectedMountId!)
+    this.inventory.prepareForCombat()
+    this.notice = definition.objective.kind === 'survive' ? 'SURVIVE 02:00 · 與斥候隊一同生存。' : `已接受 ${definition.name}。前往兵營集合。`
+    this.playMissionVoice('missionAccepted')
+    this.closePanel()
   }
   private openDuelPage(panel: HTMLElement): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
@@ -597,10 +646,11 @@ export class TownScene {
   private restoreActiveCareerMission(): void {
     let { profile } = this
     if (profile.activeMission) {
-      if (profile.activeMission.kind === 'cavalry-sweep' && profile.activeMission.phase !== 'ASSEMBLING') {
+      if ((profile.activeMission.kind === 'cavalry-sweep' || profile.activeMission.kind === 'veteran-field')
+        && (profile.activeMission.phase !== 'ASSEMBLING' || profile.activeMission.templateId === 'veteran-tragedy-of-the-scouts')) {
         const saved = profile.activeMission.mountedMarchPosition
         const anchor = saved ? new THREE.Vector3(saved.x, 0, saved.z) : undefined
-        const position = sweepPlayerSpawn(anchor)
+        const position = profile.activeMission.kind === 'veteran-field' ? veteranPlayerSpawn(profile.activeMission.templateId, anchor) : sweepPlayerSpawn(anchor)
         position.y = getTerrainHeight(position.x, position.z) + .9
         this.player.group.position.copy(position)
         this.player.faceDirection(Math.sin(SWEEP_YAW), Math.cos(SWEEP_YAW))
@@ -617,13 +667,17 @@ export class TownScene {
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
       const assaultAnchor = active.kind === 'enemy-town-assault' ? this.player.combatPosition.clone() : null
       this.careerMounts.restoreActiveMount()
-      if (active.kind === 'cavalry-sweep' && this.player.currentMount) this.player.currentMount.group.rotation.y = SWEEP_YAW
+      if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) this.player.currentMount.group.rotation.y = SWEEP_YAW
       if (active.kind === 'enemy-town-assault') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
         if (this.player.currentMount) {
           this.player.currentMount.group.position.copy(assaultAnchor!)
           this.player.currentMount.group.rotation.y = Math.PI
         }
+      }
+      if (active.kind === 'veteran-field' && !active.playerDead) {
+        if (active.playerHp !== undefined) this.player.setHp(active.playerHp)
+        if (active.playerStamina !== undefined) this.player.setStamina(active.playerStamina)
       }
       if (active.playerDead || active.result?.stats.survived === false) {
         this.player.dismountFromMount()
@@ -641,6 +695,7 @@ export class TownScene {
     if (played && !this.disposed && this.profile.activeMission?.id === missionId) this.playMissionVoice('townDefense')
   }
   private acceptMission(templateId: string): void {
+    if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
     const fresh = this.store.load()
     const template = availableRecruitMissions(fresh ?? this.profile).find(candidate => candidate.id === templateId)
     if (!fresh || !template) { this.openPanel('無法接受任務', '生涯存檔已變更，請重新與士官長交談。'); return }
@@ -750,7 +805,7 @@ export class TownScene {
       })
       return
     }
-    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && this.profile?.activeMission?.kind !== 'veteran-field' && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
@@ -953,8 +1008,9 @@ export class TownScene {
         : s.player
         ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
           ...[...this.residents.map(r => r.npc), ...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])].filter(target => !this.isProtectedTownAlly(target))]
-        : s.source?.faction === Faction.BANDIT
-          ? [this.player, ...this.mission.combatPeersFor(s.source).filter(npc => npc.faction !== s.source!.faction)]
+        : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source))
+          ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
+            ...this.mission.combatPeersFor(s.source).filter(npc => npc.faction !== s.source!.faction)]
           : this.defense.active && s.source
             ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source), ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
           : s.source?.faction === Faction.TOWN
@@ -1189,6 +1245,16 @@ export class TownScene {
       this.onRestart(next)
     })
   }
+  private veteranMissionHud(): string {
+    const active = this.profile.activeMission!
+    const definition = getVeteranMissionDefinition(active.templateId)!
+    if (active.templateId === 'veteran-tragedy-of-the-scouts') {
+      const remaining = Math.max(0, Math.ceil(120 - (this.mission?.survivalElapsedSeconds ?? active.survivalElapsed ?? 0)))
+      return `\n${definition.name}\nSURVIVE ${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`
+    }
+    const orders = active.phase === 'ASSEMBLING' ? '前往兵營集合' : active.phase === 'MARCHING' ? '跟隨隊長行軍' : active.phase === 'ENGAGING' ? '衝鋒' : active.phase
+    return `\n${definition.name} · 剩餘敵軍 ${this.mission.remainingEnemies}\n${orders}`
+  }
   private frame(time: number): void {
     if (this.disposed) return
     this.updatePointerPrompt()
@@ -1210,7 +1276,7 @@ export class TownScene {
       this.resolveBodies(); this.updateShots(dt)
       if (this.duel?.active) this.duel.persistRuntimeProgress()
       if (this.player.dead) this.enterMissionObserver()
-      if ((this.player.dead || this.profile.activeMission?.kind === 'cavalry-sweep') && this.profile.activeMission && !this.profile.activeMission.result) {
+      if ((this.player.dead || this.profile.activeMission?.kind === 'cavalry-sweep' || this.profile.activeMission?.kind === 'veteran-field') && this.profile.activeMission && !this.profile.activeMission.result) {
         if (this.duel?.active) this.duel.persistRuntimeProgress(true)
         else if (this.defense.active) this.defense.persistRuntimeProgress(true)
         else this.mission.persistRuntimeProgress(this.player.dead)
@@ -1232,6 +1298,8 @@ export class TownScene {
     const missionHud = this.profile.activeMission
       ? this.profile.activeMission.kind === 'duel'
         ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回兵營' : this.duel.phase === 'ASSEMBLING' ? '前往兵營與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往城外單挑場地' : this.duel.phase}`
+        : this.profile.activeMission.kind === 'veteran-field'
+        ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'

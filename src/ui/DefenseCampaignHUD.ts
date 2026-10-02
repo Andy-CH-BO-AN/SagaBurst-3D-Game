@@ -8,6 +8,60 @@ import { renderBattleStats } from './BattleStatsView'
 
 export type DefenseCampaignResult = 'victory' | 'defeat'
 
+export interface DefenseCampaignHUDOptions {
+  reinforcementsEnabled?: boolean
+  returnToTown?: boolean
+  relief?: boolean
+  meritAwarded?: () => number
+  missionTitle?: string
+  veteranMission?: boolean
+  playerIsAttacker?: boolean
+}
+
+type DefenseCampaignPhaseView = Pick<DefenseCampaignRuntimeSnapshot, 'phase' | 'activePhase'>
+
+export function getDefenseCampaignHeading(
+  stageId: number,
+  options: Pick<DefenseCampaignHUDOptions, 'relief' | 'veteranMission' | 'missionTitle'> = {},
+): string {
+  if (options.relief) return options.missionTitle ?? 'Outpost Relief · 騎兵救援'
+  if (options.veteranMission) return options.missionTitle ?? String(stageId)
+  return `STAGE ${options.missionTitle ?? stageId}`
+}
+
+export function getDefenseCampaignPhaseLabel(
+  snapshot: DefenseCampaignPhaseView,
+  options: Pick<DefenseCampaignHUDOptions, 'reinforcementsEnabled' | 'relief' | 'playerIsAttacker'> = {},
+): string {
+  if (snapshot.phase === 'victory') return 'VICTORY'
+  if (snapshot.phase === 'defeat' && options.reinforcementsEnabled === false) return 'DEFEAT'
+
+  const defeatLocked = snapshot.phase === 'defeat'
+  if (snapshot.activePhase === 'deployment') {
+    return defeatLocked ? 'DEFEAT LOCKED · DEPLOYMENT' : '部署階段 · DEPLOYMENT'
+  }
+  if (defeatLocked) return `DEFEAT LOCKED · ${options.playerIsAttacker ? 'ASSAULT' : 'DEFENSE'}`
+  if (options.relief) return '騎兵救援 · 殲滅剩餘敵軍'
+  return options.playerIsAttacker ? '攻城戰 · ASSAULT' : '防禦戰 · DEFENSE'
+}
+
+export function getDefenseCampaignDefeatMessage(
+  options: Pick<DefenseCampaignHUDOptions, 'veteranMission' | 'playerIsAttacker'>,
+  allowObserve: boolean,
+): string {
+  if (allowObserve) {
+    if (options.veteranMission && options.playerIsAttacker) {
+      return '玩家與攻方全滅，失敗已鎖定；戰場仍會繼續模擬。'
+    }
+    return options.veteranMission
+      ? '玩家與初始守軍全滅，失敗已鎖定；援軍與戰場仍會繼續模擬。'
+      : '玩家與原始守軍全滅。戰場仍會繼續模擬。'
+  }
+  return options.veteranMission && options.playerIsAttacker
+    ? '我軍已全滅，攻勢失敗。'
+    : '守方已全數陣亡，戰役結束。'
+}
+
 export class DefenseCampaignHUD {
   private readonly root: HTMLElement
   private readonly stageEl: HTMLElement
@@ -21,12 +75,12 @@ export class DefenseCampaignHUD {
   constructor(
     private readonly stageId: number,
     defenderFaction: CampaignFaction,
-    private readonly options: { reinforcementsEnabled?: boolean; returnToTown?: boolean; relief?: boolean; meritAwarded?: () => number } = {},
+    private readonly options: DefenseCampaignHUDOptions = {},
   ) {
     const root = document.createElement('div')
     root.id = 'defense-campaign-hud'
     root.innerHTML = `
-      <div class="campaign-hud-stage">${this.options.relief ? '' : 'STAGE '}<span data-stage></span></div>
+      <div class="campaign-hud-stage"><span data-stage></span></div>
       <div class="campaign-hud-phase" data-phase></div>
       <div class="campaign-hud-gate" data-gate></div>
       <div class="campaign-hud-counts">
@@ -46,7 +100,7 @@ export class DefenseCampaignHUD {
     this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
-    this.stageEl.textContent = this.options.relief ? 'Outpost Relief · 騎兵救援' : String(this.stageId)
+    this.stageEl.textContent = getDefenseCampaignHeading(this.stageId, this.options)
   }
 
   updateGate(state: CampaignGateState, unlocked: boolean, canOperate: boolean): void {
@@ -83,16 +137,11 @@ export class DefenseCampaignHUD {
       return
     }
 
-    const defeatLocked = snapshot.phase === 'defeat'
     if (snapshot.activePhase === 'deployment') {
-      this.phaseEl.textContent = defeatLocked
-        ? 'DEFEAT LOCKED · DEPLOYMENT'
-        : '部署階段 · DEPLOYMENT'
+      this.phaseEl.textContent = getDefenseCampaignPhaseLabel(snapshot, this.options)
       this.timerEl.textContent = `敵軍進攻：${Math.ceil(snapshot.deploymentRemainingSeconds)}s`
     } else {
-      this.phaseEl.textContent = defeatLocked
-        ? 'DEFEAT LOCKED · ASSAULT'
-        : this.options.relief ? '騎兵救援 · 殲滅剩餘敵軍' : '攻城戰 · ASSAULT'
+      this.phaseEl.textContent = getDefenseCampaignPhaseLabel(snapshot, this.options)
       this.timerEl.textContent = this.options.reinforcementsEnabled === false
         ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s`
         : reinforcementSpawned
@@ -121,7 +170,7 @@ export class DefenseCampaignHUD {
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
     const statsHtml = renderBattleStats(stats, showSquadStats)
-    const victoryMessage = this.options.relief ? 'Outpost 救援完成，剩餘敵軍已全數殲滅。' : this.options.returnToTown
+    const victoryMessage = this.options.veteranMission ? `${this.options.missionTitle ?? 'Veteran 任務'}完成，敵方軍事守軍已全數殲滅。` : this.options.relief ? 'Outpost 救援完成，剩餘敵軍已全數殲滅。' : this.options.returnToTown
       ? (this.stageId < 3 ? `Outpost ${['I', 'II', 'III'][this.stageId - 1]} 完成，下一個 Outpost 已解鎖。` : 'Outpost Duty 三關全部完成。')
       : this.stageId < 9
       ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`
@@ -132,9 +181,7 @@ export class DefenseCampaignHUD {
         <p>${
           victory
             ? victoryMessage
-            : allowObserve
-              ? '玩家與原始守軍全滅。戰場仍會繼續模擬。'
-              : '守方已全數陣亡，戰役結束。'
+            : getDefenseCampaignDefeatMessage(this.options, allowObserve)
         }</p>
         ${this.options.returnToTown ? `<p>Career 軍功 +${this.options.meritAwarded?.() ?? 0}（已保存）</p>` : ''}
         ${statsHtml}

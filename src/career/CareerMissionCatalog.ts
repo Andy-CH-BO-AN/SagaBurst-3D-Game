@@ -2,6 +2,7 @@ import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
 import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
+import { getVeteranMissionAvailability, getVeteranMissionDefinition, VETERAN_MISSION_CATALOG, type VeteranMissionDefinition } from './VeteranMission'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
 export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
@@ -52,6 +53,8 @@ export type RecruitMissionTemplate =
   | RecruitBanditMissionTemplate
   | RecruitPatrolMissionTemplate
   | RecruitTownDefenseMissionTemplate
+
+export type CareerMissionTemplate = RecruitMissionTemplate | VeteranMissionDefinition
 
 const mission = (
   id: string,
@@ -182,6 +185,11 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
   return RECRUIT_MISSION_CATALOG.find(template => template.id === id) ?? null
 }
 
+/** Generic lookup used by the active-mission save parser; the legacy Recruit lookup stays narrow. */
+export function getCareerMissionTemplate(id: string): CareerMissionTemplate | null {
+  return getRecruitMissionTemplate(id) ?? getVeteranMissionDefinition(id)
+}
+
 export function isEnemyTownAssaultUnlocked(profile: Pick<CareerProfile, 'completedOutpostRelief'>): boolean {
   return profile.completedOutpostRelief === true
 }
@@ -203,16 +211,33 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
     : template)
 }
 
-export type CareerMissionPage = 'recruit' | 'soldier'
+export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran'
 
-export function careerMissionPage(template: RecruitMissionTemplate): CareerMissionPage {
-  return careerMissionTier(template) === 2 ? 'soldier' : 'recruit'
+export function defaultCareerMissionPage(profile: Pick<CareerProfile, 'rank'>): CareerMissionPage {
+  return CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('veteran') ? 'veteran'
+    : CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('soldier') ? 'soldier' : 'recruit'
 }
 
-export function careerMissionTier(template: RecruitMissionTemplate): CareerMissionTier {
+export function isCareerMissionPageUnlocked(profile: Pick<CareerProfile, 'rank'>, page: CareerMissionPage): boolean {
+  const requiredRank: CareerRank = page === 'veteran' ? 'veteran' : page === 'soldier' ? 'soldier' : 'recruit'
+  return CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(requiredRank)
+}
+
+export function careerMissionPage(template: CareerMissionTemplate): CareerMissionPage {
+  const tier = careerMissionTier(template)
+  return tier === 3 ? 'veteran' : tier === 2 ? 'soldier' : 'recruit'
+}
+
+export function careerMissionTier(template: CareerMissionTemplate): CareerMissionTier {
   return careerMissionTierForTemplateId(template.id)
 }
 
-export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): RecruitMissionTemplate[] {
+export function careerMissionTemplatesForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
+  if (page === 'veteran') return isCareerMissionPageUnlocked(profile, page) ? [...VETERAN_MISSION_CATALOG] : []
   return availableRecruitMissions(profile).filter(template => careerMissionPage(template) === page)
+}
+
+export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
+  if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => getVeteranMissionAvailability(profile, template.id).unlocked)
+  return careerMissionTemplatesForPage(profile, page)
 }

@@ -58,6 +58,28 @@ function mockSquadNpc(id: string, squadId: 1 | 2 | 3, dead = false): any {
 }
 
 describe('BattleStatsTracker', () => {
+  it('counts explicitly registered Town allies but ignores enemy actors with colliding squad ids', () => {
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events)
+    const townAlly = { combatantId: 'borrowed-captain', faction: Faction.TOWN, squadId: 2, dead: false }
+    const enemyWithSameSquad = { combatantId: 'enemy-captain', faction: Faction.ENEMY, squadId: 2, dead: false }
+    tracker.registerNpc(townAlly as any, true)
+    tracker.registerNpc(enemyWithSameSquad as any)
+
+    const townSource: CombatActorRef = { ...squadSource(2), actorId: 'borrowed-captain', allegiance: Faction.TOWN }
+    const collidingEnemySource: CombatActorRef = { ...squadSource(2), actorId: 'enemy-captain', allegiance: Faction.ENEMY }
+    const townTarget: CombatTargetRef = { ...npcTarget('borrowed-captain', 2), allegiance: Faction.TOWN }
+    const collidingEnemyTarget: CombatTargetRef = { ...npcTarget('enemy-captain', 2), allegiance: Faction.ENEMY }
+    events.emit({ type: 'damage_applied', source: townSource, target: npcTarget('enemy-1'), method: 'melee', requestedDamage: 7, appliedDamage: 7 })
+    events.emit({ type: 'damage_applied', source: collidingEnemySource, target: npcTarget('enemy-2'), method: 'melee', requestedDamage: 13, appliedDamage: 13 })
+    events.emit({ type: 'damage_applied', source: collidingEnemySource, target: townTarget, method: 'melee', requestedDamage: 11, appliedDamage: 11 })
+    events.emit({ type: 'damage_applied', source: playerSource(), target: collidingEnemyTarget, method: 'melee', requestedDamage: 17, appliedDamage: 17 })
+
+    const snapshot = tracker.snapshot([townAlly, enemyWithSameSquad] as any, { dead: false } as any)
+    expect(snapshot.squads).toEqual([expect.objectContaining({
+      squadId: 2, damageDealt: 7, damageTaken: 11, startingMembers: 1, survivors: 1, casualties: 0,
+    })])
+  })
   it('stream-aggregates player and squad combat stats without retaining an event log', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)

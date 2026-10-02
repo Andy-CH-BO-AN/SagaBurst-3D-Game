@@ -38,6 +38,18 @@ export interface DefenseCampaignRuntimeSnapshot {
   assaultElapsedSeconds: number
   reinforcementRemainingSeconds: number
   reinforcementTriggered: boolean
+  /** Distinguishes a locked defeat, whose timeline still runs, from a terminal result. */
+  battleFinished: boolean
+}
+
+export interface DefenseCampaignRuntimeOptions {
+  reinforcementsEnabled?: boolean
+  eliminationObjective?: boolean
+  deploymentSeconds?: number
+  /** Override the global schedule for a single launch. */
+  reinforcementDelaySeconds?: number
+  /** Resume a persisted Career mission without resetting its timeline. */
+  initialSnapshot?: Partial<DefenseCampaignRuntimeSnapshot>
 }
 
 export class DefenseCampaignRuntime {
@@ -48,8 +60,17 @@ export class DefenseCampaignRuntime {
   private reinforcementTriggered = false
   private battleFinished = false
 
-  constructor(private readonly options: { reinforcementsEnabled?: boolean; eliminationObjective?: boolean; deploymentSeconds?: number } = {}) {
+  constructor(private readonly options: DefenseCampaignRuntimeOptions = {}) {
     if (options.eliminationObjective) this.phase = 'assault'
+    const saved = options.initialSnapshot
+    if (saved) {
+      this.phase = saved.activePhase ?? (saved.phase === 'deployment' ? 'deployment' : 'assault')
+      this.result = saved.phase === 'victory' || saved.phase === 'defeat' ? saved.phase : null
+      this.deploymentElapsed = Math.max(0, (options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds) - (saved.deploymentRemainingSeconds ?? 0))
+      this.assaultElapsed = Math.max(0, saved.assaultElapsedSeconds ?? 0)
+      this.reinforcementTriggered = Boolean(saved.reinforcementTriggered)
+      this.battleFinished = Boolean(saved.battleFinished) || saved.phase === 'victory'
+    }
   }
 
   getSnapshot(): DefenseCampaignRuntimeSnapshot {
@@ -63,9 +84,10 @@ export class DefenseCampaignRuntime {
       assaultElapsedSeconds: this.assaultElapsed,
       reinforcementRemainingSeconds: Math.max(
         0,
-        DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds - this.assaultElapsed,
+        (this.options.reinforcementDelaySeconds ?? DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds) - this.assaultElapsed,
       ),
       reinforcementTriggered: this.reinforcementTriggered,
+      battleFinished: this.battleFinished,
     }
   }
 
@@ -146,7 +168,7 @@ export class DefenseCampaignRuntime {
     if (
       this.options.reinforcementsEnabled !== false
       && !this.reinforcementTriggered
-      && this.assaultElapsed >= DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds
+      && this.assaultElapsed >= (this.options.reinforcementDelaySeconds ?? DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds)
     ) {
       this.reinforcementTriggered = true
       events.push('reinforcement_due')

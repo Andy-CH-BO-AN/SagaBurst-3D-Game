@@ -53,6 +53,63 @@ describe('DefenseCampaignRuntime', () => {
     }))).toEqual([])
   })
 
+  it('uses a per-launch reinforcement delay and restores its elapsed timer', () => {
+    const runtime = new DefenseCampaignRuntime({
+      reinforcementDelaySeconds: 90,
+      initialSnapshot: {
+        phase: 'assault',
+        activePhase: 'assault',
+        deploymentRemainingSeconds: 0,
+        assaultElapsedSeconds: 89.9,
+        reinforcementRemainingSeconds: 0.1,
+        reinforcementTriggered: false,
+      },
+    })
+
+    expect(runtime.getSnapshot().reinforcementRemainingSeconds).toBeCloseTo(0.1)
+    expect(runtime.update(0.1, state({ attackersAlive: 50 }))).toEqual(['reinforcement_due'])
+
+    const reloaded = new DefenseCampaignRuntime({
+      reinforcementDelaySeconds: 90,
+      initialSnapshot: runtime.getSnapshot(),
+    })
+    expect(reloaded.update(1, state({ attackersAlive: 50 }))).toEqual([])
+    expect(reloaded.getSnapshot().reinforcementTriggered).toBe(true)
+  })
+
+  it('keeps Veteran I defeat locked while a fully spawned rescue wave is still marching', () => {
+    const runtime = new DefenseCampaignRuntime({
+      reinforcementDelaySeconds: 90,
+      initialSnapshot: {
+        phase: 'assault',
+        activePhase: 'assault',
+        deploymentRemainingSeconds: 0,
+        assaultElapsedSeconds: 89.9,
+        reinforcementRemainingSeconds: 0.1,
+        reinforcementTriggered: false,
+      },
+    })
+
+    expect(runtime.update(0.1, state({
+      playerDead: true,
+      originalDefendersAlive: 0,
+      defendersAlive: 0,
+      attackersAlive: 20,
+      // The 50 NPCs have been materialized, but their two squads have not arrived.
+      reinforcementSpawned: false,
+    }))).toEqual(['defeat', 'reinforcement_due'])
+    expect(runtime.getSnapshot()).toMatchObject({ phase: 'defeat', activePhase: 'assault', reinforcementTriggered: true })
+
+    // Arrival makes side elimination terminal while preserving the earlier defeat lock.
+    expect(runtime.update(0.1, state({
+      playerDead: true,
+      originalDefendersAlive: 0,
+      defendersAlive: 0,
+      attackersAlive: 20,
+      reinforcementSpawned: true,
+    }))).toEqual(['battle_defeat'])
+  })
+
   it('wins immediately when attackers are eliminated before reinforcements spawn', () => {
     const runtime = new DefenseCampaignRuntime()
     runtime.update(60, state({ attackersAlive: 100 }))

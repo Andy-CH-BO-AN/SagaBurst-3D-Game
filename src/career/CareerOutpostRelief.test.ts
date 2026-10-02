@@ -246,16 +246,16 @@ describe('Relief result and Game integration', () => {
   it.each(['victory', 'defeat'] as const)('settles %s only once, persists dead-player stats, and clears active relief on return', outcome => {
     const persistence = storage(), store = new CareerProfileStore(persistence), profile = acceptCareerOutpostRelief(ready(), 'relief')!
     store.save(profile)
-    vi.stubGlobal('window', { localStorage: persistence, location: { pathname: '/game/', href: '' } })
+    vi.stubGlobal('window', { localStorage: persistence, location: { pathname: '/game/', href: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() })
     const session = storage(); vi.stubGlobal('sessionStorage', session)
     const stats = { player: { damageDealt: 500, damageTaken: 100, kills: 5, survived: false, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }, squads: [] }
     const config = createCareerOutpostLaunch(profile)
     let enemies = 60, allies = 49
     const game = Object.assign(Object.create(Game.prototype), {
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
-      defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn() },
+      defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
       reliefMarch: { update: vi.fn() }, careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-      battleStats: { snapshot: () => stats }, npcs: [], player: { dead: true }, controlMode: 'spectator',
+      battleStats: { snapshot: () => stats }, npcs: [], mounts: [], player: { dead: true }, controlMode: 'spectator',
       campaignOriginalDefenders: [], campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(),
       _campaignFactionAlive: (faction: string) => faction === 'roman' ? allies : enemies,

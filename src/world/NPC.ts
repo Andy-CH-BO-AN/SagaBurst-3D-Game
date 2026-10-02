@@ -148,6 +148,8 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
 }
 
 interface CombatEquipmentSnapshot {
+  tier: 1 | 2 | 3 | 4
+  squadId?: SquadId
   meleeWeaponId: string | null
   meleeDamageOverride: number | undefined
   rangedWeaponId: string | undefined
@@ -167,12 +169,14 @@ export class NPC {
   readonly characterFaction: CharacterFaction
   readonly aiType: AIType
   readonly name: string
-  readonly tier: 1 | 2 | 3 | 4
+  private _tier: 1 | 2 | 3 | 4
+  get tier(): 1 | 2 | 3 | 4 { return this._tier }
   readonly visualAssetId?: HeroAssetId
   readonly combatProfileId?: T4CombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
   readonly presetId?: UnitPresetId
-  readonly squadId?: SquadId
+  private _squadId?: SquadId
+  get squadId(): SquadId | undefined { return this._squadId }
   readonly combatantId: string
   private readonly combatEventSink?: CombatEventSink
 
@@ -485,7 +489,7 @@ export class NPC {
     this.characterFaction = characterFaction
     this.aiType = aiType
     this.name = name
-    this.tier = tier
+    this._tier = tier
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
@@ -493,7 +497,7 @@ export class NPC {
     this.currentHp = this.maxHp
     this.loadout = loadout
     this.presetId = presetId
-    this.squadId = squadId
+    this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
     this.combatEventSink = combatEventSink
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
@@ -871,9 +875,11 @@ export class NPC {
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
-  applyTemporaryCombatLoadout(loadout: UnitLoadout): void {
+  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId): void {
     if (!this.originalCombatEquipment) {
       this.originalCombatEquipment = {
+        tier: this.tier,
+        squadId: this.squadId,
         meleeWeaponId: this.meleeWeaponId,
         meleeDamageOverride: this._meleeDamageOverride,
         rangedWeaponId: this.rangedWeaponId,
@@ -884,6 +890,8 @@ export class NPC {
       }
     }
     this._cancelEquipmentCombatState()
+    if (tier !== undefined) this._tier = tier
+    if (squadId !== undefined) this._squadId = squadId
     this._meleeDamageOverride = undefined
     this._setActiveMeleeWeapon(loadout.meleeWeaponId ?? null)
     this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
@@ -908,6 +916,8 @@ export class NPC {
     const original = this.originalCombatEquipment
     if (!original) return
     this._cancelEquipmentCombatState()
+    this._tier = original.tier
+    this._squadId = original.squadId
     this._setActiveMeleeWeapon(original.meleeWeaponId)
     this._meleeDamageOverride = original.meleeDamageOverride
     this.rangedWeaponId = original.rangedWeaponId
@@ -1112,6 +1122,16 @@ export class NPC {
     const sprite = new THREE.Sprite(mat)
     sprite.scale.set(0.8, 0.8, 1)
     return sprite
+  }
+
+  /** Applies an exact saved combat HP value without reapplying T4 damage modifiers. */
+  restoreCombatHealth(hp: number): void {
+    const restoredHp = Math.min(this.maxHp, Math.max(0, Number.isFinite(hp) ? hp : this.maxHp))
+    if (restoredHp === 0) {
+      if (!this.dead) this.takeDamage(this.maxHp * 100)
+      return
+    }
+    if (!this.dead) this.currentHp = restoredHp
   }
 
   takeDamage(amount: number): boolean {
