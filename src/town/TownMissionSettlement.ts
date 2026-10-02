@@ -35,7 +35,7 @@ interface ReturnResident {
 /** Live return objects, plus the three scene effects that own projectiles, observer controls and scene replacement. */
 interface TownReturnScene {
   residents: readonly ReturnResident[]
-  externalThreatActors: Set<NPC>
+  releaseExternalThreat(npc: NPC): void
   cat: Pick<Mount, 'restoreForTown' | 'catVisual'>
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
@@ -133,7 +133,7 @@ export class TownMissionSettlement {
     resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
     resident.cycle = -1
     resident.walkTime = 0
-    this.town.externalThreatActors.delete(resident.npc)
+    this.town.releaseExternalThreat(resident.npc)
     if (resident.homeMount) {
       resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
       resident.npc.mountVehicle(resident.homeMount)

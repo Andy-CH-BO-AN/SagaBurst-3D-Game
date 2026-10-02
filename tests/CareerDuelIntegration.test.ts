@@ -27,7 +27,7 @@ function harness() {
     event: { hostile: false }, inventory: { prepareForCombat: vi.fn(), sheathAll: vi.fn(), equippedMelee: { id: 'gladius_rusty' } },
     mission: { events: { emit: vi.fn() }, cleanupMission: vi.fn() }, defense: { active: false },
     openPanel: vi.fn(() => ({})), closePanel: vi.fn(), button: vi.fn(), clearMissionCombatShots: vi.fn(),
-    disposed: false, externalThreatActors: new Set(), residents: [],
+    disposed: false, residents: [],
   }) as any
   town.store = { load: () => town.profile }
   town.commit = vi.fn(next => { town.profile = next; return true })

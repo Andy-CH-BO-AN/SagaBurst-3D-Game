@@ -16,6 +16,7 @@ import { ArrowProjectile } from '../src/world/ArrowProjectile'
 import { TownScene } from '../src/town/TownScene'
 import { Player } from '../src/player/Player'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { combatFixture, combatResident } from './helpers/townMissionCombat'
 beforeAll(() => installCorgiTestAsset())
 
 function memory() {
@@ -455,7 +456,8 @@ describe('Town orchestration transitions', () => {
     const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Mission captain', 2, false)
     const town = Object.create(TownScene.prototype) as any
     town.profile = { activeMission: { kind: 'bandit', phase: 'ENGAGING' } }
-    town.externalThreatActors = new Set()
+    const threatDefender = vi.fn<(actor: NPC) => boolean>(() => false)
+    town.missionCombat = { isExternalThreatDefender: threatDefender }
     town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [ally] }
     town.defense = { playerEnemies: [], releasedEnemies: [] }
@@ -486,10 +488,10 @@ describe('Town orchestration transitions', () => {
 
     town.profile.activeMission = undefined
     town.mission.friendlies = []
-    town.externalThreatActors.add(ally)
+    threatDefender.mockReturnValue(true)
     town.melee()
     expect(town.hitResident).not.toHaveBeenCalled()
-    town.externalThreatActors.clear()
+    threatDefender.mockReturnValue(false)
     town.melee()
     expect(town.hitResident).toHaveBeenCalledWith(ally, expect.any(Number))
   })
@@ -501,7 +503,6 @@ describe('Town orchestration transitions', () => {
     const town = Object.create(TownScene.prototype) as any
     town.profile = { activeMission: { kind: 'patrol', phase: 'ENGAGING' } }
     town.mission = { friendlies: [ally] }
-    town.externalThreatActors = new Set()
     town.residents = [{ npc: ally, homeMount: horse }]
     town.stableHorses = []
     town.prepareDamage = vi.fn(() => true)
@@ -522,9 +523,11 @@ describe('Town orchestration transitions', () => {
     const bandit = new NPC(scene, 10, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 2, false)
     const town = Object.create(TownScene.prototype) as any
     town.profile = { activeMission: undefined }
-    town.externalThreatActors = new Set()
     town.mission = { friendlies: [], ambientBandits: [bandit], missionBandits: [] }
     town.residents = [{ spec: { role: 'melee_infantry' }, npc: soldier }, { spec: { role: 'merchant' }, npc: merchant }]
+    const simulation = combatFixture({ simulation: { residents: [combatResident(soldier), combatResident(merchant, 'merchant')] } })
+    simulation.field.ambientBandits = [bandit]
+    town.missionCombat = simulation.combat
     town.prepareDamage = vi.fn(() => true)
     town.activateHostility = vi.fn()
     town.persistCasualties = vi.fn()

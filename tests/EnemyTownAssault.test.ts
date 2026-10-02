@@ -20,6 +20,7 @@ import { SpatialGrid } from '../src/world/SpatialGrid'
 import { TownEquipment } from '../src/town/TownEquipment'
 import { CareerMountController } from '../src/career/CareerMountController'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { combatFixture } from './helpers/townMissionCombat'
 
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: { ready: true, createInstance: () => {
@@ -302,7 +303,18 @@ describe('shared Town wartime and settlement', () => {
     const f = fixture('roman'), town = townHarness(f)
     const military = f.controller.military[0], civilian = f.controller.civilians[0], attacker = f.controller.enemies[0]
     const updateMilitary = vi.spyOn(military, 'update'), updateAttacker = vi.spyOn(attacker, 'update'), updateCivilian = vi.spyOn(civilian, 'update')
-    town.updateDefenseCombat(.016)
+    const simulation = combatFixture({
+      controllers: { defense: f.controller },
+      simulation: {
+        player: () => f.player, cameraPosition: town.camera.position, obstacles: town.world.obstacles,
+        navigation: f.navigation, hp: town.hp, careerMounts: town.careerMounts,
+        updateCommandCue: town.updateCareerCommandCue,
+        hitNpc: (target, damage, method, source) => town.hitFieldNpc(target, damage, method, source),
+        damagePlayer: (source, damage, method) => town.damagePlayerFromNpc(source, damage, method),
+        fireNpc: (origin, direction, kind, source) => town.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source),
+      },
+    })
+    simulation.combat.update(.016, town.orbit.cameraYaw, town.elapsed)
     expect(updateMilitary).toHaveBeenCalledOnce(); expect(updateAttacker).toHaveBeenCalledOnce(); expect(updateCivilian).toHaveBeenCalledOnce()
     const before = military.hp
     town.hitFieldNpc(military, 20, 'melee', attacker)
