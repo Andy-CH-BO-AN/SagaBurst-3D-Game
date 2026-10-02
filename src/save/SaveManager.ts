@@ -114,9 +114,9 @@ export class SaveManager {
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {
           oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },
-          twoHanded: { ...DEFAULT_SAVE.skills.twoHanded, ...parsed.skills?.twoHanded },
-          ranged: { ...DEFAULT_SAVE.skills.ranged, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
-          mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact, ...parsed.skills?.mountedImpact },
+          twoHanded: { ...DEFAULT_SAVE.skills.twoHanded!, ...parsed.skills?.twoHanded },
+          ranged: { ...DEFAULT_SAVE.skills.ranged!, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
+          mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact!, ...parsed.skills?.mountedImpact },
         },
         inventory: inventoryData,
         mountData,
