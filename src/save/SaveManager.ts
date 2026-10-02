@@ -20,7 +20,11 @@ export interface PlayerSaveData {
   arrows: number
   skills: {
     oneHanded: SkillDetail
-    archery: SkillDetail
+    twoHanded: SkillDetail
+    ranged: SkillDetail
+    mountedImpact: SkillDetail
+    /** Legacy pre-four-skill save compatibility. */
+    archery?: SkillDetail
   }
   inventory: {
     items?: { id: string; quantity: number }[]
@@ -44,7 +48,9 @@ export const DEFAULT_SAVE: PlayerSaveData = {
   arrows: 30,
   skills: {
     oneHanded: { level: 1, xp: 0 },
-    archery: { level: 1, xp: 0 },
+    twoHanded: { level: 1, xp: 0 },
+    ranged: { level: 1, xp: 0 },
+    mountedImpact: { level: 1, xp: 0 },
   },
   inventory: {
     items: [
@@ -108,7 +114,9 @@ export class SaveManager {
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {
           oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },
-          archery: { ...DEFAULT_SAVE.skills.archery, ...parsed.skills?.archery },
+          twoHanded: { ...DEFAULT_SAVE.skills.twoHanded, ...parsed.skills?.twoHanded },
+          ranged: { ...DEFAULT_SAVE.skills.ranged, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
+          mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact, ...parsed.skills?.mountedImpact },
         },
         inventory: inventoryData,
         mountData,
