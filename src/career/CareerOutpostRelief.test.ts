@@ -52,13 +52,16 @@ describe('Career relief unlock and owned mounts', () => {
 })
 
 describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', faction => {
-  it('spawns 10 defenders + 60 T2 enemies + exactly 49 rescue NPCs and one independent Player', () => {
+  it('spawns 20 T2 defenders + 60 T2 enemies + 47 T2 rescue riders, two heroes and one independent Player', () => {
     const config = launch(faction), plan = createCareerReliefSpawnPlan(config)
     const rescue = plan.npcSpecs.filter(spec => spec.squadId)
     const enemy = plan.npcSpecs.filter(spec => spec.characterFaction !== faction)
     const garrison = plan.npcSpecs.filter(spec => spec.characterFaction === faction && !spec.squadId)
-    expect(plan.npcSpecs).toHaveLength(119)
-    expect(garrison).toHaveLength(10)
+    expect(plan.npcSpecs).toHaveLength(129)
+    expect(garrison).toHaveLength(20)
+    expect(garrison.every(spec => spec.tier === 2)).toBe(true)
+    expect(garrison.filter(spec => spec.aiType === AIType.MELEE)).toHaveLength(16)
+    expect(garrison.filter(spec => spec.aiType === AIType.RANGED)).toHaveLength(4)
     expect(rescue).toHaveLength(49)
     const squadA = rescue.filter(spec => spec.squadId === 1), squadB = rescue.filter(spec => spec.squadId === 2)
     expect(squadA.length + 1).toBe(25); expect(squadB.length).toBe(25)
@@ -70,7 +73,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     expect(rescue.filter(spec => spec.name === 'Maki')).toHaveLength(1)
     expect(rescue.find(spec => spec.name === 'Captain')).toMatchObject({ tier: 4, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4' })
     expect(rescue.find(spec => spec.name === 'Maki')).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', specialCombatProfile: 'maki-ranger' })
-    expect(rescue.filter(spec => spec.tier === 1)).toHaveLength(47)
+    expect(rescue.filter(spec => spec.tier === 2)).toHaveLength(47)
     expect(enemy).toHaveLength(60); expect(enemy.every(spec => spec.tier === 2)).toBe(true)
     const frontline = enemy.filter(spec => !spec.cavalry && spec.aiType === AIType.MELEE)
     const ranged = enemy.filter(spec => !spec.cavalry && spec.aiType === AIType.RANGED)
@@ -114,9 +117,9 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
     const breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
     const captain = rescue.find(npc => npc.name === 'Captain')!
-    expect(captain.combatPosition.distanceTo(breach)).toBeCloseTo(50)
+    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(300)
     const follow = vi.fn(), charge = vi.fn()
-    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, vi.fn(), charge, config.careerReliefPhase === 'charge')
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, vi.fn(), charge, config.careerReliefPhase === 'charge', { chargeAfterFollow: true })
     controller.start(); controller.start(); controller.update(); controller.update()
     expect(controller.hasCharged).toBe(true)
     expect(follow).not.toHaveBeenCalled(); expect(charge).not.toHaveBeenCalled()
@@ -142,7 +145,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
       careerStore: store, careerProfile: profile, defenseCampaignConfig: config, _showNotify: vi.fn(),
     }) as { _persistCareerReliefCharge: () => void; careerProfile: CareerProfile }
     const persist = vi.fn(() => game._persistCareerReliefCharge()), follow = vi.fn(), charge = vi.fn()
-    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, persist, charge)
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, persist, charge, false, { chargeAfterFollow: true })
     controller.start()
     rescue.find(npc => npc.name === leader)!.dead = true
     controller.update(); controller.update()
@@ -154,7 +157,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
 
     const reloadedConfig = createCareerOutpostLaunch(store.load()!), reloadedRescue = makeRescue(reloadedConfig)
     const reloadFollow = vi.fn(), reloadPersist = vi.fn(), reloadCharge = vi.fn()
-    const reloaded = new CareerReliefMarchController(reloadedRescue as unknown as NPC[], breach, reloadFollow, reloadPersist, reloadCharge, reloadedConfig.careerReliefPhase === 'charge')
+    const reloaded = new CareerReliefMarchController(reloadedRescue as unknown as NPC[], breach, reloadFollow, reloadPersist, reloadCharge, reloadedConfig.careerReliefPhase === 'charge', { chargeAfterFollow: true })
     reloaded.start(); reloaded.update()
     expect(reloadFollow).not.toHaveBeenCalled(); expect(reloadPersist).not.toHaveBeenCalled(); expect(reloadCharge).not.toHaveBeenCalled()
     for (const rider of reloadedRescue) {
@@ -162,7 +165,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
       expect(rider.assignFormationTarget).not.toHaveBeenCalled(); expect(rider.assignFollowTarget).not.toHaveBeenCalled()
     }
   })
-  it('marches using mount speed, separates both squads, and charges once at 50m', () => {
+  it('marches using mount speed and charges both squads exactly once when Follow finishes, regardless of distance', () => {
     const plan = createCareerReliefSpawnPlan(launch(faction))
     const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,
       combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
@@ -170,9 +173,10 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     const captain = rescue.find(npc => npc.name === 'Captain')!, maki = rescue.find(npc => npc.name === 'Maki')!
     const follow = vi.fn(), charge = vi.fn(), breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
     const triggered = vi.fn()
-    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, triggered, charge)
+    const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, triggered, charge, false, { chargeAfterFollow: true })
     controller.start(); controller.start()
     expect(follow).toHaveBeenCalledTimes(1)
+    expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(300)
     expect(captain.assignFormationTarget.mock.calls[0][3]).toBe(12)
     expect(maki.assignFollowTarget.mock.calls[0][0]).toBe(captain)
     expect(maki.assignFollowTarget.mock.calls[0][2].x).toBe(28)
@@ -182,7 +186,11 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     }
     captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 50.1)); controller.update()
     expect(charge).not.toHaveBeenCalled()
-    captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 50, 50)); controller.update(); controller.update()
+    captain.combatPosition.copy(breach); controller.update()
+    expect(charge).not.toHaveBeenCalled()
+    captain.combatPosition.copy(breach).add(new THREE.Vector3(0, 0, 300))
+    follow.mock.calls[0][0]!()
+    controller.update(); controller.update()
     expect(triggered).toHaveBeenCalledTimes(1)
     expect(charge).toHaveBeenCalledTimes(1); expect(controller.hasCharged).toBe(true)
     for (const rider of rescue) expect(rider.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')

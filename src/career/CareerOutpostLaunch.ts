@@ -44,8 +44,8 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
     type: 'defense', defenderFaction: profile.faction, stageId: mission.stageId,
     deploymentSeconds: profile.rank === 'captain' || profile.rank === 'commander' ? 60 : 10,
     defenderArmy: relief ? {
-      [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: 8, 2: 0, 3: 0 },
-      [resolveCampaignRolePreset(profile.faction, 'ranged')]: { 1: 2, 2: 0, 3: 0 },
+      [resolveCampaignRolePreset(profile.faction, 'frontline')]: { 1: 0, 2: 16, 3: 0 },
+      [resolveCampaignRolePreset(profile.faction, 'ranged')]: { 1: 0, 2: 4, 3: 0 },
     } : defenderArmy, careerMissionKind: mission.kind, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
     ...(relief ? { careerReliefPhase: mission.reliefPhase ?? 'march' } : {}),
     playerMountAppearanceVariant: careerMountAppearanceVariant(mount),

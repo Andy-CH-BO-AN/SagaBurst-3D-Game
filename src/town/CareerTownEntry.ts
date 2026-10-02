@@ -28,6 +28,10 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
       const town = await TownScene.create(container, profile, config => {
         if (!config?.careerMissionId) return
+        // Keep the launch gesture on the persistent container across scene loading.
+        if (!location.search.includes('nolock')) {
+          try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries if denied. */ }
+        }
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, config.careerMissionId)
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         void launchCampaign(config)

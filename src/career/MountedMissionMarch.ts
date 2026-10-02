@@ -7,6 +7,7 @@ const SECOND_SQUAD_OFFSET = new THREE.Vector3(28, 0, -4.4)
 export class MountedMissionMarchController {
   private started = false
   private charged = false
+  private followFinished = false
   private readonly captain: NPC
   private readonly maki: NPC
   private readonly rescue: NPC[]
@@ -14,12 +15,12 @@ export class MountedMissionMarchController {
   constructor(
     npcs: readonly NPC[],
     private readonly breach: THREE.Vector3,
-    private readonly followVoice: () => void,
+    private readonly followVoice: (onFinished?: () => void) => void,
     private readonly onChargeTriggered: () => boolean | void,
     private readonly chargeVoice: () => void,
     private readonly resumeCharged = false,
     private readonly options: {
-      chargeDistance?: number; followerCount?: number; playFollow?: boolean; marchTarget?: THREE.Vector3
+      chargeDistance?: number; followerCount?: number; playFollow?: boolean; marchTarget?: THREE.Vector3; chargeAfterFollow?: boolean
       squads?: readonly [{ leader: NPC | undefined; members: readonly NPC[] }, { leader: NPC | undefined; members: readonly NPC[] }]
     } = {},
   ) {
@@ -50,12 +51,13 @@ export class MountedMissionMarchController {
       const slot = this.firstSquad.has(npc) ? slotA++ : slotB++
       npc.assignFollowTarget(leader, slot, returnFollowLocalOffset(slot, this.options.followerCount ?? 24, true, 5), speed)
     }
-    if (this.options.playFollow !== false) this.followVoice()
+    if (this.options.playFollow !== false) this.followVoice(() => { this.followFinished = true })
   }
   update(): void {
     if (!this.started || this.charged) return
     const distance = this.captain ? Math.hypot(this.captain.combatPosition.x - this.breach.x, this.captain.combatPosition.z - this.breach.z) : 0
-    if (distance > (this.options.chargeDistance ?? 50) && this.captain && this.maki && !this.captain.dead && !this.maki.dead) return
+    const waiting = this.options.chargeAfterFollow ? !this.followFinished : distance > (this.options.chargeDistance ?? 50)
+    if (waiting && this.captain && this.maki && !this.captain.dead && !this.maki.dead) return
     this.charge()
   }
   private charge(): void {

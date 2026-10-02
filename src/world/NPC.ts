@@ -878,7 +878,11 @@ export class NPC {
     this.tacticalOrder = order
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
-    else if (order === 'charge') this._enterVikingChargeStance()
+    else if (order === 'charge') {
+      this._enterVikingChargeStance()
+      this._targetAcquisitionInitialized = false
+      if (this.state === AIState.IDLE || this.state === AIState.ALERT) this.state = AIState.CHASE
+    }
     this._restoreCombatReadyRangedVisual()
   }
 
@@ -1757,13 +1761,13 @@ export class NPC {
     } else switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
-        if (this.tacticalOrder !== 'defend') {
+        if (this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
           this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 
         if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          const detectionRadius = this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
+          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
           if (dist <= detectionRadius) {
             if (this.encounterOrigin) {
               // Awareness was already announced by idle -> alerted/provoked.
@@ -1817,7 +1821,7 @@ export class NPC {
 
         const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
         const maxDetectionDistance = this.tacticalOrder === 'follow' ? 36 : DETECTION_RADIUS * 1.5
-        if (distSq > maxDetectionDistance * maxDetectionDistance) {
+        if (this.tacticalOrder !== 'charge' && distSq > maxDetectionDistance * maxDetectionDistance) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()

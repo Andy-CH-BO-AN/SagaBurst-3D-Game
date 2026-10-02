@@ -8,7 +8,6 @@ import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import { applyCampaignBreachOrders, type CampaignGateController } from '../campaign/CampaignGate'
 import { AIType, type NPC } from '../world/NPC'
 
-export const RELIEF_CHARGE_DISTANCE = 50
 const SECOND_SQUAD_OFFSET = new THREE.Vector3(28, 0, -4.4)
 export function reliefFollowOffset(index: number): THREE.Vector3 {
   return returnFollowLocalOffset(index, 24, true, 5)
@@ -25,7 +24,7 @@ export function createCareerReliefSpawnPlan(launch: DefenseCampaignLaunchConfig)
   const cavalry = resolveCampaignRolePreset(launch.defenderFaction, 'sword_cavalry')
   const ranger = launch.defenderFaction === 'roman' ? 'roman_archer' : 'viking_archer'
   Object.assign(rescueConfig[launch.defenderFaction], {
-    [cavalry]: { 1: 47, 2: 0, 3: 0, 4: 1 },
+    [cavalry]: { 1: 0, 2: 47, 3: 0, 4: 1 },
     [ranger]: { 1: 0, 2: 0, 3: 0, 4: 1 },
   })
   const rescue = BattleSpawner.createSpawnPlan(rescueConfig).npcSpecs
@@ -35,7 +34,7 @@ export function createCareerReliefSpawnPlan(launch: DefenseCampaignLaunchConfig)
   maki.name = 'Maki'; maki.squadId = 2
   maki.cavalry = true
   maki.loadout = { ...maki.loadout!, mountId: 'black-cat' }
-  const soldiers = rescue.filter(spec => spec.tier === 1)
+  const soldiers = rescue.filter(spec => spec.tier === 2)
   // Squad A has 24 NPCs + Player. Squad B has 25 NPCs.
   soldiers.forEach((spec, index) => { spec.squadId = index < 23 ? 1 : 2 })
   positionDefenseCampaignReinforcements([captain], launch.defenderFaction)
@@ -63,14 +62,6 @@ export function createCareerReliefSpawnPlan(launch: DefenseCampaignLaunchConfig)
   for (const spec of defenders.npcSpecs) spec.z += inward * 19
   positionNearBreach(attackers.npcSpecs.filter(spec => !spec.cavalry && spec.aiType !== AIType.RANGED), true)
   positionNearBreach(attackers.npcSpecs.filter(spec => spec.cavalry || spec.aiType === AIType.RANGED), false)
-  // Reload preserves the march/charge transition so an existing mission cannot
-  // replay Captain's command. The shared Outpost reload still rebuilds combatants.
-  if (launch.careerReliefPhase === 'charge') {
-    const shiftX = -captain.x
-    const shiftZ = outpost.frontZ - inward * RELIEF_CHARGE_DISTANCE - captain.z
-    for (const spec of rescue) { spec.x += shiftX; spec.z += shiftZ }
-    playerPosition.x += shiftX; playerPosition.z += shiftZ
-  }
   for (const spec of [...defenders.npcSpecs, ...attackers.npcSpecs]) spec.squadId = undefined
   return {
     playerSpawn: { x: playerPosition.x, z: playerPosition.z },
