@@ -1,22 +1,19 @@
 import * as THREE from 'three'
-import { getCareerPurchaseTier, cloneCareerProfile, type CareerMountId, type CareerProfile } from './CareerProfile'
+import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 
-const MOUNTS: Readonly<Record<CareerMountId, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
-  'horse-t1': { id: 'horse-t1', name: '普通戰馬', tier: 1 },
-  'horse-t2': { id: 'horse-t2', name: '受訓戰馬', tier: 2 },
-  'horse-t3': { id: 'horse-t3', name: '精銳戰馬', tier: 3 },
+const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
+  horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },
   corgi: { id: 'corgi', name: '柯基英雄坐騎', tier: 4 },
 }
 
 export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): CareerMountId[] {
-  const horseTiers = profile.ownedHorseTiers ?? (profile.ownedMounts.includes('horse') ? [1] : [])
-  const result = horseTiers.map(tier => `horse-t${tier}` as CareerMountId)
+  const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
   if (profile.ownedMounts.includes('corgi')) result.push('corgi')
   return result
@@ -28,7 +25,10 @@ export function careerMountType(id: CareerMountId): MountType {
   return MountType.HORSE
 }
 
-export function careerMountTier(id: CareerMountId): number { return MOUNTS[id].tier }
+export function careerMountTier(id: CareerMountId, profile: Pick<CareerProfile, 'rank'>): number {
+  const canonical = canonicalCareerMountId(id)
+  return canonical === 'horse' ? getCareerPurchaseTier(profile.rank) : MOUNTS[canonical].tier
+}
 
 export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {
   if (id === 'horse-t2') return 1
@@ -37,7 +37,8 @@ export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanc
 }
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
-  return ownedCareerMountIds(profile).includes(id) && MOUNTS[id].tier <= getCareerPurchaseTier(profile.rank)
+  const canonical = canonicalCareerMountId(id)
+  return ownedCareerMountIds(profile).includes(canonical) && careerMountTier(canonical, profile) <= getCareerPurchaseTier(profile.rank)
 }
 
 export function findSafeCareerMountPosition(
@@ -84,23 +85,28 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!state) return
     for (const id of Object.keys(state.hp) as CareerMountId[]) {
       const value = state.hp[id]
-      if (MOUNTS[id] && typeof value === 'number') this.hp.set(id, value)
+      const canonical = canonicalCareerMountId(id)
+      if (MOUNTS[canonical] && typeof value === 'number') this.hp.set(canonical, Math.min(this.hp.get(canonical) ?? value, value))
     }
-    for (const id of state.unavailable) if (MOUNTS[id]) this.unavailable.add(id)
+    for (const id of state.unavailable) {
+      const canonical = canonicalCareerMountId(id)
+      if (MOUNTS[canonical]) this.unavailable.add(canonical)
+    }
   }
 
   list(): EquipmentMountItem[] {
     const profile = this.readProfile()
     const unlockedTier = getCareerPurchaseTier(profile.rank)
     return ownedCareerMountIds(profile).map(id => ({
-      ...MOUNTS[id],
+      ...MOUNTS[canonicalCareerMountId(id)],
+      tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
-      available: MOUNTS[id].tier <= unlockedTier && !this.unavailable.has(id),
+      available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id),
     }))
   }
 
   activate(rawId: string): boolean {
-    const id = rawId as CareerMountId
+    const id = canonicalCareerMountId(rawId as CareerMountId)
     const config = MOUNTS[id]
     const profile = this.readProfile()
     if (!config || !ownedCareerMountIds(profile).includes(id)) return this.fail('尚未擁有這匹坐騎。')
@@ -146,7 +152,8 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   restoreActiveMount(): boolean {
     const profile = this.readProfile()
-    const id = profile.activeMission?.mountState?.activeMountId
+    const savedId = profile.activeMission?.mountState?.activeMountId
+    const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
     const position = findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
@@ -155,7 +162,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
     this.player().mountVehicle(mount)
-    this.statusText = `${MOUNTS[id].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
+    this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }
 
@@ -209,7 +216,7 @@ export class CareerMountController implements EquipmentMountAdapter {
       this.hp.set(id, 0)
       this.unavailable.add(id)
       this.persistOutingState(id)
-      this.statusText = `${MOUNTS[id].name}已倒下；本次出城不能再次召喚。`
+      this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已倒下；本次出城不能再次召喚。`
     })
   }
 

@@ -339,7 +339,7 @@ export class TownScene {
       this.openDeploymentPanel(greeting, context, firstOutpost)
     } else {
       const mount = id !== 'merchant', panel = this.openPanel(NAMES[id], greeting)
-      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 戰馬依 T1 → T2 → T3 購買；購買後按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
+      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 軍用戰馬只需購買一次，隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
       const showProducts = () => {
         panel.querySelector('.town-products')?.remove()
         const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
@@ -354,7 +354,7 @@ export class TownScene {
           }
           const row = document.createElement('article'); row.className = 'town-product'
           const title = document.createElement('strong'); title.textContent = item.name
-          const meta = document.createElement('small'); meta.textContent = 'T' + item.tier + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item)
+          const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item)
           row.append(title, meta)
           if (!mount) {
             const status = productStatus(this.profile, item)
@@ -372,15 +372,15 @@ export class TownScene {
             }
             row.append(button); list.append(row); continue
           }
-          this.button(row, item.id.startsWith('horse-t') && !isTownProductOwned(this.profile, item) ? '購買' : '查看', () => {
+          this.button(row, item.id === 'horse' && !isTownProductOwned(this.profile, item) ? '購買' : '查看', () => {
             const current = this.profile, owned = isTownProductOwned(current, item), tierUnlocked = getCareerPurchaseTier(current.rank) >= item.tier
             let message = selectTownDialogue({ ...context, isOwned: owned, tierUnlocked, hasEnoughMerit: current.availableMerit >= item.price }, 'product')
-            if (item.id.startsWith('horse-t') && !owned) {
-              const status = productStatus(current, item), fresh = purchaseTownHorse(current, item.id)
+            if (item.id === 'horse' && !owned) {
+              const fresh = purchaseTownHorse(current, item.id)
               if (fresh) {
                 if (!this.commit(fresh)) { this.talk(id, this.notice); return }
                 message = selectTownDialogue(context, 'horsePurchaseSuccess') + '\n按 Tab → 坐騎 → 騎乘。'
-              } else if (status === '先購買前一階戰馬') message += '\n請先購買前一階戰馬。'
+              }
             }
             this.talk(id, message)
           })

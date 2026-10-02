@@ -5,6 +5,7 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
 import {
   cloneCareerProfile,
+  canonicalCareerMountId,
   CAREER_RANKS,
   resolveCareerRank,
   type CareerLifetimeStats,
@@ -62,21 +63,24 @@ function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerSta
 }
 
 const MISSION_PHASES: CareerMissionPhase[] = ['ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
-const CAREER_MOUNT_IDS: CareerMountId[] = ['horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
 
 function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   const activeMountId = CAREER_MOUNT_IDS.includes(raw.activeMountId as CareerMountId)
-    ? raw.activeMountId as CareerMountId
+    ? canonicalCareerMountId(raw.activeMountId as CareerMountId)
     : undefined
   const rawHp = raw.hp && typeof raw.hp === 'object' ? raw.hp as Record<string, unknown> : {}
   const hp: Partial<Record<CareerMountId, number>> = {}
   for (const id of CAREER_MOUNT_IDS) {
-    if (typeof rawHp[id] === 'number' && Number.isFinite(rawHp[id]) && (rawHp[id] as number) >= 0) hp[id] = rawHp[id] as number
+    const value = rawHp[id]
+    const canonical = canonicalCareerMountId(id)
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) hp[canonical] = Math.min(hp[canonical] ?? value, value)
   }
-  const unavailable = uniqueStrings(raw.unavailable)
+  const unavailable = [...new Set(uniqueStrings(raw.unavailable)
     .filter((id): id is CareerMountId => CAREER_MOUNT_IDS.includes(id as CareerMountId))
+    .map(canonicalCareerMountId))]
   if (!activeMountId && Object.keys(hp).length === 0 && unavailable.length === 0) return undefined
   return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
 }
@@ -231,7 +235,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const activeMission = parseActiveMission(raw.activeMission)
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
-    ? raw.selectedMountId as CareerMountId
+    ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
   return {

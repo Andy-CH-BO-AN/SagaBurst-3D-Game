@@ -17,7 +17,16 @@ export type { CareerMissionTier } from './CareerMissionTier'
 export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
 export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
 export type CareerPurchaseTier = 1 | 2 | 3 | 4
-export type CareerMountId = 'horse-t1' | 'horse-t2' | 'horse-t3' | 'black-cat' | 'corgi'
+// Tier-specific horse IDs are retained only for legacy saves.
+export type CareerMountId = PlayerMountId | 'horse-t1' | 'horse-t2' | 'horse-t3'
+
+export function canonicalCareerMountId(id: CareerMountId): PlayerMountId {
+  return id === 'horse-t1' || id === 'horse-t2' || id === 'horse-t3' ? 'horse' : id
+}
+
+export function ownsCareerHorse(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): boolean {
+  return profile.ownedMounts.includes('horse') || Boolean(profile.ownedHorseTiers?.some(tier => [1, 2, 3].includes(tier)))
+}
 
 export const CAREER_RANK_THRESHOLDS: Readonly<Record<CareerRank, number>> = {
   recruit: 0,
@@ -58,6 +67,7 @@ export interface CareerProfile {
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
   starterWeaponId?: string
   townDialogueSeen?: string[]
+  /** Legacy purchases; any owned tier grants the single military horse. */
   ownedHorseTiers?: (1 | 2 | 3)[]
   selectedMountId?: CareerMountId
   activeMission?: ActiveCareerMission

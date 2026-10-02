@@ -150,7 +150,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
     town.restoreActiveCareerMission()
     expect(town.inventory.equippedShield?.id).toBe('round_shield_t3')
     expect(town.inventory.shieldEnabled).toBe(true)
-    expect(town.careerMounts.activeMountId).toBe('horse-t3')
+    expect(town.careerMounts.activeMountId).toBe('horse')
     expect(f.player.isMounted).toBe(true)
     expect(f.player.currentMount!.group.position.x).toBe(anchor.x)
     expect(f.player.currentMount!.group.position.z).toBe(anchor.z)

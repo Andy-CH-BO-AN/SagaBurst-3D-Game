@@ -6,7 +6,7 @@ import { Faction, AIType } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { townCaptainProfile, townRoster } from '../town/TownRules'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { cloneCareerProfile, canonicalCareerMountId, type CareerProfile } from './CareerProfile'
 import { availableRecruitMissions } from './CareerMissionCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { canUseCareerEquipment } from '../town/TownEquipment'
@@ -21,8 +21,9 @@ export function prepareEnemyTownAssaultEquipment(current: CareerProfile): Career
     .sort((a, b) => ARMORS[b].tier - ARMORS[a].tier)
   if (shields[0]) profile.equipment = { ...profile.equipment, shield: shields[0] }
   const mounts = [...(profile.selectedMountId ? [profile.selectedMountId] : []), ...ownedCareerMountIds(profile)]
+    .map(canonicalCareerMountId)
     .filter(id => canUseCareerMount(profile, id))
-    .sort((a, b) => careerMountTier(b) - careerMountTier(a))
+    .sort((a, b) => careerMountTier(b, profile) - careerMountTier(a, profile))
   if (mounts[0]) profile.selectedMountId = mounts[0]
   return profile
 }

@@ -109,14 +109,15 @@ describe('Career purchased inventory and persistence', () => {
     const relief = acceptCareerOutpostRelief({ ...reloaded, completedOutpostStages: [1, 2, 3], ownedMounts: ['horse'], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }, 'shop-relief')!
     expect(createCareerOutpostLaunch(relief).playerLoadout).toMatchObject(expected)
   })
-  it('preserves sequential horse purchasing alongside equipment purchases', () => {
+  it('buys one military horse alongside equipment and rejects a second horse charge', () => {
     const current = { ...profile('veteran'), availableMerit: 2500 }
     expect(purchaseTownHorse(current, 'horse-t2')).toBeNull()
-    const horse = purchaseTownHorse(current, 'horse-t1')!
+    const horse = purchaseTownHorse(current, 'horse')!
     const weapon = purchaseTownEquipment(horse, 'steel_sword').profile
-    const upgrade = purchaseTownHorse(weapon, 'horse-t2')!
-    expect(upgrade.ownedHorseTiers).toEqual([1, 2]); expect(upgrade.ownedWeapons).toContain('steel_sword')
-    expect(upgrade.availableMerit).toBe(1400); expect(upgrade.totalMerit).toBe(800)
+    expect(purchaseTownHorse(weapon, 'horse')).toBeNull()
+    expect(weapon.ownedMounts).toEqual(['horse']); expect(weapon.ownedWeapons).toContain('steel_sword')
+    expect(weapon.selectedMountId).toBe('horse')
+    expect(weapon.availableMerit).toBe(1900); expect(weapon.totalMerit).toBe(800)
   })
 })
 
