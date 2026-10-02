@@ -50,6 +50,8 @@ function fixture(garrisonCount = 0, joinAssembly = true) {
     scene, residents, world: { obstacles: [], camps: [{ spawnPoints: [new THREE.Vector3()] }] }, navigation: new NavigationWorld(),
     readProfile: () => profile, commit: vi.fn((next: typeof profile) => { profile = next; return true }), player: () => player,
     camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [] }], friendlies: [], cavalryMounts: [], temporaryCavalry: [], departingCavalry: [], commandId: 1,
+    veteranSurvivalElapsed: 0, veteranTargetActorIds: new Set(), veteranFriendlyActorIds: new Set(), borrowedMissionActors: new Set(),
+    borrowedRespawnEnabled: new Map(), borrowedTemporaryMounts: [], fieldActorMounts: new Map(), veteranEnemies: [],
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null,
   })

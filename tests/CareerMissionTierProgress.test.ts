@@ -40,20 +40,20 @@ describe('Home mission prerequisites by mission tier', () => {
       const claim = claimCareerMission(current, id, 'victory', stats)
       const duplicate = claimCareerMission(claim.profile, id, 'victory', stats)
       expect(duplicate.alreadyClaimed).toBe(true)
-      expect(duplicate.profile.careerMissionCompletionsByTier).toEqual({ 1: index + 1, 2: 0 })
+      expect(duplicate.profile.careerMissionCompletionsByTier).toEqual({ 1: index + 1, 2: 0, 3: 0 })
       profile = clearCareerMission(duplicate.profile, id)
     }
     expect(available(profile, TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
     expect(available(profile, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
     profile = activeMission(profile, 'recruit-bandits-01', 'failed-recruit')
-    expect(claimCareerMission(profile, 'failed-recruit', 'failure', stats).profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 0 })
+    expect(claimCareerMission(profile, 'failed-recruit', 'failure', stats).profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 0, 3: 0 })
   })
 
   it('counts Enemy Town Assault with the Soldier board despite its legacy Recruit minimum rank', () => {
     const current = activeMission(soldier(), 'career-enemy-town-assault', 'assault-tier')
     expect(getRecruitMissionTemplate('career-enemy-town-assault')?.minRank).toBe('recruit')
     const claim = claimCareerMission(current, 'assault-tier', 'victory', stats)
-    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 1 })
+    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 1, 3: 0 })
   })
 
   it('counts Outpost defense and relief victories toward T2, including a dead player, but counts each result only once', () => {
@@ -65,23 +65,23 @@ describe('Home mission prerequisites by mission tier', () => {
       const loaded = parseCareerProfile(JSON.parse(JSON.stringify(claim.profile)))!
       const duplicate = claimCareerOutpost(loaded, id, 'victory', { player: stats, squads: [] })
       expect(duplicate.alreadyClaimed).toBe(true)
-      expect(duplicate.profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: index + 1 })
+      expect(duplicate.profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: index + 1, 3: 0 })
       profile = clearCareerOutpost(duplicate.profile)
       expect(available(profile, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(index === 4)
     }
     profile.activeOutpostMission = { id: 'outpost-failed', kind: 'outpost-defense', stageId: 1, acceptedAt: 0 }
-    expect(claimCareerOutpost(profile, 'outpost-failed', 'defeat', { player: stats, squads: [] }).profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5 })
+    expect(claimCareerOutpost(profile, 'outpost-failed', 'defeat', { player: stats, squads: [] }).profile.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5, 3: 0 })
     expect(profile.careerMissionCompletions).toBe(5)
   })
 
   it('round-trips independent counters, sanitizes malformed values, and clones without sharing them', () => {
     const profile = soldier()
-    profile.careerMissionCompletionsByTier = { 1: 7, 2: 4 }
+    profile.careerMissionCompletionsByTier = { 1: 7, 2: 4, 3: 0 }
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
     const copy = cloneCareerProfile(loaded)
     copy.careerMissionCompletionsByTier![2] = 5
-    expect(loaded.careerMissionCompletionsByTier).toEqual({ 1: 7, 2: 4 })
-    expect(parseCareerProfile({ ...profile, careerMissionCompletionsByTier: { 1: -1, 2: 5.9, 3: 100 } })?.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5 })
+    expect(loaded.careerMissionCompletionsByTier).toEqual({ 1: 7, 2: 4, 3: 0 })
+    expect(parseCareerProfile({ ...profile, careerMissionCompletionsByTier: { 1: -1, 2: 5.9, 3: 100 } })?.careerMissionCompletionsByTier).toEqual({ 1: 0, 2: 5, 3: 100 })
   })
 
   it('preserves legacy Recruit progress and reconstructs only proven Soldier victories', () => {
@@ -91,7 +91,7 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(available(profile, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
     const current = { ...profile, activeOutpostMission: { id: 'legacy-outpost', kind: 'outpost-defense' as const, stageId: 1 as const, acceptedAt: 0 } }
     const claim = claimCareerOutpost(current, 'legacy-outpost', 'victory', { player: stats, squads: [] })
-    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 1 })
+    expect(claim.profile.careerMissionCompletionsByTier).toEqual({ 1: 5, 2: 1, 3: 0 })
     const legacy = { ...claim.profile, careerMissionCompletionsByTier: undefined }
     expect(careerMissionCompletionsForTier(legacy, 1)).toBe(5)
     expect(careerMissionCompletionsForTier(legacy, 2)).toBe(1)

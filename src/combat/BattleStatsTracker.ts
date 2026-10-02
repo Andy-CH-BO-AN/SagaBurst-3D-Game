@@ -102,9 +102,9 @@ export class BattleStatsTracker {
     return { ...this.playerTotals }
   }
 
-  registerNpc(npc: NPC): void {
+  registerNpc(npc: NPC, friendly = npc.faction === Faction.PLAYER): void {
     if (
-      npc.faction !== Faction.PLAYER
+      !friendly
       || npc.squadId === undefined
       || this.registeredSquadActors.has(npc.combatantId)
     ) {
@@ -120,7 +120,7 @@ export class BattleStatsTracker {
     // requested. Do not turn this into a per-frame 200v200 scan.
     const survivorsBySquad = new Map<SquadId, number>()
     for (const npc of npcs) {
-      if (npc.faction !== Faction.PLAYER || npc.squadId === undefined || npc.dead) continue
+      if (!this.registeredSquadActors.has(npc.combatantId) || npc.squadId === undefined || npc.dead) continue
       survivorsBySquad.set(
         npc.squadId,
         (survivorsBySquad.get(npc.squadId) ?? 0) + 1,
@@ -167,14 +167,14 @@ export class BattleStatsTracker {
       if (event.source.actorType === 'player') {
         this.playerTotals.damageDealt += event.appliedDamage
       }
-      if (event.source.squadId !== undefined) {
+      if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) {
         this._squad(event.source.squadId).damageDealt += event.appliedDamage
       }
 
       if (event.target.targetId === 'player') {
         this.playerTotals.damageTaken += event.appliedDamage
       }
-      if (event.target.squadId !== undefined && event.target.targetType !== 'mount') {
+      if (this._targetCountsForSquad(event.target) && event.target.squadId !== undefined && event.target.targetType !== 'mount') {
         this._squad(event.target.squadId).damageTaken += event.appliedDamage
       }
       return
@@ -182,7 +182,7 @@ export class BattleStatsTracker {
 
     if (event.type === 'actor_killed') {
       if (event.source.actorType === 'player') this.playerTotals.kills++
-      if (event.source.squadId !== undefined) this._squad(event.source.squadId).kills++
+      if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) this._squad(event.source.squadId).kills++
       return
     }
 
@@ -192,7 +192,7 @@ export class BattleStatsTracker {
       if (event.source.actorType === 'player') {
         this.playerTotals.structureDamage += event.appliedDamage
       }
-      if (event.source.squadId !== undefined) {
+      if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) {
         this._squad(event.source.squadId).structureDamage += event.appliedDamage
       }
       return
@@ -204,12 +204,20 @@ export class BattleStatsTracker {
         this.playerTotals.structuresDestroyed++
         if (gate) this.playerTotals.gateBreaches++
       }
-      if (event.source.squadId !== undefined) {
+      if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) {
         const squad = this._squad(event.source.squadId)
         squad.structuresDestroyed++
         if (gate) squad.gateBreaches++
       }
     }
+  }
+
+  private _sourceCountsForSquad(source: CombatEvent['source']): boolean {
+    return source.allegiance === Faction.PLAYER || this.registeredSquadActors.has(source.actorId)
+  }
+
+  private _targetCountsForSquad(target: Extract<CombatEvent, { type: 'damage_applied' }>['target']): boolean {
+    return target.allegiance === Faction.PLAYER || this.registeredSquadActors.has(target.targetId)
   }
 
   private _squad(squadId: SquadId): MutableSquadTotals {

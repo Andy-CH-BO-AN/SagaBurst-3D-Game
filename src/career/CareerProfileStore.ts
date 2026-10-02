@@ -13,8 +13,8 @@ import {
   type CareerMountId,
   type CareerProfile,
 } from './CareerProfile'
-import { getRecruitMissionTemplate } from './CareerMissionCatalog'
-import type { ActiveCareerMission, CareerMissionPhase } from './CareerMissionState'
+import { getCareerMissionTemplate } from './CareerMissionCatalog'
+import type { ActiveCareerMission, CareerMissionPhase, VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
@@ -87,31 +87,75 @@ function parseMissionMountState(value: unknown): ActiveCareerMission['mountState
   return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
 }
 
+function parseActorHealth(value: unknown, knownActorIds: ReadonlySet<string>): ActiveCareerMission['actorHealth'] | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const result: NonNullable<ActiveCareerMission['actorHealth']> = {}
+  for (const [actorId, rawHealth] of Object.entries(value)) {
+    if (!knownActorIds.has(actorId) || !rawHealth || typeof rawHealth !== 'object') continue
+    const health = rawHealth as Record<string, unknown>
+    if (typeof health.hp !== 'number' || !Number.isFinite(health.hp) || health.hp < 0) continue
+    result[actorId] = {
+      hp: health.hp,
+      ...(typeof health.mountHp === 'number' && Number.isFinite(health.mountHp) && health.mountHp >= 0 ? { mountHp: health.mountHp } : {}),
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleState | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (!['deployment', 'assault', 'victory', 'defeat'].includes(raw.phase as string)
+    || !['deployment', 'assault'].includes(raw.activePhase as string)) return undefined
+  const gateState = ['closed', 'open', 'destroyed'].includes(raw.gateState as string)
+    ? raw.gateState as VeteranOutpostBattleState['gateState'] : undefined
+  return {
+    phase: raw.phase as VeteranOutpostBattleState['phase'],
+    activePhase: raw.activePhase as VeteranOutpostBattleState['activePhase'],
+    assaultElapsedSeconds: nonNegativeNumber(raw.assaultElapsedSeconds),
+    deploymentRemainingSeconds: nonNegativeNumber(raw.deploymentRemainingSeconds),
+    reinforcementTriggered: raw.reinforcementTriggered === true,
+    reinforcementSpawned: raw.reinforcementSpawned === true,
+    reinforcementArrived: raw.reinforcementArrived === true,
+    ...(typeof raw.reinforcementRemainingSeconds === 'number' && Number.isFinite(raw.reinforcementRemainingSeconds) && raw.reinforcementRemainingSeconds >= 0 ? { reinforcementRemainingSeconds: raw.reinforcementRemainingSeconds } : {}),
+    battleFinished: raw.battleFinished === true,
+    reinforcementQueueIndex: nonNegativeInteger(raw.reinforcementQueueIndex),
+    assaultChargeTriggered: raw.assaultChargeTriggered === true,
+    ...(typeof raw.gateHealth === 'number' && Number.isFinite(raw.gateHealth) && raw.gateHealth >= 0 ? { gateHealth: raw.gateHealth } : {}),
+    ...(gateState ? { gateState } : {}),
+  }
+}
+
 function parseActiveMission(value: unknown, faction: CareerProfile['faction']): ActiveCareerMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
-  const template = typeof raw.templateId === 'string' ? getRecruitMissionTemplate(raw.templateId) : null
+  const template = typeof raw.templateId === 'string' ? getCareerMissionTemplate(raw.templateId) : null
   const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
   const duelOpponentActorId = typeof raw.duelOpponentActorId === 'string' ? raw.duelOpponentActorId.trim() : ''
   const duelCaptainActorId = typeof raw.duelCaptainActorId === 'string' ? raw.duelCaptainActorId.trim() : ''
   const duelRefereeActorId = typeof raw.duelRefereeActorId === 'string' ? raw.duelRefereeActorId.trim() : duelCaptainActorId
   if (duel && (!isCareerDuelTier(raw.duelTier) || !isCareerDuelPresetId(raw.duelPresetId)
     || UNIT_PRESETS[raw.duelPresetId].faction !== faction || !duelOpponentActorId || !duelCaptainActorId || !duelRefereeActorId)) return undefined
+  const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault'
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel)
-    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault')
+    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
   ) return undefined
   const targetActorIds = duel ? [duelOpponentActorId] : uniqueStrings(raw.targetActorIds)
   const friendlyActorIds = duel ? (duelRefereeActorId === duelOpponentActorId ? [] : [duelRefereeActorId]) : uniqueStrings(raw.friendlyActorIds)
+  const reinforcementActorIds = uniqueStrings(raw.reinforcementActorIds)
+  const allFriendlyActorIds = [...new Set([...friendlyActorIds, ...reinforcementActorIds])]
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
   if (targetActorIds.length === 0 || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
+  const actorHealth = parseActorHealth(raw.actorHealth, new Set([...targetActorIds, ...allFriendlyActorIds]))
+  const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
@@ -125,7 +169,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     targetActorIds,
     friendlyActorIds,
     deadTargetActorIds: uniqueStrings(raw.deadTargetActorIds).filter(id => targetActorIds.includes(id)),
-    deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => friendlyActorIds.includes(id)),
+    deadFriendlyActorIds: uniqueStrings(raw.deadFriendlyActorIds).filter(id => allFriendlyActorIds.includes(id)),
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
     playerDead: raw.playerDead === true,
     ...(duel ? {
@@ -152,6 +196,17 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     defensePreparationElapsed: nonNegativeNumber(raw.defensePreparationElapsed),
     defenseReserveCharged: raw.defenseReserveCharged === true,
     defenseCatDead: raw.defenseCatDead === true,
+    survivalElapsed: nonNegativeNumber(raw.survivalElapsed),
+    reinforcementElapsed: nonNegativeNumber(raw.reinforcementElapsed),
+    reinforcementSpawned: raw.reinforcementSpawned === true,
+    reinforcementArrived: raw.reinforcementArrived === true,
+    reinforcementActorIds,
+    chargedSquadIds: Array.isArray(raw.chargedSquadIds) ? [...new Set(raw.chargedSquadIds.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 8))] : [],
+    borrowedActorIds: uniqueStrings(raw.borrowedActorIds).filter(id => friendlyActorIds.includes(id)),
+    ...(actorHealth ? { actorHealth } : {}),
+    ...(typeof raw.playerHp === 'number' && Number.isFinite(raw.playerHp) && raw.playerHp >= 0 ? { playerHp: raw.playerHp } : {}),
+    ...(typeof raw.playerStamina === 'number' && Number.isFinite(raw.playerStamina) && raw.playerStamina >= 0 ? { playerStamina: raw.playerStamina } : {}),
+    ...(outpostBattleState ? { outpostBattleState } : {}),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
     ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
@@ -287,6 +342,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
       ? { careerMissionCompletionsByTier: {
         1: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[1]),
         2: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[2]),
+        3: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[3]),
       } } : {}),
     ...(raw.duelHighestDefeatedTierByPreset && typeof raw.duelHighestDefeatedTierByPreset === 'object'
       ? { duelHighestDefeatedTierByPreset: Object.fromEntries(Object.entries(raw.duelHighestDefeatedTierByPreset)

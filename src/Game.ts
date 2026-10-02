@@ -153,7 +153,18 @@ import {
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } from './career/CareerOutpostMission'
-import type { CareerProfile } from './career/CareerProfile'
+import { claimCareerMission, clearCareerMission, type CareerProfile } from './career/CareerProfile'
+import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
+import type { ActiveCareerMission } from './career/CareerMissionState'
+import {
+  careerVeteranOutpostOwner,
+  createCareerVeteranOutpostReinforcementPlan,
+  createCareerVeteranOutpostSpawnPlan,
+} from './career/CareerVeteranOutpost'
+import { MountedMissionMarchController, type MountedMissionSquad } from './career/MountedMissionMarch'
+import { MissionGuide } from './career/MissionGuide'
+import type { CampaignFaction } from './campaign/CampaignConfig'
+import { acceptsCareerMissionStat } from './career/CareerMissionState'
 import { TownEquipment } from './town/TownEquipment'
 import { resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
 import { TOWN_ENTRY_KEY } from './town/CareerTownEntry'
@@ -352,11 +363,18 @@ export class Game {
           if (spec.visualAssetId) heroAssets.add(spec.visualAssetId)
         }
       }
+      if (campaignConfig?.careerVeteranOutpost) {
+        for (const wave of ['initial', 'reinforcement'] as const) {
+          for (const spec of createCareerVeteranOutpostSpawnPlan(campaignConfig, wave).npcSpecs) {
+            if (spec.visualAssetId) heroAssets.add(spec.visualAssetId)
+          }
+        }
+      }
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
       if (playerHeroId) heroAssets.add(playerHeroId)
-      const heroBattleConfigs = campaignConfig
+      const heroBattleConfigs = campaignConfig && !campaignConfig.careerVeteranOutpost
         ? [createDefenseCampaignWaveConfig(campaignConfig, 'defenders'), createDefenseCampaignWaveConfig(campaignConfig, 'attackers')]
-        : battleConfig ? [battleConfig] : []
+        : !campaignConfig && battleConfig ? [battleConfig] : []
       for (const config of heroBattleConfigs) {
         for (const faction of ['viking', 'roman'] as const) {
           for (const [presetId, counts] of Object.entries(normalizeArmyConfig(config[faction], faction))) {
@@ -441,11 +459,13 @@ export class Game {
   private readonly careerStore = new CareerProfileStore()
   private campaignOriginalDefenders: NPC[] = []
   private campaignReinforcementSpawned = false
+  private campaignReinforcementArrived = false
   private campaignAttackersStarted = false
   private campaignSpawnQueue: NpcSpawnSpec[] = []
   private campaignSpawnQueueIndex = 0
   private campaignSpawnWave: 'attackers' | 'reinforcement' | null = null
   private npcs: NPC[] = []
+  private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
   private pickups: WeaponPickup[] = []
@@ -453,6 +473,14 @@ export class Game {
 
   private obstacles: ObstacleData[] = []
   private reliefMarch: CareerReliefMarchController | null = null
+  private veteranOutpostMarch: MountedMissionMarchController | null = null
+  private veteranReinforcementMarch: MountedMissionMarchController | null = null
+  private veteranOutpostCheckpoint: CareerMissionCheckpoint | null = null
+  private careerOutpostDefenseGuide: MissionGuide | null = null
+  private restoringCareerOutpostGate = false
+  private readonly flushVeteranOutpostOnPageHide = (): void => {
+    this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
+  }
   private previewCampaignGate: CampaignGateController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
@@ -573,11 +601,37 @@ export class Game {
     this.defenseCampaignConfig = campaignConfig ?? null
     if (campaignConfig?.careerMissionId) {
       this.careerProfile = this.careerStore.loadChecked().profile
-      if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId || this.careerProfile.activeOutpostMission.kind !== (campaignConfig.careerMissionKind ?? 'outpost-defense')) throw new Error('Career Outpost launch does not match saved mission')
+      if (campaignConfig.careerVeteranOutpost) {
+        const mission = this.careerProfile?.activeMission
+        if (mission?.id !== campaignConfig.careerMissionId
+          || mission.templateId !== campaignConfig.careerVeteranOutpost.templateId
+          || mission.kind !== campaignConfig.careerVeteranOutpost.missionKind) {
+          throw new Error('Veteran Career Outpost launch does not match saved mission')
+        }
+        this.campaignReinforcementArrived = campaignConfig.careerVeteranOutpost.runtimeState.reinforcementArrived
+        this.veteranOutpostCheckpoint = new CareerMissionCheckpoint(
+          () => this.careerStore.loadChecked().profile ?? this.careerProfile!,
+          profile => {
+            const saved = this.careerStore.save(profile)
+            if (saved) this.careerProfile = profile
+            return saved
+          },
+        )
+      } else if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId
+        || this.careerProfile.activeOutpostMission.kind !== (campaignConfig.careerMissionKind ?? 'outpost-defense')) {
+        throw new Error('Career Outpost launch does not match saved mission')
+      }
     }
     // Defense Campaign player-side units are defenders, so structure damage / breach
     // is not a valid performance statistic for them. Custom Battle remains generic.
-    this.battleStats = new BattleStatsTracker(this.combatEvents, !campaignConfig)
+    const veteranMission = campaignConfig?.careerVeteranOutpost ? this.careerProfile?.activeMission : undefined
+    const trackStructureStats = !campaignConfig || campaignConfig.careerVeteranOutpost?.templateId === 'veteran-outpost-assault'
+    this.battleStats = new BattleStatsTracker(
+      this.combatEvents,
+      trackStructureStats,
+      veteranMission ? event => acceptsCareerMissionStat(veteranMission, event) : undefined,
+      veteranMission?.playerStats,
+    )
 
     // ── Scene ──
     this.scene = new THREE.Scene()
@@ -600,8 +654,14 @@ export class Game {
     const isRomanDefenseDevScenario = import.meta.env.DEV
       && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
     const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
-    const previewOutpostFaction = campaignConfig?.defenderFaction
+    const previewOutpostFaction = campaignConfig
+      ? careerVeteranOutpostOwner(campaignConfig)
       ?? (isRomanDefenseDevScenario
+        ? 'roman'
+        : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
+          ? previewOutpostQuery
+          : null)
+      : (isRomanDefenseDevScenario
         ? 'roman'
         : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
           ? previewOutpostQuery
@@ -629,14 +689,7 @@ export class Game {
       outpost.breachController.onBreach(() => {
         if (campaignConfig?.careerMissionKind === 'outpost-relief') return
         const attackerFaction = outpost.gateController.attackerFaction
-        const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
-        this.soundManager.playCommanderCommand(attackerFaction, 'charge')
-        this._showNotify(
-          `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
-          + `${result.attackerChargeCount} charge / ${result.attackerAttackCount} ranged｜`
-          + `守軍 ${result.defenderAttackCount} → attack`,
-          3500,
-        )
+        this._applyCampaignBreachOrders(attackerFaction)
       })
     }
 
@@ -655,7 +708,8 @@ export class Game {
     }
 
     // ── Player & Input ──
-    const playerFaction = campaignConfig?.defenderFaction
+    const playerFaction = campaignConfig?.careerVeteranOutpost?.playerFaction
+      ?? campaignConfig?.defenderFaction
       ?? battleConfig?.playerFaction
       ?? (isRomanDefenseDevScenario
         ? 'roman'
@@ -692,9 +746,13 @@ export class Game {
     let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
-      battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
-      if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
-      else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
+      if (campaignConfig.careerVeteranOutpost) {
+        battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial')
+      } else {
+        battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
+        if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
+        else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
+      }
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -795,21 +853,39 @@ export class Game {
     if (campaignConfig && battlePlan) {
       const spawned = this._executeBattleSpawnPlan(battlePlan)
       this.campaignOriginalDefenders = spawned.filter(
-        npc => npc.characterFaction === campaignConfig.defenderFaction
+        npc => npc.characterFaction === careerVeteranOutpostOwner(campaignConfig)
           && (campaignConfig.careerMissionKind !== 'outpost-relief' || !npc.squadId),
       )
       const defenderFacingYaw = getCampaignDefenderFacingYaw(campaignConfig.defenderFaction)
-      for (const npc of spawned.filter(npc => npc.characterFaction === campaignConfig.defenderFaction)) {
+      for (const npc of spawned) {
         // NPC models default to +Z. Campaign forts mirror across Z, so Viking
         // defenders must be rotated toward their -Z front gate at spawn.
-        const heading = campaignConfig.careerMissionKind === 'outpost-relief' && npc.squadId ? defenderFacingYaw + Math.PI : defenderFacingYaw
+        const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaignConfig)
+        const heading = campaignConfig.careerMissionKind === 'outpost-relief' && npc.squadId
+          ? defenderFacingYaw + Math.PI
+          : campaignConfig.careerVeteranOutpost && !isOutpostOwner
+            ? defenderFacingYaw + Math.PI
+            : defenderFacingYaw
         npc.group.rotation.y = heading
         if (npc.mount) npc.mount.group.rotation.y = heading
-        npc.setTacticalOrder(DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+        npc.setTacticalOrder(isOutpostOwner
+          ? DEFENSE_CAMPAIGN_RULES.initialDefenderOrder
+          : campaignConfig.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
+        if (campaignConfig.careerVeteranOutpost) this._restoreCareerVeteranNpcState(npc)
       }
       const capabilities = defenseCampaignCapabilities(campaignConfig)
       const relief = campaignConfig.careerMissionKind === 'outpost-relief'
-      this.defenseCampaignRuntime = new DefenseCampaignRuntime({ ...capabilities, eliminationObjective: relief, deploymentSeconds: campaignConfig.deploymentSeconds })
+      const veteranOutpost = campaignConfig.careerVeteranOutpost
+      const isVeteranAssault = veteranOutpost?.templateId === 'veteran-outpost-assault'
+      this.defenseCampaignRuntime = new DefenseCampaignRuntime({
+        ...capabilities,
+        eliminationObjective: relief || isVeteranAssault,
+        deploymentSeconds: campaignConfig.deploymentSeconds,
+        ...(veteranOutpost ? {
+          reinforcementDelaySeconds: veteranOutpost.reinforcementDelaySeconds,
+          initialSnapshot: veteranOutpost.runtimeState,
+        } : {}),
+      })
       if (relief) {
         initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs)
         this.navigationWorld.sync(this.obstacles)
@@ -822,10 +898,35 @@ export class Game {
           campaignConfig.careerReliefPhase === 'charge', { chargeAfterFollow: true })
         this.reliefMarch.start()
       }
+      if (veteranOutpost) {
+        this._restoreCareerVeteranOutpostGate(veteranOutpost.runtimeState)
+        if (veteranOutpost.templateId === 'veteran-dread-outpost') {
+          this._resumeCareerVeteranReinforcementIfNeeded()
+        } else {
+          this._startCareerVeteranOutpostAssaultMarch(veteranOutpost.runtimeState.assaultChargeTriggered)
+        }
+        this.careerOutpostDefenseGuide = veteranOutpost.templateId === 'veteran-dread-outpost'
+          ? new MissionGuide()
+          : null
+      } else if (campaignConfig.careerMissionKind === 'outpost-defense') {
+        this.careerOutpostDefenseGuide = new MissionGuide()
+      }
       this.defenseCampaignHud = new DefenseCampaignHUD(
         campaignConfig.stageId,
-        campaignConfig.defenderFaction,
-        { relief, reinforcementsEnabled: capabilities.reinforcementsEnabled, returnToTown: Boolean(campaignConfig.careerMissionId), meritAwarded: () => this.careerMeritAwarded },
+        veteranOutpost?.playerFaction ?? campaignConfig.defenderFaction,
+        {
+          relief,
+          playerIsAttacker: veteranOutpost?.templateId === 'veteran-outpost-assault',
+          reinforcementsEnabled: capabilities.reinforcementsEnabled,
+          returnToTown: Boolean(campaignConfig.careerMissionId),
+          meritAwarded: () => this.careerMeritAwarded,
+          ...(veteranOutpost ? {
+            veteranMission: true,
+            missionTitle: veteranOutpost.templateId === 'veteran-dread-outpost'
+              ? 'Dread Outpost · 恐怖前哨防禦'
+              : 'Outpost Assault · 強攻前哨',
+          } : {}),
+        },
       )
     } else if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
@@ -978,7 +1079,14 @@ export class Game {
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
       this._enterSpectatorMode('death')
+      if (campaignConfig?.careerVeteranOutpost) {
+        const mission = this.careerProfile?.activeMission
+        if (mission) mission.playerDead = true
+        this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+      }
     }
+
+    if (campaignConfig?.careerVeteranOutpost) this._restoreCareerVeteranPlayerStateAndShowTerminalResult()
 
     if (isInitialSpectator) {
       this._enterSpectatorMode('initial')
@@ -987,6 +1095,7 @@ export class Game {
     this._setupPointerLock()
     this._setupResize()
     this._setupShortcuts()
+    if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
 
     // Initialise bars
     if (!isInitialSpectator) {
@@ -1521,7 +1630,7 @@ export class Game {
       spec.loadout,
       spec.presetId,
       spec.squadId,
-      undefined,
+      spec.actorId,
       this.combatEvents.emit,
       spec.visualAssetId,
       spec.combatProfileId,
@@ -1535,6 +1644,9 @@ export class Game {
       npc.mountVehicle(mount)
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)
+    }
+    if (this.defenseCampaignConfig?.careerVeteranOutpost) {
+      this.careerVeteranActorMounts.set(npc.combatantId, npc.mount)
     }
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
@@ -1577,20 +1689,267 @@ export class Game {
     return alive
   }
 
+  private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
+    if (this.restoringCareerOutpostGate) return
+    this.soundManager.playCommanderCommand(attackerFaction, 'charge')
+    this._showNotify(
+      `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
+      + `${result.attackerChargeCount} charge / ${result.attackerAttackCount} ranged｜`
+      + `守軍 ${result.defenderAttackCount} → attack`,
+      3500,
+    )
+    if (this.defenseCampaignConfig?.careerVeteranOutpost?.templateId === 'veteran-outpost-assault') {
+      this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+    }
+  }
+
+  private _restoreCareerVeteranNpcState(npc: NPC): void {
+    const mission = this.careerProfile?.activeMission
+    const actorId = npc.combatantId
+    if (!mission || !actorId) return
+    const saved = mission.actorHealth?.[actorId]
+    const dead = mission.deadTargetActorIds?.includes(actorId) || mission.deadFriendlyActorIds?.includes(actorId)
+    if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
+    const mount = this.careerVeteranActorMounts.get(actorId) ?? null
+    if (saved?.mountHp !== undefined && mount) {
+      if (saved.mountHp <= 0) {
+        if (!mount.dead) mount.takeDamage(mount.maxHp * 100)
+      } else if (!mount.dead) {
+        mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+      }
+    }
+    if (dead) npc.restoreCombatHealth(0)
+    else if (saved) npc.restoreCombatHealth(saved.hp)
+  }
+
+  private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
+    const gate = this.previewCampaignGate
+    if (!gate) return
+    this.restoringCareerOutpostGate = true
+    try {
+      if (saved.gateState === 'destroyed' || saved.gateHealth === 0) {
+        gate.damageable.destroy()
+      } else {
+        if (saved.gateState === 'open') gate.open()
+        if (saved.gateHealth !== undefined && saved.gateHealth < gate.damageable.currentHp) {
+          gate.damageable.takeDamage(gate.damageable.currentHp - saved.gateHealth)
+        }
+      }
+    } finally {
+      this.restoringCareerOutpostGate = false
+    }
+  }
+
+  private _resumeCareerVeteranReinforcementIfNeeded(): void {
+    const state = this.defenseCampaignConfig?.careerVeteranOutpost?.runtimeState
+    if (!state?.reinforcementTriggered || this.campaignSpawnWave !== null) return
+    this._queueDefenseCampaignWave('reinforcement')
+  }
+
+  private _makeMountedMissionSquads(npcs: readonly NPC[], squadIds: readonly number[]): MountedMissionSquad[] {
+    return squadIds.map(squadId => {
+      const members = npcs.filter(npc => npc.squadId === squadId && !npc.dead)
+      const leader = members.find(npc => npc.tier === 4)
+      const lane = squadId % 2 === 0 ? 1 : -1
+      return { leader, members, leaderOffset: new THREE.Vector3(lane * (squadId <= 2 ? 12 : 24), 0, -Math.floor((squadId - 1) / 2) * 7) }
+    }).filter(squad => squad.members.length > 0)
+  }
+
+  private _startCareerVeteranReinforcementMarch(resumeCharged: boolean): void {
+    if (this.veteranReinforcementMarch) return
+    const campaign = this.defenseCampaignConfig
+    const data = campaign?.careerVeteranOutpost
+    if (!campaign || data?.templateId !== 'veteran-dread-outpost') return
+    const ids = new Set(this.careerProfile?.activeMission?.reinforcementActorIds ?? [])
+    const reinforcements = this.npcs.filter(npc => ids.has(npc.combatantId))
+    const placement = getCampaignOutpostPlacement(data.outpostFaction)
+    const inward = Math.sign(placement.backZ - placement.frontZ)
+    const target = new THREE.Vector3(placement.centerX, 0, placement.frontZ - inward * 24)
+    this.veteranReinforcementMarch = new MountedMissionMarchController(
+      reinforcements,
+      target,
+      () => undefined,
+      () => {
+        const arrived = this.campaignReinforcementArrived
+        this.campaignReinforcementArrived = true
+        if (!this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
+          this.campaignReinforcementArrived = arrived
+          return false
+        }
+        return true
+      },
+      () => this.soundManager.playCommanderCommand(data.playerFaction, 'charge'),
+      resumeCharged,
+      {
+        squads: this._makeMountedMissionSquads(reinforcements, [1, 2]),
+        leaderMode: 'independent',
+        playerSquadIndex: null,
+        playFollow: false,
+        chargeDistance: 60,
+        followerCount: 24,
+      },
+    )
+    this.veteranReinforcementMarch.start()
+  }
+
+  private _startCareerVeteranOutpostAssaultMarch(resumeCharged: boolean): void {
+    if (this.veteranOutpostMarch) return
+    const campaign = this.defenseCampaignConfig
+    const data = campaign?.careerVeteranOutpost
+    if (!campaign || data?.templateId !== 'veteran-outpost-assault') return
+    const attackers = this.npcs.filter(npc => npc.characterFaction === data.playerFaction)
+    const placement = getCampaignOutpostPlacement(data.outpostFaction)
+    const target = new THREE.Vector3(placement.centerX, 0, placement.frontZ)
+    this.veteranOutpostMarch = new MountedMissionMarchController(
+      attackers,
+      target,
+      () => undefined,
+      () => {
+        const mission = this.careerProfile?.activeMission
+        if (mission?.outpostBattleState?.assaultChargeTriggered) return true
+        if (!mission) return false
+        const fresh = this.careerStore.loadChecked().profile
+        if (!fresh?.activeMission || fresh.activeMission.id !== data.missionId) return false
+        fresh.activeMission.outpostBattleState = {
+          ...(fresh.activeMission.outpostBattleState ?? data.runtimeState),
+          assaultChargeTriggered: true,
+        }
+        if (!this.careerStore.save(fresh)) return false
+        this.careerProfile = fresh
+        return true
+      },
+      () => this.soundManager.playCommanderCommand(data.playerFaction, 'charge'),
+      resumeCharged,
+      {
+        squads: this._makeMountedMissionSquads(attackers, [1, 2, 3, 4]),
+        leaderMode: 'independent',
+        playerSquadIndex: 0,
+        playFollow: false,
+        chargeDistance: data.assaultChargeDistanceMeters,
+        followerCount: 24,
+      },
+    )
+    this.veteranOutpostMarch.start()
+  }
+
+  private _buildCareerVeteranOutpostCheckpoint(): ActiveCareerMission | null {
+    const campaign = this.defenseCampaignConfig
+    const data = campaign?.careerVeteranOutpost
+    const savedMission = this.careerProfile?.activeMission
+    const runtime = this.defenseCampaignRuntime?.getSnapshot()
+    if (!campaign || !data || !savedMission || savedMission.id !== data.missionId || !runtime) return null
+    const active = { ...savedMission }
+    const targetIds = new Set(active.targetActorIds)
+    const friendlyIds = new Set([...(active.friendlyActorIds ?? []), ...(active.reinforcementActorIds ?? [])])
+    const deadTargets = new Set(active.deadTargetActorIds ?? [])
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    const actorHealth = { ...(active.actorHealth ?? {}) }
+    for (const npc of this.npcs) {
+      const id = npc.combatantId
+      if (targetIds.has(id)) {
+        if (npc.dead) deadTargets.add(id)
+        if (npc.hp > 0) actorHealth[id] = { ...actorHealth[id], hp: npc.hp }
+        else actorHealth[id] = { ...actorHealth[id], hp: 0 }
+      } else if (friendlyIds.has(id)) {
+        if (npc.dead) deadFriendlies.add(id)
+        if (npc.hp > 0) actorHealth[id] = { ...actorHealth[id], hp: npc.hp }
+        else actorHealth[id] = { ...actorHealth[id], hp: 0 }
+      } else continue
+      const mount = this.careerVeteranActorMounts.has(id)
+        ? this.careerVeteranActorMounts.get(id) ?? null
+        : npc.mount
+      if (mount) actorHealth[id] = { ...actorHealth[id], mountHp: mount.dead ? 0 : mount.currentHp }
+    }
+    const previousState = active.outpostBattleState ?? data.runtimeState
+    const gateHealth = this.previewCampaignGate?.damageable.currentHp ?? previousState.gateHealth
+    const gateState = this.previewCampaignGate?.state ?? previousState.gateState
+    active.deadTargetActorIds = [...deadTargets]
+    active.deadFriendlyActorIds = [...deadFriendlies]
+    active.actorHealth = actorHealth
+    active.playerDead = this.player.dead || active.playerDead === true
+    active.playerHp = this.player.hp
+    active.playerStamina = this.player.staminaValue
+    active.playerStats = this.battleStats.checkpoint()
+    const mountId = campaign.playerLoadout.mountId
+    const mountState = active.mountState
+      ? { ...active.mountState, hp: { ...active.mountState.hp }, unavailable: [...active.mountState.unavailable] }
+      : { hp: {}, unavailable: [] as NonNullable<ActiveCareerMission['mountState']>['unavailable'] }
+    if (mountId && this.startingHorse) {
+      ;(mountState.hp as Record<string, number>)[mountId] = this.startingHorse.dead ? 0 : this.startingHorse.currentHp
+      if (this.startingHorse.dead && !mountState.unavailable.includes(mountId as never)) mountState.unavailable.push(mountId as never)
+    }
+    active.mountState = mountState as ActiveCareerMission['mountState']
+    active.outpostBattleState = {
+      phase: runtime.phase,
+      activePhase: runtime.activePhase,
+      assaultElapsedSeconds: runtime.assaultElapsedSeconds,
+      deploymentRemainingSeconds: runtime.deploymentRemainingSeconds,
+      reinforcementTriggered: runtime.reinforcementTriggered,
+      reinforcementSpawned: this.campaignReinforcementSpawned || previousState.reinforcementSpawned,
+      reinforcementArrived: this.campaignReinforcementArrived,
+      reinforcementRemainingSeconds: runtime.reinforcementRemainingSeconds,
+      reinforcementQueueIndex: Math.max(previousState.reinforcementQueueIndex, this.campaignSpawnQueueIndex),
+      assaultChargeTriggered: previousState.assaultChargeTriggered,
+      battleFinished: runtime.battleFinished,
+      ...(gateHealth !== undefined ? { gateHealth } : {}),
+      ...(gateState ? { gateState } : {}),
+    }
+    return active
+  }
+
+  private _restoreCareerVeteranPlayerState(): void {
+    const mission = this.careerProfile?.activeMission
+    const campaign = this.defenseCampaignConfig
+    if (!mission || !campaign?.careerVeteranOutpost || mission.id !== campaign.careerVeteranOutpost.missionId) return
+    const savedMountHp = mission.mountState?.hp[campaign.playerLoadout.mountId as keyof NonNullable<ActiveCareerMission['mountState']>['hp']]
+    if (this.player.currentMount && savedMountHp !== undefined) {
+      if (savedMountHp <= 0) {
+        this.player.currentMount.takeDamage(this.player.currentMount.maxHp * 100)
+        this.player.dismountFromMount()
+      } else if (!this.player.currentMount.dead) {
+        this.player.currentMount.currentHp = Math.min(this.player.currentMount.maxHp, savedMountHp)
+      }
+    }
+    this.player.setStamina(mission.playerStamina ?? this.player.staminaValue)
+    this.player.setHp(mission.playerHp ?? this.player.maxHp)
+    if (mission.playerDead) {
+      this.player.detachFromMountOnDeath()
+      this.player.takeDamage(this.player.maxHp * 100, this.hpBar)
+    }
+    this.hpBar.setFill(this.player.hpRatio)
+    this.staminaBar.setFill(this.player.staminaRatio)
+  }
+
+  private _restoreCareerVeteranPlayerStateAndShowTerminalResult(): void {
+    this._restoreCareerVeteranPlayerState()
+    const state = this.defenseCampaignConfig?.careerVeteranOutpost?.runtimeState
+    if (!state?.battleFinished) return
+    this._showDefenseCampaignResult(state.phase === 'victory' ? 'victory' : 'defeat')
+  }
+
+  private _persistCareerVeteranOutpostCheckpoint(reason: CareerMissionCheckpointReason = { immediate: true }): boolean {
+    if (!this.veteranOutpostCheckpoint || !this.careerProfile) return false
+    return this.veteranOutpostCheckpoint.persist(
+      () => this._buildCareerVeteranOutpostCheckpoint() ?? this.careerProfile!.activeMission!,
+      reason,
+    )
+  }
+
   private _queueDefenseCampaignWave(wave: 'attackers' | 'reinforcement'): number {
     const campaign = this.defenseCampaignConfig
     if (!campaign) return 0
     if (wave === 'reinforcement' && !defenseCampaignCapabilities(campaign).reinforcementsEnabled) return 0
     if (this.campaignSpawnWave !== null) return 0
 
-    const config = createDefenseCampaignWaveConfig(campaign, wave)
-    const plan = BattleSpawner.createSpawnPlan(config)
-
-    if (wave === 'reinforcement') {
-      positionDefenseCampaignReinforcements(
-        plan.npcSpecs,
-        campaign.defenderFaction,
-      )
+    let plan: BattleSpawnPlan
+    if (campaign.careerVeteranOutpost) {
+      if (wave !== 'reinforcement' || campaign.careerVeteranOutpost.templateId !== 'veteran-dread-outpost') return 0
+      plan = createCareerVeteranOutpostReinforcementPlan(campaign)
+    } else {
+      const config = createDefenseCampaignWaveConfig(campaign, wave)
+      plan = BattleSpawner.createSpawnPlan(config)
+      if (wave === 'reinforcement') positionDefenseCampaignReinforcements(plan.npcSpecs, campaign.defenderFaction)
     }
 
     this.campaignSpawnQueue = plan.npcSpecs
@@ -1618,7 +1977,10 @@ export class Game {
 
     const npc = this._spawnNpc(spec)
     if (wave === 'attackers') this.campaignAttackersStarted = true
-    npc.setTacticalOrder('attack')
+    if (this.defenseCampaignConfig?.careerVeteranOutpost) {
+      this._restoreCareerVeteranNpcState(npc)
+      npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
+    } else npc.setTacticalOrder('attack')
     this.campaignSpawnQueueIndex++
 
     if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
@@ -1626,7 +1988,10 @@ export class Game {
         // Terminal elimination becomes authoritative only after the entire
         // relief wave exists in the battlefield, not after its first rider.
         this.campaignReinforcementSpawned = true
-        this._showNotify(`🐎 援軍全數抵達：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
+        if (this.defenseCampaignConfig?.careerVeteranOutpost) {
+          this._startCareerVeteranReinforcementMarch(this.campaignReinforcementArrived)
+          this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+        } else this._showNotify(`🐎 援軍全數抵達：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
       }
 
       this.campaignSpawnQueue = []
@@ -1647,13 +2012,22 @@ export class Game {
 
     const stats = this.battleStats.snapshot(this.npcs, this.player)
     if (campaign?.careerMissionId) {
+      if (campaign.careerVeteranOutpost && !this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
+        this._showCareerOutpostSaveRetry(result)
+        return
+      }
       const fresh = this.careerStore.loadChecked().profile
       if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
-      const claim = claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
+      const claim = campaign.careerVeteranOutpost
+        ? claimCareerMission(fresh, campaign.careerMissionId, result === 'victory' ? 'victory' : 'failure', stats.player)
+        : claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
       if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
       this.careerProfile = claim.profile
-      this.careerMeritAwarded = claim.profile.outpostBattleRecords?.find(record => record.id === campaign.careerMissionId)?.merit.total ?? 0
+      this.careerMeritAwarded = campaign.careerVeteranOutpost
+        ? claim.profile.activeMission?.result?.merit.total ?? 0
+        : claim.profile.outpostBattleRecords?.find(record => record.id === campaign.careerMissionId)?.merit.total ?? 0
     }
+    if (this.defenseCampaignRuntime?.getSnapshot().battleFinished) this.careerOutpostDefenseGuide?.hide()
     this.defenseCampaignHud.showResult(
       result,
       () => {
@@ -1679,12 +2053,32 @@ export class Game {
 
   private _returnToCareerTown(): void {
     const profile = this.careerStore.loadChecked().profile
-    if (!profile || !this.careerStore.save(clearCareerOutpost(profile))) { this._showNotify('無法保存返回狀態，請重試'); return }
+    const next = this.defenseCampaignConfig?.careerVeteranOutpost
+      ? profile?.activeMission ? clearCareerMission(profile, this.defenseCampaignConfig.careerVeteranOutpost.missionId) : profile
+      : profile ? clearCareerOutpost(profile) : null
+    if (!next || !this.careerStore.save(next)) { this._showNotify('無法保存返回狀態，請重試'); return }
+    this._disposeCareerOutpostBattleActors()
+    window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
     sessionStorage.removeItem('sagaburst_campaign_config')
     sessionStorage.removeItem('sagaburst_battle_config')
     sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
     window.location.href = window.location.pathname
+  }
+
+  private _disposeCareerOutpostBattleActors(): void {
+    for (const npc of this.npcs) npc.dispose()
+    for (const mount of this.mounts) mount.dispose()
+    this.npcs.length = 0
+    this.mounts.length = 0
+    this.campaignSpawnQueue = []
+    this.campaignSpawnWave = null
+    this.veteranOutpostMarch = null
+    this.veteranReinforcementMarch = null
+    this.careerOutpostDefenseGuide?.dispose()
+    this.careerOutpostDefenseGuide = null
+    this.careerVeteranActorMounts.clear()
+    this.defenseCampaignHud?.destroy()
   }
 
   private _returnToNextDefenseCampaignSetup(): void {
@@ -1733,14 +2127,34 @@ export class Game {
     if (!campaign || !runtime || !hud) return
 
     this.reliefMarch?.update()
+    this.veteranOutpostMarch?.update()
+    this.veteranReinforcementMarch?.update()
     // Spawn at most one queued campaign NPC per render frame.
     this._spawnNextDefenseCampaignNpc()
 
-    const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
+    const veteranOutpost = campaign.careerVeteranOutpost
+    const isVeteranAssault = veteranOutpost?.templateId === 'veteran-outpost-assault'
+    const attackerFaction = isVeteranAssault
+      ? veteranOutpost.outpostFaction
+      : opposingCampaignFaction(campaign.defenderFaction)
+    const defenderFaction = isVeteranAssault ? veteranOutpost.playerFaction : campaign.defenderFaction
     const originalDefendersAlive = this.campaignOriginalDefenders.filter(
       npc => !npc.dead,
     ).length
-    const defendersAliveBefore = this._campaignFactionAlive(campaign.defenderFaction)
+    let pendingRescue = 0
+    if (veteranOutpost?.templateId === 'veteran-dread-outpost'
+      && this.campaignReinforcementArrived
+      && this.campaignSpawnWave === 'reinforcement') {
+      const mission = this.careerProfile?.activeMission
+      const deadFriendlyActorIds = new Set(mission?.deadFriendlyActorIds ?? [])
+      for (let index = this.campaignSpawnQueueIndex; index < this.campaignSpawnQueue.length; index++) {
+        const actorId = this.campaignSpawnQueue[index].actorId
+        if (actorId && !deadFriendlyActorIds.has(actorId) && (mission?.actorHealth?.[actorId]?.hp ?? 1) > 0) {
+          pendingRescue++
+        }
+      }
+    }
+    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction) + pendingRescue
     const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
     const pendingAttackers = this.campaignSpawnWave === 'attackers'
       ? Math.max(0, this.campaignSpawnQueue.length - this.campaignSpawnQueueIndex)
@@ -1753,7 +2167,9 @@ export class Game {
       // The assault wave is frame-spawned. Pending attackers still count as
       // remaining enemies so a temporary zero on the field cannot end the battle.
       attackersAlive: attackersAliveBefore + pendingAttackers,
-      reinforcementSpawned: this.campaignReinforcementSpawned,
+      reinforcementSpawned: veteranOutpost?.templateId === 'veteran-dread-outpost'
+        ? this.campaignReinforcementArrived
+        : this.campaignReinforcementSpawned,
     })
 
     for (const event of events) {
@@ -1762,8 +2178,13 @@ export class Game {
         this._showNotify(`⚔️ 敵軍開始進攻：${queued} 人進場中`, 3000)
       } else if (event === 'reinforcement_due') {
         const queued = this._queueDefenseCampaignWave('reinforcement')
-        this.soundManager.playCommanderCommand(campaign.defenderFaction, 'attack')
-        this._showNotify(`🐎 援軍開始抵達：${queued} 名刀騎兵`, 3500)
+        if (veteranOutpost?.templateId === 'veteran-dread-outpost') {
+          this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
+          this._showNotify(`🐎 第 90 秒援軍開始進場：${queued} 名騎兵`, 3500)
+        } else {
+          this.soundManager.playCommanderCommand(campaign.defenderFaction, 'attack')
+          this._showNotify(`🐎 援軍開始抵達：${queued} 名刀騎兵`, 3500)
+        }
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)
       } else if (event === 'battle_victory') {
@@ -1773,13 +2194,15 @@ export class Game {
           this.campaignSpawnQueueIndex = 0
           this.campaignSpawnWave = null
         }
+        if (veteranOutpost) this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
         this._showDefenseCampaignResult('victory')
       } else if (event === 'battle_defeat') {
+        if (veteranOutpost) this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
         this._showDefenseCampaignResult('defeat')
       }
     }
 
-    const defenderAlive = this._campaignFactionAlive(campaign.defenderFaction)
+    const defenderAlive = this._campaignFactionAlive(defenderFaction)
     const attackersAlive = this._campaignFactionAlive(attackerFaction)
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',
@@ -1790,9 +2213,27 @@ export class Game {
       runtime.getSnapshot(),
       defenderAlive,
       attackersAlive,
-      campaign.defenderFaction,
-      this.campaignReinforcementSpawned,
+      defenderFaction,
+      veteranOutpost?.templateId === 'veteran-dread-outpost'
+        ? this.campaignReinforcementArrived
+        : this.campaignReinforcementSpawned,
     )
+
+    if (this.careerOutpostDefenseGuide && (veteranOutpost?.templateId === 'veteran-dread-outpost' || campaign.careerMissionKind === 'outpost-defense')) {
+      if (this.controlMode === 'spectator' || runtime.getSnapshot().battleFinished) {
+        this.careerOutpostDefenseGuide.hide()
+      } else {
+        const placement = getCampaignOutpostPlacement(veteranOutpost?.outpostFaction ?? campaign.defenderFaction)
+        const inward = Math.sign(placement.backZ - placement.frontZ)
+        const rallyPoint = new THREE.Vector3(placement.centerX, 0, placement.frontZ + inward * 10)
+        const yaw = this.thirdPersonCamera.cameraYaw
+        const phase = this.careerProfile?.activeMission?.phase
+          ?? (runtime.getSnapshot().activePhase === 'deployment' ? 'PREPARING' : 'ENGAGING')
+        this.careerOutpostDefenseGuide.updateOutpostDefense(phase, this.player.position, yaw, rallyPoint, attackersAlive)
+      }
+    }
+    this.veteranOutpostCheckpoint?.advance(dt)
+    this._persistCareerVeteranOutpostCheckpoint({ immediate: false, periodic: true })
   }
 
   // ── Pointer Lock ──
@@ -2079,6 +2520,7 @@ export class Game {
     if (this.controlMode === 'spectator') return
     this.controlMode = 'spectator'
     this._spectatorReason = reason
+    this.careerOutpostDefenseGuide?.hide()
     this.spectatorController.initFromCamera(this.camera)
 
     // Close equipment modal if open when player died so it doesn't block spectator view

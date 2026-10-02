@@ -7,6 +7,8 @@ import { Game } from './Game'
 import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
+import { clearCareerMission } from './career/CareerProfile'
+import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
@@ -108,6 +110,22 @@ async function bootstrap(): Promise<void> {
   // still pass validation before it can bypass the official menu.
   const careerStore = new CareerProfileStore()
   const outpostProfile = careerStore.loadChecked().profile
+  const activeCareerMission = outpostProfile?.activeMission
+  if (outpostProfile && isCareerVeteranOutpostMission(activeCareerMission)) {
+    if (shouldResumeCareerVeteranOutpost(activeCareerMission)) {
+      await launchGame(undefined, createCareerVeteranOutpostLaunch(outpostProfile))
+      return
+    }
+    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+      const cleared = clearCareerMission(outpostProfile, activeCareerMission.id)
+      if (!careerStore.save(cleared)) throw new Error('無法保存 Veteran Outpost 返回狀態')
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    } else {
+      // A terminal battle whose claim could not be saved must return to its result screen for retry.
+      await launchGame(undefined, createCareerVeteranOutpostLaunch(outpostProfile))
+      return
+    }
+  }
   if (outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission
     if (outpostProfile.claimedBattleIds.includes(mission.id)) {

@@ -29,6 +29,7 @@ import {
 } from './CommandTarget'
 
 export interface NpcSpawnSpec {
+  actorId?: string
   x: number
   z: number
   characterFaction: CharacterFaction

@@ -252,7 +252,7 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
-  const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep'
+  const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault'
     ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(stats, outcome)
   const profile = cloneCareerProfile(current)
@@ -270,7 +270,8 @@ export function claimCareerMission(
         }
       }
     } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
-    if (active.kind === 'town-defense' && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
+    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-'))
+      && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
   }
@@ -306,13 +307,17 @@ export function careerMissionCompletionsForTier(profile: CareerProfile, tier: Ca
   const assaultWin = profile.activeMission?.kind === 'enemy-town-assault'
     && profile.activeMission.result?.outcome === 'victory' ? 1 : 0
   const soldierWins = outpostWins + soldierStoryWins + assaultWin
-  return tier === 2 ? soldierWins : Math.max(0, (profile.careerMissionCompletions ?? 0) - soldierWins)
+  const veteranStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 3).length ?? 0
+  if (tier === 2) return soldierWins
+  if (tier === 3) return veteranStoryWins
+  return Math.max(0, (profile.careerMissionCompletions ?? 0) - soldierWins - veteranStoryWins)
 }
 
 export function recordCareerMissionCompletion(profile: CareerProfile, tier: CareerMissionTier): void {
   const counts = {
     1: careerMissionCompletionsForTier(profile, 1),
     2: careerMissionCompletionsForTier(profile, 2),
+    3: careerMissionCompletionsForTier(profile, 3),
   }
   counts[tier] += 1
   profile.careerMissionCompletionsByTier = counts
@@ -417,6 +422,11 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
         ...(profile.activeMission.result.defense ? { defense: { ...profile.activeMission.result.defense } } : {}),
       } } : {}),
       ...(profile.activeMission.civilianActorIds ? { civilianActorIds: [...profile.activeMission.civilianActorIds] } : {}),
+      ...(profile.activeMission.reinforcementActorIds ? { reinforcementActorIds: [...profile.activeMission.reinforcementActorIds] } : {}),
+      ...(profile.activeMission.chargedSquadIds ? { chargedSquadIds: [...profile.activeMission.chargedSquadIds] } : {}),
+      ...(profile.activeMission.borrowedActorIds ? { borrowedActorIds: [...profile.activeMission.borrowedActorIds] } : {}),
+      ...(profile.activeMission.actorHealth ? { actorHealth: Object.fromEntries(Object.entries(profile.activeMission.actorHealth).map(([actorId, health]) => [actorId, { ...health }])) } : {}),
+      ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
     } } : {}),
     ...(profile.completedCareerMissionTemplateIds ? { completedCareerMissionTemplateIds: [...profile.completedCareerMissionTemplateIds] } : {}),
     ownedWeapons: [...profile.ownedWeapons],

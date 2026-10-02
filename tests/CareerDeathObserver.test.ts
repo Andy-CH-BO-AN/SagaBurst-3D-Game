@@ -188,7 +188,9 @@ function townFixture() {
     defense: { active: false, fieldNpcs: [] }, mission: { evaluate: vi.fn(() => null), persistRuntimeProgress: vi.fn(), returnComplete: false, updateFlow: vi.fn() },
     stableHorses: [], mounts: [], cat: { dead: true }, serviceMarkers: new Map(), hud: { textContent: '', style: {} }, hint: { textContent: '', style: {} },
     damageNumbers: { update: vi.fn() }, renderer: { render: vi.fn() }, scene: new THREE.Scene(),
-    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn() },
+    duel: { active: undefined, phase: null, countdownRemaining: 0, combatRemaining: 0, guideTarget: null },
+    duelHud: { update: vi.fn() }, duelGuide: { updateDuel: vi.fn() },
+    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn(), updateDuelDefeatedActors: vi.fn() },
     updatePointerPrompt: vi.fn(), melee: vi.fn(), updateCareerHorseAudio: vi.fn(), updateShots: vi.fn(), updateAmbient: vi.fn(), finishMission: vi.fn(),
   })
   player.onPlayerDeath = () => town.enterMissionObserver()

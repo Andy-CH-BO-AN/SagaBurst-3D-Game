@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Mount, mountTypeFromId } from '../world/Mount'
 import { MountedMissionMarchController } from './MountedMissionMarch'
 import { findSafeCareerMountPosition } from './CareerMountController'
-import { createSweepRoster, sweepBanditPosition, SWEEP_CENTER, SWEEP_CAPTAIN_START, SWEEP_CHARGE_DISTANCE, SWEEP_DETECTION_RANGE, SWEEP_YAW } from './CavalrySweep'
+import { createSweepRoster, sweepBanditPosition, sweepPlayerSpawn, SWEEP_CENTER, SWEEP_CAPTAIN_START, SWEEP_CHARGE_DISTANCE, SWEEP_DETECTION_RANGE, SWEEP_YAW } from './CavalrySweep'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
@@ -21,6 +21,14 @@ import {
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import { followLocalOffset, returnFollowLocalOffset } from '../battle/FollowOrder'
+import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
+import type { MountedMissionSquad } from './MountedMissionMarch'
+import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+
+export interface VeteranFieldActorFactories {
+  createNpc?: (spec: NpcSpawnSpec, actorId: string) => NPC
+  createMount?: (spec: NpcSpawnSpec) => Mount
+}
 
 interface CampRuntime {
   id: number
@@ -35,6 +43,56 @@ const MISSION_LEADER_MARCH_SPEED = 7.5
 const LEADER_RETURN_RADIUS = 5
 const PLAYER_RETURN_RADIUS = 12
 const PERCEPTION_INTERVAL_SECONDS = .2
+
+export function veteranPlayerSpawn(templateId: string, anchor?: THREE.Vector3): THREE.Vector3 {
+  const muster = anchor ?? (templateId === 'veteran-tragedy-of-the-scouts'
+    ? SWEEP_CENTER.clone().add(new THREE.Vector3(-18, 0, 0))
+    : SWEEP_CAPTAIN_START)
+  return sweepPlayerSpawn(muster, SWEEP_YAW)
+}
+
+export function resolveVeteranFieldMissionOutcome(
+  templateId: string,
+  playerDead: boolean,
+  rosterComplete: boolean,
+  remainingEnemies: number,
+  friendlyAlive: number,
+  survivalElapsed: number,
+): CareerMissionOutcome | null {
+  const definition = getVeteranMissionDefinition(templateId)
+  if (!definition) return null
+  if (definition.objective.kind === 'survive') {
+    if (playerDead && friendlyAlive === 0) return 'failure'
+    if (survivalElapsed >= definition.objective.seconds) return playerDead && friendlyAlive === 0 ? 'failure' : 'victory'
+    return null
+  }
+  if (rosterComplete && remainingEnemies === 0) return 'victory'
+  if (playerDead && friendlyAlive === 0 && remainingEnemies > 0) return 'failure'
+  return null
+}
+
+function veteranSquadOffset(index: number): THREE.Vector3 {
+  return new THREE.Vector3((index % 2) * 28, 0, -Math.floor(index / 2) * 26)
+}
+
+function veteranFieldFormationPosition(
+  anchor: THREE.Vector3,
+  unit: VeteranRosterUnit,
+  slot: number,
+  side: 'friendly' | 'enemy',
+  survival: boolean,
+): THREE.Vector3 {
+  const offset = survival
+    ? new THREE.Vector3(((unit.squadId - 1) % 2) * 12, 0, -Math.floor((unit.squadId - 1) / 2) * 12)
+    : veteranSquadOffset(unit.squadId - 1)
+  const column = slot === 0 ? 0 : ((slot - 1) % 5 - 2)
+  const row = slot === 0 ? 0 : Math.floor((slot - 1) / 5) + 1
+  const point = anchor.clone().add(offset)
+  point.x += column * (survival ? 2.5 : 3.2)
+  point.z += (side === 'friendly' ? 1 : -1) * row * (survival ? 2.5 : 3.2)
+  point.y = getTerrainHeight(point.x, point.z)
+  return point
+}
 
 export function selectLivingMissionLeader<T extends { dead: boolean }>(current: T | null, friendlies: readonly T[]): T | null {
   return current && !current.dead ? current : friendlies.find(npc => !npc.dead) ?? null
@@ -62,9 +120,17 @@ export class BanditMissionController {
   onMarchStarted: (() => void) | null = null
   onSweepCharge: (() => void) | null = null
   readonly cavalryMounts: Mount[] = []
-  private readonly temporaryCavalry: { npc: NPC; mount: Mount }[] = []
+  private readonly temporaryCavalry: { npc: NPC; mount?: Mount }[] = []
   private readonly departingCavalry: { npc: NPC; mount: Mount }[] = []
   private mountedMarch: MountedMissionMarchController | null = null
+  private veteranSurvivalElapsed = 0
+  private readonly veteranTargetActorIds = new Set<string>()
+  private readonly veteranFriendlyActorIds = new Set<string>()
+  private readonly borrowedMissionActors = new Set<NPC>()
+  private readonly borrowedRespawnEnabled = new Map<NPC, boolean>()
+  private readonly borrowedTemporaryMounts: Array<{ npc: NPC; mount: Mount }> = []
+  private readonly fieldActorMounts = new Map<string, Mount | null>()
+  private readonly veteranEnemies: NPC[] = []
   private sweepAssemblyCommandId = 0
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
@@ -83,10 +149,11 @@ export class BanditMissionController {
     private readonly world: TownWorld,
     private readonly navigation: NavigationWorld,
     private readonly missionCaptain: NPC,
-    private readonly residents: readonly { spec: TownActorSpec; npc: NPC }[],
+    private readonly residents: readonly { spec: TownActorSpec; npc: NPC; homeMount?: Mount }[],
     private readonly player: () => Player,
     private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean,
+    private readonly veteranFieldFactories: VeteranFieldActorFactories = {},
   ) {
     this.camps = world.camps.map((camp, id) => ({
       id,
@@ -100,9 +167,13 @@ export class BanditMissionController {
   get active(): ActiveCareerMission | undefined { return this.readProfile().activeMission }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
   get missionLeader(): NPC | null { return this.leader }
-  get missionBandits(): NPC[] { return this.camps.flatMap(camp => camp.mission) }
+  get missionBandits(): NPC[] { return this.active?.kind === 'veteran-field' ? this.veteranEnemies : this.camps.flatMap(camp => camp.mission) }
   get ambientBandits(): NPC[] { return this.camps.flatMap(camp => camp.ambient) }
-  get fieldNpcs(): NPC[] { return [...this.ambientBandits, ...this.missionBandits, ...this.friendlies] }
+  get fieldNpcs(): NPC[] { return this.active?.kind === 'veteran-field' ? [...this.missionBandits, ...this.friendlies] : [...this.ambientBandits, ...this.missionBandits, ...this.friendlies] }
+  get survivalElapsedSeconds(): number {
+    const definition = this.active?.kind === 'veteran-field' ? getVeteranMissionDefinition(this.active.templateId) : null
+    return definition?.objective.kind === 'survive' ? Math.min(definition.objective.seconds, Math.max(0, this.veteranSurvivalElapsed)) : 0
+  }
   get departingNpcs(): NPC[] { return (this.departingCavalry ?? []).map(rider => rider.npc) }
   get remainingEnemies(): number { return this.missionBandits.filter(npc => !npc.dead).length }
   get partyReturned(): boolean {
@@ -138,6 +209,11 @@ export class BanditMissionController {
   startActiveMission(): boolean {
     const active = this.active
     if (!active) return false
+    if (active.kind === 'veteran-field') {
+      if (!getVeteranMissionDefinition(active.templateId)) return false
+      this.disposeMissionEntities()
+      return this.startVeteranField(active)
+    }
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     if (!template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault') || !camp) return false
@@ -192,6 +268,7 @@ export class BanditMissionController {
       return
     }
     if (this.active?.kind === 'cavalry-sweep') { this.updateSweep(dt, cameraYaw); return }
+    if (this.active?.kind === 'veteran-field') { this.updateVeteranField(dt, cameraYaw); return }
     this.perceptionElapsed += Math.max(0, dt)
     if (this.perceptionElapsed >= PERCEPTION_INTERVAL_SECONDS) {
       this.perceptionElapsed = 0
@@ -246,6 +323,16 @@ export class BanditMissionController {
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
     const active = this.active
     if (!active || active.phase === 'RESULT' || active.result) return null
+    if (active.kind === 'veteran-field') {
+      const definition = getVeteranMissionDefinition(active.templateId)
+      if (definition?.objective.kind === 'survive' && this.survivalElapsedSeconds >= definition.objective.seconds
+        && (active.survivalElapsed ?? 0) < definition.objective.seconds && !this.persistRuntimeProgress(true)) return null
+      const current = this.active ?? active
+      const accounted = new Set([...this.missionBandits.map(npc => npc.combatantId), ...(current.deadTargetActorIds ?? [])])
+      const registrationComplete = current.targetActorIds.every(id => accounted.has(id))
+      const friendlyAlive = this.friendlies.reduce((alive, npc) => alive + Number(!npc.dead), 0)
+      return resolveVeteranFieldMissionOutcome(current.templateId, playerDead || Boolean(current.playerDead), registrationComplete, this.remainingEnemies, friendlyAlive, this.survivalElapsedSeconds)
+    }
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     const patrolComplete = template?.kind !== 'patrol' || Boolean(camp && (active.patrolStage ?? 0) >= this.patrolWaypoints(template, camp.center).length)
@@ -302,13 +389,17 @@ export class BanditMissionController {
   }
 
   isMissionTarget(npc: NPC): boolean {
-    return Boolean(this.active?.targetActorIds.includes(npc.combatantId))
+    return this.active?.kind === 'veteran-field'
+      ? this.veteranTargetActorIds.has(npc.combatantId)
+      : Boolean(this.active?.targetActorIds.includes(npc.combatantId))
   }
 
   isAmbientTarget(npc: NPC): boolean { return this.camps.some(camp => camp.ambient.includes(npc)) }
 
   combatPeersFor(npc: NPC): NPC[] {
     if (this.departingCavalry?.some(rider => rider.npc === npc)) return []
+    if (this.active?.kind === 'veteran-field') return this.veteranFriendlyActorIds.has(npc.combatantId)
+      ? [...this.friendlies, ...this.missionBandits] : [...this.missionBandits, ...this.friendlies]
     if (this.friendlies.includes(npc)) return [
       ...this.friendlies,
       ...(this.phase === 'ENGAGING' ? this.missionBandits : [...this.ambientBandits, ...this.missionBandits]),
@@ -589,6 +680,241 @@ export class BanditMissionController {
 
   private disposeCamp(group: NPC[]): void { for (const npc of group) npc.dispose() }
 
+  private startVeteranField(active: ActiveCareerMission): boolean {
+    const definition = getVeteranMissionDefinition(active.templateId)
+    if (!definition || definition.kind !== 'veteran-field') return false
+    const templateId = active.templateId as VeteranMissionTemplateId
+    const faction = this.readProfile().faction
+    const roster = createVeteranRoster(templateId, faction, active.id)
+    if (roster.friendlyTotal !== definition.friendlyCombatants
+      || roster.enemyTotal !== definition.enemyCombatants
+      || roster.friendly.length + 1 !== roster.friendlyTotal
+      || roster.enemy.length !== active.targetActorIds.length
+      || roster.friendly.length !== active.friendlyActorIds.length) return false
+
+    const residentsById = new Map(this.residents.map(resident => [resident.npc.combatantId, resident]))
+    if (roster.friendly.some(unit => unit.source === 'town' && !residentsById.has(unit.actorId))) return false
+    this.veteranSurvivalElapsed = Math.min(definition.objective.kind === 'survive' ? definition.objective.seconds : Infinity,
+      Math.max(0, active.survivalElapsed ?? 0))
+    this.veteranEnemies.length = 0
+    this.veteranTargetActorIds.clear()
+    this.veteranFriendlyActorIds.clear()
+    this.borrowedMissionActors.clear()
+    this.borrowedRespawnEnabled.clear()
+    this.borrowedTemporaryMounts.length = 0
+    this.fieldActorMounts.clear()
+    this.friendlies.length = 0
+
+    const deadTargets = new Set(active.deadTargetActorIds ?? [])
+    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+    const savedAnchor = active.mountedMarchPosition
+      ? new THREE.Vector3(active.mountedMarchPosition.x, 0, active.mountedMarchPosition.z)
+      : null
+    const survival = definition.objective.kind === 'survive'
+    const friendlyAnchor = survival
+      ? SWEEP_CENTER.clone().add(new THREE.Vector3(-18, 0, 0))
+      : active.phase === 'ENGAGING' || active.result ? savedAnchor ?? SWEEP_CENTER : savedAnchor ?? SWEEP_CAPTAIN_START
+    const enemyAnchor = survival ? SWEEP_CENTER.clone().add(new THREE.Vector3(12, 0, 0)) : SWEEP_CENTER
+    const yaw = SWEEP_YAW
+    const friendlySlots = new Map<number, number>()
+    const enemySlots = new Map<number, number>()
+
+    for (const unit of roster.friendly) {
+      const spec = createVeteranSpawnSpec(unit, faction, 'friendly')
+      const slot = friendlySlots.get(unit.squadId) ?? 0
+      friendlySlots.set(unit.squadId, slot + 1)
+      const position = veteranFieldFormationPosition(friendlyAnchor, unit, slot, 'friendly', survival)
+      spec.x = position.x; spec.z = position.z
+      const resident = unit.source === 'town' ? residentsById.get(unit.actorId) : undefined
+      const npc = resident?.npc ?? this.createVeteranNpc(spec, unit.actorId)
+      if (resident) {
+        const originalRespawn = this.borrowedRespawnEnabled.get(npc) ?? npc.respawnEnabled
+        this.borrowedRespawnEnabled.set(npc, originalRespawn)
+        this.borrowedMissionActors.add(npc)
+        npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, unit.tier, unit.squadId as NPC['squadId'])
+      }
+      npc.respawnEnabled = false
+      const previousMount = npc.mount
+      const mount = unit.mounted ? this.resolveVeteranMount(spec, npc, resident?.homeMount, unit.source !== 'town') : null
+      if (resident && mount && mount !== resident.homeMount && mount !== previousMount) {
+        this.borrowedTemporaryMounts.push({ npc, mount })
+      }
+      this.positionVeteranActor(npc, mount, position, yaw)
+      this.restoreVeteranActorHealth(npc, mount, active, unit.actorId, deadFriendlies.has(unit.actorId))
+      this.fieldActorMounts.set(unit.actorId, mount ?? resident?.homeMount ?? npc.mount)
+      this.veteranFriendlyActorIds.add(unit.actorId)
+      this.friendlies.push(npc)
+      if (!resident && mount) {
+        this.temporaryCavalry.push({ npc, mount })
+        this.cavalryMounts.push(mount)
+      } else if (!resident) {
+        this.temporaryCavalry.push({ npc })
+      }
+    }
+
+    for (const unit of roster.enemy) {
+      this.veteranTargetActorIds.add(unit.actorId)
+      if (deadTargets.has(unit.actorId)) continue
+      const spec = createVeteranSpawnSpec(unit, faction, 'enemy')
+      const slot = enemySlots.get(unit.squadId) ?? 0
+      enemySlots.set(unit.squadId, slot + 1)
+      const position = veteranFieldFormationPosition(enemyAnchor, unit, slot, 'enemy', survival)
+      spec.x = position.x; spec.z = position.z
+      const npc = this.createVeteranNpc(spec, unit.actorId)
+      npc.respawnEnabled = false
+      const mount = unit.mounted ? this.resolveVeteranMount(spec, npc, undefined, true) : null
+      this.positionVeteranActor(npc, mount, position, yaw)
+      this.restoreVeteranActorHealth(npc, mount, active, unit.actorId, false)
+      this.fieldActorMounts.set(unit.actorId, mount)
+      this.veteranEnemies.push(npc)
+      if (mount) {
+        this.temporaryCavalry.push({ npc, mount })
+        this.cavalryMounts.push(mount)
+      } else this.temporaryCavalry.push({ npc })
+      if (survival) npc.setTacticalOrder('charge')
+    }
+
+    const squadGroups: MountedMissionSquad[] = roster.squadSizes.map((_, index) => {
+      const squadId = index + 1
+      const members = this.friendlies.filter(npc => npc.squadId === squadId)
+      return {
+        leader: members.find(npc => roster.friendly.some(unit => unit.actorId === npc.combatantId && unit.leader)),
+        members,
+        leaderOffset: veteranSquadOffset(index),
+      }
+    })
+    this.leader = squadGroups[0]?.leader ?? this.friendlies.find(npc => !npc.dead) ?? null
+    this.tracker = new BattleStatsTracker(this.events, true, event => {
+      if (this.acceptMissionEvent(active, event)) return true
+      const sourceFriendly = this.veteranFriendlyActorIds.has(event.source.actorId)
+      const targetFriendly = this.veteranFriendlyActorIds.has(event.target.targetId)
+        || Boolean(event.target.ownerActorId && this.veteranFriendlyActorIds.has(event.target.ownerActorId))
+      return sourceFriendly || targetFriendly
+    }, active.playerStats)
+    for (const friendly of this.friendlies) this.tracker.registerNpc(friendly, true)
+
+    if (survival) {
+      this.mountedMarch = null
+      if (active.phase !== 'ENGAGING') this.setPhase('ENGAGING', 0)
+      return true
+    }
+    const chargedSquads = new Set(active.chargedSquadIds ?? [])
+    const resumeCharged = active.phase === 'ENGAGING' || chargedSquads.size >= roster.squadSizes.length
+    this.mountedMarch = new MountedMissionMarchController(
+      this.friendlies, SWEEP_CENTER,
+      onFinished => {
+        const current = this.active
+        if (!current || current.followVoicePlayed) { onFinished?.(); return }
+        const next = cloneCareerProfile(this.readProfile())
+        if (next.activeMission) next.activeMission.followVoicePlayed = true
+        if (!this.commit(next)) return
+        this.onMarchStarted?.()
+        onFinished?.()
+      },
+      () => this.persistVeteranCharge(active, roster.squadSizes.length),
+      () => this.onSweepCharge?.(),
+      resumeCharged,
+      {
+        chargeDistance: SWEEP_CHARGE_DISTANCE,
+        playFollow: !active.followVoicePlayed,
+        marchTarget: SWEEP_CENTER,
+        squads: squadGroups,
+        leaderMode: 'independent',
+        playerSquadIndex: 0,
+      },
+    )
+    if (resumeCharged || active.phase === 'MARCHING') this.mountedMarch.start()
+    return true
+  }
+
+  private createVeteranNpc(spec: NpcSpawnSpec, actorId: string): NPC {
+    if (this.veteranFieldFactories.createNpc) return this.veteranFieldFactories.createNpc(spec, actorId)
+    return new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier,
+      spec.cavalry, spec.loadout, spec.presetId, spec.squadId, actorId, this.events.emit,
+      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile)
+  }
+
+  private resolveVeteranMount(spec: NpcSpawnSpec, npc: NPC, homeMount: Mount | undefined, temporary: boolean): Mount | null {
+    const active = this.active
+    const savedMountHp = active?.actorHealth?.[npc.combatantId]?.mountHp
+    const existing = npc.mount && !npc.mount.dead ? npc.mount : homeMount && !homeMount.dead ? homeMount : null
+    const mount = existing ?? (temporary || !homeMount ? this.createVeteranMount(spec) : null)
+    if (!mount) return null
+    const hp = savedMountHp
+    if (hp !== undefined) {
+      if (hp <= 0 && !mount.dead) mount.takeDamage(mount.currentHp + 1)
+      else if (!mount.dead) mount.currentHp = Math.min(mount.maxHp, hp)
+    }
+    return mount
+  }
+
+  private createVeteranMount(spec: NpcSpawnSpec): Mount {
+    if (this.veteranFieldFactories.createMount) return this.veteranFieldFactories.createMount(spec)
+    return new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z)
+  }
+
+  private positionVeteranActor(npc: NPC, mount: Mount | null, point: THREE.Vector3, yaw: number): void {
+    const position = point.clone(); position.y = getTerrainHeight(point.x, point.z)
+    if (npc.mount && npc.mount !== mount) npc.dismountFromMount()
+    if (mount && !mount.dead) {
+      mount.group.position.copy(position); mount.group.rotation.y = yaw
+      if (npc.mount !== mount) npc.mountVehicle(mount)
+      npc.group.position.copy(position); npc.group.rotation.y = yaw
+    } else {
+      npc.group.position.copy(position); npc.group.rotation.y = yaw
+    }
+  }
+
+  private restoreVeteranActorHealth(npc: NPC, mount: Mount | null, active: ActiveCareerMission, actorId: string, recordedDead: boolean): void {
+    const saved = active.actorHealth?.[actorId]
+    npc.restoreCombatHealth(recordedDead ? 0 : saved?.hp ?? npc.maxHp)
+    if (mount && saved?.mountHp !== undefined && saved.mountHp <= 0 && npc.mount === mount) npc.dismountFromMount()
+  }
+
+  private persistVeteranCharge(mission: ActiveCareerMission, squadCount: number): boolean {
+    const active = this.active
+    if (!active || active.id !== mission.id || active.kind !== 'veteran-field') return false
+    const chargedSquadIds = Array.from({ length: squadCount }, (_, index) => index + 1)
+    return this.checkpoint.persist(() => ({
+      ...active,
+      phase: 'ENGAGING',
+      chargedSquadIds,
+      followVoicePlayed: true,
+      deadTargetActorIds: this.deadActorIds(active.targetActorIds, this.missionBandits, active.deadTargetActorIds),
+      deadFriendlyActorIds: this.deadActorIds(active.friendlyActorIds, this.friendlies, active.deadFriendlyActorIds),
+      actorHealth: this.snapshotVeteranActorHealth(),
+      survivalElapsed: this.veteranSurvivalElapsed,
+      mountedMarchPosition: this.mountedMarchAnchor(active),
+      playerDead: this.player().dead,
+      playerHp: this.player().hp,
+      playerStamina: this.player().staminaValue,
+      playerStats: this.tracker?.checkpoint() ?? active.playerStats,
+    }), { immediate: true })
+  }
+
+  private snapshotVeteranActorHealth(): NonNullable<ActiveCareerMission['actorHealth']> {
+    const health: NonNullable<ActiveCareerMission['actorHealth']> = {}
+    for (const npc of [...this.friendlies, ...this.missionBandits]) {
+      const mount = this.fieldActorMounts.get(npc.combatantId) ?? npc.mount
+      health[npc.combatantId] = {
+        hp: npc.dead ? 0 : npc.hp,
+        ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}),
+      }
+    }
+    return health
+  }
+
+  private deadActorIds(ids: readonly string[], npcs: readonly NPC[], previous: readonly string[] = []): string[] {
+    const dead = new Set(previous)
+    for (const npc of npcs) if (npc.dead) dead.add(npc.combatantId)
+    return [...dead].filter(id => ids.includes(id)).sort()
+  }
+
+  private mountedMarchAnchor(active: ActiveCareerMission): { x: number; z: number } | undefined {
+    const leader = this.leader && !this.leader.dead ? this.leader : this.friendlies.find(npc => !npc.dead)
+    return leader ? { x: leader.combatPosition.x, z: leader.combatPosition.z } : active.mountedMarchPosition
+  }
+
   private startSweep(active: ActiveCareerMission, camp: CampRuntime): boolean {
     if (active.targetActorIds.length !== 40 || active.friendlyActorIds.length !== 59) return false
     const saved = active.mountedMarchPosition
@@ -693,6 +1019,27 @@ export class BanditMissionController {
       this.phase === 'ASSEMBLING' ? SWEEP_CAPTAIN_START : this.leader?.combatPosition ?? SWEEP_CENTER, this.remainingEnemies)
   }
 
+  private updateVeteranField(dt: number, cameraYaw: number): void {
+    const active = this.active
+    const definition = active ? getVeteranMissionDefinition(active.templateId) : null
+    if (!active || !definition || active.result || active.phase === 'RESULT') { this.guide.hide(); return }
+    this.checkpoint.advance(dt)
+    if (definition.objective.kind === 'survive') {
+      this.veteranSurvivalElapsed = Math.min(definition.objective.seconds, this.veteranSurvivalElapsed + Math.max(0, dt))
+    } else if (active.phase === 'ASSEMBLING') {
+      const leader = this.leader && !this.leader.dead ? this.leader : this.friendlies.find(npc => !npc.dead)
+      const joined = this.player().dead || Boolean(leader && this.player().combatPosition.distanceTo(leader.combatPosition) <= 12)
+      if (joined && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
+    }
+    if (definition.objective.kind !== 'survive' && this.phase !== 'ASSEMBLING') this.mountedMarch?.update()
+    this.persistRuntimeProgress()
+    const current = this.active ?? active
+    if (definition.objective.kind === 'survive') this.guide.hide()
+    else this.guide.update(current.phase, this.player().combatPosition, cameraYaw,
+      current.phase === 'ASSEMBLING' ? SWEEP_CAPTAIN_START : this.leader?.combatPosition ?? SWEEP_CENTER,
+      this.remainingEnemies, false, false, 'mounted-field')
+  }
+
   updateDepartingCavalry(): void {
     for (let index = (this.departingCavalry?.length ?? 0) - 1; index >= 0; index--) {
       const rider = this.departingCavalry[index]
@@ -702,8 +1049,10 @@ export class BanditMissionController {
     }
   }
 
-  private disposeCavalry(rider: { npc: NPC; mount: Mount }): void {
-    rider.npc.dispose(); rider.mount.dispose()
+  private disposeCavalry(rider: { npc: NPC; mount?: Mount }): void {
+    rider.npc.dispose()
+    if (!rider.mount) return
+    rider.mount.dispose()
     const index = this.cavalryMounts.indexOf(rider.mount)
     if (index >= 0) this.cavalryMounts.splice(index, 1)
   }
@@ -712,14 +1061,30 @@ export class BanditMissionController {
     this.tracker?.dispose()
     this.tracker = null
     for (const camp of this.camps) { this.disposeCamp(camp.mission); camp.mission = [] }
+    for (const { npc, mount } of this.borrowedTemporaryMounts) {
+      if (npc.mount === mount) npc.dismountFromMount()
+      mount.dispose()
+    }
+    this.borrowedTemporaryMounts.length = 0
+    for (const npc of this.borrowedMissionActors) {
+      npc.restoreCombatLoadout()
+      npc.respawnEnabled = this.borrowedRespawnEnabled.get(npc) ?? false
+    }
+    this.borrowedMissionActors.clear()
+    this.borrowedRespawnEnabled.clear()
     for (const rider of this.temporaryCavalry ?? []) {
-      if (departTemporaryCavalry && !rider.npc.dead) {
+      if (departTemporaryCavalry && rider.mount && !rider.npc.dead) {
         const exit = new THREE.Vector3(-290, 0, THREE.MathUtils.clamp(rider.npc.combatPosition.z, -290, -255))
         rider.npc.assignFormationTarget(this.commandId++, exit, new THREE.Vector3(-1, 0, 0))
-        this.departingCavalry.push(rider)
+        this.departingCavalry.push({ npc: rider.npc, mount: rider.mount })
       } else this.disposeCavalry(rider)
     }
     if (this.temporaryCavalry) this.temporaryCavalry.length = 0
+    this.veteranEnemies.length = 0
+    this.veteranSurvivalElapsed = 0
+    this.veteranTargetActorIds.clear()
+    this.veteranFriendlyActorIds.clear()
+    this.fieldActorMounts.clear()
     this.mountedMarch = null
     this.friendlies.length = 0
     this.leader = null
@@ -779,9 +1144,9 @@ export class BanditMissionController {
     }
   }
 
-  persistRuntimeProgress(forceStats = false): void {
+  persistRuntimeProgress(forceStats = false): boolean {
     const active = this.active
-    if (!active || active.result && active.phase !== 'RETURNING') return
+    if (!active || active.result && active.phase !== 'RETURNING') return false
     const deadTargets = new Set(active.deadTargetActorIds ?? [])
     for (const target of this.missionBandits) if (target.dead) deadTargets.add(target.combatantId)
     const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
@@ -799,9 +1164,36 @@ export class BanditMissionController {
     const marchChanged = JSON.stringify(mountedMarchPosition) !== JSON.stringify(active.mountedMarchPosition)
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
     const playerDead = this.player().dead
-    this.checkpoint.persist(() => ({ ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, ...(mountedMarchPosition ? { mountedMarchPosition } : {}), routeStage: this.routeIndex, ...(playerStats ? { playerStats } : {}) }), {
+    const veteranField = active.kind === 'veteran-field'
+    const actorHealth = veteranField ? this.snapshotVeteranActorHealth() : active.actorHealth
+    const actorHealthChanged = veteranField && JSON.stringify(actorHealth) !== JSON.stringify(active.actorHealth)
+    const survivalElapsed = veteranField ? this.survivalElapsedSeconds : active.survivalElapsed
+    const survivalChanged = veteranField && survivalElapsed !== active.survivalElapsed
+    const fieldMarchPosition = veteranField && this.leader && !this.leader.dead
+      ? { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } : mountedMarchPosition
+    const fieldMarchChanged = veteranField && JSON.stringify(fieldMarchPosition) !== JSON.stringify(active.mountedMarchPosition)
+    const playerHp = veteranField ? this.player().hp : active.playerHp
+    const playerStamina = veteranField ? this.player().staminaValue : active.playerStamina
+    const playerVitalChanged = veteranField && (playerHp !== active.playerHp || playerStamina !== active.playerStamina)
+    return this.checkpoint.persist(() => ({
+      ...active,
+      playerDead,
+      deadTargetActorIds: targetIds,
+      deadFriendlyActorIds: friendlyIds,
+      ...(fieldMarchPosition ? { mountedMarchPosition: fieldMarchPosition } : {}),
+      routeStage: this.routeIndex,
+      ...(playerStats ? { playerStats } : {}),
+      ...(veteranField ? {
+        actorHealth,
+        survivalElapsed,
+        playerHp,
+        playerStamina,
+        chargedSquadIds: [...(active.chargedSquadIds ?? [])],
+        borrowedActorIds: [...(active.borrowedActorIds ?? [])],
+      } : {}),
+    }), {
       immediate: casualtiesChanged || routeCheckpointReached || Boolean(active.playerDead) !== playerDead,
-      periodic: statsChanged || marchChanged,
+      periodic: statsChanged || marchChanged || actorHealthChanged || survivalChanged || fieldMarchChanged || playerVitalChanged,
       force: forceStats,
     })
   }

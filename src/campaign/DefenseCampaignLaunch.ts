@@ -45,12 +45,25 @@ import {
   type CampaignStageId,
   type CampaignUnitRole,
 } from './CampaignConfig'
+import type { VeteranOutpostBattleState } from '../career/CareerMissionState'
+import { createVeteranRoster } from '../career/VeteranMission'
 
 export interface DefenseCampaignCapabilities {
   reinforcementsEnabled: boolean
   playerCommandsEnabled: boolean
   gateControlEnabled: boolean
   attackerHeroesEnabled: boolean
+}
+
+export interface CareerVeteranOutpostLaunchData {
+  missionId: string
+  templateId: 'veteran-dread-outpost' | 'veteran-outpost-assault'
+  missionKind: 'veteran-outpost-defense' | 'veteran-outpost-assault'
+  playerFaction: CampaignFaction
+  outpostFaction: CampaignFaction
+  runtimeState: VeteranOutpostBattleState
+  reinforcementDelaySeconds: number
+  assaultChargeDistanceMeters: number
 }
 
 export function defenseCampaignCapabilities(config?: DefenseCampaignLaunchConfig): DefenseCampaignCapabilities {
@@ -68,8 +81,9 @@ export interface DefenseCampaignLaunchConfig {
   deploymentSeconds?: number
   capabilities?: Partial<DefenseCampaignCapabilities>
   careerMissionId?: string
-  careerMissionKind?: 'outpost-defense' | 'outpost-relief'
+  careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
   careerReliefPhase?: 'march' | 'charge'
+  careerVeteranOutpost?: CareerVeteranOutpostLaunchData
   defenderFaction: CampaignFaction
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
@@ -153,8 +167,13 @@ export function validateDefenseCampaignLaunchConfig(
   }
 
   const config = value as DefenseCampaignLaunchConfig
+  const veteranOutpost = config.careerVeteranOutpost
   if (config.type !== 'defense') errors.push('Campaign type must be defense')
-  if (config.deploymentSeconds !== undefined && (!Number.isFinite(config.deploymentSeconds) || config.deploymentSeconds <= 0)) {
+  if (config.deploymentSeconds !== undefined && (
+    !Number.isFinite(config.deploymentSeconds)
+    || config.deploymentSeconds < 0
+    || (config.deploymentSeconds === 0 && !veteranOutpost)
+  )) {
     errors.push('Deployment seconds must be a positive finite number')
   }
   if (
@@ -170,6 +189,44 @@ export function validateDefenseCampaignLaunchConfig(
   if (config.playerHeroId !== undefined && config.playerHeroId !== null && !isHeroAssetId(config.playerHeroId)) {
     errors.push('Invalid player Hero')
   }
+  if (veteranOutpost) {
+    const expectedKind = veteranOutpost.templateId === 'veteran-dread-outpost'
+      ? 'veteran-outpost-defense'
+      : 'veteran-outpost-assault'
+    if (veteranOutpost.missionKind !== expectedKind || config.careerMissionKind !== expectedKind) {
+      errors.push('Veteran Outpost mission kind does not match its template')
+    }
+    if (!config.careerMissionId || config.careerMissionId !== veteranOutpost.missionId) {
+      errors.push('Veteran Outpost mission id does not match its launch')
+    }
+    if (config.defenderFaction !== veteranOutpost.outpostFaction) {
+      errors.push('Campaign defender faction must own the Veteran Outpost')
+    }
+    if (veteranOutpost.playerFaction !== 'roman' && veteranOutpost.playerFaction !== 'viking') {
+      errors.push('Invalid Veteran Outpost player faction')
+    }
+    if (veteranOutpost.outpostFaction !== 'roman' && veteranOutpost.outpostFaction !== 'viking') {
+      errors.push('Invalid Veteran Outpost owner faction')
+    }
+    if (veteranOutpost.templateId === 'veteran-dread-outpost'
+      && (!Number.isFinite(veteranOutpost.reinforcementDelaySeconds) || veteranOutpost.reinforcementDelaySeconds <= 0)) {
+      errors.push('Veteran I reinforcement delay must be positive')
+    }
+    if (veteranOutpost.templateId === 'veteran-outpost-assault'
+      && veteranOutpost.playerFaction === veteranOutpost.outpostFaction) {
+      errors.push('Veteran IV player faction must oppose the Outpost owner')
+    }
+    if (veteranOutpost.templateId === 'veteran-dread-outpost'
+      && veteranOutpost.playerFaction !== veteranOutpost.outpostFaction) {
+      errors.push('Veteran I player faction must defend its Outpost')
+    }
+    const saved = veteranOutpost.runtimeState
+    if (!saved || !Number.isFinite(saved.assaultElapsedSeconds) || saved.assaultElapsedSeconds < 0
+      || !Number.isFinite(saved.deploymentRemainingSeconds) || saved.deploymentRemainingSeconds < 0
+      || !Number.isInteger(saved.reinforcementQueueIndex) || saved.reinforcementQueueIndex < 0) {
+      errors.push('Invalid Veteran Outpost checkpoint')
+    }
+  }
 
   if (typeof config.stageId !== 'number' || !isCampaignStageId(config.stageId)) {
     errors.push('Invalid campaign stage')
@@ -183,7 +240,10 @@ export function validateDefenseCampaignLaunchConfig(
     : VIKING_PRESET_IDS
   const army = config.defenderArmy
 
-  if (!army || typeof army !== 'object') {
+  if (veteranOutpost) {
+    // Career Veteran Outposts supply trusted per-side rosters outside the
+    // deployable Defense Campaign army builder and its stage capacity limits.
+  } else if (!army || typeof army !== 'object') {
     errors.push('Missing defender army')
   } else {
     let total = 0
@@ -379,6 +439,20 @@ function createWaveArmy(
     (faction === 'viking' ? viking : roman) as Record<string, UnitTierCounts>
   )
 
+  const veteranOutpost = launch.careerVeteranOutpost
+  if (veteranOutpost) {
+    const roster = createVeteranRoster(veteranOutpost.templateId, veteranOutpost.playerFaction, veteranOutpost.missionId)
+    const enemyFaction = opposingCampaignFaction(veteranOutpost.playerFaction)
+    const ownerUnits = veteranOutpost.outpostFaction === veteranOutpost.playerFaction ? roster.friendly : roster.enemy
+    const attackerUnits = veteranOutpost.outpostFaction === veteranOutpost.playerFaction ? roster.enemy : roster.friendly
+    const entries = wave === 'reinforcement'
+      ? roster.reinforcements.map(unit => ({ unit, faction: veteranOutpost.playerFaction }))
+      : (wave === 'defenders' ? ownerUnits : attackerUnits)
+          .map(unit => ({ unit, faction: wave === 'defenders' ? veteranOutpost.outpostFaction : enemyFaction }))
+    for (const { unit, faction } of entries) putCount(side(faction), unit.presetId, unit.tier, 1)
+    return { viking, roman }
+  }
+
   if (wave === 'defenders') {
     const destination = side(defender)
     Object.assign(destination, cloneArmy(launch.defenderArmy))
@@ -450,7 +524,7 @@ export function createDefenseCampaignWaveConfig(
     mode: 'formation',
     commandGrouping: launch.commandGrouping ?? 'preset',
     spectator: false,
-    playerFaction: launch.defenderFaction,
+    playerFaction: launch.careerVeteranOutpost?.playerFaction ?? launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
     playerLoadout: { ...launch.playerLoadout },
     playerHeroId: launch.playerHeroId,

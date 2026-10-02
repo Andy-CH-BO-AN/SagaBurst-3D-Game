@@ -6,6 +6,22 @@ import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseSt
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
+export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
+export interface VeteranOutpostBattleState {
+  phase: 'deployment' | 'assault' | 'victory' | 'defeat'
+  activePhase: 'deployment' | 'assault'
+  assaultElapsedSeconds: number
+  deploymentRemainingSeconds: number
+  reinforcementTriggered: boolean
+  reinforcementSpawned: boolean
+  reinforcementArrived: boolean
+  reinforcementRemainingSeconds?: number
+  battleFinished?: boolean
+  reinforcementQueueIndex: number
+  assaultChargeTriggered: boolean
+  gateHealth?: number
+  gateState?: 'closed' | 'open' | 'destroyed'
+}
 
 export interface CareerMissionMeritBreakdown {
   damage: number
@@ -31,7 +47,7 @@ export interface CareerMissionMountState {
 export interface ActiveCareerMission {
   id: string
   templateId: string
-  kind?: 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel'
+  kind?: CareerMissionKind
   targetCampId: number
   phase: CareerMissionPhase
   targetActorIds: string[]
@@ -64,6 +80,17 @@ export interface ActiveCareerMission {
   defensePreparationElapsed?: number
   defenseReserveCharged?: boolean
   defenseCatDead?: boolean
+  survivalElapsed?: number
+  reinforcementElapsed?: number
+  reinforcementSpawned?: boolean
+  reinforcementArrived?: boolean
+  reinforcementActorIds?: string[]
+  chargedSquadIds?: number[]
+  borrowedActorIds?: string[]
+  actorHealth?: Record<string, { hp: number; mountHp?: number }>
+  playerHp?: number
+  playerStamina?: number
+  outpostBattleState?: VeteranOutpostBattleState
   civilianActorIds?: string[]
   mountState?: CareerMissionMountState
   acceptedAt: number
@@ -128,7 +155,7 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
     return event.source.actorType === 'player' && (event.target.targetId === mission.duelOpponentActorId
       || (event.type === 'damage_applied' && event.target.ownerActorId === mission.duelOpponentActorId))
   }
-  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return mission.kind === 'enemy-town-assault' && event.source.actorType === 'player' && event.target.allegiance === 'ENEMY'
+  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return (mission.kind === 'enemy-town-assault' || mission.kind === 'veteran-outpost-assault') && event.source.actorType === 'player' && event.target.allegiance === 'ENEMY'
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
   if (event.source.actorType !== 'player') return false
   if (mission.targetActorIds.includes(event.target.targetId)) return true

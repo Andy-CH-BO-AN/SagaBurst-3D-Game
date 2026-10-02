@@ -10,7 +10,7 @@ import { getDefenseCampaignUnlockedStage } from '../src/campaign/CampaignProgres
 function harness(career = true) {
   const values = new Map<string, string>()
   const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } } as Storage
-  vi.stubGlobal('window', { localStorage: storage })
+  vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), removeEventListener: vi.fn() })
   const store = new CareerProfileStore(storage)
   const profile = acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300, starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }, 1, 'battle')!
   store.save(profile)
@@ -19,11 +19,12 @@ function harness(career = true) {
   const snapshot = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, squads: [] }
   const game = Object.assign(Object.create(Game.prototype), {
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
-    defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn() },
+    defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
     careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-    battleStats: { snapshot: () => snapshot }, npcs: [], player: { dead: false }, controlMode: 'player',
+    battleStats: { snapshot: () => snapshot }, npcs: [], mounts: [], player: { dead: false }, controlMode: 'player',
     campaignOriginalDefenders: Array.from({ length: 80 }, () => ({ dead: false })),
     campaignSpawnWave: null, campaignSpawnQueue: [], campaignReinforcementSpawned: false,
+    careerVeteranActorMounts: new Map(),
     campaignAttackersStarted: true,
     _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(), _showNotify: vi.fn(),
     _campaignFactionAlive: (faction: string) => faction === 'roman' ? 80 : 0,
