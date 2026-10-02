@@ -53,7 +53,7 @@ describe('Career objectives take priority over player death', () => {
     expect(f.controller.evaluate(true)).toBe('failure')
   })
 
-  it('claims dead-player victory once across reload and retains personal contribution without survival bonus', () => {
+  it('claims dead-player victory once across reload and retains the victory contribution bonus', () => {
     const f = fieldFixture()
     f.controller.updateFlow(.1, 0)
     f.reload()
@@ -61,7 +61,7 @@ describe('Career objectives take priority over player death', () => {
     expect(f.profile().activeMission?.result).toBeUndefined()
     const stats = { damageDealt: 200, damageTaken: 100, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
     const first = claimCareerMission(f.profile(), 'death-mission', 'victory', stats)
-    expect(first.profile.activeMission?.result).toMatchObject({ outcome: 'victory', stats: { survived: false }, merit: { damage: 10, kills: 12, contribution: 0, total: 22 } })
+    expect(first.profile.activeMission?.result).toMatchObject({ outcome: 'victory', stats: { survived: false }, merit: { damage: 10, kills: 12, contribution: 12, total: 34 } })
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(first.profile)))!
     const second = claimCareerMission(loaded, 'death-mission', 'victory', stats)
     expect(second.meritAwarded).toBe(0)

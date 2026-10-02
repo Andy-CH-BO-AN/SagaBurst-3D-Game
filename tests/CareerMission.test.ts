@@ -47,6 +47,7 @@ describe('Recruit mission catalog and merit', () => {
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(7)
     profile.completedCareerMissionTemplateIds = [defense.id]
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(6)
+    profile.careerMissionCompletionsByTier = { 1: 5, 2: 5 }
     for (const rank of ['soldier', 'veteran', 'captain', 'commander'] as const) {
       profile.rank = rank
       expect(availableRecruitMissions(profile).filter(mission => mission.id !== 'soldier-town-defense-01').map(mission => mission.id)).toEqual(availableRecruitMissions({ ...profile, rank: 'recruit' }).map(mission => mission.id))

@@ -37,7 +37,9 @@ export function calculateMerit(
     : Math.floor(Math.max(0, player.damageDealt) / 100) * MERIT_RULES.characterDamagePer100
   const survival = player.survived ? MERIT_RULES.survival : 0
   const structureDamage = role === 'offense'
-    ? Math.floor(Math.max(0, player.structureDamage) / 100) * MERIT_RULES.structureDamagePer100
+    ? damagePolicy === 'mission'
+      ? Math.floor(Math.max(0, player.structureDamage) / RECRUIT_MISSION_MERIT_RULES.damagePerPoint)
+      : Math.floor(Math.max(0, player.structureDamage) / 100) * MERIT_RULES.structureDamagePer100
     : 0
   const gateBreaches = role === 'offense'
     ? Math.max(0, Math.floor(player.gateBreaches)) * MERIT_RULES.gateBreach

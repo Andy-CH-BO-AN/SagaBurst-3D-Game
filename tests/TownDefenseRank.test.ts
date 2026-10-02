@@ -29,7 +29,7 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
     ['soldier', 55, [17, 16, 22], { melee: 22, lancer: 17, 'horse-archer': 16 }],
   ] as const)('keeps %s display, roster and three lanes consistent at %s enemies', (rank, count, lanes, totals) => {
     const profile = createCareerProfile('roman')
-    profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletions = 5
+    profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletionsByTier = { 1: 5, 2: 5 }
     const templateId = rank === 'recruit' ? TOWN_DEFENSE_TEMPLATE_ID : SOLDIER_TOWN_DEFENSE_TEMPLATE_ID
     const template = availableRecruitMissions(profile).find(mission => mission.id === templateId)!
     expect(template).toMatchObject({ enemyCount: count, friendlyCombatants: 64, maxCivilianDeaths: 10 })
@@ -46,7 +46,7 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
 
   it.each([['soldier', 55], ['veteran', 61], ['captain', 67], ['commander', 73]] as const)('scales %s defense by 1.1 per rank while keeping Recruit fixed', (rank, count) => {
     const profile = createCareerProfile('roman')
-    profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletions = 5
+    profile.rank = rank; profile.totalMerit = 1000; profile.careerMissionCompletionsByTier = { 1: 5, 2: 5 }
     expect(availableRecruitMissions(profile).filter(mission => mission.kind === 'town-defense').map(mission => [mission.id, mission.enemyCount]))
       .toEqual([[TOWN_DEFENSE_TEMPLATE_ID, 50], [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, count]])
     const mission = createTownDefenseMission(['captain'], [], 'rank-defense', SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, rank)
@@ -119,7 +119,7 @@ function board(rank: CareerRank = 'soldier') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
   const town = Object.create(TownScene.prototype) as any
   town.profile = createCareerProfile('roman')
-  Object.assign(town.profile, { rank, totalMerit: 1000, careerMissionCompletions: 5, completedOutpostRelief: true })
+  Object.assign(town.profile, { rank, totalMerit: 1000, careerMissionCompletionsByTier: { 1: 5, 2: 5 }, completedOutpostRelief: true })
   town.player = { arrowCount: 30, dead: false }
   town.openPanel = vi.fn(() => { town.panel = new PanelElement('section'); return town.panel })
   town.store = { load: () => town.profile }
@@ -173,7 +173,7 @@ describe('Career mission pages and independent completion', () => {
 
   it.each([TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID])('completing %s does not complete the other defense or award merit twice', templateId => {
     let profile = createCareerProfile('roman')
-    Object.assign(profile, { rank: 'soldier', totalMerit: 1000, careerMissionCompletions: 5 })
+    Object.assign(profile, { rank: 'soldier', totalMerit: 1000, careerMissionCompletionsByTier: { 1: 5, 2: 5 } })
     const mission = createTownDefenseMission(['captain'], [], undefined, templateId)
     profile.activeMission = mission
     const stats = { damageDealt: 25, kills: 1, survived: false, damageTaken: 100, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }

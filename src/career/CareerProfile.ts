@@ -4,6 +4,7 @@ import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
+import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
 import type { ActiveCareerMission, CareerMissionOutcome } from './CareerMissionState'
 import {
   calculateMerit,
@@ -12,6 +13,7 @@ import {
   type MeritBreakdown,
 } from './MeritCalculator'
 
+export type { CareerMissionTier } from './CareerMissionTier'
 export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
 export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
 export type CareerPurchaseTier = 1 | 2 | 3 | 4
@@ -65,6 +67,8 @@ export interface CareerProfile {
   completedOutpostRelief?: boolean
   outpostBattleRecords?: CareerOutpostRecord[]
   careerMissionCompletions?: number
+  /** Mission-board tiers are independent of the player's current rank. */
+  careerMissionCompletionsByTier?: Partial<Record<CareerMissionTier, number>>
   completedCareerMissionTemplateIds?: string[]
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
@@ -236,7 +240,7 @@ export function claimCareerMission(
   }
 
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep'
-    ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense') : null
+    ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(stats, outcome)
   const profile = cloneCareerProfile(current)
   profile.totalMerit += merit.total
@@ -245,7 +249,7 @@ export function claimCareerMission(
   profile.lifetimeStats.battles += 1
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
-    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
+    recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
     if (active.kind === 'town-defense' && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
@@ -271,6 +275,28 @@ export function clearCareerMission(current: CareerProfile, missionId: string): C
   const profile = cloneCareerProfile(current)
   if (profile.activeMission?.id === missionId) delete profile.activeMission
   return profile
+}
+
+export function careerMissionCompletionsForTier(profile: CareerProfile, tier: CareerMissionTier): number {
+  if (profile.careerMissionCompletionsByTier) return profile.careerMissionCompletionsByTier[tier] ?? 0
+  // Legacy saves have a combined total. Preserve proven Soldier-tier wins;
+  // the remaining total belongs to the original Recruit mission board.
+  const outpostWins = profile.outpostBattleRecords?.filter(record => record.outcome === 'victory').length ?? 0
+  const soldierStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 2).length ?? 0
+  const assaultWin = profile.activeMission?.kind === 'enemy-town-assault'
+    && profile.activeMission.result?.outcome === 'victory' ? 1 : 0
+  const soldierWins = outpostWins + soldierStoryWins + assaultWin
+  return tier === 2 ? soldierWins : Math.max(0, (profile.careerMissionCompletions ?? 0) - soldierWins)
+}
+
+export function recordCareerMissionCompletion(profile: CareerProfile, tier: CareerMissionTier): void {
+  const counts = {
+    1: careerMissionCompletionsForTier(profile, 1),
+    2: careerMissionCompletionsForTier(profile, 2),
+  }
+  counts[tier] += 1
+  profile.careerMissionCompletionsByTier = counts
+  profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
 }
 
 export function purchaseCareerContent(
@@ -349,6 +375,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
     ...(profile.ownedHorseTiers ? { ownedHorseTiers: [...profile.ownedHorseTiers] } : {}),
+    ...(profile.careerMissionCompletionsByTier ? { careerMissionCompletionsByTier: { ...profile.careerMissionCompletionsByTier } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
       targetActorIds: [...profile.activeMission.targetActorIds],

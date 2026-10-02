@@ -1,5 +1,5 @@
 import type { BattleStatsSnapshot, PlayerBattleStats } from '../combat/BattleStatsTracker'
-import { claimCareerBattle, cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { claimCareerBattle, cloneCareerProfile, recordCareerMissionCompletion, type CareerProfile } from './CareerProfile'
 import { canUseCareerMount, ownedCareerMountIds } from './CareerMountController'
 import type { CareerMountId } from './CareerProfile'
 import type { MeritBreakdown } from './MeritCalculator'
@@ -38,16 +38,15 @@ export function claimCareerOutpost(current: CareerProfile, missionId: string, ou
   const claim = claimCareerBattle(current, { battleId: missionId, outcome, role: 'defense', stats }, 'mission')
   if (claim.alreadyClaimed) return claim
   const profile = claim.profile
+  if (outcome === 'victory') recordCareerMissionCompletion(profile, 2)
   profile.outpostBattleRecords = [...(profile.outpostBattleRecords ?? []), {
     ...mission, outcome, completed: outcome === 'victory', stats: { ...stats.player }, merit: { ...claim.meritBreakdown },
   }]
   if (outcome === 'victory' && mission.kind === 'outpost-defense') {
     profile.completedOutpostStages = [...new Set([...(profile.completedOutpostStages ?? []), mission.stageId])]
-    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
   }
   if (outcome === 'victory' && mission.kind === 'outpost-relief') {
     profile.completedOutpostRelief = true
-    profile.careerMissionCompletions = (profile.careerMissionCompletions ?? 0) + 1
   }
   return claim
 }
