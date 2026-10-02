@@ -990,7 +990,7 @@ export class Game {
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
-    if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills)
+    if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills ?? {})
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
