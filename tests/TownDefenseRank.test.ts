@@ -61,7 +61,7 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
       const templateId = rank === 'recruit' ? TOWN_DEFENSE_TEMPLATE_ID : SOLDIER_TOWN_DEFENSE_TEMPLATE_ID
       const mission = createTownDefenseMission(['captain'], [], `spawn-${faction}-${rank}`, templateId, rank)
       profile.activeMission = mission
-      const controller = Object.assign(Object.create(TownDefenseController.prototype), {
+      const controller = Object.assign(withMissionCheckpoint(Object.create(TownDefenseController.prototype)), {
         scene: new THREE.Scene(), readProfile: () => profile, events: new CombatEventStream(),
         enemies: [], enemyMounts: [], attackGroups: [],
       }) as any
@@ -87,7 +87,7 @@ describe('Independent Recruit and Soldier Town Defense missions', () => {
     // Even if appointed rank changes, an active mission uses its accepted roster.
     saved.rank = (rank === 'recruit' ? 'soldier' : 'recruit') as CareerRank
     const active = saved.activeMission!
-    const controller = Object.assign(Object.create(TownDefenseController.prototype), {
+    const controller = Object.assign(withMissionCheckpoint(Object.create(TownDefenseController.prototype)), {
       readProfile: () => saved, residents: [], groups: [],
       enemies: active.targetActorIds.slice(2).map(combatantId => ({ combatantId, dead: false })),
     }) as TownDefenseController
@@ -189,3 +189,4 @@ describe('Career mission pages and independent completion', () => {
     expect(remaining.map(template => template.id)).toEqual([templateId === TOWN_DEFENSE_TEMPLATE_ID ? SOLDIER_TOWN_DEFENSE_TEMPLATE_ID : TOWN_DEFENSE_TEMPLATE_ID])
   })
 })
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'

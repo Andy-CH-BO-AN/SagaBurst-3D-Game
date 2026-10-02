@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +11,7 @@ import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { TownScene } from '../src/town/TownScene'
 import { SpectatorCameraController } from '../src/camera/SpectatorCameraController'
 import { Player } from '../src/player/Player'
+import { combatFixture } from './helpers/townMissionCombat'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -20,12 +22,12 @@ function fieldFixture(kind: 'bandit' | 'patrol' = 'bandit') {
   const player = { dead: true, combatPosition: new THREE.Vector3(400, 0, 400) }
   const leader = { dead: false, combatantId: 'captain', combatPosition: new THREE.Vector3(), tacticalOrder: 'charge', assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }
   const targets = profile.activeMission.targetActorIds.map(combatantId => ({ dead: false, combatantId, combatPosition: new THREE.Vector3(500, 0, 500), encounterIsAlerted: false }))
-  const controller = Object.create(BanditMissionController.prototype) as any
+  const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
   Object.assign(controller, {
     readProfile: () => profile, commit: (next: typeof profile) => { profile = next; return true }, player: () => player,
     camps: [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: targets }],
     friendlies: [leader], leader, world: { obstacles: [] }, navigation: { beginFrame: vi.fn(), queryPath: vi.fn(() => ({ status: 'blocked' })) },
-    guide: { hide: vi.fn(), update: vi.fn() }, route: [], routeIndex: 0, tracker: null, statsCheckpointElapsed: 0, perceptionElapsed: 0,
+    guide: { hide: vi.fn(), update: vi.fn() }, route: [], routeIndex: 0, tracker: null, perceptionElapsed: 0,
   })
   return { controller, player, leader, targets, profile: () => profile, reload: () => { profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))! } }
 }
@@ -121,7 +123,7 @@ describe('Career objectives take priority over player death', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], ['civilian'], 'defense-death')
     profile.activeMission.phase = 'ATTACKING'
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     Object.assign(controller, {
       readProfile: () => profile, groups: [],
       enemies: profile.activeMission.targetActorIds.map((combatantId, index) => ({ combatantId, dead: index >= enemies })),
@@ -138,14 +140,14 @@ describe('Career objectives take priority over player death', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'defense-lock')
     profile.activeMission.phase = 'ATTACKING'
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     Object.assign(controller, {
       readProfile: () => profile, commit: (next: typeof profile) => { profile = next; return true },
       player: () => ({ dead: true, combatPosition: new THREE.Vector3() }), blackCat: { dead: false },
       enemies: profile.activeMission.targetActorIds.map(combatantId => ({ combatantId, dead: false })), groups: [],
       residents: [ { spec: { role: 'captain' }, npc: { combatantId: 'captain', dead: false } },
         ...Array.from({ length: 20 }, (_, i) => ({ spec: { role: 'civilian' }, npc: { combatantId: `civilian-${i}`, dead: i < 11 } })) ],
-      preparationElapsed: 45, attackElapsed: 0, statsCheckpointElapsed: 0, reserveCharged: false, tracker: null, guide: { updateTownDefense: vi.fn() },
+      preparationElapsed: 45, attackElapsed: 0, reserveCharged: false, tracker: null, guide: { updateTownDefense: vi.fn() },
     })
     controller.updateFlow(.1, 0)
     expect(profile.activeMission.phase).toBe('FAILURE_LOCKED')
@@ -186,7 +188,8 @@ function townFixture() {
     defense: { active: false, fieldNpcs: [] }, mission: { evaluate: vi.fn(() => null), persistRuntimeProgress: vi.fn(), returnComplete: false, updateFlow: vi.fn() },
     stableHorses: [], mounts: [], cat: { dead: true }, serviceMarkers: new Map(), hud: { textContent: '', style: {} }, hint: { textContent: '', style: {} },
     damageNumbers: { update: vi.fn() }, renderer: { render: vi.fn() }, scene: new THREE.Scene(),
-    updatePointerPrompt: vi.fn(), melee: vi.fn(), updateFieldCombat: vi.fn(), updateCareerHorseAudio: vi.fn(), updateShots: vi.fn(), updateAmbient: vi.fn(), finishMission: vi.fn(),
+    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn() },
+    updatePointerPrompt: vi.fn(), melee: vi.fn(), updateCareerHorseAudio: vi.fn(), updateShots: vi.fn(), updateAmbient: vi.fn(), finishMission: vi.fn(),
   })
   player.onPlayerDeath = () => town.enterMissionObserver()
   return { town, player, controls }
@@ -206,7 +209,7 @@ describe('Town mission death observer orchestration', () => {
     for (let index = 1; index <= 30; index++) town.frame(index * 16)
     expect(animation.update).toHaveBeenCalledTimes(30)
     expect(animation.update.mock.calls.every(([dt]) => dt > 0)).toBe(true)
-    expect(town.updateFieldCombat).not.toHaveBeenCalled()
+    expect(town.missionCombat.update).not.toHaveBeenCalled()
     expect(player.group.visible).toBe(true)
     for (let index = 31; index <= 200; index++) town.frame(index * 16)
     expect(player.group.visible).toBe(false)
@@ -246,9 +249,7 @@ describe('Town mission death observer orchestration', () => {
     if (kind === 'cavalry-sweep') town.profile.activeMission = createCavalrySweepMission('observer')
     const npc = { update: vi.fn(), combatPosition: new THREE.Vector3(), group: new THREE.Group(), dead: false }
     town.mission.friendlies = []; town.mission.cavalryMounts = []; town.mission.fieldNpcs = [npc]; town.mission.combatPeersFor = () => []; town.mission.ambientBandits = []; town.mission.missionBandits = []
-    town.residents = []; town.externalThreatActors = new Set(); town.world = { obstacles: [] }
-    town.navigation = { sync: vi.fn(), beginFrame: vi.fn() }
-    town.grid = { clear: vi.fn(), insert: vi.fn(), getNearbyInto: () => [] }; town.neighbors = []
+    town.residents = []; town.world = { obstacles: [] }
     town.careerMounts = { activeMount: null, update: vi.fn() }
     if (kind === 'cavalry-sweep') {
       const bandit = { update: vi.fn(), combatPosition: new THREE.Vector3(), group: new THREE.Group(), dead: false, faction: 'BANDIT' }
@@ -257,11 +258,22 @@ describe('Town mission death observer orchestration', () => {
       Object.assign(npc, { mount })
       town.mission.friendlies = [npc]; town.mission.cavalryMounts = [mount]
       town.mission.fieldNpcs = [npc, bandit]; town.mission.missionBandits = [bandit]
-      town.grid.getNearby = () => [bandit]
       town.hitFieldNpc = vi.fn()
     }
-    town.updateCareerCommandCue = vi.fn(); town.updateExternalThreatAssignments = vi.fn()
-    town.updateFieldCombat = TownScene.prototype['updateFieldCombat']
+    const simulation = combatFixture({
+      controllers: { field: {
+        get active() { return town.profile.activeMission },
+        fieldNpcs: town.mission.fieldNpcs, friendlies: town.mission.friendlies,
+        ambientBandits: town.mission.ambientBandits, missionBandits: town.mission.missionBandits,
+        combatPeersFor: town.mission.combatPeersFor, updateFlow: town.mission.updateFlow,
+        updateDepartingCavalry: vi.fn(), departingNpcs: [], cavalryMounts: town.mission.cavalryMounts,
+      } },
+      simulation: {
+        player: () => player, cameraPosition: town.camera.position, hp: town.hp, careerMounts: town.careerMounts,
+        hitNpc: (target, damage, method, source) => town.hitFieldNpc(target, damage, method, source),
+      },
+    })
+    town.missionCombat = simulation.combat
     const projectile = { isAlive: true, mesh: { position: new THREE.Vector3(0, 5, 0) }, update: vi.fn(), destroy: vi.fn() }
     town.shots = [{ arrow: projectile, training: true, age: 0 }]
     town.updateShots = vi.fn(TownScene.prototype['updateShots'])

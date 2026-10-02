@@ -12,6 +12,7 @@ import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownWorld } from '../town/TownWorld'
 import { townSitePoint, type TownActorSpec } from '../town/TownRules'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import {
   getRecruitMissionTemplate,
   type RecruitBanditMissionTemplate,
@@ -33,7 +34,6 @@ const DETECTION_RANGE = 18
 const MISSION_LEADER_MARCH_SPEED = 7.5
 const LEADER_RETURN_RADIUS = 5
 const PLAYER_RETURN_RADIUS = 12
-const STATS_CHECKPOINT_SECONDS = 5
 const PERCEPTION_INTERVAL_SECONDS = .2
 
 export function selectLivingMissionLeader<T extends { dead: boolean }>(current: T | null, friendlies: readonly T[]): T | null {
@@ -75,7 +75,7 @@ export class BanditMissionController {
   private commandId = 1
   private route: THREE.Vector3[] = []
   private routeIndex = 0
-  private statsCheckpointElapsed = 0
+  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
   private perceptionElapsed = PERCEPTION_INTERVAL_SECONDS
 
   constructor(
@@ -185,7 +185,7 @@ export class BanditMissionController {
 
   updateFlow(dt: number, cameraYaw: number): void {
     if (this.phase === 'RETURNING') {
-      this.statsCheckpointElapsed += Math.max(0, dt)
+      this.checkpoint.advance(dt)
       if (this.ensureLivingLeader() && this.leader) this.advanceRoute(this.leader)
       this.persistRuntimeProgress()
       this.guide.update('RETURNING', this.player().combatPosition, cameraYaw, this.assemblyPoint(), this.remainingEnemies, false, this.active?.kind === 'patrol')
@@ -202,7 +202,7 @@ export class BanditMissionController {
     const camp = this.camps[active.targetCampId]
     const template = getRecruitMissionTemplate(active.templateId)
     if (!camp || !template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || template.kind === 'cavalry-sweep')) return
-    this.statsCheckpointElapsed += Math.max(0, dt)
+    this.checkpoint.advance(dt)
     const hasLeader = this.ensureLivingLeader() && Boolean(this.leader)
     const leader = this.leader
     const objective = this.marchTarget(template, active, camp.center)
@@ -453,13 +453,9 @@ export class BanditMissionController {
     const active = this.active
     if (!active) return false
     if (active.phase === phase && (active.patrolStage ?? 0) === (patrolStage ?? 0) && (active.routeStage ?? 0) === routeStage) return true
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, phase, routeStage, ...(patrolStage !== undefined ? { patrolStage } : {}),
+    return this.checkpoint.persist(() => ({ ...active, phase, routeStage, ...(patrolStage !== undefined ? { patrolStage } : {}),
       ...(active.kind === 'cavalry-sweep' && this.leader && !this.leader.dead ? { mountedMarchPosition: { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } } : {}),
-      playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }
-    const saved = this.commit(profile)
-    if (saved) this.statsCheckpointElapsed = 0
-    return saved
+      playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }), { immediate: true })
   }
 
   private buildRoute(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3[] {
@@ -673,7 +669,7 @@ export class BanditMissionController {
   private updateSweep(dt: number, cameraYaw: number): void {
     const active = this.active
     if (!active || active.result) { this.guide.hide(); return }
-    this.statsCheckpointElapsed += Math.max(0, dt)
+    this.checkpoint.advance(dt)
     if (active.phase === 'ASSEMBLING') {
       const living = this.friendlies.filter(npc => !npc.dead)
       const assembled = living.filter(npc => npc.isFormationTargetReached(this.sweepAssemblyCommandId)).length >= Math.ceil(living.length * .75)
@@ -729,7 +725,7 @@ export class BanditMissionController {
     this.leader = null
     this.route = []
     this.routeIndex = 0
-    this.statsCheckpointElapsed = 0
+    this.checkpoint.reset()
   }
 
   private missionObjective(
@@ -802,12 +798,12 @@ export class BanditMissionController {
       ? { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } : active.mountedMarchPosition
     const marchChanged = JSON.stringify(mountedMarchPosition) !== JSON.stringify(active.mountedMarchPosition)
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
-    const statsCheckpointReached = (statsChanged || marchChanged) && (forceStats || this.statsCheckpointElapsed >= STATS_CHECKPOINT_SECONDS)
     const playerDead = this.player().dead
-    if (!casualtiesChanged && !routeCheckpointReached && !statsCheckpointReached && Boolean(active.playerDead) === playerDead) return
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, ...(mountedMarchPosition ? { mountedMarchPosition } : {}), routeStage: this.routeIndex, ...(playerStats ? { playerStats } : {}) }
-    if (this.commit(profile)) this.statsCheckpointElapsed = 0
+    this.checkpoint.persist(() => ({ ...active, playerDead, deadTargetActorIds: targetIds, deadFriendlyActorIds: friendlyIds, ...(mountedMarchPosition ? { mountedMarchPosition } : {}), routeStage: this.routeIndex, ...(playerStats ? { playerStats } : {}) }), {
+      immediate: casualtiesChanged || routeCheckpointReached || Boolean(active.playerDead) !== playerDead,
+      periodic: statsChanged || marchChanged,
+      force: forceStats,
+    })
   }
 
   private banditPatrolRoute(origin: THREE.Vector3, campId: number, actorIndex: number): THREE.Vector3[] {

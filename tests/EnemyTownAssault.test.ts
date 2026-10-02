@@ -20,6 +20,7 @@ import { SpatialGrid } from '../src/world/SpatialGrid'
 import { TownEquipment } from '../src/town/TownEquipment'
 import { CareerMountController } from '../src/career/CareerMountController'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { combatFixture } from './helpers/townMissionCombat'
 
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: { ready: true, createInstance: () => {
@@ -75,6 +76,26 @@ function townHarness(f: ReturnType<typeof fixture>) {
 }
 
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy Town assault`, () => {
+  it('starting a new assault resets the same controller checkpoint clock without a one-second defense clock masking it', () => {
+    const f = fixture(faction)
+    f.controller.updateFlow(4.99, 0)
+    expect(f.profile().activeMission!.playerStats).toBeUndefined()
+    f.setProfile({ ...createCareerProfile(faction), activeMission: createEnemyTownAssaultMission('assault-next') })
+    expect(f.controller.startActiveMission()).toBe(true)
+    f.controller.events.emit({ type: 'damage_applied',
+      source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: faction },
+      target: { targetId: f.profile().activeMission!.targetActorIds[0], targetType: 'npc', name: 'Defender' },
+      method: 'melee', requestedDamage: 100, appliedDamage: 100,
+    })
+    f.controller.updateFlow(.01, 0)
+    expect(f.profile().activeMission!.playerStats).toBeUndefined()
+    expect(f.controller.snapshot().player.damageDealt).toBe(100)
+    f.controller.updateFlow(4.99, 0)
+    expect(f.profile().activeMission).toMatchObject({ id: 'assault-next', phase: 'ATTACKING',
+      defenseElapsed: 0, defensePreparationElapsed: 0, playerStats: { damageDealt: 100 },
+    })
+  })
+
   it('creates exactly three squads of 30 including Player and uses real T4 heroes', () => {
     const roster = createAssaultRoster(faction)
     expect(roster).toHaveLength(89)
@@ -302,7 +323,18 @@ describe('shared Town wartime and settlement', () => {
     const f = fixture('roman'), town = townHarness(f)
     const military = f.controller.military[0], civilian = f.controller.civilians[0], attacker = f.controller.enemies[0]
     const updateMilitary = vi.spyOn(military, 'update'), updateAttacker = vi.spyOn(attacker, 'update'), updateCivilian = vi.spyOn(civilian, 'update')
-    town.updateDefenseCombat(.016)
+    const simulation = combatFixture({
+      controllers: { defense: f.controller },
+      simulation: {
+        player: () => f.player, cameraPosition: town.camera.position, obstacles: town.world.obstacles,
+        navigation: f.navigation, hp: town.hp, careerMounts: town.careerMounts,
+        updateCommandCue: town.updateCareerCommandCue,
+        hitNpc: (target, damage, method, source) => town.hitFieldNpc(target, damage, method, source),
+        damagePlayer: (source, damage, method) => town.damagePlayerFromNpc(source, damage, method),
+        fireNpc: (origin, direction, kind, source) => town.fire(origin, direction, source.rangedProjectileSpeed, source.rangedDamage, false, false, kind, source),
+      },
+    })
+    simulation.combat.update(.016, town.orbit.cameraYaw, town.elapsed)
     expect(updateMilitary).toHaveBeenCalledOnce(); expect(updateAttacker).toHaveBeenCalledOnce(); expect(updateCivilian).toHaveBeenCalledOnce()
     const before = military.hp
     town.hitFieldNpc(military, 20, 'melee', attacker)

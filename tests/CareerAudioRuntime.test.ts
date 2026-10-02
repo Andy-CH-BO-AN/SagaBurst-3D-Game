@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SoundManager } from '../src/audio/SoundManager'
 import * as THREE from 'three'
@@ -190,12 +191,12 @@ describe('Lazy Career audio runtime', () => {
     expect(position.distanceTo(leader.combatPosition)).toBeCloseTo(9)
     let profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
-    const mission = Object.create(BanditMissionController.prototype) as any
+    const mission = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     Object.assign(mission, {
       readProfile: () => profile, commit: (next: typeof profile) => { profile = next; return true },
       player: () => ({ combatPosition: position }), leader, friendlies: [leader],
       camps: [{ center: new THREE.Vector3(150, 0, 150), ambient: [], mission: [] }],
-      route: [], routeIndex: 0, perceptionElapsed: 0, statsCheckpointElapsed: 0, tracker: null,
+      route: [], routeIndex: 0, perceptionElapsed: 0, tracker: null,
       guide: { update: vi.fn() }, detectCampProximity: vi.fn(), persistRuntimeProgress: vi.fn(),
       advanceRoute: vi.fn(), assignLeader: vi.fn(), assignFollowers: vi.fn(),
       marchTarget: () => new THREE.Vector3(150, 0, 150),

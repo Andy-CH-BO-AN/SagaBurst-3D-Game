@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { createCareerProfile, claimCareerMission, clearCareerMission } from '../src/career/CareerProfile'
@@ -33,7 +34,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     profile.activeMission = createTownDefenseMission([], [], 'civilian-range')
     const civilian = { townCategory: 'civilian', dead: false, hostileToPlayer: false, combatPosition: new THREE.Vector3(), armTownCivilian: vi.fn(), setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn() }
     const enemy = { combatPosition: new THREE.Vector3(10, 0, 0) }
-    const controller = Object.assign(Object.create(TownDefenseController.prototype), {
+    const controller = Object.assign(withMissionCheckpoint(Object.create(TownDefenseController.prototype)), {
       readProfile: () => profile, player: () => ({ dead: true }), peersFor: () => [enemy],
       residents: [{ spec: { role: 'civilian' }, npc: civilian }], civilianCombat: new Set(), commandId: 1,
       walkable: vi.fn(() => new THREE.Vector3()),
@@ -123,7 +124,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     ])
     const actors = roster.filter(spec => spec.role.includes('_') || ['captain', 'ranger', 'deployment', 'civilian'].includes(spec.role))
       .map(spec => ({ spec, npc: { dead: false, isMounted: spec.role.includes('cavalry') || spec.role === 'captain' || spec.role === 'ranger', mount: null as unknown, assignFormationTarget: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) } }))
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: groups.map(group => ({ id: group.id, members: group.actorIds.map(id => actors.find(actor => actor.spec.id === id)!.npc) })), residents: actors, navigation, blackCat: { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }, commandId: 0 })
     controller.readProfile ??= () => createCareerProfile('roman')
@@ -150,14 +151,14 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(TOWN_DEFENSE_PREPARATION_SECONDS).toBe(20)
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-timed-start')
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.blackCat = { dead: false }
     controller.player = () => ({ combatPosition: { distanceTo: () => 1000 } })
     controller.residents = []; controller.enemies = []; controller.attackElapsed = 0
-    controller.preparationElapsed = 0; controller.statsCheckpointElapsed = 0; controller.tracker = null
+    controller.preparationElapsed = 0; controller.tracker = null
     controller.guide = { updateTownDefense: vi.fn() }
     controller.beginAttack = vi.fn(); controller.persistRuntimeProgress = vi.fn()
     controller.updateFlow(TOWN_DEFENSE_PREPARATION_SECONDS - .1, 0)
@@ -173,7 +174,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const soldier = () => ({ dead: false, combatPosition: { distanceTo: () => 100 }, setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn() })
     const captain = soldier()
     const groups = (['A', 'B', 'C', 'D', 'E', 'F'] as const).map(id => ({ id, members: Array.from({ length: 10 }, soldier) }))
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.groups = groups
     controller.residents = [{ spec: { role: 'captain' }, npc: captain }]
@@ -193,7 +194,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const actor = () => ({ dead: false, mount: null as unknown, assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) })
     const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'civilian').map(spec => ({ spec, npc: actor() }))
     const blackCat = { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: [], residents, blackCat, attackGroups: [], commandId: 0, navigation: { grid: { findNearestWalkableCell: () => null } } })
     const byId = new Map(residents.map(resident => [resident.spec.id, resident.npc]))
@@ -219,7 +220,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     let profile = createCareerProfile('roman')
     profile.activeMission = createTownDefenseMission(['captain'], [], 'first-hit-charge')
     profile.activeMission.phase = 'ATTACKING'
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, { groups, residents: [{ spec: { role: 'captain' }, npc: captain }, { spec: { role: 'ranger' }, npc: ranger }, { spec: { role: 'deployment' }, npc: sergeant }, { spec: { role: 'civilian' }, npc: civilian }], reserveCharged: false })
     controller.readProfile = () => profile
@@ -249,8 +250,8 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     profile.activeMission = createTownDefenseMission(['captain'], [], 'defense-registration')
     profile.activeMission.phase = 'ATTACKING'
     const player = { dead: false } as any
-    const controller = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
-    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 0, blackCat: { dead: false } })
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as TownDefenseController & Record<string, any>
+    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, blackCat: { dead: false } })
     ;(controller as any).player = () => player; (controller as any).readProfile = () => profile; (controller as any).commit = (next: typeof profile) => { profile = next; return true }
     controller.enemies.push(...profile.activeMission.targetActorIds.map(combatantId => ({ combatantId, dead: false }) as any))
 
@@ -263,8 +264,8 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     expect(controller.evaluate(false)).toBe('victory')
 
     const saved = profile
-    const reloaded = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
-    Object.assign(reloaded, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 0, blackCat: { dead: false } })
+    const reloaded = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as TownDefenseController & Record<string, any>
+    Object.assign(reloaded, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, blackCat: { dead: false } })
     ;(reloaded as any).player = () => player; (reloaded as any).readProfile = () => profile; (reloaded as any).commit = (next: typeof profile) => { profile = next; return true }
     profile = { ...saved, activeMission: { ...saved.activeMission!, deadTargetActorIds: [saved.activeMission!.targetActorIds[0]] } }
     reloaded.enemies.push(...profile.activeMission!.targetActorIds.slice(1).map(combatantId => ({ combatantId, dead: true }) as any))
@@ -278,8 +279,9 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     profile.activeMission.phase = 'ATTACKING'
     const active = profile.activeMission
     const events = new CombatEventStream()
-    const controller = Object.create(TownDefenseController.prototype) as TownDefenseController & Record<string, any>
-    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, statsCheckpointElapsed: 5, blackCat: { dead: false } })
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as TownDefenseController & Record<string, any>
+    Object.assign(controller, { residents: [], enemies: [], groups: [], attackElapsed: 0, tracker: null, blackCat: { dead: false } })
+    ;(controller as any).checkpoint.advance(5)
     ;(controller as any).player = () => ({ dead: false }); (controller as any).readProfile = () => profile; (controller as any).commit = (next: typeof profile) => { profile = next; return true }
     ;(controller as any).tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
     const source = { actorId: 'player', actorType: 'player' as const, allegiance: Faction.PLAYER, characterFaction: 'roman' as const }
@@ -300,12 +302,12 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     profile.activeMission = createTownDefenseMission(['captain', 'ranger'], [], 'ranger-cat-reload')
     profile.activeMission.phase = 'ATTACKING'
     const ranger = { combatantId: 'ranger', dead: true }
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, {
       residents: [{ spec: { role: 'ranger' }, npc: ranger }], enemies: [], groups: [],
       blackCat: { dead: true }, attackElapsed: 1, preparationElapsed: TOWN_DEFENSE_PREPARATION_SECONDS,
-      tracker: null, statsCheckpointElapsed: 0,
+      tracker: null,
     })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
@@ -324,15 +326,15 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const roster = townRoster()
     const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'deployment')
       .map(spec => ({ spec, npc: { combatantId: spec.id, dead: spec.role === 'deployment', takeDamage: vi.fn(function (this: any) { this.dead = true }) } }))
-    const controller = Object.create(TownDefenseController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
-    Object.assign(controller, { residents, enemies: [], enemyMounts: [], groups: createTownDefenseGroups(roster).map(plan => ({ id: plan.id, members: plan.actorIds.map(id => residents.find(resident => resident.spec.id === id)!.npc) })), attackElapsed: 1, preparationElapsed: 45, tracker: null, statsCheckpointElapsed: 0, blackCat: { dead: false } })
+    Object.assign(controller, { residents, enemies: [], enemyMounts: [], groups: createTownDefenseGroups(roster).map(plan => ({ id: plan.id, members: plan.actorIds.map(id => residents.find(resident => resident.spec.id === id)!.npc) })), attackElapsed: 1, preparationElapsed: 45, tracker: null, blackCat: { dead: false } })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.persistRuntimeProgress()
     expect(profile.activeMission.deadFriendlyActorIds).toContain('deployment')
     profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-    const reloaded = Object.create(TownDefenseController.prototype) as any
+    const reloaded = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     const sergeant = residents.find(resident => resident.spec.role === 'deployment')!.npc
     sergeant.dead = false
     Object.assign(reloaded, { civilianCombat: new Set(), residents, enemies: [], enemyMounts: [], groups: [], blackCat: { dead: false }, events: new CombatEventStream() })

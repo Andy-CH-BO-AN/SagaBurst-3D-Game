@@ -10,7 +10,8 @@ import type { TownWorld } from '../town/TownWorld'
 import type { Mount } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import type { CareerProfile } from './CareerProfile'
+import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
 import { createCareerDuelMission, DUEL_COMBAT_SECONDS, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome } from './CareerDuelState'
 
@@ -57,7 +58,9 @@ const MARCH_SPEED = 6
 const RETURN_PLAYER_RADIUS = 12
 const DUEL_AREA_CANDIDATES = [112, 135].flatMap(z => [0, 20, -20, 40, -40, 60, -60].map(x => ({ x, z })))
 
-/** Owns the duel flow; TownScene retains entity updates, damage routing, and the established Town restore. */
+/** Owns duel flow; TownMissionCombat advances entities and TownScene retains damage routing.
+ * TownMissionSettlement owns saved return and resident restoration.
+ */
 export class CareerDuelController {
   readonly events = new CombatEventStream()
   onMarchStarted: (() => void) | null = null
@@ -76,6 +79,7 @@ export class CareerDuelController {
   private countdownElapsed = 0
   private combatElapsed = 0
   private area = new THREE.Vector3()
+  private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(
     _scene: THREE.Scene,
@@ -244,10 +248,7 @@ export class CareerDuelController {
     const active = this.active
     if (!active || !this.opponent || active.result && active.phase !== 'RETURNING') return
     const next = this.runtimeMission(active)
-    if (JSON.stringify(next) === JSON.stringify(active)) return
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = next
-    this.commit(profile)
+    this.checkpoint.persist(() => next, { immediate: JSON.stringify(next) !== JSON.stringify(active) })
   }
 
   cleanupMission(): void {
@@ -277,9 +278,7 @@ export class CareerDuelController {
   private setPhase(phase: CareerMissionPhase, routeStage = this.routeIndex): boolean {
     const active = this.active
     if (!active || active.phase === phase) return false
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission = { ...this.runtimeMission(active), phase, routeStage }
-    return this.commit(profile)
+    return this.checkpoint.persist(() => ({ ...this.runtimeMission(active), phase, routeStage }), { immediate: true })
   }
   private acceptCombatEvent(event: CombatEvent): boolean {
     if (this.phase !== 'ENGAGING' || !this.opponent || (event.type !== 'damage_applied' && event.type !== 'actor_killed')) return false
