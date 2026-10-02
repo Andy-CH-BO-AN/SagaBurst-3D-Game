@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { acceptCavalrySweep, sweepPlayerSpawn, SWEEP_YAW } from '../career/CavalrySweep'
-import { Player, PLAYER_ARROW_CAPACITY } from '../player/Player'
+import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
@@ -33,7 +33,7 @@ import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
-import { SkillManager } from '../rpg/SkillManager'
+import { SkillManager, resolveMeleeSkillId, type SkillId } from '../rpg/SkillManager'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
@@ -52,7 +52,7 @@ import { careerTownFaction, acceptEnemyTownAssault } from '../career/EnemyTownAs
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
 import { CareerMountController } from '../career/CareerMountController'
-import { preserveHpRatio, resolveCareerHeroAsset } from '../career/CareerPlayerProfile'
+import { preserveHpRatio, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { createTownDefenseMission, type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
@@ -147,6 +147,7 @@ export class TownScene {
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     this.world = new TownWorld(careerTownFaction(profile), this.scene)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
+    this.skills.setSkillState(profile.skills)
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -190,6 +191,7 @@ export class TownScene {
     for (const resident of this.residents) { resident.npc.setTownPeaceful(); resident.npc.updateTownPeace(.2, resident.npc.group.position.distanceTo(this.camera.position), false, false) }
     progress('村莊準備完成，生成玩家…')
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile))
+    this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
     this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
@@ -253,7 +255,7 @@ export class TownScene {
       await yieldFrame()
     }
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
-    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.spectator) this.orbit.update(this.input)
     await renderer.compileAsync(this.scene, this.camera)
     renderer.render(this.scene, this.camera); await yieldFrame()
@@ -311,6 +313,34 @@ export class TownScene {
     if (profile.rank !== this.profile.rank) this.deploymentPage = undefined
     this.profile = profile; return true
   }
+  private skillForPlayerDamage(method: CombatDamageMethod): SkillId {
+    if (method === 'projectile') return 'ranged'
+    if (method === 'mount-impact') return 'mountedImpact'
+    return resolveMeleeSkillId(
+      this.inventory.equippedMelee,
+      Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
+    )
+  }
+
+  private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
+    if (appliedDamage <= 0) return
+    const previousSkills = this.profile.skills
+    const levelsGained = this.skills.addXp(this.skillForPlayerDamage(method), appliedDamage, sound)
+    const next = cloneCareerProfile(this.profile)
+    next.skills = this.skills.skillState
+    if (!this.commit(next)) {
+      this.skills.setSkillState(previousSkills)
+      return
+    }
+    if (levelsGained <= 0) return
+
+    const oldHp = this.player.hp
+    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+    this.player.setMaxHp(newMaxHp, false)
+    this.player.setHp(Math.min(newMaxHp, oldHp + levelsGained))
+    this.hp.setFill(this.player.hpRatio)
+  }
+
   private enterMissionObserver(): void {
     if (!this.profile.activeMission || this.event.hostile || this.spectator) return
     if (this.profile.activeMission.kind === 'duel') {
@@ -767,16 +797,18 @@ export class TownScene {
     if (mount) old.dismountFromMount()
     old.dispose()
     this.player = new Player(this.scene, this.profile.faction, hero)
+    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
+    this.player.setMaxHp(newMaxHp, true)
     this.player.group.position.copy(position)
     this.player.faceDirection(Math.sin(facing), Math.cos(facing))
-    this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, this.player.maxHp))
+    this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, newMaxHp))
     this.player.setStamina(stamina)
     this.player.setArrowCount(arrows)
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, true, false, event.visualKind)
     if (mount && !mount.dead) this.player.mountVehicle(mount, mountHeading)
     this.orbit = new ThirdPersonCamera(this.camera, this.player); this.orbit.setYaw(cameraYaw); this.orbit.setPitch(cameraPitch)
-    this.player.update(0, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    this.player.update(0, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     this.hp.setFill(this.player.hpRatio)
   }
   private finishMission(outcome: CareerMissionOutcome): void {
@@ -899,13 +931,24 @@ export class TownScene {
       : target.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
     return Boolean(ally && (this.mission?.friendlies?.includes(ally) || this.missionCombat?.isExternalThreatDefender(ally)))
   }
-  private hitResident(npc: NPC | Mount, amount: number): void {
+  private hitResident(npc: NPC | Mount, amount: number, method: CombatDamageMethod = 'melee'): void {
     if (this.duel?.active) return
     if (this.isProtectedTownAlly(npc) || npc.dead || amount <= 0 || !this.prepareDamage()) return
     let applied = 0
     const position = npc instanceof NPC ? npc.combatPosition.clone() : npc.group.position.clone()
-    if (npc instanceof NPC) applied = damageNpc(npc, amount).appliedDamage
-    else { const before = npc.currentHp; npc.takeDamage(amount); applied = before - npc.currentHp; if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount() }
+    if (npc instanceof NPC) {
+      const playerAmount = method === 'mount-impact'
+        ? Math.round(amount * this.skills.getMountedImpactMultiplier())
+        : amount
+      const result = damageNpc(npc, playerAmount)
+      applied = result.appliedDamage
+      if (!result.isMountHit && applied > 0) this.awardCareerSkillXp(method, applied)
+    } else {
+      const before = npc.currentHp
+      npc.takeDamage(amount)
+      applied = before - npc.currentHp
+      if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount()
+    }
     if (applied > 0) {
       this.damageNumbers.spawn(applied, position)
       sound?.playSwordHit(0, true)
@@ -948,13 +991,17 @@ export class TownScene {
     if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
     if (this.defense?.active && (source ? !townWartimeHostile(source, target) : target.faction !== Faction.ENEMY)) return
-    const result = damageNpc(target, amount, {
+    const playerAmount = !source && method === 'mount-impact'
+      ? Math.round(amount * this.skills.getMountedImpactMultiplier())
+      : amount
+    const result = damageNpc(target, playerAmount, {
       source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player),
       method,
       weaponId: source?.meleeWeaponId ?? (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
+    if (!source && !result.isMountHit) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
@@ -1037,7 +1084,7 @@ export class TownScene {
             this.cat.takeDamage(s.arrow.damage)
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
-          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage)
+          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile')
         } }
       }
       if (hit) { hit(); s.arrow.destroy() }
@@ -1058,7 +1105,7 @@ export class TownScene {
       isLance: weapon.isLance === true,
       isMounted: this.player.isMounted,
       mountSpeed: this.player.currentMount?.movementSpeed ?? 0,
-      oneHandedMultiplier: this.skills?.getOneHandedMultiplier?.() ?? 1,
+      oneHandedMultiplier: this.skills.getMultiplier(resolveMeleeSkillId(weapon, Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield))),
       faction: this.player.characterFaction,
       hasShield: this.inventory.shieldEnabled,
       heroAssetId: this.player.heroAssetId ?? undefined,
@@ -1264,10 +1311,10 @@ export class TownScene {
     this.updatePointerPrompt()
     const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
     // Keep the collapse playing even when death immediately opens a result panel.
-    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
-      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
       this.player.group.updateWorldMatrix(true, true)
       if (!this.player.dead) this.melee()
       if (this.event.hostile) this.updateHostile(dt)
