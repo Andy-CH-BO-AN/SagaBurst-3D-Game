@@ -46,7 +46,7 @@ export function resolveSkillProgressionAward(
   const skill = resolveCombatSkill(event.method, meleeWeapon, hasShield)
   if (!skill) return null
 
-  const xp = Math.max(0, Math.floor(event.appliedDamage))
+  const xp = Math.max(0, event.appliedDamage)
   return xp > 0 ? { skill, xp } : null
 }
 
