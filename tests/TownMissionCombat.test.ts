@@ -6,7 +6,7 @@ import { createCareerDuelMission } from '../src/career/CareerDuelState'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { createEnemyTownAssaultMission } from '../src/career/EnemyTownAssault'
 import { getTerrainHeight } from '../src/world/Terrain'
-import { Faction, type NPC } from '../src/world/NPC'
+import { AIType, Faction, NPC } from '../src/world/NPC'
 import { combatActor, combatFixture, combatMount, combatResident } from './helpers/townMissionCombat'
 
 function duelFixture(phase: CareerMissionPhase = 'ENGAGING') {
@@ -159,6 +159,41 @@ describe('Town field combat through the mission interface', () => {
 })
 
 describe('Town Duel simulation through the mission interface', () => {
+  it('advances a defeated opponent through collapse and despawn while the result panel pauses the duel', () => {
+    const h = duelFixture('RESULT')
+    const opponent = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Duel opponent', 1, false)
+    opponent.respawnEnabled = false
+    const animation = { play: vi.fn(), update: vi.fn(), stop: vi.fn(), has: vi.fn(() => false), setEquipmentState: vi.fn() }
+    ;(opponent as any).rig.animation = animation
+    opponent.setDuelHostility(true)
+    h.duel.fieldNpcs = [h.captain, opponent]
+    const animator = (opponent as any).animator
+    const animationUpdate = vi.spyOn(animator, 'update')
+    opponent.takeDamage(10000)
+    opponent.setDuelHostility(false)
+    expect(animation.play).toHaveBeenLastCalledWith('death', { fadeSeconds: .12, loop: false })
+    h.combat.updateDuelDefeatedActors(.5)
+    expect(animationUpdate).toHaveBeenCalledOnce()
+    expect(opponent.group.visible).toBe(true)
+    expect(h.captain.update).not.toHaveBeenCalled()
+    expect(h.duel.update).not.toHaveBeenCalled()
+    expect(h.duel.persistRuntimeProgress).not.toHaveBeenCalled()
+    h.combat.updateDuelDefeatedActors(2.6)
+    expect(opponent.group.visible).toBe(false)
+    expect(opponent.dead).toBe(true)
+    opponent.dispose()
+  })
+
+  it.each(['ENGAGING', 'RESULT', 'RETURNING'] as const)('keeps dead duelists on the death update path in %s', phase => {
+    const h = duelFixture(phase)
+    h.opponent.dead = true
+    h.combat.update(.02, 0, 0)
+    expect(h.opponent.update).toHaveBeenCalledOnce()
+    expect(h.opponent.updateTownPeace).not.toHaveBeenCalled()
+    expect(h.opponent.update.mock.calls[0][2]).toEqual([])
+    expect(h.opponent.update.mock.calls[0][3]).toEqual([])
+  })
+
   it.each(['ASSEMBLING', 'MARCHING', 'PREPARING', 'ENGAGING', 'RESULT', 'RETURNING'] as const)('preserves opponent and referee updates in %s', phase => {
     const h = duelFixture(phase), mount = combatMount()
     h.captain.mount = mount

@@ -104,6 +104,11 @@ export class CareerDuelController {
   get combatRemaining(): number { return Math.max(0, DUEL_COMBAT_SECONDS - this.combatElapsed) }
   get combatEnabled(): boolean { return this.phase === 'ENGAGING' && !this.active?.result && this.combatElapsed < DUEL_COMBAT_SECONDS }
   get remainingEnemies(): number { return this.opponent && !this.opponent.dead ? 1 : 0 }
+  get guideTarget(): THREE.Vector3 | null {
+    if (this.phase === 'ASSEMBLING' || this.phase === 'RETURNING') return this.assemblyPoint()
+    if (this.phase === 'MARCHING') return this.area.clone()
+    return null
+  }
   get returnComplete(): boolean {
     return this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.assemblyPoint()) < RETURN_PLAYER_RADIUS
       && this.actors.filter(actor => !actor.dead).every(actor => actor.combatPosition.distanceTo(this.assemblyPoint()) < RETURN_PLAYER_RADIUS)

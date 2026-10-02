@@ -146,6 +146,28 @@ describe('Career Duel existing actor and loadout selection', () => {
 })
 
 describe('Career Duel phases, persistence, and damage isolation', () => {
+  it('guides the player to assembly, the actual selected arena, and back to assembly', () => {
+    const h = harness()
+    h.start('roman_archer', 1, 'ASSEMBLING')
+    const assembly = h.controller.guideTarget!
+    expect(assembly).not.toBeNull()
+    h.player.group.position.copy(h.controller.captain!.combatPosition)
+    h.controller.update(0)
+    expect(h.controller.phase).toBe('MARCHING')
+    const arena = h.controller.guideTarget!
+    expect(arena.distanceTo(assembly)).toBeGreaterThan(20)
+    h.controller.captain!.combatPosition.copy(arena)
+    h.controller.opponent!.combatPosition.copy(arena)
+    h.player.group.position.copy(arena)
+    h.controller.update(0)
+    expect(h.controller.phase).toBe('PREPARING')
+    expect(h.controller.guideTarget).toBeNull()
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, phase: 'RETURNING' } })
+    expect(h.controller.guideTarget!.distanceTo(assembly)).toBe(0)
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, phase: 'RESULT' } })
+    expect(h.controller.guideTarget).toBeNull()
+  })
+
   it('saves each changed runtime snapshot immediately, retries current values, and does not force unchanged data', () => {
     const h = harness()
     h.start('roman_archer', 1, 'ENGAGING')

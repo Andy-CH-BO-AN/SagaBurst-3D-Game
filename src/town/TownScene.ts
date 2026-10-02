@@ -42,6 +42,8 @@ import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMission
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn } from '../career/BanditMissionController'
 import { CareerDuelController } from '../career/CareerDuelController'
+import { MissionGuide } from '../career/MissionGuide'
+import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { isCareerDuelUnlocked } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
@@ -93,6 +95,8 @@ export class TownScene {
   private readonly skills = new SkillManager()
   private readonly listeners = new AbortController()
   private readonly hud = document.createElement('div')
+  private readonly duelHud = new CareerDuelHUD()
+  private readonly duelGuide = new MissionGuide('career-duel-guide')
   private readonly hint = document.createElement('div')
   private readonly pointerPrompt = document.createElement('div')
   private panel: HTMLDivElement | null = null
@@ -1293,7 +1297,13 @@ export class TownScene {
         else if ((this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.returnToTown('arrived')
       }
     }
-    else sound?.updateHorseGallopLoops([])
+    else {
+      sound?.updateHorseGallopLoops([])
+      this.missionCombat.updateDuelDefeatedActors(dt)
+    }
+    const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
+    this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
+    this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.profile.activeMission.kind === 'duel'
@@ -1322,6 +1332,8 @@ export class TownScene {
   dispose(preservePointerLock = false): void {
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
+    this.duelHud.dispose()
+    this.duelGuide.dispose()
     sound?.cancelCareerAudio()
     document.getElementById('controls-hint')!.textContent = this.previousControls
     document.getElementById('quiver-hud')!.style.display = ''
