@@ -1,19 +1,19 @@
 ---
 name: domain-modeling
-description: Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, record an architectural decision, or when another skill needs to maintain the domain model.
+description: 建立並精煉專案的領域模型。討論程式碼庫的術語、撰寫或編輯 GLOSSARY.md，以及記錄或編輯 ADR 時使用。
 ---
 
-# Domain Modeling
+# 領域建模
 
-Actively build and sharpen the project's domain model as you design. This is the *active* discipline — challenging terms, inventing edge-case scenarios, and writing the glossary and decisions down the moment they crystallise. (Merely *reading* `CONTEXT.md` for vocabulary is not this skill — that's a one-line habit any skill can do. This skill is for when you're changing the model, not just consuming it.)
+在設計過程中，主動建立並精煉專案的領域模型。這是一項*主動*的工作：質疑術語、構思邊界情況的具體場景，並在術語與決策確定的當下就記錄下來。（只是*閱讀* `GLOSSARY.md` 來了解用語，不算使用這項技能；那只是任何技能都能遵循的一條簡單習慣。這項技能適用於你正在修改模型，而不只是使用模型的時候。）
 
-## File structure
+## 檔案結構
 
-Most repos have a single context:
+大多數儲存庫只有單一上下文（context）：
 
 ```
 /
-├── CONTEXT.md
+├── GLOSSARY.md
 ├── docs/
 │   └── adr/
 │       ├── 0001-event-sourced-orders.md
@@ -21,54 +21,54 @@ Most repos have a single context:
 └── src/
 ```
 
-If a `CONTEXT-MAP.md` exists at the root, the repo has multiple contexts. The map points to where each one lives:
+如果根目錄存在 `GLOSSARY-MAP.md`，表示儲存庫有多個上下文。這份對照表會指出各上下文的位置：
 
 ```
 /
-├── CONTEXT-MAP.md
+├── GLOSSARY-MAP.md
 ├── docs/
-│   └── adr/                          ← system-wide decisions
+│   └── adr/                          ← 整個系統的決策
 ├── src/
 │   ├── ordering/
-│   │   ├── CONTEXT.md
-│   │   └── docs/adr/                 ← context-specific decisions
+│   │   ├── GLOSSARY.md
+│   │   └── docs/adr/                 ← 特定上下文的決策
 │   └── billing/
-│       ├── CONTEXT.md
+│       ├── GLOSSARY.md
 │       └── docs/adr/
 ```
 
-Create files lazily — only when you have something to write. If no `CONTEXT.md` exists, create one when the first term is resolved. If no `docs/adr/` exists, create it when the first ADR is needed.
+延後建立檔案：有內容要寫時才建立。如果尚無 `GLOSSARY.md`，就在第一個術語確定時建立。如果尚無 `docs/adr/`，就在需要第一份架構決策紀錄（ADR）時建立。
 
-## During the session
+## 交談過程中
 
-### Challenge against the glossary
+### 對照詞彙表，指出衝突
 
-When the user uses a term that conflicts with the existing language in `CONTEXT.md`, call it out immediately. "Your glossary defines 'cancellation' as X, but you seem to mean Y — which is it?"
+當使用者的術語與 `GLOSSARY.md` 中既有的用語衝突時，立即指出：「你的詞彙表將『取消』定義為 X，但你現在似乎是指 Y。應該以哪個為準？」
 
-### Sharpen fuzzy language
+### 精煉模糊的用語
 
-When the user uses vague or overloaded terms, propose a precise canonical term. "You're saying 'account' — do you mean the Customer or the User? Those are different things."
+當使用者使用模糊或有多重含義的術語時，提出精確的標準術語：「你說『帳戶』，是指客戶（Customer）還是使用者（User）？這是兩個不同的概念。」
 
-### Discuss concrete scenarios
+### 討論具體場景
 
-When domain relationships are being discussed, stress-test them with specific scenarios. Invent scenarios that probe edge cases and force the user to be precise about the boundaries between concepts.
+討論領域概念之間的關係時，用具體場景檢驗它們是否成立。構思能探查邊界情況的場景，要求使用者精確說明概念之間的界線。
 
-### Cross-reference with code
+### 與程式碼相互核對
 
-When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which is right?"
+當使用者描述某件事如何運作時，檢查程式碼是否一致。如果發現矛盾，就指出：「你的程式碼會取消整張訂單（Order），但你剛才說可以部分取消。哪個才是正確的？」
 
-### Update CONTEXT.md inline
+### 當下更新 GLOSSARY.md
 
-When a term is resolved, update `CONTEXT.md` right there. Don't batch these up — capture them as they happen. Use the format in [CONTEXT-FORMAT.md](./CONTEXT-FORMAT.md).
+術語一旦確定，就立即更新 `GLOSSARY.md`。不要累積後才一次處理；確定一個就記錄一個。使用 [GLOSSARY-FORMAT.md](./GLOSSARY-FORMAT.md) 中的格式。
 
-`CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
+`GLOSSARY.md` 必須完全不含實作細節。不要把 `GLOSSARY.md` 當成規格、草稿區或實作決策的存放處。它只能是詞彙表。
 
-### Offer ADRs sparingly
+### 謹慎提議建立 ADR
 
-Only offer to create an ADR when all three are true:
+只有同時符合以下三項條件時，才提議建立 ADR：
 
-1. **Hard to reverse** — the cost of changing your mind later is meaningful
-2. **Surprising without context** — a future reader will wonder "why did they do it this way?"
-3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
+1. **難以撤回**：日後改變決定的成本不可忽視。
+2. **缺少背景就會令人困惑**：未來的讀者會想問「為什麼要這樣做？」。
+3. **確實做過取捨**：當時有實際可行的替代方案，而你基於具體理由選擇了其中一個。
 
-If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
+只要缺少任何一項，就略過 ADR。使用 [ADR-FORMAT.md](./ADR-FORMAT.md) 中的格式。
