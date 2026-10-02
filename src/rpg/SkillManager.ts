@@ -49,11 +49,15 @@ export function createDefaultSkillState(): SkillState {
   }
 }
 
+function finiteInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
+}
+
 function normalizeSkillData(value?: Partial<SkillData>): SkillData {
-  const level = Math.max(1, Math.min(MAX_SKILL_LEVEL, Math.floor(value?.level ?? 1)))
+  const level = Math.max(1, Math.min(MAX_SKILL_LEVEL, finiteInteger(value?.level, 1)))
   if (level >= MAX_SKILL_LEVEL) return { level, xp: 0 }
   const needed = level * 100
-  const xp = Math.max(0, Math.min(needed - 1, Math.floor(value?.xp ?? 0)))
+  const xp = Math.max(0, Math.min(needed - 1, finiteInteger(value?.xp, 0)))
   return { level, xp }
 }
 
