@@ -83,6 +83,18 @@ export class TownMissionCombat {
     }
   }
 
+  /** Result/equipment panels pause combat, but must not freeze the defeated duelist's collapse. */
+  updateDuelDefeatedActors(dt: number): void {
+    const { duel } = this.missions
+    if (!duel.active) return
+    for (const actor of duel.fieldNpcs) if (actor.dead) this.updateDuelCorpse(actor, dt)
+  }
+
+  private updateDuelCorpse(actor: NPC, dt: number): void {
+    actor.update(dt, this.town.player(), [], [], this.town.obstacles, this.town.hp, () => {}, () => {},
+      false, actor.group.position.distanceTo(this.town.cameraPosition), null, null, this.town.navigation)
+  }
+
   /** Also checks current positions because Player attacks precede threat assignment in a frame. */
   isExternalThreatDefender(ally: NPC): boolean {
     if (this.externalThreatActors.has(ally)) return true
@@ -152,6 +164,7 @@ export class TownMissionCombat {
     this.grid.clear(); for (const actor of actors) if (!actor.dead) this.grid.insert(actor)
     for (const actor of actors) {
       const distance = actor.group.position.distanceTo(this.town.cameraPosition)
+      if (actor.dead) { this.updateDuelCorpse(actor, dt); continue }
       const combatant = actor === duel.opponent && duel.combatEnabled
       if (duel.phase === 'PREPARING' || duel.phase === 'RESULT' || duel.phase === 'ENGAGING' && !combatant) {
         if (actor.mount) { actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }

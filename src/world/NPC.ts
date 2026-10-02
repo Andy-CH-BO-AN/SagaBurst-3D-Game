@@ -646,6 +646,8 @@ export class NPC {
   setDuelHostility(active: boolean): void {
     if (this.duelHostile === active) return
     this.duelHostile = active
+    // Duel resolution releases hostility after lethal damage; preserve the death clip.
+    if (this.dead) return
     this._cancelEquipmentCombatState()
     this.setTacticalOrder('attack')
     this._cachedTargetIsPlayer = false
