@@ -8,6 +8,7 @@ import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { resolveCareerPlayerMaxHp } from '../src/career/CareerPlayerProfile'
 import {
+  resolveActivePlayerSkillProgressionAward,
   resolveCombatSkill,
   resolveSkillAdjustedMaxHp,
   resolveSkillProgressionAward,
@@ -175,6 +176,41 @@ describe('Career skill progression', () => {
 
 
 
+  it('blocks projectile progression when the player dies or enters observer before impact', () => {
+    const npcHit = damageEvent('projectile', 'npc', 35, WEAPONS.elven_runebow.id)
+    const mountHit = damageEvent('projectile', 'mount', 35, WEAPONS.elven_runebow.id)
+
+    for (const event of [npcHit, mountHit]) {
+      expect(resolveActivePlayerSkillProgressionAward(
+        event,
+        { dead: true, observer: true },
+        WEAPONS.steel_sword,
+        false,
+      )).toBeNull()
+
+      expect(resolveActivePlayerSkillProgressionAward(
+        event,
+        { dead: false, spectatorOnly: true, observer: false },
+        WEAPONS.steel_sword,
+        false,
+      )).toBeNull()
+
+      expect(resolveActivePlayerSkillProgressionAward(
+        event,
+        { dead: false, observer: true },
+        WEAPONS.steel_sword,
+        false,
+      )).toBeNull()
+
+      expect(resolveActivePlayerSkillProgressionAward(
+        event,
+        { dead: false, observer: false },
+        WEAPONS.steel_sword,
+        false,
+      )).toEqual({ skill: 'ranged', xp: 35 })
+    }
+  })
+
   it('applies Mounted Impact damage multiplier before awarding actual-damage XP', () => {
     const events: CombatEvent[] = []
     const stream = new CombatEventStream()
@@ -237,6 +273,87 @@ describe('Career skill progression', () => {
       .map(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false))
       .find(Boolean)
     expect(award).toEqual({ skill: 'mountedImpact', xp: expectedDamage })
+  })
+
+  it('routes player mount collision into an enemy mount and grants only actual Mounted Impact XP', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
+
+    const playerMount: any = {
+      state: MountState.CONTROLLED,
+      dead: false,
+      skipImpactThisFrame: false,
+      movementSpeed: 10,
+      isSprinting: false,
+      group: { position: new THREE.Vector3(0, 0, 2), uuid: 'player-mount-mounted-target' },
+      previousPosition: new THREE.Vector3(0, 0, 0),
+      canImpact: () => true,
+    }
+    const player: any = {
+      currentMount: playerMount,
+      characterFaction: 'roman',
+      targetable: true,
+    }
+
+    const enemyMount: any = {
+      currentHp: 50,
+      maxHp: 50,
+      dead: false,
+      mountDisplayName: '戰馬',
+      group: { uuid: 'enemy-mount' },
+      takeDamage(amount: number) {
+        if (this.dead) return false
+        this.currentHp = Math.max(0, this.currentHp - amount)
+        this.dead = this.currentHp <= 0
+        return true
+      },
+    }
+    const enemyNpc: any = {
+      dead: false,
+      faction: Faction.ENEMY,
+      shieldId: null,
+      isMounted: true,
+      mount: enemyMount,
+      name: 'Mounted Impact Target',
+      combatantId: 'mounted-impact-target',
+      characterFaction: 'viking',
+      combatPosition: new THREE.Vector3(0, 0, 1),
+      dismountFromMount() {
+        this.isMounted = false
+        this.mount = null
+      },
+    }
+
+    resolveMountImpacts([playerMount], player, [enemyNpc], 1, {
+      onDamagePlayer: () => ({
+        hitSuccess: false,
+        requestedDamage: 0,
+        appliedDamage: 0,
+        targetId: 'player',
+        targetName: 'Player',
+        killed: false,
+        hpRatio: 1,
+        isMountHit: false,
+        mountDied: false,
+      }),
+      combatEvents: stream.emit,
+      playerDamageMultiplier: 3,
+    })
+
+    const damageEvents = events.filter(
+      (event): event is Extract<CombatEvent, { type: 'damage_applied' }> => event.type === 'damage_applied',
+    )
+    expect(damageEvents).toHaveLength(1)
+    expect(damageEvents[0].target.targetType).toBe('mount')
+    expect(damageEvents[0].appliedDamage).toBe(50)
+    expect(enemyMount.currentHp).toBe(0)
+    expect(enemyNpc.isMounted).toBe(false)
+
+    const awards = damageEvents
+      .map(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false))
+      .filter(Boolean)
+    expect(awards).toEqual([{ skill: 'mountedImpact', xp: 50 }])
   })
 
   it('uses the selected melee skill multiplier for axe and greatsword stances', () => {
