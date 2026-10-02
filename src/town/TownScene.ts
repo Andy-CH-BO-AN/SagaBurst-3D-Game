@@ -118,7 +118,6 @@ export class TownScene {
   private deploymentPage?: CareerMissionPage
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
-  private preparationAnchor: THREE.Vector3 | null = null
   private get townFaction() { return careerTownFaction(this.profile) }
   static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: DefenseCampaignLaunchConfig) => void, onRestart: (p: CareerProfile) => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -189,7 +188,6 @@ export class TownScene {
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
     this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation)
-    this.defense.onAssaultAttackStarted = () => sound.playCommanderCommand(this.profile.faction, 'attack')
     this.careerMounts = new CareerMountController(
       this.scene,
       () => this.player,
@@ -244,9 +242,24 @@ export class TownScene {
     this.hp.setFill(this.player.hpRatio)
     this.updatePointerPrompt()
     if (!this.spectator) this.orbit.update(this.input)
-    this.last = performance.now()
-    this.raf = requestAnimationFrame(t => this.frame(t))
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
+  }
+  /** Called after the entry removes its loading overlay. */
+  start(): void {
+    this.last = performance.now()
+    this.raf = requestAnimationFrame(t => {
+      if (this.disposed) return
+      this.frame(t)
+      if (this.defense.assault && !this.profile.activeMission?.result) {
+        // Give the ready battlefield one paint before sounding its alarm.
+        requestAnimationFrame(() => { if (!this.disposed) void this.playAssaultAlert() })
+      }
+    })
+  }
+  private async playAssaultAlert(): Promise<void> {
+    const missionId = this.profile.activeMission?.id
+    const played = await sound.playTownAlarm(true)
+    if (played && !this.disposed && this.profile.activeMission?.id === missionId && !this.profile.activeMission?.result) sound.playCommanderCommand(this.profile.faction, 'attack')
   }
   private commit(profile: CareerProfile): boolean {
     if (!this.store.save(profile)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
@@ -278,11 +291,6 @@ export class TownScene {
     }
     if (this.player.dead) {
       if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
-      return
-    }
-    // Preparation locks combat/deployment actions, not the player's equipment UI.
-    if (this.defense?.assault && this.defense.phase === 'PREPARING' && e.code !== 'Tab') {
-      if (['KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
     }
     if (e.repeat) return
@@ -500,7 +508,7 @@ export class TownScene {
   }
 
   private restoreActiveCareerMission(): void {
-    const { profile } = this
+    let { profile } = this
     if (profile.activeMission) {
       if (profile.activeMission.kind === 'cavalry-sweep' && profile.activeMission.phase !== 'ASSEMBLING') {
         const saved = profile.activeMission.mountedMarchPosition
@@ -515,16 +523,20 @@ export class TownScene {
       } else {
         this.mission.startActiveMission()
       }
-      if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.inventory.prepareForCombat()
+      profile = this.profile
+      const active = profile.activeMission!
+      if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
+      const assaultAnchor = active.kind === 'enemy-town-assault' ? this.player.combatPosition.clone() : null
       this.careerMounts.restoreActiveMount()
-      if (profile.activeMission.kind === 'cavalry-sweep' && this.player.currentMount) this.player.currentMount.group.rotation.y = SWEEP_YAW
-      if (profile.activeMission.kind === 'enemy-town-assault') {
-        this.preparationAnchor = this.player.combatPosition.clone()
-        if (profile.activeMission.phase === 'ATTACKING') this.careerCommandCue = 'attack'
-        if (this.player.currentMount) this.player.currentMount.group.position.copy(this.preparationAnchor)
-        if (!profile.activeMission.result && profile.activeMission.phase === 'PREPARING') void sound.playTownAlarm(true)
+      if (active.kind === 'cavalry-sweep' && this.player.currentMount) this.player.currentMount.group.rotation.y = SWEEP_YAW
+      if (active.kind === 'enemy-town-assault') {
+        if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
+        if (this.player.currentMount) {
+          this.player.currentMount.group.position.copy(assaultAnchor!)
+          this.player.currentMount.group.rotation.y = Math.PI
+        }
       }
-      if (profile.activeMission.playerDead || profile.activeMission.result?.stats.survived === false) {
+      if (active.playerDead || active.result?.stats.survived === false) {
         this.player.dismountFromMount()
         this.player.takeDamage(this.player.maxHp * 100, this.hp)
       }
@@ -1313,16 +1325,6 @@ export class TownScene {
       this.onRestart(next)
     })
   }
-  private enforceAssaultPreparationLock(): boolean {
-    if (!this.defense.assault || this.defense.phase !== 'PREPARING') return false
-    this.input.clear()
-    this.player.clearTownAction()
-    if (this.preparationAnchor) {
-      if (this.player.currentMount) this.player.currentMount.group.position.copy(this.preparationAnchor)
-      else this.player.group.position.set(this.preparationAnchor.x, this.preparationAnchor.y + .9, this.preparationAnchor.z)
-    }
-    return true
-  }
   private frame(time: number): void {
     if (this.disposed) return
     this.updatePointerPrompt()
@@ -1331,10 +1333,9 @@ export class TownScene {
     if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
-      const playerLocked = this.enforceAssaultPreparationLock()
-      if (!this.player.dead && !playerLocked) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
+      if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory)
       this.player.group.updateWorldMatrix(true, true)
-      if (!this.player.dead && !playerLocked) this.melee()
+      if (!this.player.dead) this.melee()
       if (this.event.hostile) this.updateHostile(dt)
       else if (this.defense.active) this.updateDefenseCombat(dt)
       else {

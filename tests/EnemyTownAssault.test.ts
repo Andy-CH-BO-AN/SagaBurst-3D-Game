@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, resolveAssaultOutcome } from '../src/career/EnemyTownAssault'
+import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from '../src/career/EnemyTownAssault'
 import { MAX_COMMAND_SQUAD_SIZE } from '../src/battle/CommandTarget'
 import { claimCareerMission, createCareerProfile, clearCareerMission } from '../src/career/CareerProfile'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
@@ -17,6 +17,8 @@ import { createNpcCombatActorRef, createPlayerCombatActorRef } from '../src/comb
 import { calculateMerit } from '../src/career/MeritCalculator'
 import { TownScene } from '../src/town/TownScene'
 import { SpatialGrid } from '../src/world/SpatialGrid'
+import { TownEquipment } from '../src/town/TownEquipment'
+import { CareerMountController } from '../src/career/CareerMountController'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
 
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
@@ -120,26 +122,48 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
     expect((civilian as any)._findTarget(f.player, [attacker]).npc?.combatantId).toBe(attacker.combatantId)
   })
 
-  it('prepares for ten seconds, holds all three squads and releases them once', () => {
-    const f = fixture(faction), orders = f.controller.enemies.map(npc => vi.spyOn(npc, 'setTacticalOrder'))
-    const attackVoice = vi.fn(); f.controller.onAssaultAttackStarted = attackVoice
-    f.controller.updateFlow(9, 0)
-    expect(f.controller.phase).toBe('PREPARING'); expect(f.controller.preparationRemaining).toBe(1)
-    expect(f.controller.enemies.every(npc => npc.tacticalOrder === 'formation')).toBe(true)
-    f.controller.updateFlow(1, 0); f.controller.updateFlow(1, 0)
+  it('starts all three squads attacking immediately and never reissues the opening order', () => {
+    const f = fixture(faction)
     expect(f.controller.phase).toBe('ATTACKING')
-    expect(attackVoice).toHaveBeenCalledOnce()
-    orders.forEach(spy => expect(spy).toHaveBeenCalledExactlyOnceWith('attack'))
+    expect(f.controller.preparationRemaining).toBe(0)
+    expect(f.controller.enemies.every(npc => npc.tacticalOrder === 'attack')).toBe(true)
+    const orders = f.controller.enemies.map(npc => vi.spyOn(npc, 'setTacticalOrder'))
+    f.controller.updateFlow(.016, 0); f.controller.updateFlow(10, 0)
+    orders.forEach(spy => expect(spy).not.toHaveBeenCalled())
     expect(f.controller.military.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
+  })
+
+  it('automatically equips the highest legal owned shield and mount at the reserved Player slot', () => {
+    const f = fixture(faction), town = townHarness(f)
+    const p = f.profile(); p.rank = 'veteran'
+    p.ownedWeapons = [faction === 'roman' ? 'gladius_rusty' : 'viking_axe_t1']
+    p.starterWeaponId = p.ownedWeapons[0]
+    p.ownedArmors = ['scutum_t1', 'round_shield_t3']
+    p.ownedMounts = ['horse', 'corgi']; p.ownedHorseTiers = [1, 3]; p.selectedMountId = 'horse-t1'
+    const ready = prepareEnemyTownAssaultEquipment(p)
+    f.setProfile(ready); town.profile = ready
+    town.commit = (next: typeof p) => { f.setProfile(next); town.profile = next; return true }
+    town.inventory = new TownEquipment(() => town.profile, town.commit)
+    town.careerMounts = new CareerMountController(f.scene, () => f.player, () => town.profile, town.commit, () => [], () => [])
+    dispose.push(() => town.careerMounts.dispose())
+    const anchor = f.player.combatPosition.clone()
+    town.restoreActiveCareerMission()
+    expect(town.inventory.equippedShield?.id).toBe('round_shield_t3')
+    expect(town.inventory.shieldEnabled).toBe(true)
+    expect(town.careerMounts.activeMountId).toBe('horse-t3')
+    expect(f.player.isMounted).toBe(true)
+    expect(f.player.currentMount!.group.position.x).toBe(anchor.x)
+    expect(f.player.currentMount!.group.position.z).toBe(anchor.z)
+    expect(f.player.currentMount!.group.rotation.y).toBe(Math.PI)
+    town.careerMounts.dismiss()
+    town.restoreActiveCareerMission()
+    expect(f.player.isMounted).toBe(false)
   })
 
   it('civilians flee, equip faction T1 only at close contact, and resume shelter instead of hunting', () => {
     const f = fixture(faction), civilian = f.controller.civilians[0], attacker = f.controller.enemies.find(npc => !npc.isMounted)!
     expect(civilian.tacticalOrder).toBe('formation')
     attacker.group.position.copy(civilian.combatPosition)
-    f.controller.updateCivilianOrder(civilian)
-    expect(civilian.tacticalOrder).toBe('formation')
-    f.controller.updateFlow(10, 0)
     f.controller.updateCivilianOrder(civilian)
     expect(civilian.tacticalOrder).toBe('attack')
     expect(civilian.meleeWeaponId).toBe(civilianWartimeWeapon(faction === 'roman' ? 'viking' : 'roman'))
@@ -151,10 +175,6 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
   it.each(['player-melee', 'npc-projectile', 'npc-mount-impact'] as const)('reuses resident counterattack on effective %s damage and restores it after reload', method => {
     const f = fixture(faction), town = townHarness(f), military = f.controller.groups.find(g => g.id === 'A')!.members[0]
     const attacker = f.controller.enemies.find(npc => !npc.isMounted && npc.aiType === AIType.MELEE)!
-    // Preparation still blocks hits and must not release defenders early.
-    town.hitFieldNpc(military, 20, 'melee', attacker)
-    expect(f.controller.reserveHasCharged).toBe(false)
-    f.controller.updateFlow(10, 0)
     town.hitFieldNpc(f.controller.civilians[0], 20, 'melee', attacker)
     town.hitFieldNpc(military, 0, 'melee', attacker)
     expect(f.controller.reserveHasCharged).toBe(false)
@@ -194,7 +214,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
     expect(f.controller.evaluate(true)).toBe('victory')
   })
 
-  it('reload keeps casualty roles distinct, the same mission ID, dead player and elapsed preparation', () => {
+  it('reload keeps casualty roles distinct, the same mission ID and dead player', () => {
     const f = fixture(faction)
     f.controller.enemies[0].takeDamage(999999)
     f.controller.military[0].takeDamage(999999)
@@ -203,19 +223,35 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} enemy T
     f.player.takeDamage(999999, { setFill: vi.fn() } as any)
     f.controller.persistRuntimeProgress(true)
     const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!
-    expect(saved.activeMission).toMatchObject({ id: 'assault-test', kind: 'enemy-town-assault', playerDead: true, defensePreparationElapsed: 4 })
+    expect(saved.activeMission).toMatchObject({ id: 'assault-test', kind: 'enemy-town-assault', playerDead: true, phase: 'ATTACKING', defensePreparationElapsed: 0 })
     expect(saved.activeMission!.deadTargetActorIds).toHaveLength(1)
     expect(saved.activeMission!.deadFriendlyActorIds).toHaveLength(1)
     expect(saved.activeMission!.deadCivilianActorIds).toHaveLength(1)
     f.setProfile(saved)
     expect(f.controller.startActiveMission()).toBe(true)
     expect(f.controller.enemies).toHaveLength(88)
-    expect(f.controller.preparationRemaining).toBe(6)
+    expect(f.controller.preparationRemaining).toBe(0)
     expect(f.controller.evaluate(true)).toBeNull()
   })
 })
 
 describe('shared Town wartime and settlement', () => {
+  it('sounds the assault alarm only after the ready battlefield has rendered a frame', () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const frame = vi.fn(), alert = vi.fn()
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      disposed: false, defense: { assault: true }, profile: { activeMission: { id: 'ready-assault' } }, frame, playAssaultAlert: alert,
+    })
+    town.start()
+    expect(alert).not.toHaveBeenCalled()
+    callbacks.shift()!(performance.now())
+    expect(frame).toHaveBeenCalledOnce()
+    expect(alert).not.toHaveBeenCalled()
+    callbacks.shift()!(performance.now())
+    expect(alert).toHaveBeenCalledOnce()
+  })
+
   it.each([
     [true, 0, 0, 'victory'], [false, 0, 0, 'victory'], [true, 1, 1, null],
     [true, 1, 0, 'failure'], [false, 1, 0, null],
@@ -262,41 +298,40 @@ describe('shared Town wartime and settlement', () => {
     expect(clearCareerMission(reload, 'assault-test')).toMatchObject({ faction: 'roman', totalMerit: claim.meritAwarded })
   })
 
-  it('preparation orchestration updates civilian movement while freezing military and blocks damage and projectiles', () => {
+  it('updates military and assault combat on the first frame and permits immediate damage', () => {
     const f = fixture('roman'), town = townHarness(f)
     const military = f.controller.military[0], civilian = f.controller.civilians[0], attacker = f.controller.enemies[0]
     const updateMilitary = vi.spyOn(military, 'update'), updateAttacker = vi.spyOn(attacker, 'update'), updateCivilian = vi.spyOn(civilian, 'update')
-    town.updateDefenseCombat(1)
-    expect(updateMilitary).not.toHaveBeenCalled(); expect(updateAttacker).not.toHaveBeenCalled(); expect(updateCivilian).toHaveBeenCalledOnce()
-    town.input = { clear: vi.fn() }; town.preparationAnchor = new THREE.Vector3(-51, 0, 132)
-    f.player.group.position.set(0, 0, 0)
-    expect(town.enforceAssaultPreparationLock()).toBe(true)
-    expect(f.player.group.position.x).toBe(-51)
-    expect(f.player.group.position.z).toBe(132)
-    expect(town.input.clear).toHaveBeenCalledOnce()
+    town.updateDefenseCombat(.016)
+    expect(updateMilitary).toHaveBeenCalledOnce(); expect(updateAttacker).toHaveBeenCalledOnce(); expect(updateCivilian).toHaveBeenCalledOnce()
     const before = military.hp
-    town.hitFieldNpc(military, 999999, 'melee', attacker)
-    town.fire(new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 20, 10, true, false, 'arrow')
-    expect(military.hp).toBe(before); expect(town.shots).toHaveLength(0)
-    f.controller.updateFlow(9, 0)
-    expect(town.enforceAssaultPreparationLock()).toBe(false)
+    town.hitFieldNpc(military, 20, 'melee', attacker)
+    expect(military.hp).toBeLessThan(before)
   })
 
-  it('allows Tab equipment during preparation while retaining action locks and dead-player restrictions', () => {
+  it('resumes legacy preparation saves immediately without losing casualties or progress', () => {
+    const f = fixture('roman'), saved = f.profile()
+    saved.activeMission!.phase = 'PREPARING'
+    saved.activeMission!.defensePreparationElapsed = 4
+    saved.activeMission!.deadFriendlyActorIds = [saved.activeMission!.friendlyActorIds[0]]
+    f.setProfile(saved)
+    expect(f.controller.startActiveMission()).toBe(true)
+    expect(f.controller.phase).toBe('ATTACKING')
+    expect(f.controller.preparationRemaining).toBe(0)
+    expect(f.controller.enemies).toHaveLength(88)
+    expect(f.controller.enemies.every(npc => npc.tacticalOrder === 'attack')).toBe(true)
+    expect(f.profile().activeMission!.defensePreparationElapsed).toBe(4)
+  })
+
+  it('allows Tab equipment immediately while retaining dead-player restrictions', () => {
     const f = fixture('roman'), town = townHarness(f)
     vi.stubGlobal('document', { exitPointerLock: vi.fn() })
     town.input = { clear: vi.fn() }
     town.skills = {}; town.equipment = { visible: false, open: vi.fn() }
     const key = (code: string) => ({ code, repeat: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() })
-    for (const code of ['KeyE', 'KeyQ', 'KeyG']) {
-      const e = key(code); town.key(e)
-      expect(e.preventDefault).toHaveBeenCalledOnce()
-      expect(town.equipment.open).not.toHaveBeenCalled()
-    }
     const tab = key('Tab'); town.key(tab)
     expect(tab.preventDefault).toHaveBeenCalledOnce()
     expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts)
-    // Closing the modal is handled before preparation guards as in normal Town.
     town.equipment.visible = true; town.closePanel = vi.fn()
     town.key(key('Tab')); expect(town.closePanel).toHaveBeenCalledOnce()
     town.equipment.visible = false; town.equipment.open.mockClear()

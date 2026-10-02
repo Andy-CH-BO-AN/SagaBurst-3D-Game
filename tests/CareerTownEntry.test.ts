@@ -20,6 +20,23 @@ function element() {
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
+  it('starts gameplay only after scene initialization and removal of the loading overlay', async () => {
+    const local = storage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', storage())
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    new CareerProfileStore(local).save(profile)
+    const start = vi.fn(() => expect(body.children[1].remove).toHaveBeenCalledOnce())
+    vi.mocked(TownScene.create).mockImplementation(async () => {
+      expect(start).not.toHaveBeenCalled()
+      expect(body.children[1].remove).not.toHaveBeenCalled()
+      return { start } as unknown as TownScene
+    })
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+  })
+
   it('requests pointer lock on the persistent container before loading a Career relief battlefield', async () => {
     const local = storage(), session = storage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
@@ -33,9 +50,10 @@ describe('Town load failure recovery', () => {
     new CareerProfileStore(local).save(profile)
     const container = { ...element(), requestPointerLock: vi.fn(async () => {}) }
     const launch = vi.fn(async () => {})
-    vi.mocked(TownScene.create).mockResolvedValue({} as TownScene)
+    const start = vi.fn()
+    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
     enterCareerTown(container as unknown as HTMLElement, launch, vi.fn())
-    await vi.waitFor(() => expect(TownScene.create).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
     const campaign = createCareerOutpostLaunch(acceptCareerOutpostRelief(profile)!)
     vi.mocked(TownScene.create).mock.calls[0][2](campaign)
     expect(container.requestPointerLock).toHaveBeenCalledOnce()
