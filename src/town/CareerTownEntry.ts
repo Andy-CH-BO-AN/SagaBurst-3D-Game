@@ -34,6 +34,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }, p => { void start(p) }, message => { loading.textContent = message })
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
+      town.start()
     } catch (error) {
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
       loading.textContent = '小鎮載入失敗：' + String(error)

@@ -18,6 +18,23 @@ function element() {
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
+  it('starts gameplay only after scene initialization and removal of the loading overlay', async () => {
+    const local = storage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', storage())
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    new CareerProfileStore(local).save(profile)
+    const start = vi.fn(() => expect(body.children[1].remove).toHaveBeenCalledOnce())
+    vi.mocked(TownScene.create).mockImplementation(async () => {
+      expect(start).not.toHaveBeenCalled()
+      expect(body.children[1].remove).not.toHaveBeenCalled()
+      return { start } as unknown as TownScene
+    })
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+  })
+
   it.each([false, true])('clears the entry flag on failure and return without changing saved hostility=%s', async hostile => {
     const local = storage(), session = storage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)

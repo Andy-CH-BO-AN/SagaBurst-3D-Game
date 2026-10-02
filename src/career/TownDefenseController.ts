@@ -4,7 +4,7 @@ import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleSt
 import { CombatEventStream } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
 import { getTerrainHeight } from '../world/Terrain'
-import { ASSAULT_PREPARATION_SECONDS, createAssaultRoster, resolveAssaultOutcome } from './EnemyTownAssault'
+import { createAssaultRoster, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from './EnemyTownAssault'
 import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '../town/TownWartime'
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { AIType, Faction, NPC } from '../world/NPC'
@@ -34,7 +34,6 @@ interface RuntimeAttackGroup { id: string; members: NPC[]; released: boolean }
  * In assault, the spawned army is friendly; objectives still count resident military only.
  */
 export class TownDefenseController {
-  onAssaultAttackStarted?: () => void
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
   readonly enemies: NPC[] = []
@@ -66,7 +65,7 @@ export class TownDefenseController {
   get assault(): boolean { return this.active?.kind === 'enemy-town-assault' }
   get military(): NPC[] { return [...this.defenders, this.captain, this.ranger, this.sergeant].filter((npc): npc is NPC => Boolean(npc)) }
   get playerEnemies(): NPC[] { return this.fieldNpcs.filter(npc => npc.faction === Faction.ENEMY) }
-  get preparationSeconds(): number { return this.assault ? ASSAULT_PREPARATION_SECONDS : TOWN_DEFENSE_PREPARATION_SECONDS }
+  get preparationSeconds(): number { return this.assault ? 0 : TOWN_DEFENSE_PREPARATION_SECONDS }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
   get defenders(): NPC[] { return this.groups.flatMap(group => group.members) }
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
@@ -84,8 +83,15 @@ export class TownDefenseController {
   get reserveHasCharged(): boolean { return this.reserveCharged }
 
   startActiveMission(): boolean {
-    const active = this.active
+    let active = this.active
     if (!active || active.result) return false
+    // Resume old saves directly in combat; the assault no longer has a countdown.
+    if (this.assault && active.phase === 'PREPARING') {
+      const profile = prepareEnemyTownAssaultEquipment(this.readProfile())
+      profile.activeMission!.phase = 'ATTACKING'
+      if (!this.commit(profile)) return false
+      active = this.active!
+    }
     this.disposeEnemies()
     this.civilianCombat.clear()
     const plans = createTownDefenseGroups(this.residents.map(resident => resident.spec))
@@ -130,7 +136,6 @@ export class TownDefenseController {
       this.preparationElapsed += dt
       if (this.preparationElapsed >= this.preparationSeconds && this.setPhase('ATTACKING')) {
         this.beginAttack()
-        if (this.assault) this.onAssaultAttackStarted?.()
       }
     } else if (!this.assault) {
       this.attackElapsed += dt

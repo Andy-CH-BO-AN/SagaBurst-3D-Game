@@ -28,6 +28,8 @@ export function careerMountType(id: CareerMountId): MountType {
   return MountType.HORSE
 }
 
+export function careerMountTier(id: CareerMountId): number { return MOUNTS[id].tier }
+
 export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {
   if (id === 'horse-t2') return 1
   if (id === 'horse-t3') return 2

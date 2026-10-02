@@ -74,6 +74,20 @@ describe('Enemy Town Assault canonical Relief prerequisite', () => {
     expect(acceptEnemyTownAssault(acceptCareerOutpostRelief(won, 'retry')!, 'assault')).toBeNull()
     expect(acceptEnemyTownAssault({ ...won, townEvent: { id: 'hostile-town', state: 'hostile' } }, 'assault')).toBeNull()
   })
+  it.each(['soldier', 'veteran', 'captain'] as const)('deploys the best owned gear allowed for %s without changing the source profile', rank => {
+    const profile = settleRelief('victory')
+    profile.rank = rank
+    profile.ownedArmors = ['scutum_t1', 'scutum_t2', 'scutum_t3']
+    profile.equipment = { shield: null, melee: 'gladius_rusty' }
+    profile.ownedHorseTiers = [1, 2, 3]; profile.ownedMounts = ['horse', 'corgi']
+    const original = JSON.stringify(profile)
+    const next = acceptEnemyTownAssault(profile, 'equipped-assault')!
+    expect(next.activeMission!.phase).toBe('ATTACKING')
+    expect(next.equipment).toEqual({ melee: 'gladius_rusty', shield: rank === 'soldier' ? 'scutum_t2' : 'scutum_t3' })
+    expect(next.selectedMountId).toBe(rank === 'captain' ? 'corgi' : rank === 'soldier' ? 'horse-t2' : 'horse-t3')
+    expect(JSON.stringify(profile)).toBe(original)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(next)))!.selectedMountId).toBe(next.selectedMountId)
+  })
   it('rechecks the persisted prerequisite when accepting from a stale deployment UI', () => {
     const commit = vi.fn(), restart = vi.fn(), openPanel = vi.fn()
     const scene = Object.assign(Object.create(TownScene.prototype), {
