@@ -986,6 +986,7 @@ export class TownScene {
       const before = npc.currentHp
       npc.takeDamage(amount)
       applied = before - npc.currentHp
+      if (applied > 0) this.awardCareerSkillXp(method, applied)
       if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount()
     }
     if (applied > 0) {
