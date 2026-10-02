@@ -34,7 +34,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
-import { resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
+import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
@@ -352,6 +352,11 @@ export class TownScene {
   }
 
   private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
+    if (!canAwardPlayerSkillProgression({
+      dead: this.player.dead,
+      spectatorOnly: this.player.spectatorOnly,
+      observer: Boolean(this.spectator),
+    })) return
     if (appliedDamage <= 0) return
     const skill = resolveCombatSkill(
       method,
