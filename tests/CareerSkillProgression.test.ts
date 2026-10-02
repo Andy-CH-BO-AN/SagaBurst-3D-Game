@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CombatEvent } from '../src/combat/CombatAttribution'
+import { CombatEventStream, type CombatEvent } from '../src/combat/CombatAttribution'
+import { damageNpc, damageObstacle } from '../src/combat/DamageRouter'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { resolveCareerPlayerMaxHp } from '../src/career/CareerPlayerProfile'
@@ -165,6 +166,152 @@ describe('Career skill progression', () => {
 
     expect(hit).toEqual({ skill: 'ranged', xp: 100 })
     expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
+  })
+
+
+  it('integrates DamageRouter mount routing with melee progression without double counting on mount death', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
+
+    const mount = {
+      currentHp: 80,
+      maxHp: 80,
+      dead: false,
+      mountDisplayName: '戰馬',
+      group: { uuid: 'mount-integration' },
+      takeDamage(amount: number) {
+        if (this.dead) return false
+        this.currentHp = Math.max(0, this.currentHp - amount)
+        if (this.currentHp <= 0) this.dead = true
+        return true
+      },
+    }
+    const npc: any = {
+      shieldId: null,
+      isMounted: true,
+      mount,
+      name: 'Mounted Enemy',
+      combatantId: 'mounted-enemy',
+      faction: 'ENEMY',
+      characterFaction: 'roman',
+      presetId: undefined,
+      squadId: undefined,
+      dismountFromMount() {
+        this.isMounted = false
+        this.mount = null
+      },
+    }
+
+    const result = damageNpc(npc, 100, {
+      source: {
+        actorId: 'player',
+        actorType: 'player',
+        allegiance: 'PLAYER' as never,
+        characterFaction: 'roman',
+      },
+      method: 'melee',
+      weaponId: WEAPONS.viking_axe_t2.id,
+      emit: stream.emit,
+    })
+
+    expect(result.isMountHit).toBe(true)
+    expect(result.appliedDamage).toBe(80)
+    expect(npc.isMounted).toBe(false)
+
+    const awards = events
+      .map(event => resolveSkillProgressionAward(event, WEAPONS.viking_axe_t2, false))
+      .filter(Boolean)
+    expect(awards).toEqual([{ skill: 'twoHanded', xp: 80 }])
+  })
+
+  it('integrates DamageRouter ranged mount damage with Ranged progression', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
+
+    const mount = {
+      currentHp: 100,
+      maxHp: 100,
+      dead: false,
+      mountDisplayName: '戰馬',
+      group: { uuid: 'mount-ranged' },
+      takeDamage(amount: number) {
+        this.currentHp = Math.max(0, this.currentHp - amount)
+        this.dead = this.currentHp <= 0
+        return true
+      },
+    }
+    const npc: any = {
+      shieldId: null,
+      isMounted: true,
+      mount,
+      name: 'Mounted Archer Target',
+      combatantId: 'mounted-ranged-target',
+      faction: 'ENEMY',
+      characterFaction: 'roman',
+      dismountFromMount() {
+        this.isMounted = false
+        this.mount = null
+      },
+    }
+
+    damageNpc(npc, 35, {
+      source: {
+        actorId: 'player',
+        actorType: 'player',
+        allegiance: 'PLAYER' as never,
+        characterFaction: 'roman',
+      },
+      method: 'projectile',
+      weaponId: WEAPONS.elven_runebow.id,
+      emit: stream.emit,
+    })
+
+    const award = events
+      .map(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false))
+      .find(Boolean)
+    expect(award).toEqual({ skill: 'ranged', xp: 35 })
+  })
+
+  it('integrates structure routing and emits no skill progression award', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
+
+    const obstacle: any = {
+      root: { uuid: 'gate-1' },
+      displayName: 'Gate',
+      ownerFaction: 'roman',
+      kind: 'gate',
+      takeDamage(amount: number) {
+        return { appliedDamage: amount, hpRatio: 0.5, destroyed: false }
+      },
+    }
+
+    damageObstacle(obstacle, 50, {
+      source: {
+        actorId: 'player',
+        actorType: 'player',
+        allegiance: 'PLAYER' as never,
+        characterFaction: 'roman',
+      },
+      method: 'melee',
+      weaponId: WEAPONS.steel_sword.id,
+      emit: stream.emit,
+    })
+
+    expect(events.length).toBeGreaterThan(0)
+    expect(events.every(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false) === null)).toBe(true)
+  })
+
+  it('does not gate NPC progression by allegiance, covering hostile-town retaliation', () => {
+    const event = damageEvent('melee', 'npc', 22, WEAPONS.steel_sword.id) as Extract<CombatEvent, { type: 'damage_applied' }>
+    event.target.allegiance = 'TOWN' as never
+    expect(resolveSkillProgressionAward(event, WEAPONS.steel_sword, false)).toEqual({
+      skill: 'oneHanded',
+      xp: 22,
+    })
   })
 
   it('keeps Lv.50 hits state-stable so persistence can skip redundant saves', () => {
