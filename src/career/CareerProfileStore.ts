@@ -3,6 +3,7 @@ import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { normalizeSkillState } from '../rpg/SkillManager'
 import { isHeroAssetId, type HeroAssetId } from '../world/HeroAssetCatalog'
 import {
   cloneCareerProfile,
@@ -320,6 +321,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
+    skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as Record<string, unknown> : undefined),
     enlistmentMeritBase,
     ...(equipment ? { equipment: {
       melee: typeof equipment.melee === 'string' ? equipment.melee : undefined,
