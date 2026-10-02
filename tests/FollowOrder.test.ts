@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition, returnFollowLocalOffset } from '../src/battle/FollowOrder'
-import { AIType, Faction, NPC } from '../src/world/NPC'
+import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import type { Mount } from '../src/world/Mount'
 import { Player } from '../src/player/Player'
 import { selectLivingMissionLeader } from '../src/career/BanditMissionController'
@@ -110,6 +110,25 @@ describe('FOLLOW tactical geometry', () => {
     expect((follower as unknown as { followCombatActive: boolean }).followCombatActive).toBe(false)
     expect(follower.tacticalOrder).toBe('follow')
     expect(follower.activeFollowTarget).toBe(leader)
+  })
+
+  it('charges a distant enemy after Follow instead of returning to spawn patrol waypoints', () => {
+    const scene = new THREE.Scene(), player = new Player(scene)
+    const leader = new NPC(scene, 0, 80, Faction.PLAYER, 'roman', AIType.MELEE, 'Captain', 2, false)
+    const follower = new NPC(scene, 0, 0, Faction.PLAYER, 'roman', AIType.MELEE, 'Rider', 2, false)
+    const enemy = new NPC(scene, 0, 600, Faction.ENEMY, 'viking', AIType.MELEE, 'Enemy', 2, false)
+    follower.group.position.z = 80
+    follower.assignFollowTarget(leader, 0)
+    follower.setTacticalOrder('charge')
+    for (let frame = 0; frame < 10; frame++) {
+      follower.update(.05, player, [leader, follower, enemy], [], [], null as never, () => {}, () => {}, true)
+      expect(follower.state).toBe(AIState.CHASE)
+    }
+    expect(follower.group.position.z).toBeGreaterThan(80)
+    enemy.takeDamage(99999)
+    const stopped = follower.group.position.z
+    for (let frame = 0; frame < 10; frame++) follower.update(.05, player, [leader, follower, enemy], [], [], null as never, () => {}, () => {}, true)
+    expect(follower.group.position.z).toBe(stopped)
   })
 
   it('chooses the first living friendly once when the current leader dies', () => {

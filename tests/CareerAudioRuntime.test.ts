@@ -42,6 +42,41 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const careerRequests = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('sagaburst_voice_pack_v1'))
 
 describe('Lazy Career audio runtime', () => {
+  it.each(['roman', 'viking'] as const)('finishes %s Follow only on the actual audio end event', async faction => {
+    const manager = new SoundManager()
+    await manager.preload()
+    const finished = vi.fn()
+    manager.playCareerMissionVoice(faction, 'follow', finished)
+    await flush()
+    expect(sources).toHaveLength(1)
+    expect(finished).not.toHaveBeenCalled()
+    sources[0].dispatchEvent(new Event('ended'))
+    await flush()
+    expect(finished).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it('drops the Follow completion callback when the scene is cancelled', async () => {
+    const manager = new SoundManager()
+    await manager.preload()
+    const finished = vi.fn()
+    manager.playCareerMissionVoice('roman', 'follow', finished)
+    await flush()
+    manager.cancelCareerAudio()
+    await flush()
+    expect(finished).not.toHaveBeenCalled()
+  })
+
+  it('releases the Follow completion callback if optional audio cannot play', async () => {
+    const manager = new SoundManager()
+    await manager.preload()
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'))
+    const finished = vi.fn()
+    manager.playCareerMissionVoice('roman', 'follow', finished)
+    await flush()
+    expect(sources).toHaveLength(0)
+    expect(finished).toHaveBeenCalledExactlyOnceWith()
+  })
+
   it('constructor preloads battle assets and fetches/decodes no Career assets', async () => {
     const manager = new SoundManager()
     await manager.preload()

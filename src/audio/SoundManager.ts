@@ -254,7 +254,7 @@ export class SoundManager {
   }
 
   /** One small speech channel: preserve event order without delaying mission movement. */
-  playCareerMissionVoice(faction: AudioFaction, cue: CareerMissionVoiceCue): void {
+  playCareerMissionVoice(faction: AudioFaction, cue: CareerMissionVoiceCue, onFinished?: () => void): void {
     const asset: CareerAudioAsset = `${faction}:${cue}`
     if (this.careerSpeechPending.has(asset)) return
     const generation = this.careerGeneration
@@ -276,7 +276,10 @@ export class SoundManager {
       } catch {
         // Failed optional audio must not block subsequent mission speech.
       } finally {
-        if (generation === this.careerGeneration) this.careerSpeechPending.delete(asset)
+        if (generation === this.careerGeneration) {
+          this.careerSpeechPending.delete(asset)
+          onFinished?.()
+        }
       }
     }
     this.careerSpeechTail = this.careerSpeechTail.then(play, play)

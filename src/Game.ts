@@ -347,6 +347,11 @@ export class Game {
       }
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
+      if (campaignConfig?.careerMissionKind === 'outpost-relief') {
+        for (const spec of createCareerReliefSpawnPlan(campaignConfig).npcSpecs) {
+          if (spec.visualAssetId) heroAssets.add(spec.visualAssetId)
+        }
+      }
       const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
       if (playerHeroId) heroAssets.add(playerHeroId)
       const heroBattleConfigs = campaignConfig
@@ -811,10 +816,10 @@ export class Game {
         this.campaignAttackersStarted = true
         const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
         this.reliefMarch = new CareerReliefMarchController(this.npcs, new THREE.Vector3(placement.centerX, 0, placement.frontZ),
-          () => this.soundManager.playCareerMissionVoice(campaignConfig.defenderFaction, 'follow'),
+          onFinished => this.soundManager.playCareerMissionVoice(campaignConfig.defenderFaction, 'follow', onFinished),
           () => this._persistCareerReliefCharge(),
           () => this.soundManager.playCommanderCommand(campaignConfig.defenderFaction, 'charge'),
-          campaignConfig.careerReliefPhase === 'charge')
+          campaignConfig.careerReliefPhase === 'charge', { chargeAfterFollow: true })
         this.reliefMarch.start()
       }
       this.defenseCampaignHud = new DefenseCampaignHUD(
