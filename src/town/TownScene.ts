@@ -556,7 +556,7 @@ export class TownScene {
     const template = availableRecruitMissions(fresh ?? this.profile).find(candidate => candidate.id === templateId)
     if (!fresh || !template) { this.openPanel('無法接受任務', '生涯存檔已變更，請重新與士官長交談。'); return }
     if (fresh.activeMission || this.event.hostile || fresh.townEvent?.state === 'hostile') { this.openPanel('無法接受任務', '目前已有任務或小鎮處於敵對狀態。'); return }
-    if (this.player.dead || this.mission.fieldNpcs.some(npc => npc.inCombat || npc.encounterIsAlerted)) { this.openPanel('無法接受任務', '你目前仍在另一場交戰中。'); return }
+    if (this.player.dead) { this.openPanel('無法接受任務', '你目前仍在另一場交戰中。'); return }
     if (template.kind === 'cavalry-sweep') {
       const next = acceptCavalrySweep(fresh, undefined, selectMissionCavalryActorIds(this.residents, 59))
       if (!next || !this.commit(next)) return

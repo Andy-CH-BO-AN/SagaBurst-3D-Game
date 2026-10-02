@@ -249,6 +249,45 @@ describe('Town input and isolation regressions', () => {
 
 
 describe('Town orchestration transitions', () => {
+  it.each([
+    ['recruit-bandits-01', false], ['recruit-bandits-01', true],
+    ['recruit-patrol-01', false], ['recruit-patrol-01', true],
+  ] as const)('accepts %s after ambient combat (cleared=%s) without changing surviving Bandit aggro', (templateId, cleared) => {
+    const scene = new THREE.Scene()
+    const bandits = [0, 1].map(index => {
+      const npc = new NPC(scene, index, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 2, false)
+      npc.configureBanditEncounter(new THREE.Vector3())
+      npc.respawnEnabled = false
+      if (index === 0) npc.triggerEncounterAlert()
+      else npc.provokeEncounter()
+      return npc
+    })
+    const profile = createCareerProfile('roman'), store = new CareerProfileStore(memory())
+    store.save(profile)
+    const town = Object.create(TownScene.prototype) as any
+    town.profile = profile; town.store = store; town.event = { hostile: false }; town.player = { dead: false }
+    town.mission = {
+      fieldNpcs: bandits, chooseCamp: vi.fn(() => 2),
+      createMission: (template: any) => createActiveCareerMission(template.id, 2, 3, 0, 'after-ambient-combat', template.kind),
+      startActiveMission: vi.fn(() => true),
+    }
+    town.commit = vi.fn(next => store.save(next))
+    town.inventory = { prepareForCombat: vi.fn() }
+    town.openPanel = vi.fn(); town.closePanel = vi.fn(); town.playMissionVoice = vi.fn()
+
+    if (cleared) bandits.forEach(npc => npc.takeDamage(999999))
+    else bandits[1].takeDamage(1)
+    const encounterStates = bandits.map(npc => [npc.dead, npc.hp, npc.encounterAggroState])
+    town.acceptMission(templateId)
+    expect(town.openPanel).not.toHaveBeenCalled()
+    expect(store.load()?.activeMission).toMatchObject({ templateId, targetCampId: 2, phase: 'ASSEMBLING' })
+    expect(town.mission.startActiveMission).toHaveBeenCalledOnce()
+    expect(town.inventory.prepareForCombat).toHaveBeenCalledOnce()
+    expect(town.closePanel).toHaveBeenCalledOnce()
+    expect(bandits.map(npc => [npc.dead, npc.hp, npc.encounterAggroState])).toEqual(encounterStates)
+    bandits.forEach(npc => npc.dispose())
+  })
+
   it.each(['bandit', 'cavalry-sweep'])('offers the shared troop return option after a surviving %s victory', kind => {
     const town = Object.create(TownScene.prototype) as any
     const callbacks = new Map<string, () => void>()
