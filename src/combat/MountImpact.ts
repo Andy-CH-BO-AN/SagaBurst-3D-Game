@@ -68,7 +68,7 @@ export interface MountImpactOptions {
   onDamagePlayer: (damage: number, context?: CombatDamageContext) => DamageResult
   /** Optional combat event sink used by attribution-only consumers such as BattleStats. */
   combatEvents?: CombatEventSink
-  /** Damage multiplier for the player's mount only (Career Mounted Impact skill). */
+  /** Damage multiplier for the player's mount only (Mounted Impact skill). */
   playerDamageMultiplier?: number
   /** Side-effects for Player mount impacting an enemy NPC (damage numbers, HUD, sound). */
   onPlayerMountHitNpc?: (damage: number, npc: NPC, result: DamageResult) => void
