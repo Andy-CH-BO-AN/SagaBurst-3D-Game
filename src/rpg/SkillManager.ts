@@ -1,81 +1,204 @@
 /**
  * SkillManager.ts
- * Manages RPG skills: One-Handed (單手武器) and Archery (弓術).
- * XP gains on hits, level-up calculation, Skyrim-style level up toasts, and damage scaling.
+ * Manages persistent combat skill progression for one-handed, two-handed,
+ * ranged, and mounted-impact combat.
  */
 
 import type { SoundManager } from '../audio/SoundManager'
+import type { WeaponData } from './WeaponDatabase'
+
+export const MAX_SKILL_LEVEL = 50
+
+export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact'
+export type LegacySkillId = SkillId | 'archery'
 
 export interface SkillData {
   level: number
   xp: number
 }
 
+export interface SkillState {
+  oneHanded: SkillData
+  twoHanded: SkillData
+  ranged: SkillData
+  mountedImpact: SkillData
+}
+
+export interface SkillStateInput {
+  oneHanded?: Partial<SkillData>
+  twoHanded?: Partial<SkillData>
+  ranged?: Partial<SkillData>
+  mountedImpact?: Partial<SkillData>
+  /** Legacy save compatibility. */
+  archery?: Partial<SkillData>
+}
+
+const SKILL_LABELS: Record<SkillId, string> = {
+  oneHanded: '⚔️ 單手武器',
+  twoHanded: '🪓 雙手武器',
+  ranged: '🏹 遠程',
+  mountedImpact: '🐎 騎馬衝撞',
+}
+
+export function createDefaultSkillState(): SkillState {
+  return {
+    oneHanded: { level: 1, xp: 0 },
+    twoHanded: { level: 1, xp: 0 },
+    ranged: { level: 1, xp: 0 },
+    mountedImpact: { level: 1, xp: 0 },
+  }
+}
+
+function normalizeSkillData(value?: Partial<SkillData>): SkillData {
+  const level = Math.max(1, Math.min(MAX_SKILL_LEVEL, Math.floor(value?.level ?? 1)))
+  if (level >= MAX_SKILL_LEVEL) return { level, xp: 0 }
+  const needed = level * 100
+  const xp = Math.max(0, Math.min(needed - 1, Math.floor(value?.xp ?? 0)))
+  return { level, xp }
+}
+
+export function normalizeSkillState(state?: SkillStateInput | null): SkillState {
+  const ranged = state?.ranged ?? state?.archery
+  return {
+    oneHanded: normalizeSkillData(state?.oneHanded),
+    twoHanded: normalizeSkillData(state?.twoHanded),
+    ranged: normalizeSkillData(ranged),
+    mountedImpact: normalizeSkillData(state?.mountedImpact),
+  }
+}
+
+/** Lv.1 = 1.0x and Lv.50 = exactly 3.0x. */
+export function skillDamageMultiplier(level: number): number {
+  const clamped = Math.max(1, Math.min(MAX_SKILL_LEVEL, Math.floor(level)))
+  return 1 + ((clamped - 1) / (MAX_SKILL_LEVEL - 1)) * 2
+}
+
+/** Every level above Lv.1 grants +1 max HP. Four Lv.50 skills => +196 HP. */
+export function skillHpBonus(state: SkillState): number {
+  return (state.oneHanded.level - 1)
+    + (state.twoHanded.level - 1)
+    + (state.ranged.level - 1)
+    + (state.mountedImpact.level - 1)
+}
+
+/**
+ * Classify the actual melee stance, not just the weapon name.
+ * Axes without a shield use the two-handed animation; greatswords are always two-handed.
+ * Lances and the remaining melee weapons are one-handed for progression purposes.
+ */
+export function resolveMeleeSkillId(
+  weapon: Pick<WeaponData, 'animationKind'>,
+  hasShield: boolean,
+): 'oneHanded' | 'twoHanded' {
+  if (weapon.animationKind === 'greatsword') return 'twoHanded'
+  if (weapon.animationKind === 'axe' && !hasShield) return 'twoHanded'
+  return 'oneHanded'
+}
+
 export class SkillManager {
-  private oneHanded: SkillData = { level: 1, xp: 0 }
-  private archery: SkillData   = { level: 1, xp: 0 }
+  private state: SkillState = createDefaultSkillState()
 
   private levelupToast: HTMLElement
   private toastTimer: number | null = null
+  private readonly toastQueue: string[] = []
 
   constructor() {
     this.levelupToast = document.getElementById('levelup-toast')!
   }
 
-  get skillState(): { oneHanded: SkillData; archery: SkillData } {
+  get skillState(): SkillState {
     return {
-      oneHanded: { ...this.oneHanded },
-      archery: { ...this.archery },
+      oneHanded: { ...this.state.oneHanded },
+      twoHanded: { ...this.state.twoHanded },
+      ranged: { ...this.state.ranged },
+      mountedImpact: { ...this.state.mountedImpact },
     }
   }
 
-  setSkillState(state: { oneHanded?: Partial<SkillData>; archery?: Partial<SkillData> }): void {
-    if (state.oneHanded) {
-      this.oneHanded.level = state.oneHanded.level ?? 1
-      this.oneHanded.xp = state.oneHanded.xp ?? 0
-    }
-    if (state.archery) {
-      this.archery.level = state.archery.level ?? 1
-      this.archery.xp = state.archery.xp ?? 0
-    }
+  setSkillState(state: SkillStateInput): void {
+    this.state = normalizeSkillState(state)
   }
 
   getXpNeeded(level: number): number {
-    return level * 100
+    const clamped = Math.max(1, Math.min(MAX_SKILL_LEVEL, Math.floor(level)))
+    return clamped >= MAX_SKILL_LEVEL ? 0 : clamped * 100
   }
 
-  /** Damage multiplier based on skill level (+15% per level above 1) */
+  getMultiplier(skill: SkillId): number {
+    return skillDamageMultiplier(this.state[skill].level)
+  }
+
   getOneHandedMultiplier(): number {
-    return 1 + (this.oneHanded.level - 1) * 0.15
+    return this.getMultiplier('oneHanded')
   }
 
+  getTwoHandedMultiplier(): number {
+    return this.getMultiplier('twoHanded')
+  }
+
+  getRangedMultiplier(): number {
+    return this.getMultiplier('ranged')
+  }
+
+  /** Legacy API retained for existing non-Career callers. */
   getArcheryMultiplier(): number {
-    return 1 + (this.archery.level - 1) * 0.15
+    return this.getRangedMultiplier()
   }
 
-  addXp(skill: 'oneHanded' | 'archery', amount: number, soundManager?: SoundManager): void {
-    const data = skill === 'oneHanded' ? this.oneHanded : this.archery
-    const name = skill === 'oneHanded' ? '⚔️ 單手武器 One-Handed' : '🏹 弓術 Archery'
+  getMountedImpactMultiplier(): number {
+    return this.getMultiplier('mountedImpact')
+  }
 
-    data.xp += amount
-    let needed = this.getXpNeeded(data.level)
+  getMaxHpBonus(): number {
+    return skillHpBonus(this.state)
+  }
 
-    if (data.xp >= needed) {
+  /**
+   * XP is expected to be actual character HP removed, after shield reduction and
+   * overkill clamping. Structures and mounts must not call this method.
+   */
+  addXp(skill: LegacySkillId, amount: number, soundManager?: SoundManager): number {
+    const id: SkillId = skill === 'archery' ? 'ranged' : skill
+    const data = this.state[id]
+    if (data.level >= MAX_SKILL_LEVEL) return 0
+
+    const gained = Math.max(0, Math.floor(amount))
+    if (gained <= 0) return 0
+    data.xp += gained
+
+    let levelsGained = 0
+    while (data.level < MAX_SKILL_LEVEL) {
+      const needed = this.getXpNeeded(data.level)
+      if (data.xp < needed) break
       data.xp -= needed
       data.level += 1
-      const boostPercent = Math.round((data.level - 1) * 15)
-      this._showLevelUpToast(`${name} 升至 Lv.${data.level}！（攻擊力 +${boostPercent}%）`)
-      if (soundManager) soundManager.playLevelUp()
+      levelsGained += 1
+      this._showLevelUpToast(`${SKILL_LABELS[id]}技能升到第 ${data.level} 級！`)
+      soundManager?.playLevelUp()
     }
+
+    if (data.level >= MAX_SKILL_LEVEL) data.xp = 0
+    return levelsGained
   }
 
   private _showLevelUpToast(message: string): void {
+    this.toastQueue.push(message)
+    if (this.toastTimer === null) this._showNextToast()
+  }
+
+  private _showNextToast(): void {
+    const message = this.toastQueue.shift()
+    if (!message) {
+      this.levelupToast.classList.remove('visible')
+      this.toastTimer = null
+      return
+    }
+
     this.levelupToast.textContent = message
     this.levelupToast.classList.add('visible')
-
-    if (this.toastTimer !== null) clearTimeout(this.toastTimer)
     this.toastTimer = window.setTimeout(() => {
       this.levelupToast.classList.remove('visible')
-    }, 3200)
+      this.toastTimer = window.setTimeout(() => this._showNextToast(), 220)
+    }, 2200)
   }
 }
