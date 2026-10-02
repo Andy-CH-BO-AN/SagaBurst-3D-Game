@@ -951,7 +951,9 @@ export class TownScene {
     }
     if (applied > 0) {
       this.damageNumbers.spawn(applied, position)
-      sound?.playSwordHit(0, true)
+      if (method === 'projectile') sound?.playProjectileImpact(0, true)
+      else if (method === 'mount-impact') sound?.playHorseImpact(0, true)
+      else sound?.playSwordHit(0, true)
     }
     this.activateHostility(); this.persistCasualties()
   }
@@ -1253,6 +1255,14 @@ export class TownScene {
     }
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc && checkMountImpact(mount, this.player.combatPosition, .6)) {
       applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null))
+    }
+    const playerMount = this.player.currentMount
+    if (playerMount && !playerMount.dead) {
+      for (const resident of this.residents) {
+        const target = resident.npc
+        if (target.dead || this.isProtectedTownAlly(target) || !checkMountImpact(playerMount, target.combatPosition, .5)) continue
+        applyMountImpactDamage(playerMount, target, target.combatPosition, this.elapsed, amount => this.hitResident(target, amount, 'mount-impact'))
+      }
     }
     if (!this.cat.dead && status === 'foot') {
       const dir = this.player.position.clone().sub(this.cat.group.position); dir.y = 0
