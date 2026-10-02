@@ -20,7 +20,7 @@ export class DefenseCampaignHUD {
 
   constructor(
     private readonly stageId: number,
-    defenderFaction: CampaignFaction,
+    private readonly defenderFaction: CampaignFaction,
     private readonly options: { reinforcementsEnabled?: boolean; returnToTown?: boolean; relief?: boolean; meritAwarded?: () => number } = {},
   ) {
     const root = document.createElement('div')
@@ -144,7 +144,7 @@ export class DefenseCampaignHUD {
             ? `<button type="button" id="campaign-result-next">下一關 STAGE ${this.stageId + 1} →</button>`
             : ''}
           ${this.options.returnToTown ? '' : `<button type="button" id="campaign-result-replay">重玩 STAGE ${this.stageId}</button>`}
-          <button type="button" id="campaign-result-home">${this.options.returnToTown ? '返回 Career Town' : '回首頁'}</button>
+          <button type="button" id="campaign-result-home">${this.options.returnToTown ? `返回 ${this.defenderFaction === 'roman' ? 'vinum 村' : 'økse 村'}` : '回首頁'}</button>
         </div>
       </div>
     `
