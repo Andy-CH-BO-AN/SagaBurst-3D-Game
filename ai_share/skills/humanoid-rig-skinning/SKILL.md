@@ -5,34 +5,30 @@ description: Audit, normalize, rig, skin, optimize, and export realistic humanoi
 
 # Humanoid Rig And Skinning
 
-Prepare external people without changing gameplay coordinates or silently falling back to the legacy procedural body.
+Prepare external people through the existing registry and asset descriptors. Preserve gameplay coordinates and behavior; add only the loader/descriptor integration required by the requested asset work.
 
-For a static posed GLB without a skeleton, or for shoulder/sleeve separation, forearm collapse, or a correct side-on bow pose facing the wrong gameplay direction, read [posed-source characters](references/posed-source-characters.md). It includes the Maki rebuild sequence and asset-specific limits; do not copy its landmarks or pose constraints to unrelated characters.
+## Contract and preparation
 
-## Workflow
+- Read [humanoid contract](references/humanoid-contract.md) and [manifest contract](references/asset-manifest.md). Faction dimensions apply to ordinary characters; heroes and source-proportion variants use an asset-specific descriptor, not relaxed global checks.
+- Audit the source, license and texture provenance before export. Preserve source hashes and attribution; keep source downloads outside the shipped runtime bundle. Resolve missing usage/redistribution evidence before publishing the asset.
+- For static posed sources, sleeve/forearm deformation or Maki's bow stance, read [posed-source characters](references/posed-source-characters.md). For clothing and reference-driven appearance work, use [humanoid-from-reference](../humanoid-from-reference/SKILL.md).
+- Normalize the full hierarchy to metres and local `+Z` forward. Fit the target skeleton through anatomical rest transforms, not bone names alone; runtime scaling must remain uniform.
+- Preserve required bones, sockets, bind transforms and equipment ownership. Validate weights at shoulders, elbows, hips, knees, skirts and rigid armour using the affected actions, including mounted poses when supported.
+- Export every required LOD with matching animation names and socket semantics. Share immutable render resources while each runtime character retains independent skeletons, mixers and playback state.
 
-1. Read `references/humanoid-contract.md` and `references/asset-manifest.md`.
-2. Preserve the downloaded source and its license evidence outside the runtime export folder. Reject assets whose redistribution or commercial-use terms are incomplete; never substitute a different asset without reporting it.
-3. Run `python3 scripts/audit_glb.py <file.glb>` before and after Blender work. Save the JSON report beside the asset manifest.
-4. In Blender, apply the complete source hierarchy and normalize to metres with uniform scale. Match the applicable faction contract; when the user explicitly requires original proportions, measure and record an asset-specific descriptor instead of stretching the source to a faction template.
-5. Retarget both factions to the project humanoid skeleton. Correct weights in shoulder, axilla, elbow, hip, knee, skirt, and rigid armour test poses.
-6. Add the required sockets as bones or named empties parented to bones. Keep weapon-forward semantics compatible with the runtime bone adapter.
-7. Export LOD0/1/2 with shared material intent and embedded or colocated PBR textures. Do not bake orange skin tint into albedo.
-8. Fill the manifest with measured, not estimated, values. Include attribution and every material modification.
-9. Validate front, side, A/T-pose, idle, walk, attack, bow, mounted, and death. Capture neutral-light screenshots for deformation review.
+## Tools and evidence
 
-## Acceptance Rules
+Run from repo root; create the output directory first:
 
-- Use uniform object scale at runtime. Fix anatomy in Blender.
-- Require all contract bones and sockets; aliases must be recorded in `boneMap`.
-- Keep skeleton and mixer instances unique per character while sharing immutable geometry, material, texture, and clips.
-- Bind rigid chest armour primarily to chest/spine, shoulder plates to clavicle/upper arm, and skirt strips only lightly to legs.
-- Treat missing files, missing texture rights, non-commercial licenses, malformed skinning, or failed deformation checks as blockers.
-- Do not edit Player, NPC, Game, combat timing, weapon builders, or mount physics from an asset-preparation task.
+```sh
+rtk proxy mkdir -p output/humanoid-audit
+rtk proxy python3 ai_share/skills/humanoid-rig-skinning/scripts/audit_glb.py /path/to/model.glb --output output/humanoid-audit/structure.json
+```
+
+`audit_glb.py` is a structural inventory, not a deformation or readiness verdict. The other inspection/render scripts require Blender (`blender -b --python <script> -- ...`); inspect each script's arguments and required source naming before use. `prepare_phase22_assets.py` is the original Viking/Roman source-specific builder, not a general hero rebuilder. Use the asset's maintained builder/retarget/audit sequence for current outputs.
+
+Inspect actual texture dimensions and decode integrity, finite transforms, required bindings and representative front/side deformation. Preserve measured audit/provenance beside the manifest; one-off renders and diagnostics belong in ignored `output/`. Promote only after asset checks and the [browser validation](../combat-browser-validation/SKILL.md) pass for the requested scope.
 
 ## Deliverables
 
-- Versioned GLBs and textures under `public/models/characters/v2/<faction>/`.
-- `manifest.json`, `audit.json`, `bone-map.json`, and attribution evidence for each faction.
-- Blender source or reproducible Blender script when the license permits redistribution.
-- Front/side and representative deformation screenshots.
+Keep versioned GLBs/textures, manifest, bone map, audit and attribution under `public/models/characters/v2/<faction-or-assetId>/`, plus a reproducible builder or redistributable source. Match the current loader's bindings and measured descriptor. Report any unsupported actions or unverified visual defects; a structural audit alone cannot establish visual acceptance.

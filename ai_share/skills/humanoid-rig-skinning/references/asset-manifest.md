@@ -1,6 +1,6 @@
 # Asset Manifest Contract
 
-Create one `manifest.json` per faction with this minimum shape:
+Create one `manifest.json` per ordinary faction or distinct asset ID. The example below covers provenance and geometry; a playable asset must also satisfy the current `HumanoidAssetManifest` and binding validation in `src/world/HumanoidAssetRegistry.ts`. Use its descriptor and existing manifest as the contract, not this example alone:
 
 ```json
 {
@@ -36,3 +36,5 @@ Use `status: "blocked"` when the source file or license evidence is missing. Run
 
 Record third-party texture, scan, and photo credits separately if the source author used them. Keep download receipts or page snapshots outside the shipped runtime bundle when they contain account data.
 
+
+For animated assets, preserve `animations.embedded` bindings (clip, source, sourceClip, loop, duration and applicable events) and `runtimeGenerated` states. Equipment metadata such as `handGripFrames`, `swordGripFrames`, `handShapeMode`, `bakedEquipmentActions` and `bowFullBodyStance` is asset-specific: retain existing ownership, and add fields only when the asset implements that contract. Never copy Maki's baked-contact flags to unrelated characters.

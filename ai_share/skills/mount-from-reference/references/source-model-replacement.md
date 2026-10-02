@@ -11,7 +11,7 @@
 
 ## 蒙皮、鞍甲與輸出
 
-沿用 [humanoid-rig-skinning](../../humanoid-rig-skinning/SKILL.md) 的授權、蒙皮、LOD、manifest 與載入契約；四足動物的骨架地標和步態另按來源建立，不套人形或馬的解剖數值。
+授權追溯、蒙皮與獨立實例原則可參考 [humanoid-rig-skinning](../../humanoid-rig-skinning/SKILL.md)；manifest 欄位、骨架與動作以目標坐騎 loader 為準。不要將人物 `project-humanoid-v1`／三個 GLB 的 schema 套到坐騎的單檔多 LOD 契約。
 
 - 自動熱權重只是起點。特別檢查口鼻／眼、腿根，以及承載坐墊的背部；背部誤綁股骨會讓騎士和鞍墊隨後腿下陷。
 - 鞍墊與甲片貼合最終來源表面。需要跟體表一起變形的部分，可用命中三角形的重心座標插值轉移骨骼權重；只取最近頂點容易在接縫、髖部和稀疏網格突然跳權重。應保持剛性的座架另依其承重結構綁定。

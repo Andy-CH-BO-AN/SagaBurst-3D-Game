@@ -1,242 +1,81 @@
-# Warriors: Dedicate Your Heart! — Architecture
+# SagaBurst — 架構與契約
 
-## Folder Structure
+本檔只記錄跨模組職責與不易從單一檔案看出的契約。數值、模型清單及操作鍵位以程式／manifest／工作室 UI 為準；驗收流程見 [AGENTS.md](AGENTS.md) 的 skill 索引。
 
-```
-skyrim 3D test/
-├── index.html                 Entry point HTML; HUD elements, Enemy HUD, Damage overlay, Quiver UI, Compass, Character Modal, Pickup Prompt
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-├── ai_share/                  Canonical AI documentation; edit files here only
-│   ├── AGENTS.md             Project rules and agent guidelines
-│   ├── ARCHITECTURE.md       This file
-│   ├── PLAN.md               Full phase roadmap (Phases 0~8 & Phase 13)
-│   └── PROGRESS.md           Current progress & handoff notes
-├── .agents/                   Compatibility entry points; files direct AI to `ai_share/`
-├── .codex/                    Codex entry points; files direct AI to `ai_share/`
-└── src/
-    ├── main.ts                Async Vite entry — preloads humanoid and horse assets before creating Game
-    ├── Game.ts                Master orchestrator & combat, AI, heightmap physics, audio, inventory, pickup loop
-    ├── debug/
-    │   └── CombatTrajectoryDebugger.ts Query-only weapon grip direction, tip trails, and console summaries
-    ├── player/
-    │   ├── Player.ts          Segmented body, shared tiered melee silhouettes, HP/damage/respawn state, heightmap ground collision
-    │   └── PlayerInput.ts     Keyboard & mouse event aggregator (added E key detection)
-    ├── world/
-    │   ├── Sky.ts             Background, atmospheric fog, direction sun & ambient lighting
-    │   ├── Terrain.ts         Procedural 3D heightmap terrain with getTerrainHeight(x, z) & calibrated rocks/trees
-    │   ├── DummyEnemy.ts      Training dummy enemy target calibrated with getTerrainHeight(x, z)
-    │   ├── NPC.ts             Generic NPC AI unit (Faction, Melee/Ranged, Lancer, Cavalry flags) with FSM AI
-    │   ├── Mount.ts           Mount gameplay, horse/black-cat assets and procedural Corgi visuals
-    │   ├── HorseAssetRegistry.ts Licensed horse GLTF cache, KTX2/Meshopt, LOD, variants, sockets and animation
-    │   ├── ProceduralMaterials.ts Shared cached PBR textures/materials for skin, cloth, metal, wood, leather and fur
-    │   ├── CharacterVisuals.ts Legacy test fixture plus shared CharacterRig/animation contracts
-    │   ├── HumanoidAssetRegistry.ts Manifest-gated GLTF cache, SkeletonUtils clones, LOD, mixers and bone/socket adapter
-    │   ├── CharacterCombatAnimator.ts Shared allocation-free FK combat timeline and pose sampler
-    │   ├── CharacterBowVisual.ts Shared Player/NPC bow mesh, socket aim, string, nock, and launch controller
-    │   ├── WeaponPickup.ts    3D world item drop nodes with distinct 3D weapon models (floating animation)
-    │   └── ArrowProjectile.ts Arrow entity with parabolic physics and multi-target hit detection
-    ├── camera/
-    │   └── ThirdPersonCamera.ts  Stable orbit camera with FOV-only aim zoom (58 -> 40) and reticle direction
-    ├── rpg/
-    │   ├── WeaponDatabase.ts  Centralized config for Tier 1~3 Melee & Ranged weapons & consumables
-    │   ├── InventoryManager.ts Manages owned items, inventory grid state, and equipped weapons
-    │   └── SkillManager.ts    XP & Level-up progression for One-Handed & Archery skills + LevelUp Toast & damage scaling
-    ├── audio/
-    │   └── SoundManager.ts    Pure Web Audio API procedural sound synthesizer (swords, bows, hits, level-up chimes)
-    ├── save/
-    │   └── SaveManager.ts     localStorage save/load (skills + inventory + equipped weapons)
-    └── ui/
-        ├── StaminaBar.ts      DOM stamina bar controller
-        ├── HpBar.ts           DOM HP bar controller
-        ├── QuiverUI.ts        DOM arrow counter & Skyrim radial charge reticle controller
-        ├── CompassUI.ts       Norse-Rune style top compass direction bar moving with camera yaw
-        ├── EquipmentUI.ts     Tab-toggled RPG Character & Inventory Panel Modal (Grid & Tier Badges)
-        └── DamageNumbers.ts   Floating damage numbers (3D world -> 2D screen projection)
-```
+## 程式入口
 
----
+| 區域 | 入口與職責 |
+| --- | --- |
+| 啟動 | `src/main.ts`：DEV 路由、有效 session／Career 恢復、主選單與場景啟動 |
+| 戰鬥場景 | `src/Game.ts`：資產預載、Player/NPC、主迴圈、碰撞、UI 與場景生命週期 |
+| 城鎮場景 | `src/town/CareerTownEntry.ts`、`TownScene.ts`：生涯入口、獨立場景、任務與居民生命週期 |
+| 角色 | `src/player/Player.ts`、`PlayerInput.ts`、`src/world/NPC.ts`：玩家輸入與 NPC 行為 |
+| 地形／導航 | `src/world/Terrain.ts`、`SpatialGrid.ts`、`src/navigation/`：高度、障礙、鄰近搜尋與路徑 |
+| 裝備／成長 | `src/rpg/`、`src/save/SaveManager.ts`：裝備資料、庫存、技能與 RPG 存檔 |
+| 戰役／編隊 | `src/campaign/`、`src/battle/`：部署、戰役流程、編隊與指令 |
+| 生涯 | `src/career/`：軍功、任命軍階、任務狀態、保存及恢復 |
+| 呈現 | `src/ui/`、`src/audio/SoundManager.ts`、`src/debug/`：DOM UI、音效與 DEV 工作室／診斷 |
 
-## 3D Weapon & Armor Geometries
+## 角色資產與動畫
 
-1. **Viking T1–T3 單手劍**: All tiers use the default Steel Sword geometry, 1.18m profiled double-edged blade, wrapped 0.29m grip and curved crossguard. T1 uses weathered iron/leather, T2 standard steel, and T3 blue-gold runic surface patterns.
-2. **Roman T1–T3 Gladius**: All tiers use the default Gladius geometry, 0.68m profiled blade, wrapped 0.16m grip and oval guard. T1 uses weathered iron, T2 legion steel, and T3 centurion gold patterns.
-3. **木製短弓 (Wooden Shortbow - Tier 1)**: 0.18m crude grip + 2 straight 0.45m limbs inclined at 0.2rad.
-4. **反曲長弓 (Recurve Longbow - Tier 2)**: 2-segment S-curve limbs (0.55m inner + 0.35m outer).
-5. **符文精靈弓 (Elven Runebow - Tier 3)**: 3-segment elven crescent limbs (0.65m + 0.45m + 0.35m) + 2 `OctahedronGeometry` cyan crystal gems + 2 `TorusGeometry` moon crescent spikes + glowing arrow.
-6. **羅馬方盾 (Roman Scutum)**: Rectangle body curved defensively (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
-   - T1–T3 盾板、外框與正面裝飾共用寬度、曲率及盾面深度；外框中心貼住盾板正面，盾臍嵌入中央盾面，交叉飾條先旋轉再沿盾面彎曲，避免零件懸空。背面握點維持 `(0,0,.085)`；工作室／Player／NPC 共用 `WeaponMeshFactory.buildShield`。
-7. **維京圓盾 (Viking Round Shield)**: Wide cylinder radius (Tier 1 wood, Tier 2 iron rim, Tier 3 gold boss). Provides passive damage reduction.
+- `HumanoidAssetRegistry` 在產生角色前載入可用 manifest／GLB；正式模式不以舊程序人物靜默替代失敗資產。`HeroAssetCatalog` 集中 T4 英雄描述。
+- geometry、material、texture、clip 共用模板；每個角色持有獨立 skeleton、mixer、socket 與動作狀態。`CharacterVisuals` 提供共用 `CharacterRig` 契約及舊測試模型。
+- `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。
+- 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。跳過的 visual dt 只能補算一次。
+- `CharacterCombatAnimator` 擁有一次性攻擊／釋放事件；Player/NPC 在事件到達時造成傷害或產生投射物。完成或取消後回到最新 locomotion，換裝取消未完成動作、不補發事件。
+- `CharacterEquipmentPose` 在 mixer 後套姿勢，下一次求值前還原。`bakedEquipmentActions` 表明已烘焙握點的動作，避免疊加通用 IK；資產與 runtime 不能同時擁有同一關節修正。
 
-### 劍盾 rigid renderable consolidation
-- `WeaponMeshFactory` 只以 builder 明確列出的同材質、同 render flags 剛性零件合併；內部 `mergeRigidGeometryParts` 複製 geometry、烘焙 child local matrix、補齊順序 index，再以 `mergeGeometries(..., false)` 建立 identity-transform Mesh。保留 normal／UV／原三角形，不置中、不焊接頂點；清理暫存及已移除零件的 geometry。
-- Viking Sword 固定 4 Mesh（握柄、金屬握柄零件、劍身、雙面 fuller）；Gladius 固定 3 Mesh。Viking Shield 固定 5 Mesh（seams＋後 straps 合併、T3 rivets 併入盾臍）；Scutum 只合併左右飾條，固定 5 Mesh，保留獨立外框與盾臍供貼合驗證。
-- root／pivot／socket、grip／tip metadata、材質快取與既有 `polishWeaponMaterials` 陰影行為保持不變。helper 不掃描 root，不處理弓弦、搭箭或其他動態零件；該次合併未涉及裝備 LOD、陰影優化或動畫 runtime 變更。
-- `EquipmentConsolidation` 測試以 `cf04fd3` 的逐材質／渲染旗標三角形指紋鎖定 position、normal、UV、winding 與 attachment，並驗證 Mesh 上限及材質共用。
+## 裝備與投射物
 
-### NPC Equipment Visual / Shadow LOD
-- `NPC.equipmentVisualLOD` 只持有單一裝備 hierarchy。builder 以 `equipmentLastVisibleLOD` 標記靜態細節；標記本身不改 visibility，因此共用 builder 的 Player、掉落物、投射物維持完整外觀。
-- 建構時註冊 sword/lance、bow/pilum 與 shield roots；換盾時替換快取並立即套用當前 LOD。gameplay roots、sockets、transforms、grip/tip/support metadata、弓弦與搭箭 visibility 仍由原系統管理。
-- NPC 接續原有 `LOD.update(camera)` 與 animation hook，讀取 Three 當幀 `getCurrentLevel()`。裝備 proxies 是位於 body LOD 之後的兄弟節點，因此主 render traversal 與 shadow pass 都使用當幀 detail visibility。`HUMANOID_LOD_DISTANCES` 仍為唯一門檻來源（0/28/60m），沿用 Three zoom 語義；不另算距離、不新增 hysteresis。沒有 Three.LOD 的舊程序測試模型保持 full detail。
-- LOD 改變才寫入已快取的細節 visibility；不逐幀 traverse、不換 geometry、不複製 hierarchy、不改 attachment。Viking sword 4/3/3、Gladius 3/3/3、圓盾 5/3/2、Scutum 5/4/3、含搭箭的 bow 8/6/6、lance 2/2/2；Pilum T1 3/3/2、T2 4/4/3、T3 5/4/3。已合併的護手／金屬握柄、盾臍／鉚釘保持完整以保留剪影。
-- Shadow policy 共用同一 controller level：LOD0／LOD1 恢復各 Mesh 的 `originalCastShadow`，LOD2 設為 false；visual detail policy 與 `receiveShadow` 均不變。建構／重建的既有 traversal 同時快取 Mesh；切換只遍歷快取，same-level 直接 return、零 shadow writes。`WeakMap` 保留第一次註冊的原值，避免 LOD2 重複註冊把暫時 false 當原值，也不強留已替換的 shield meshes。
-- Shadow 範圍僅 NPC 持有的 sword／shield／bow（含搭箭）／lance／pilum。Player、飛行箭與標槍、掉落物、Humanoid、Horse、全域 lighting／shadowMap config 不變；nocked arrow 的動態 visibility 仍由弓系統管理。換盾先沿用原 polish，再註冊立即套用目前 visual／shadow LOD，返回 LOD0／1 恢復新盾原始陰影。
-- DEV-only `window.__collectEquipmentCensus(window.game.npcs)` 供手動低頻 snapshot：NPC 數、裝備 LOD 分布、五種裝備可見 mesh 數、總數及可見 shadow caster 總數／按種類的 `visibleShadowCastersByKind`。考慮所有祖先 visibility，未做 frustum filter，也不等於 submission 數；多材質 geometry 可能有多個 draw calls。沒有 frame-loop 採樣；production benchmark 另由 harness 在計時窗後單次收集。目前 Three.WebGLRenderer 在 shadowMap.render 後才重設 `renderer.info`，預設 calls／triangles 僅含主 pass；若需完整提交數，須在計時窗外暫停自動 reset、手動 reset 後 render，再恢復，不能把原預設數值當作含陰影。
+- `WeaponMeshFactory` 共用於 Player、NPC、掉落物與工作室；[EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md) 維護外觀範圍。合併剛性零件須保留材質／render flags、幾何、grip/tip metadata 與動態零件。
+- `SwordAttachmentContract`／`EquipmentAttachmentContract` 管理握點；固定裝備 attachment 不由 animator idle／cancel 覆寫。調整武器方向繞掌心握點進行，不以扭腕掩蓋資產軸向錯誤。
+- 裝備中的盾是唯一持盾狀態來源，步戰／騎乘皆留左手。持盾阻擋拉弓；盾牌變更取消未完成蓄力。一般 T1–T3 劍走單手劍動作。
+- Lance idle 沿用 Sword Idle 人體／手形，加固定 attachment；攻擊才加右臂 FK 前伸。不在無關工作恢復舊 Ready pose、左手支撐或 lance IK。
+- Maki 使用來源持弓 idle；近戰仍持同一把弓，以重定向 `axeAttack2H` 播放，Player 裝備固定弓近戰／無盾。站立側身姿勢、移動／騎乘腿部所有權見 [posed-source characters](skills/humanoid-rig-skinning/references/posed-source-characters.md)。
+- `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 瞄準只改 FOV；Player 從 nock 向準星 world ray 命中點發射。
+- 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
+- `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離。只切已標记的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
+- NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 
-### 裝備盾牌與長槍姿勢
-- 盾牌裝備狀態是唯一持盾來源，固定於左手，不再依彈藥、長槍或騎乘狀態背盾。`InventoryManager.unequipShield()` 與裝備 UI 支援卸盾，沿用 nullable 存檔。
-- 持盾按瞄準顯示「請先卸下盾牌才能使用弓箭」，不進入拉弓或 FOV 瞄準；拉弓途中裝盾取消蓄力。換盾／近戰武器取消未完成動作，不補發事件。
-- 兩陣營近戰步兵與長槍騎兵由 `getUnitCombatProfile` 配同階陣營盾；遠程兵無盾。配盾沿用既有被動減傷公式。
-- `EquipmentAttachmentContract` 共用 Player／NPC／工作室固定握點。長槍主握點 `(0,.15,0)`、支撐點 `(0,.33,0)`、尖端 `(0,2.6,0)`；Roman／Viking 盾背握把為 `(0,0,.085)`。
-- **2026-09-16 最小版：Lance 完全沿用 Sword Idle 人體姿勢。** `CharacterEquipmentPose` 在待機不對 Lance 旋轉軀幹、鎖骨、雙臂或手腕，也沒有左手支撐。Lance 不建立新 morph，沿用 Sword 已有手型。盾牌左臂與 mounted 腿姿仍維持原獨立流程。
-- `MixerController` 先還原程序覆蓋，再更新 mixer，各 LOD 套 mounted 腿姿與裝備上身姿勢，最後更新矩陣與 socket proxies。play／seek／update(0)／stop 都還原基底，死亡停用姿勢覆蓋。
-- `calibrateLanceIdleAttachment` 僅在載入時取樣既有 idle，計算右手局部的固定 Lance rotation，然後還原來源 transforms。主握點直接沿用 Sword 掌內握點，槍模型 +Y 朝向角色 +Z；逐幀只跟隨手部 socket。舊腰際 Ready／IK 前刺已撤下；最新前刺僅在攻擊時套用右臂小幅 FK 伸展與原手部方向補償，武器掛點固定，收招還原當下 Idle／locomotion。保持 .38／.228 秒命中與 .70／.42 秒總長，軀幹、左臂與腿部不歸前刺所有。
-- 騎乘 `mounted` 以既有 idle 的上身軌道取代空 clip，避免卸除 Lance 程序姿勢後回到 T-pose；不取 hips／pelvis／腿軌道，鞍座與 mounted 腿姿保持原值。Lance 固定模型掛點向外偏 0.14 rad，讓待機槍桿避開馬鬃；不旋轉手骨。
-- 騎馬 Sword 使用與 Lance 相同的固定模型方向及原掌內握點；`applySwordAttachment` 預先計算步戰／騎乘兩份掛點，`setLocomotion` 僅在上下馬 context 改變時選取，下馬還原步戰掛點。既有 Sword 動作與 .252 秒命中不變。
-- 人物工作室 L 切劍／槍、Q 切盾；新增 lanceThrust／mountedLance 展示。戰馬工作室另支援 F 攻擊。驗收摘要保留於 `PROGRESS.md`；一次性截圖、量測與診斷腳本只存放在已忽略的 `output/`。
+## 坐騎
 
-### Phase 20 FK Combat Rig
-- `CharacterVisuals` exposes a shared `CharacterRig`; each arm is a `shoulder -> elbow -> wrist -> handSocket` hierarchy.
-- Melee weapons attach to the right hand socket, bows to the left hand socket, and equipped shields remain attached to the left hand socket.
-- `CharacterCombatAnimator` owns the shared T1–T3 one-handed `swordSlash`, bow release, foot-lance, and mounted-lance timelines. Player and NPC damage/projectile code reacts to its one-shot animation events; legacy dagger/greatsword states remain available only for compatibility.
-- `CharacterBowVisual` is the single implementation for Player and bow-equipped NPC bow geometry, vertical target alignment, string draw, nocked-arrow placement, and projectile launch origin/direction. Allied NPC tiers map to the same shortbow/longbow/runebow models used by the Player; Roman pilum remains separate.
-- T1–T3 swords remain one-handed so the left hand can retain its shield. Lances currently reuse the existing Sword Idle body and hand pose with a fixed forward-facing model attachment; no lance-specific Ready or left-hand support is active. An attack-only FK extension moves the right hand forward while keeping the fixed weapon attachment and the base hand direction.
-- `ThirdPersonCamera` keeps its optical axis and fixed reticle on one world ray. While aiming, `Game` raycasts that ray to a visible world hit (falling back to a distant point), and player arrows travel from the hand's nock socket toward that resolved point.
-- Entering aim mode changes FOV only; camera distance and lateral position remain fixed so the world point beneath the original reticle does not jump.
-- Melee meshes are authored along local `+Y`. Modern one-handed swords use an equipment-owned fixed attachment; lances use an attachment calibrated against the existing Sword Idle, without an arm solver. Legacy dagger/greatsword fixtures retain the procedural action pivot.
-- Arrow geometry uses local `-Z` as visual forward for both nocked and flying arrows; projectile quaternions explicitly align that axis with physical velocity instead of relying on generic `Object3D.lookAt()`.
-- Arrow and pilum instances share immutable shaft, tip, fin/socket/neck/wrap geometries and materials. Removing a transient projectile therefore cannot leave one new GPU resource allocation per shot during the 50v50 stress scenario.
-- Equipped shields face character-forward in a low ready pose and retain their fixed left-hand attachment, including during death.
-- Weapon and shield meshes retain `originalMat` for flash restoration, while shields are excluded from character damage-flash traversal.
+- `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`CorgiVisual` 負責資產與動畫。三種均已有外部模型路徑，保留原 save IDs。
+- 坐騎實例共享 render resources、各自持有 skeleton／mixer。Horse LOD 與遠距動畫節流由 registry 維護；不改變 gameplay timer。
+- 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。
+- Custom Battle／Defense Campaign 的 Player 可選坐騎；一般戰場騎兵與營地預設 Horse。Career 的駐軍、英雄與商人坐騎由城鎮規則決定。
+- 對騎乘角色的傷害先路由到坐騎；坐騎死亡使騎士下馬。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
+- 授權、來源雜湊與重建方式保留於各模型目錄的 manifest／CREDITS 及必要 provenance；製作／匯出驗證由資產 skill 維護。
 
-### 2026-09-14：單手劍 attachment 與動畫所有權
+## 編隊、傷害與戰績
 
-- `SwordAttachmentContract` 使用 manifest 的 `swordGripFrames.lod0/lod1/lod2` 與 builder 的 `gripCenterLocal`。固定矩陣為 `inverse(socket) × handGripFrame × inverse(weaponGripFrame) × inverse(model)`；Player 換劍／重建角色、NPC 建立與工作室建立共用入口。
-- 裝備代理仍每次姿勢求值後跟隨 LOD0 的 `hand_r`；這是骨架同步，不是追劍 correction。`swordAttachmentOwned` 阻止 animator 的 idle／cancel／完成流程覆寫劍。模型 grip 子節點維持 identity。
-- `SwordHandShape` 只新增右手指 `swordHand` morph；`MixerController.setSwordHandShape` 在裝備狀態改變時寫 influence。`HumanoidBladeGrip` 的舊 morph 僅保留索引結構，influence 為零；逐幀扭腕／前臂 layer、alignBladeGrip 與工作室重套 attachment 已移除。HUD 固定 correction OFF。
-- Roman idle／walk／run 保留原有雙臂／手腕動作；LOD0 恢復既有 LOD1 動作。Viking 的 A/T rest basis 差異使用來源解剖座標離線處理，不能套用到 Roman。`artifacts/animation_sources/sword_baselines` 保存原始 LOD1 動作與來源 SHA，避免把修正後輸出當成下一次輸入。
-- `swordSlash` 以 Quaternius `Sword_Regular_A` 唯讀取樣、30 FPS 加精確命中／結束點，烘焙六份 GLB。rotation-only 版本採目標站姿下半身與來源 pelvis yaw，避免移除骨盆平移後蹲姿雙腳懸空；上身保留 A 的揮砍。時間映射使正前方掃擊落在 0.252 秒，0.48 秒完成，0.10 秒進入 blend，0.12 秒直接回最新 idle／walk／run。
-- Player 保留同幀「命中＋完成」的待消費命中；NPC 完成後保留完整 0.35 秒間隔。攻擊不寫武器／socket 動畫軌道，其他 melee 家族保持原程序路徑。
-- Bow 左手 frame、手形與 normalization 保留。`BowGripLOD` 複製右手網格時使用其 mesh bind 空間，避免把左手轉換套到右手。既有 Viking Bow LOD1／2 右臂與 LOD0 不一致仍列為未解的 Bow 資料問題。
-- `?devcombat` enables `CombatTrajectoryDebugger` and a fixed Tier-3 50v50 cavalry battle: each faction receives 25 ranged riders and 25 lancers, with front lines starting about 35m from the player. Viking ranged projectiles use arrow visuals while Roman ranged projectiles use full pilum visuals through the same collision pipeline. Grip-to-tip direction lines stay visible and melee actions retain world-space tip trails; completion logs local-space start/end/bounds for Player and NPCs. The debugger is not instantiated on normal URLs.
-- The normal release URL uses a deterministic beginner-friendly 10v5 battle: the Player plus nine allied Tier-2 infantry (five melee, four archers) face five Tier-2 Roman infantry (three melee, two pilum), with cavalry randomness disabled for those units.
-- NPC ranged units engage out to 22m. Their shared aim point adds distance-squared vertical compensation before both visual aiming and projectile launch, while NPC arrows/pilums use a 20m/s launch speed for readable longer arcs.
-- Player physics keeps its 0.95m capsule half-height, while the procedural render rig has a fixed -0.15m visual offset so its -0.8m boot soles meet the terrain exactly like NPC soles without altering collision, jump, or camera roots.
-- The procedural terrain is 400×400m. Player, NPC, controlled mounts, and wandering mount targets share `PLAYABLE_WORLD_BOUND = 180`, leaving a 20m safety margin inside the rendered terrain instead of duplicating per-class boundary constants. Battle front lines start around `|Z| = 125`, the Viking Player starts at `Z = 145`, camp pickups at `|Z| = 151`, and camp horses at `|Z| = 158`, keeping the opening formation in the outer map band while preserving edge clearance.
+- `BattleConfig.squadAssignments` 保存部署編隊，`matchesArmyCommandTarget` 是指令與 formation 共用選取規則。UI 部署需分配全部相關 NPC；既有無手動計畫的診斷設定可用 deterministic fallback。
+- `CombatActorRef` 在攻擊／發射時擷取穩定 actor、allegiance、faction、preset、squad 身分；延遲命中的投射物保留原射手。
+- `DamageRouter` 統一角色／坐騎／建物傷害，回傳實際 HP 損失，包含盾減傷與 overkill 上限。死亡／摧毀事件只在首次終止轉換送出。
+- `CombatEventStream` 同步發送歸因事件，戰鬥不直接依賴戰績 UI 或生涯軍功。`BattleStatsTracker` 只做串流累計，不保存完整事件歷史。
+- 戰績是單場資料；`BattleStatsView` 共用呈現個人／編隊結果。Defense Campaign 不累計進攻建物指標；生涯結算獨立消費有效結果。
 
-### Phase 21 Procedural Realism Pass
-- `ProceduralMaterials` creates deterministic cached albedo, roughness and bump textures with a browser `CanvasTexture` path and a headless `DataTexture` fallback for tests.
-- `CharacterVisuals` now builds higher-resolution anatomical bodies, faces, hair/beards, layered Viking/Roman Tier-2 armor and articulated hip/knee/ankle rigs. Mounted poses spread and bend the legs for each saddle width without changing combat hand sockets.
-- Tier-2 swords and gladii use tapered diamond-section blade geometry; the recurve bow uses continuous tube curves and laminated limbs; Roman and Viking shields contain curved/planked bodies, rims, bosses and rear grips.
-- Black Cat retains its save ID and uses the licensed source GLB under `public/models/mounts/v2/black-cat/`. `BlackCatVisual.preload()` gates spawning on a ready manifest; Game and the Viking hero preview preload it. Each instance has one independent 25-joint skeleton/mixer, three body LODs at 0/18/38 m, nine baked clips and a bone-parented saddle socket, while sharing mesh/material/texture resources. The original source face and coat are retained; neck/head posing faces gameplay +Z. Jump holds until physics sends land, death clamps, and replay restores idle. The builder fits saddle/armour to the source surface and transfers its skin weights; the packager exports Meshopt and 2K PBR maps. Source attribution and rebuild instructions are in the asset's CREDITS. The black-cat studio has an equipment visibility toggle for inspecting the original body.
-- The black-cat studio compares the regular Viking, Viking T4 and Maki T4 via `rider=viking-t2|viking-t4|maki-t4`. `MountStudioSeatContact` follows measured points on the deformed rider and saddle triangles before rendering; its calibration is limited to those DEV combinations and does not change Player/NPC seating. Maki's black-cat leg clearance is applied through the restoring equipment pose layer on each humanoid LOD. Hero previews remain separate from production unit tiers, and stirrup length is not automatically fitted per rider.
-- Corgi retains its save ID and procedural visual. `CorgiVisual` is authored in metres facing +Z, shares immutable mesh/material resources, and owns independent articulated joints and an animated saddle surface socket. A child rider-pelvis socket sits 0.17 m above that surface so the posed rider’s buttocks rest on the saddle; gameplay, studio and save restoration use this anatomical socket. Its armor samples the same smooth body surface. `?devmodels=corgi&nolock` opens the armored Corgi studio; `?freeride=1&mount=corgi&nolock` starts a ride. The CORGI mounted pose clears its wider barrel and carries the weapon hand above the thighs; melee FK clearance preserves fixed hand attachments and attack timing. Its studio offers lance/axe/sword switching and defaults to the axe rider.
-- The renderer uses ACES filmic tone mapping and rebalanced outdoor key/fill lighting so procedural metal, leather, wood and fur retain readable material separation.
-- `?devmodels=mounts&nolock` is the isolated horse studio with a Player-independent Orbit camera, three variants, all nine clips, rider/skeleton toggles, LOD inspection and render-resource counters.
-- `ai_share/skills/combat-browser-validation/` is the canonical browser QA workflow for combat work. It documents release/debug URLs, GPT Chrome extension operation, trajectory-overlay semantics, console-log interpretation, visual acceptance checks, and extension-noise filtering; `.agents/skills` and `.codex/skills` expose the same skill through links instead of duplicated copies.
+## 生涯與城鎮
 
-### Phase 22 External Humanoid Pipeline
-- `main.ts` calls `Game.create()`, which waits for both faction manifests and all LOD GLBs before any Player or NPC is born. A blocked/missing manifest produces a readable overlay and prevents mixed external/procedural release characters.
-- `HumanoidAssetRegistry` loads one immutable GLTF template set per faction and uses `SkeletonUtils.clone` for independent skeletons. Geometry, PBR materials, textures and clips remain shared; each instance owns mixers, socket objects, bounds and lifecycle control.
-- The bone adapter preserves Phase-20 right/left arm, leg and hand-socket semantics while exposing pelvis, spine, head and foot sockets. `CharacterCombatAnimator` preserves action timing and one-shot gameplay events while requesting matching mixer clips and retaining procedural bone overlays for weapon alignment.
-- The registry refuses `blocked` assets and validates measured height, shoulder width and neck length before loading. LOD0/1/2 switch at 0/28/60m.
-- `Game` computes camera-to-NPC-root distance once per frame (the camera is unparented and NPC roots are scene children, as for mounts), then forwards it through `NPC.update(..., cameraDistance = 0)` and `CharacterCombatAnimator.update(dt, cameraDistance = 0)` to `MixerController.update(dt, cameraDistance = 0)`. Only visual evaluation uses the existing strict `>28m` / 12 Hz policy; AI, movement, combat events and gameplay timers still run every frame.
-- Each humanoid retains all three independent mixers/actions and equipment pose layers. Steady-state evaluation runs LOD0 (equipment socket authority) plus the selected visible LOD: `[0]`, `[0,1]`, or `[0,2]`. Primary hand world transforms depend on pelvis/spine/chest/shoulder/elbow/wrist ancestry and mounted/shield/lance overlays; evaluating just hand bones would require a separate dependency/track system, so this change retains the full primary mixer.
-- The instance wraps Three's existing `LOD.update(camera)` and reads `getCurrentLevel()` after selection, before mesh traversal. A newly visible level settles its retained visual-time debt once and applies the authority's last evaluated equipment state. `CharacterEquipmentPose.apply()` updates world matrices before skinning. No per-frame humanoid traversal or duplicate distance thresholds are introduced; switch-time catch-up is part of Renderer Submit, not NPC Update.
-- Hidden mixers accumulate only evaluated visual dt, excluding the shared far accumulator. Their own Three actions consume that debt before becoming visible or before clip/loop/rate/seek commands change semantics. This preserves native loop/clamp/paused state without copying skeletons, cloning private action state, replaying clips, or invoking gameplay events. Clip fades temporarily evaluate all three levels until their grace interval ends; explicit `seek()` (including bow draw and studio scrubbing) conservatively samples all three.
-- Transition, seek, and repeated LOD crossings can reduce or eliminate work savings; a crossing may add an equipment apply even between far ticks. Bow morph and sword hand-shape state changes still reach all meshes. The existing Viking Bow LOD1/2 attachment discrepancy also reproduces with all mixers enabled and on main; it remains a separate asset/pose issue, explicitly accepted as non-blocking for this performance PR on 2026-09-17.
-- Pending far dt is consumed exactly once on the next evaluation, including return to near; `seek()` and zero-dt pose refresh semantics remain unchanged.
-- A newly bound clip reapplies the equipment overlay and synchronizes its socket followers immediately, preventing restored bare hands from separating from retained equipment when the next visual tick is skipped (without advancing any mixer). The interval uses simulation dt (the game retains its existing 0.05s frame clamp), not wall-clock time.
-- `?devmodels=humans&nolock` is the neutral-grid external-character studio with a Player-independent Orbit camera and toggleable `SkeletonHelper`. `?legacyhumanoids&nolock` remains a Vite-development-only regression fixture and is not a release fallback.
-- Canonical asset preparation instructions live at `ai_share/skills/humanoid-rig-skinning/`; both Viking and Roman manifests are ready and include source hashes, CC BY attribution, bone maps, LOD/image audits and deformation evidence.
+- `CareerProfileStore` 使用 `sagaburst_career_v1`，與 RPG／Campaign 存檔隔離。`loadChecked` 區分無存檔與損壞／不支援資料；載入失敗不得覆寫。
+- `CareerProfile` 分開 lifetime `totalMerit`、可花費 `availableMerit` 與任命 `rank`。晉升按 enlistment baseline 計算資格，必須明確任命；領獎不自動升階。獎勵以已領 battle／mission ID 保持冪等。
+- `CareerMissionMeritPolicy`／`MeritCalculator` 管理軍功；Recruit/Soldier board 勝場按任務 tier 分開保存，不由當前軍階反推。Duel 擊敗 tier 按 preset 推進，不改 board 勝場。
+- `TownScene` 自有 renderer、input、projectiles、居民與任務更新，不借用 `Game` 迴圈；`TownWorld` 管建物、障礙與場景資源，`TownRules` 管居民配置，`TownEquipment` 管可用裝備及拔出狀態，`TownCombat` 管城鎮命中。
+- visual faction 與 `CombatFaction` 分開；城鎮平時不敵視 Player。首次有效犯罪先保存 hostile event，保存失敗則不施加第一擊；只在死亡／建物摧毀時保存終止狀態。自由遭遇與官方任務不等同城鎮犯罪。
+- `TownEvent` 結算要求完整居民登記；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
+- `CareerTownDialogue` 集中和平對話與 rank 選擇；`TownEquipment` 只允許已擁有且符合軍階的裝備，不把城鎮拔武器狀態寫進其他模式。
 
-### Phase 23 External Horse Pipeline
-- `Game.create()` preloads `HorseAssetRegistry` before spawning any mount. `realistic-warhorse-v10` uses local `+Z`, one 80-joint skin, nine clips and saddle/stirrup/camera sockets.
-- Each horse receives an independent `SkeletonUtils` clone and `AnimationMixer`; geometry, materials, KTX2 textures and clips are shared. LOD distances are 0/18/38m and animation updates beyond 35m are throttled near 15 Hz.
-- `Mount` remains authoritative for HP, movement, collision, jumping, impact and save timing. Horse animation chooses idle/walk/trot/canter/gallop from movement speed and plays jump/land/hit/death once without an extra group-level death roll.
-- New scene horses and NPC cavalry use `HORSE`. Stable FNV-1a keys assign the three coat variants; saves accept an optional `appearanceVariant` and default invalid/missing values to 0 without a schema bump.
-- `LegRig.forwardBendSign` declares the local-X forward-bend convention for each humanoid rig. The external project-humanoid adapter and legacy procedural fixture provide their own sign, and `applyCharacterMountedPose` applies that convention consistently to hip, knee and ankle rotations so Player, NPC and studio riders share an anatomically forward knee bend.
-- Public assets live in `public/models/mounts/v1/horse/`; source hashes and licensing are recorded in its manifest/CREDITS and the retained source/package provenance reports under `artifacts/mount_horse_pipeline/`. One-off renders, probes and acceptance captures live only in ignored `output/`; `artifacts/` ignores new files by default and explicitly allows required provenance and locomotion baselines.
+| 任務模組 | 契約 |
+| --- | --- |
+| `BanditMissionController` | 剿匪／巡邏與返程；借用同一位隊長，穩定 FOLLOW slots，僅正式名單納入任務歸因 |
+| `CavalrySweep`、`MountedMissionMarch` | 優先借用駐軍／既有坐騎，只生成缺額；歸還借用者、移除臨時角色，保存行軍與 Charge 階段 |
+| `TownDefenseController` | 重用城鎮駐軍／平民；接受時固定敵軍名單與比例，按該名單恢復，不因升階重算已接受任務 |
+| `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；Duel 敵意不擴散到城鎮，結算歸還角色 |
+| `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |
 
----
+任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
 
-## Army Command Grouping
+`CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份所有權，tier 跟隨任命軍階；舊 tier ID 由存檔相容處理。Captain／Commander 的 T4 身體替換保留運行中玩家狀態，指揮權限仍是待辦。
 
-- Friendly battle spawn specs receive an optional `squadId`; command squads are capped at eight. `BattleConfig.squadAssignments` pins exact preset+tier counts to numbered squads. Custom Battle assigns only the selected Player Faction; Defense Campaign assigns the deployed defenders. Both setup flows hide zero-count preset+tier rows, cap each squad at 30 units, and require every relevant deployed NPC to be assigned before launch. Non-UI legacy/diagnostic configs without a manual plan retain the deterministic round-robin fallback.
-- `ArmyCommandTarget` supports `all`, unit-preset targets, and numbered squad targets. `matchesArmyCommandTarget` is the shared scope rule used by both `ArmyCommandController` and `FormationController`, preventing attack/charge/defend and formation placement from selecting different units.
-- Command grouping is part of the launch configuration and is chosen before deployment. Existing preset grouping remains the default; choosing squad grouping in Custom Battle or Defense Campaign changes the launch action to `ASSIGN SQUADS`, then opens a second deployment step that lists only non-zero preset+tier rows. In Defense Campaign the grouping selector sits directly under the `DEFENSE CAMPAIGN · STAGE X` heading. Squad grouping is fixed for the battle and squad entries show living/total members. The command submenu remains `1 Attack / 2 Charge / 3 Defend / 4 Formation`, and backquote remains All.
-- Squad identity is gameplay-neutral outside command targeting and is retained by NPC instances for future battle-stat/career attribution.
+## 效能解讀
 
----
-
-## Combat Attribution
-
-- `Game` owns a synchronous `CombatEventStream`. Combat code emits attribution events only; it does not know about battle-stat UI, merit, or career progression.
-- `CombatActorRef` snapshots a source combatant at attack/fire time with stable `actorId`, allegiance, Roman/Viking faction, optional preset, and optional `squadId`. NPCs keep a stable `combatantId` for their lifetime.
-- `DamageRouter` is authoritative for mounted/unmounted actor damage and structure damage. `DamageResult` exposes requested damage, actual applied HP loss, target identity, and whether this hit killed the actual damage target.
-- Applied damage is measured from HP before/after routing, after shield reduction and overkill clamping. Example: a target at 3 HP hit for 80 contributes 3 applied damage.
-- Projectiles retain the concrete shooter snapshot and weapon ID when created, so delayed arrow/pilum hits can still be attributed to the correct NPC and squad.
-- Mount impacts attribute damage to the controlling rider. NPC siege attacks, player melee structure hits, and projectile structure hits all use the same structure-damage event path.
-- Event types currently emitted are `damage_applied`, `actor_killed`, `structure_damaged`, and `structure_destroyed`. Structure destruction and actor kills emit only on the first terminal transition.
-
----
-
-## Battle Stats
-
-- `BattleStatsTracker` subscribes to `CombatEventStream` and performs streaming aggregation only. It never stores a combat-event history, so memory grows with a fixed player record plus at most eight squad counters rather than with battle duration or hit count.
-- Player totals include actual character/mount damage dealt, damage taken by the player, actor kills, optional structure-offense totals, and final survival state. Squad totals include damage dealt/taken, kills, optional structure-offense totals, starting strength, survivors, and casualties. Defense Campaign disables structure damage / destroyed-structure / gate-breach aggregation because the player side is defending; generic Custom Battle keeps it enabled, and a future offense campaign can enable it explicitly.
-- `Game._spawnNpc()` registers player-side squad members once for starting strength. No additional per-frame squad scan is introduced. Survivor counts are calculated from current NPC state only when a result snapshot is requested.
-- Custom Battle and Defense Campaign result modals render the same `BattleStatsView`. Personal stats are always shown; squad rows are shown only when the launch configuration uses squad command grouping.
-- These counters are battle-scoped runtime data only. Career persistence, merit formulas, rank progression, and unlocks remain separate layers.
-
----
-
-## Career Progression and Town Hub
-
-- Career persistence stays isolated under `sagaburst_career_v1`, separate from RPG saves and Campaign unlocks. Profiles own lifetime `totalMerit`, spendable `availableMerit`, appointed `rank`, `enlistmentMeritBase`, collections, lifetime stats, claimed battle/mission IDs, one-time starter selection, equipment preferences, selected mount, one active recruit mission, completion count, and a minimal town event.
-- Promotion eligibility uses `totalMerit - enlistmentMeritBase`: Recruit 0, Soldier 300, Veteran 900, Captain 5000, Commander 20000. `claimCareerBattle` adds both merit balances and lifetime stats idempotently but never appoints a rank. `promoteCareer` advances only the next eligible rank without cost or equipment grants; the town captain commits it before updating UI.
-- `CareerProfileStore` preserves valid appointed ranks, caps over-qualified saved ranks, and treats a missing legacy enlistment baseline as zero. Invalid explicit baselines cannot unlock ranks. `loadChecked` distinguishes absent saves from corrupt/unsupported data; failed loads never overwrite a career. Ownership, history, and legacy single-merit / `unlocked*` fields remain compatible.
-- `MeritCalculator` still consumes a `BattleStatsSnapshot`: victory +80, kill +8, every 100 character damage +2, survival +20; offense-only structure damage +1 per 100 and gate breach +25. Town never instantiates battle attribution/stats/reward aggregation and never calls `claimCareerBattle`.
-- `CareerTownEntry` owns entry, initial faction/starter choice, and scene transitions. `TownScene` owns its renderer, input, bounded projectiles, nearby interactions, mission actors, and actor lifecycle independently of `Game`. The deployment infantry lists the available Recruit clearance, patrol, and Town Defense missions and persists an exact mission/target roster before spawning it. Town-only entry free-look covers automatic reloads without a user gesture; a user-initiated entry requests pointer lock before awaiting loading. Hostility closes an existing panel without cancelling an in-flight player swing or dropping held movement keys. Explicit panel action cancellation resets the complete equipment action state. Creation batches resident construction, warms animation LODs and compiles shaders under the loading overlay, then spawns/warms the player and starts one RAF loop.
-- `TownEquipment` keeps temporary drawn-hand flags separate from persisted ownership and preferences. Each peaceful entry starts on foot with all hand flags disabled; Tab equips only owned, rank-eligible catalog items. Hostile reload restores preferences only after the same eligibility check. Generic InventoryManager defaults remain armed for other modes. No town state writes into Campaign loadouts or RPG inventory.
-- `TownRules` defines a stable roster: 60 T2 training troops (10 melee cavalry / 10 horse archers / 20 ranged infantry / 20 melee infantry), 20 civilians, and captain, deployment infantry, merchant, Maki, and cat: 85 principal actors. The 20 garrison horses, faction T4 captain mount (Roman Corgi / Viking Black Cat), and five reserved stable horses using existing mixed coat variants are separate entities (111 non-player entities, 27 Mount instances total). The shopkeeper cat has one identity, model, and HP across shopkeeper/mount modes; rider/cat deaths release control without duplicating or healing either actor.
-- Civilian is a town-only NPC category with 50 HP, no squad or catalog entry. Its Roman visual variant hides verified armor nodes on every cloned LOD while retaining cloth/body; shared soldier templates are untouched. Viking towns apply shared, desaturated wool tunic and brown trouser material variants to those civilian clones on every LOD, preserving the source skinning/textures and leaving skin/head and Roman colors unchanged. A cached civilian-only tunic shell gives shoulder fabric clearance without modifying soldier geometry. Peaceful civilians have no weapon; surviving civilians arm `gladius_rusty` once on hostility. Visual faction does not determine town allegiance.
-- Combat allegiance (`CombatFaction`) is separate from visual faction: PLAYER, ENEMY, TOWN and reserved BANDIT. TOWN NPCs ignore player targeting until town hostility; existing Campaign/Custom Battle allegiance remains unchanged. Bandit camp structures do not broadcast town crime. Player/NPC/mount body separation supplements static building/prop obstacles. `TownCombat` uses an authored hit-event forward arc and swept blade contact, with wall occlusion and actual routed HP-loss numbers.
-- Peaceful updates use fixed training targets and local idle/walk animation, not full combat AI or enemy search. Training shots are permanently visual-only, capped, short-lived, and do not consume combat ammunition. Hostile NPCs reuse existing combat/navigation with the player as sole target, spatially local separation, and shared navigation budgets.
-- `TownWorld` owns faction-specific building geometry, damage states, obstacles, and disposable scene resources. Storefronts use real weapon factory displays, an open-front five-stall stable, attached English signs, and plaza-facing porches aligned with functional actors and a small barracks beside the actual training-yard entrance; shared question-mark sprites replace floating building names. Destruction removes the full obstacle and attached snow/signage once, exposes bounded rubble, and invalidates navigation only when obstacles change. Training targets are separate from damageable buildings and principal actors.
-- The first valid player hit persists a unique hostile event before applying damage, closes services, and triggers one faction charge shout. Save failure rejects that first hit. Dead principal IDs and destroyed building IDs persist only on terminal changes, not each hit; reload rebuilds those minimal states and resumes hostility. Remaining living HP/positions and partial building damage are not full snapshots.
-- `TownEvent` requires completed 85-actor registration before victory and gives player death priority on simultaneous defeat. `settleTown` is event-ID idempotent: death deducts `min(availableMerit, 100)`; victory switches faction, appoints Recruit, and sets the new baseline to total merit. Both preserve collections/history/Campaign progress and commit before transition. Fresh peaceful entry restores residents/buildings and applies sheathing again.
-- `CareerTownDialogue` is the sole peaceful dialogue catalog and selector. Rank-reactive Roman/Viking voices, promotion states and Soldier Outpost introduction use formatter values; `townDialogueSeen` holds only per-faction first-meeting/service flags. Ambient dialogue has one global 12-second cooldown, stops with hostility, and never opens a modal.
-- The 600 × 600 terrain follows the same physics height function as outpost. Road surfaces sample both axes every 0.5 m; static architecture meshes batch per material, retaining independent destruction roots. Five BANDIT camps each expose ten outside-tent spawn positions. Ambient groups patrol independently, stay unaware until proximity/line-of-sight or an effective hit alerts only their camp, and leash back without entering Town crime state. A selected mission camp replaces its ambient group with the persisted target roster.
-- `BanditMissionController` owns the repeatable Recruit clearance and patrol phases `ASSEMBLING → MARCHING → ENGAGING → RESULT` with optional `RETURNING`, segment-by-segment navigation, stable `FOLLOW` slots, player/follower catch-up waits, camera-relative guide-arrow objectives, mission-only combat attribution, and reload-safe actor IDs. It temporarily reuses the exact resident `captain` NPC as Mission Leader rather than spawning a visual duplicate; Town peace updates, service interaction, and player friendly-fire selection exclude that actor until the town restarts. The board has four clearance templates and two patrol routes; it is not padded to ten templates. Mission outcome requires registered targets and gives objective completion priority; Player death alone does not end the mission. Only player-source damage/kills against the official roster and player damage taken enter the mission snapshot; ambient bandits and structures are excluded. `claimCareerMission` is idempotent, never promotes automatically, and grants contribution-scaled merit, including zero merit when the player contributes nothing.
-- `Outpost Relief` uses 20 T2 original defenders (16 frontline / 4 ranged), 60 T2 enemies, and 49 mounted rescue NPCs plus Player: 47 T2 cavalry and T4 Captain/Maki in two 25-person squads. Both squads start in Follow and switch to Charge on the actual end of Captain's Follow voice, regardless of distance; failed optional audio releases the wait and cancelled scene speech does not trigger it. Leader-death fallback still charges immediately. Charge pursues distant enemies without reverting to spawn patrol waypoints. Career Town launch requests pointer lock on the persistent canvas container inside the accept-button gesture so input is ready after loading. Reload preserves march/charge phase and rebuilds the battlefield at its starting positions without repeating an already completed command.
-- Career mission damage earns one merit per 20 effective damage, including offense structure damage. Victory contribution depends on mission outcome regardless of Player survival; survival merit remains separate. Recruit and Soldier home-defense missions each require five victories on their own mission-board tier. `careerMissionCompletionsByTier` persists T1 (Recruit board, including Cavalry Sweep) and T2 (Soldier board, Outpost defense and Relief) independently of Player rank; failed or duplicate claims do not increment them. Legacy combined totals preserve Recruit progress after subtracting recorded Soldier-tier victories.
-- `CareerDuelController` owns the separate deployment `1v1 Duel` page and `ASSEMBLING → MARCHING → PREPARING → ENGAGING → RESULT` flow, with optional `RETURNING`. Every faction catalog preset starts at T1; `duelHighestDefeatedTierByPreset` advances only the defeated preset using `max`, without changing Recruit/Soldier completion counters. T1–T3 reuse an existing soldier and the exact catalog tier loadout; T4 melee uses the resident Captain with Maki refereeing, while T4 Archer/Horse Archer uses Maki on foot/on the existing Black Cat, with Captain refereeing. NPC temporary equipment synchronizes combat values, ammunition and visuals while preserving the canonical Town loadout and Hero profile. Duel-only hostility targets Player, cannot attack buildings, and never sets Town retaliation. Countdown (5s), combat (30s), actor IDs, deaths, health and personal stats survive reload; Player death immediately fails the Duel. Both return modes use existing Town cleanup/restoration; a defeated Captain stays dead during the physical return led by Maki and respawns at Town settlement.
-- `CavalrySweep` adds a mount-only Career offense mission with 59 mounted NPCs plus Player in two 30-person squads, and one 40-Bandit formation on existing Town terrain. It borrows living mounted garrison actors and their existing mounts first (captain first), persists their exact IDs, and generates only the shortfall as temporary cavalry. Acceptance preserves Player/resident positions: residents walk to the barracks muster, wait for Player and most of the party to gather, then use existing field navigation to march out. Victory offers the existing troop-follow return option and fast return. Physical return shares Bandit RETURNING navigation, follower formation and arrival checks; result/return reloads restore surviving friendlies at the saved leader position without respawning enemies. Both acceptance and settlement keep the same Town scene, renderer and population. Settlement uses Bandit cleanup, restores borrowed residents to their town roles, and orders surviving temporary cavalry out of the field before disposing their owned NPC/mount pair; borrowed NPCs/mounts are never disposed by mission cleanup. `MountedMissionMarchController` shares Relief’s mounted Follow → Charge behavior, including leader-death fallback; Sweep configures a 60m trigger and supplies mission squad membership without changing resident identities. The existing field controller/checkpoint/Observer pipeline persists deaths, personal stats, leader world position, route stage, alert and one-shot voice state. Objective completion takes priority over mutual annihilation; only Player plus the entire friendly mission roster dying with targets remaining causes failure.
-- `TownDefenseController` reuses the town's exact 60 T2 garrison soldiers, 20 civilians and command actors. Recruit defense has 50 opposing T2 cavalry; the independent Soldier template scales from 50 by 1.1 per appointed rank (55/61/67/73), rounded once at acceptance. Its persisted target IDs fix the enemy count and proportional three-lane composition across reloads; legacy accepted 70-enemy rosters remain intact. Six defender groups deploy through the same stable `FOLLOW` contract before combat; civilians evacuate to shelter slots, reserve and inner fallback orders remain AI-controlled, and more than 10 civilian deaths lock mission failure while fighting continues. Post-result settlement restores residents, town damage and services in the existing scene. Enemy horses use normal routed mount HP and dismount semantics; dead mission mounts continue their own death update after losing their rider.
-- Provisional garrison tier, death penalty, prices, and mount tiers are centralized. `purchaseTownHorse` sells one military horse (`horse`) for 200 merit and clones the profile; the UI saves before showing success. Its equipment tier follows appointed rank (T1 Recruit, T2 Soldier, T3 Veteran, T4 Captain/Commander) without further purchases. Any legacy `ownedHorseTiers` purchase or canonical `ownedMounts` horse grants ownership; legacy selections and mission HP/death keys normalize to the single horse, preserving the lowest saved HP and any outing death lock. `CareerMountController` reuses `Mount` and `Player.mountVehicle` for one safe-spawned active mount, preserves mount HP across switching/dismissal, and keeps a killed mount unavailable until a town rest/reload. Appointed Captain/Commander players resolve to the faction T4 hero; promotion swaps the runtime body while preserving position, facing, HP ratio, stamina, arrows, equipment, mount, and camera orientation. Captain/Commander command authority remains future work.
-
----
-
-## Data Flow (per frame)
-
-```
-Game Loop
-  │
-  ├─► WeaponPickup.update() ──► Distance ≤ 2.5m ──► Show [E] 拾取 Prompt ──► (Press E) ──► inventoryManager.addWeapon()
-  │
-  ├─► Tab / I Key Press ──► equipmentUI.open(skillManager, inventoryManager) ──► Click 【裝備】 ──► player.rebuildWeapon()
-  │
-  ├─► Player Melee Swing ──► Combat animation hit event ──► Read equipped melee damage/range ──► One hit check
-  │
-  ├─► Player Bow Fire ────► Charge pose ──► Bow release event ──► Spawn ArrowProjectile
-  │
-  └─► Mount Impact Damage ─► Horizontal line-segment collision vs Dummy/NPC/Player radii -> deals speed-based damage
-  
-### Cavalry & Mount Data Flow
-- **Spawn**: Player loadouts in Custom Battle and Defense Campaign select Black Cat, Corgi, or Horse. Viking and Roman cavalry of every tier, across sword, lance, and mounted archer presets, use the external Horse by default; camp mounts also use Horse.
-- **Visuals**: The Horse provides saddle/stirrup sockets, `rideHeightOffset`, `ridePitch`, LOD and animation; riders align their pelvis and mounted leg pose to those landmarks.
-- **Roles**: Cavalry can be **Lancers** (3.0 reach, 3x charge damage that suppresses mount impact) or **Mounted Archers** (can shoot while moving, maintaining 6~15m distance. Will drop bows and auto-switch to melee sword charge if enemy enters <6m range).
-- **Damage Routing**: Melee/Arrow attacks against a Mounted entity route 100% of damage to `mount.takeDamage()`.
-- **Dismount**: If Mount HP drops to 0, `mount.dead = true`, and the entity resets rotation and resumes foot AI / movement.
+`Renderer Submit` 是 `renderer.render()` 的 CPU 側耗時，可能含 driver／GPU back-pressure，不等同純 GPU 時間。預設 `renderer.info` 在 shadow 後 reset，通常只報 main pass；mesh 數也不等於 submissions。完整 pass 歸因及 A/B 方法以 [benchmark skill](skills/sagaburst-performance-benchmark/SKILL.md) 為準，舊 PR 數據不代替當前 baseline。

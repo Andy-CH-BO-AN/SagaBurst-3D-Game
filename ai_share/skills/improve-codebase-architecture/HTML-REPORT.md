@@ -18,6 +18,10 @@
     <style>
       /* 補上 Tailwind 不容易直接表達的少量樣式：
          接縫虛線、帶有手繪感的箭頭等。 */
+      body { margin: 0; color: #1e293b; background: #fafaf9; font-family: system-ui, sans-serif; }
+      main { max-width: 64rem; margin: auto; padding: 3rem 1.5rem; }
+      body h1 { font-size: 2.5rem; line-height: 1.25; }
+      body h2 { font-size: 1.5rem; line-height: 1.4; }
       .seam { stroke-dasharray: 4 4; }
       .leak { stroke: #dc2626; }
       .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
@@ -121,3 +125,7 @@
 **收益條列**要用詞彙表中的術語點出收穫，例如「局部性：錯誤集中在同一模組」、「槓桿效益：一個介面支援 N 個呼叫點」、「介面縮小，實作吸收封裝」。不要寫「更容易維護」或「程式碼更乾淨」；這些說法不在詞彙表內，也沒有具體說明價值。
 
 不要含糊保留、冗長鋪陳，或寫「值得注意的是……」。能改成條列的句子，就改成條列；能刪的條列，就刪。如果某個術語不在 `codebase-design` 的詞彙表中，先找現有詞彙，再考慮創造新詞。
+
+## 交付檢查
+
+Tailwind CDN 會注入 reset；自訂標題樣式須使用足夠 specificity（例如 `body h1`），避免載入後被重設成內文字級。檢查 Mermaid 已產生 SVG、卡片數符合內容、桌面／窄視窗無水平溢位。若 CLI 不允許 `file:` URL，可暫用僅綁定 localhost、只供應報告的 HTTP server，驗證後關閉該 server 與本次 QA session；報告仍保留在暫存目錄，不搬進遊戲 repo。
