@@ -170,7 +170,7 @@ export class DefenseCampaignHUD {
     modal.id = 'campaign-result-modal'
     const victory = result === 'victory'
     const statsHtml = renderBattleStats(stats, showSquadStats)
-    const victoryMessage = this.options.veteranMission ? `${this.options.missionTitle ?? 'Veteran 任務'}完成，敵方軍事守軍已全數殲滅。` : this.options.relief ? 'Outpost 救援完成，剩餘敵軍已全數殲滅。' : this.options.returnToTown
+    const victoryMessage = this.options.veteranMission ? `${this.options.missionTitle ?? 'Veteran 任務'}完成，敵軍已全數殲滅。` : this.options.relief ? 'Outpost 救援完成，剩餘敵軍已全數殲滅。' : this.options.returnToTown
       ? (this.stageId < 3 ? `Outpost ${['I', 'II', 'III'][this.stageId - 1]} 完成，下一個 Outpost 已解鎖。` : 'Outpost Duty 三關全部完成。')
       : this.stageId < 9
       ? `敵軍已全數殲滅，STAGE ${this.stageId + 1} 已解鎖。`

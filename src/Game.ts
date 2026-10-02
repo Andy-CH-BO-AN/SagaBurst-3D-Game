@@ -465,6 +465,7 @@ export class Game {
   private campaignSpawnQueueIndex = 0
   private campaignSpawnWave: 'attackers' | 'reinforcement' | null = null
   private npcs: NPC[] = []
+  private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers: DamageNumbers
   private arrows: ArrowProjectile[] = []
   private pickups: WeaponPickup[] = []
@@ -927,10 +928,6 @@ export class Game {
           } : {}),
         },
       )
-      if (veteranOutpost?.runtimeState.battleFinished) {
-        const outcome = veteranOutpost.runtimeState.phase === 'victory' ? 'victory' : 'defeat'
-        this._showDefenseCampaignResult(outcome)
-      }
     } else if (this.isDevCombat && battlePlan) {
       this._executeBattleSpawnPlan(battlePlan)
       if (isRomanDefenseDevScenario) {
@@ -1089,7 +1086,7 @@ export class Game {
       }
     }
 
-    if (campaignConfig?.careerVeteranOutpost) this._restoreCareerVeteranPlayerState()
+    if (campaignConfig?.careerVeteranOutpost) this._restoreCareerVeteranPlayerStateAndShowTerminalResult()
 
     if (isInitialSpectator) {
       this._enterSpectatorMode('initial')
@@ -1648,6 +1645,9 @@ export class Game {
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)
     }
+    if (this.defenseCampaignConfig?.careerVeteranOutpost) {
+      this.careerVeteranActorMounts.set(npc.combatantId, npc.mount)
+    }
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
@@ -1710,16 +1710,17 @@ export class Game {
     if (!mission || !actorId) return
     const saved = mission.actorHealth?.[actorId]
     const dead = mission.deadTargetActorIds?.includes(actorId) || mission.deadFriendlyActorIds?.includes(actorId)
-    if (dead) npc.restoreCombatHealth(0)
-    else if (saved) npc.restoreCombatHealth(saved.hp)
-
-    if (saved?.mountHp !== undefined && npc.mount) {
+    if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
+    const mount = this.careerVeteranActorMounts.get(actorId) ?? null
+    if (saved?.mountHp !== undefined && mount) {
       if (saved.mountHp <= 0) {
-        if (!npc.mount.dead) npc.mount.takeDamage(npc.mount.maxHp * 100)
-      } else if (!npc.mount.dead) {
-        npc.mount.currentHp = Math.min(npc.mount.maxHp, saved.mountHp)
+        if (!mount.dead) mount.takeDamage(mount.maxHp * 100)
+      } else if (!mount.dead) {
+        mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
       }
     }
+    if (dead) npc.restoreCombatHealth(0)
+    else if (saved) npc.restoreCombatHealth(saved.hp)
   }
 
   private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
@@ -1855,7 +1856,10 @@ export class Game {
         if (npc.hp > 0) actorHealth[id] = { ...actorHealth[id], hp: npc.hp }
         else actorHealth[id] = { ...actorHealth[id], hp: 0 }
       } else continue
-      if (npc.mount) actorHealth[id] = { ...actorHealth[id], mountHp: npc.mount.dead ? 0 : npc.mount.currentHp }
+      const mount = this.careerVeteranActorMounts.has(id)
+        ? this.careerVeteranActorMounts.get(id) ?? null
+        : npc.mount
+      if (mount) actorHealth[id] = { ...actorHealth[id], mountHp: mount.dead ? 0 : mount.currentHp }
     }
     const previousState = active.outpostBattleState ?? data.runtimeState
     const gateHealth = this.previewCampaignGate?.damageable.currentHp ?? previousState.gateHealth
@@ -1915,6 +1919,13 @@ export class Game {
     }
     this.hpBar.setFill(this.player.hpRatio)
     this.staminaBar.setFill(this.player.staminaRatio)
+  }
+
+  private _restoreCareerVeteranPlayerStateAndShowTerminalResult(): void {
+    this._restoreCareerVeteranPlayerState()
+    const state = this.defenseCampaignConfig?.careerVeteranOutpost?.runtimeState
+    if (!state?.battleFinished) return
+    this._showDefenseCampaignResult(state.phase === 'victory' ? 'victory' : 'defeat')
   }
 
   private _persistCareerVeteranOutpostCheckpoint(reason: CareerMissionCheckpointReason = { immediate: true }): boolean {
@@ -2066,6 +2077,7 @@ export class Game {
     this.veteranReinforcementMarch = null
     this.careerOutpostDefenseGuide?.dispose()
     this.careerOutpostDefenseGuide = null
+    this.careerVeteranActorMounts.clear()
     this.defenseCampaignHud?.destroy()
   }
 
@@ -2129,7 +2141,20 @@ export class Game {
     const originalDefendersAlive = this.campaignOriginalDefenders.filter(
       npc => !npc.dead,
     ).length
-    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction)
+    let pendingRescue = 0
+    if (veteranOutpost?.templateId === 'veteran-dread-outpost'
+      && this.campaignReinforcementArrived
+      && this.campaignSpawnWave === 'reinforcement') {
+      const mission = this.careerProfile?.activeMission
+      const deadFriendlyActorIds = new Set(mission?.deadFriendlyActorIds ?? [])
+      for (let index = this.campaignSpawnQueueIndex; index < this.campaignSpawnQueue.length; index++) {
+        const actorId = this.campaignSpawnQueue[index].actorId
+        if (actorId && !deadFriendlyActorIds.has(actorId) && (mission?.actorHealth?.[actorId]?.hp ?? 1) > 0) {
+          pendingRescue++
+        }
+      }
+    }
+    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction) + pendingRescue
     const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
     const pendingAttackers = this.campaignSpawnWave === 'attackers'
       ? Math.max(0, this.campaignSpawnQueue.length - this.campaignSpawnQueueIndex)

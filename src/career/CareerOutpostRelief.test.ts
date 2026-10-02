@@ -143,6 +143,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(50)
     const game = Object.assign(Object.create(Game.prototype), {
       careerStore: store, careerProfile: profile, defenseCampaignConfig: config, _showNotify: vi.fn(),
+      careerVeteranActorMounts: new Map(),
     }) as { _persistCareerReliefCharge: () => void; careerProfile: CareerProfile }
     const persist = vi.fn(() => game._persistCareerReliefCharge()), follow = vi.fn(), charge = vi.fn()
     const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, persist, charge, false, { chargeAfterFollow: true })
@@ -256,6 +257,7 @@ describe('Relief result and Game integration', () => {
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
       reliefMarch: { update: vi.fn() }, careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
       battleStats: { snapshot: () => stats }, npcs: [], mounts: [], player: { dead: true }, controlMode: 'spectator',
+      careerVeteranActorMounts: new Map(),
       campaignOriginalDefenders: [], campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(),
       _campaignFactionAlive: (faction: string) => faction === 'roman' ? allies : enemies,

@@ -24,6 +24,7 @@ function harness(career = true) {
     battleStats: { snapshot: () => snapshot }, npcs: [], mounts: [], player: { dead: false }, controlMode: 'player',
     campaignOriginalDefenders: Array.from({ length: 80 }, () => ({ dead: false })),
     campaignSpawnWave: null, campaignSpawnQueue: [], campaignReinforcementSpawned: false,
+    careerVeteranActorMounts: new Map(),
     campaignAttackersStarted: true,
     _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(), _showNotify: vi.fn(),
     _campaignFactionAlive: (faction: string) => faction === 'roman' ? 80 : 0,

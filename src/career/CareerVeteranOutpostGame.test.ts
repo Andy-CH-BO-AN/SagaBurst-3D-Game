@@ -4,6 +4,7 @@ import { createCampaignOutpost } from '../campaign/CampaignOutpost'
 import { applyCampaignBreachOrders } from '../campaign/CampaignGate'
 import { DefenseCampaignRuntime } from '../campaign/DefenseCampaignRuntime'
 import { Faction, AIType } from '../world/NPC'
+import { NPC } from '../world/NPC'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { Game } from '../Game'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
@@ -43,6 +44,7 @@ function createGameFixture(launch: ReturnType<typeof createCareerVeteranOutpostL
   game.campaignOriginalDefenders = []
   game.npcs = []
   game.mounts = []
+  game.careerVeteranActorMounts = new Map()
   game._showNotify = vi.fn()
   game._startCareerVeteranReinforcementMarch = vi.fn()
   game._spawnNpc = vi.fn((spec) => {
@@ -114,6 +116,100 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.campaignReinforcementArrived).toBe(false)
   })
 
+  it('counts saved living rescue riders still queued while an arrived wave reloads', () => {
+    const profile = veteranProfile('veteran-dread-outpost', 'arrived-rescue')
+    const plan = createCareerVeteranOutpostSpawnPlan(createCareerVeteranOutpostLaunch(profile), 'reinforcement')
+    const deadActorId = plan.npcSpecs[0].actorId!
+    profile.activeMission!.outpostBattleState = {
+      phase: 'assault', activePhase: 'assault', assaultElapsedSeconds: 105,
+      deploymentRemainingSeconds: 0, reinforcementTriggered: true,
+      reinforcementSpawned: true, reinforcementArrived: true,
+      reinforcementQueueIndex: 50, assaultChargeTriggered: true, battleFinished: false,
+    }
+    profile.activeMission!.deadFriendlyActorIds = [deadActorId]
+    profile.activeMission!.actorHealth = { [deadActorId]: { hp: 0, mountHp: 0 } }
+    const launch = createCareerVeteranOutpostLaunch(profile)
+    const game = createGameFixture(launch, profile)
+    const initialFriendlies = Array.from({ length: 99 }, () => ({ dead: true, characterFaction: 'roman' }))
+    const enemies = Array.from({ length: 50 }, () => ({ dead: false, characterFaction: 'viking' }))
+    game.npcs = [...initialFriendlies, ...enemies]
+    game.campaignOriginalDefenders = initialFriendlies
+    game.campaignReinforcementArrived = true
+    game.campaignReinforcementSpawned = true
+    game.player = { dead: true, hp: 0, staminaValue: 0 }
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      reinforcementsEnabled: true,
+      reinforcementDelaySeconds: 90,
+      initialSnapshot: launch.careerVeteranOutpost!.runtimeState,
+    })
+    game.defenseCampaignHud = { updateGate: vi.fn(), update: vi.fn() }
+    game.previewCampaignGate = { state: 'closed' }
+    game._showDefenseCampaignResult = vi.fn()
+
+    game._resumeCareerVeteranReinforcementIfNeeded()
+    expect(game.campaignSpawnQueue).toHaveLength(50)
+    game._updateDefenseCampaign(0.1)
+
+    expect(game.npcs.at(-1)).toMatchObject({ combatantId: deadActorId, dead: true })
+    expect(game.campaignSpawnQueue).toHaveLength(50)
+    expect(game.campaignSpawnQueueIndex).toBe(1)
+    expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false })
+    expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+
+    while (game.campaignSpawnWave === 'reinforcement') game._spawnNextDefenseCampaignNpc()
+    const rehydrated = game.npcs.filter((npc: any) => npc.characterFaction === 'roman' && npc.combatantId?.startsWith('arrived-rescue'))
+    expect(rehydrated.filter((npc: any) => !npc.dead)).toHaveLength(49)
+    rehydrated.forEach((npc: any) => { npc.dead = true })
+    game._updateDefenseCampaign(0.1)
+
+    expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'defeat', battleFinished: true })
+    expect(game._showDefenseCampaignResult).toHaveBeenCalledExactlyOnceWith('defeat')
+  })
+
+  it('restores and checkpoints a dead rider mount through its stable actor association', () => {
+    const profile = veteranProfile('veteran-dread-outpost', 'dead-rider-mount')
+    const launch = createCareerVeteranOutpostLaunch(profile)
+    const spec = createCareerVeteranOutpostSpawnPlan(launch, 'reinforcement').npcSpecs.find(candidate => candidate.tier === 3)!
+    profile.activeMission!.reinforcementActorIds = [...(profile.activeMission!.reinforcementActorIds ?? []), spec.actorId!]
+    profile.activeMission!.deadFriendlyActorIds = [spec.actorId!]
+    profile.activeMission!.actorHealth = { [spec.actorId!]: { hp: 0, mountHp: 0 } }
+    const scene = new THREE.Scene()
+    const npc = new NPC(scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, 3,
+      spec.cavalry, spec.loadout, spec.presetId, spec.squadId, spec.actorId, undefined,
+      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile)
+    const mount = {
+      group: new THREE.Group(), currentHp: 100, maxHp: 100, dead: false,
+      takeDamage(damage: number) { this.currentHp = Math.max(0, this.currentHp - damage); this.dead = this.currentHp <= 0 },
+      releaseRider: vi.fn(), dispose: vi.fn(),
+    }
+    npc.mount = mount as any
+    const game = createGameFixture(createCareerVeteranOutpostLaunch(profile), profile)
+    game.npcs = [npc]
+    game.mounts = [mount]
+    game.careerVeteranActorMounts = new Map()
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      reinforcementsEnabled: true,
+      reinforcementDelaySeconds: 90,
+      initialSnapshot: launch.careerVeteranOutpost!.runtimeState,
+    })
+    game.campaignReinforcementArrived = true
+    game.player = { dead: false, hp: 100, staminaValue: 40 }
+    game.battleStats = { checkpoint: () => ({ damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }) }
+    game.startingHorse = null
+    game.previewCampaignGate = null
+
+    game._restoreCareerVeteranNpcState(npc)
+    const checkpoint = game._buildCareerVeteranOutpostCheckpoint()
+
+    expect(npc.dead).toBe(true)
+    expect(npc.mount).toBeNull()
+    expect(mount.dead).toBe(true)
+    expect(game.careerVeteranActorMounts.get(spec.actorId!)).toBe(mount)
+    expect(checkpoint.actorHealth[spec.actorId!]).toEqual({ hp: 0, mountHp: 0 })
+    game._disposeCareerOutpostBattleActors()
+    expect(game.careerVeteranActorMounts.size).toBe(0)
+  })
+
   it('persists the full default checkpoint when Veteran IV reaches its charge trigger before the first save', () => {
     const profile = veteranProfile('veteran-outpost-assault', 'fresh-assault')
     expect(profile.activeMission!.outpostBattleState).toBeUndefined()
@@ -135,6 +231,72 @@ describe('Veteran Campaign Outpost Game integration', () => {
       phase: 'assault', activePhase: 'assault', assaultChargeTriggered: true,
     })
     expect(createCareerVeteranOutpostLaunch(store.load()!).careerVeteranOutpost!.runtimeState.assaultChargeTriggered).toBe(true)
+  })
+
+  it('restores a saved-dead player before claiming an unclaimed terminal Veteran IV victory', () => {
+    const profile = veteranProfile('veteran-outpost-assault', 'dead-player-victory')
+    profile.activeMission!.playerDead = true
+    profile.activeMission!.playerHp = 0
+    profile.activeMission!.outpostBattleState = {
+      phase: 'victory', activePhase: 'assault', assaultElapsedSeconds: 22,
+      deploymentRemainingSeconds: 0, reinforcementTriggered: false,
+      reinforcementSpawned: false, reinforcementArrived: false,
+      reinforcementQueueIndex: 0, assaultChargeTriggered: true, battleFinished: true,
+    }
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    } as Storage
+    const store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const launch = createCareerVeteranOutpostLaunch(profile)
+    const game = createGameFixture(launch, profile)
+    const player = {
+      dead: false, maxHp: 100, hp: 100, staminaValue: 50,
+      get hpRatio() { return this.hp / this.maxHp },
+      get staminaRatio() { return this.staminaValue / 100 },
+      setHp(value: number) { this.hp = value },
+      setStamina(value: number) { this.staminaValue = value },
+      detachFromMountOnDeath: vi.fn(),
+      takeDamage(damage: number) { this.hp = Math.max(0, this.hp - damage); this.dead = this.hp <= 0 },
+    }
+    game.player = player
+    game.hpBar = { setFill: vi.fn() }
+    game.staminaBar = { setFill: vi.fn() }
+    game.npcs = []
+    game.mounts = []
+    game.startingHorse = null
+    game.previewCampaignGate = null
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      eliminationObjective: true,
+      initialSnapshot: launch.careerVeteranOutpost!.runtimeState,
+    })
+    game.defenseCampaignHud = { showResult: vi.fn() }
+    game.careerStore = store
+    game.veteranOutpostCheckpoint = new CareerMissionCheckpoint(
+      () => store.load()!,
+      next => store.save(next),
+    )
+    game.battleStats = {
+      checkpoint: () => ({ damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }),
+      snapshot: (_npcs: unknown, currentPlayer: typeof player) => ({
+        player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !currentPlayer.dead },
+        squads: [],
+      }),
+    }
+
+    game._restoreCareerVeteranPlayerStateAndShowTerminalResult()
+    game._restoreCareerVeteranPlayerStateAndShowTerminalResult()
+
+    const settled = store.load()!
+    expect(player.dead).toBe(true)
+    expect(settled.activeMission!.result).toMatchObject({
+      outcome: 'victory', claimed: true, stats: { survived: false }, merit: { total: 80 },
+    })
+    expect(settled.lifetimeStats.deaths).toBe(1)
+    expect(settled.claimedBattleIds.filter(id => id === 'dead-player-victory')).toHaveLength(1)
   })
 
   it('keeps a claimed early Dread defeat locked while the resumed battle timeline advances', () => {
