@@ -1,3 +1,4 @@
+import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { RECRUIT_MISSION_CATALOG, availableRecruitMissions } from '../src/career/CareerMissionCatalog'
@@ -155,7 +156,7 @@ describe('Mission identity, attribution and claim', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'return-both', 'bandit', 'captain')
     profile.activeMission.phase = 'RETURNING'
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     const player = { combatPosition: new THREE.Vector3(300, 0, 300) }
     controller.readProfile = () => profile
@@ -187,7 +188,7 @@ describe('Mission identity, attribution and claim', () => {
     const leader = { dead: false, combatPosition: stage.clone(), setTacticalOrder: vi.fn() }
     const followers = Array.from({ length: 18 }, () => ({ dead: false, combatPosition: new THREE.Vector3(0, 0, 0), setTacticalOrder: vi.fn() }))
     const bandit = { dead: false, encounterIsAlerted: false, triggerEncounterAlert: vi.fn() }
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
@@ -195,7 +196,7 @@ describe('Mission identity, attribution and claim', () => {
     controller.camps = [{ id: 0, center: new THREE.Vector3(170, 0, -165), ambient: [], mission: [bandit] }]
     controller.friendlies = [leader, ...followers]
     controller.leader = leader
-    controller.route = []; controller.routeIndex = 0; controller.perceptionElapsed = 0; controller.statsCheckpointElapsed = 0
+    controller.route = []; controller.routeIndex = 0; controller.perceptionElapsed = 0
     controller.guide = { update: vi.fn() }
     controller.detectCampProximity = vi.fn(); controller.persistRuntimeProgress = vi.fn(); controller.advanceRoute = vi.fn()
     controller.marchObjective = () => stage
@@ -217,7 +218,7 @@ describe('Mission identity, attribution and claim', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-02', 0, 12, 0, 'separate-guide-stage', 'bandit', 'captain')
     profile.activeMission.phase = 'MARCHING'
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.assemblyPoint = () => new THREE.Vector3(0, 0, 0)
@@ -243,7 +244,7 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission.patrolStage = 1
     profile.activeMission.routeStage = 3
     profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.camps = [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: [] }]
@@ -276,7 +277,7 @@ describe('Mission identity, attribution and claim', () => {
     const player = { combatPosition: new THREE.Vector3(400, 0, 400), dead: false }
     const deadFriendlies = profile.activeMission.friendlyActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(), tacticalOrder: 'charge', setTacticalOrder: vi.fn() }))
     const deadBandits = profile.activeMission.targetActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(), encounterIsAlerted: false }))
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
@@ -284,7 +285,7 @@ describe('Mission identity, attribution and claim', () => {
     controller.camps = [{ id: 0, center: new THREE.Vector3(120, 0, 120), ambient: [], mission: deadBandits }]
     controller.friendlies = deadFriendlies; controller.leader = null; controller.world = { obstacles: [] }
     controller.guide = { hide: vi.fn(), update: vi.fn() }; controller.route = []; controller.routeIndex = 0
-    controller.tracker = null; controller.statsCheckpointElapsed = 0; controller.perceptionElapsed = 0
+    controller.tracker = null; controller.perceptionElapsed = 0
     const template = RECRUIT_MISSION_CATALOG.find(mission => mission.id === 'recruit-patrol-01') as any
     const objectives = controller.patrolWaypoints(template, controller.camps[0].center)
     profile.activeMission.patrolStage = controller.patrolEncounterStage(template, profile.activeMission.id, controller.camps[0].center)
@@ -314,12 +315,12 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission.phase = 'ENGAGING'
     const active = profile.activeMission
     const events = new CombatEventStream()
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.camps = [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [{ combatantId: active.targetActorIds[0], dead: false }] }]
-    controller.friendlies = []; controller.route = []; controller.routeIndex = 0; controller.statsCheckpointElapsed = 5
+    controller.friendlies = []; controller.route = []; controller.routeIndex = 0; controller.checkpoint.advance(5)
     controller.tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
     const playerSource = { actorId: 'player', actorType: 'player' as const, allegiance: Faction.PLAYER, characterFaction: 'roman' as const }
     const friendlySource = { actorId: 'captain', actorType: 'npc' as const, allegiance: Faction.TOWN, characterFaction: 'roman' as const }
@@ -340,7 +341,7 @@ describe('Mission identity, attribution and claim', () => {
     let profile = createCareerProfile('roman')
     const alert = vi.fn()
     const bandit = { dead: false, combatantId: 'ambient:0:0', combatPosition: new THREE.Vector3(), encounterAggroState: 'idle', triggerEncounterAlert: alert }
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.player = () => ({ combatPosition: new THREE.Vector3(2, 0, 0), dead: false })
@@ -354,7 +355,7 @@ describe('Mission identity, attribution and claim', () => {
     profile.activeMission.phase = 'ENGAGING'
     controller.commit = (next: typeof profile) => { profile = next; return true }
     controller.friendlies = [{ dead: true, combatantId: 'captain' }]
-    controller.leader = null; controller.route = []; controller.routeIndex = 0; controller.tracker = null; controller.statsCheckpointElapsed = 0
+    controller.leader = null; controller.route = []; controller.routeIndex = 0; controller.tracker = null
     bandit.encounterAggroState = 'returning'; alert.mockClear(); controller.perceptionElapsed = .2
     controller.updateFlow(.2, 0)
     expect(alert).toHaveBeenCalledOnce()
@@ -372,7 +373,7 @@ describe('Mission identity, attribution and claim', () => {
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn(),
     }
     const missionBandits = profile.activeMission.targetActorIds.map(combatantId => ({ dead: true, combatantId, combatPosition: new THREE.Vector3(500, 0, 500) }))
-    const controller = Object.create(BanditMissionController.prototype) as any
+    const controller = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
     controller.player = () => ({ dead: false })
     controller.readProfile = () => profile
     controller.commit = (next: typeof profile) => { profile = next; return true }
@@ -381,7 +382,7 @@ describe('Mission identity, attribution and claim', () => {
     controller.friendlies = [leader]; controller.leader = leader; controller.world = { obstacles: [] }
     controller.navigation = { beginFrame: vi.fn(), queryPath: vi.fn(() => ({ status: 'blocked' })) }
     controller.guide = { hide: vi.fn(), update: vi.fn() }; controller.route = []; controller.routeIndex = 0
-    controller.tracker = null; controller.statsCheckpointElapsed = 0; controller.perceptionElapsed = 0
+    controller.tracker = null; controller.perceptionElapsed = 0
     const template = RECRUIT_MISSION_CATALOG.find(mission => mission.id === 'recruit-patrol-01') as any
     const objectives = controller.patrolWaypoints(template, controller.camps[0].center)
     profile.activeMission.patrolStage = controller.patrolEncounterStage(template, profile.activeMission.id, controller.camps[0].center)
