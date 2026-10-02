@@ -147,7 +147,7 @@ export class TownScene {
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     this.world = new TownWorld(careerTownFaction(profile), this.scene)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
-    this.skills.setSkillState(profile.skills)
+    this.skills.setSkillState(profile.skills ?? {})
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
@@ -324,7 +324,7 @@ export class TownScene {
 
   private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
     if (appliedDamage <= 0) return
-    const previousSkills = this.profile.skills
+    const previousSkills = this.profile.skills ?? this.skills.skillState
     const levelsGained = this.skills.addXp(this.skillForPlayerDamage(method), appliedDamage, sound)
     const next = cloneCareerProfile(this.profile)
     next.skills = this.skills.skillState
