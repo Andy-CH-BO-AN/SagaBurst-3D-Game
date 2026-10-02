@@ -1,6 +1,9 @@
+import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { CombatEventStream, type CombatEvent } from '../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle } from '../src/combat/DamageRouter'
+import { calculateMountImpactDamage } from '../src/combat/CombatBalance'
+import { resolveMountImpacts } from '../src/combat/MountImpact'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { resolveCareerPlayerMaxHp } from '../src/career/CareerPlayerProfile'
@@ -20,6 +23,8 @@ import {
   skillHpBonus,
 } from '../src/rpg/SkillManager'
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
+import { MountState } from '../src/world/Mount'
+import { Faction } from '../src/world/NPC'
 import { DEFAULT_SAVE, SaveManager } from '../src/save/SaveManager'
 
 class MemoryStorage implements Storage {
@@ -168,6 +173,83 @@ describe('Career skill progression', () => {
     expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
   })
 
+
+
+  it('applies Mounted Impact damage multiplier before awarding actual-damage XP', () => {
+    const events: CombatEvent[] = []
+    const stream = new CombatEventStream()
+    stream.subscribe(event => events.push(event))
+
+    const playerMount: any = {
+      state: MountState.CONTROLLED,
+      dead: false,
+      skipImpactThisFrame: false,
+      movementSpeed: 10,
+      isSprinting: false,
+      group: { position: new THREE.Vector3(0, 0, 2), uuid: 'player-mount' },
+      previousPosition: new THREE.Vector3(0, 0, 0),
+      canImpact: () => true,
+    }
+    const player: any = {
+      currentMount: playerMount,
+      characterFaction: 'roman',
+      targetable: true,
+    }
+    const npc: any = {
+      dead: false,
+      faction: Faction.ENEMY,
+      shieldId: null,
+      isMounted: false,
+      mount: null,
+      hp: 100,
+      name: 'Impact Target',
+      combatantId: 'impact-target',
+      characterFaction: 'viking',
+      combatPosition: new THREE.Vector3(0, 0, 1),
+      takeDamage(amount: number) {
+        if (this.dead) return false
+        this.hp = Math.max(0, this.hp - amount)
+        this.dead = this.hp <= 0
+        return true
+      },
+      get hpRatio() { return this.hp / 100 },
+    }
+
+    resolveMountImpacts([playerMount], player, [npc], 1, {
+      onDamagePlayer: () => ({
+        hitSuccess: false,
+        requestedDamage: 0,
+        appliedDamage: 0,
+        targetId: 'player',
+        targetName: 'Player',
+        killed: false,
+        hpRatio: 1,
+        isMountHit: false,
+        mountDied: false,
+      }),
+      combatEvents: stream.emit,
+      playerDamageMultiplier: 3,
+    })
+
+    const expectedDamage = calculateMountImpactDamage(10, false) * 3
+    expect(100 - npc.hp).toBe(expectedDamage)
+    const award = events
+      .map(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false))
+      .find(Boolean)
+    expect(award).toEqual({ skill: 'mountedImpact', xp: expectedDamage })
+  })
+
+  it('uses the selected melee skill multiplier for axe and greatsword stances', () => {
+    const manager = new SkillManager()
+    manager.setSkillState({
+      oneHanded: { level: 1, xp: 0 },
+      twoHanded: { level: 50, xp: 0 },
+    })
+
+    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, false)!)).toBe(3)
+    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, true)!)).toBe(1)
+    expect(manager.getMultiplier(resolveCombatSkill('melee', { animationKind: 'greatsword' }, false)!)).toBe(3)
+  })
 
   it('integrates DamageRouter mount routing with melee progression without double counting on mount death', () => {
     const events: CombatEvent[] = []
