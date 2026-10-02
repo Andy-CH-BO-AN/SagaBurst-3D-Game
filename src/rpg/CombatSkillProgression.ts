@@ -14,6 +14,16 @@ export interface SkillProgressionAward {
   xp: number
 }
 
+export interface PlayerSkillProgressionStatus {
+  dead: boolean
+  spectatorOnly?: boolean
+  observer?: boolean
+}
+
+export function canAwardPlayerSkillProgression(status: PlayerSkillProgressionStatus): boolean {
+  return !status.dead && !status.spectatorOnly && !status.observer
+}
+
 export function resolveCombatSkill(
   method: CombatDamageMethod,
   meleeWeapon?: Pick<WeaponData, 'animationKind'> | null,
@@ -48,6 +58,16 @@ export function resolveSkillProgressionAward(
 
   const xp = Math.max(0, event.appliedDamage)
   return xp > 0 ? { skill, xp } : null
+}
+
+export function resolveActivePlayerSkillProgressionAward(
+  event: CombatEvent,
+  status: PlayerSkillProgressionStatus,
+  meleeWeapon?: Pick<WeaponData, 'animationKind'> | null,
+  hasShield = false,
+): SkillProgressionAward | null {
+  if (!canAwardPlayerSkillProgression(status)) return null
+  return resolveSkillProgressionAward(event, meleeWeapon, hasShield)
 }
 
 export function resolveSkillAdjustedMaxHp(
