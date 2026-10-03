@@ -73,7 +73,7 @@ export class ArmyCommandUI {
   ): void {
     this.wheelHint.textContent = wheelMode === 'command'
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
-      : `滾輪：切換近戰武器${selectedWeaponName ? `（${selectedWeaponName}）` : ''}　[Q] ${submenuOpen ? '上一頁' : '滾輪選擇命令'}`
+      : `滾輪：切換武器／盾牌${selectedWeaponName ? `（${selectedWeaponName}）` : ''}　[Q] ${submenuOpen ? '上一頁' : '滾輪選擇命令'}`
     this.targets.classList.toggle('hidden', submenuOpen)
     this.commands.classList.toggle('visible', submenuOpen)
 

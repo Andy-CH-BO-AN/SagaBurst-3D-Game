@@ -228,7 +228,7 @@ export class NPC {
   }
 
   get hasActiveRangedWeapon(): boolean {
-    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
+    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !this.shieldId
   }
 
   get combatAmmo(): number { return this.arrows }
@@ -790,6 +790,8 @@ export class NPC {
 
   rebuildShield(): void {
     if (this.faction === Faction.BANDIT) return
+    // Ranged loadouts (bows and javelins) cannot also carry an active shield.
+    if (this.rangedWeaponId) this.shieldId = null
     if (this.builtShieldId === this.shieldId) return
     this.builtShieldId = this.shieldId
     this.shield.equip(this.shieldId)

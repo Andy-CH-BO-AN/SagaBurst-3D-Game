@@ -42,6 +42,7 @@ export class InventoryManager {
     this.equippedMeleeId = loadout.meleeWeaponId
     this.equippedRangedId = loadout.rangedWeaponId
     this.equippedShieldId = loadout.shieldId
+    this.rangedEnabled = Boolean(loadout.rangedWeaponId) && !loadout.shieldId
     this.items = initialLoadout || fixed
       ? [
           { id: loadout.meleeWeaponId, quantity: 1 },
@@ -77,16 +78,17 @@ export class InventoryManager {
     return this.equippedShieldId ? ARMORS[this.equippedShieldId] : null
   }
 
-  get saveState(): { items: InventoryStack[]; equippedMeleeId: string; equippedRangedId: string; equippedShieldId: string | null } {
+  get saveState() {
     return {
       items: this.items.map(item => ({ ...item })),
       equippedMeleeId: this.equippedMeleeId,
       equippedRangedId: this.equippedRangedId,
       equippedShieldId: this.equippedShieldId,
+      rangedEnabled: this.rangedEnabled,
     }
   }
 
-  loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null }): void {
+  loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null; rangedEnabled?: boolean }): void {
     if (state.items && state.items.length > 0) {
       this.items = state.items.map(i => ({ id: i.id, quantity: i.quantity || 1 }))
     } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
@@ -117,6 +119,7 @@ export class InventoryManager {
       this.equippedRangedId = T4_RANGER_BOW_RANGED_ID
       if (!this.items.some(item => item.id === T4_RANGER_BOW_RANGED_ID)) this.addWeapon(T4_RANGER_BOW_RANGED_ID)
     }
+    this.rangedEnabled = !this.equippedShieldId && (state.rangedEnabled ?? Boolean(this.equippedRangedId))
   }
 
   addWeapon(id: string): number {
@@ -132,7 +135,7 @@ export class InventoryManager {
     }
   }
 
-  equipWeapon(id: string): boolean {
+  canEquipWeapon(id: string): boolean {
     const weapon = WEAPONS[id]
     const armor = ARMORS[id]
     if (!weapon && !armor) return false
@@ -140,18 +143,29 @@ export class InventoryManager {
     if (this.heroId === 'maki-archer-t4' && weapon?.type === 'ranged' && weapon.combatKind !== 'bow') return false
     const hasItem = this.items.some(item => item.id === id)
     if (!hasItem) return false
+    return true
+  }
+
+  equipWeapon(id: string): boolean {
+    if (!this.canEquipWeapon(id)) return false
+    const weapon = WEAPONS[id], armor = ARMORS[id]
 
     if (weapon) {
       if (weapon.type === 'melee') {
         this.equippedMeleeId = id
+        this.meleeEnabled = true
         return true
       } else if (weapon.type === 'ranged') {
         this.equippedRangedId = id
+        this.rangedEnabled = true
+        this.equippedShieldId = null
         return true
       }
     } else if (armor) {
       if (armor.type === 'shield') {
         this.equippedShieldId = id
+        this.shieldEnabled = true
+        this.rangedEnabled = false
         return true
       }
     }
@@ -161,6 +175,8 @@ export class InventoryManager {
   unequipShield(): void { this.equippedShieldId = null }
 
   isEquipped(id: string): boolean {
-    return this.equippedMeleeId === id || this.equippedRangedId === id || this.equippedShieldId === id
+    return (this.meleeEnabled && this.equippedMeleeId === id)
+      || (this.rangedEnabled && this.equippedRangedId === id)
+      || (this.shieldEnabled && this.equippedShieldId === id)
   }
 }

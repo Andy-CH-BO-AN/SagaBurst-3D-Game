@@ -179,7 +179,7 @@ function townFixture() {
   profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'observer', 'bandit', 'captain')
   Object.assign(town, {
     profile, player, camera: new THREE.PerspectiveCamera(58, 1, .1, 400), spectator: null,
-    event: { hostile: false, evaluate: vi.fn(() => null) }, input: { clear: vi.fn(), keys: {}, consumeMouseDelta: () => ({ dx: 0, dy: 0 }), consumeLeftClick: vi.fn(), consumeLeftClickRelease: vi.fn(), consumeKeyE: vi.fn() },
+    event: { hostile: false, evaluate: vi.fn(() => null) }, input: { consumeWheelStep: () => 0, clear: vi.fn(), keys: {}, consumeMouseDelta: () => ({ dx: 0, dy: 0 }), consumeLeftClick: vi.fn(), consumeLeftClickRelease: vi.fn(), consumeKeyE: vi.fn() },
     equipment: { close: vi.fn(), open: vi.fn(), visible: false }, target: 'merchant', hasPreviousTip: true,
     commit: vi.fn((next: typeof profile) => { town.profile = next; return true }),
     orbit: { cameraYaw: 0, getAimPoint: () => new THREE.Vector3(), update: vi.fn() },
@@ -189,6 +189,7 @@ function townFixture() {
     stableHorses: [], mounts: [], cat: { dead: true }, serviceMarkers: new Map(), hud: { textContent: '', style: {} }, hint: { textContent: '', style: {} },
     damageNumbers: { update: vi.fn() }, renderer: { render: vi.fn() }, scene: new THREE.Scene(),
     duel: { active: undefined, phase: null, countdownRemaining: 0, combatRemaining: 0, guideTarget: null },
+    weaponWheelUI: { update: vi.fn() }, weaponWheel: { cycle: vi.fn() },
     duelHud: { update: vi.fn() }, duelGuide: { updateDuel: vi.fn() },
     missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn(), updateDuelDefeatedActors: vi.fn() },
     updatePointerPrompt: vi.fn(), melee: vi.fn(), updateCareerHorseAudio: vi.fn(), updateShots: vi.fn(), updateAmbient: vi.fn(), finishMission: vi.fn(),

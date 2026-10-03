@@ -105,7 +105,7 @@ export class EquipmentUI {
         dmgText = `傷害: ${scaledMin}~${scaledMax} | 蓄力: ${(item as any).speedOrCharge}s`
       } else if (item.type === 'shield') {
         // armor data
-        dmgText = `Shield Impact: ${(item as any).shieldImpactMax} ｜ 按住 Space 舉盾`
+        dmgText = `Shield Impact: ${(item as any).shieldImpactMax} ｜ 按住右鍵舉盾`
       }
 
       const qtyBadge = quantity > 1 ? `<span style="background: rgba(232, 201, 106, 0.25); border: 1px solid #e8c96a; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff;">x${quantity}</span>` : ''

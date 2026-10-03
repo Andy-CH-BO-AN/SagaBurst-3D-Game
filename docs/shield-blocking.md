@@ -12,8 +12,8 @@ instance; a projectile stops after its one accepted contact.
 - Exact exhaustion blocks all damage on that hit and breaks the shield.
 - Broken shields are hidden and no longer collide. Re-equipping does not repair
   them. A new battle/mission/respawn resets this runtime-only state.
-- Space is hold-to-raise when carrying a shield; without a shield it retains jump.
-  Spectator Space remains camera-up. Attack is still allowed, then held Space
+- RMB is hold-to-raise with a shield, or aim with a ranged weapon. Space jumps.
+  Spectator Space remains camera-up. Attack is still allowed, then held RMB
   resumes the guard pose. Defense raises intact NPC shields without changing AI.
 - Blocking uses the existing level-1-through-50 XP curve and persistence.
   Each Blocking level grants +1 max HP (including level 1), separately from the
@@ -50,10 +50,18 @@ any shield. Far/idle NPC shields are not continuously updated for collision.
 
 `tests/ShieldBlocking.test.ts` covers impact tiers, axes, exact break, overflow,
 level-50 reduction, body/side/rear/feet bypass, transformed OBBs, sweep precedence,
-friendly/self XP exclusion, broken shields, Defense, Space movement/attack,
+friendly/self XP exclusion, broken shields, Defense, RMB movement/attack,
 Career persistence, HP, and high-speed arrow/pilum interception. Actual v2 GLBs
 are loaded in `EquipmentPose.test.ts` to check frontal coverage, exposed feet and
 unchanged leg transforms. These numerical checks are not visual approval.
 
 Manual follow-up: front/side/rear attacks, moving guard and attack recovery on both
 factions and mounted riders; Career restart/death/return; 200v200 frame profiling.
+
+## Updated equipment controls
+
+- Player and NPC ranged equipment (including javelins) is mutually exclusive with shields.
+- Selecting a bow/javelin stows the shield; selecting a shield stows ranged equipment. Ownership is preserved.
+- Battle and Career share immediate wheel selection. Equipped items are excluded; stowed owned items remain available.
+- Q command navigation is unchanged. UI panels and spectator mode suppress weapon switching.
+- The shared equipment HUD stacks above ammunition and shows current equipment separately from available choices.

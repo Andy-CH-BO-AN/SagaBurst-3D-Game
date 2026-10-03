@@ -1,3 +1,5 @@
+import { WeaponWheel } from '../player/WeaponWheel'
+import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import * as THREE from 'three'
 import { acceptCavalrySweep, sweepPlayerSpawn, SWEEP_YAW } from '../career/CavalrySweep'
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
@@ -71,6 +73,8 @@ let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; age: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian' }
 export class TownScene {
+  private readonly weaponWheel = new WeaponWheel()
+  private readonly weaponWheelUI = new WeaponWheelUI()
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .1, 400)
   readonly renderer: THREE.WebGLRenderer
@@ -288,7 +292,7 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
+    if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q / Esc 關閉面板'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
@@ -945,7 +949,7 @@ export class TownScene {
     this.player.restoreForTown()
     if (this.spectator) {
       this.spectator = null
-      document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · Tab 裝備／拔刀 · E 交談 · Q / Esc 關閉面板'
+      document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q / Esc 關閉面板'
       this.orbit.update(this.input)
     }
     this.hp.setFill(1)
@@ -1433,6 +1437,10 @@ export class TownScene {
     if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
+      if (!this.player.dead && !this.spectator) {
+        let step: -1 | 0 | 1
+        while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
+      }
       if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
       this.player.group.updateWorldMatrix(true, true)
       if (!this.player.dead) this.melee()
@@ -1468,6 +1476,7 @@ export class TownScene {
       this.missionCombat.updateDuelDefeatedActors(dt)
     }
     const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
+    this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
@@ -1499,6 +1508,7 @@ export class TownScene {
     this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
+    this.weaponWheelUI.dispose()
     this.duelHud.dispose()
     this.duelGuide.dispose()
     sound?.cancelCareerAudio()

@@ -483,12 +483,10 @@ export class Player {
 
   private _tryTriggerMeleeAttack(
     equippedMelee: WeaponData | null | undefined,
-    blockedAim: boolean,
     wantsBowAim = false,
   ): boolean {
     if (
       wantsBowAim ||
-      blockedAim ||
       this.aiming ||
       this.animator.busy ||
       !equippedMelee
@@ -702,7 +700,7 @@ export class Player {
 
     if (this.shieldHud) {
       this.shieldHud.hidden = this.isDead || this.shield.shieldImpactMax === 0
-      const text = this.shield.shieldBroken ? 'Shield Broken' : `Shield: ${this.shield.shieldImpactRemaining} / ${this.shield.shieldImpactMax} · 按住 Space 舉盾`
+      const text = this.shield.shieldBroken ? 'Shield Broken' : `Shield: ${this.shield.shieldImpactRemaining} / ${this.shield.shieldImpactMax} · 按住右鍵舉盾`
       if (this.shieldHud.textContent !== text) this.shieldHud.textContent = text
     }
 
@@ -722,21 +720,16 @@ export class Player {
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
 
-    if (input.isRightMouseDown && equippedRanged && inventoryManager?.shieldEnabled !== false && inventoryManager?.equippedShield) {
-      inventoryManager.unequipShield()
-    }
-    
     const equippedShield = inventoryManager?.shieldEnabled === false ? null : inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
-    this.shield.shieldRaised = this.shield.active && Boolean(input.keys.Space)
+    this.shield.shieldRaised = this.shield.active && input.isRightMouseDown
     this.shieldCollider.refreshVisibility()
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
     const isPilum = equippedRanged?.animationKind === 'pilum'
     this.animator.setEquipment(equippedMelee?.combatKind === 'lance', this.hasShield, this.currentMount?.type as MountedPoseKind | undefined)
     this.animator.setShieldRaised(this.shield.shieldRaised)
-    const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
-    quiverUI.setShieldBlocked?.(blockedAim)
+    quiverUI.setShieldBlocked?.(false)
     const wantAim = input.isRightMouseDown && Boolean(equippedRanged) && !equippedShield
     const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
@@ -779,8 +772,8 @@ export class Player {
       quiverUI.setChargeRatio(0)
 
       const isLance = equippedMelee?.combatKind === 'lance'
-      if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
-        if (!this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)) {
+      if (input.consumeLeftClick() && !wantsBowAim) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)) {
           if (isLance && this.animator.busy) {
             this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
           } else {
@@ -790,7 +783,7 @@ export class Player {
       } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
         this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
         if (this.meleeAttackBufferTimer > 0) {
-          this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
+          this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)
         }
       }
     }
@@ -927,7 +920,7 @@ export class Player {
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
       if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.combatKind === 'lance') {
-        this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
+        this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)
       }
     }
 
@@ -944,7 +937,7 @@ export class Player {
       this.currentMount.addControlledMovement(moveDir, effectiveSpeed, dt)
       
       // Jump (Mount)
-      if (input.keys['Space'] && !equippedShield && this.currentMount.onGround) {
+      if (input.keys['Space'] && this.currentMount.onGround) {
         this.currentMount.startJump(JUMP_VELOCITY * 1.6)
       }
 
@@ -988,7 +981,7 @@ export class Player {
       clampToPlayableWorld(this.group.position)
 
       // Jump
-      if (input.keys['Space'] && !equippedShield && this.onGround) {
+      if (input.keys['Space'] && this.onGround) {
         this.velY = JUMP_VELOCITY
         this.onGround = false
       }

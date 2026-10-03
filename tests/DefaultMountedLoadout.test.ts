@@ -36,13 +36,13 @@ describe('Default Mounted Loadout & Inventory', () => {
     expect(shieldStack?.quantity).toBe(1)
   })
 
-  it('equips Steel Lance, Elven Runebow, and Round Shield T3 by default', () => {
+  it('equips Steel Lance and Shield, keeping Elven Runebow stowed by default', () => {
     expect(inventory.equippedMelee.id).toBe('steel_lance')
     expect(inventory.equippedRanged.id).toBe('elven_runebow')
     expect(inventory.equippedShield?.id).toBe('round_shield_t3')
 
     expect(inventory.isEquipped('steel_lance')).toBe(true)
-    expect(inventory.isEquipped('elven_runebow')).toBe(true)
+    expect(inventory.isEquipped('elven_runebow')).toBe(false)
     expect(inventory.isEquipped('round_shield_t3')).toBe(true)
   })
 

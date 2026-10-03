@@ -134,6 +134,7 @@ import { SkillManager } from './rpg/SkillManager'
 import { SHIELD_CONFIG } from './combat/ShieldBlocking'
 import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
+import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
 import {
@@ -501,6 +502,7 @@ export class Game {
   private quiverUI: QuiverUI
   private skillManager: SkillManager
   private armyCommandUI: ArmyCommandUI
+  private weaponWheelUI = new WeaponWheelUI()
   private armyCommandController: ArmyCommandController
   private equipmentUI: EquipmentUI
   private soundManager: SoundManager
@@ -1018,7 +1020,7 @@ export class Game {
       this.inventoryManager = inventory
       this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
-      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
+      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵舉盾／瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
@@ -3142,9 +3144,10 @@ export class Game {
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player') {
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible) {
       this.armyCommandController.update()
     }
+    this.weaponWheelUI.update(this.inventoryManager, !this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible, this.armyCommandController.wheelMode)
 
     // Update Player logic (Player handles dead state internally without processing inputs)
     if (!this.isModelStudio) this.player.update(

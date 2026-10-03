@@ -119,15 +119,15 @@ describe('Routing, progression and controls', () => {
     expect(damageNpc(n, 20, context('body')).appliedDamage).toBe(20)
     n.shieldId = null; n.rebuildShield(); n.setTacticalOrder('defend'); expect(n.shield.shieldRaised).toBe(false)
   })
-  it('Space is hold, allows movement and attack, release lowers; broken shield stays broken', () => {
+  it('RMB is hold, allows movement and attack, release lowers; broken shield stays broken', () => {
     const p = new Player(new THREE.Scene()), inventory = new InventoryManager()
     inventory.equipWeapon('round_shield_t2')
     const ui = { setAiming() {}, setChargeRatio() {}, setShieldBlocked() {} }
-    const input = { keys: { Space: true, KeyW: true }, isRightMouseDown: false, isLeftMouseDown: false, consumeLeftClick: () => true, consumeLeftClickRelease: () => false }
+    const input = { keys: { Space: false, KeyW: true }, isRightMouseDown: true, isLeftMouseDown: false, consumeLeftClick: () => true, consumeLeftClickRelease: () => false }
     const update = () => p.update(.016, input as any, 0, new THREE.Vector3(0, 1, 10), [], { setFill() {} } as any, ui as any, { playSwing() {} } as any, inventory)
     const z = p.position.z; update(); expect(p.shield.shieldRaised).toBe(true); expect(p.position.z).not.toBe(z)
     expect((p as any).animator.busy).toBe(true)
-    input.keys.Space = false; update(); expect(p.shield.shieldRaised).toBe(false)
+    input.isRightMouseDown = false; update(); expect(p.shield.shieldRaised).toBe(false)
   })
   it('reuses XP curve, caps at 50, saves/reloads and adds exactly +50 HP', () => {
     const skills = new SkillManager(); skills.addXp('blocking', 100); expect(skills.skillState.blocking.level).toBe(2)

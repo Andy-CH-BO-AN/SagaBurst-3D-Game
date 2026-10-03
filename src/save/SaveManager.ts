@@ -32,6 +32,7 @@ export interface PlayerSaveData {
     ownedWeaponIds?: string[]
     equippedMeleeId: string
     equippedRangedId: string
+    rangedEnabled?: boolean
     equippedShieldId?: string | null
   }
   mountData?: {
@@ -98,6 +99,7 @@ export class SaveManager {
           ownedWeaponIds: parsed.inventory.ownedWeaponIds,
           equippedMeleeId: parsed.inventory.equippedMeleeId ?? DEFAULT_SAVE.inventory.equippedMeleeId,
           equippedRangedId: parsed.inventory.equippedRangedId ?? DEFAULT_SAVE.inventory.equippedRangedId,
+          rangedEnabled: parsed.inventory.rangedEnabled,
           equippedShieldId: parsed.inventory.equippedShieldId !== undefined ? parsed.inventory.equippedShieldId : null,
         }
       } else {

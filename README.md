@@ -78,13 +78,13 @@ Free ride uses the normal movement, sprint, jump, and mount controls.
 | `W` `A` `S` `D` | Move |
 | Mouse | Look / control camera |
 | `Shift` | Sprint |
-| `Space` | Hold to raise an equipped shield; jump without a shield |
+| `Space` | Jump |
 | Left Mouse Button | Melee attack when not aiming |
 | Hold Right Mouse + hold/release Left Mouse | Aim / draw / fire Bow |
 | Hold Right Mouse + click Left Mouse | Aim / throw Pilum |
 | `E` | Interact / pick up equipment / mount / dismount |
 | `Tab` or `I` | Character and inventory |
-| Mouse wheel | Switch owned melee weapons; in command mode, select targets or orders |
+| Mouse wheel | Switch owned weapons / shields; in command mode, select targets or orders |
 | `Q` | Enter command-wheel mode / go back one command level |
 | Middle Mouse Button | Confirm the highlighted command target or order |
 | `Esc` | Close UI / release mouse lock |
@@ -150,3 +150,5 @@ Blocked or invalid positions cannot be confirmed.
 - Battlefield camps provide equipment, ammunition, and spare horses that the player can use.
 - Defense Campaign progress is saved separately for Roman and Viking.
 - Career keeps its own faction, rank, merit, and owned equipment progress.
+
+Hold RMB to raise a shield or aim a ranged weapon. Bows and javelins cannot be equipped with a shield; wheel selection stows the conflicting item. The same wheel controls work in Career towns and missions, excluding currently equipped items.

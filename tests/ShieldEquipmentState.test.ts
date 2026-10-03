@@ -33,13 +33,20 @@ describe('盾牌裝備規則', () => {
       }
     }
   })
-  it('持盾按 RMB 自動卸下盾牌並進入 Aim，釋放 RMB 離開 Aim', () => {
+  it('持盾按 RMB 舉盾，放開降盾；選弓才收盾瞄準', () => {
     const f = fixture()
     f.update(input())
     expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
     expect(f.player.isAiming).toBe(false)
 
-    // RMB down with equipped bow automatically unequips shield and enters aim in the same frame
+    // RMB holds guard without silently changing the loadout.
+    f.update(input({ isRightMouseDown: true }))
+    expect(f.inventory.equippedShield?.id).toBe('round_shield_t3')
+    expect(f.player.shield.shieldRaised).toBe(true)
+    expect(f.player.isAiming).toBe(false)
+    f.update(input())
+    expect(f.player.shield.shieldRaised).toBe(false)
+    f.inventory.equipWeapon('elven_runebow')
     f.update(input({ isRightMouseDown: true }))
     expect(f.inventory.equippedShield).toBeNull()
     expect(f.player.isAiming).toBe(true)
@@ -68,7 +75,7 @@ describe('盾牌裝備規則', () => {
       expect(shield.userData.gripCenterLocal).toEqual([0, 0, .085])
     }
   })
-  it('弓兵臨時裝盾保留箭數，卸盾恢復遠程；投槍持盾仍可投擲', () => {
+  it('NPC 弓與投槍配裝皆排除盾牌，不消耗箭數', () => {
     for (const config of [
       { faction: Faction.PLAYER, characterFaction: 'viking' as const, shieldId: 'round_shield_t2', hasActiveRanged: false },
       { faction: Faction.ENEMY, characterFaction: 'roman' as const, shieldId: 'scutum_t2', hasActiveRanged: true },
@@ -78,7 +85,8 @@ describe('盾牌裝備規則', () => {
       npc.shieldId = config.shieldId
       npc.rebuildShield()
       expect(npc.arrows).toBe(arrows)
-      expect((npc as any).hasActiveRangedWeapon).toBe(config.hasActiveRanged)
+      expect(npc.shieldId).toBeNull()
+      expect((npc as any).hasActiveRangedWeapon).toBe(true)
       npc.shieldId = null; npc.rebuildShield()
       expect((npc as any).hasActiveRangedWeapon).toBe(true)
       expect(npc.arrows).toBe(arrows)

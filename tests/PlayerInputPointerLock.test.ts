@@ -18,6 +18,22 @@ function inputHarness(search = '') {
 }
 
 describe("PlayerInput Pointer Lock Synchronization", () => {
+  it.each(['', '?nolock'])('RMB remains hold/release in %s, including repeated down and blur', search => {
+    const { input, windowListeners, documentListeners } = inputHarness(search)
+    ;(globalThis as any).document.pointerLockElement = {}
+    documentListeners.pointerlockchange.forEach(fn => fn())
+    const fire = (name: string, button = 2) => windowListeners[name]?.forEach(fn => fn({ button }))
+    fire('mousedown'); fire('mousedown')
+    expect(input.isRightMouseDown).toBe(true)
+    fire('mousedown', 0); fire('mouseup', 0)
+    expect(input.consumeLeftClick()).toBe(true)
+    expect(input.consumeLeftClickRelease()).toBe(true)
+    fire('mouseup')
+    expect(input.isRightMouseDown).toBe(false)
+    fire('mousedown'); fire('blur')
+    expect(input.isRightMouseDown).toBe(false)
+    input.dispose()
+  })
   it("PlayerInput created while document.pointerLockElement already exists -> isLocked === true", () => {
     ;(globalThis as any).window = {
       location: { search: "" },
