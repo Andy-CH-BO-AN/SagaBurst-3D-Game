@@ -101,6 +101,8 @@ const CHASE_SPEED      = 4.8
 const FORMATION_MOVE_SPEED = CHASE_SPEED
 const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
+const MELEE_CONTACT_MARGIN = 0.2
+const MELEE_MISS_APPROACH_STEP = 0.3
 const RESPAWN_TIME     = 10.0
 
 const NPC_FOOT_OBSTACLE_RADIUS = 0.5
@@ -300,6 +302,10 @@ export class NPC {
   private alertTimer = 0
   private attackTimer = 0
   private attackHitProcessed = false
+  private meleeApproachLimit = Infinity
+  private meleeApproachTarget: Player | NPC | null = null
+  private meleeApproachMounted = false
+  private meleeApproachTargetMounted = false
   public pendingLanceChargeSpeed = 0
 
   private respawnTimer = 0
@@ -820,6 +826,7 @@ export class NPC {
     const weapon = this.meleeWeaponId ? WEAPONS[this.meleeWeaponId] : undefined
     this.isUsingLance = weapon?.combatKind === 'lance'
     this.meleeAttackRadius = weapon?.range ?? (this.isUsingLance ? 3.9 : 1.8)
+    this.meleeApproachLimit = Infinity
   }
 
   private _rebuildActiveMeleeVisual(): void {
@@ -954,6 +961,8 @@ export class NPC {
     this.bowArrowReleased = false
     this.attackTimer = 0
     this.attackHitProcessed = false
+    this.meleeApproachLimit = Infinity
+    this.meleeApproachTarget = null
     this.pendingLanceChargeSpeed = 0
     this.bowVisual?.hideArrow()
   }
@@ -1878,6 +1887,17 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
+      const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
+      if (
+        meleeTarget !== this.meleeApproachTarget
+        || this.isMounted !== this.meleeApproachMounted
+        || Boolean(meleeTarget?.isMounted) !== this.meleeApproachTargetMounted
+      ) {
+        this.meleeApproachLimit = Infinity
+        this.meleeApproachTarget = meleeTarget
+        this.meleeApproachMounted = this.isMounted
+        this.meleeApproachTargetMounted = Boolean(meleeTarget?.isMounted)
+      }
       // Correct aim height only; movement/range/target selection retain existing coordinates.
       this.rangedTargetHeightOffset = targetInfo?.isPlayer && !player.isMounted ? player.bodyBaseOffset ?? 0 : 0
       if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
@@ -1941,13 +1961,14 @@ export class NPC {
 
       case AIState.ALERT: {
         this.alertTimer -= dt
+        if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
         if (targetInfo) this._faceTarget(targetInfo.position)
 
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
           if (this.tacticalOrder === 'defend') {
             this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
-            this.attackTimer = 0
+            if (this.hasActiveRangedWeapon) this.attackTimer = 0
           } else {
             this.state = AIState.CHASE
           }
@@ -1957,6 +1978,7 @@ export class NPC {
 
       case AIState.CHASE: {
         this.alertSprite.visible = false
+        if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
         if (!targetInfo || targetInfo.isDead) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
@@ -2121,12 +2143,11 @@ export class NPC {
         } else {
           if (
             navigationRoute === 'direct'
-            && this._isTargetInMeleeRange(targetInfo.position)
+            && this._isTargetInMeleeApproachRange(targetInfo.position)
           ) {
             this._clearObstacleDetour()
             this._clearSiegeFallback()
             this.state = AIState.ATTACK
-            this.attackTimer = 0
             this.attackHitProcessed = false
             if (this.isMounted && this.isUsingLance) {
               this.pendingLanceChargeSpeed = previousMountSpeed
@@ -2159,6 +2180,9 @@ export class NPC {
           let sepCount = 0
           for (const other of nearbyNPCs) {
             if (other === this || other.dead) continue
+            // The physical body solver keeps combatants apart. Boids must not
+            // repel the chosen melee opponent before our weapon can reach them.
+            if (!this.hasActiveRangedWeapon && other === targetInfo.npc) continue
             const d = this.group.position.distanceTo(other.position)
             if (d < NPC_SEPARATION_RADIUS) {
               this._tmpPush.copy(this.group.position).sub(other.position)
@@ -2278,6 +2302,19 @@ export class NPC {
 
         if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
         this._faceTarget(attackTargetPosition)
+        if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
+          // The authored spear is held beside the torso. Aim its actual forward
+          // tip at the opponent rather than sending a parallel thrust past them.
+          const tip = this.getWeaponTipPosition()
+          const yaw = this.group.rotation.y
+          const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
+          const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw)
+          const localZ = dx * Math.sin(yaw) + dz * Math.cos(yaw)
+          if (localZ > 0.1) {
+            this.group.rotation.y -= Math.atan2(localX, localZ)
+            if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+          }
+        }
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
         // Mounted ranged units orbit humans, but hold position while deliberately
@@ -2368,6 +2405,13 @@ export class NPC {
             this.state = AIState.CHASE
           }
         } else {
+          // A target can leave physical reach during recovery. Recheck before
+          // starting the next swing rather than attacking at the old data range.
+          if (!siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position)) {
+            this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
+            this.pendingLanceChargeSpeed = 0
+            break
+          }
           const berserker = getBerserkerModifiers(
             this.characterFaction,
             this.isMounted,
@@ -2416,9 +2460,9 @@ export class NPC {
               const targetIsMounted = targetInfo.isPlayer
                 ? Boolean(player?.isMounted)
                 : Boolean(targetInfo.npc?.isMounted)
-              const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
               const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
               if (physicalTarget && this.weaponSweep.trace(physicalTarget)) {
+                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
                 this.attackHitProcessed = true
                 onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
               }
@@ -2428,13 +2472,28 @@ export class NPC {
           if (meleeEvents.actionCompleted) {
             this.attackTimer = AI_ATTACK_GAP / (berserker.meleeAttackRateMultiplier * attackSpeed)
             this.pendingLanceChargeSpeed = 0
+            if (!siegeObstacle && !this.attackHitProcessed) {
+              // Weapon length is only an initial estimate: actual arcs, shields
+              // and hand offsets can require a closer position. A complete miss
+              // must make progress instead of repeating the same stationary swing.
+              if (this._isTargetInMeleeRange(targetInfo.position)) {
+                this.meleeApproachLimit = Math.max(this._meleeBodySpacing(), Math.min(
+                  this._meleeApproachDistance(),
+                  Math.hypot(
+                    targetInfo.position.x - this.combatPosition.x,
+                    targetInfo.position.z - this.combatPosition.z,
+                  ),
+                ) - MELEE_MISS_APPROACH_STEP)
+              }
+              this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
+            }
           }
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
             const stillInRange = siegeObstacle
               ? this._isObstacleInMeleeRange(siegeObstacle)
-              : this._isTargetInMeleeRange(targetInfo.position)
+              : this._isTargetInMeleeApproachRange(targetInfo.position)
             if (this.attackTimer <= 0 && !stillInRange) {
               this.state = AIState.CHASE
               this.pendingLanceChargeSpeed = 0
@@ -2809,7 +2868,35 @@ export class NPC {
     if (this.hasActiveRangedWeapon) {
       return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
     }
-    return this._isTargetInMeleeRange(targetPos)
+    return this._isTargetInMeleeApproachRange(targetPos)
+  }
+
+  private _meleeBodySpacing(): number {
+    const ownRadius = this.isMounted ? 1 : 0.5
+    const targetRadius = this.meleeApproachTarget?.isMounted ? 1 : 0.5
+    // Shared battles use the largest body radii; leave room to enter ATTACK
+    // without requiring either combatant to move inside the other's collider.
+    return ownRadius + targetRadius + 0.05
+  }
+
+  private _meleeApproachDistance(): number {
+    // Database range remains the broad phase for damage. Use the same world
+    // endpoints as WeaponSweep to choose a conservative physical stopping point;
+    // leave 0.1m inside the target's 0.3m torso rather than stopping at its edge.
+    const grip = this.getWeaponGripPosition(this.sweepGrip)
+    const weaponLength = grip.distanceTo(this.getWeaponTipPosition())
+    const handReach = Math.hypot(grip.x - this.group.position.x, grip.z - this.group.position.z)
+    const bodySpacing = this._meleeBodySpacing()
+    return Math.min(
+      Math.max(this.meleeAttackRadius, bodySpacing),
+      Math.max(bodySpacing, weaponLength + handReach + MELEE_CONTACT_MARGIN),
+      this.meleeApproachLimit,
+    )
+  }
+
+  private _isTargetInMeleeApproachRange(targetPos: THREE.Vector3): boolean {
+    return this._isTargetInMeleeRange(targetPos, Math.max(0, this._meleeBodySpacing() - this.meleeAttackRadius))
+      && Math.hypot(targetPos.x - this.combatPosition.x, targetPos.z - this.combatPosition.z) <= this._meleeApproachDistance()
   }
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
@@ -2846,6 +2933,8 @@ export class NPC {
   respawn(): void {
     this.shield.reset()
     this.weaponSweep.reset()
+    this.meleeApproachLimit = Infinity
+    this.meleeApproachTarget = null
     this.deathFade.reset(this.group)
     this.formationTarget = null
     this._clearObstacleDetour()
