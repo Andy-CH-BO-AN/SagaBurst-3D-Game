@@ -9,7 +9,7 @@ import type { WeaponData } from './WeaponDatabase'
 
 export const MAX_SKILL_LEVEL = 50
 
-export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact'
+export type SkillId = 'oneHanded' | 'twoHanded' | 'ranged' | 'mountedImpact' | 'blocking'
 export type LegacySkillId = SkillId | 'archery'
 
 export interface SkillData {
@@ -18,6 +18,7 @@ export interface SkillData {
 }
 
 export interface SkillState {
+  blocking: SkillData
   oneHanded: SkillData
   twoHanded: SkillData
   ranged: SkillData
@@ -25,6 +26,7 @@ export interface SkillState {
 }
 
 export interface SkillStateInput {
+  blocking?: Partial<SkillData>
   oneHanded?: Partial<SkillData>
   twoHanded?: Partial<SkillData>
   ranged?: Partial<SkillData>
@@ -34,6 +36,7 @@ export interface SkillStateInput {
 }
 
 const SKILL_LABELS: Record<SkillId, string> = {
+  blocking: '🛡️ 格擋',
   oneHanded: '⚔️ 單手武器',
   twoHanded: '🪓 雙手武器',
   ranged: '🏹 遠程',
@@ -42,6 +45,7 @@ const SKILL_LABELS: Record<SkillId, string> = {
 
 export function createDefaultSkillState(): SkillState {
   return {
+    blocking: { level: 1, xp: 0 },
     oneHanded: { level: 1, xp: 0 },
     twoHanded: { level: 1, xp: 0 },
     ranged: { level: 1, xp: 0 },
@@ -68,6 +72,7 @@ function normalizeSkillData(value?: Partial<SkillData>): SkillData {
 export function normalizeSkillState(state?: SkillStateInput | null): SkillState {
   const ranged = state?.ranged ?? state?.archery
   return {
+    blocking: normalizeSkillData(state?.blocking),
     oneHanded: normalizeSkillData(state?.oneHanded),
     twoHanded: normalizeSkillData(state?.twoHanded),
     ranged: normalizeSkillData(ranged),
@@ -81,12 +86,13 @@ export function skillDamageMultiplier(level: number): number {
   return 1 + ((clamped - 1) / (MAX_SKILL_LEVEL - 1)) * 2
 }
 
-/** Every level above Lv.1 grants +1 max HP. Four Lv.50 skills => +196 HP. */
+/** Four offensive skills grant HP above Lv.1; Blocking grants its full level. */
 export function skillHpBonus(state: SkillState): number {
   return (state.oneHanded.level - 1)
     + (state.twoHanded.level - 1)
     + (state.ranged.level - 1)
     + (state.mountedImpact.level - 1)
+    + state.blocking.level
 }
 
 /**
@@ -116,6 +122,7 @@ export class SkillManager {
 
   get skillState(): SkillState {
     return {
+      blocking: { ...this.state.blocking },
       oneHanded: { ...this.state.oneHanded },
       twoHanded: { ...this.state.twoHanded },
       ranged: { ...this.state.ranged },
@@ -162,8 +169,8 @@ export class SkillManager {
   }
 
   /**
-   * XP is expected to be actual NPC or mount HP removed, after shield reduction
-   * and overkill clamping. Structure damage must not call this method.
+   * Offensive XP uses actual HP removed. Blocking uses actual absorbed impact
+   * scaled by SHIELD_CONFIG. Structure damage must not call this method.
    */
   addXp(skill: LegacySkillId, amount: number, soundManager?: SoundManager): number {
     const id: SkillId = skill === 'archery' ? 'ranged' : skill

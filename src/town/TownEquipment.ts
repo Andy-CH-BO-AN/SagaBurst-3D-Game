@@ -17,6 +17,7 @@ export class TownEquipment extends InventoryManager {
   constructor(private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {
     super({ meleeWeaponId: careerTownWeapon(read()), rangedWeaponId: '', shieldId: null })
     this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })) })
+    this.rangedEnabled = false
   }
   private syncOwnership(): void {
     const profile = this.read()
@@ -59,12 +60,17 @@ export class TownEquipment extends InventoryManager {
     const item = WEAPONS[id] ?? ARMORS[id], profile = cloneCareerProfile(this.read())
     const slot = Boolean(ARMORS[id]) ? 'shield' : item.type === 'ranged' ? 'ranged' : 'melee'
     profile.equipment = { ...profile.equipment, [slot]: id }
+    if (slot === 'shield') delete profile.equipment.ranged
+    if (slot === 'ranged') profile.equipment.shield = null
     if (!this.commit(profile) || !super.equipWeapon(id)) return false
     this.drawn.add(id)
     if (slot === 'melee') this.meleeEnabled = true
     if (slot === 'ranged') this.rangedEnabled = true
     if (slot === 'shield') this.shieldEnabled = true
     return true
+  }
+  override canEquipWeapon(id: string): boolean {
+    return canUseCareerEquipment(this.read(), id) && super.canEquipWeapon(id)
   }
   override unequipShield(): void {
     const profile = cloneCareerProfile(this.read()); profile.equipment = { ...profile.equipment, shield: null }

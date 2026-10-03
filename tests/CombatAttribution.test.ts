@@ -51,6 +51,7 @@ function mockNpc(options: {
     shieldId: options.shieldId ?? null,
     maxHp,
     combatPosition: options.position ?? new THREE.Vector3(0.5, 0, 0),
+    group: { position: options.position ?? new THREE.Vector3(0.5, 0, 0) },
     get hp() { return hp },
     get hpRatio() { return maxHp > 0 ? hp / maxHp : 0 },
     get dead() { return dead },
@@ -142,19 +143,19 @@ describe('Combat attribution foundation', () => {
     expect(events).toHaveLength(eventCount)
   })
 
-  it('records shield-reduced actual damage instead of incoming damage', () => {
+  it('does not reduce body damage just because a shield is equipped', () => {
     const { events, stream } = eventHarness()
     const npc = mockNpc({ hp: 200, maxHp: 200, shieldId: 'round_shield_t1' })
 
     const result = damageNpc(npc, 100, sourceContext(stream))
 
     expect(result.requestedDamage).toBe(100)
-    expect(result.appliedDamage).toBe(90)
+    expect(result.appliedDamage).toBe(100)
     expect(result.killed).toBe(false)
     expect(events[0]).toMatchObject({
       type: 'damage_applied',
       requestedDamage: 100,
-      appliedDamage: 90,
+      appliedDamage: 100,
     })
   })
 

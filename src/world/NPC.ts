@@ -6,6 +6,7 @@ import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
  * Calibrated with getTerrainHeight(x, z) for procedural heightmap terrain.
  */
 import * as THREE from 'three'
+import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController } from './DeathFade'
 import type { Player } from '../player/Player'
 import type { SpatialGrid } from './SpatialGrid'
@@ -227,7 +228,7 @@ export class NPC {
   }
 
   get hasActiveRangedWeapon(): boolean {
-    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !(this.shieldId && this.rangedCombatKind === 'bow')
+    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !this.shieldId
   }
 
   get combatAmmo(): number { return this.arrows }
@@ -278,6 +279,12 @@ export class NPC {
   private bowGripPivot: THREE.Group
   private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
+  readonly shield = new ShieldState()
+  shieldCollider!: ShieldCollider
+  readonly weaponSweep = new WeaponSweep()
+  bodyHitNodes: THREE.Object3D[] = []
+  private readonly sweepGrip = new THREE.Vector3()
+  private rangedTargetHeightOffset = 0
   public shieldId: string | null = null
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
@@ -571,6 +578,7 @@ export class NPC {
     this.bodyMesh = visual.bodyMesh as THREE.Group
     this.headMesh = visual.headMesh as THREE.Mesh
     this.rig = visual.rig
+    this.bodyHitNodes = [this.rig.left.elbow, this.rig.left.wrist, this.rig.right.elbow, this.rig.right.wrist, this.rig.leftLeg.ankle, this.rig.rightLeg.ankle]
     if (faction === Faction.BANDIT) {
       this.banditHammerTip = this.bodyMesh.getObjectByName('hammer_tip')
       this.banditHammerGrip = this.bodyMesh.getObjectByName('hammer_grip')
@@ -596,6 +604,7 @@ export class NPC {
     this._rebuildActiveRangedVisual()
 
     this.shieldPivot = new THREE.Group()
+    this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
     this.rig.left.handSocket.add(this.shieldPivot)
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
@@ -781,8 +790,12 @@ export class NPC {
 
   rebuildShield(): void {
     if (this.faction === Faction.BANDIT) return
+    // Ranged loadouts (bows and javelins) cannot also carry an active shield.
+    if (this.rangedWeaponId) this.shieldId = null
     if (this.builtShieldId === this.shieldId) return
     this.builtShieldId = this.shieldId
+    this.shield.equip(this.shieldId)
+    this.shieldCollider.setModel(this.shieldId)
     this.animator?.cancel()
     if (this.bowVisual) {
       this.bowArrowReleased = false
@@ -997,6 +1010,7 @@ export class NPC {
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this.tacticalOrder = order
+    this.shield.shieldRaised = this.shield.active && order === 'defend'
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
     else if (order === 'charge') {
@@ -1071,7 +1085,7 @@ export class NPC {
     else origin.copy(this.group.position).setY(this.group.position.y + 1.0)
 
     const aimPoint = this._tmpRangedTarget.copy(targetWorld)
-    aimPoint.y += 1.4
+    aimPoint.y += 1.4 + this.rangedTargetHeightOffset
     const dx = aimPoint.x - origin.x
     const dz = aimPoint.z - origin.z
     const horizontalDistanceSq = dx * dx + dz * dz
@@ -1832,7 +1846,10 @@ export class NPC {
     const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
     const recoveringPilum = this.animator.currentAction === 'pilumThrow'
     this.rebuildShield()
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind | undefined, true)
+    this.shield.shieldRaised = this.shield.active && this.tacticalOrder === 'defend'
+    this.shieldCollider.refreshVisibility()
+    this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount?.type as MountedPoseKind | undefined, true)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
     this.rig.animation?.setEquipmentState?.({ mounted: this.isMounted })
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
@@ -1861,6 +1878,8 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
+      // Correct aim height only; movement/range/target selection retain existing coordinates.
+      this.rangedTargetHeightOffset = targetInfo?.isPlayer && !player.isMounted ? player.bodyBaseOffset ?? 0 : 0
       if (import.meta.env.DEV && _collector) { _collector.endPhase('targetAI', _tTargetAI!) }
 
       // Releasing the projectile does not end the imported release clip. Keep its
@@ -2364,6 +2383,7 @@ export class NPC {
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
           const attackSpeed = getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
+          this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
           const meleeEvents = this.animator.update(
             dt * berserker.meleeAttackRateMultiplier,
             cameraDistance,
@@ -2371,7 +2391,8 @@ export class NPC {
           if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimMelee!) }
           animationAdvanced = true
 
-          if (meleeEvents.hitActiveStarted && !this.attackHitProcessed) {
+          this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
+          if ((meleeEvents.hitActiveStarted || this.animator.meleeHitActive) && !this.attackHitProcessed) {
             if (siegeObstacle) {
               if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
                 this.attackHitProcessed = true
@@ -2392,12 +2413,15 @@ export class NPC {
                 }
               }
             } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
-              this.attackHitProcessed = true
               const targetIsMounted = targetInfo.isPlayer
                 ? Boolean(player?.isMounted)
                 : Boolean(targetInfo.npc?.isMounted)
               const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
-              onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+              const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
+              if (physicalTarget && this.weaponSweep.trace(physicalTarget)) {
+                this.attackHitProcessed = true
+                onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+              }
             }
           }
 
@@ -2820,6 +2844,8 @@ export class NPC {
   }
 
   respawn(): void {
+    this.shield.reset()
+    this.weaponSweep.reset()
     this.deathFade.reset(this.group)
     this.formationTarget = null
     this._clearObstacleDetour()

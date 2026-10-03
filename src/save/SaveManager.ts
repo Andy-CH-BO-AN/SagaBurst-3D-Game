@@ -23,6 +23,7 @@ export interface PlayerSaveData {
     twoHanded?: SkillDetail
     ranged?: SkillDetail
     mountedImpact?: SkillDetail
+    blocking?: SkillDetail
     /** Legacy pre-four-skill save compatibility. */
     archery?: SkillDetail
   }
@@ -31,6 +32,7 @@ export interface PlayerSaveData {
     ownedWeaponIds?: string[]
     equippedMeleeId: string
     equippedRangedId: string
+    rangedEnabled?: boolean
     equippedShieldId?: string | null
   }
   mountData?: {
@@ -51,6 +53,7 @@ export const DEFAULT_SAVE: PlayerSaveData = {
     twoHanded: { level: 1, xp: 0 },
     ranged: { level: 1, xp: 0 },
     mountedImpact: { level: 1, xp: 0 },
+    blocking: { level: 1, xp: 0 },
   },
   inventory: {
     items: [
@@ -96,6 +99,7 @@ export class SaveManager {
           ownedWeaponIds: parsed.inventory.ownedWeaponIds,
           equippedMeleeId: parsed.inventory.equippedMeleeId ?? DEFAULT_SAVE.inventory.equippedMeleeId,
           equippedRangedId: parsed.inventory.equippedRangedId ?? DEFAULT_SAVE.inventory.equippedRangedId,
+          rangedEnabled: parsed.inventory.rangedEnabled,
           equippedShieldId: parsed.inventory.equippedShieldId !== undefined ? parsed.inventory.equippedShieldId : null,
         }
       } else {
@@ -119,6 +123,7 @@ export class SaveManager {
           twoHanded: { ...DEFAULT_SAVE.skills.twoHanded!, ...parsed.skills?.twoHanded },
           ranged: { ...DEFAULT_SAVE.skills.ranged!, ...(parsed.skills?.ranged ?? parsed.skills?.archery) },
           mountedImpact: { ...DEFAULT_SAVE.skills.mountedImpact!, ...parsed.skills?.mountedImpact },
+          blocking: { ...DEFAULT_SAVE.skills.blocking!, ...parsed.skills?.blocking },
         },
         inventory: inventoryData,
         mountData,

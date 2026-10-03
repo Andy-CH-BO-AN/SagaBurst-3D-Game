@@ -12,6 +12,7 @@ import { createMakiRangerBowInstance } from '../world/MakiRangerEquipment'
  * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
+import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController } from '../world/DeathFade'
 
 import type { PlayerInput } from './PlayerInput'
@@ -101,6 +102,15 @@ export class Player {
   private currentRangedId: string = ''
 
   private shieldPivot!: THREE.Group
+  readonly shield = new ShieldState()
+  shieldCollider!: ShieldCollider
+  readonly weaponSweep = new WeaponSweep()
+  private readonly sweepGrip = new THREE.Vector3()
+  readonly bodyBaseOffset = -PLAYER_HALF_HEIGHT
+  bodyHitNodes: THREE.Object3D[] = []
+  blockingLevel = 1
+  onShieldBlock?: (impact: number) => void
+  private shieldHud: HTMLElement | null = typeof document === 'undefined' ? null : document.getElementById('shield-hud')
   private currentShieldId: string | null = null
 
   private velY = 0
@@ -200,7 +210,7 @@ export class Player {
   get dead(): boolean           { return this.isDead }
   get targetable(): boolean     { return !this.isDead && !this.spectatorOnly }
   get characterFaction(): 'viking' | 'roman' { return this.visualFaction }
-  get hasShield(): boolean      { return Boolean(this.currentShieldId) }
+  get hasShield(): boolean      { return Boolean(this.currentShieldId) && !this.shield.shieldBroken }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get isLanceThrustActive(): boolean { return this.animator.isLanceThrustActive }
 
@@ -276,6 +286,7 @@ export class Player {
 
     // Shield Pivot (defaults to leftArm after character mesh is built)
     this.shieldPivot = new THREE.Group()
+    this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
 
     this._buildMesh(2)
 
@@ -320,6 +331,7 @@ export class Player {
     // therefore the actual desired world heading.
     this.characterVisualGroup.rotation.y = 0
     this.rig = parts.rig
+    this.bodyHitNodes = [this.rig.left.elbow, this.rig.left.wrist, this.rig.right.elbow, this.rig.right.wrist, this.rig.leftLeg.ankle, this.rig.rightLeg.ankle]
     this.externalPelvisHeight = 0
     if (HumanoidAssetRegistry.ready && this.rig.pelvis) {
       this.characterVisualGroup.updateWorldMatrix(true, true)
@@ -436,6 +448,9 @@ export class Player {
     if (this.currentShieldId === shieldId) return
     this._cancelEquipmentAction()
     this.currentShieldId = shieldId
+    this.shield.equip(shieldId)
+    this.shieldCollider.setModel(shieldId)
+    this.shieldCollider.refreshVisibility()
 
     while (this.shieldPivot.children.length > 0) {
       this.shieldPivot.remove(this.shieldPivot.children[0])
@@ -468,12 +483,10 @@ export class Player {
 
   private _tryTriggerMeleeAttack(
     equippedMelee: WeaponData | null | undefined,
-    blockedAim: boolean,
     wantsBowAim = false,
   ): boolean {
     if (
       wantsBowAim ||
-      blockedAim ||
       this.aiming ||
       this.animator.busy ||
       !equippedMelee
@@ -550,10 +563,10 @@ export class Player {
     this.velY = 0
   }
 
-  takeDamage(amount: number, hpBar: HpBar): boolean {
+  takeDamage(amount: number, hpBar: HpBar, riderHit = false): boolean {
     if (this.isDead || this.spectatorOnly) return false
 
-    if (this.isMounted && this.currentMount) {
+    if (!riderHit && this.isMounted && this.currentMount) {
       const hitSuccess = this.currentMount.takeDamage(amount)
       if (hitSuccess && this.currentMount.dead) {
         this.dismountFromMount()
@@ -583,7 +596,7 @@ export class Player {
     if (equippedMelee?.combatKind === 'lance') {
       return this.animator.isLanceThrustActive
     }
-    return this.hitEventPending
+    return this.hitEventPending || this.animator.meleeHitActive
   }
 
   markHitProcessed(): void {
@@ -651,6 +664,8 @@ export class Player {
   }
 
   restoreForTown(): void {
+    this.shield.reset()
+    this.weaponSweep.reset()
     this.isDead = false
     this.deathFade.reset(this.group)
     this._cancelEquipmentAction()
@@ -683,6 +698,12 @@ export class Player {
   ): void {
     if (this.spectatorOnly) return
 
+    if (this.shieldHud) {
+      this.shieldHud.hidden = this.isDead || this.shield.shieldImpactMax === 0
+      const text = this.shield.shieldBroken ? 'Shield Broken' : `Shield: ${this.shield.shieldImpactRemaining} / ${this.shield.shieldImpactMax} · 按住右鍵舉盾`
+      if (this.shieldHud.textContent !== text) this.shieldHud.textContent = text
+    }
+
     if (this.isDead) {
       const hidden = this.deathFade.update(this.group, dt)
       if (!hidden) this.animator?.update(dt)
@@ -699,18 +720,16 @@ export class Player {
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
 
-    if (input.isRightMouseDown && equippedRanged && inventoryManager?.shieldEnabled !== false && inventoryManager?.equippedShield) {
-      inventoryManager.unequipShield()
-    }
-    
     const equippedShield = inventoryManager?.shieldEnabled === false ? null : inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
+    this.shield.shieldRaised = this.shield.active && input.isRightMouseDown
+    this.shieldCollider.refreshVisibility()
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
     const isPilum = equippedRanged?.animationKind === 'pilum'
-    this.animator.setEquipment(equippedMelee?.combatKind === 'lance', Boolean(equippedShield), this.currentMount?.type as MountedPoseKind | undefined)
-    const blockedAim = Boolean(equippedShield) && input.isRightMouseDown
-    quiverUI.setShieldBlocked?.(blockedAim)
+    this.animator.setEquipment(equippedMelee?.combatKind === 'lance', this.hasShield, this.currentMount?.type as MountedPoseKind | undefined)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
+    quiverUI.setShieldBlocked?.(false)
     const wantAim = input.isRightMouseDown && Boolean(equippedRanged) && !equippedShield
     const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
@@ -753,8 +772,8 @@ export class Player {
       quiverUI.setChargeRatio(0)
 
       const isLance = equippedMelee?.combatKind === 'lance'
-      if (input.consumeLeftClick() && !blockedAim && !wantsBowAim) {
-        if (!this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)) {
+      if (input.consumeLeftClick() && !wantsBowAim) {
+        if (!this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)) {
           if (isLance && this.animator.busy) {
             this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
           } else {
@@ -764,7 +783,7 @@ export class Player {
       } else if (this.meleeAttackBufferTimer > 0 && isLance && !wantsBowAim) {
         this.meleeAttackBufferTimer = Math.max(0, this.meleeAttackBufferTimer - dt)
         if (this.meleeAttackBufferTimer > 0) {
-          this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
+          this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)
         }
       }
     }
@@ -858,6 +877,7 @@ export class Player {
       || this.animator.currentAction === 'mountedLance'
     const animDt = isMeleeAttack ? dt * berserker.meleeAttackRateMultiplier : dt
     const animationEvents = this.animator.update(animDt)
+    this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getSwordTipPosition())
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (this.swordPivot.visible) this.meleeBowVisual?.update(0, undefined, false)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
@@ -900,7 +920,7 @@ export class Player {
       this.attackHitProcessed = false
       this.hasPrevLanceTip = false
       if (this.meleeAttackBufferTimer > 0 && !wantsBowAim && equippedMelee?.combatKind === 'lance') {
-        this._tryTriggerMeleeAttack(equippedMelee, blockedAim, wantsBowAim)
+        this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)
       }
     }
 

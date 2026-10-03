@@ -47,6 +47,7 @@ export class PlayerInput {
     window.addEventListener('keydown', (e) => {
       if (!this.isLocked) return
       if (!this.keys[e.code]) this._keyPresses.add(e.code)
+      if (e.code === 'Space') e.preventDefault()
       this.keys[e.code] = true
       if (e.code === 'KeyE') {
         this._keyETriggered = true
@@ -59,18 +60,8 @@ export class PlayerInput {
     window.addEventListener('mousedown', (e) => {
       if (!this.isLocked) return
       if (e.button === 0) {
-        if (this.allowUnlockedInput && this.isRightMouseDown) {
-          this.isLeftMouseDown = !this.isLeftMouseDown
-          if (this.isLeftMouseDown) this._leftClickTriggered = true
-          else this._leftClickReleased = true
-        } else {
-          this.isLeftMouseDown = true
-          // Strict lock gating: only trigger melee action when already locked.
-          // The initial click to acquire pointer lock does not trigger attack.
-          if (this.isLocked) {
-            this._leftClickTriggered = true
-          }
-        }
+        this.isLeftMouseDown = true
+        this._leftClickTriggered = true
       }
       if (e.button === 1) {
         // Middle click is reserved for Army Command confirmation while locked.
@@ -80,24 +71,17 @@ export class PlayerInput {
         }
       }
       if (e.button === 2) {
-        // Browser automation cannot hold pointer-lock mouse buttons.  In the
-        // explicit ?nolock QA mode, each right click toggles aim so the real
-        // input path can still be exercised end-to-end.
-        this.isRightMouseDown = this.allowUnlockedInput ? !this.isRightMouseDown : true
+        this.isRightMouseDown = true
       }
     }, { signal: this.listeners.signal })
 
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) {
-        if (!(this.allowUnlockedInput && this.isRightMouseDown)) {
-          this.isLeftMouseDown = false
-          if (this.isLocked) {
-            this._leftClickReleased = true
-          }
-        }
+        this.isLeftMouseDown = false
+        if (this.isLocked) this._leftClickReleased = true
       }
       if (e.button === 2) {
-        if (!this.allowUnlockedInput) this.isRightMouseDown = false
+        this.isRightMouseDown = false
       }
     }, { signal: this.listeners.signal })
 
@@ -120,6 +104,7 @@ export class PlayerInput {
       this._dy += e.movementY
     }, { signal: this.listeners.signal })
 
+    window.addEventListener('blur', () => this.clear(), { signal: this.listeners.signal })
     document.addEventListener('pointerlockchange', () => {
       this._syncPointerLockState()
     }, { signal: this.listeners.signal })

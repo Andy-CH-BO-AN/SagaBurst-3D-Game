@@ -131,8 +131,10 @@ import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
 import { QuiverUI } from './ui/QuiverUI'
 import { SkillManager } from './rpg/SkillManager'
+import { SHIELD_CONFIG } from './combat/ShieldBlocking'
 import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
+import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { ArmyCommandController } from './battle/ArmyCommandController'
 import { FormationController } from './battle/FormationController'
 import {
@@ -500,6 +502,7 @@ export class Game {
   private quiverUI: QuiverUI
   private skillManager: SkillManager
   private armyCommandUI: ArmyCommandUI
+  private weaponWheelUI = new WeaponWheelUI()
   private armyCommandController: ArmyCommandController
   private equipmentUI: EquipmentUI
   private soundManager: SoundManager
@@ -1001,6 +1004,9 @@ export class Game {
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
     if (this.careerProfile) this.skillManager.setSkillState(this.careerProfile.skills ?? {})
+    this.player.blockingLevel = this.skillManager.skillState.blocking.level
+    this.player.onShieldBlock = impact => this._applyPlayerSkillAward({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
+    if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
@@ -1014,7 +1020,7 @@ export class Game {
       this.inventoryManager = inventory
       this.player.setMaxHp(resolveCareerPlayerMaxHp(this.careerProfile, this.basePlayerMaxHp))
       this.player.setHp(this.player.maxHp)
-      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
+      this.controlsHint.textContent = 'WASD 移動 ｜ Shift 衝刺 ｜ 左鍵攻擊 ｜ 右鍵舉盾／瞄準 ｜ Tab 裝備 ｜ 滾輪切換武器'
     }
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
@@ -2467,9 +2473,16 @@ export class Game {
     )
     if (!award) return
 
+    this._applyPlayerSkillAward(award)
+  }
+
+  private _applyPlayerSkillAward(award: import('./rpg/CombatSkillProgression').SkillProgressionAward): void {
+    if (this.player.dead || this.player.spectatorOnly || this.controlMode !== 'player') return
+
     const before = this.skillManager.skillState
     const levelsGained = this.skillManager.addXp(award.skill, award.xp, this.soundManager)
     const after = this.skillManager.skillState
+    this.player.blockingLevel = after.blocking.level
     if (skillStatesEqual(before, after)) return
 
     if (this.careerProfile) {
@@ -2509,6 +2522,7 @@ export class Game {
         twoHanded: skills.twoHanded,
         ranged: skills.ranged,
         mountedImpact: skills.mountedImpact,
+        blocking: skills.blocking,
       },
       inventory: inv,
       mountData: this.player.isMounted && this.player.currentMount ? {
@@ -2557,6 +2571,7 @@ export class Game {
     if (data.skills) {
       this.skillManager.setSkillState(data.skills)
     }
+    this.player.blockingLevel = this.skillManager.skillState.blocking.level
     this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState), false)
     this.player.setHp(data.hp ?? this.player.maxHp)
     if (data.inventory) {
@@ -2769,7 +2784,7 @@ export class Game {
       const playerForward = this._tmpPlayerForward.set(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))
 
       let hitNpc = false
-      for (const npc of this.npcs) {
+      for (const npc of this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)) {
         if (!npc.dead && npc.faction === Faction.ENEMY) {
           const aiCenter = this._tmpAiCenter.copy(npc.combatPosition)
           aiCenter.y += 1.0
@@ -2786,11 +2801,13 @@ export class Game {
           const d2Sq = distToSegmentSq(aiCenter, currGripPos, currTipPos)
           const minDSq = Math.min(d1Sq, d2Sq)
 
-          if (minDSq <= hitTolerance * hitTolerance) {
+          const contact = this.player.weaponSweep.trace(npc)
+          if (minDSq <= (hitTolerance + 1) * (hitTolerance + 1) && contact) {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
             const result = damageNpc(npc, finalDamage, {
+              contact,
               source: createPlayerCombatActorRef(this.player),
               method: 'melee',
               weaponId: equippedMelee.id,
@@ -2802,7 +2819,7 @@ export class Game {
                 this.player.currentMount.skipImpactThisFrame = true
               }
               this.soundManager.playLanceImpact(0, true)
-              this.damageNumbers.spawn(finalDamage, aiCenter.clone())
+              if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, aiCenter.clone())
               this._showEnemyHud(result.targetName, result.hpRatio)
               
             }
@@ -2820,16 +2837,18 @@ export class Game {
       const swordTipPos = this.player.getSwordTipPosition()
       const baseRange = equippedMelee.range || 1.85
 
-      for (const npc of this.npcs) {
+      for (const npc of this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)) {
         if (!npc.dead && npc.faction === Faction.ENEMY) {
           const aiCenter = npc.combatPosition.clone()
           aiCenter.y += 1.0
           const hitThreshold = resolveMeleeHitThreshold(baseRange, npc.isMounted)
-          if (swordTipPos.distanceTo(aiCenter) <= hitThreshold) {
+          const contact = this.player.weaponSweep.trace(npc)
+          if (swordTipPos.distanceTo(aiCenter) <= hitThreshold + 1 && contact) {
             this.player.markHitProcessed()
             const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
             const finalDamage = Math.round(damage * antiCav)
             const result = damageNpc(npc, finalDamage, {
+              contact,
               source: createPlayerCombatActorRef(this.player),
               method: 'melee',
               weaponId: equippedMelee.id,
@@ -2837,7 +2856,7 @@ export class Game {
             })
             if (result.hitSuccess) {
               this.soundManager.playSwordHit(0, true)
-              this.damageNumbers.spawn(finalDamage, aiCenter)
+              if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, aiCenter)
               this._showEnemyHud(result.targetName, result.hpRatio)
               
             }
@@ -3125,9 +3144,10 @@ export class Game {
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player') {
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible) {
       this.armyCommandController.update()
     }
+    this.weaponWheelUI.update(this.inventoryManager, !this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible, this.armyCommandController.wheelMode)
 
     // Update Player logic (Player handles dead state internally without processing inputs)
     if (!this.isModelStudio) this.player.update(
@@ -3244,6 +3264,7 @@ export class Game {
               {
                 source: createNpcCombatActorRef(npc),
                 method: 'melee',
+                contact: npc.weaponSweep.contact,
                 weaponId: npc.meleeWeaponId ?? undefined,
                 emit: this.combatEvents.emit,
               },
@@ -3259,6 +3280,7 @@ export class Game {
             }
           } else if (targetNpc) {
             const result = damageNpc(targetNpc, damage, {
+              contact: npc.weaponSweep.contact,
               source: createNpcCombatActorRef(npc),
               method: 'melee',
               weaponId: npc.meleeWeaponId ?? undefined,

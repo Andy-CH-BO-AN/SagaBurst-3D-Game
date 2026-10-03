@@ -71,7 +71,7 @@ export class EquipmentUI {
   }
 
   updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
-    const { oneHanded, twoHanded, ranged, mountedImpact } = skillManager.skillState
+    const { oneHanded, twoHanded, ranged, mountedImpact, blocking } = skillManager.skillState
 
     const renderSkill = (levelEl: HTMLElement, fillEl: HTMLElement, data: { level: number; xp: number }): void => {
       const needed = skillManager.getXpNeeded(data.level)
@@ -82,6 +82,8 @@ export class EquipmentUI {
     renderSkill(this.thLvlEl, this.thFillEl, twoHanded)
     renderSkill(this.rangedLvlEl, this.rangedFillEl, ranged)
     renderSkill(this.mountLvlEl, this.mountFillEl, mountedImpact)
+    const blockLevel = document.getElementById('skill-block-lvl'), blockFill = document.getElementById('skill-block-fill')
+    if (blockLevel && blockFill) renderSkill(blockLevel, blockFill, blocking)
 
     // Render Inventory Cards
     this.inventoryListEl.innerHTML = ''
@@ -103,8 +105,7 @@ export class EquipmentUI {
         dmgText = `傷害: ${scaledMin}~${scaledMax} | 蓄力: ${(item as any).speedOrCharge}s`
       } else if (item.type === 'shield') {
         // armor data
-        const reductionPercent = Math.round((item as any).damageReduction * 100)
-        dmgText = `減傷: ${reductionPercent}%`
+        dmgText = `Shield Impact: ${(item as any).shieldImpactMax} ｜ 按住右鍵舉盾`
       }
 
       const qtyBadge = quantity > 1 ? `<span style="background: rgba(232, 201, 106, 0.25); border: 1px solid #e8c96a; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff;">x${quantity}</span>` : ''

@@ -11,6 +11,7 @@ import { applyEquipmentAttachment, calibrateEquipmentFrames, calibrateLanceIdleA
 import { createEquipmentSocketProxies } from '../src/world/HumanoidEquipmentSockets'
 import { applySwordAttachment, setSwordMountedAttachment } from '../src/world/SwordAttachmentContract'
 import { WeaponMeshFactory } from '../src/world/WeaponMeshFactory'
+import { ShieldState, ShieldCollider } from '../src/combat/ShieldBlocking'
 import type { HandGripFrame } from '../src/world/BowAttachmentContract'
 
 const fixtures: Record<string, Awaited<ReturnType<typeof createFixture>>> = {}
@@ -63,6 +64,24 @@ async function createFixture(faction: string, emptyMounted = false) {
 beforeAll(async () => { for (const f of ['roman', 'viking']) fixtures[f] = await createFixture(f) })
 
 for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {
+  it('raised shield physically intercepts a frontal chest ray and leaves feet exposed, without changing legs', async () => {
+    const f = await createFixture(faction), state = new ShieldState()
+    const id = faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'
+    state.equip(id)
+    const collider = new ShieldCollider(f.shield, state); collider.setModel(id)
+    const legPose = () => f.rigs.flatMap(r => [r.leftLeg.hip, r.leftLeg.knee, r.rightLeg.hip, r.rightLeg.knee].flatMap(b => b.quaternion.toArray()))
+    f.reset(true, false, 2)
+    f.animator.setShieldRaised(false); f.animator.update(0)
+    const lower = legPose()
+    const low = f.shield.getWorldPosition(new THREE.Vector3())
+    f.animator.setShieldRaised(true); f.animator.update(0)
+    expect(legPose()).toEqual(lower)
+    const center = f.shield.getWorldPosition(new THREE.Vector3())
+    expect(center.y).toBeGreaterThan(low.y)
+    expect(collider.time(new THREE.Vector3(0, center.y, 2), new THREE.Vector3(0, center.y, -2))).toBeLessThan(1)
+    expect(collider.time(new THREE.Vector3(0, .1, 2), new THREE.Vector3(0, .1, -2))).toBe(Infinity)
+    f.animator.setShieldRaised(false)
+  })
   it('盾牌隨胸口轉動，三 LOD 虎口向上、掌心朝內，攻擊全程保持握把接觸', async () => {
     const f = await createFixture(faction)
     const frames = f.levels.map(l => l.scene.userData.equipmentGripFrames.shieldLeft)

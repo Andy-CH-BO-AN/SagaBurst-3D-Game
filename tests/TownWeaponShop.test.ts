@@ -87,7 +87,7 @@ describe('Career purchased inventory and persistence', () => {
     current = purchaseTownEquipment(current, 'steel_sword').profile
     expect(inventory.equipWeapon('steel_sword')).toBe(false)
     expect(inventory.isEquipped('steel_sword')).toBe(false)
-    expect(current.equipment).toEqual({ ranged: 'recurve_longbow' })
+    expect(current.equipment).toEqual({ ranged: 'recurve_longbow', shield: null })
   })
   it('saves ownership and merit, rejects duplicates after reload and passes equipment into Outpost', () => {
     const store = new CareerProfileStore(storage())

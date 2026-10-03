@@ -71,18 +71,18 @@ describe('Career skill progression', () => {
     expect(skillDamageMultiplier(25)).toBeCloseTo(1 + (24 / 49) * 2)
   })
 
-  it('grants up to +196 max HP across four Lv.50 skills', () => {
+  it('grants +246 max HP across five Lv.50 skills', () => {
     const state = createDefaultSkillState()
-    expect(skillHpBonus(state)).toBe(0)
+    expect(skillHpBonus(state)).toBe(1)
 
     for (const skill of Object.values(state)) skill.level = 50
-    expect(skillHpBonus(state)).toBe(196)
-    expect(resolveSkillAdjustedMaxHp(200, state)).toBe(396)
+    expect(skillHpBonus(state)).toBe(246)
+    expect(resolveSkillAdjustedMaxHp(200, state)).toBe(446)
 
     const profile = createCareerProfile('roman')
     profile.rank = 'captain'
     profile.skills = state
-    expect(resolveCareerPlayerMaxHp(profile, 200)).toBe(696)
+    expect(resolveCareerPlayerMaxHp(profile, 200)).toBe(746)
   })
 
   it('migrates legacy Archery progress into Ranged and clamps invalid values', () => {
@@ -600,11 +600,12 @@ describe('Career skill progression', () => {
     expect(skillStatesEqual(before, manager.skillState)).toBe(true)
   })
 
-  it('persists all four skills through Career save/reload', () => {
+  it('persists all five skills through Career save/reload', () => {
     const storage = new MemoryStorage()
     const store = new CareerProfileStore(storage)
     const profile = createCareerProfile('roman')
     profile.skills = {
+      blocking: { level: 12, xp: 42 },
       oneHanded: { level: 7, xp: 12 },
       twoHanded: { level: 8, xp: 23 },
       ranged: { level: 9, xp: 34 },
@@ -615,10 +616,11 @@ describe('Career skill progression', () => {
     expect(store.load()?.skills).toEqual(profile.skills)
   })
 
-  it('persists all four skills through regular save/reload', () => {
+  it('persists all five skills through regular save/reload', () => {
     const storage = new MemoryStorage()
     const store = new SaveManager(storage)
     const skills = {
+      blocking: { level: 11, xp: 21 },
       oneHanded: { level: 3, xp: 10 },
       twoHanded: { level: 4, xp: 20 },
       ranged: { level: 5, xp: 30 },

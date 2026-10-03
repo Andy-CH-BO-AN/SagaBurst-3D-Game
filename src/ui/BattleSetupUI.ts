@@ -210,14 +210,14 @@ export class BattleSetupUI {
         <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
           ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
-            { id: 'round_shield_t1', tier: 'T1', zh: '基礎圓盾', en: `BASIC ROUND SHIELD (-${Math.round(ARMORS.round_shield_t1.damageReduction * 100)}%)` },
-            { id: 'round_shield_t2', tier: 'T2', zh: '鐵環圓盾', en: `IRON SHIELD (-${Math.round(ARMORS.round_shield_t2.damageReduction * 100)}%)` },
-            { id: 'round_shield_t3', tier: 'T3', zh: '狂戰士圓盾', en: `BERSERKER SHIELD (-${Math.round(ARMORS.round_shield_t3.damageReduction * 100)}%)` },
+            { id: 'round_shield_t1', tier: 'T1', zh: '基礎圓盾', en: `BASIC ROUND SHIELD (${ARMORS.round_shield_t1.shieldImpactMax} IMPACT)` },
+            { id: 'round_shield_t2', tier: 'T2', zh: '鐵環圓盾', en: `IRON SHIELD (${ARMORS.round_shield_t2.shieldImpactMax} IMPACT)` },
+            { id: 'round_shield_t3', tier: 'T3', zh: '狂戰士圓盾', en: `BERSERKER SHIELD (${ARMORS.round_shield_t3.shieldImpactMax} IMPACT)` },
           ], 'shield')}
           ${renderEquipmentGroup('羅馬', 'ROMAN', [
-            { id: 'scutum_t1', tier: 'T1', zh: '基礎方盾', en: `BASIC SCUTUM (-${Math.round(ARMORS.scutum_t1.damageReduction * 100)}%)` },
-            { id: 'scutum_t2', tier: 'T2', zh: '軍團方盾', en: `LEGION SCUTUM (-${Math.round(ARMORS.scutum_t2.damageReduction * 100)}%)` },
-            { id: 'scutum_t3', tier: 'T3', zh: '百夫長方盾', en: `CENTURION SCUTUM (-${Math.round(ARMORS.scutum_t3.damageReduction * 100)}%)` },
+            { id: 'scutum_t1', tier: 'T1', zh: '基礎方盾', en: `BASIC SCUTUM (${ARMORS.scutum_t1.shieldImpactMax} IMPACT)` },
+            { id: 'scutum_t2', tier: 'T2', zh: '軍團方盾', en: `LEGION SCUTUM (${ARMORS.scutum_t2.shieldImpactMax} IMPACT)` },
+            { id: 'scutum_t3', tier: 'T3', zh: '百夫長方盾', en: `CENTURION SCUTUM (${ARMORS.scutum_t3.shieldImpactMax} IMPACT)` },
           ], 'shield')}
         </section>
         <section class="starting-state"><div class="loadout-category-heading"><h3>出戰方式</h3><span>STARTING STATE</span></div>

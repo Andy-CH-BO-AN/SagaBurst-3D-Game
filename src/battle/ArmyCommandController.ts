@@ -1,4 +1,5 @@
 import type { PlayerInput } from '../player/PlayerInput'
+import { WeaponWheel } from '../player/WeaponWheel'
 import { Faction, NPC } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import {
@@ -97,6 +98,7 @@ export class ArmyCommandController {
   private allOrder: TacticalOrder | 'mixed' = 'attack'
   private wheelInputMode: WheelInputMode = 'weapon'
   private selectedWeaponId: string | null = null
+  private readonly weaponWheel = new WeaponWheel()
   private readonly initialOrder: TacticalOrder
 
   constructor(
@@ -300,17 +302,8 @@ export class ArmyCommandController {
 
   private _cycleWeapon(direction: -1 | 1): void {
     if (!this.inventory) return
-    const weapons = [...new Set(this.inventory.inventoryStacks
-      .filter(({ item, quantity }) => quantity > 0 && item.type === 'melee')
-      .map(({ item }) => item.id))]
-    if (weapons.length < 2) {
-      this.selectedWeaponId = weapons[0] ?? null
-      return
-    }
-    const currentIndex = weapons.indexOf(this.selectedWeaponId ?? '')
-    const nextIndex = ((currentIndex < 0 ? 0 : currentIndex) + direction + weapons.length) % weapons.length
-    const nextId = weapons[nextIndex]
-    if (this.inventory.equipWeapon(nextId)) this.selectedWeaponId = nextId
+    const selected = this.weaponWheel.cycle(this.inventory, direction)
+    if (selected) this.selectedWeaponId = selected
   }
 
   private _consumeShortcutKey(key: string): boolean {
@@ -455,7 +448,7 @@ export class ArmyCommandController {
   private _renderUi(): void {
     if (!this.commandsEnabled) { this.ui.setEnabled(false); return }
     const ownedWeapons = this.inventory?.inventoryStacks.filter(({ item, quantity }) =>
-      quantity > 0 && item.type === 'melee',
+      quantity > 0 && this.inventory?.isEquipped(item.id),
     ) ?? []
     const selectedWeapon = ownedWeapons.find(({ item }) => item.id === this.selectedWeaponId)?.item
       ?? ownedWeapons.find(({ item }) => item.id === this.inventory?.equippedMelee.id)?.item

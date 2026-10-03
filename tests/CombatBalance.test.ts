@@ -238,17 +238,17 @@ describe('CombatBalance SSOT & Pure Functions', () => {
   })
 
   describe('H. Shield Damage Reduction for Rider and Horse', () => {
-    it('defines authoritative shield tier reductions: 10% (T1), 15% (T2), 20% (T3)', () => {
-      expect(ARMORS.round_shield_t1.damageReduction).toBe(0.10)
-      expect(ARMORS.round_shield_t2.damageReduction).toBe(0.15)
-      expect(ARMORS.round_shield_t3.damageReduction).toBe(0.20)
+    it('defines authoritative impact capacities 5/10/20', () => {
+      expect(ARMORS.round_shield_t1.shieldImpactMax).toBe(5)
+      expect(ARMORS.round_shield_t2.shieldImpactMax).toBe(10)
+      expect(ARMORS.round_shield_t3.shieldImpactMax).toBe(20)
 
-      expect(ARMORS.scutum_t1.damageReduction).toBe(0.10)
-      expect(ARMORS.scutum_t2.damageReduction).toBe(0.15)
-      expect(ARMORS.scutum_t3.damageReduction).toBe(0.20)
+      expect(ARMORS.scutum_t1.shieldImpactMax).toBe(5)
+      expect(ARMORS.scutum_t2.shieldImpactMax).toBe(10)
+      expect(ARMORS.scutum_t3.shieldImpactMax).toBe(20)
     })
 
-    it('DamageRouter applies shield reduction to Horse while mounted, and to Rider after dismount', () => {
+    it('DamageRouter never grants passive shield reduction to horse or rider', () => {
       let mountDamageTaken = 0
       let npcDamageTaken = 0
 
@@ -279,14 +279,14 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       // 1. Mounted with T2 shield: 100 incoming damage -> mount takes 85
       damageNpc(mockNpc, 100)
-      expect(mountDamageTaken).toBe(85)
+      expect(mountDamageTaken).toBe(100)
       expect(npcDamageTaken).toBe(0)
 
       // 2. Unmounted with T2 shield: 100 incoming damage -> NPC takes 85
       mockNpc.isMounted = false
       mockNpc.mount = null
       damageNpc(mockNpc, 100)
-      expect(npcDamageTaken).toBe(85)
+      expect(npcDamageTaken).toBe(100)
 
       // 3. No shield: 100 incoming damage -> NPC takes full 100
       mockNpc.shieldId = null
@@ -436,7 +436,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const expectedHp = 200 - t2BowDamage
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         t2BowDamage,
@@ -456,7 +456,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       expect(player.currentHp).toBeCloseTo(expectedHp)
       expect(onHitTarget).toHaveBeenCalledWith(
-        t2BowDamage,
+        expect.closeTo(t2BowDamage, 6),
         expect.any(THREE.Vector3),
         'Player',
         expectedHp / 200,
@@ -471,7 +471,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       // Repeated hits reduce HP to 0 and trigger permanent death flow
       const fatalArrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         200,
@@ -493,7 +493,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(onDeath).toHaveBeenCalledTimes(1)
     })
 
-    it('2. Unmounted Player, T2 shield (15% reduction) receives 85 damage from 100 incoming damage', () => {
+    it('2. Unmounted Player, T2 shield (no passive reduction) receives full damage on direct body hit', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene, 'viking')
       player.position.set(0, 0, 0)
@@ -502,7 +502,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         100,
@@ -521,20 +521,20 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       )
 
       // 100 * (1 - 0.15) = 85 damage -> 200 - 85 = 115 HP
-      expect(player.currentHp).toBe(115)
+      expect(player.currentHp).toBe(100)
       expect(onHitTarget).toHaveBeenCalledWith(
         100,
         expect.any(THREE.Vector3),
         'Player',
-        115 / 200,
+        100 / 200,
         true,
         undefined,
         false
       )
-      expect(mockHpBar.setFill).toHaveBeenCalledWith(115 / 200)
+      expect(mockHpBar.setFill).toHaveBeenCalledWith(100 / 200)
     })
 
-    it('3. Mounted Player, T2 shield (15% reduction) routes 85 damage to Horse, Rider HP unchanged', () => {
+    it('3. Mounted Player, T2 shield (no passive reduction) routes full damage to Horse, Rider HP unchanged', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene, 'viking')
       player.position.set(0, 0, 0)
@@ -548,7 +548,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         100,
@@ -567,7 +567,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       )
 
       // Horse receives 85 damage -> 115 HP
-      expect(mount.currentHp).toBe(115)
+      expect(mount.currentHp).toBe(100)
       // Rider HP unchanged
       expect(player.currentHp).toBe(200)
       expect(player.isMounted).toBe(true)
@@ -575,7 +575,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         100,
         expect.any(THREE.Vector3),
         `坐騎：${mount.displayName}`,
-        115 / 200,
+        100 / 200,
         true,
         undefined,
         true
@@ -596,7 +596,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         100,
@@ -643,7 +643,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         100,
@@ -665,7 +665,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(player.isMounted).toBe(false)
       expect(dismountSpy).toHaveBeenCalledTimes(1)
       expect(onHitTarget).toHaveBeenCalledWith(
-        100,
+        50,
         expect.any(THREE.Vector3),
         `坐騎：${mount.displayName}`,
         0,
@@ -685,7 +685,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       // T2 Javelin projectile with 63 damage
       const javelin = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         63,
@@ -724,7 +724,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1.0, 0.5),
+        new THREE.Vector3(0, .5, .25),
         new THREE.Vector3(0, 0, -1),
         10,
         50,
@@ -775,6 +775,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(attacker.pendingLanceChargeSpeed).toBe(12)
 
       // Frame 2: Executes attack hit
+      vi.spyOn(attacker.weaponSweep, 'trace').mockReturnValue({ kind: 'body', time: .5 }) // Damage coefficient test; physical sweep tested separately.
       vi.spyOn((attacker as any).animator, 'update').mockReturnValue({
         actionCompleted: false,
         hitActiveStarted: true,
@@ -810,6 +811,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(attacker.pendingLanceChargeSpeed).toBe(12)
 
       // First hit: charge hit = 180
+      vi.spyOn(attacker.weaponSweep, 'trace').mockReturnValue({ kind: 'body', time: .5 }) // Damage coefficient test; physical sweep tested separately.
       vi.spyOn((attacker as any).animator, 'update').mockReturnValue({
         actionCompleted: false,
         hitActiveStarted: true,
@@ -850,6 +852,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       attacker.update(0.016, null as any, [attacker, target], [], [], null as any, onHit, () => {})
       expect(attacker.pendingLanceChargeSpeed).toBe(10)
 
+      vi.spyOn(attacker.weaponSweep, 'trace').mockReturnValue({ kind: 'body', time: .5 }) // Damage coefficient test; physical sweep tested separately.
       vi.spyOn((attacker as any).animator, 'update').mockReturnValue({
         actionCompleted: false,
         hitActiveStarted: true,
@@ -881,6 +884,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       const onHit = vi.fn()
       ;(footSpearman as any).state = AIState.ATTACK
       ;(footSpearman as any).attackTimer = 0
+      vi.spyOn(footSpearman.weaponSweep, 'trace').mockReturnValue({ kind: 'body', time: .5 })
       vi.spyOn((footSpearman as any).animator, 'update').mockReturnValue({
         actionCompleted: false,
         hitActiveStarted: true,
@@ -1069,6 +1073,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         inventoryManager: { equippedMelee: WEAPONS.heavy_lance },
         skillManager: { getMultiplier: () => 1, addXp: vi.fn() },
         npcs: [enemyNpc],
+        npcGrid: { getNearbyInto: () => [enemyNpc] },
         _tmpGripPos: new THREE.Vector3(),
         _tmpPlayerForward: new THREE.Vector3(),
         _tmpAiCenter: new THREE.Vector3(),
@@ -1180,7 +1185,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(onDamagePlayer).toHaveBeenCalledTimes(1)
       expect(onDamagePlayer).toHaveBeenCalledWith(23, undefined)
       // The callback applies the equipped T2 shield (15%) and routes damage to the mounted Player's horse.
-      expect(playerMount.currentHp).toBeCloseTo(100 - 23 * 0.85)
+      expect(playerMount.currentHp).toBeCloseTo(100 - 23)
       expect(onEnemyMountHitPlayer).toHaveBeenCalledWith(
         23,
         expect.objectContaining({ isMountHit: true, targetName: `坐騎：${playerMount.displayName}` })

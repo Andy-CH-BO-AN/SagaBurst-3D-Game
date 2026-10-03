@@ -24,6 +24,7 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
   const scene = new THREE.Scene()
   const player = new Player(scene)
   const inventory = new InventoryManager(initialLoadout)
+  if (!initialLoadout) inventory.equipWeapon('elven_runebow')
   const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 500)
   const tpCamera = new ThirdPersonCamera(camera, player)
   const ui = { setAiming: vi.fn(), setChargeRatio: vi.fn(), setShieldBlocked: vi.fn() }
@@ -48,16 +49,18 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
 }
 
 describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
-  it('Melee + Shield -> RMB -> shield auto-unequipped, isAiming = true, camera zooms', () => {
+  it('Selecting Bow stows Shield; RMB enters aim and camera zooms', () => {
     const h = createPlayerHarness()
     h.update(input())
 
+    h.inventory.equipWeapon('round_shield_t3'); h.update(input())
     // 1. Initial state: shield equipped
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
     expect(h.player.isAiming).toBe(false)
     expect(h.camera.fov).toBeCloseTo(58, 0)
 
-    // 2. RMB pressed with equipped bow -> shield automatically unequipped, enters aim in the same frame
+    // 2. Explicitly selecting the bow stows the shield before RMB aims
+    h.inventory.equipWeapon('elven_runebow')
     h.update(input({ isRightMouseDown: true }))
     expect(h.inventory.equippedShield).toBeNull()
     expect(h.player.isAiming).toBe(true)
@@ -455,12 +458,14 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.sounds.playBowRelease).not.toHaveBeenCalled()
   })
 
-  // Test 4: shield auto-unequipped on RMB, shoots arrow on release LMB
-  it('持盾時按 RMB 自動卸盾進入 Aim，蓄力釋放 LMB 正常射出箭矢', () => {
+  // Test 4: selecting Bow stows Shield; release LMB shoots
+  it('選弓卸盾後按 RMB 進入 Aim，蓄力釋放 LMB 正常射出箭矢', () => {
     const h = createPlayerHarness()
+    h.inventory.equipWeapon('round_shield_t3')
     h.update(input())
     expect(h.inventory.equippedShield?.id).toBe('round_shield_t3')
 
+    h.inventory.equipWeapon('elven_runebow')
     // Enter aim and charge with LMB
     h.update(input({ isRightMouseDown: true }))
     expect(h.inventory.equippedShield).toBeNull()
@@ -951,6 +956,7 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
 
   it('Buffer is strictly scoped to Lance: sword clicks during recovery do not buffer follow-up attack', () => {
     const h = createPlayerHarness()
+    h.inventory.equipWeapon('round_shield_t3')
     h.inventory.addWeapon('steel_sword')
     h.inventory.equipWeapon('steel_sword')
     h.update(input())
