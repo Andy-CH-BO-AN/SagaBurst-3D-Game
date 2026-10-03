@@ -9,6 +9,8 @@
 - 區分身體前向和來源頭部的轉向。以整體等比縮放及座標正規化保留解剖；若使用者要求朝前看，在頸／頭骨架分配轉向，檢查眼睛、口鼻和耳朵的蒙皮，不用全模型旋轉或壓扁臉部補償。
 - 固定相機比較正規化來源與候選裸模；保留來源臉型、體型、花色及材質。裝備開關能幫助檢查，但不是刪掉使用者要的鞍甲。
 
+只換動畫或修已接入模型的形變時，轉讀 [animation-deformation.md](animation-deformation.md)；不重新做來源外觀替換。
+
 ## 蒙皮、鞍甲與輸出
 
 授權追溯、蒙皮與獨立實例原則可參考 [humanoid-rig-skinning](../../humanoid-rig-skinning/SKILL.md)；manifest 欄位、骨架與動作以目標坐騎 loader 為準。不要將人物 `project-humanoid-v1`／三個 GLB 的 schema 套到坐騎的單檔多 LOD 契約。

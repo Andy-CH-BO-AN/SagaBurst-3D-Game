@@ -7,6 +7,7 @@
 | 檔案 | 應檢查的契約 |
 | --- | --- |
 | `src/world/BlackCatVisual.ts`、`src/world/CorgiVisual.ts` | 兩者的外部 GLB preload／LOD／獨立骨架與 mixer |
+| `src/world/QuadrupedMountAnimation.ts` | 黑貓／柯基 clip 型別、必備 clips 與速度切換遲滯；馬的步態契約另查 registry |
 | `src/world/Mount.ts` | MountType、存檔反序列化、visual 選擇、物理狀態、座位世界座標與朝向 |
 | `src/world/HorseAssetRegistry.ts` | 外部戰馬的資產／動畫實例與鞍座；不要改壞戰馬分支 |
 | `src/world/CharacterVisuals.ts` 及呼叫 mounted pose 的 animator | 種類對應的騎士姿勢、髖腿與裝備；搜尋 `MountedPoseKind`、`mountKind` |
@@ -44,11 +45,11 @@
 | 側面頭過長、眼耳距大 | 調整局部頭深度和耳根位置，重看正面；不要縮整隻動物 |
 | 額頭凸包變平板 | 消除獨立疊球，保留平滑凸弧；參考圖決定曲率 |
 | 耳朵懸空或側面像直柱 | 耳根嵌合顱骨、耳廓有厚度和彎曲；耳尖相對耳根的前後方向依物種與圖片決定 |
-| 胸口像一顆球，脖子到肚子有折線 | 合併真正的體表再生毛，平滑法線；不要只蓋一層長毛 |
+| 胸口凸塊，脖子到肚子有折線 | REST 也有時查體表接合；只在動作中出現時先查權重／插值，見 [動畫形變診斷](animation-deformation.md) |
 | 鞍墊被新身體頂穿 | 體表修改後鞍墊仍取樣舊橢球；讓兩者讀取同一表面 |
 | 正面看似正常、上方甲片長毛 | 甲片只避開單一球體，未包含肩胛／腿根；修曲面及精確覆蓋裁剪 |
 | 靜止乾淨、跑動禿斑或穿甲 | 裁剪只考慮 rest pose 或護片掛錯節點；檢查活動範圍與重新露出的毛皮 |
 | 騎士腿穿身體／屁股浮空 | 鞍寬、座高、騎姿與 mountKind 不一致；先分清骨盆中心與臀部接觸面，再核對預覽與遊戲使用的姿勢 |
-| 尾根有空隙 | 需要封口、嵌入與擺動時足夠重疊；不能只靠靜止相切 |
+| 尾根有空隙或下背掉落 | 先比較 REST 與 posed：幾何本來分離才修接合；動作才出現則查腰背／尾根 skin 與骨架，見 [動畫形變診斷](animation-deformation.md) |
 
 騎士與武器的接觸診斷見上述貼合參考文件；案例的尺寸、毛色與裝備選擇只屬於各自需求，不作預設模板。

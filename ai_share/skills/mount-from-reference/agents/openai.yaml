@@ -1,4 +1,4 @@
 interface:
-  display_name: "動物坐騎建模與貼合"
-  short_description: "依參考圖或指定模型建立動物坐騎，校準比例、臀部接觸、腿部與裝備貼合"
-  default_prompt: "使用 $mount-from-reference，依照提供的參考圖或 GLB，在這個 repo 製作可騎乘的動物坐騎並驗證騎士與裝備貼合。"
+  display_name: "動物坐騎、動畫與貼合"
+  short_description: "依參考圖或模型製作坐騎，修正動畫、蒙皮形變，以及騎士與裝備貼合"
+  default_prompt: "使用 $mount-from-reference，依本次參考圖、模型或缺陷，在這個 repo 製作或修正動物坐騎，驗證相關動畫、形變與騎士貼合。"
