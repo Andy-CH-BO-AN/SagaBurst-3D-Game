@@ -92,14 +92,16 @@ describe('Veteran mission board integration', () => {
     expect(unlocked.town.profile.ownedMounts).toEqual([])
   })
 
-  it('does not count lower-tier victories toward Veteran Home Defense and hides it after its story victory', () => {
+  it('does not count lower-tier victories toward Veteran Home Defense and keeps completed saves replayable', () => {
     const locked = board('veteran', 'veteran', [], { 1: 500, 2: 500, 3: 4 })
     const row = locked.elements.find(element => element.children.some(child => child.textContent === '守衛家園 · 老兵守城'))
     expect(row?.all().some(element => element.textContent.includes('4/5'))).toBe(true)
     expect(row?.children.find(element => element.onclick)?.disabled).toBe(true)
 
     const completed = board('veteran', 'veteran', ['veteran-town-defense-01'], { 3: 5 })
-    expect(completed.elements.some(element => element.children.some(child => child.textContent === '守衛家園 · 老兵守城'))).toBe(false)
+    const completedRow = completed.elements.find(element => element.children.some(child => child.textContent === '守衛家園 · 老兵守城'))
+    expect(completedRow).toBeDefined()
+    expect(completedRow!.children.find(element => element.onclick)?.disabled).toBe(false)
   })
 
   it('routes the Veteran Home Defense card through the existing town-defense acceptMission path', () => {
@@ -111,8 +113,8 @@ describe('Veteran mission board integration', () => {
     expect(acceptMission).toHaveBeenCalledExactlyOnceWith('veteran-town-defense-01')
   })
 
-  it('accepts the unlocked Veteran Home Defense as a regular town-defense mission', () => {
-    const { town } = board('veteran', 'veteran', [], { 3: 5 })
+  it.each([[], ['veteran-town-defense-01']])('accepts Veteran Home Defense with completion history %j', completed => {
+    const { town } = board('veteran', 'veteran', completed, { 3: 5 })
     const profile = town.profile
     town.residents = townRoster().map(spec => ({ spec, npc: {} }))
     town.store = { load: () => profile }

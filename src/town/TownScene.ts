@@ -680,8 +680,7 @@ export class TownScene {
     }
     const homeDefenseTemplate = careerMissionTemplatesForPage(this.profile, 'veteran')
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
-    if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense'
-      || this.profile.completedCareerMissionTemplateIds?.includes(homeDefenseTemplate.id)) return
+    if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
     const homeDefense = homeDefenseTemplate
     const veteranWins = careerMissionCompletionsForTier(this.profile, 3)
     const unlocked = availableCareerMissionsForPage(this.profile, 'veteran').some(template => template.id === homeDefense.id)

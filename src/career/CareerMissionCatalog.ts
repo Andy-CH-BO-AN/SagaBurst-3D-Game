@@ -121,7 +121,7 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   risk: '極高',
   requiresEnlistmentMerit: 0,
   requiresCompletions: 5,
-  storyOnce: true,
+  storyOnce: false,
   minRank: 'veteran',
 }
 
