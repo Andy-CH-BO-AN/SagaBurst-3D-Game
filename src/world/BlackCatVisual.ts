@@ -2,11 +2,17 @@ import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import type { HorseAnimationState } from './HorseAssetRegistry'
+import {
+  isQuadrupedAnimationState,
+  quadrupedLocomotionClipForSpeed,
+  QUADRUPED_REQUIRED_CLIPS,
+  type QuadrupedAnimationState,
+  type QuadrupedLocomotionState,
+  type QuadrupedOneShotState,
+} from './QuadrupedMountAnimation'
 
 const BASE = '/models/mounts/v2/black-cat'
-const CLIPS: HorseAnimationState[] = ['idle', 'walk', 'trot', 'canter', 'gallop', 'jump', 'land', 'hit', 'death']
-const GAIT_SPEEDS = { walk: 2, trot: 4, canter: 7, gallop: 12 } as const
+const GAIT_SPEEDS = { walk: 2, run: 13.2 } as const
 
 /** Original GLB geometry and PBR maps, with a fitted feline skin and independent playback. */
 export class BlackCatVisual {
@@ -26,7 +32,7 @@ export class BlackCatVisual {
       throw new Error('Black cat asset has not passed source and visual validation')
     }
     const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${BASE}/${manifest.file}`)
-    for (const clip of CLIPS) {
+    for (const clip of QUADRUPED_REQUIRED_CLIPS) {
       if (!gltf.animations.some(animation => animation.name === clip)) throw new Error(`Black cat is missing ${clip}`)
     }
     for (const name of ['cat_body_lod0', 'cat_body_lod1', 'cat_body_lod2', 'socket_saddle_seat']) {
@@ -43,14 +49,18 @@ export class BlackCatVisual {
   readonly skeleton: THREE.Skeleton
   readonly mixer: THREE.AnimationMixer
   readonly lod = new THREE.LOD()
-  private readonly actions = new Map<HorseAnimationState, THREE.AnimationAction>()
-  private current: HorseAnimationState = 'idle'
-  private locomotion: HorseAnimationState = 'idle'
-  private oneShot: HorseAnimationState | null = null
+  private readonly actions = new Map<QuadrupedAnimationState, THREE.AnimationAction>()
+  private current: QuadrupedAnimationState = 'idle'
+  private currentAction: THREE.AnimationAction
+  private locomotion: QuadrupedLocomotionState = 'idle'
+  private oneShot: QuadrupedOneShotState | null = null
+  private oneShotAction: THREE.AnimationAction | null = null
+  private oneShotDuration = 0
   private paused = false
   private studio = false
   private elapsed = 0
   private playbackRate = 1
+  private requestedPlaybackRate = 1
 
   constructor() {
     const template = BlackCatVisual.template
@@ -77,16 +87,19 @@ export class BlackCatVisual {
     this.root.add(this.lod)
     this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
     this.mixer = new THREE.AnimationMixer(this.root)
-    for (const clip of template.animations) this.actions.set(clip.name as HorseAnimationState, this.mixer.clipAction(clip))
+    for (const clip of template.animations) {
+      if (isQuadrupedAnimationState(clip.name)) this.actions.set(clip.name, this.mixer.clipAction(clip))
+    }
+    this.currentAction = this.actions.get('idle')!
     this.play('idle', true)
     this.mixer.update(0)
     this.root.updateMatrixWorld(true)
   }
 
-  private play(clip: HorseAnimationState, immediate = false): void {
-    const previous = this.actions.get(this.current)!
+  private play(clip: QuadrupedAnimationState, immediate = false): void {
+    const previous = this.currentAction
     const next = this.actions.get(clip)!
-    const once = ['jump', 'land', 'hit', 'death'].includes(clip)
+    const once = clip === 'jump' || clip === 'land' || clip === 'hit' || clip === 'death'
     next.reset().setEffectiveWeight(1).setEffectiveTimeScale(this.playbackRate)
     next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity)
     next.clampWhenFinished = once
@@ -96,31 +109,41 @@ export class BlackCatVisual {
       else previous.crossFadeTo(next, .12, false)
     }
     this.current = clip
+    this.currentAction = next
   }
 
   setLocomotion(speed: number): void {
     this.studio = false
-    this.locomotion = speed > 9 ? 'gallop' : speed > 5 ? 'canter' : speed > 2.7 ? 'trot' : speed > .1 ? 'walk' : 'idle'
+    this.locomotion = quadrupedLocomotionClipForSpeed(speed, this.locomotion)
+    this.requestedPlaybackRate = this.locomotion === 'idle'
+      ? 1 : Math.min(speed / GAIT_SPEEDS[this.locomotion], 3)
     if (this.oneShot || this.current === 'death') return
-    const reference = GAIT_SPEEDS[this.locomotion as keyof typeof GAIT_SPEEDS]
-    this.playbackRate = reference ? THREE.MathUtils.clamp(speed / reference, .5, 1.5) : 1
+    this.playbackRate = this.requestedPlaybackRate
     if (this.current !== this.locomotion) this.play(this.locomotion)
-    this.actions.get(this.current)!.setEffectiveTimeScale(this.playbackRate)
+    this.currentAction.setEffectiveTimeScale(this.playbackRate)
   }
 
-  playOnce(clip: HorseAnimationState): void {
+  playOnce(clip: QuadrupedOneShotState): void {
     if (this.current === 'death') return
+    const action = this.actions.get(clip)
+    if (!action) return
     this.oneShot = clip
+    this.oneShotAction = action
+    this.oneShotDuration = action.getClip().duration
     this.playbackRate = 1
     this.play(clip)
   }
 
-  playStudioClip(clip: HorseAnimationState): void {
+  playStudioClip(clip: QuadrupedAnimationState): void {
+    if (!this.actions.has(clip)) return
     this.studio = true
     this.oneShot = null
+    this.oneShotAction = null
+    this.oneShotDuration = 0
     this.paused = false
     this.elapsed = 0
     this.playbackRate = 1
+    this.requestedPlaybackRate = 1
     this.mixer.stopAllAction()
     this.play(clip, true)
     this.mixer.update(0)
@@ -140,11 +163,11 @@ export class BlackCatVisual {
     this.elapsed += dt
     this.mixer.update(dt)
     // Jump stays tucked until physics sends land; death stays fallen.
-    if (!this.studio && this.oneShot && this.oneShot !== 'jump' && this.oneShot !== 'death') {
-      const action = this.actions.get(this.oneShot)!
-      if (action.time >= action.getClip().duration) {
+    if (!this.studio && this.oneShotAction && this.oneShot !== 'jump' && this.oneShot !== 'death') {
+      if (this.oneShotAction.time >= this.oneShotDuration) {
         this.oneShot = null
-        this.playbackRate = 1
+        this.oneShotAction = null
+        this.playbackRate = this.requestedPlaybackRate
         this.play(this.locomotion)
       }
     }
@@ -152,7 +175,7 @@ export class BlackCatVisual {
   }
 
   debugState() {
-    return { clip: this.current, time: this.elapsed, paused: this.paused, lod: this.lod.getCurrentLevel(), mixerCount: 1, skeletonCount: 1 }
+    return { clip: this.current, time: this.elapsed, actionTime: this.currentAction.time, playbackRate: this.playbackRate, paused: this.paused, lod: this.lod.getCurrentLevel(), mixerCount: 1, skeletonCount: 1 }
   }
 
   dispose(): void {

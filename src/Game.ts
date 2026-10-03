@@ -292,6 +292,7 @@ import {
   type HorseAppearanceVariant,
 } from './world/HorseAssetRegistry'
 import type { HumanoidAnimationState } from './world/CharacterVisuals'
+import { QUADRUPED_STUDIO_CLIPS } from './world/QuadrupedMountAnimation'
 
 const HUMANOID_STUDIO_FLOOR_Y = 8
 const HORSE_STUDIO_CLIPS: HorseAnimationState[] = [
@@ -1255,6 +1256,7 @@ export class Game {
     const isCorgi = model === 'corgi'
     const isProcedural = isCat || isCorgi
     const mount = new Mount(this.scene, isCat ? MountType.BLACK_CAT : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const studioClips = isProcedural ? QUADRUPED_STUDIO_CLIPS : HORSE_STUDIO_CLIPS
     if (isProcedural) {
       this.camera.position.set(isCorgi ? 6.4 : 4.4, HUMANOID_STUDIO_FLOOR_Y + (isCorgi ? 2.8 : 2.6), isCorgi ? 6.8 : 4.0)
       this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2)
@@ -1361,7 +1363,7 @@ export class Game {
     help.id = 'mount-studio-help'
     help.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:30;padding:10px 12px;border:1px solid #8b7962;background:rgba(20,17,14,.88);color:#eadfce;font:13px/1.45 system-ui;pointer-events:none'
     help.textContent = (isCat ? '黑貓工作室｜' : '戰馬工作室｜') + '1–9 動畫・0 花色・Space 暫停・R 重播・H 骨架・V 騎士・L 劍／槍・Q 盾牌・F 攻擊｜左鍵旋轉・右鍵平移・滾輪縮放'
-    if (isProcedural) help.textContent = '拖曳旋轉 · 滾輪縮放 · 1–5 步態 · 6 跳躍 · 7 落地 · 8 受擊 · 9 倒地 · Space 暫停 · R 重播 · V 騎士 · L 換武器 · Q 盾牌 · F 攻擊'
+    if (isProcedural) help.textContent = '拖曳旋轉 · 滾輪縮放 · 1 idle · 2 walk · 3 run · 4 death · 5 跳躍 · 6 落地 · 7 受擊 · Space 暫停 · R 重播 · V 騎士 · L 換武器 · Q 盾牌 · F 攻擊'
     document.body.appendChild(help)
 
     const status = document.createElement('div')
@@ -1478,8 +1480,8 @@ export class Game {
 
     window.addEventListener('keydown', (event) => {
       const digit = Number(event.code.replace('Digit', ''))
-      if (Number.isInteger(digit) && digit >= 1 && digit <= HORSE_STUDIO_CLIPS.length) {
-        mount.playStudioClip(HORSE_STUDIO_CLIPS[digit - 1])
+      if (Number.isInteger(digit) && digit >= 1 && digit <= studioClips.length) {
+        mount.playStudioClip(studioClips[digit - 1])
         return
       }
       if (event.code === 'Digit0' || event.code === 'Numpad0') {
@@ -1490,7 +1492,7 @@ export class Game {
         mount.toggleStudioPause()
       } else if (event.code === 'KeyR') {
         const state = mount.proceduralVisual?.debugState() ?? mount.getHorseDebugState()
-        if (state) mount.playStudioClip(state.clip as HorseAnimationState)
+        if (state) mount.playStudioClip(state.clip)
       } else if (event.code === 'KeyH' && this.mountStudioSkeleton) {
         this.mountStudioSkeleton.visible = !this.mountStudioSkeleton.visible
       } else if (event.code === 'KeyV' && this.mountStudioRider) {
@@ -1519,7 +1521,7 @@ export class Game {
     const state = this.mountStudioHorse.getHorseDebugState()
     if (!state) {
       const procedural = this.mountStudioHorse.proceduralVisual?.debugState()
-      if (procedural) this.mountStudioStatus.textContent = `${this.mountStudioHorse.displayName} · ${procedural.clip} · ${procedural.paused ? '暫停' : '播放中'}｜${this.mountStudioHorse.type === MountType.CORGI ? `來源 GLB · LOD ${procedural.lod} · 1 mixer` : '肩高 1.6 m · 體長 2.4 m'}`
+      if (procedural) this.mountStudioStatus.textContent = `${this.mountStudioHorse.displayName} · ${procedural.clip} · ${procedural.paused ? '暫停' : '播放中'} · ${procedural.actionTime.toFixed(2)} s · ${procedural.playbackRate.toFixed(2)}×｜來源 GLB · LOD ${procedural.lod} · 1 mixer`
       return
     }
     const info = this.renderer.info

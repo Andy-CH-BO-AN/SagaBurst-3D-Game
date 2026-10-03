@@ -1,0 +1,649 @@
+{
+  "schemaVersion": 1,
+  "animal": "black-cat",
+  "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
+  "baseline": {
+    "commit": "e44a5240c1668e767fdee4964ab9507e9f53adf7",
+    "sha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d"
+  },
+  "sources": {
+    "doginx": {
+      "file": "Doginx fbx + unity.zip",
+      "sha256": "87a0e0beaa0b3ccae02ba8d4f5ab7e8ed6daece218548beff1e33996aefc0205",
+      "title": "Doginx - Assets",
+      "author": "Tomate Salat",
+      "url": "https://tomate-salat.itch.io/doginx-assets",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "used": "idle and walk poses/foot trajectories",
+      "sourceMember": "Models/Meshes/characters.fbx"
+    },
+    "cat_run": {
+      "file": "cat_rigged.fbx",
+      "sha256": "e1386997828c40e21b1923b7763b118127a46adacd248457789d520492c69792",
+      "title": "Lowpoly Cat + Run Animation",
+      "author": "Daily Lowpoly",
+      "url": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "license": "Creator permits use in commercial projects",
+      "licenseUrl": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "used": "cat run poses/foot trajectories"
+    }
+  },
+  "bake": {
+    "tool": "tools/blender/build_animations.py",
+    "fps": 60,
+    "forward": "+Z",
+    "method": "Evaluated donor body rotations and foot trajectories adapted to original target limb lengths and joint axes; sampled target Actions; no donor geometry or rig exported.",
+    "bodyMapping": {
+      "idle": {
+        "cat_torso": "Animal",
+        "cat_chest": "Body",
+        "cat_neck": "Head",
+        "cat_head": "Head",
+        "cat_tail_0": "Tail"
+      },
+      "walk": {
+        "cat_torso": "Animal",
+        "cat_chest": "Body",
+        "cat_neck": "Head",
+        "cat_head": "Head",
+        "cat_tail_0": "Tail"
+      },
+      "run": {
+        "cat_torso": "pelvis",
+        "cat_chest": "body_2",
+        "cat_neck": "neck",
+        "cat_head": "head",
+        "cat_tail_0": "tail_1",
+        "cat_tail_1": "tail_2",
+        "cat_tail_2": "tail_3",
+        "cat_tail_3": "tail_4",
+        "cat_tail_4": "tail_4"
+      }
+    },
+    "footMapping": {
+      "doginx": {
+        "cat_front_paw_l": "Foot.Front.L",
+        "cat_front_paw_r": "Foot.Front.R",
+        "cat_rear_paw_l": "Foot.Back.L",
+        "cat_rear_paw_r": "Foot.Back.R"
+      },
+      "cat_run": {
+        "cat_front_paw_l": "leg_front_left_4",
+        "cat_front_paw_r": "leg_front_right_4",
+        "cat_rear_paw_l": "leg_back_left_4",
+        "cat_rear_paw_r": "leg_back_right_4"
+      }
+    },
+    "horizontalRootMotion": "removed; game physics owns horizontal translation",
+    "nominalSpeedsMps": {
+      "walk": 2,
+      "run": 13.2
+    },
+    "clips": [
+      {
+        "name": "idle",
+        "channels": 75,
+        "duration": 10
+      },
+      {
+        "name": "walk",
+        "channels": 75,
+        "duration": 1.2
+      },
+      {
+        "name": "run",
+        "channels": 75,
+        "duration": 0.8
+      },
+      {
+        "name": "death",
+        "channels": 75,
+        "duration": 1.8
+      },
+      {
+        "name": "jump",
+        "channels": 75,
+        "duration": 0.7666666666666667
+      },
+      {
+        "name": "land",
+        "channels": 75,
+        "duration": 0.6333333333333333
+      },
+      {
+        "name": "hit",
+        "channels": 75,
+        "duration": 0.6333333333333333
+      }
+    ],
+    "authored": [
+      "death"
+    ],
+    "retainedFromBaseline": [
+      "jump",
+      "land",
+      "hit"
+    ]
+  },
+  "skinCorrection": {
+    "algorithm": "cat-paw-lumbar-v6",
+    "meshes": [
+      {
+        "name": "cat_body_lod0",
+        "changedVertices": 6654
+      },
+      {
+        "name": "cat_body_lod1",
+        "changedVertices": 2063
+      },
+      {
+        "name": "cat_body_lod2",
+        "changedVertices": 798
+      },
+      {
+        "name": "cat_saddle_binding",
+        "changedVertices": 1151
+      },
+      {
+        "name": "cat_saddle_leather",
+        "changedVertices": 388
+      }
+    ]
+  },
+  "selectedAppearance": {
+    "reference": "black-cat-back-v6.glb",
+    "referenceSha256": "28e19579688b0629fc1a2f26e62fbe4540b49585719415103b958fc91ada7f6c",
+    "changeAfterSelection": "Only nonnegative vertical root-height correction for ground contact; relative run shape preserved within 0.000001471 m."
+  },
+  "validation": {
+    "roundtripMcpPlayback": true,
+    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
+    "reviewedViews": {
+      "idle": [
+        "front",
+        "side"
+      ],
+      "walk": [
+        "front",
+        "side"
+      ],
+      "run": [
+        "front",
+        "side",
+        "rear"
+      ],
+      "death": [
+        "front",
+        "side"
+      ]
+    },
+    "browserRunPhasesPerView": 12,
+    "roundtrip": "Imported decoded final GLB into GUI Blender through actual upstream MCP, then checked the compressed final GLB in Three.js.",
+    "evidence": [
+      {
+        "path": "output/mount-retarget/roundtrip-selected-cat-final-mcp.json",
+        "sha256": "3cc7840c96299be04d7dd3b3e49e6c73bdfa941a87bbaa5efa695938501d38bc"
+      },
+      {
+        "path": "output/mount-retarget/roundtrip_selected_cat_final.py",
+        "sha256": "9ffc9667fd302200bfb10bd846d8281097d81fe21a96273f99ee11b15a85a298"
+      },
+      {
+        "path": "output/mount-retarget/black-cat-final-validation.json",
+        "sha256": "c35d0009c95194a235825d255d78a89225cbf595f8e3166c14526ff2e969def3"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-front.png",
+        "sha256": "15cd1ab6f7da33353c5d6bc6a28cb7c98a9ce88c7c8c679e8aa67f12a967b0cd"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-side.png",
+        "sha256": "c4483f8ab73138dfd14e5f57483837c6fd261f9c64849f1fa0561cdb0380ed9f"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-front.png",
+        "sha256": "a14589198c8a15f0cbe2d443e46e980227e18a9054aa639889ae4528b2a04b82"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-side.png",
+        "sha256": "435e579ef7c227e7a70a574bb2c70d48f72fc31d35c293dc6af308798f6ea7e2"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-front.png",
+        "sha256": "7cb4c92a67ec4d44156479f7751d3342ee55795b56c7162a349e702e28713b92"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-side.png",
+        "sha256": "e95dd651403407310e197120d63e396a8b5c9bb76aca19031b19c8a2be3c601c"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.5-rear.png",
+        "sha256": "debc4a3cab9a5bdac418577aa6c7932a83c7104b384ca672f4bb491f12dc034e"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-front.png",
+        "sha256": "9f0311f2fbb629147d9b3bd30131f8bd507aac0264357a45f12b31df458e7092"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-rear.png",
+        "sha256": "fabfaad1e6ad34560356fec9ee4ec0debf5a19ee8274b931324eec1f35e11aa0"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-side.png",
+        "sha256": "06336095211349aad74493cf089f9774ce25267a97d7c90ce39a771a85aae8ba"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-front.png",
+        "sha256": "a27a7d2bbd747d56171a10821b36a895cba5a1843eaf40e71b5ab3da214bbccf"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-side.png",
+        "sha256": "8f98d95a21ffd5c09fa44874ddd9145810c1de4fa7cc89ec0a2b975e565a1965"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-front-image-mcp.json",
+        "sha256": "1f84b3079755b4c53f7f672d99c88b28c19dcc14d09b6088b53c450f61308bcd"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-front-mcp.json",
+        "sha256": "2be89b8d1d33571b3d3aa5f74cd4aa20f6a1e54d7b13b58c4866c632113621bb"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-side-image-mcp.json",
+        "sha256": "e90119ba12bd15a1b47d931177fe8eae73e8ff0fa50a54dfc8dc92d7bb22a633"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-0.5-side-mcp.json",
+        "sha256": "c47a24f990cb5d01a5194826f6ccf01a0b45c8809b34adcd9195c561a35cf78e"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-front-image-mcp.json",
+        "sha256": "6202e2a43efdf22d287b27ee51bc374350de16d09f6b832150efbfa8885d90b5"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-front-mcp.json",
+        "sha256": "45ceec1358d511a962ec5b544aadab10025530b8214f7f3ec28ae25ca74beefd"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-side-image-mcp.json",
+        "sha256": "80bc3705efa24fb17d9aa83f971515c42cc913c4134ca8c43ca5a91651a22cf7"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-death-1.0-side-mcp.json",
+        "sha256": "81962d36c84529503d32ca44b7921c7a33b1ee1c75f68b07ed54a46caa370fa5"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-front-image-mcp.json",
+        "sha256": "7adb5f9ab5c7606db169cc8e435b2aab3067ed8a95f3ffe0f454e6ac122e851e"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-front-mcp.json",
+        "sha256": "5cd95f6ad7d6d720ad91898d16dd4bc69eeab62960303564e00ccf1ba1d464b4"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-side-image-mcp.json",
+        "sha256": "8de02efd86c2d55ed142a0fa671d6f5c744497620023c09ef116f3a773cd4896"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-idle-0.5-side-mcp.json",
+        "sha256": "3ff4db877573fdd472bf3adc3e5f898c92c743951dd02b91dd07000fbd8faa91"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.5-rear-image-mcp.json",
+        "sha256": "7c6f23d33c81a56667bfec581836ccad38c164c01e0eba0e1e7f45ef070562c5"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.5-rear-mcp.json",
+        "sha256": "cccd654be96099fc299b2b3a81da6ccd719a55d3b5443046f94454ad2267d552"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-front-image-mcp.json",
+        "sha256": "9e64f059537d3dd7db6a4cbcc2c728b5d6966395f5a4d77c71b387d9cb990ae4"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-front-mcp.json",
+        "sha256": "2de1b2089da042afbecc48e0c344104985f935347f76c40489b96ad158ed7128"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-rear-image-mcp.json",
+        "sha256": "cd3756a7e7f1662401cf4baa5a1a84025f4fe915da90ebde3b38f769158a09b2"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-rear-mcp.json",
+        "sha256": "6839b577bb41354ff15c712c9ddfd735b15fbee63aea45100611d5ea30925bb4"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-side-image-mcp.json",
+        "sha256": "0ff16f1aa90b115adb92fe5d22470119c1fdf9e2085603361f5ad7f67b135379"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-run-0.94-side-mcp.json",
+        "sha256": "8c0cda875bf249b8607c50cf76c593dfe0249da1ccff23c8ed59e040b551025b"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-front-image-mcp.json",
+        "sha256": "d69a0ccd30d6af87a090593c9542f3bfe3a0742edc2536b2271e23dea4a3be71"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-front-mcp.json",
+        "sha256": "7e43d32f9db57ddb111abb6925eb28d769223da5f34247c2687862279b907549"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-side-image-mcp.json",
+        "sha256": "ca8fb933e76cc55305479aa904009ed7852855198513150cfc52af9dfe2ece12"
+      },
+      {
+        "path": "output/mount-retarget/cat-final-walk-0.3-side-mcp.json",
+        "sha256": "c7a1fca155c30028bab01e2cfada25453e545e5b7a9131b76c1928e8a1665271"
+      },
+      {
+        "path": "output/qa/cat-final-front-cycle.png",
+        "sha256": "144b19906465ad57e93dc9702caaa6712792813affc183636bc0c9d3f5c9b2ab"
+      },
+      {
+        "path": "output/qa/cat-final-side-cycle.png",
+        "sha256": "ec4b5db81c2fcf57f993686cb1fa81b3dbc6152b9d772535bae9cd2fbf5afb75"
+      },
+      {
+        "path": "output/qa/cat-final-rear-cycle.png",
+        "sha256": "76394d8182b288c9e345de1b0b3cac9a3f9b06329cbae342fe5e086836f5ad6e"
+      },
+      {
+        "path": "output/qa/cat-runtime-movement-validation.json",
+        "sha256": "0266555da44118ad5cb164704497abaa83bf9ce0d8b90f6fae004809d00779be"
+      },
+      {
+        "path": "output/qa/black-cat-npc-game-validation.json",
+        "sha256": "6de3d25b0a802860630b62bf00460b6e77c99ea986796703df3d703ec3d9c8cc"
+      },
+      {
+        "path": "output/qa/black-cat-npc-game-validation-cli-log.txt",
+        "sha256": "ace7c5421db4b48956522efd90e70a6c1b894ae801093d863e1ebb0adf37fa89"
+      },
+      {
+        "path": "output/qa/black-cat-npc-rider-idle.png",
+        "sha256": "0947811347f5334b8eb7fdf8e210ae9ae7b17470d604daa5a14b8bf9a7decd0e"
+      },
+      {
+        "path": "output/qa/black-cat-npc-run.png",
+        "sha256": "d47e93340555c1952f271fad30733eb2a766692c43f35f675b03fcb05a2a51a8"
+      },
+      {
+        "path": "output/qa/cat-game-validation.json",
+        "sha256": "7cec0f056331d9fc1e73f183d1c298b1f0f3d5faeefef2ab5d0626e9c3414764"
+      },
+      {
+        "path": "output/qa/cat-runtime-baseline-log.txt",
+        "sha256": "6301c923f5cfa130f042a33a60c6550ad8b20cd82b78d619b7296af54bccccdd"
+      },
+      {
+        "path": "output/qa/cat-runtime-fixed-log.txt",
+        "sha256": "ed2882a47619fc249f18b9cf813f35cc9b621cf8fed27fc5685225b53697e960"
+      },
+      {
+        "path": "output/qa/cat-runtime-baseline-freeze.png",
+        "sha256": "13f1a2e6f81f4be40a8ce5427a47edf25b5b6a1ce95c867a4e6f6691d8d45c5b"
+      },
+      {
+        "path": "output/qa/cat-runtime-freeze-before.png",
+        "sha256": "81502e29beeeee2c9d224e605773ba634b5f5d99e9be9b5e8d6e753461f24423"
+      },
+      {
+        "path": "output/qa/cat-runtime-freeze-after-normal.png",
+        "sha256": "35badd9db077cb5ac798d98810ff255ba47f61e2fd9b5b566a0f4e56661e65ef"
+      },
+      {
+        "path": "output/qa/cat-runtime-freeze-after-sprint.png",
+        "sha256": "42acf73fabe2278db0be42269e1122608810330812b71c720d069e87619a74aa"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation.json",
+        "sha256": "7d7eb51cfba548660eabdd2c55595dec36588bcb11ac54c09ca58bd23710b917"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-summary.json",
+        "sha256": "7e35828663f235f58e7c001fd674a865ca4eb66edc90fea410a55d870c3ea652"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-cli-log.txt",
+        "sha256": "3919411e7cb1e00aec7fdee497065438003c3e45b0b39ffe5c420673a97351ef"
+      },
+      {
+        "path": "output/qa/run-final-mount-game-qa.py",
+        "sha256": "68ed52662ef25db5e2675bb27f30e18682aee7b925395df77d87d67272f92d47"
+      },
+      {
+        "path": "output/qa/final-mount-game-qa.js",
+        "sha256": "9a623202d362715c7efb3e8adec41da3ba10f5a1a68be1193939b16f063d0534"
+      },
+      {
+        "path": "output/qa/vite-runtime-qa.config.mjs",
+        "sha256": "29f3098d1f7f986ba1a4e851ebd5ab5386a243e4dac4a8c36d69a12e6dbcad87"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-rider-armor-front.png",
+        "sha256": "8220301ba302e60bccf64f86ad6add63a9a9d1f8c3764d29768621eea8175270"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-rider-armor-side.png",
+        "sha256": "f10b1042d7d56069e91d0126eff792327a46125681203131f6556311f0bd5da9"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-npc-rider-idle.png",
+        "sha256": "2cf89b6063c547dee78b8b559ed7594b97657f4a0d5cd5a4ecfa1e68751e213a"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-npc-run.png",
+        "sha256": "835dad3884929c368887fb761f9323315f3f09fa47ec7687d786eb5a137f6397"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-run.png",
+        "sha256": "52e7f2ca512add5f6db227ad3e622f14dd8908e416058812f19a5492f9c0dec3"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-sprint.png",
+        "sha256": "827536110e1c278ff1576b035a5b44be36a391a79282c44c52a320fd2f5025c3"
+      },
+      {
+        "path": "output/qa/mixed-mount-final-comparison.json",
+        "sha256": "2362bcc5562f6d19f45ae96f91cd5be89f88575eac1a2f0fba0bf208121c0068"
+      },
+      {
+        "path": "output/qa/mixed-mount-main-284b6a5-final.json",
+        "sha256": "f4b7f9b57e13ece7c0c2233a18953c7a1ce97b819f9113e3355e362f8c735891"
+      },
+      {
+        "path": "output/qa/mixed-mount-candidate-final.json",
+        "sha256": "ca8eb7f56f20dbdab7e14b74cc5eec2f24bc0b78c0497b2537c8aaa04815d6dc"
+      },
+      {
+        "path": "output/qa/mixed-mount-benchmark.mjs",
+        "sha256": "147f87d7aaa0046e46accce695a56ce129f21603f3331d6886136dde8e382b5b"
+      }
+    ],
+    "runtimeMovement": {
+      "report": "output/qa/cat-runtime-movement-validation.json",
+      "mainReproductionCommit": "30d8300c",
+      "currentIntegrationBase": "284b6a5",
+      "result": "Normal movement and sprint keep run active across terrain contacts; successful jumps land once; regression, Player/studio and actual Game NPC validations passed for the exact selected cat SHA."
+    },
+    "runtimeGame": {
+      "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
+      "integrationBaseCommit": "284b6a5a18fb70d09e823d00c58ec0cc16be5a8e",
+      "scope": "formal-public-assets",
+      "origin": "http://127.0.0.1:5188",
+      "report": "output/qa/final-public-mount-runtime-game-validation.json",
+      "summary": "output/qa/final-public-mount-runtime-game-summary.json",
+      "routesOrFixturesUsed": false,
+      "applicationErrors": 0,
+      "consoleWarnings": 0,
+      "checksPassed": 49,
+      "checksTotal": 49,
+      "playerWalkFrames": 173,
+      "playerRunFrames": 316,
+      "playerSprintFrames": 287,
+      "npcWalkFrames": 231,
+      "npcRunFrames": 545,
+      "distinctPlayerRunLegPoses": 276,
+      "distinctPlayerSprintLegPoses": 259,
+      "distinctNpcRunLegPoses": 439,
+      "playerNormalSpeedRangeMps": [
+        13.20047192297355,
+        13.374205866559716
+      ],
+      "playerSprintSpeedRangeMps": [
+        26.400003676813196,
+        26.50546267690699
+      ],
+      "playerJumpSequence": [
+        "jump",
+        "land",
+        "run"
+      ],
+      "npcJumpSequence": [
+        "jump",
+        "land",
+        "run"
+      ],
+      "playerJumpLandingRequests": 1,
+      "npcJumpLandingRequests": 1,
+      "terrainLandingRequests": 0,
+      "playerHitRecoveredRun": true,
+      "npcHitRecoveredRun": true,
+      "playerMountDeathImmediatelyDismounts": true,
+      "npcMountDeathImmediatelyDismounts": true,
+      "playerDeathHeldPoseDelta": 0,
+      "npcDeathHeldPoseDelta": 0,
+      "deathDurationSeconds": 1.7999999523162842,
+      "naturalNpcBodyLods": [
+        0,
+        1,
+        2
+      ],
+      "nonFiniteFrames": 0,
+      "invalidVisibleBodyLods": 0,
+      "maximumSeatAnchorErrorM": 0,
+      "maximumRiderYawErrorRad": 0,
+      "playerPhysicalCenterOffsetM": 0.95,
+      "npcPhysicalCenterOffsetM": 0,
+      "armorToggle": {
+        "hidden": true,
+        "restored": true,
+        "clipUnchanged": true,
+        "actionTimeUnchanged": true
+      },
+      "instanceIsolation": {
+        "singleNpcSkeleton": true,
+        "separateSkeleton": true,
+        "separateMixer": true,
+        "mountGearVisible": true,
+        "riderVisualVisible": true
+      },
+      "mixedMountSmoke": {
+        "npcTypes": [
+          "BLACK_CAT",
+          "CORGI"
+        ],
+        "mountedRiders": 3,
+        "registeredNpcs": true,
+        "finite": true,
+        "exactlyOneVisibleBodyEach": true
+      },
+      "riderGearVisualReview": "Actual Game front/side and rear riding views reviewed; saddle gear, rider armor, lance and shield remain attached, with no new runtime visual blocker.",
+      "screenshots": {
+        "player-rider-armor-front": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-rider-armor-front.png",
+        "player-rider-armor-side": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-rider-armor-side.png",
+        "npc-rider-idle": "output/qa/final-public-mount-runtime-game-validation-black-cat-npc-rider-idle.png",
+        "npc-run": "output/qa/final-public-mount-runtime-game-validation-black-cat-npc-run.png",
+        "player-run": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-run.png",
+        "player-sprint": "output/qa/final-public-mount-runtime-game-validation-black-cat-player-sprint.png"
+      }
+    },
+    "status": "Passed exact-file MCP/browser visual review, final public player/NPC game checks, matched latest-main 12-mount performance, complete test suite and production build.",
+    "performance": {
+      "report": "output/qa/mixed-mount-final-comparison.json",
+      "baselineCommit": "284b6a5a18fb70d09e823d00c58ec0cc16be5a8e",
+      "runsPerVersion": 3,
+      "mounts": 12,
+      "metrics": {
+        "fps": {
+          "main": 121.42360796398683,
+          "candidate": 121.44139978215384,
+          "delta": 0.017791818167012252,
+          "percent": 0.014652684486438083
+        },
+        "cpuFrameMs": {
+          "main": 3.37387727524478,
+          "candidate": 3.410871849186113,
+          "delta": 0.0369945739413331,
+          "percent": 1.096500285080726
+        },
+        "npcUpdateMs": {
+          "main": 0.5281654005311902,
+          "candidate": 0.5497936622708399,
+          "delta": 0.021628261739649712,
+          "percent": 4.094978905830926
+        },
+        "mountInteractionMs": {
+          "main": 0.010317459939018128,
+          "candidate": 0.011428761817182238,
+          "delta": 0.0011113018781641094,
+          "percent": 10.771080137286848
+        },
+        "mountUpdateMs": {
+          "main": 0.24333333273728688,
+          "candidate": 0.25166666649636765,
+          "delta": 0.008333333759080769,
+          "percent": 3.424657717599988
+        },
+        "renderSubmitMs": {
+          "main": 2.379878618570965,
+          "candidate": 2.4012500001117587,
+          "delta": 0.021371381540793877,
+          "percent": 0.8980030062889055
+        },
+        "drawCalls": {
+          "main": 283,
+          "candidate": 283,
+          "delta": 0,
+          "percent": 0
+        },
+        "triangles": {
+          "main": 1085164,
+          "candidate": 1099164,
+          "delta": 14000,
+          "percent": 1.2901275751867836
+        },
+        "quadVisualUpdateMsPerFrame": {
+          "main": 0.17311915386833276,
+          "candidate": 0.1965559655132231,
+          "delta": 0.023436811644890337,
+          "percent": 13.537965685019127
+        },
+        "catVisualUpdateMsPerFrame": {
+          "main": 0.09360841444081666,
+          "candidate": 0.10972656258381903,
+          "delta": 0.016118148143002373,
+          "percent": 17.21869581841169
+        },
+        "corgiVisualUpdateMsPerFrame": {
+          "main": 0.0806425375126881,
+          "candidate": 0.08654004948799715,
+          "delta": 0.00589751197530905,
+          "percent": 7.313152781658383
+        }
+      },
+      "conclusion": "No material frame-rate regression in this fixed 12-mount scene. Median total CPU changed by +0.037 ms and combined quadruped visual update by +0.023 ms per frame. Synchronous CPU instrumentation is not GPU duration."
+    },
+    "automatedChecks": {
+      "testCommand": "rtk npm test -- --maxWorkers=2",
+      "testFilesPassed": 201,
+      "testsPassed": 2460,
+      "buildCommand": "rtk npm run build",
+      "buildPassed": true,
+      "diffCheckPassed": true,
+      "note": "A prior concurrent build/test attempt hit an EquipmentPose 5-second timeout; the full suite passed with two workers without changing any timeout or assertion."
+    }
+  }
+}

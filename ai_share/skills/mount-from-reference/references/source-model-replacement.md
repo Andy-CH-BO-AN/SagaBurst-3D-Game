@@ -19,7 +19,7 @@
 - 按實際物理事件銜接動作：例如跳躍 clip 結束後是否應保持空中姿勢、收到落地事件後如何恢復、死亡與重播是否重設骨架。不要讓一次性動畫的結束自行猜測物理狀態。
 - staging 原始輸出先做乾淨匯入的 REST 與代表動作正／側面驗證，通過後才壓縮、產生 manifest 並接入遊戲。確認所有直接建立 visual 的入口都已 preload，包括獨立英雄預覽。
 
-本 repo 的可重建案例在 `tools/build-black-cat.py`、`tools/package-black-cat.py` 和 `public/models/mounts/v2/black-cat/`。其中骨架、座位、比例和步態屬於這份來源，不是新動物的預設。
+本 repo 的外觀／骨架重建案例在 `tools/build-black-cat.py`；目前動畫重建與資產封裝見 `tools/blender/README.md`，正式產物在 `public/models/mounts/v2/black-cat/`。其中骨架、座位、比例和步態屬於這份來源，不是新動物的預設。
 
 ## 接入後的騎乘驗證
 

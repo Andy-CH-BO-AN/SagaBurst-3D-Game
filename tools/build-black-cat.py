@@ -1,5 +1,8 @@
 """Fit the supplied static black cat to a feline rig; preserve its mesh and maps.
 
+This builds the geometry/rig source and retained jump/land/hit actions only.
+For runtime locomotion and reviewed packaging, use tools/blender/README.md.
+
 Blender -b --python tools/build-black-cat.py -- source.glb output-directory
 Outputs are staged, not declared runtime-ready; provenance and visual QA are
 required before promotion. All authored landmarks below are specific to this GLB.
@@ -257,14 +260,14 @@ for level,target in [(1,20000),(2,6000)]:
     bpy.ops.object.modifier_apply(modifier=dec.name)
     lods.append(obj)
 
-# Bake in-place feline cycles. The mesh is skinned; it is never segmented into
-# rigid leg chunks. Local axes are derived from each authored bind bone.
+# Preserve the ancillary actions still used by gameplay. Locomotion and death
+# are owned by the donor-retarget pipeline in tools/blender/.
 rig.animation_data_create()
 fps=30;bpy.context.scene.render.fps=fps
 axes={b.name:{axis:b.matrix_local.to_quaternion().inverted()@B(vector) for axis,vector in [('x',(1,0,0)),('y',(0,1,0)),('z',(0,0,1))]} for b in armature.bones}
 def rotate(name,axis,angle):
     rig.pose.bones[name].rotation_quaternion @= Quaternion(axes[name][axis],angle)
-clips={'idle':3.2,'walk':1.15,'trot':.8,'canter':.68,'gallop':.58,'jump':.75,'land':.6,'hit':.6,'death':.9}
+clips={'jump':.75,'land':.6,'hit':.6}
 for clip,duration in clips.items():
     action=bpy.data.actions.new(clip);rig.animation_data.action=action
     count=round(duration*fps)
@@ -276,20 +279,7 @@ for clip,duration in clips.items():
         # facial geometry but have the mounted cat look along gameplay +Z.
         rotate('cat_neck','y',.36)
         rotate('cat_head','y',yaw-.36)
-        if clip in ['walk','trot','canter','gallop']:
-            running=clip in ['canter','gallop'];amp=.34 if running else .22
-            for side,offset in [('l',0),('r',math.pi if not running else .55)]:
-                for end,shift in [('front',0),('rear',2.1 if running else math.pi)]:
-                    p=phase+offset+shift
-                    rotate('cat_'+end+'_upper_'+side,'x',math.sin(p)*amp)
-                    rotate('cat_'+end+'_lower_'+side,'x',-max(0,math.cos(p))*(.58 if running else .34))
-                    rotate('cat_'+end+'_paw_'+side,'x',-math.sin(p)*amp*.35)
-            rig.pose.bones['cat_torso'].location=axes['cat_torso']['y']*(.022+math.sin(phase*2)*(.025 if running else .009))
-            rotate('cat_chest','x',math.sin(phase)*(.025 if running else .008))
-        elif clip=='idle':
-            rotate('cat_neck','y',math.sin(phase)*.025)
-            rotate('cat_head','x',math.sin(phase)*.010)
-        elif clip in ['jump','land']:
+        if clip in ['jump','land']:
             a=math.sin(min(t/.6,1)*math.pi/2) if clip=='jump' else math.sin(math.pi*t)
             for side in ['l','r']:
                 for end in ['front','rear']:
@@ -299,11 +289,7 @@ for clip,duration in clips.items():
             if clip=='land':rig.pose.bones['cat_torso'].location=axes['cat_torso']['y']*(-.07*a)
         elif clip=='hit':
             rotate('cat_neck','x',-.12*math.sin(math.pi*t));rotate('cat_head','x',-.08*math.sin(math.pi*t))
-        elif clip=='death':
-            a=smooth(0,1,t);rotate('cat_torso','z',a*math.pi/2)
-            rig.pose.bones['cat_torso'].location=axes['cat_torso']['y']*(-.55*a)
-        if clip!='death':
-            for i in range(5):rotate('cat_tail_'+str(i),'y',math.sin(phase+i*.4)*.035)
+        for i in range(5):rotate('cat_tail_'+str(i),'y',math.sin(phase+i*.4)*.035)
         for p in rig.pose.bones:
             p.keyframe_insert('rotation_quaternion',frame=f+1)
             if p.name=='cat_torso':p.keyframe_insert('location',frame=f+1)
@@ -313,8 +299,8 @@ for p in rig.pose.bones:p.rotation_quaternion=Quaternion();p.location=Vector()
 bpy.context.scene.frame_set(1)
 for image in bpy.data.images:
     if max(image.size)>2048:image.scale(2048,2048)
-export(out/'black-cat.glb',[rig,*lods,*tack],True)
-bpy.ops.wm.save_as_mainfile(filepath=str(out/'black-cat.blend'))
+export(out/'black-cat-rig.glb',[rig,*lods,*tack],True)
+bpy.ops.wm.save_as_mainfile(filepath=str(out/'black-cat-rig.blend'))
 report={'sourceSha256':sha,'uniformScale':scale,'sourceHeadingRadians':yaw,'forward':'+Z','unweightedBeforeRepair':unweighted,
     'landmarks':landmarks,'triangles':{o.name:sum(len(p.vertices)-2 for p in o.data.polygons) for o in lods},'clips':clips,
     'images':[{'name':i.name,'size':list(i.size)} for i in bpy.data.images]}

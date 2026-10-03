@@ -5,7 +5,12 @@ import { CorgiVisual, CORGI_DIMENSIONS, CORGI_RIDER_PELVIS_CLEARANCE } from '../
 import { Mount, MountState, MountType, mountTypeFromSave } from '../src/world/Mount'
 
 describe('reference source corgi mount', () => {
-  beforeAll(installCorgiTestAsset)
+  let restSeat: THREE.Vector3
+  beforeAll(async () => {
+    const gltf = await installCorgiTestAsset()
+    gltf.scene.updateMatrixWorld(true)
+    restSeat = gltf.scene.getObjectByName('socket_saddle_seat')!.getWorldPosition(new THREE.Vector3())
+  })
 
   it('keeps the source paws on the ground with normalized skin weights', () => {
     const cat = new CorgiVisual()
@@ -21,20 +26,29 @@ describe('reference source corgi mount', () => {
   }, 15000)
 
   it('uses metre scale and transforms its actual saddle socket with heading and position', () => {
+    const reference = new CorgiVisual()
+    const idleSeat = reference.saddleSeat.getWorldPosition(new THREE.Vector3())
+    const idlePelvis = reference.riderPelvisSeat.getWorldPosition(new THREE.Vector3())
     const mount = new Mount(new THREE.Scene(), MountType.CORGI, 5, 9, 3)
     mount.group.rotation.y = Math.PI / 2
     expect(mount.group.scale.toArray()).toEqual([1, 1, 1])
+    expect(restSeat.x).toBeCloseTo(0, 5)
+    expect(restSeat.y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight, 5)
+    expect(restSeat.z).toBeCloseTo(-.2, 5)
+    expect(reference.riderPelvisSeat.position.y).toBe(CORGI_RIDER_PELVIS_CLEARANCE)
     const seat = mount.getRiderPelvisSeatWorld()
-    expect(seat.x).toBeCloseTo(4.8)
-    expect(seat.y).toBeCloseTo(3 + CORGI_DIMENSIONS.saddleHeight + CORGI_RIDER_PELVIS_CLEARANCE)
-    expect(seat.z).toBeCloseTo(9)
-    expect(mount.getSaddleSeatLocal().y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight)
+    expect(seat.x).toBeCloseTo(5 + idlePelvis.z, 5)
+    expect(seat.y).toBeCloseTo(3 + idlePelvis.y, 5)
+    expect(seat.z).toBeCloseTo(9 - idlePelvis.x, 5)
+    expect(mount.getSaddleSeatLocal().y).toBeCloseTo(idleSeat.y, 5)
     expect(mountTypeFromSave('CORGI')).toBe(MountType.CORGI)
+    mount.dispose()
+    reference.dispose()
   })
 
   it('shares immutable meshes while keeping independent gait and pause state', () => {
     const a = new CorgiVisual(), b = new CorgiVisual()
-    a.playStudioClip('gallop')
+    a.playStudioClip('run')
     a.update(0.12)
     const leg = a.root.getObjectByName('corgi_front_upper_r')!
     expect(leg.quaternion.angleTo(b.root.getObjectByName(leg.name)!.quaternion)).toBeGreaterThan(.01)
@@ -67,14 +81,15 @@ describe('reference source corgi mount', () => {
 
   it('replays upright after death and restores the saddle transform', () => {
     const mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0, 0)
+    const uprightSeat = mount.getRiderPelvisSeatWorld()
     mount.takeDamage(999)
     mount.update(1, [])
     expect(mount.dead).toBe(true)
     expect(mount.corgiVisual!.debugState().clip).toBe('death')
     mount.playStudioClip('idle')
     mount.corgiVisual!.update(0)
-    expect(mount.getRiderPelvisSeatWorld().x).toBeCloseTo(0)
-    expect(mount.getRiderPelvisSeatWorld().y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight + CORGI_RIDER_PELVIS_CLEARANCE)
+    expect(mount.getRiderPelvisSeatWorld().distanceTo(uprightSeat)).toBeLessThan(1e-6)
+    mount.dispose()
   })
 
   it('keeps jump tucked until landing, then recovers to locomotion', () => {

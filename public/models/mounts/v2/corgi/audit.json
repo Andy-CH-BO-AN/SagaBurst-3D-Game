@@ -1,6 +1,6 @@
 {
   "file": "corgi.glb",
-  "byteLength": 2560528,
+  "byteLength": 5052604,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
     "version": "2.0"
@@ -16,46 +16,166 @@
     "images": 1,
     "skins": 1,
     "joints": 21,
-    "animations": 9
+    "animations": 7
   },
   "jointNames": [
-    "corgi_front_paw_l",
-    "corgi_front_lower_l",
-    "corgi_front_upper_l",
-    "corgi_front_paw_r",
-    "corgi_front_lower_r",
-    "corgi_front_upper_r",
-    "corgi_head",
-    "corgi_neck",
+    "corgi_torso",
     "corgi_chest",
-    "corgi_rear_paw_l",
-    "corgi_rear_ankle_l",
-    "corgi_rear_lower_l",
+    "corgi_front_upper_l",
+    "corgi_front_lower_l",
+    "corgi_front_paw_l",
+    "corgi_front_upper_r",
+    "corgi_front_lower_r",
+    "corgi_front_paw_r",
+    "corgi_neck",
+    "corgi_head",
     "corgi_rear_upper_l",
-    "corgi_rear_paw_r",
-    "corgi_rear_ankle_r",
-    "corgi_rear_lower_r",
+    "corgi_rear_lower_l",
+    "corgi_rear_ankle_l",
+    "corgi_rear_paw_l",
     "corgi_rear_upper_r",
+    "corgi_rear_lower_r",
+    "corgi_rear_ankle_r",
+    "corgi_rear_paw_r",
     "corgi_tail_0",
     "socket_camera",
-    "socket_saddle_seat",
-    "corgi_torso"
+    "socket_saddle_seat"
   ],
   "animationNames": [
-    "canter",
-    "death",
-    "gallop",
-    "hit",
     "idle",
+    "walk",
+    "run",
+    "death",
     "jump",
     "land",
-    "trot",
-    "walk"
+    "hit"
   ],
   "extensionsUsed": [
     "EXT_meshopt_compression"
   ],
   "extensionsRequired": [
     "EXT_meshopt_compression"
-  ]
+  ],
+  "preservation": {
+    "nodesExact": false,
+    "reviewedRigCorrection": {
+      "algorithm": "corgi-limb-pivots-v1",
+      "changedJoints": [
+        "corgi_front_lower_l",
+        "corgi_front_paw_l",
+        "corgi_front_lower_r",
+        "corgi_front_paw_r",
+        "corgi_rear_lower_l",
+        "corgi_rear_ankle_l",
+        "corgi_rear_paw_l",
+        "corgi_rear_lower_r",
+        "corgi_rear_ankle_r",
+        "corgi_rear_paw_r"
+      ],
+      "landmarks": {
+        "front_l": {
+          "wrist": [
+            0.113,
+            -0.618,
+            0.16
+          ]
+        },
+        "front_r": {
+          "wrist": [
+            -0.229,
+            -0.749,
+            0.16
+          ]
+        },
+        "rear_l": {
+          "hock": [
+            0.3,
+            0.918,
+            0.25
+          ],
+          "wrist": [
+            0.3,
+            0.875,
+            0.14
+          ]
+        },
+        "rear_r": {
+          "hock": [
+            -0.18,
+            1.165,
+            0.25
+          ],
+          "wrist": [
+            -0.18,
+            1.211,
+            0.14
+          ]
+        }
+      },
+      "maximumBindMatrixError": 4.535633291169461e-8
+    },
+    "geometryExact": true,
+    "skinsExact": false,
+    "materialsExact": true,
+    "imagesExact": true,
+    "originalBinaryPrefixExact": true,
+    "skinCorrection": {
+      "algorithm": "corgi-anatomical-limbs-v4",
+      "meshes": [
+        {
+          "name": "corgi_body_lod0",
+          "changedVertices": 19577,
+          "transitionNodes": 9048,
+          "transitionIterations": 180,
+          "coreNodes": {
+            "corgi_front_paw_l": 658,
+            "corgi_front_paw_r": 595,
+            "corgi_rear_paw_r": 580,
+            "corgi_rear_paw_l": 562
+          },
+          "surfaceNodes": 49863,
+          "stage": "limbs",
+          "protectedBodySeedNodes": 37822,
+          "pawMembership": "connected welded surface components, including left forepaw across x=0",
+          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
+        },
+        {
+          "name": "corgi_body_lod1",
+          "changedVertices": 4032,
+          "transitionNodes": 1764,
+          "transitionIterations": 180,
+          "coreNodes": {
+            "corgi_front_paw_l": 152,
+            "corgi_front_paw_r": 143,
+            "corgi_rear_paw_r": 134,
+            "corgi_rear_paw_l": 115
+          },
+          "surfaceNodes": 10003,
+          "stage": "limbs",
+          "protectedBodySeedNodes": 7587,
+          "pawMembership": "connected welded surface components, including left forepaw across x=0",
+          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
+        },
+        {
+          "name": "corgi_body_lod2",
+          "changedVertices": 1329,
+          "transitionNodes": 529,
+          "transitionIterations": 180,
+          "coreNodes": {
+            "corgi_front_paw_l": 53,
+            "corgi_front_paw_r": 48,
+            "corgi_rear_paw_r": 49,
+            "corgi_rear_paw_l": 43
+          },
+          "surfaceNodes": 3003,
+          "stage": "limbs",
+          "protectedBodySeedNodes": 2250,
+          "pawMembership": "connected welded surface components, including left forepaw across x=0",
+          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
+        }
+      ]
+    },
+    "baselineSha256": "67472e0b01af163bd30d89bd1087d799a6527154b7883de4f58fb0957798df4e",
+    "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f"
+  }
 }

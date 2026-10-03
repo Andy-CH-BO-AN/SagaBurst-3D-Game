@@ -100,7 +100,7 @@ describe('Lance Charge Bonus Production Behavior', () => {
 describe('Mount Class Real Lifecycle Transitions', () => {
   it('transitions actual Mount instance through IDLE -> CONTROLLED -> IDLE -> DEAD states', () => {
     const scene = new THREE.Scene()
-    // MountType.CORGI constructs procedurally without requiring external GLB preload
+    // The shared test setup preloads the shipped Corgi GLB for this synchronous fixture.
     const mount = new Mount(scene, MountType.CORGI, 0, 0)
 
     // 1. Initial idle state

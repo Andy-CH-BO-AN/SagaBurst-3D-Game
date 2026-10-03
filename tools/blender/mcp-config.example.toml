@@ -1,0 +1,13 @@
+# Append to the existing Codex config.toml. Do not replace other settings.
+# GUI clients may require uvx's absolute installation path (for example /opt/homebrew/bin/uvx).
+[mcp_servers.blender]
+command = "uvx"
+args = ["--python", "3.11", "mcp-for-blender==2.1.3"]
+startup_timeout_sec = 30
+tool_timeout_sec = 600
+
+[mcp_servers.blender.env]
+UV_PYTHON_PREFERENCE = "only-managed"
+DISABLE_TELEMETRY = "true"
+BLENDER_HOST = "127.0.0.1"
+BLENDER_PORT = "9876"

@@ -1,0 +1,601 @@
+{
+  "schemaVersion": 1,
+  "animal": "corgi",
+  "baseline": {
+    "commit": "e44a5240c1668e767fdee4964ab9507e9f53adf7",
+    "sha256": "67472e0b01af163bd30d89bd1087d799a6527154b7883de4f58fb0957798df4e"
+  },
+  "sources": {
+    "doginx": {
+      "file": "Doginx fbx + unity.zip",
+      "sha256": "87a0e0beaa0b3ccae02ba8d4f5ab7e8ed6daece218548beff1e33996aefc0205",
+      "title": "Doginx - Assets",
+      "author": "Tomate Salat",
+      "url": "https://tomate-salat.itch.io/doginx-assets",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "used": "idle and walk poses/foot trajectories",
+      "sourceMember": "Models/Meshes/characters.fbx"
+    },
+    "corgi_run": {
+      "file": "dog-corgi-animated.zip",
+      "sha256": "ae44ef517f4610a174934a786f3e58e37c4fc7a1e287f1eeb46cf9db574d14ae",
+      "title": "Dog corgi animated",
+      "author": "zinaida",
+      "url": "https://sketchfab.com/3d-models/dog-corgi-animated-5cc0075d0aa645c398c51316236ff156",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "licenseEvidenceUrl": "https://api.sketchfab.com/v3/models/5cc0075d0aa645c398c51316236ff156",
+      "used": "corgi Run poses/foot trajectories",
+      "sourceMember": "source/Корги_bake.blend"
+    }
+  },
+  "bake": {
+    "tool": "tools/blender/build_animations.py",
+    "fps": 60,
+    "forward": "+Z",
+    "method": "evaluated donor world rotations and donor foot trajectories -> anatomical target IK -> sampled target Action",
+    "bodyMapping": {
+      "run": {
+        "corgi_torso": "Bone",
+        "corgi_chest": "Bone.005",
+        "corgi_neck": "Bone.002",
+        "corgi_head": "Bone.003",
+        "corgi_tail_0": "Bone.001"
+      },
+      "idle": {
+        "corgi_torso": "Animal",
+        "corgi_chest": "Body",
+        "corgi_neck": "Head",
+        "corgi_head": "Head",
+        "corgi_tail_0": "Tail"
+      },
+      "walk": {
+        "corgi_torso": "Animal",
+        "corgi_chest": "Body",
+        "corgi_neck": "Head",
+        "corgi_head": "Head",
+        "corgi_tail_0": "Tail"
+      }
+    },
+    "footMapping": {
+      "doginx": {
+        "corgi_front_paw_l": "Foot.Front.L",
+        "corgi_front_paw_r": "Foot.Front.R",
+        "corgi_rear_paw_l": "Foot.Back.L",
+        "corgi_rear_paw_r": "Foot.Back.R"
+      },
+      "corgi_run": {
+        "corgi_front_paw_l": "Bone.002_L.001 tail",
+        "corgi_front_paw_r": "Bone.002_R.001 tail",
+        "corgi_rear_paw_l": "Bone_L.001 tail",
+        "corgi_rear_paw_r": "Bone_R.001 tail"
+      }
+    },
+    "horizontalRootMotion": "removed; game physics owns horizontal translation",
+    "nominalSpeedsMps": {
+      "walk": 2,
+      "run": 12
+    },
+    "authored": [
+      "death"
+    ],
+    "rebasedFromBaseline": [
+      "jump",
+      "land",
+      "hit"
+    ],
+    "shortLegWorkspace": {
+      "walk": {
+        "strideM": 0.22,
+        "maximumLiftM": 0.035
+      },
+      "run": {
+        "frontStrideM": 0.3,
+        "rearStrideM": 0.34,
+        "frontMaximumLiftM": 0.045,
+        "rearMaximumLiftM": 0.04
+      },
+      "artificialCrouchM": 0,
+      "reason": "Original exposed short limbs merge with chest/belly below 0.27 m (front) and 0.38 m (rear); 0.08 m crouch plus 0.18 m lift compressed the roots."
+    },
+    "quaternionContinuity": "Normalize and hemisphere-align scalar Blender keys before interpolation and ground evaluation; seven actions audited with no negative adjacent dot products.",
+    "deathRollDegrees": 70
+  },
+  "rigCorrection": {
+    "algorithm": "corgi-limb-pivots-v1",
+    "source": "tools/blender/corgi-rig-correction.json",
+    "changedJoints": [
+      "corgi_front_lower_l",
+      "corgi_front_paw_l",
+      "corgi_front_lower_r",
+      "corgi_front_paw_r",
+      "corgi_rear_lower_l",
+      "corgi_rear_ankle_l",
+      "corgi_rear_paw_l",
+      "corgi_rear_lower_r",
+      "corgi_rear_ankle_r",
+      "corgi_rear_paw_r"
+    ],
+    "bindShape": "Inverse-bind compensation preserves the original geometry at rest; only reviewed wrist/hock chains change."
+  },
+  "skinCorrection": {
+    "algorithm": "corgi-anatomical-limbs-v4",
+    "description": "Connected paw and shaft cores follow one bone. Anatomical envelopes protect body seeds; a harmonic surface solve includes both sides of the attachment, avoiding a frozen zero-weight border. Axial weights do not amplify residual head influence. Original positions, normals, UVs, indices and materials remain unchanged."
+  },
+  "validation": {
+    "roundtripMcpPlayback": true,
+    "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
+    "status": "Passed exact-file MCP/browser visual review, final public player/NPC game checks, matched latest-main 12-mount performance, complete test suite and production build.",
+    "views": [
+      "front",
+      "side",
+      "rear",
+      "threequarter"
+    ],
+    "browserLocomotionFrames": 96,
+    "mcpClipViews": 15,
+    "minimumContactZByClipM": {
+      "idle": 0.005000502802431583,
+      "walk": 0.005000135861337185,
+      "run": 0.005000579170882702,
+      "death": 0.004890307784080505,
+      "jump": 0.005000365898013115,
+      "land": 0.005000365898013115,
+      "hit": 0.005000365898013115
+    },
+    "finalDeathContactZByMeshM": {
+      "corgi_body_lod0": 0.0063197314739227295,
+      "corgi_body_lod1": 0.006598621606826782,
+      "corgi_body_lod2": 0.004999816417694092,
+      "corgi_saddle_binding": 0.3688583970069885,
+      "corgi_saddle_brass": 0.013059496879577637,
+      "corgi_saddle_leather": 0.13315093517303467
+    },
+    "rigidCoreAndAttachmentAudit": {
+      "walk": {
+        "corgi_body_lod0": {
+          "maximumRigidCoreResidualM": 9.817058845502695e-7,
+          "maximumAttachmentExtensionM": 0.0574948108837476
+        },
+        "corgi_body_lod1": {
+          "maximumRigidCoreResidualM": 9.429106404679253e-7,
+          "maximumAttachmentExtensionM": 0.06458977461198101
+        },
+        "corgi_body_lod2": {
+          "maximumRigidCoreResidualM": 9.044556816778979e-7,
+          "maximumAttachmentExtensionM": 0.07450817047566166
+        }
+      },
+      "run": {
+        "corgi_body_lod0": {
+          "maximumRigidCoreResidualM": 9.86076671843787e-7,
+          "maximumAttachmentExtensionM": 0.04838510958146191
+        },
+        "corgi_body_lod1": {
+          "maximumRigidCoreResidualM": 9.991836942695632e-7,
+          "maximumAttachmentExtensionM": 0.054774570514147414
+        },
+        "corgi_body_lod2": {
+          "maximumRigidCoreResidualM": 9.074198499046928e-7,
+          "maximumAttachmentExtensionM": 0.06331245737047445
+        }
+      }
+    },
+    "evidence": [
+      {
+        "path": "output/mount-retarget/roundtrip_corgi_root_final-mcp.json",
+        "sha256": "da51461f4c54d4f259e7445c5df430df9c38f1e9c16f4c77ac77107e5d79a6ca"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-audit-mcp.json",
+        "sha256": "236a40f8aff9ddde4192e48903b0953cf0a456075fcae69f0667f3ac5c3c51b8"
+      },
+      {
+        "path": "output/mount-retarget/corgi-final-ground-bounds.json",
+        "sha256": "43e72041247d6c2bccfbca9b5abfedfba5cb6c8a27d36fcac170335aa8ed50f7"
+      },
+      {
+        "path": "output/mount-retarget/corgi-skin-run-audit.json",
+        "sha256": "aa142e9037cca5d95ccd31edccaabbfc42994df5dd28d642d6e0264bb1d1900b"
+      },
+      {
+        "path": "output/mount-retarget/corgi-skin-walk-audit.json",
+        "sha256": "a78999a8f1874f50f6297198ca8660856fadaf60f8db6fb9f5e09d9142f1a38a"
+      },
+      {
+        "path": "output/mount-retarget/corgi-death-only-diff.json",
+        "sha256": "114ca2ec96eedd59d5fcc46edec4e4cc0267d424b2aeccf985285c65c86e1433"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-quaternion-report.json",
+        "sha256": "12ad4a6127f8b7fa5fe7cf254b601f8cc4271647d039deb1d4b2ce69ee1a522b"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-death-0.5-front.png",
+        "sha256": "6f3725840e59b898f1180454bdeb36fa8028a94ca5f5e74e5c25c98427197fa9"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-death-0.5-side.png",
+        "sha256": "ddc043cc26ce834d21ab83b84692cb106eaee402055e2e32eb6ad6b65e2c5995"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-death-1.0-front.png",
+        "sha256": "a15b2a2d38bfeaa7165ab897197914b5a5e21b2dc84fcb398bdf88efeaaab955"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-death-1.0-side.png",
+        "sha256": "879df27cf713a2117d16aa488457a4fc6e21bee1f34cc240c6eb900249d0f135"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-hit-0.5-side.png",
+        "sha256": "18d0fb8367376ceca9b35053e2c62649456f258f3719f1d1adf66c60ddaf93e0"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-idle-0.5-front.png",
+        "sha256": "020f82160b751816a22a8a7109e5021b9cf24bf62d5b3f3b89c2855f3a857683"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-idle-0.5-side.png",
+        "sha256": "a3d965b8d49abf4b7b6397c97484b59a4d769b70e79e4169f74e6b9f15ae118a"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-jump-0.5-side.png",
+        "sha256": "6ffed361c56221b4eef3f65a2e6f0767c99ce1437da671b3186fcf20594635bf"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-land-0.5-side.png",
+        "sha256": "9dfa8cc8d79a1f4cb0c89e42b8ef2dfdf8dea48b07f6b85c33d1fb8dff026f55"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-run-0.4166666666666667-front.png",
+        "sha256": "9e20132b0a4981d945526b959343bcb12346a2cc96506291c0d6876215066b93"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-run-0.4166666666666667-rear.png",
+        "sha256": "a3f6a24c7afc729e3fea8595c6ab356a64691d6009dfac04267caca20e1e85cd"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-run-0.4166666666666667-side.png",
+        "sha256": "d10cd070e1de619195e20d944d83d3c6bf7e1793632184159ca8a3175c876302"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-walk-0.25-front.png",
+        "sha256": "946e941dda3548026a4510cc3b7b3a6a9c8add6d0a879816cef5d1dcdac825bb"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-walk-0.25-side.png",
+        "sha256": "9e7ef3bc99faa5ee10d8d01bc41aba0e5424bbcc9ed34a2dd5ec1db09598450c"
+      },
+      {
+        "path": "output/mount-retarget/corgi-root-final-walk-0.75-side.png",
+        "sha256": "6130e8b8783181734ad4b67967a1bfde8d01eeb44dbe5d471f8942c1f8ff4dc7"
+      },
+      {
+        "path": "output/qa/corgi-v4-run-front-cycle.png",
+        "sha256": "881463ae806a12b57bbf653b4741bf67725d7f628f54a03bd1ab93456e88de30"
+      },
+      {
+        "path": "output/qa/corgi-v4-run-rear-cycle.png",
+        "sha256": "32a4210aae596c39d54fe7a407f8cc4a3460832d5369a87d9b909e4efe417c57"
+      },
+      {
+        "path": "output/qa/corgi-v4-run-side-cycle.png",
+        "sha256": "67431d5570fdf9d1d8f6cc3631d148b2279351761ba014322bdcce58a1520101"
+      },
+      {
+        "path": "output/qa/corgi-v4-run-threequarter-cycle.png",
+        "sha256": "928ca6450238c8978480ba6355cb7b2be750aa471af4cdec1466514cb25a1a52"
+      },
+      {
+        "path": "output/qa/corgi-v4-walk-front-cycle.png",
+        "sha256": "74ee7773aeeb2d9167d0c34c5259177bc57e6ff3d91bced0853bf8ef7c3003b7"
+      },
+      {
+        "path": "output/qa/corgi-v4-walk-rear-cycle.png",
+        "sha256": "b80a769ba8518722fe6d096c075ae12bea45609f2841257e7c8d9e1935fbb66c"
+      },
+      {
+        "path": "output/qa/corgi-v4-walk-side-cycle.png",
+        "sha256": "58ee83fefcbfcf6ee8a79ece00db1a1030dccd05bc3abc661b04119fe155a951"
+      },
+      {
+        "path": "output/qa/corgi-v4-walk-threequarter-cycle.png",
+        "sha256": "2501f20f7b4e3cbe96cdf68e8e4e291b17fef2d69b9ba7a0d5e3d7a60514c49d"
+      },
+      {
+        "path": "output/qa/corgi-final-death-0.5.png",
+        "sha256": "604f53d34964e81558622de168788d4dcea0bdfb51cc1be3b6760094881ed2e2"
+      },
+      {
+        "path": "output/qa/corgi-final-death-1.png",
+        "sha256": "6e634255c715c1ed6b42af63a1e69f767d03f300758ec77f6739ee9e8851cda3"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation.json",
+        "sha256": "7d7eb51cfba548660eabdd2c55595dec36588bcb11ac54c09ca58bd23710b917"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-summary.json",
+        "sha256": "7e35828663f235f58e7c001fd674a865ca4eb66edc90fea410a55d870c3ea652"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-cli-log.txt",
+        "sha256": "3919411e7cb1e00aec7fdee497065438003c3e45b0b39ffe5c420673a97351ef"
+      },
+      {
+        "path": "output/qa/run-final-mount-game-qa.py",
+        "sha256": "68ed52662ef25db5e2675bb27f30e18682aee7b925395df77d87d67272f92d47"
+      },
+      {
+        "path": "output/qa/final-mount-game-qa.js",
+        "sha256": "9a623202d362715c7efb3e8adec41da3ba10f5a1a68be1193939b16f063d0534"
+      },
+      {
+        "path": "output/qa/vite-runtime-qa.config.mjs",
+        "sha256": "29f3098d1f7f986ba1a4e851ebd5ab5386a243e4dac4a8c36d69a12e6dbcad87"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-player-rider-armor-front.png",
+        "sha256": "71c270c7fa266a32e5bab8afcea85bb43f5cc9d324b22f6812996a6c578aaff5"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-player-rider-armor-side.png",
+        "sha256": "16fedbd0416151555bbac9448275e98fe146948ea60f7054b8bad25f6fbdbb0d"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-npc-rider-idle.png",
+        "sha256": "1d9b8744221f580cfa0478ad37ebba7da21ec2d0b5b08a25eaae4e46b1da2034"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-npc-run.png",
+        "sha256": "701150aaf386bd0a48a1aab90d2074be87b191ef7dc756128eedacb8ec1407d1"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-player-run.png",
+        "sha256": "85963ee91935d096c3cb27ba521fa7d86779d84607b59bc47bfdabd9f8278779"
+      },
+      {
+        "path": "output/qa/final-public-mount-runtime-game-validation-corgi-player-sprint.png",
+        "sha256": "f8a23a9d27b205e783daeeba7a89dd5bcde959e4589013c3bfc2bcd40a0d800c"
+      },
+      {
+        "path": "output/qa/mixed-mount-final-comparison.json",
+        "sha256": "2362bcc5562f6d19f45ae96f91cd5be89f88575eac1a2f0fba0bf208121c0068"
+      },
+      {
+        "path": "output/qa/mixed-mount-main-284b6a5-final.json",
+        "sha256": "f4b7f9b57e13ece7c0c2233a18953c7a1ce97b819f9113e3355e362f8c735891"
+      },
+      {
+        "path": "output/qa/mixed-mount-candidate-final.json",
+        "sha256": "ca8eb7f56f20dbdab7e14b74cc5eec2f24bc0b78c0497b2537c8aaa04815d6dc"
+      },
+      {
+        "path": "output/qa/mixed-mount-benchmark.mjs",
+        "sha256": "147f87d7aaa0046e46accce695a56ce129f21603f3331d6886136dde8e382b5b"
+      }
+    ],
+    "runtimeGame": {
+      "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
+      "integrationBaseCommit": "284b6a5a18fb70d09e823d00c58ec0cc16be5a8e",
+      "scope": "formal-public-assets",
+      "origin": "http://127.0.0.1:5188",
+      "report": "output/qa/final-public-mount-runtime-game-validation.json",
+      "summary": "output/qa/final-public-mount-runtime-game-summary.json",
+      "routesOrFixturesUsed": false,
+      "applicationErrors": 0,
+      "consoleWarnings": 0,
+      "checksPassed": 49,
+      "checksTotal": 49,
+      "playerWalkFrames": 173,
+      "playerRunFrames": 317,
+      "playerSprintFrames": 287,
+      "npcWalkFrames": 227,
+      "npcRunFrames": 544,
+      "distinctPlayerRunLegPoses": 289,
+      "distinctPlayerSprintLegPoses": 266,
+      "distinctNpcRunLegPoses": 416,
+      "playerNormalSpeedRangeMps": [
+        12.000786312426962,
+        12.162970170162843
+      ],
+      "playerSprintSpeedRangeMps": [
+        24.000001053585137,
+        24.157288855356395
+      ],
+      "playerJumpSequence": [
+        "jump",
+        "land",
+        "run"
+      ],
+      "npcJumpSequence": [
+        "jump",
+        "land",
+        "run"
+      ],
+      "playerJumpLandingRequests": 1,
+      "npcJumpLandingRequests": 1,
+      "terrainLandingRequests": 0,
+      "playerHitRecoveredRun": true,
+      "npcHitRecoveredRun": true,
+      "playerMountDeathImmediatelyDismounts": true,
+      "npcMountDeathImmediatelyDismounts": true,
+      "playerDeathHeldPoseDelta": 0,
+      "npcDeathHeldPoseDelta": 0,
+      "deathDurationSeconds": 1.7999999523162842,
+      "naturalNpcBodyLods": [
+        0,
+        1,
+        2
+      ],
+      "nonFiniteFrames": 0,
+      "invalidVisibleBodyLods": 0,
+      "maximumSeatAnchorErrorM": 0,
+      "maximumRiderYawErrorRad": 0,
+      "playerPhysicalCenterOffsetM": 0.95,
+      "npcPhysicalCenterOffsetM": 0,
+      "armorToggle": {
+        "hidden": true,
+        "restored": true,
+        "clipUnchanged": true,
+        "actionTimeUnchanged": true
+      },
+      "instanceIsolation": {
+        "singleNpcSkeleton": true,
+        "separateSkeleton": true,
+        "separateMixer": true,
+        "mountGearVisible": true,
+        "riderVisualVisible": true
+      },
+      "mixedMountSmoke": {
+        "npcTypes": [
+          "CORGI",
+          "BLACK_CAT"
+        ],
+        "mountedRiders": 3,
+        "registeredNpcs": true,
+        "finite": true,
+        "exactlyOneVisibleBodyEach": true
+      },
+      "riderGearVisualReview": "Actual Game front/side and rear riding views reviewed; saddle gear, rider armor, lance and shield remain attached, with no new runtime visual blocker.",
+      "screenshots": {
+        "player-rider-armor-front": "output/qa/final-public-mount-runtime-game-validation-corgi-player-rider-armor-front.png",
+        "player-rider-armor-side": "output/qa/final-public-mount-runtime-game-validation-corgi-player-rider-armor-side.png",
+        "npc-rider-idle": "output/qa/final-public-mount-runtime-game-validation-corgi-npc-rider-idle.png",
+        "npc-run": "output/qa/final-public-mount-runtime-game-validation-corgi-npc-run.png",
+        "player-run": "output/qa/final-public-mount-runtime-game-validation-corgi-player-run.png",
+        "player-sprint": "output/qa/final-public-mount-runtime-game-validation-corgi-player-sprint.png"
+      }
+    },
+    "performance": {
+      "report": "output/qa/mixed-mount-final-comparison.json",
+      "baselineCommit": "284b6a5a18fb70d09e823d00c58ec0cc16be5a8e",
+      "runsPerVersion": 3,
+      "mounts": 12,
+      "metrics": {
+        "fps": {
+          "main": 121.42360796398683,
+          "candidate": 121.44139978215384,
+          "delta": 0.017791818167012252,
+          "percent": 0.014652684486438083
+        },
+        "cpuFrameMs": {
+          "main": 3.37387727524478,
+          "candidate": 3.410871849186113,
+          "delta": 0.0369945739413331,
+          "percent": 1.096500285080726
+        },
+        "npcUpdateMs": {
+          "main": 0.5281654005311902,
+          "candidate": 0.5497936622708399,
+          "delta": 0.021628261739649712,
+          "percent": 4.094978905830926
+        },
+        "mountInteractionMs": {
+          "main": 0.010317459939018128,
+          "candidate": 0.011428761817182238,
+          "delta": 0.0011113018781641094,
+          "percent": 10.771080137286848
+        },
+        "mountUpdateMs": {
+          "main": 0.24333333273728688,
+          "candidate": 0.25166666649636765,
+          "delta": 0.008333333759080769,
+          "percent": 3.424657717599988
+        },
+        "renderSubmitMs": {
+          "main": 2.379878618570965,
+          "candidate": 2.4012500001117587,
+          "delta": 0.021371381540793877,
+          "percent": 0.8980030062889055
+        },
+        "drawCalls": {
+          "main": 283,
+          "candidate": 283,
+          "delta": 0,
+          "percent": 0
+        },
+        "triangles": {
+          "main": 1085164,
+          "candidate": 1099164,
+          "delta": 14000,
+          "percent": 1.2901275751867836
+        },
+        "quadVisualUpdateMsPerFrame": {
+          "main": 0.17311915386833276,
+          "candidate": 0.1965559655132231,
+          "delta": 0.023436811644890337,
+          "percent": 13.537965685019127
+        },
+        "catVisualUpdateMsPerFrame": {
+          "main": 0.09360841444081666,
+          "candidate": 0.10972656258381903,
+          "delta": 0.016118148143002373,
+          "percent": 17.21869581841169
+        },
+        "corgiVisualUpdateMsPerFrame": {
+          "main": 0.0806425375126881,
+          "candidate": 0.08654004948799715,
+          "delta": 0.00589751197530905,
+          "percent": 7.313152781658383
+        }
+      },
+      "conclusion": "No material frame-rate regression in this fixed 12-mount scene. Median total CPU changed by +0.037 ms and combined quadruped visual update by +0.023 ms per frame. Synchronous CPU instrumentation is not GPU duration."
+    },
+    "automatedChecks": {
+      "testCommand": "rtk npm test -- --maxWorkers=2",
+      "testFilesPassed": 201,
+      "testsPassed": 2460,
+      "buildCommand": "rtk npm run build",
+      "buildPassed": true,
+      "diffCheckPassed": true,
+      "note": "A prior concurrent build/test attempt hit an EquipmentPose 5-second timeout; the full suite passed with two workers without changing any timeout or assertion."
+    }
+  },
+  "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
+  "clips": [
+    {
+      "name": "idle",
+      "duration": 10,
+      "loop": true,
+      "provenance": "donor bake"
+    },
+    {
+      "name": "walk",
+      "duration": 1.2,
+      "loop": true,
+      "provenance": "donor bake"
+    },
+    {
+      "name": "run",
+      "duration": 0.8,
+      "loop": true,
+      "provenance": "donor bake"
+    },
+    {
+      "name": "death",
+      "duration": 1.8,
+      "loop": false,
+      "provenance": "authored collapse"
+    },
+    {
+      "name": "jump",
+      "duration": 0.7666666666666667,
+      "loop": false,
+      "provenance": "rebased original"
+    },
+    {
+      "name": "land",
+      "duration": 0.6333333333333333,
+      "loop": false,
+      "provenance": "rebased original"
+    },
+    {
+      "name": "hit",
+      "duration": 0.6333333333333333,
+      "loop": false,
+      "provenance": "rebased original"
+    }
+  ]
+}

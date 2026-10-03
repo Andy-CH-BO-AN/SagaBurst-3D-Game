@@ -1,6 +1,6 @@
 {
   "file": "black-cat.glb",
-  "byteLength": 6364540,
+  "byteLength": 9409176,
   "asset": {
     "generator": "Khronos glTF Blender I/O v5.2.39",
     "version": "2.0"
@@ -16,45 +16,43 @@
     "images": 3,
     "skins": 1,
     "joints": 25,
-    "animations": 9
+    "animations": 7
   },
   "jointNames": [
-    "cat_front_paw_l",
-    "cat_front_lower_l",
-    "cat_front_upper_l",
-    "cat_front_paw_r",
-    "cat_front_lower_r",
-    "cat_front_upper_r",
-    "cat_head",
-    "cat_neck",
+    "cat_torso",
     "cat_chest",
-    "cat_rear_paw_l",
-    "cat_rear_ankle_l",
-    "cat_rear_lower_l",
+    "cat_front_upper_l",
+    "cat_front_lower_l",
+    "cat_front_paw_l",
+    "cat_front_upper_r",
+    "cat_front_lower_r",
+    "cat_front_paw_r",
+    "cat_neck",
+    "cat_head",
     "cat_rear_upper_l",
-    "cat_rear_paw_r",
-    "cat_rear_ankle_r",
-    "cat_rear_lower_r",
+    "cat_rear_lower_l",
+    "cat_rear_ankle_l",
+    "cat_rear_paw_l",
     "cat_rear_upper_r",
-    "cat_tail_4",
-    "cat_tail_3",
-    "cat_tail_2",
-    "cat_tail_1",
+    "cat_rear_lower_r",
+    "cat_rear_ankle_r",
+    "cat_rear_paw_r",
     "cat_tail_0",
+    "cat_tail_1",
+    "cat_tail_2",
+    "cat_tail_3",
+    "cat_tail_4",
     "socket_camera",
-    "socket_saddle_seat",
-    "cat_torso"
+    "socket_saddle_seat"
   ],
   "animationNames": [
-    "canter",
-    "death",
-    "gallop",
-    "hit",
     "idle",
+    "walk",
+    "run",
+    "death",
     "jump",
     "land",
-    "trot",
-    "walk"
+    "hit"
   ],
   "extensionsUsed": [
     "EXT_meshopt_compression",
@@ -62,5 +60,41 @@
   ],
   "extensionsRequired": [
     "EXT_meshopt_compression"
-  ]
+  ],
+  "preservation": {
+    "nodesExact": true,
+    "reviewedRigCorrection": null,
+    "geometryExact": true,
+    "skinsExact": true,
+    "materialsExact": true,
+    "imagesExact": true,
+    "originalBinaryPrefixExact": true,
+    "skinCorrection": {
+      "algorithm": "cat-paw-lumbar-v6",
+      "meshes": [
+        {
+          "name": "cat_body_lod0",
+          "changedVertices": 6654
+        },
+        {
+          "name": "cat_body_lod1",
+          "changedVertices": 2063
+        },
+        {
+          "name": "cat_body_lod2",
+          "changedVertices": 798
+        },
+        {
+          "name": "cat_saddle_binding",
+          "changedVertices": 1151
+        },
+        {
+          "name": "cat_saddle_leather",
+          "changedVertices": 388
+        }
+      ]
+    },
+    "baselineSha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d",
+    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986"
+  }
 }

@@ -16,11 +16,11 @@
   "modifications": [
     "Uniform 4x scale and baked +Z heading",
     "Fitted 21-joint canine skin",
-    "Nine in-place animations",
     "Source-derived body LODs",
     "Thin source-fitted rounded cushion and stirrups",
     "1024px original base-color map",
-    "Meshopt compression"
+    "Meshopt compression",
+    "Donor-retargeted and target-baked idle/walk/run, authored death, jump/land/hit adapted to corrected wrist/hock basis"
   ],
   "metrics": {
     "triangles": {
@@ -29,7 +29,7 @@
       "corgi_body_lod2": 5999
     },
     "textureMaxSize": 1024,
-    "packageBytes": 2560528,
+    "packageBytes": 5052604,
     "saddleHeightM": 1.313627550125122
   },
   "lodNodes": [
@@ -40,17 +40,16 @@
   "clips": [
     "idle",
     "walk",
-    "trot",
-    "canter",
-    "gallop",
+    "run",
+    "death",
     "jump",
     "land",
-    "hit",
-    "death"
+    "hit"
   ],
   "sockets": [
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "67472e0b01af163bd30d89bd1087d799a6527154b7883de4f58fb0957798df4e"
+  "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
+  "animationSource": "animation-source.json"
 }
