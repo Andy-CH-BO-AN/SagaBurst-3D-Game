@@ -158,7 +158,14 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
     return event.source.actorType === 'player' && (event.target.targetId === mission.duelOpponentActorId
       || (event.type === 'damage_applied' && event.target.ownerActorId === mission.duelOpponentActorId))
   }
-  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return (mission.kind === 'enemy-town-assault' || mission.kind === 'veteran-outpost-assault') && event.source.actorType === 'player' && event.target.allegiance === 'ENEMY'
+  if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') {
+    if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault')
+      || event.source.actorType !== 'player') return false
+    // World structures carry their owner's faction rather than player-relative allegiance.
+    return event.target.characterFaction !== undefined
+      ? event.target.characterFaction !== event.source.characterFaction
+      : event.target.allegiance === 'ENEMY'
+  }
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
   if (event.source.actorType !== 'player') return false
   if (mission.targetActorIds.includes(event.target.targetId)) return true
