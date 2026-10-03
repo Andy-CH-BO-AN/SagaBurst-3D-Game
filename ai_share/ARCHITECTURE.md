@@ -44,7 +44,9 @@
 - Black Cat／Corgi 使用 `idle`、`walk`、`run`、`death`，保留遊戲會呼叫的 `jump`／`land`／`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯，Horse 保留原步態。各實例的全部 LOD 共用一套 skeleton／mixer，死亡單次播放後停在末幀；一次性受擊／落地結束後恢復最新請求的步態與播放速度。
 - 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。
 - Custom Battle／Defense Campaign 的 Player 可選坐騎；一般戰場騎兵與營地預設 Horse。Career 的駐軍、英雄與商人坐騎由城鎮規則決定。
-- 對騎乘角色的傷害先路由到坐騎；坐騎死亡使騎士下馬。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
+- 近戰與投射物沿用 `WeaponSweep`／`traceCombatSegment`，比較 shield、人物 body 與 mount 的 first contact。Mount collider 使用 aim proxy 的 local box，隨完整 world transform 旋轉／縮放；所有存活坐騎都是獨立 physical target，無 rider 或同陣營仍阻擋並承受武器命中，NPC 不主動選無騎士坐騎為目標。攻擊者自己的坐騎排除於自己的武器查詢。
+- `CombatContact.mount` 指向真正命中的坐騎。body／盾牌 overflow 只傷人物，mount 只傷坐騎；兩者死亡獨立、正常 release rider。`mount-impact` 是明確例外：目標騎乘存活坐騎時傷坐騎，否则傷人物，不判 first contact、不吃盾。未帶 contact 的 scripted damage 傷指定人物，不因 mounted 轉移。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
+- 戰場坐騎 HP 傷害與 NPC HP 傷害皆沿用 CombatEvent offensive XP；傷害數字只顯示 actual appliedDamage，HUD 對應實際命中對象。Player 的 mount HUD 由仍然 mounted 且 currentMount 存活決定，不由上一擊 isMountHit 決定。
 - 授權、來源雜湊與重建方式保留於各模型目錄的 manifest／CREDITS 及必要 provenance；製作／匯出驗證由資產 skill 維護。
 
 ## 編隊、傷害與戰績
@@ -77,6 +79,8 @@
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |
 
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
+
+`TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，不讀寫 Career profile／inventory／購買狀態。玩家用既有 mountVehicle／dismountFromMount 暫時騎乘、下馬與再騎；任務結算、失敗、放棄、撤退、回城／場景退出會解除臨時騎乘並沿用 controller cleanup。只登記本次 combat 生成或騎兵死亡後釋放的可借用坐騎，排除 owned mount 與 Town service／merchant mounts。原有駐軍坐騎僅在本次 combat 釋放後暫時允許騎乘；cleanup 保留其 Town 實體並恢復 reserved 資格，其他臨時無主坐騎清除，仍被 NPC 騎乘者依原 controller 返程／離場。永久選擇與 HP persistence 始終指向原購入坐騎，runtime temporary 標記不進存檔。
 
 `CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份所有權，tier 跟隨任命軍階；舊 tier ID 由存檔相容處理。Captain／Commander 的 T4 身體替換保留運行中玩家狀態，指揮權限仍是待辦。
 

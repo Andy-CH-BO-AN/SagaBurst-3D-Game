@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
 import { TownScene } from '../src/town/TownScene'
@@ -17,7 +18,7 @@ describe('Town player hit aggro', () => {
     bandit.configureBanditEncounter(new THREE.Vector3())
     const soldier = hostile(Faction.TOWN)
     soldier.group.position.x = 1
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.player = player()
     town.awardCareerSkillXp = vi.fn()
     town.inventory = { equippedMelee: { id: 'gladius_rusty' } }
@@ -130,7 +131,7 @@ describe('Town player hit aggro', () => {
     const enemy = hostile(Faction.ENEMY)
     const soldier = hostile(Faction.TOWN)
     soldier.group.position.x = 1
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.player = player()
     town.awardCareerSkillXp = vi.fn()
     town.inventory = { equippedMelee: { id: 'gladius_rusty' } }
@@ -145,7 +146,7 @@ describe('Town player hit aggro', () => {
   it('signals defense only after effective enemy damage', () => {
     const enemy = hostile(Faction.ENEMY)
     const soldier = hostile(Faction.TOWN)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.player = player()
     town.awardCareerSkillXp = vi.fn()
     town.inventory = { equippedMelee: { id: 'gladius_rusty' } }

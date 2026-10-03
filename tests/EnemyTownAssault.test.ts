@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from '../src/career/EnemyTownAssault'
@@ -67,7 +68,7 @@ function fixture(faction: 'roman' | 'viking', assault = true) {
 }
 
 function townHarness(f: ReturnType<typeof fixture>) {
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   Object.assign(town, { profile: f.profile(), defense: f.controller, player: f.player, camera: new THREE.PerspectiveCamera(), orbit: { cameraYaw: 0 }, world: { obstacles: [] }, navigation: f.navigation,
     grid: new SpatialGrid(4), defenseEnemyGrid: new SpatialGrid(8), defenseTownGrid: new SpatialGrid(8), neighbors: [], hp: { setFill: vi.fn() },
     inventory: { shieldEnabled: false }, careerMounts: { activeMount: null, update: vi.fn() }, cat: new Mount(f.scene, MountType.BLACK_CAT, -34, 20), elapsed: 0, shots: [], updateCareerCommandCue: vi.fn(), damageNumbers: { spawn: vi.fn() } })
@@ -261,7 +262,7 @@ describe('shared Town wartime and settlement', () => {
     const callbacks: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
     const frame = vi.fn(), alert = vi.fn()
-    const town = Object.assign(Object.create(TownScene.prototype), {
+    const town = Object.assign(createTownCombatFixture(), {
       disposed: false, defense: { assault: true }, profile: { activeMission: { id: 'ready-assault' } }, frame, playAssaultAlert: alert,
     })
     town.start()

@@ -14,6 +14,9 @@ import { BlackCatVisual } from './BlackCatVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { LocalBoxCollider } from '../combat/ShieldBlocking'
+import { createNpcCombatActorRef, createPlayerCombatActorRef, type CombatActorRef } from '../combat/CombatAttribution'
+import type { Player } from '../player/Player'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
@@ -67,6 +70,12 @@ export class Mount {
   get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
+  public readonly mountCollider: LocalBoxCollider
+  /** Runtime combat attribution, independent of an attached rider or Career ownership. */
+  public combatOwner: CombatActorRef | undefined
+  public temporaryCombatId: string | null = null
+  public riderPlayer: Player | null = null
+  public disposed = false
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
   public reservedForTown = false
@@ -147,14 +156,18 @@ export class Mount {
     this.aimCollider.position.set(0, 0.825, 0)
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
     this.group.add(this.aimCollider)
+    if (!MOUNT_AIM_GEOMETRY.boundingBox) MOUNT_AIM_GEOMETRY.computeBoundingBox()
+    this.mountCollider = new LocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!)
 
     scene.add(this.group)
     this._pickWanderTarget()
   }
 
   get dead(): boolean { return this.state === MountState.DEAD }
+  get combatPosition(): THREE.Vector3 { return this.group.position }
+  get isMounted(): boolean { return false }
   get availableForPlayer(): boolean {
-    return !this.reservedForTown && !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
+    return !this.disposed && (!this.reservedForTown || this.temporaryCombatId !== null) && !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
   }
   get displayName(): string {
     if (this.type === MountType.HORSE) return '戰馬'
@@ -255,6 +268,10 @@ export class Mount {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.riderNpc?.dismountFromMount()
+    this.riderPlayer?.dismountFromMount()
+    this.disposed = true
     this.horseVisual?.dispose()
     this.proceduralVisual?.dispose()
     this.group.removeFromParent()
@@ -283,12 +300,20 @@ export class Mount {
     if (this.dead) return
     this.riderNpc = npc
     this.riderFaction = faction
+    this.combatOwner = createNpcCombatActorRef(npc)
+    this.state = MountState.CONTROLLED
+  }
+
+  setPlayerRider(player: Player): void {
+    this.riderPlayer = player
+    this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
   }
 
   releaseRider(): void {
     this.riderNpc = null
     this.riderFaction = null
+    this.riderPlayer = null
     if (!this.dead) this.state = MountState.IDLE
   }
 
@@ -321,10 +346,12 @@ export class Mount {
   }
 
   takeDamage(amount: number): boolean {
-    if (this.dead) return false
+    if (this.dead || this.disposed) return false
     this.currentHp = Math.max(0, this.currentHp - amount)
     if (this.currentHp <= 0) {
       this.state = MountState.DEAD
+      this.riderNpc?.dismountFromMount()
+      this.riderPlayer?.dismountFromMount()
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
@@ -422,6 +449,7 @@ export class Mount {
   }
 
   update(dt: number, obstacles: ObstacleData[]): void {
+    if (this.disposed) return
     if (this.state === MountState.DEAD) {
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       else if (this.proceduralVisual) this.proceduralVisual.update(dt)

@@ -196,19 +196,6 @@ import { resolveMountImpacts } from './combat/MountImpact'
 import { RuntimeProfiler } from './debug/RuntimeProfiler'
 import { NpcSubphaseCollector, NpcSubphaseAggregator, SUBPHASE_COHORT } from './debug/NpcSubphaseProfiler'
 
-function distToSegmentSq(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
-  const abX = b.x - a.x, abY = b.y - a.y, abZ = b.z - a.z
-  const apX = p.x - a.x, apY = p.y - a.y, apZ = p.z - a.z
-  const abLenSq = abX * abX + abY * abY + abZ * abZ
-  if (abLenSq < 1e-6) {
-    return apX * apX + apY * apY + apZ * apZ
-  }
-  const t = Math.max(0, Math.min(1, (apX * abX + apY * abY + apZ * abZ) / abLenSq))
-  const qX = a.x + t * abX, qY = a.y + t * abY, qZ = a.z + t * abZ
-  const dx = p.x - qX, dy = p.y - qY, dz = p.z - qZ
-  return dx * dx + dy * dy + dz * dz
-}
-
 export function reconcileLoadedMounts(
   mounts: Mount[],
   startingHorse: Mount | null,
@@ -272,7 +259,7 @@ export function resolveMountSpawnY(
 ): number | undefined {
   return saveData.mountData?.position ? saveData.mountData.position.y : undefined
 }
-import { damageNpc, damageObstacle, damagePlayer } from './combat/DamageRouter'
+import { damageMount, damageNpc, damageObstacle, damagePlayer } from './combat/DamageRouter'
 import {
   CombatEventStream,
   createNpcCombatActorRef,
@@ -564,9 +551,6 @@ export class Game {
   private readonly _tmpHitPos = new THREE.Vector3()
   private readonly _debugAimPoint = new THREE.Vector3()
   private readonly _tmpGripPos = new THREE.Vector3()
-  private readonly _tmpPlayerForward = new THREE.Vector3()
-  private readonly _tmpToTarget = new THREE.Vector3()
-  private readonly _tmpAiCenter = new THREE.Vector3()
   private readonly _tmpMeleeObstacleRay = new THREE.Ray()
   private readonly _tmpMeleeObstacleBox = new THREE.Box3()
   private readonly _tmpMeleeObstacleDirection = new THREE.Vector3()
@@ -593,6 +577,8 @@ export class Game {
   private readonly _nearbyNpcBuffer: NPC[] = []
   private readonly _impactCandidates: NPC[] = []
   private readonly _entityCollisionBroadPhase = new EntityCollisionBroadPhase()
+  private readonly combatMountGrid = new SpatialGrid<Mount>(8)
+  private readonly meleeMountCandidates: Mount[] = []
   private npcGrid = new SpatialGrid<NPC>(20)
   private readonly npcFactionGrids: Record<Faction, SpatialGrid<NPC>> = {
     [Faction.PLAYER]: new SpatialGrid<NPC>(20),
@@ -2610,6 +2596,16 @@ export class Game {
     this.mountHud.classList.add('visible')
   }
 
+  private _updateMountHud(): void {
+    const mount = this.player.isMounted ? this.player.currentMount : null
+    const visible = Boolean(mount && !mount.dead && !this.player.dead && this.controlMode === 'player')
+    this.mountHud.classList.toggle('visible', visible)
+    if (visible && mount) {
+      this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+      this.mountHpFill.style.width = `${Math.max(0, mount.currentHp / mount.maxHp * 100)}%`
+    }
+  }
+
   private _showNotify(msg: string, durationMs = 2000): void {
     this.saveNotify.textContent = msg
     this.saveNotify.classList.add('visible')
@@ -2776,98 +2772,30 @@ export class Game {
       heroAssetId: this.player.heroAssetId ?? undefined,
     })
 
-    if (combatKind === 'lance' || equippedMelee.isLance) {
-      const currTipPos = this.player.getSwordTipPosition()
-      const prevTipPos = this.player.hasPrevLanceTip ? this.player.prevLanceTipPos : currTipPos
-      const currGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
-      const playerPos = this.player.combatPosition
-      const playerForward = this._tmpPlayerForward.set(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))
-
-      let hitNpc = false
-      for (const npc of this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)) {
-        if (!npc.dead && npc.faction === Faction.ENEMY) {
-          const aiCenter = this._tmpAiCenter.copy(npc.combatPosition)
-          aiCenter.y += 1.0
-
-          const toTarget = this._tmpToTarget.copy(npc.combatPosition).sub(playerPos)
-          toTarget.y = 0
-          const forwardDist = toTarget.dot(playerForward)
-          const hitTolerance = npc.isMounted ? 0.85 : 0.60
-          const lanceReach = equippedMelee.range || 3.9
-
-          if (forwardDist <= 0 || forwardDist > lanceReach + hitTolerance) continue
-
-          const d1Sq = distToSegmentSq(aiCenter, prevTipPos, currTipPos)
-          const d2Sq = distToSegmentSq(aiCenter, currGripPos, currTipPos)
-          const minDSq = Math.min(d1Sq, d2Sq)
-
-          const contact = this.player.weaponSweep.trace(npc)
-          if (minDSq <= (hitTolerance + 1) * (hitTolerance + 1) && contact) {
-            this.player.markHitProcessed()
-            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
-            const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage, {
-              contact,
-              source: createPlayerCombatActorRef(this.player),
-              method: 'melee',
-              weaponId: equippedMelee.id,
-              emit: this.combatEvents.emit,
-            })
-            if (result.hitSuccess) {
-              // Only suppress Horse Impact when the Lance charge actually landed
-              if (isCharge && this.player.currentMount) {
-                this.player.currentMount.skipImpactThisFrame = true
-              }
-              this.soundManager.playLanceImpact(0, true)
-              if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, aiCenter.clone())
-              this._showEnemyHud(result.targetName, result.hpRatio)
-              
-            }
-            hitNpc = true
-            break
-          }
-        }
+    const targets = this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)
+      .filter(npc => !npc.dead && npc.faction === Faction.ENEMY)
+    const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, 8, this.meleeMountCandidates)
+    const contact = this.player.weaponSweep.traceFirst(targets, mounts, this.player.currentMount)
+    if (contact) {
+      this.player.markHitProcessed()
+      const target = contact.target as NPC | Mount
+      const cavalryTarget = contact.kind === 'mount' || target.isMounted
+      const finalDamage = Math.round(damage * getAntiCavalryMultiplier(combatKind, this.player.isMounted, cavalryTarget))
+      const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const,
+        weaponId: equippedMelee.id, emit: this.combatEvents.emit }
+      const result = contact.kind === 'mount' && contact.mount
+        ? damageMount(contact.mount, finalDamage, context) : damageNpc(target as NPC, finalDamage, context)
+      if (result.hitSuccess) {
+        if (isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
+        if (combatKind === 'lance') this.soundManager.playLanceImpact(0, true)
+        else this.soundManager.playSwordHit(0, true)
+        if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+        this._showEnemyHud(result.targetName, result.hpRatio)
       }
-
-      if (!hitNpc) {
-        this._tryDamageObstacleWithMelee(currGripPos, currTipPos, damage)
-      }
-      this.player.updatePrevLanceTip()
     } else {
-      const swordTipPos = this.player.getSwordTipPosition()
-      const baseRange = equippedMelee.range || 1.85
-
-      for (const npc of this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)) {
-        if (!npc.dead && npc.faction === Faction.ENEMY) {
-          const aiCenter = npc.combatPosition.clone()
-          aiCenter.y += 1.0
-          const hitThreshold = resolveMeleeHitThreshold(baseRange, npc.isMounted)
-          const contact = this.player.weaponSweep.trace(npc)
-          if (swordTipPos.distanceTo(aiCenter) <= hitThreshold + 1 && contact) {
-            this.player.markHitProcessed()
-            const antiCav = getAntiCavalryMultiplier(combatKind, this.player.isMounted, npc.isMounted)
-            const finalDamage = Math.round(damage * antiCav)
-            const result = damageNpc(npc, finalDamage, {
-              contact,
-              source: createPlayerCombatActorRef(this.player),
-              method: 'melee',
-              weaponId: equippedMelee.id,
-              emit: this.combatEvents.emit,
-            })
-            if (result.hitSuccess) {
-              this.soundManager.playSwordHit(0, true)
-              if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, aiCenter)
-              this._showEnemyHud(result.targetName, result.hpRatio)
-              
-            }
-            return
-          }
-        }
-      }
-
-      const swordGripPos = this.player.getWeaponGripPosition(this._tmpGripPos)
-      this._tryDamageObstacleWithMelee(swordGripPos, swordTipPos, damage)
+      this._tryDamageObstacleWithMelee(this.player.getWeaponGripPosition(this._tmpGripPos), this.player.getSwordTipPosition(), damage)
     }
+    if (combatKind === 'lance') this.player.updatePrevLanceTip()
   }
 
   // ── World Pickup & Mount Interaction ──
@@ -3052,20 +2980,16 @@ export class Game {
         ),
         combatEvents: this.combatEvents.emit,
         playerDamageMultiplier: this.skillManager.getMountedImpactMultiplier(),
-        onPlayerMountHitNpcAudio: (damage, attackerMount, npc, result) => {
+        onPlayerMountHitNpcAudio: (_damage, attackerMount, npc, result) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, true)
           this._tmpHitPos.copy(npc.combatPosition)
           this._tmpHitPos.y += 1.0
-          this.damageNumbers.spawn(damage, this._tmpHitPos)
+          this.damageNumbers.spawn(result.appliedDamage, this._tmpHitPos)
           this._showEnemyHud(result.targetName, result.hpRatio)
         },
-        onEnemyMountHitPlayerAudio: (_damage, attackerMount, result) => {
+        onEnemyMountHitPlayerAudio: (_damage, attackerMount, _result) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, true)
-          if (result.isMountHit) {
-            this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
-          } else {
-            this.mountHud.classList.remove('visible')
-          }
+          this._updateMountHud()
         },
         onNpcMountHitNpc: (_damage, attackerMount) => {
           this.soundManager.playHorseImpact(attackerMount.currentLod, false)
@@ -3175,10 +3099,13 @@ export class Game {
 
     // 1. NPC Grid Build
     if (profile) t0 = performance.now()
+    this.combatMountGrid.clear()
+    for (const mount of this.mounts) if (!mount.dead && !mount.disposed) this.combatMountGrid.insert(mount)
     this.npcGrid.clear()
     for (const grid of Object.values(this.npcFactionGrids)) grid.clear()
     for (const npc of this.npcs) {
       if (npc.hp <= 0) continue
+      npc.combatMountGrid = this.combatMountGrid
       this.npcGrid.insert(npc)
       this.npcFactionGrids[npc.faction].insert(npc)
     }
@@ -3272,11 +3199,7 @@ export class Game {
             if (result.hitSuccess) {
               if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, true)
               else this.soundManager.playSwordHit(npc.currentLod, true)
-              if (result.isMountHit) {
-                this.mountHpFill.style.width = `${Math.max(0, result.hpRatio * 100)}%`
-              } else {
-                this.mountHud.classList.remove('visible')
-              }
+              this._updateMountHud()
             }
           } else if (targetNpc) {
             const result = damageNpc(targetNpc, damage, {
@@ -3400,6 +3323,7 @@ export class Game {
         this.damageNumbers.spawn(Math.round(damage), hitPos)
         this._showEnemyHud(obstacle.displayName, hpRatio)
       },
+      false, this.mounts,
     )
 
       if (!arrow.isAlive) {
@@ -3419,6 +3343,7 @@ export class Game {
     }
 
     // Update Floating Damage numbers
+    this._updateMountHud()
     this.damageNumbers.update(dt, this.camera)
 
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)

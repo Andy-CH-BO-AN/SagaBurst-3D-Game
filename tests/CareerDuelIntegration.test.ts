@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../src/town/TownScene'
@@ -22,7 +23,7 @@ vi.mock('../src/audio/SoundManager', () => ({ SoundManager: class {
 } }))
 
 function harness() {
-  const town = Object.assign(Object.create(TownScene.prototype), {
+  const town = Object.assign(createTownCombatFixture(), {
     profile: createCareerProfile('roman'), player: { dead: false, combatantId: 'player', characterFaction: 'roman', heroAssetId: null },
     event: { hostile: false }, inventory: { prepareForCombat: vi.fn(), sheathAll: vi.fn(), equippedMelee: { id: 'gladius_rusty' } },
     mission: { events: { emit: vi.fn() }, cleanupMission: vi.fn() }, defense: { active: false },

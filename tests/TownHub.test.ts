@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { applyCivilianAppearance } from '../src/world/CivilianAppearance'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -132,7 +133,7 @@ describe('Ranger and unique cat relationship', () => {
   })
   it('ordinary mount death dismounts but does not kill the rider', () => {
     const npc = civilian(), mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0); mount.reservedForTown = true; npc.mountVehicle(mount)
-    expect(mount.availableForPlayer).toBe(false); damageNpc(npc, 9999); expect(npc.dead).toBe(false); expect(npc.mount).toBeNull(); expect(mount.dead).toBe(true)
+    expect(mount.availableForPlayer).toBe(false); mount.takeDamage(9999); expect(npc.dead).toBe(false); expect(npc.mount).toBeNull(); expect(mount.dead).toBe(true)
   })
 })
 describe('Town settlement, persistence and appointments', () => {
@@ -286,7 +287,7 @@ describe('Town orchestration transitions', () => {
     })
     const profile = createCareerProfile('roman'), store = new CareerProfileStore(memory())
     store.save(profile)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = profile; town.store = store; town.event = { hostile: false }; town.player = { dead: false }
     town.mission = {
       fieldNpcs: bandits, chooseCamp: vi.fn(() => 2),
@@ -311,7 +312,7 @@ describe('Town orchestration transitions', () => {
   })
 
   it.each(['bandit', 'cavalry-sweep'])('offers the shared troop return option after a surviving %s victory', kind => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const callbacks = new Map<string, () => void>()
     town.profile = { activeMission: { kind } }
     town.mission = { phase: 'RESULT', friendlies: [{ dead: false }], startReturning: vi.fn(() => true) }
@@ -327,7 +328,7 @@ describe('Town orchestration transitions', () => {
     expect(town.missionResultOpen).toBe(false); expect(town.closePanel).toHaveBeenCalledOnce()
   })
   it('explains zero merit after real but sub-threshold damage', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.mission = { friendlies: [] }
     town.openPanel = vi.fn(() => ({}))
     town.button = vi.fn()
@@ -338,7 +339,7 @@ describe('Town orchestration transitions', () => {
   })
 
   it('offers and starts the physical return when the player survives but every mission AI dies', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const callbacks = new Map<string, () => void>()
     town.mission = { friendlies: [{ dead: true }], startReturning: vi.fn(() => true) }
     town.openPanel = vi.fn(() => ({}))
@@ -358,7 +359,7 @@ describe('Town orchestration transitions', () => {
     const scene = new THREE.Scene()
     const source = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Town javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
     source.setTownPeaceful()
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
     town.world = { buildings: [], targets: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
@@ -396,7 +397,7 @@ describe('Town orchestration transitions', () => {
   it('does not let player melee, arrows, or stray building hits turn a career battle into Town hostility', () => {
     const scene = new THREE.Scene()
     const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Defender', 2, false)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
     town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp: { destroyed: false, takeDamage: vi.fn() }, obstacles: [] }], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
@@ -404,9 +405,9 @@ describe('Town orchestration transitions', () => {
     town.residents = [{ npc: ally }]
     town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
     town.player = {
-      position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
+      position: new THREE.Vector3(0, .9, 0), combatPosition: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
       getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
-      weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
+      weaponSweep: { traceFirst: (targets: NPC[]) => targets[0] ? ({ kind: 'body', time: .5, target: targets[0] }) : undefined, trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     installNoProgressTownSkillFixture(town)
@@ -437,7 +438,7 @@ describe('Town orchestration transitions', () => {
   it('abandons a field mission before the first illegal Town hit starts Town Crime', () => {
     const scene = new THREE.Scene()
     const resident = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Resident', 2, false)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'crime-abandon', 'bandit', 'captain')
     town.profile = profile
@@ -459,7 +460,7 @@ describe('Town orchestration transitions', () => {
     expect(town.clearMissionCombatShots).toHaveBeenCalledOnce()
     expect(town.activateHostility).toHaveBeenCalledOnce()
 
-    const blocked = Object.create(TownScene.prototype) as any
+    const blocked = createTownCombatFixture() as any
     blocked.profile = profile
     blocked.event = { hostile: false }
     blocked.commit = vi.fn(() => false)
@@ -475,7 +476,7 @@ describe('Town orchestration transitions', () => {
   it('protects mission and external-threat allies during legal combat while peaceful Town Crime remains possible', () => {
     const scene = new THREE.Scene()
     const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Mission captain', 2, false)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { activeMission: { kind: 'bandit', phase: 'ENGAGING' } }
     const threatDefender = vi.fn<(actor: NPC) => boolean>(() => false)
     town.missionCombat = { isExternalThreatDefender: threatDefender }
@@ -485,9 +486,9 @@ describe('Town orchestration transitions', () => {
     town.residents = [{ npc: ally }]
     town.inventory = { meleeEnabled: true, shieldEnabled: false, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
     town.player = {
-      position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
+      position: new THREE.Vector3(0, .9, 0), combatPosition: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
       getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
-      weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
+      weaponSweep: { traceFirst: (targets: NPC[]) => targets[0] ? ({ kind: 'body', time: .5, target: targets[0] }) : undefined, trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     installNoProgressTownSkillFixture(town)
@@ -515,14 +516,14 @@ describe('Town orchestration transitions', () => {
     expect(town.hitResident).not.toHaveBeenCalled()
     threatDefender.mockReturnValue(false)
     town.melee()
-    expect(town.hitResident).toHaveBeenCalledWith(ally, expect.any(Number))
+    expect(town.hitResident).toHaveBeenCalledWith(ally, expect.any(Number), 'melee', expect.objectContaining({ kind: 'body' }))
   })
 
   it('blocks damage and Town Crime on a mission ally and their home mount', () => {
     const scene = new THREE.Scene()
     const ally = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Mission ally', 2, false)
     const horse = { dead: false, currentHp: 100, riderNpc: ally, group: new THREE.Group() }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { activeMission: { kind: 'patrol', phase: 'ENGAGING' } }
     town.mission = { friendlies: [ally] }
     town.residents = [{ npc: ally, homeMount: horse }]
@@ -543,7 +544,7 @@ describe('Town orchestration transitions', () => {
     const soldier = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Soldier', 2, false)
     const merchant = new NPC(scene, 80, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Merchant', 2, false)
     const bandit = new NPC(scene, 10, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 2, false)
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { activeMission: undefined }
     town.mission = { friendlies: [], ambientBandits: [bandit], missionBandits: [] }
     town.residents = [{ spec: { role: 'melee_infantry' }, npc: soldier }, { spec: { role: 'merchant' }, npc: merchant }]
@@ -575,7 +576,7 @@ describe('Town orchestration transitions', () => {
   })
 
   it('dismounts Maki when enemy fire kills the black cat during Town Defense', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
     town.world = { buildings: [], targets: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
@@ -603,7 +604,7 @@ describe('Town orchestration transitions', () => {
   })
 
   it('plays mission commands only when their spoken meaning matches the phase', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.profile = { faction: 'roman', activeMission: { kind: 'bandit', phase: 'ASSEMBLING' } }
     town.defense = { reserveHasCharged: false }
     town.careerCommandCue = null
@@ -627,12 +628,12 @@ describe('Town orchestration transitions', () => {
   })
 
   it('the first close frontal house swing damages the wall and starts hostility even after the blade has swept sideways', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root: new THREE.Group() })
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-5, -2, 1), new THREE.Vector3(5, 5, 10)), damageable: hp }
     town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp, obstacles: [obstacle] }], obstacles: [obstacle], refreshDamage: vi.fn() }
     town.inventory = { meleeEnabled: true, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
-    town.player = { position: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() }
+    town.player = { position: new THREE.Vector3(0, .9, 0), combatPosition: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), weaponSweep: { traceFirst: (targets: NPC[]) => targets[0] ? ({ kind: 'body', time: .5, target: targets[0] }) : undefined, trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }
@@ -644,7 +645,7 @@ describe('Town orchestration transitions', () => {
     expect(town.player.markHitProcessed).toHaveBeenCalledTimes(1)
   })
   it.each([false, true])('hostility is broadcast once; captain dead=%s selects another soldier', captainDead => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.event = new TownEvent(); town.closePanel = vi.fn(); town.equipment = { visible: true }
     const captain = { dead: captainDead, beginTownHostility: vi.fn() }, infantry = { dead: false, beginTownHostility: vi.fn() }
     town.residents = [{ spec: { id: 'captain', role: 'captain' }, npc: captain }, { spec: { id: 'infantry', role: 'melee_infantry' }, npc: infantry }]
@@ -652,20 +653,20 @@ describe('Town orchestration transitions', () => {
     expect(town.chargeSpeakerId).toBe(captainDead ? 'infantry' : 'captain'); expect(infantry.beginTownHostility).toHaveBeenCalledTimes(1); expect(town.closePanel).toHaveBeenCalledTimes(1)
   })
   it('first-hit persistence failure blocks damage; zero damage does not create an event', () => {
-    const town = Object.create(TownScene.prototype) as any, npc = civilian()
+    const town = createTownCombatFixture() as any, npc = civilian()
     town.prepareDamage = vi.fn(() => false); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
     town.hitResident(npc, 0); expect(town.prepareDamage).not.toHaveBeenCalled()
     town.hitResident(npc, 10); expect(npc.hp).toBe(50); expect(town.activateHostility).not.toHaveBeenCalled()
   })
   it('hostility preserves an active swing and held movement when no dialog is open', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null
     town.closePanel = vi.fn(); town.residents = []
     town.activateHostility(false)
     expect(town.event.hostile).toBe(true); expect(town.closePanel).not.toHaveBeenCalled()
   })
   it('reserved bandit camp structures do not broadcast town crime', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: 120, root: new THREE.Group() })
     town.world = { buildings: [{ ownerFaction: Faction.BANDIT, hp }], obstacles: [], refreshDamage: vi.fn() }
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
@@ -674,7 +675,7 @@ describe('Town orchestration transitions', () => {
     expect(hp.hpRatio).toBeCloseTo(.9); expect(town.prepareDamage).not.toHaveBeenCalled(); expect(town.activateHostility).not.toHaveBeenCalled()
   })
   it('building feedback uses remaining HP for overkill and ignores zero, invalid and repeated damage', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: 7, root: new THREE.Group() })
     town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp }], obstacles: [], refreshDamage: vi.fn() }
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn(); town.persistCasualties = vi.fn()
@@ -687,7 +688,7 @@ describe('Town orchestration transitions', () => {
     expect(town.activateHostility).toHaveBeenCalledTimes(1)
   })
   it('persists casualties only on a death/destruction, preserving them across reload', () => {
-    const town = Object.create(TownScene.prototype) as any, npc = { dead: false }, p = enlist()
+    const town = createTownCombatFixture() as any, npc = { dead: false }, p = enlist()
     town.event = new TownEvent(); town.event.register('civilian-0', npc); town.profile = p; town.world = { buildings: [] }
     const store = new CareerProfileStore(memory()); town.commit = vi.fn((next: typeof p) => { town.profile = next; return store.save(next) })
     town.persistCasualties(); expect(town.commit).not.toHaveBeenCalled()

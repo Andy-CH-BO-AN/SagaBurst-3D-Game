@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
@@ -171,7 +172,7 @@ describe('Career objectives take priority over player death', () => {
 
 function townFixture() {
   const controls = { textContent: '', style: {} }
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   const player = new Player(new THREE.Scene(), 'roman')
   vi.stubGlobal('document', { getElementById: () => controls })
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))

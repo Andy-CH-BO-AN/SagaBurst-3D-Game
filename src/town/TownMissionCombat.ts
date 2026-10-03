@@ -225,7 +225,7 @@ export class TownMissionCombat {
         (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
         false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
     }
-    const mount = this.town.careerMounts.activeMount
+    const mount = player.currentMount
     const playerImpactTargets = veteranField ? [...field.missionBandits, ...this.enemyTownHostileActors] : [...field.ambientBandits, ...field.missionBandits]
     if ((!veteranField || veteranSquadCombatActive) && mount && mount === player.currentMount && !mount.dead) {
       for (const target of playerImpactTargets) {
@@ -430,7 +430,7 @@ export class TownMissionCombat {
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
       if (mount.dead || !mount.riderNpc) mount.update(dt, this.town.obstacles)
     }
-    const player = this.town.player(), mount = this.town.careerMounts.activeMount
+    const player = this.town.player(), mount = player.currentMount
     if (mount && mount === player.currentMount && !mount.dead) {
       for (const target of this.grid.getNearby(mount.group.position, 2.5)) {
         if (target.faction !== Faction.ENEMY || target.dead || !checkMountImpact(mount, target.combatPosition, .5)) continue

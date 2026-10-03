@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
   impactByTier: { 1: 5, 2: 10, 3: 20 },
@@ -57,6 +58,23 @@ export function segmentBoxTime(a: THREE.Vector3, b: THREE.Vector3, box: THREE.Bo
   return enter
 }
 
+/** Segment queries in an existing proxy's local space; rotation and scale follow the proxy. */
+export class LocalBoxCollider {
+  private readonly inverse = new THREE.Matrix4()
+  private readonly a = new THREE.Vector3()
+  private readonly b = new THREE.Vector3()
+  constructor(private readonly proxy: THREE.Object3D, private readonly box: THREE.Box3) {}
+  prepare(): void {
+    this.proxy.updateWorldMatrix(true, false)
+    this.inverse.copy(this.proxy.matrixWorld).invert()
+  }
+  preparedTime(from: THREE.Vector3, to: THREE.Vector3): number {
+    this.a.copy(from).applyMatrix4(this.inverse)
+    this.b.copy(to).applyMatrix4(this.inverse)
+    return segmentBoxTime(this.a, this.b, this.box)
+  }
+}
+
 /** OBB in shield model space. Never reads triangles or traverses meshes. */
 export class ShieldCollider {
   private readonly inverse = new THREE.Matrix4()
@@ -94,16 +112,24 @@ export interface PhysicalCombatTarget {
   bodyHitNodes?: readonly THREE.Object3D[]
   shield?: ShieldState
   shieldCollider?: ShieldCollider
+  mount?: Mount | null
+  currentMount?: Mount | null
+  mountCollider?: LocalBoxCollider
 }
-export interface CombatContact { kind: 'shield' | 'body'; time: number }
+export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget }
 const bodyBox = new THREE.Box3()
 // Shared synchronous scratch: sampled once per target query, not once per blade point.
 const limbCenters = Array.from({ length: 6 }, () => new THREE.Vector3())
 let limbCount = 0
+let preparedMount: Mount | null = null
 function prepareTarget(target: PhysicalCombatTarget): void {
   limbCount = Math.min(limbCenters.length, target.bodyHitNodes?.length ?? 0)
   for (let i = 0; i < limbCount; i++) target.bodyHitNodes![i].getWorldPosition(limbCenters[i])
   target.shieldCollider?.prepare()
+  preparedMount = target.mountCollider ? target as Mount
+    : target.isMounted ? target.mount ?? target.currentMount ?? null : null
+  if (preparedMount?.dead || preparedMount?.disposed) preparedMount = null
+  preparedMount?.mountCollider.prepare()
 }
 function segmentSphereTime(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, radius: number): number {
   const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
@@ -118,25 +144,24 @@ function segmentSphereTime(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3,
   return t >= 0 && t <= 1 ? t : Infinity
 }
 function bodyTime(target: PhysicalCombatTarget, from: THREE.Vector3, to: THREE.Vector3): number {
+  if (target.mountCollider) return Infinity
   const p = target.group.position, base = p.y + (target.bodyBaseOffset ?? 0)
   bodyBox.min.set(p.x - .3, base + .06, p.z - .3)
   bodyBox.max.set(p.x + .3, base + 1.8, p.z + .3)
   let time = segmentBoxTime(from, to, bodyBox)
   // Small bone-following primitives include outstretched arms/hands and moving feet.
   for (let i = 0; i < limbCount; i++) time = Math.min(time, segmentSphereTime(from, to, limbCenters[i], .12))
-  if (target.isMounted) {
-    const m = target.combatPosition
-    bodyBox.min.set(m.x - .55, m.y + .3, m.z - .55)
-    bodyBox.max.set(m.x + .55, m.y + 1.4, m.z + .55)
-    time = Math.min(time, segmentBoxTime(from, to, bodyBox))
-  }
   return time
 }
 /** First contact only; a tie belongs to body, never magical shield mitigation. */
 export function traceCombatSegment(target: PhysicalCombatTarget, from: THREE.Vector3, to: THREE.Vector3, out: CombatContact, prepared = false): boolean {
   if (!prepared) prepareTarget(target)
   const body = bodyTime(target, from, to), shield = target.shieldCollider?.preparedTime(from, to) ?? Infinity
-  out.time = Math.min(body, shield); out.kind = shield < body ? 'shield' : 'body'
+  const mount = preparedMount?.mountCollider.preparedTime(from, to) ?? Infinity
+  out.time = Math.min(body, shield, mount)
+  out.kind = mount < body && mount <= shield ? 'mount' : shield < body ? 'shield' : 'body'
+  out.mount = out.kind === 'mount' ? preparedMount ?? undefined : undefined
+  out.target = target
   return Number.isFinite(out.time)
 }
 
@@ -150,6 +175,7 @@ export class WeaponSweep {
   private readonly from = new THREE.Vector3()
   private readonly to = new THREE.Vector3()
   private readonly candidate: CombatContact = { kind: 'body', time: Infinity }
+  private readonly best: CombatContact = { kind: 'body', time: Infinity }
   private ready = false
   capture(grip: THREE.Vector3, tip: THREE.Vector3): void {
     this.previousGrip.copy(this.ready ? this.grip : grip); this.previousTip.copy(this.ready ? this.tip : tip)
@@ -166,9 +192,29 @@ export class WeaponSweep {
       this.to.lerpVectors(this.grip, this.tip, i / samples)
       if (traceCombatSegment(target, this.from, this.to, this.candidate, true) && this.candidate.time < this.contact.time) {
         this.contact.kind = this.candidate.kind; this.contact.time = this.candidate.time
+        this.contact.mount = this.candidate.mount
+        this.contact.target = this.candidate.target
       }
     }
     if (Number.isFinite(this.contact.time)) return this.contact
     return traceCombatSegment(target, this.grip, this.tip, this.contact, true) ? this.contact : undefined
+  }
+  /** One consumed attack: compare the intended bodies with every nearby independent mount. */
+  traceFirst(targets: readonly PhysicalCombatTarget[], mounts: readonly Mount[] = [], ownMount?: Mount | null): CombatContact | undefined {
+    this.best.time = Infinity
+    for (const target of targets) {
+      const contact = this.trace(target)
+      if (contact && contact.time < this.best.time) Object.assign(this.best, contact)
+    }
+    for (const mount of mounts) {
+      if (mount.dead || mount.disposed || mount === ownMount
+        || mount.riderNpc && targets.includes(mount.riderNpc)
+        || mount.riderPlayer && targets.includes(mount.riderPlayer)) continue
+      const contact = this.trace(mount)
+      if (contact && contact.time < this.best.time) Object.assign(this.best, contact)
+    }
+    if (!Number.isFinite(this.best.time)) return undefined
+    Object.assign(this.contact, this.best)
+    return this.contact
   }
 }

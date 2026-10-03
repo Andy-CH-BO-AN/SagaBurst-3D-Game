@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { veteranPlayerSpawn, veteranPlayerYaw } from '../src/career/BanditMissionController'
@@ -28,7 +29,7 @@ function board(rank: CareerRank, page?: string, completed: string[] = [], tierCo
   profile.completedCareerMissionTemplateIds = completed
   if (Object.keys(tierCompletions).length > 0) profile.careerMissionCompletionsByTier = tierCompletions
   const panel = new Element()
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   Object.assign(town, {
     profile, player: { arrowCount: 30 }, deploymentPage: page,
     skills: { skillState: profile.skills }, careerSkillSaveTimer: null,
@@ -138,7 +139,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     Object.assign(profile, { rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'], completedCareerMissionTemplateIds: [
       'veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept', 'veteran-outpost-assault', 'veteran-spear-line-hunt',
     ] })
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const player = { dead: false, group: new THREE.Group(), faceDirection: vi.fn() }
     Object.assign(town, { profile, player, event: { hostile: false }, store: { loadChecked: () => ({ profile }), save: () => true },
       skills: { skillState: { ...profile.skills, ranged: { level: 2, xp: 37 } } }, careerSkillSaveTimer: null,
@@ -161,7 +162,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     Object.assign(profile, { rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'], completedCareerMissionTemplateIds: [
       'veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept', 'veteran-outpost-assault', 'veteran-spear-line-hunt',
     ] })
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player: { dead: false }, event: { hostile: false },
       store: { loadChecked: () => ({ profile }) }, commit: vi.fn(() => false),
       mission: { startActiveMission: vi.fn() }, dispose: vi.fn(), onRestart: vi.fn(),
@@ -177,7 +178,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = { id: 'scout-start', templateId: 'veteran-tragedy-of-the-scouts', kind: 'veteran-field', targetCampId: 0,
       phase: 'ASSEMBLING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 0 }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const player = { group: new THREE.Group(), faceDirection: vi.fn(), currentMount: null }
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn() }, inventory: { prepareForCombat: vi.fn() } })
     town.restoreActiveCareerMission()
@@ -192,7 +193,7 @@ describe('Veteran field scene checkpoint presentation', () => {
       targetCampId: 0, phase: 'MARCHING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 1 }
     const mount = { group: new THREE.Group() }
     const player = { group: new THREE.Group(), faceDirection: vi.fn(), currentMount: null as any }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() },
       careerMounts: { restoreActiveMount: vi.fn(() => { player.currentMount = mount }) }, inventory: { prepareForCombat: vi.fn() } })
     town.restoreActiveCareerMission()
@@ -208,14 +209,14 @@ describe('Veteran field scene checkpoint presentation', () => {
       targetActorIds: ['enemy'], friendlyActorIds: ['captain'], playerHp: 42, playerStamina: 18, acceptedAt: 0,
     }
     const player = { group: new THREE.Group(), faceDirection: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), currentMount: null }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn() }, inventory: { prepareForCombat: vi.fn() } })
     town.restoreActiveCareerMission()
     expect(player.setHp).toHaveBeenCalledExactlyOnceWith(42)
     expect(player.setStamina).toHaveBeenCalledExactlyOnceWith(18)
   })
   it('renders survival countdown from persisted elapsed time, including the terminal zero', () => {
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     const profile = createCareerProfile('roman')
     profile.activeMission = { id: 'survival', templateId: 'veteran-tragedy-of-the-scouts', kind: 'veteran-field', phase: 'ENGAGING', targetCampId: 0, targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 0 }
     town.profile = profile
@@ -234,7 +235,7 @@ describe('Veteran VI enemy Town building damage', () => {
     profile.activeMission = { id: 'enemy-town-scouts', templateId: 'veteran-tragedy-of-the-scouts', kind: 'veteran-field',
       targetCampId: 0, phase: 'ENGAGING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 1 }
     const hp = { root: new THREE.Group(), destroyed: false, takeDamage: vi.fn(() => ({ appliedDamage: 5 })) }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile, event: { hostile: false }, store: { save: () => true },
       defense: { active: undefined, assault: false }, mission: { cleanupMission: vi.fn(), provokeCamp: vi.fn() },
       world: { buildings: [{ id: 'hall', ownerFaction: Faction.ENEMY, hp }], obstacles: [], refreshDamage: vi.fn() },
@@ -259,7 +260,7 @@ describe('Veteran VI decorative Town services', () => {
       targetCampId: 0, phase: 'ENGAGING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 1 }
     const cat = { group: new THREE.Group(), dead: false, currentHp: 100, riderNpc: null, takeDamage: vi.fn() }
     const player = { dead: false, group: new THREE.Group(), combatPosition: new THREE.Vector3() }
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player, cat, stableHorses: [], residents: [],
       mission: { friendlies: [], fieldNpcs: [] }, defense: { fieldNpcs: [] },
       world: { obstacles: [] }, prepareDamage: vi.fn(() => true), activateHostility: vi.fn(),
@@ -292,7 +293,7 @@ describe('Veteran VI native Town combat routing', () => {
     const scene = new THREE.Scene()
     const guard = new NPC(scene, 0, 1, Faction.ENEMY, 'viking', AIType.MELEE, 'Native guard', 2, false, undefined, undefined, undefined, 'enemy-town:melee_infantry-0')
     const scout = new NPC(scene, 0, 1, Faction.TOWN, 'roman', AIType.MELEE, 'Scout', 4, false, undefined, undefined, undefined, 'captain')
-    const town = Object.create(TownScene.prototype) as any
+    const town = createTownCombatFixture() as any
     Object.assign(town, { profile: { faction: 'roman', activeMission: { kind: 'veteran-field', templateId: 'veteran-tragedy-of-the-scouts' } },
       world: { buildings: [], obstacles: [], targets: [] },
       mission: { ambientBandits: [], missionBandits: [], friendlies: [scout], combatPeersFor: () => [scout] },
@@ -302,7 +303,7 @@ describe('Veteran VI native Town combat routing', () => {
       skills: { getOneHandedMultiplier: () => 1, getMultiplier: () => 1 },
       player: { group: { position: new THREE.Vector3(0, .9, 0) }, dead: false, position: new THREE.Vector3(0, .9, 0), facingYaw: 0,
         getSwordTipPosition: () => new THREE.Vector3(0, 1.2, 2), getWeaponGripPosition: () => new THREE.Vector3(0, 1.2, .2),
-        weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() },
+        weaponSweep: { traceFirst: (targets: NPC[]) => ({ kind: 'body', time: .5, target: targets[0] }), trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() },
       previousTip: new THREE.Vector3(), hasPreviousTip: false, hitFieldNpc: vi.fn(), hitResident: vi.fn(),
     })
     Object.setPrototypeOf(town.player, Player.prototype)
@@ -312,7 +313,7 @@ describe('Veteran VI native Town combat routing', () => {
   it('routes Player melee against a native enemy guard as mission combat rather than a home-town crime', () => {
     const { town, guard, scout } = fixture()
     town.melee()
-    expect(town.hitFieldNpc).toHaveBeenCalledWith(guard, expect.any(Number), 'melee')
+    expect(town.hitFieldNpc).toHaveBeenCalledWith(guard, expect.any(Number), 'melee', undefined, expect.objectContaining({ kind: 'body' }))
     expect(town.hitResident).not.toHaveBeenCalled()
     guard.dispose(); scout.dispose()
   })

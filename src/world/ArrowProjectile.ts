@@ -7,7 +7,8 @@ import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
 import { traceCombatSegment, segmentBoxTime, type CombatContact } from '../combat/ShieldBlocking'
-import { damageNpc, damageObstacle, type DamageResult } from '../combat/DamageRouter'
+import { damageMount, damageNpc, damageObstacle, type DamageResult } from '../combat/DamageRouter'
+import type { Mount } from './Mount'
 import type {
   CombatActorRef,
   CombatDamageContext,
@@ -214,6 +215,7 @@ export class ArrowProjectile {
       hpRatio: number,
     ) => void,
     visualOnly = false,
+    mounts: readonly Mount[] = [],
   ): void {
     if (!this.alive) return
 
@@ -250,6 +252,7 @@ export class ArrowProjectile {
     let hitObstacle: ObstacleData | undefined
     let hitNpc: NPC | undefined
     let hitPlayer = false
+    let hitMount: Mount | undefined
 
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
@@ -272,9 +275,19 @@ export class ArrowProjectile {
         Object.assign(this.bestContact, this.contact)
       }
     }
+    // Mounts remain physical targets after release, independent of faction or NPC liveness.
+    for (const mount of mounts) {
+      if (mount.dead || mount.disposed || (this.isPlayerFired && mount === player.currentMount)
+        || (mount.riderNpc && mount.riderNpc.combatantId === this.attribution?.source.actorId)
+        || mount.group.position.distanceToSquared(this.previousPosition) > broadRadius * broadRadius) continue
+      if (traceCombatSegment(mount, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
+        nearest = this.contact.time; hitMount = mount; hitNpc = undefined; hitPlayer = false; hitObstacle = undefined
+        Object.assign(this.bestContact, this.contact)
+      }
+    }
     if (Number.isFinite(nearest)) {
       this.mesh.position.lerpVectors(this.previousPosition, this.mesh.position, nearest)
-      if (hitNpc || hitPlayer) {
+      if (hitNpc || hitPlayer || hitMount) {
         const context = this._damageContext()
         if (context) context.contact = this.bestContact
         // Unattributed projectiles still physically block, but never award XP.
@@ -282,8 +295,10 @@ export class ArrowProjectile {
           source: { actorId: 'unattributed-projectile', actorType: 'npc' as const, allegiance: this.shooterFaction, characterFaction: player.characterFaction },
           method: 'projectile' as const, contact: this.bestContact, hostileToTarget: false,
         }
-        const result = hitNpc ? damageNpc(hitNpc, this.damage, physicalContext) : onDamagePlayer(this.damage, physicalContext)
-        if (result.hitSuccess) onHitTarget(result.appliedDamage, this.mesh.position.clone(), result.targetName, result.hpRatio, hitPlayer, hitNpc, result.isMountHit)
+        const playerMountHit = hitMount === player.currentMount
+        const result = hitMount ? damageMount(hitMount, this.damage, physicalContext)
+          : hitNpc ? damageNpc(hitNpc, this.damage, physicalContext) : onDamagePlayer(this.damage, physicalContext)
+        if (result.hitSuccess) onHitTarget(result.appliedDamage, this.mesh.position.clone(), result.targetName, result.hpRatio, hitPlayer || playerMountHit, hitNpc, result.isMountHit)
         this.destroy()
         return
       }

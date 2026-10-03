@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, claimCareerMission, clearCareerMission, type CareerRank } from '../src/career/CareerProfile'
@@ -117,7 +118,7 @@ function flatten(element: PanelElement): PanelElement[] {
 }
 function board(rank: CareerRank = 'soldier') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   town.profile = createCareerProfile('roman')
   Object.assign(town.profile, { rank, totalMerit: 1000, careerMissionCompletionsByTier: { 1: 5, 2: 5 }, completedOutpostRelief: true })
   town.player = { arrowCount: 30, dead: false }

@@ -278,7 +278,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       }
 
       // 1. Mounted with T2 shield: 100 incoming damage -> mount takes 85
-      damageNpc(mockNpc, 100)
+      damageNpc(mockNpc, 100, { source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' }, method: 'melee', contact: { kind: 'mount', time: 0 } })
       expect(mountDamageTaken).toBe(100)
       expect(npcDamageTaken).toBe(0)
 
@@ -451,7 +451,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       expect(player.currentHp).toBeCloseTo(expectedHp)
@@ -485,7 +485,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       expect(player.currentHp).toBe(0)
@@ -517,7 +517,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2')
+        (damage, context) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2', context)
       )
 
       // 100 * (1 - 0.15) = 85 damage -> 200 - 85 = 115 HP
@@ -563,7 +563,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2')
+        (damage, context) => damagePlayer(player, damage, mockHpBar, 'round_shield_t2', context)
       )
 
       // Horse receives 85 damage -> 115 HP
@@ -574,7 +574,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(onHitTarget).toHaveBeenCalledWith(
         100,
         expect.any(THREE.Vector3),
-        `坐騎：${mount.displayName}`,
+        mount.displayName,
         100 / 200,
         true,
         undefined,
@@ -611,7 +611,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       // Horse receives 100 damage -> 100 HP
@@ -620,7 +620,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(onHitTarget).toHaveBeenCalledWith(
         100,
         expect.any(THREE.Vector3),
-        `坐騎：${mount.displayName}`,
+        mount.displayName,
         100 / 200,
         true,
         undefined,
@@ -658,7 +658,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       expect(mount.dead).toBe(true)
@@ -667,7 +667,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       expect(onHitTarget).toHaveBeenCalledWith(
         50,
         expect.any(THREE.Vector3),
-        `坐騎：${mount.displayName}`,
+        mount.displayName,
         0,
         true,
         undefined,
@@ -700,7 +700,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         [],
         [],
         onHitTarget,
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       expect(player.currentHp).toBe(200 - 63)
@@ -741,7 +741,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         (_damage, _pos, _name, hpRatio) => {
           reportedRatio = hpRatio
         },
-        (damage) => damagePlayer(player, damage, mockHpBar, null)
+        (damage, context) => damagePlayer(player, damage, mockHpBar, null, context)
       )
 
       // Post-hit HP is 150 / 200 = 0.75
@@ -1060,6 +1060,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         combatPosition: new THREE.Vector3(0, 0, 2),
         isHitFrame: () => true,
         isLanceThrustActive: false,
+        weaponSweep: { traceFirst: () => undefined },
         getSwordTipPosition: () => new THREE.Vector3(0, 1, 6),
         hasPrevLanceTip: true,
         prevLanceTipPos: new THREE.Vector3(0, 1, 5),
@@ -1074,6 +1075,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         skillManager: { getMultiplier: () => 1, addXp: vi.fn() },
         npcs: [enemyNpc],
         npcGrid: { getNearbyInto: () => [enemyNpc] },
+        combatMountGrid: { getNearbyInto: () => [] }, meleeMountCandidates: [],
         _tmpGripPos: new THREE.Vector3(),
         _tmpPlayerForward: new THREE.Vector3(),
         _tmpAiCenter: new THREE.Vector3(),
@@ -1174,8 +1176,8 @@ describe('CombatBalance SSOT & Pure Functions', () => {
       player.mountVehicle(playerMount)
       player.group.position.set(0, 0, 0) // Player target position is in the enemy mount's sweep.
       const hpBar = { setFill: vi.fn() } as any
-      const onDamagePlayer = vi.fn((damage: number) =>
-        damagePlayer(player, damage, hpBar, 'round_shield_t2')
+      const onDamagePlayer = vi.fn((damage: number, context?: any) =>
+        damagePlayer(player, damage, hpBar, 'round_shield_t2', context)
       )
       const onEnemyMountHitPlayer = vi.fn()
 
@@ -1183,12 +1185,12 @@ describe('CombatBalance SSOT & Pure Functions', () => {
 
       // The resolver supplies raw impact damage to the authoritative callback exactly once.
       expect(onDamagePlayer).toHaveBeenCalledTimes(1)
-      expect(onDamagePlayer).toHaveBeenCalledWith(23, undefined)
+      expect(onDamagePlayer).toHaveBeenCalledWith(23, expect.objectContaining({ method: 'mount-impact' }))
       // The callback applies the equipped T2 shield (15%) and routes damage to the mounted Player's horse.
       expect(playerMount.currentHp).toBeCloseTo(100 - 23)
       expect(onEnemyMountHitPlayer).toHaveBeenCalledWith(
         23,
-        expect.objectContaining({ isMountHit: true, targetName: `坐騎：${playerMount.displayName}` })
+        expect.objectContaining({ isMountHit: true, targetName: playerMount.displayName })
       )
     })
   })

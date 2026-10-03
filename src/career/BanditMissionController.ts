@@ -144,6 +144,11 @@ export class BanditMissionController {
   onMarchStarted: (() => void) | null = null
   onSweepCharge: (() => void) | null = null
   readonly cavalryMounts: Mount[] = []
+
+  get battlefieldMounts(): Mount[] {
+    return [...new Set([...this.cavalryMounts, ...this.fieldActorMounts.values(),
+      ...this.borrowedTemporaryMounts.map(entry => entry.mount)].filter((mount): mount is Mount => Boolean(mount)))]
+  }
   private readonly temporaryCavalry: { npc: NPC; mount?: Mount }[] = []
   private readonly departingCavalry: { npc: NPC; mount: Mount }[] = []
   private mountedMarch: MountedMissionMarchController | null = null

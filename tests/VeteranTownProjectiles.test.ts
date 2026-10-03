@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../src/town/TownScene'
@@ -25,7 +26,7 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
   const player = Object.create(Player.prototype)
   player.group = new THREE.Group(); player.group.position.set(100, 100, 100)
   Object.defineProperties(player, { dead: { value: false }, position: { value: new THREE.Vector3(100, 100, 100) } })
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   Object.assign(town, {
     shots: [{ arrow, training: false, player: false, source, age: 0 }],
     player,
