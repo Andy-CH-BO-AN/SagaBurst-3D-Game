@@ -25,6 +25,25 @@ function memory() {
 }
 function civilian() { return new NPC(new THREE.Scene(), 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Civilian', 2, false, { meleeWeaponId: null, rangedWeaponId: null, shieldId: null }, undefined, undefined, 'civilian', undefined, undefined, undefined, undefined, 'civilian') }
 function enlist() { const p = grantStarter(createCareerProfile('roman'), 'gladius_rusty'); p.totalMerit = 22000; p.availableMerit = 180; p.rank = 'commander'; p.townEvent = { id: 'event-1', state: 'hostile' }; return p }
+function installNoProgressTownSkillFixture(town: any): void {
+  const skillState = {
+    oneHanded: { level: 1, xp: 0 },
+    twoHanded: { level: 1, xp: 0 },
+    ranged: { level: 1, xp: 0 },
+    mountedImpact: { level: 1, xp: 0 },
+  }
+  town.skills = {
+    skillState,
+    getMultiplier: () => 1,
+    getMountedImpactMultiplier: () => 1,
+    getRangedMultiplier: () => 1,
+    addXp: vi.fn(() => 0),
+  }
+  town.player ??= { dead: false, spectatorOnly: false }
+  town.player.dead ??= false
+  town.player.spectatorOnly ??= false
+  town.inventory ??= { equippedMelee: null, shieldEnabled: false }
+}
 
 describe('Town population and civilian combat', () => {
   it('uses faction T4 captains with their own hero mount and five stable horses in mixed existing coats', () => {
@@ -390,6 +409,7 @@ describe('Town orchestration transitions', () => {
       isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
+    installNoProgressTownSkillFixture(town)
     town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn(); town.hitResident = vi.fn()
     town.melee()
     expect(town.hitResident).not.toHaveBeenCalled()
@@ -428,6 +448,7 @@ describe('Town orchestration transitions', () => {
     town.activateHostility = vi.fn()
     town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }
+    installNoProgressTownSkillFixture(town)
 
     const hpBefore = resident.hp
     town.hitResident(resident, 12)
@@ -469,6 +490,7 @@ describe('Town orchestration transitions', () => {
       isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
+    installNoProgressTownSkillFixture(town)
     town.hitResident = vi.fn()
     town.melee()
     expect(town.hitResident).not.toHaveBeenCalled()
@@ -532,6 +554,7 @@ describe('Town orchestration transitions', () => {
     town.activateHostility = vi.fn()
     town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }
+    installNoProgressTownSkillFixture(town)
     expect(town.isProtectedTownAlly(soldier)).toBe(true)
     expect(town.isProtectedTownAlly(merchant)).toBe(false)
     const soldierHp = soldier.hp
@@ -614,6 +637,7 @@ describe('Town orchestration transitions', () => {
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }
     town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null; town.residents = []
+    installNoProgressTownSkillFixture(town)
     town.melee()
     expect(hp.hpRatio).toBeCloseTo(.88); expect(town.event.hostile).toBe(true)
     expect(town.damageNumbers.spawn).toHaveBeenCalledWith(12, new THREE.Vector3(0, .9, 1))

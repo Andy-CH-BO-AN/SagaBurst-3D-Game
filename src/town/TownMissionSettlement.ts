@@ -113,7 +113,7 @@ export class TownMissionSettlement {
         }
       }
       this.town.inventory.sheathAll()
-      this.town.restart(next)
+      this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
 

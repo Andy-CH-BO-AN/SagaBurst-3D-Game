@@ -406,7 +406,7 @@ export class Game {
 
   private input: PlayerInput
   private player: Player
-  private basePlayerMaxHp = DEFAULT_PLAYER_MAX_HP
+  private basePlayerMaxHp: number = DEFAULT_PLAYER_MAX_HP
   private thirdPersonCamera: ThirdPersonCamera
   private spectatorController: SpectatorCameraController
   private controlMode: PlayerControlMode = 'player'

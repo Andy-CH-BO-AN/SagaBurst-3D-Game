@@ -31,6 +31,7 @@ function board(rank: CareerRank, page?: string, completed: string[] = [], tierCo
   const town = Object.create(TownScene.prototype) as any
   Object.assign(town, {
     profile, player: { arrowCount: 30 }, deploymentPage: page,
+    skills: { skillState: profile.skills }, careerSkillSaveTimer: null,
     openPanel: () => panel,
     button: (parent: Element, label: string, onclick: () => void) => {
       const button = new Element(); button.textContent = label; button.onclick = onclick; parent.append(button)
@@ -140,6 +141,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     const town = Object.create(TownScene.prototype) as any
     const player = { dead: false, group: new THREE.Group(), faceDirection: vi.fn() }
     Object.assign(town, { profile, player, event: { hostile: false }, store: { loadChecked: () => ({ profile }), save: () => true },
+      skills: { skillState: { ...profile.skills, ranged: { level: 2, xp: 37 } } }, careerSkillSaveTimer: null,
       mission: { startActiveMission: () => true }, careerMounts: { activate: vi.fn() }, inventory: { prepareForCombat: vi.fn() },
       closePanel: vi.fn(), playMissionVoice: vi.fn(), dispose: vi.fn(), onRestart: vi.fn(),
     })
@@ -149,6 +151,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     expect(town.profile.faction).toBe('roman')
     expect(town.dispose).toHaveBeenCalledOnce()
     expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
+    expect(town.onRestart.mock.calls[0][0].skills.ranged).toEqual({ level: 2, xp: 37 })
     expect(start).not.toHaveBeenCalled()
     expect(town.careerMounts.activate).not.toHaveBeenCalled()
   })

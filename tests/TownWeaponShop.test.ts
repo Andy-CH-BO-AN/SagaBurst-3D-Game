@@ -138,6 +138,7 @@ function merchantHarness(failSave = false) {
   const store = new CareerProfileStore(storage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(Object.create(TownScene.prototype), {
+    skills: { skillState: current.skills }, careerSkillSaveTimer: null,
     profile: current, store, player: { dead: false }, event: { hostile: false }, serviceAvailable: () => true,
     openPanel: function (_title: string, message: string) { this.message = message; this.panel = new PanelElement('panel'); return this.panel },
   }) as any

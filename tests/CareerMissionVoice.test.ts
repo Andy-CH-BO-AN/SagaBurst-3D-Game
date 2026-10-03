@@ -150,6 +150,8 @@ describe('Career mission voice events', () => {
     // Instantiate the same shared audio dependency used by the real scene.
     town.playMissionVoice('missionAccepted')
     town.store.save = vi.fn(() => true)
+    town.skills = { skillState: town.profile.skills }
+    town.careerSkillSaveTimer = null
     const commit = (TownScene.prototype as any).commit.bind(town)
     const next = { ...town.profile, activeMission: createActiveCareerMission('recruit-bandits-01', 0, 3, 0) }
     town.store.save.mockReturnValueOnce(false)

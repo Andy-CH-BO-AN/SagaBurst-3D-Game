@@ -183,7 +183,7 @@ function townFixture() {
     equipment: { close: vi.fn(), open: vi.fn(), visible: false }, target: 'merchant', hasPreviousTip: true,
     commit: vi.fn((next: typeof profile) => { town.profile = next; return true }),
     orbit: { cameraYaw: 0, getAimPoint: () => new THREE.Vector3(), update: vi.fn() },
-    hp: { setFill: vi.fn() }, stamina: { setFill: vi.fn() }, quiver: { setArrowCount: vi.fn() }, inventory: { meleeEnabled: true, rangedEnabled: false },
+    hp: { setFill: vi.fn() }, stamina: { setFill: vi.fn() }, quiver: { setArrowCount: vi.fn() }, skills: { getRangedMultiplier: vi.fn(() => 1) }, inventory: { meleeEnabled: true, rangedEnabled: false },
     panel: null, result: null, disposed: false, last: 0, elapsed: 0,
     defense: { active: false, fieldNpcs: [] }, mission: { evaluate: vi.fn(() => null), persistRuntimeProgress: vi.fn(), returnComplete: false, updateFlow: vi.fn() },
     stableHorses: [], mounts: [], cat: { dead: true }, serviceMarkers: new Map(), hud: { textContent: '', style: {} }, hint: { textContent: '', style: {} },

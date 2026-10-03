@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { TownMissionSettlement } from '../src/town/TownMissionSettlement'
-import { createCareerProfile } from '../src/career/CareerProfile'
+import { createCareerProfile, type CareerProfile } from '../src/career/CareerProfile'
 
-function fixture(result = true) {
+function fixture(result = true, liveSkills?: CareerProfile['skills']) {
   let profile = createCareerProfile('roman')
   profile.rank = 'veteran'
   const stats = { damageDealt: 40, damageTaken: 100, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
@@ -29,11 +29,23 @@ function fixture(result = true) {
     navigation: { sync: vi.fn() }, inventory: { sheathAll: vi.fn() },
     clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(),
   }
-  const settlement = new TownMissionSettlement({ read: () => profile, commit: next => { profile = next; return true } }, { field, duel, defense } as any, town as any)
+  const settlement = new TownMissionSettlement({ read: () => profile, commit: next => { profile = liveSkills ? { ...next, skills: liveSkills } : next; return true } }, { field, duel, defense } as any, town as any)
   return { settlement, field, town, npc, bystander, homeMount, profile: () => profile }
 }
 
 describe('Veteran field return through existing Career settlement', () => {
+  it('restarts from the committed live skills when returning from enemy territory', () => {
+    const skills = { ...createCareerProfile('roman').skills!, ranged: { level: 3, xp: 61 } }
+    const f = fixture(true, skills)
+    f.profile().activeMission!.templateId = 'veteran-tragedy-of-the-scouts'
+
+    expect(f.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
+
+    expect(f.town.restart).toHaveBeenCalledExactlyOnceWith(f.profile())
+    expect(f.town.restart.mock.calls[0][0].skills.ranged).toEqual({ level: 3, xp: 61 })
+    expect(f.profile().activeMission).toBeUndefined()
+  })
+
   it('restores borrowed residents and home mounts in place after a result, without touching bystanders', () => {
     const f = fixture()
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })

@@ -671,7 +671,7 @@ export class TownScene {
     }
     if (isCareerEnemyTerritoryFieldMission(next.activeMission)) {
       this.dispose()
-      this.onRestart(next)
+      this.onRestart(this.profile)
       return
     }
     if (!this.mission.startActiveMission()) { this.openPanel('任務部署失敗', '任務已保存，重新載入後可恢復同一支部隊。'); return }

@@ -28,6 +28,7 @@ function harness() {
     mission: { events: { emit: vi.fn() }, cleanupMission: vi.fn() }, defense: { active: false },
     openPanel: vi.fn(() => ({})), closePanel: vi.fn(), button: vi.fn(), clearMissionCombatShots: vi.fn(),
     disposed: false, residents: [],
+    skills: { getMountedImpactMultiplier: () => 1 }, awardCareerSkillXp: vi.fn(),
   }) as any
   town.store = { load: () => town.profile }
   town.commit = vi.fn(next => { town.profile = next; return true })
