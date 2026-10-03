@@ -45,6 +45,19 @@ export async function warmTownRenderResources(
     for (let level = 0; level < passes; level++) {
       for (const { lod } of lods) selectLevel(lod, level)
       scene.updateMatrixWorld(true)
+      const drawables: Array<THREE.Mesh | THREE.Line | THREE.Points> = []
+      scene.traverseVisible(object => {
+        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) drawables.push(object)
+      })
+      let skinnedBounds = 0
+      for (const object of drawables) {
+        if (object instanceof THREE.SkinnedMesh || object instanceof THREE.InstancedMesh) {
+          if (object.boundingSphere !== null) continue
+          // Three's first cull/sort otherwise skins every vertex on the gameplay frame.
+          object.computeBoundingSphere()
+          if (object instanceof THREE.SkinnedMesh && ++skinnedBounds % 8 === 0) await yieldFrame()
+        } else if (object.geometry.boundingSphere === null) object.geometry.computeBoundingSphere()
+      }
       // Compile the screen variant as well as the offscreen output variant.
       renderer.setRenderTarget(previousTarget)
       await renderer.compileAsync(scene, camera)
@@ -57,11 +70,9 @@ export async function warmTownRenderResources(
     }
   } finally {
     try {
-      for (const { lod, autoUpdate, level } of lods) {
-        selectLevel(lod, level)
-        lod.autoUpdate = autoUpdate
-      }
+      for (const { lod, level } of lods) selectLevel(lod, level)
     } finally {
+      for (const { lod, autoUpdate } of lods) lod.autoUpdate = autoUpdate
       for (const { object, visible, frustumCulled } of objects) {
         object.visible = visible
         object.frustumCulled = frustumCulled

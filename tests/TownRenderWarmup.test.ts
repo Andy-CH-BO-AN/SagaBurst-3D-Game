@@ -91,7 +91,7 @@ function expectRestored(f: ReturnType<typeof fixture>) {
 }
 
 describe('Career town render warmup', () => {
-  it('uploads all actual LODs outside the entry frustum, including close equipment, while retaining hidden parts', async () => {
+  it('submits all actual LODs outside the entry frustum, including close equipment, while retaining hidden parts', async () => {
     const f = fixture()
     const cameraBefore = f.camera.matrixWorld.clone()
     const disposeGeometry = vi.spyOn(f.geometry, 'dispose')
@@ -113,6 +113,35 @@ describe('Career town render warmup', () => {
       expect(disposeTarget).toHaveBeenCalledTimes(1)
       expectRestored(f)
     } finally { disposeTarget.mockRestore() }
+  })
+
+  it('precomputes each instance skin bounds for all LODs before the first gameplay cull', async () => {
+    const f = fixture()
+    const geometry = new THREE.BoxGeometry()
+    const vertices = geometry.attributes.position.count
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(vertices * 4), 4))
+    const weights = new Float32Array(vertices * 4)
+    for (let index = 0; index < vertices; index++) weights[index * 4] = 1
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights, 4))
+    const lod = new THREE.LOD()
+    lod.position.set(70, 0, -6)
+    const meshes = [0, 28, 60].map(distance => {
+      const mesh = new THREE.SkinnedMesh(geometry, f.material)
+      const bone = new THREE.Bone()
+      mesh.add(bone)
+      mesh.bind(new THREE.Skeleton([bone]))
+      lod.addLevel(mesh, distance)
+      return mesh
+    })
+    f.scene.add(lod)
+    const compute = meshes.map(mesh => vi.spyOn(mesh, 'computeBoundingSphere'))
+    await f.warm()
+    for (const [index, mesh] of meshes.entries()) {
+      expect(compute[index]).toHaveBeenCalledTimes(1)
+      expect(mesh.boundingSphere!.radius).toBeGreaterThan(0)
+      expect(Number.isFinite(mesh.boundingSphere!.radius)).toBe(true)
+    }
+    expectRestored(f)
   })
 
   it('warms every new town renderer instead of sharing a global warmed flag', async () => {
