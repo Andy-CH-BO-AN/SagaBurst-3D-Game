@@ -44,6 +44,22 @@ beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); audio.playTownAlarm.m
 afterEach(() => vi.useRealTimers())
 
 describe('Career mission voice events', () => {
+  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt', 'veteran-tragedy-of-the-scouts'])('leaves persisted mounted leader cues to the mission controller for %s', templateId => {
+    const town = townHarness()
+    town.playMissionVoice('missionAccepted')
+    town.profile.activeMission = {
+      id: 'veteran-command', templateId, kind: 'veteran-field', phase: 'ENGAGING', targetCampId: 0,
+      targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 0,
+      chargedSquadIds: [1, 2], followVoicePlayed: true,
+    }
+    town.careerCommandCue = null
+
+    town.updateCareerCommandCue()
+    town.updateCareerCommandCue()
+
+    expect(audio.playCommanderCommand).not.toHaveBeenCalled()
+  })
+
   it.each(['roman', 'viking'] as const)('plays %s accept once after save and start success for both ordinary mission kinds', faction => {
     for (const id of ['recruit-bandits-01', 'recruit-patrol-01']) {
       audio.playCareerMissionVoice.mockClear()
