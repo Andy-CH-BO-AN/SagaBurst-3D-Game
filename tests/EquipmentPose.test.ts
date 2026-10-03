@@ -365,8 +365,8 @@ describe('Corgi mounted weapon clearance', () => {
     const visual = model.getObjectByName('dane-axe-visual')!
     const sourceMeshes: THREE.SkinnedMesh[] = []
     mount.root.traverse(o => { if (o instanceof THREE.SkinnedMesh && !/lod[12]/.test(o.name)) sourceMeshes.push(o) })
-    for (const clip of ['idle', 'gallop', 'jump'] as const) {
-      mount.playStudioClip(clip); mount.update(clip === 'jump' ? .3 : clip === 'gallop' ? .12 : 0)
+    for (const clip of ['idle', 'run', 'jump'] as const) {
+      mount.playStudioClip(clip); mount.update(clip === 'jump' ? .3 : clip === 'run' ? .12 : 0)
       f.root.position.copy(mount.riderPelvisSeat.getWorldPosition(new THREE.Vector3()))
       f.root.position.y -= pelvisHeight
       animator.cancel(); animator.update(.2)

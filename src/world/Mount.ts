@@ -5,7 +5,6 @@ import {
   HorseAssetRegistry,
   horseVariantFromSave,
   type HorseAppearanceVariant,
-  type HorseAnimationState,
   type HorseDebugState,
   type HorseInstance,
 } from './HorseAssetRegistry'
@@ -13,6 +12,7 @@ import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { BlackCatVisual } from './BlackCatVisual'
 import { CorgiVisual } from './CorgiVisual'
+import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
@@ -96,6 +96,7 @@ export class Mount {
   private wanderTarget = new THREE.Vector3()
   private cameraDistance = 0
   private hasGroundedOnce = false
+  private pendingJumpLanding = false
 
   constructor(
     scene: THREE.Scene,
@@ -217,12 +218,15 @@ export class Mount {
     this.velY = velocity
     this.onGround = false
     this.horseVisual?.playOnce('jump')
-    this.proceduralVisual?.playOnce('jump')
+    if (this.proceduralVisual) {
+      this.pendingJumpLanding = true
+      this.proceduralVisual.playOnce('jump')
+    }
   }
 
-  playStudioClip(state: HorseAnimationState): void {
-    this.horseVisual?.playStudioClip(state)
-    this.proceduralVisual?.playStudioClip(state)
+  playStudioClip(state: MountAnimationState): void {
+    this.horseVisual?.playStudioClip(state === 'run' ? 'gallop' : state)
+    if (isQuadrupedAnimationState(state)) this.proceduralVisual?.playStudioClip(state)
   }
 
   toggleStudioPause(): boolean {
@@ -306,6 +310,7 @@ export class Mount {
     this.ridePitch = 0
     this.visualHold = false
     this.hasGroundedOnce = true
+    this.pendingJumpLanding = false
     this.impactTimes.clear()
     this.wanderTimer = 0
     this._pickWanderTarget()
@@ -380,8 +385,11 @@ export class Mount {
     clampToPlayableWorld(this.group.position)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.proceduralVisual) {
-      if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.proceduralVisual.playOnce('land')
-      this.hasGroundedOnce ||= this.onGround
+      // Terrain following can briefly leave the ground on slopes without a jump.
+      if (this.pendingJumpLanding && this.onGround) {
+        this.pendingJumpLanding = false
+        this.proceduralVisual.playOnce('land')
+      }
       this.proceduralVisual.setLocomotion(this.movementSpeed)
       this.proceduralVisual.update(dt)
     }

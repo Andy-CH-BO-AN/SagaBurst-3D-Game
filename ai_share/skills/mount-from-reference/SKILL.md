@@ -1,11 +1,11 @@
 ---
 name: mount-from-reference
-description: 依參考圖或使用者指定的 GLB/FBX，在此 Three.js 遊戲建立或修正動物坐騎。用於來源模型替換、比例、毛皮、鞍具、騎士臀部貼合與腿部／持械穿模；產物是可運作的 3D 坐騎。
+description: 依參考圖或使用者指定的 GLB/FBX，在此 Three.js 遊戲建立或修正動物坐騎。用於來源模型替換、比例、毛皮、鞍具、騎姿貼合，以及坐騎動畫重定向、蒙皮形變與播放異常。
 ---
 
 # 依參考製作動物坐騎
 
-目標是同時符合正面寬度、側面長度與物種結構，並在騎乘和動作中維持合理外觀。先處理輪廓，再處理毛皮和裝備；不要用毛束、盔甲或相機角度掩蓋錯誤的體型。
+目標是同時符合正面寬度、側面長度與物種結構，並在騎乘和動作中維持合理外觀。製作外觀時先處理輪廓，再處理毛皮和裝備；動畫修復則保留已接受的外觀。不要用毛束、盔甲或相機角度掩蓋錯誤的體型。
 
 ## 開始與範圍
 
@@ -16,6 +16,8 @@ description: 依參考圖或使用者指定的 GLB/FBX，在此 Three.js 遊戲�
 - 這是 repo 的模型製作流程。概念圖或 image generation 不能取代可渲染、有接點與動作的模型。外部 GLB/FBX 路線須另遵守現有資產／rig 規範；不要為了套用範例而擅自改成外部素材。
 
 使用者要求直接採用提供的 GLB/FBX 時，先讀 [references/source-model-replacement.md](references/source-model-replacement.md)，沿用來源外觀並完成蒙皮與接入；下方圖片 landmark／程序粗模流程只用於仍需製作的部分，不重建一隻近似模型取代指定素材。
+
+只處理既有坐騎的 donor retarget／bake、腿根凹陷、腳掌扭曲、背部／尾根斷裂或移動時停播時，讀 [references/animation-deformation.md](references/animation-deformation.md)，直接進入該診斷流程；不重走下方外觀建模步驟。
 
 ## 先決定這輪要驗證什麼
 

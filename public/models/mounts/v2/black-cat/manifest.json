@@ -17,11 +17,11 @@
     "Uniform 3.5x scale and baked +Z heading",
     "Fitted 25-joint feline skin",
     "Forward-facing neck and head pose",
-    "Nine in-place animations",
     "Source-derived body LODs",
     "Fitted saddle and leather armour",
     "2048px source PBR maps",
-    "Meshopt compression"
+    "Meshopt compression",
+    "Donor-retargeted and target-baked idle/walk/run, authored death, retained jump/land/hit"
   ],
   "metrics": {
     "triangles": {
@@ -30,7 +30,7 @@
       "cat_body_lod2": 6000
     },
     "textureMaxSize": 2048,
-    "packageBytes": 6364540,
+    "packageBytes": 9409176,
     "saddleHeightM": 1.65
   },
   "lodNodes": [
@@ -41,17 +41,16 @@
   "clips": [
     "idle",
     "walk",
-    "trot",
-    "canter",
-    "gallop",
+    "run",
+    "death",
     "jump",
     "land",
-    "hit",
-    "death"
+    "hit"
   ],
   "sockets": [
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d"
+  "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
+  "animationSource": "animation-source.json"
 }

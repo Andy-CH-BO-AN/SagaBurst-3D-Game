@@ -1,0 +1,38 @@
+{
+  "verifiedDate": "2026-10-03",
+  "donors": {
+    "doginx": {
+      "file": "Doginx fbx + unity.zip",
+      "sha256": "87a0e0beaa0b3ccae02ba8d4f5ab7e8ed6daece218548beff1e33996aefc0205",
+      "title": "Doginx - Assets",
+      "author": "Tomate Salat",
+      "url": "https://tomate-salat.itch.io/doginx-assets",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "used": "idle and walk poses/foot trajectories",
+      "sourceMember": "Models/Meshes/characters.fbx"
+    },
+    "cat_run": {
+      "file": "cat_rigged.fbx",
+      "sha256": "e1386997828c40e21b1923b7763b118127a46adacd248457789d520492c69792",
+      "title": "Lowpoly Cat + Run Animation",
+      "author": "Daily Lowpoly",
+      "url": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "license": "Creator permits use in commercial projects",
+      "licenseUrl": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "used": "cat run poses/foot trajectories"
+    },
+    "corgi_run": {
+      "file": "dog-corgi-animated.zip",
+      "sha256": "ae44ef517f4610a174934a786f3e58e37c4fc7a1e287f1eeb46cf9db574d14ae",
+      "title": "Dog corgi animated",
+      "author": "zinaida",
+      "url": "https://sketchfab.com/3d-models/dog-corgi-animated-5cc0075d0aa645c398c51316236ff156",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "licenseEvidenceUrl": "https://api.sketchfab.com/v3/models/5cc0075d0aa645c398c51316236ff156",
+      "used": "corgi Run poses/foot trajectories",
+      "sourceMember": "source/Корги_bake.blend"
+    }
+  }
+}

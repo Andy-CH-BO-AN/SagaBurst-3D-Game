@@ -5,7 +5,7 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 
 # 戰鬥瀏覽器驗證
 
-直接使用已安裝的 `playwright` skill 與 Playwright CLI，不依賴 GPT Chrome 擴充套件。共用正在執行的 Vite；預設使用本機有畫面的 Chrome、獨立 QA session 與 `nolock`。若使用者指定既有瀏覽器分頁，使用可連接該分頁的工具；CLI 的獨立 session 不等同使用者分頁。
+直接使用已安裝的 `playwright` skill 與 Playwright CLI，不依賴 GPT Chrome 擴充套件。重用對應工作目錄的 Vite；預設使用本機有畫面的 Chrome、獨立 QA session 與 `nolock`。若使用者指定既有瀏覽器分頁，使用可連接該分頁的工具；CLI 的獨立 session 不等同使用者分頁。
 
 ## 選擇場景
 
@@ -35,7 +35,7 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 ```
 
 - DOM 控制使用最新 snapshot 的 refs；Three.js 畫面以 screenshot 配合鍵鼠操作判讀。導航／UI 更新後重新 snapshot。
-- 建構子、資產或 spawn 改動後重新載入頁面以重建場景；HMR 保留的舊實例不能作驗收依據。必要時排除資產 cache。
+- 建構子、資產或 spawn 改動後重新載入頁面以重建場景；HMR 保留的舊實例不能作驗收依據。必要時排除資產 cache。多個 worktree 共用 `node_modules` 時，給各 Vite 獨立 `cacheDir` 與 port，記錄 origin 對應的工作目錄，避免 dependency cache 互相干擾。
 - 截圖與 console 證據保存於 ignored `output/playwright/`；CLI 預設日誌目錄亦已忽略。完成後僅關閉本次 QA session。
 
 ## 驗收範圍
@@ -44,10 +44,19 @@ rtk proxy "${CODEX_HOME:-$HOME/.codex}/skills/playwright/scripts/playwright_cli.
 
 - **近戰**：握點不滑動，攻擊向角色正前方／目標區，收招恢復。Lance idle 保留 Sword Idle 身體加固定 attachment；攻擊才加右臂 FK。盾以實際裝備為準，持盾不能拉弓。
 - **弓**：弓身、弦、nock、拉弦手與箭尾對齊，發射起點／方向符合準星。檢查 Player 與真正持弓 NPC；Roman ranged 的 pilum 不能代替弓測試。側身姿勢另外看站立→移動→停止及騎乘，不能僅以箭飛向正前方判定通過。
-- **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的 Horse GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
+- **騎乘**：骨盆座面、膝踝與裝備不穿模；測本次影響的坐騎、LOD、動作與上下馬恢復。新匯出的坐騎 GLB 先依 [mount-from-reference](../mount-from-reference/SKILL.md)／資產流程做 Blender round-trip 檢查，再進瀏覽器。
 - **接地**：側面比較 Player/NPC 鞋底與相同地形，不能只看 physics root 高度。
 
 程式檢查沿用專案 AGENTS，不在瀏覽器流程重複強制整套測試。使用者要求不開瀏覽器時遵守，並明確標記視覺未驗證。
+
+## 動畫資產與播放缺陷
+
+匯出／替換資產或修停播問題時，依受影響範圍補以下證據；一般 UI 或純文件工作不套用整組流程。
+
+- 記錄實際 URL、資產 SHA、clip／時刻與視角。單檔 viewer 或 routed 候選可定位缺陷，最終遊戲整合要用正式 public URL 重建 Player／NPC 實例，確認 HTTP 檔與待交付檔相同；候選 fixture 結果不可寫成正式載入成功。
+- 「移動但腳停住」記錄一段連續時間內的移速、active clip、action time、effective weight/timeScale、腿骨姿勢，以及 land／hit 等觸發次數。只看 mixer.time 前進不代表腿有動；只看截圖不同也不能排除反覆重啟。
+- 腳本直接呼叫跳躍等有接地前提的操作時，讓前提檢查與呼叫在同一次 page task 執行；鍵鼠觸發則記錄輸入與動作是否實際被接受。若 trace 沒有 jump，先區分觸發失敗與落地恢復失敗，不繞過 runtime guard 製造通過。
+- 動作修復依實際支援驗證 Player／NPC 的移動、一次性動作恢復與死亡保持；資產／實例改動另查 LOD、獨立 skeleton/mixer 和騎士接點。藝術形變的完整週期與多視角判讀見 [坐騎動畫診斷](../mount-from-reference/references/animation-deformation.md)。
 
 ## 軌跡與錯誤判讀
 

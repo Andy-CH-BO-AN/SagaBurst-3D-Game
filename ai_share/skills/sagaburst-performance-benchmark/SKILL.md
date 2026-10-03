@@ -5,14 +5,15 @@ description: 用固定瀏覽器、warm-up、取樣窗口與 JSON 輸出，量測
 
 # SagaBurst 效能量測
 
-使用本 skill 的既有 Playwright runner 量測；一般畫面操作另用 [combat-browser-validation](../combat-browser-validation/SKILL.md) 的 Playwright CLI。不要以單張 HUD 或手動取樣代替效能 runner，也不為量測默默改遊戲規則、動畫品質或 AI。
+一般戰鬥場景使用本 skill 的既有 Playwright runner 量測；指定物種樣本見下方專節。一般畫面操作另用 [combat-browser-validation](../combat-browser-validation/SKILL.md) 的 Playwright CLI。不要以單張 HUD 或手動取樣代替效能 runner，也不為量測默默改遊戲規則、動畫品質或 AI。
 
 ## 執行環境
 
 - 使用本機有畫面的 Google Chrome、display 與 GPU/WebGL；不以 headless、軟體渲染或 in-app browser 數據宣稱正式效能。
 - macOS 預設 Chrome 路徑為 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`；其他位置以 `SAGABURST_CHROME_PATH` 指定。不靜默改用 bundled Chromium。
 - 從 repo root 執行，先確認既有 Vite 位址；需要時傳 `--host=HOST:PORT`。runner 預設 `127.0.0.1:5173`，使用 DEV profiler／census hooks，不能把其結果稱為未插樁 production build 量測。
-- 每次執行一個 browser process／page，run 間重新導向；baseline/candidate 使用相同硬體、瀏覽器、場景、相機、畫面尺寸與取樣設定，記錄 commit 及插樁差異。JSON、截圖與臨時 builds 放 ignored `output/`。
+- 每次執行一個 browser process／page，run 間重新導向；baseline/candidate 使用相同硬體、瀏覽器、場景、相機、畫面尺寸與取樣設定，記錄 commit 及插樁差異。配對量測依序跑，不同時跑 Blender bake、測試／build 或其他 browser QA。JSON、截圖與臨時 builds 放 ignored `output/`。
+- 多個 worktree server 共用 `node_modules` 時使用獨立 Vite `cacheDir` 與 port；確認 origin／source commit／資產一致，不能把原 checkout 的 public 目錄誤用成 candidate。
 
 ## 選場景與窗口
 
@@ -44,6 +45,14 @@ rtk proxy node ai_share/skills/sagaburst-performance-benchmark/scripts/compare-b
 ```
 
 compare script 計算 median、delta 與百分比，但不驗證兩份輸入的硬體、phase 或場景配置是否可比較；執行前先核對。比較必須同為 baseline/candidate 的配對窗口，不能把舊 PR 報表當當前 baseline。
+
+## 指定物種的動態坐騎樣本
+
+黑貓／柯基等少量混合物種動畫驗收，若既有 scenario 無法覆蓋，可在 ignored `output/` 建任務 fixture，依目前正式 API 配置坐騎與路線；保留真正的 Game／NPC／Mount update、LOD、shadow 及騎士連結，不用只有裸模 mixer 的 viewer 推論遊戲成本。物種、數量、tier 與持續移動門檻依任務決定，這種樣本不代替大型戰鬥 benchmark。
+
+- 保存 baseline／candidate 的 commit、資產 hash、場景種子、相機、品質設定及插樁方法。確認人口／死亡／物種分布、實際移動數、騎士連結與有限數值在取樣期間符合條件；違反條件的 run 標成失敗並保留原始紀錄，不能只刪掉違例 samples 再宣稱通過。
+- 明確 reset warm-up 後的計數器；低頻 profiler snapshot 以 generation 或更新時間去重，輪詢次數不是獨立樣本數。記錄實際取樣窗口和 raw samples。
+- 用同一 fixture 依序量測配對版本，依多次 run 的結果比較；維持相機固定並記錄自然 LOD 分布。報告每幀 CPU 的絕對增量及 FPS，避免把很小耗時的百分比變化稱為重大退步或收益。
 
 ## Renderer 成本歸因
 
