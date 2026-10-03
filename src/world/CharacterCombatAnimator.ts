@@ -84,8 +84,11 @@ export class CharacterCombatAnimator {
   }
 
   get currentAction(): CombatAction { return this.action }
+  private get isMeleeAction(): boolean {
+    return this.action !== 'idle' && this.action !== 'bowAim' && this.action !== 'bowRelease' && this.action !== 'pilumThrow'
+  }
   get meleeHitActive(): boolean {
-    if (this.action === 'idle' || this.action === 'bowAim' || this.action === 'bowRelease' || this.action === 'pilumThrow') return false
+    if (!this.isMeleeAction) return false
     const p = COMBAT_ANIMATION_PROFILES[this.action]
     return this.elapsed >= p.windup && this.elapsed <= p.windup + p.active
   }
@@ -167,8 +170,9 @@ export class CharacterCombatAnimator {
     const mounted = this.locomotion === 'mounted'
     setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.elapsed + actionDt) : 0)
     this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.elapsed + actionDt, lance: this.lanceEquipped })
-    // Only visual evaluation is distance-throttled; action timers run every frame.
-    this.rig.animation?.update(dt, cameraDistance)
+    // Melee sockets drive physical collision, so their pose must follow the
+    // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
+    this.rig.animation?.update(dt, this.isMeleeAction ? 0 : cameraDistance)
 
     if (this.action === 'idle' || this.action === 'bowAim') {
       return this.events
