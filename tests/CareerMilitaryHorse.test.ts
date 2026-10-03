@@ -14,7 +14,7 @@ import {
   careerMountTier,
   ownedCareerMountIds,
 } from '../src/career/CareerMountController'
-import { productStatus, purchaseTownHorse, TOWN_PRODUCTS } from '../src/town/TownRules'
+import { productStatus, purchaseTownHorse, sellTownProduct, TOWN_PRODUCTS } from '../src/town/TownRules'
 import type { Player } from '../src/player/Player'
 
 function profileFor(rank: CareerRank = 'recruit'): CareerProfile {
@@ -52,6 +52,23 @@ const ranks = [
 ] as const
 
 describe('Single military warhorse purchase', () => {
+  it('removes a sold active horse and its outing state without another save', () => {
+    const profile = purchaseTownHorse(profileFor(), 'horse')!
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 0, 0, 'sale-mission')
+    profile.activeMission.mountState = { activeMountId: 'horse', hp: { horse: 20 }, unavailable: ['horse'] }
+    const { controller, commit } = mountController(profile)
+    const mount = { currentHp: 20, dispose: vi.fn() }
+    const player = { currentMount: mount, dismountFromMount: vi.fn() }
+    Object.assign(controller, { active: { id: 'horse', mount }, player: () => player })
+    Object.assign(profile, sellTownProduct(profile, 'horse').profile)
+    controller.syncOwnership()
+    expect(player.dismountFromMount).toHaveBeenCalledOnce()
+    expect(mount.dispose).toHaveBeenCalledOnce()
+    expect(controller.activeMount).toBeNull()
+    expect(profile.activeMission?.mountState).toEqual({ hp: {}, unavailable: [] })
+    expect(commit).not.toHaveBeenCalled()
+    expect(purchaseTownHorse(profile, 'horse')).not.toBeNull()
+  })
   it('offers one military warhorse without retired tier products', () => {
     const horses = TOWN_PRODUCTS.filter(item => item.category === 'mount' && item.id !== 'black-cat' && item.id !== 'corgi')
     expect(horses).toEqual([{ id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 }])

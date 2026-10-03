@@ -311,10 +311,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
 
   // Temporary compatibility with the pre-merge #140 field names.
   const totalMerit = nonNegativeInteger(raw.totalMerit ?? raw.merit)
-  const availableMerit = Math.min(
-    totalMerit,
-    nonNegativeInteger(raw.availableMerit ?? totalMerit),
-  )
+  const availableMerit = nonNegativeInteger(raw.availableMerit ?? totalMerit)
 
   const ownedWeapons = uniqueStrings(raw.ownedWeapons ?? raw.unlockedWeapons)
     .filter(id => Boolean(WEAPONS[id]))

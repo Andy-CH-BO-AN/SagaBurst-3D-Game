@@ -19,10 +19,16 @@ export class TownEquipment extends InventoryManager {
     this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })) })
     this.rangedEnabled = false
   }
-  private syncOwnership(): void {
+  syncOwnership(): void {
     const profile = this.read()
+    const owned = new Set([...profile.ownedWeapons, ...profile.ownedArmors])
+    for (const { id } of this.saveState.items) {
+      if (owned.has(id)) continue
+      this.removeOwnedItem(id)
+      this.drawn.delete(id)
+    }
     const existing = new Set(this.saveState.items.map(item => item.id))
-    for (const id of new Set([...profile.ownedWeapons, ...profile.ownedArmors])) {
+    for (const id of owned) {
       if (!existing.has(id)) this.addWeapon(id)
     }
   }

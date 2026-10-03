@@ -200,6 +200,18 @@ export class CareerMountController implements EquipmentMountAdapter {
   get activeMount(): Mount | null { return this.active?.mount ?? null }
   get activeMountId(): CareerMountId | null { return this.active?.id ?? null }
 
+  /** Called after an ownership change has been saved; never writes another transaction. */
+  syncOwnership(): void {
+    const owned = new Set(ownedCareerMountIds(this.readProfile()))
+    if (this.active && !owned.has(this.active.id)) {
+      this.removeMountVisual(this.active)
+      this.active = null
+      this.statusText = '坐騎已賣出。'
+    }
+    for (const id of this.hp.keys()) if (!owned.has(id)) this.hp.delete(id)
+    for (const id of this.unavailable) if (!owned.has(id)) this.unavailable.delete(id)
+  }
+
   dispose(): void {
     if (this.active) {
       if (this.hp.get(this.active.id) !== this.active.mount.currentHp) {

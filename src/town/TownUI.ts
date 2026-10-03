@@ -10,6 +10,9 @@ export function installTownStyles(): void {
     .town-mission-tabs { display:flex; gap:10px; margin:12px 0 18px; position:sticky; top:-26px; background:#25231f; padding:10px 0; z-index:1 }
     .town-mission-tabs .town-button { flex:1; margin:0 }
     .town-mission-tabs [aria-pressed="true"] { background:#765c35; border-color:#f0cc86; color:#fff0c9 }
+    .town-shop-tabs { display:flex; gap:10px; margin-top:14px }
+    .town-shop-tabs .town-button { flex:1; margin:0 }
+    .town-shop-tabs .town-button:disabled { opacity:1; background:#765c35; border-color:#f0cc86; color:#fff0c9 }
     .town-panel h2 { margin:5px 0 16px; font:700 27px/1.3 Georgia,serif; color:#ffe5af }
     .town-panel p { margin:12px 0; white-space:pre-line }
     .town-eyebrow { font:11px/1.5 Georgia,serif; letter-spacing:.2em; color:#bb9e71 }

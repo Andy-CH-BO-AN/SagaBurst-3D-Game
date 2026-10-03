@@ -5,7 +5,7 @@ import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../src/rpg/WeaponDatabase'
 import { TownScene } from '../src/town/TownScene'
 import { TownEquipment } from '../src/town/TownEquipment'
-import { grantStarter, purchaseTownEquipment, purchaseTownHorse, TOWN_PRODUCTS } from '../src/town/TownRules'
+import { grantStarter, purchaseTownEquipment, purchaseTownHorse, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../src/town/TownRules'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
 
@@ -130,24 +130,96 @@ class PanelElement {
   onclick?: () => void
   children: PanelElement[] = []
   constructor(readonly tag: string) {}
-  append(...children: PanelElement[]): void { this.children.push(...children) }
-  querySelector(): null { return null }
+  parent?: PanelElement
+  append(...children: PanelElement[]): void { for (const child of children) child.parent = this; this.children.push(...children) }
+  querySelector(selector: string): PanelElement | null { return this.children.find(child => '.' + child.className === selector) ?? null }
+  remove(): void { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this) }
 }
-function merchantHarness(failSave = false) {
+function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
-  const current = profile(); current.townDialogueSeen = ['roman:merchant']
+  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger']
   const store = new CareerProfileStore(storage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
     skills: { skillState: current.skills }, careerSkillSaveTimer: null,
-    profile: current, store, player: { dead: false }, event: { hostile: false }, serviceAvailable: () => true,
+    profile: current, store, player: { dead: false, clearTownAction: vi.fn() }, event: { hostile: false }, serviceAvailable: () => true,
+    careerMounts: { syncOwnership: vi.fn() },
     openPanel: function (_title: string, message: string) { this.message = message; this.panel = new PanelElement('panel'); return this.panel },
   }) as any
-  town.talk('merchant')
+  town.inventory = new TownEquipment(() => town.profile, next => town.commit(next))
+  town.talk(shop)
   const rows = () => town.panel.children.find((child: PanelElement) => child.className === 'town-products').children as PanelElement[]
   const row = (name: string) => rows().find(child => child.children[0]?.textContent.includes(name))!
   return { town, store, row, rows }
 }
+
+describe('Career shop resale', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+  it.each([['recruit', 200], ['soldier', 240], ['veteran', 280], ['captain', 320], ['commander', 360]] as const)('uses current %s rank and credits only available merit', (rank, earnedMerit) => {
+    const current = { ...profile(rank), ownedWeapons: ['gladius_rusty', 'steel_sword'] }
+    const before = structuredClone(current)
+    const result = sellTownProduct(current, 'steel_sword')
+    expect(result).toMatchObject({ sold: true, earnedMerit, profile: { availableMerit: 500 + earnedMerit, totalMerit: 800, rank, ownedWeapons: ['gladius_rusty'] } })
+    expect(current).toEqual(before)
+    expect(sellTownProduct(result.profile, 'steel_sword')).toMatchObject({ sold: false, reason: 'not-owned', earnedMerit: 0 })
+  })
+  it('counts locked weapons but not shields, and preserves starter grant history', () => {
+    const current = { ...profile('recruit'), ownedWeapons: ['gladius_rusty', 'runic_greatsword'], ownedArmors: ['scutum_t1'], equipment: { melee: 'gladius_rusty', shield: 'scutum_t1' } }
+    const sold = sellTownProduct(current, 'gladius_rusty').profile
+    expect(sold.equipment?.melee).toBeUndefined()
+    expect(grantStarter(sold, 'gladius_rusty').ownedWeapons).toEqual(['runic_greatsword'])
+    expect(townSaleStatus(sold, 'runic_greatsword')).toBe('last-weapon')
+    expect(sellTownProduct(sold, 'scutum_t1')).toMatchObject({ sold: true, earnedMerit: 45, profile: { ownedArmors: [] } })
+    expect(sellTownProduct(current, 'missing')).toMatchObject({ sold: false, reason: 'invalid-id' })
+  })
+  it('sells legacy horse ownership and all pets, then allows a new horse purchase', () => {
+    let current = { ...profile(), ownedMounts: ['black-cat', 'corgi'], ownedHorseTiers: [2], selectedMountId: 'horse-t2' } as CareerProfile
+    current = sellTownProduct(current, 'horse').profile
+    expect(current.selectedMountId).toBeUndefined(); expect(current.ownedHorseTiers).toBeUndefined()
+    for (const id of ['black-cat', 'corgi']) current = sellTownProduct(current, id).profile
+    expect(current.ownedMounts).toEqual([])
+    expect(purchaseTownHorse(current, 'horse')).not.toBeNull()
+  })
+  it('keeps resale proceeds above lifetime merit after reload', () => {
+    const store = new CareerProfileStore(storage())
+    const current = { ...profile('recruit'), totalMerit: 0, availableMerit: 0, ownedWeapons: ['gladius_rusty', 'wooden_shortbow'] }
+    expect(store.save(sellTownProduct(current, 'gladius_rusty').profile)).toBe(true)
+    expect(store.load()).toMatchObject({ availableMerit: 50, totalMerit: 0, rank: 'recruit', ownedWeapons: ['wooden_shortbow'] })
+  })
+  it('switches tabs, sells equipped items, disables the last weapon and permits rebuying', () => {
+    const { town, store, row } = merchantHarness(false, { ...profile(), ownedWeapons: ['gladius_rusty', 'steel_sword'] })
+    town.inventory.equipWeapon('steel_sword')
+    town.panel.querySelector('.town-shop-tabs').children[1].onclick()
+    expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '賣出 · 收回 240 軍功', disabled: false })
+    row('Steel Sword').children[2].onclick()
+    expect(store.load()).toMatchObject({ availableMerit: 740, ownedWeapons: ['gladius_rusty'], equipment: {} })
+    expect(town.inventory.meleeEnabled).toBe(false)
+    expect(town.inventory.isEquipped('steel_sword')).toBe(false)
+    expect(row('Gladius Rusty').children[2]).toMatchObject({ textContent: '至少保留一件武器', disabled: true })
+    town.panel.querySelector('.town-shop-tabs').children[0].onclick()
+    row('Steel Sword').children[2].onclick()
+    expect(town.inventory.inventoryStacks.find((s: any) => s.item.id === 'steel_sword')?.quantity).toBe(1)
+  })
+  it('leaves ownership, equipment and funds intact on save failure', () => {
+    const { town, row } = merchantHarness(true, { ...profile(), ownedWeapons: ['gladius_rusty', 'steel_sword'] })
+    const before = structuredClone(town.profile)
+    town.panel.querySelector('.town-shop-tabs').children[1].onclick()
+    row('Steel Sword').children[2].onclick()
+    expect(town.profile).toEqual(before)
+    expect(town.message).toContain('保存失敗')
+    expect(town.careerMounts.syncOwnership).not.toHaveBeenCalled()
+    expect(row('Steel Sword').children[2].disabled).toBe(false)
+  })
+  it('offers mount resale and shows an empty list after selling the last mount', () => {
+    const { town, row, rows, store } = merchantHarness(false, { ...profile(), ownedMounts: ['horse'], selectedMountId: 'horse' }, 'ranger')
+    town.panel.querySelector('.town-shop-tabs').children[1].onclick()
+    row('軍用戰馬').children[2].onclick()
+    expect(store.load()).toMatchObject({ ownedMounts: [], availableMerit: 620 })
+    expect(store.load()?.selectedMountId).toBeUndefined()
+    expect(town.careerMounts.syncOwnership).toHaveBeenCalledOnce()
+    expect(rows()[0].textContent).toBe('沒有可賣出的物品。')
+  })
+})
 describe('Merchant panel purchase integration', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
   it('shows sections and disabled states, saves and refreshes balance/ownership immediately', () => {

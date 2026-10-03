@@ -285,7 +285,7 @@ describe('Career profile persistence', () => {
     })
   })
 
-  it('clamps available merit to lifetime earned merit and rejects bad faction/version', () => {
+  it('preserves spendable merit above lifetime earned merit and rejects bad faction/version', () => {
     const parsed = parseCareerProfile({
       version: 1,
       faction: 'viking',
@@ -298,7 +298,7 @@ describe('Career profile persistence', () => {
       lifetimeStats: {},
       claimedBattleIds: [],
     })
-    expect(parsed?.availableMerit).toBe(1000)
+    expect(parsed?.availableMerit).toBe(9000)
 
     expect(parseCareerProfile({ version: 1, faction: 'gaul' })).toBeNull()
     expect(parseCareerProfile({ version: 2, faction: 'roman' })).toBeNull()
