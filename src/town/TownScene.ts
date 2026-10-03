@@ -13,7 +13,8 @@ import { CorgiVisual } from '../world/CorgiVisual'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
-import { ArrowProjectile } from '../world/ArrowProjectile'
+import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { warmTownRenderResources } from './TownRenderWarmup'
 import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod } from '../combat/CombatAttribution'
@@ -270,7 +271,15 @@ export class TownScene {
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
     this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.spectator) this.orbit.update(this.input)
-    await renderer.compileAsync(this.scene, this.camera)
+    progress('預熱近、中、遠景與訓練投射物…')
+    const projectiles = createProjectileWarmupGroup()
+    this.scene.add(projectiles)
+    try {
+      await warmTownRenderResources(renderer, this.scene, this.camera, yieldFrame)
+    } finally {
+      // Projectile resources are shared with training and combat; do not dispose them.
+      projectiles.removeFromParent()
+    }
     renderer.render(this.scene, this.camera); await yieldFrame()
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
