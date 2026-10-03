@@ -1067,7 +1067,7 @@ describe('CombatBalance SSOT & Pure Functions', () => {
         player,
         controlMode: 'player',
         inventoryManager: { equippedMelee: WEAPONS.heavy_lance },
-        skillManager: { getOneHandedMultiplier: () => 1, addXp: vi.fn() },
+        skillManager: { getMultiplier: () => 1, addXp: vi.fn() },
         npcs: [enemyNpc],
         _tmpGripPos: new THREE.Vector3(),
         _tmpPlayerForward: new THREE.Vector3(),

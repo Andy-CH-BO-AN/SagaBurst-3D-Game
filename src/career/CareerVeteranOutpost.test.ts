@@ -50,6 +50,26 @@ describe('Career Veteran Campaign outposts', () => {
     })
   })
 
+  it('stages Veteran I attackers at least 100m outside the Outpost front while keeping Veteran IV at 65m', () => {
+    const dreadLaunch = launchFor('veteran-dread-outpost')
+    const dreadData = dreadLaunch.careerVeteranOutpost!
+    const dreadPlan = createCareerVeteranOutpostSpawnPlan(dreadLaunch, 'initial')
+    const dreadPlacement = getCampaignOutpostPlacement(dreadData.outpostFaction)
+    const dreadInward = Math.sign(dreadPlacement.backZ - dreadPlacement.frontZ)
+    const dreadAttackers = dreadPlan.npcSpecs.filter(spec => spec.characterFaction !== dreadData.playerFaction)
+
+    expect(Math.min(...dreadAttackers.map(spec => (dreadPlacement.frontZ - spec.z) * dreadInward))).toBeGreaterThanOrEqual(100)
+
+    const assaultLaunch = launchFor('veteran-outpost-assault')
+    const assaultData = assaultLaunch.careerVeteranOutpost!
+    const assaultPlan = createCareerVeteranOutpostSpawnPlan(assaultLaunch, 'initial')
+    const assaultPlacement = getCampaignOutpostPlacement(assaultData.outpostFaction)
+    const assaultInward = Math.sign(assaultPlacement.backZ - assaultPlacement.frontZ)
+    const assaultAttackers = assaultPlan.npcSpecs.filter(spec => spec.characterFaction === assaultData.playerFaction)
+
+    expect(Math.min(...assaultAttackers.map(spec => (assaultPlacement.frontZ - spec.z) * assaultInward))).toBeCloseTo(65)
+  })
+
   it('attacks a real enemy-owned Outpost with the full Career force outside the gate', () => {
     const launch = launchFor('veteran-outpost-assault')
     const config = launch.careerVeteranOutpost!

@@ -1,7 +1,7 @@
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { createDefaultDefensePlayerLoadout, type CareerVeteranOutpostLaunchData, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { createDefaultDefensePlayerLoadout, positionDefenseCampaignAttackers, type CareerVeteranOutpostLaunchData, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING } from '../campaign/CampaignConfig'
 import { allegianceFor, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -186,6 +186,12 @@ export function createCareerVeteranOutpostSpawnPlan(
 
   if (wave === 'initial') {
     positionVeteranOutpostRoster(planned, data.outpostFaction, data.playerFaction)
+    if (data.templateId === 'veteran-dread-outpost') {
+      const enemySpecs = planned
+        .filter(({ spec }) => spec.characterFaction !== data.playerFaction)
+        .map(({ spec }) => spec)
+      positionDefenseCampaignAttackers(enemySpecs, data.outpostFaction)
+    }
   } else {
     const outpost = getCampaignOutpostPlacement(data.outpostFaction)
     const inward = Math.sign(outpost.backZ - outpost.frontZ)

@@ -147,6 +147,7 @@ import {
 } from './campaign/CampaignGate'
 import {
   createDefenseCampaignWaveConfig,
+  positionDefenseCampaignAttackers,
   positionDefenseCampaignDefenders,
   positionDefenseCampaignReinforcements,
   type DefenseCampaignLaunchConfig,
@@ -405,7 +406,7 @@ export class Game {
 
   private input: PlayerInput
   private player: Player
-  private basePlayerMaxHp = DEFAULT_PLAYER_MAX_HP
+  private basePlayerMaxHp: number = DEFAULT_PLAYER_MAX_HP
   private thirdPersonCamera: ThirdPersonCamera
   private spectatorController: SpectatorCameraController
   private controlMode: PlayerControlMode = 'player'
@@ -1962,6 +1963,7 @@ export class Game {
       const config = createDefenseCampaignWaveConfig(campaign, wave)
       plan = BattleSpawner.createSpawnPlan(config)
       if (wave === 'reinforcement') positionDefenseCampaignReinforcements(plan.npcSpecs, campaign.defenderFaction)
+      else if (wave === 'attackers') positionDefenseCampaignAttackers(plan.npcSpecs, campaign.defenderFaction)
     }
 
     this.campaignSpawnQueue = plan.npcSpecs
@@ -2159,20 +2161,16 @@ export class Game {
     const originalDefendersAlive = this.campaignOriginalDefenders.filter(
       npc => !npc.dead,
     ).length
-    let pendingRescue = 0
-    if (veteranOutpost?.templateId === 'veteran-dread-outpost'
-      && this.campaignReinforcementArrived
-      && this.campaignSpawnWave === 'reinforcement') {
+    let pendingReinforcements = 0
+    if (this.campaignSpawnWave === 'reinforcement') {
       const mission = this.careerProfile?.activeMission
       const deadFriendlyActorIds = new Set(mission?.deadFriendlyActorIds ?? [])
       for (let index = this.campaignSpawnQueueIndex; index < this.campaignSpawnQueue.length; index++) {
         const actorId = this.campaignSpawnQueue[index].actorId
-        if (actorId && !deadFriendlyActorIds.has(actorId) && (mission?.actorHealth?.[actorId]?.hp ?? 1) > 0) {
-          pendingRescue++
-        }
+        if (!actorId || (!deadFriendlyActorIds.has(actorId) && (mission?.actorHealth?.[actorId]?.hp ?? 1) > 0)) pendingReinforcements++
       }
     }
-    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction) + pendingRescue
+    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction) + pendingReinforcements
     const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
     const pendingAttackers = this.campaignSpawnWave === 'attackers'
       ? Math.max(0, this.campaignSpawnQueue.length - this.campaignSpawnQueueIndex)
@@ -2188,6 +2186,7 @@ export class Game {
       reinforcementSpawned: veteranOutpost?.templateId === 'veteran-dread-outpost'
         ? this.campaignReinforcementArrived
         : this.campaignReinforcementSpawned,
+      reinforcementActive: this.campaignSpawnWave === 'reinforcement' || this.campaignReinforcementSpawned,
     })
 
     for (const event of events) {

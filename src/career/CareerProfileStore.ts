@@ -88,6 +88,26 @@ function parseMissionMountState(value: unknown): ActiveCareerMission['mountState
   return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
 }
 
+function parseActorPositions(value: unknown, knownActorIds: ReadonlySet<string>): ActiveCareerMission['actorPositions'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const result: NonNullable<ActiveCareerMission['actorPositions']> = {}
+  for (const [actorId, rawPosition] of Object.entries(value)) {
+    if (!knownActorIds.has(actorId) || !rawPosition || typeof rawPosition !== 'object' || Array.isArray(rawPosition)) continue
+    const position = rawPosition as Record<string, unknown>
+    if (typeof position.x !== 'number' || !Number.isFinite(position.x)
+      || typeof position.z !== 'number' || !Number.isFinite(position.z)
+      || typeof position.yaw !== 'number' || !Number.isFinite(position.yaw)) continue
+    result[actorId] = { x: position.x, z: position.z, yaw: position.yaw }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function parseEngagedEnemySquadIds(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const ids = [...new Set(value.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 8))]
+  return ids.length > 0 ? ids : undefined
+}
+
 function parseActorHealth(value: unknown, knownActorIds: ReadonlySet<string>): ActiveCareerMission['actorHealth'] | undefined {
   if (!value || typeof value !== 'object') return undefined
   const result: NonNullable<ActiveCareerMission['actorHealth']> = {}
@@ -155,7 +175,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   if (targetActorIds.length === 0 || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
-  const actorHealth = parseActorHealth(raw.actorHealth, new Set([...targetActorIds, ...allFriendlyActorIds]))
+  const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds])
+  const actorHealth = parseActorHealth(raw.actorHealth, knownActorIds)
+  const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
+  const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
@@ -204,7 +227,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     reinforcementActorIds,
     chargedSquadIds: Array.isArray(raw.chargedSquadIds) ? [...new Set(raw.chargedSquadIds.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 8))] : [],
     borrowedActorIds: uniqueStrings(raw.borrowedActorIds).filter(id => friendlyActorIds.includes(id)),
+    ...(raw.veteranRosterVersion === 1 || raw.veteranRosterVersion === 2 ? { veteranRosterVersion: raw.veteranRosterVersion } : {}),
     ...(actorHealth ? { actorHealth } : {}),
+    ...(actorPositions ? { actorPositions } : {}),
+    ...(engagedEnemySquadIds ? { engagedEnemySquadIds } : {}),
     ...(typeof raw.playerHp === 'number' && Number.isFinite(raw.playerHp) && raw.playerHp >= 0 ? { playerHp: raw.playerHp } : {}),
     ...(typeof raw.playerStamina === 'number' && Number.isFinite(raw.playerStamina) && raw.playerStamina >= 0 ? { playerStamina: raw.playerStamina } : {}),
     ...(outpostBattleState ? { outpostBattleState } : {}),

@@ -27,6 +27,8 @@ export interface DefenseCampaignCombatState {
   attackersAlive: number
   /** True only after the reinforcement wave has actually been spawned into the scene. */
   reinforcementSpawned: boolean
+  /** True once the wave is queued or materialized; arrival is tracked separately. */
+  reinforcementActive?: boolean
 }
 
 export interface DefenseCampaignRuntimeSnapshot {
@@ -97,6 +99,7 @@ export class DefenseCampaignRuntime {
   ): DefenseCampaignRuntimeEvent[] {
     if (this.battleFinished) return []
     const events: DefenseCampaignRuntimeEvent[] = []
+    const reinforcementActive = state.reinforcementActive ?? state.reinforcementSpawned
     if (this.options.eliminationObjective) {
       this.assaultElapsed += Math.max(0, dt)
       // Annihilation wins even if the last friendly dies in the same frame.
@@ -123,7 +126,7 @@ export class DefenseCampaignRuntime {
       this.options.reinforcementsEnabled !== false
       && this.result === null
       && DEFENSE_CAMPAIGN_RULES.lockDefeatWhenPlayerAndOriginalDefendersEliminated
-      && !state.reinforcementSpawned
+      && !reinforcementActive
       && state.playerDead
       && state.originalDefendersAlive <= 0
     ) {
@@ -152,7 +155,7 @@ export class DefenseCampaignRuntime {
       this.battleFinished = true
       if (
         this.result === 'defeat'
-        || (state.reinforcementSpawned && defenderSideAlive <= 0)
+        || (reinforcementActive && defenderSideAlive <= 0)
       ) {
         // Preserve an already locked defeat and the existing simultaneous-wipe
         // rule where the defender side reaching zero remains a defeat.
@@ -176,7 +179,7 @@ export class DefenseCampaignRuntime {
 
     if (
       DEFENSE_CAMPAIGN_RULES.finishDefenderEliminationAfterReinforcement
-      && state.reinforcementSpawned
+      && reinforcementActive
       && defenderSideAlive <= 0
     ) {
       this.battleFinished = true

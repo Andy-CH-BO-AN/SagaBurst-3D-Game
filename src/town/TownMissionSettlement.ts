@@ -11,6 +11,7 @@ import { getTerrainHeight } from '../world/Terrain'
 import { townSitePoint, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
+import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
 
 interface MissionProfiles {
   read(): CareerProfile
@@ -90,12 +91,13 @@ export class TownMissionSettlement {
     const defense = active.kind === 'town-defense'
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
+    const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
     if (veteranField && !active.result) return { status: 'ignored' }
-    const inPlace = defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField
+    const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField)
     if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField) && active.result)) return { status: 'ignored' }
 
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
-    const borrowed = inPlace && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : this.missions.field.friendlies) : null
+    const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : this.missions.field.friendlies) : null
     const next = clearCareerMission(profile, active.id)
     if (!this.profiles.commit(next)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
 
@@ -103,8 +105,15 @@ export class TownMissionSettlement {
       if (active.kind === 'enemy-town-assault') this.missions.defense.cleanupMission()
       else if (active.kind === 'duel') this.missions.duel.cleanupMission()
       else this.missions.field.cleanupMission(active.targetCampId)
+      if (enemyTerritoryScout) {
+        const borrowedActorIds = new Set(active.borrowedActorIds ?? [])
+        this.town.clearCombatShots()
+        for (const resident of this.town.residents) {
+          if (borrowed!.has(resident.npc) && borrowedActorIds.has(resident.npc.combatantId)) this.restoreResident(resident)
+        }
+      }
       this.town.inventory.sheathAll()
-      this.town.restart(next)
+      this.town.restart(this.profiles.read())
       return { status: 'restarted' }
     }
 

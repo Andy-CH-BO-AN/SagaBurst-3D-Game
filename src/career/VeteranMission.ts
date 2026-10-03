@@ -16,6 +16,7 @@ export const VETERAN_MISSION_IDS = [
   'veteran-tragedy-of-the-scouts',
 ] as const
 export type VeteranMissionTemplateId = typeof VETERAN_MISSION_IDS[number]
+export type VeteranRosterVersion = 1 | 2
 export type VeteranMissionKind = 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
 export type VeteranTownRole = 'captain' | 'ranger' | 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry'
 export type VeteranMissionObjective = { kind: 'eliminate-all' } | { kind: 'survive'; seconds: 120 }
@@ -83,7 +84,7 @@ export const VETERAN_MISSION_CATALOG: readonly VeteranMissionDefinition[] = [
   definition(VETERAN_MISSION_IDS[2], 'veteran-field', 'Village Intercept · 村外截擊', '與兩隊騎兵在村外截住敵軍，保護村莊。', 50, 100, 0, [25, 25], true),
   definition(VETERAN_MISSION_IDS[3], 'veteran-outpost-assault', 'Outpost Assault · 強攻前哨', '從敵方 Outpost 外發起攻勢，攻破城門並殲滅守軍。', 100, 100, 0, [25, 25, 25, 25], true),
   definition(VETERAN_MISSION_IDS[4], 'veteran-field', 'Spear Line Hunt · 槍林清剿', '率領兩隊弓騎兵清剿敵方槍兵主力。', 50, 100, 0, [25, 25], true),
-  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '以 20 人斥候隊在敵方騎兵主力下生存 02:00。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
+  definition(VETERAN_MISSION_IDS[5], 'veteran-field', 'Tragedy of the Scouts · 斥候的悲劇', '深入敵境時，敵方城鎮的騎兵出城迎擊。你與 9 名 T4 隊長、10 名 T4 弓騎斥候共 20 人，必須存活 02:00。', 20, 100, 0, [10, 10], true, { kind: 'survive', seconds: 120 }),
 ]
 
 export function getVeteranMissionDefinition(templateId: string): VeteranMissionDefinition | null {
@@ -213,7 +214,7 @@ function makeEnemyGroups(missionId: string, faction: CharacterFaction, groups: r
   return output
 }
 
-function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string): VeteranMissionRoster {
+function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string, rosterVersion: VeteranRosterVersion): VeteranMissionRoster {
   const opposing = oppositeFaction(faction)
   let friendly: VeteranRosterUnit[] = []
   let enemy: VeteranRosterUnit[] = []
@@ -304,14 +305,16 @@ function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: Chara
     }
     case 'veteran-tragedy-of-the-scouts': {
       squadSizes = [10, 10]
-      friendly = makeFriendlyArmy(missionId, faction, squadSizes, [
-        { presetId: capt, heroRole: 'captain', source: 'town', townRole: 'captain' },
-        { presetId: maki, heroRole: 'ranger', source: 'town', townRole: 'ranger' },
-      ], [
-        { role: 'lancer', count: 8, borrowRole: 'lancer_cavalry', borrowCount: 5 },
-        { role: 'sword_cavalry', count: 5, borrowRole: 'melee_cavalry', borrowCount: 5 },
-        { role: 'horse_archer', count: 4, borrowRole: 'ranged_cavalry', borrowCount: 4 },
-      ])
+      friendly = rosterVersion === 1
+        ? makeFriendlyArmy(missionId, faction, squadSizes, [
+          { presetId: capt, heroRole: 'captain', source: 'town', townRole: 'captain' },
+          { presetId: maki, heroRole: 'ranger', source: 'town', townRole: 'ranger' },
+        ], [
+          { role: 'lancer', count: 8, borrowRole: 'lancer_cavalry', borrowCount: 5 },
+          { role: 'sword_cavalry', count: 5, borrowRole: 'melee_cavalry', borrowCount: 5 },
+          { role: 'horse_archer', count: 4, borrowRole: 'ranged_cavalry', borrowCount: 4 },
+        ])
+        : makeVeteranScoutHeroParty(missionId, faction, capt, maki)
       enemy = makeEnemyGroups(missionId, opposing, [
         { leaderRole: 'lancer', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 24 }] },
         { leaderRole: 'sword_cavalry', leaderHeroRole: 'captain', count: 25, blocks: [{ role: 'lancer', tier: 3, count: 22 }, { role: 'sword_cavalry', tier: 3, count: 2 }] },
@@ -333,9 +336,40 @@ function buildVeteranRoster(templateId: VeteranMissionTemplateId, faction: Chara
   }
 }
 
-export function createVeteranRoster(templateId: VeteranMissionTemplateId, faction: CharacterFaction, missionId: string = templateId): VeteranMissionRoster {
+function makeVeteranScoutHeroParty(
+  missionId: string,
+  faction: CharacterFaction,
+  captainPreset: UnitPresetId,
+  rangerPreset: UnitPresetId,
+): VeteranRosterUnit[] {
+  const friendly: VeteranRosterUnit[] = []
+  let actorSequence = 0
+  const add = (presetId: UnitPresetId, squadId: 1 | 2, source: 'town' | 'temporary', heroRole: 'captain' | 'ranger', options: { townRole?: 'captain' | 'ranger'; leader?: boolean } = {}) => {
+    const sequence = actorSequence++
+    const spec = unit(missionId, faction, presetId, 4, squadId, source, sequence, {
+      leader: options.leader,
+      heroRole,
+      townRole: options.townRole,
+      mounted: true,
+    })
+    if (source === 'temporary') spec.actorId = `${missionId}:temporary:friendly:scout-${heroRole}-${sequence}`
+    friendly.push(spec)
+  }
+  add(captainPreset, 1, 'town', 'captain', { townRole: 'captain', leader: true })
+  for (let index = 0; index < 8; index++) add(captainPreset, 1, 'temporary', 'captain')
+  add(rangerPreset, 2, 'town', 'ranger', { townRole: 'ranger', leader: true })
+  for (let index = 0; index < 9; index++) add(rangerPreset, 2, 'temporary', 'ranger')
+  return friendly
+}
+
+export function createVeteranRoster(
+  templateId: VeteranMissionTemplateId,
+  faction: CharacterFaction,
+  missionId: string = templateId,
+  rosterVersion: VeteranRosterVersion = 2,
+): VeteranMissionRoster {
   if (!getVeteranMissionDefinition(templateId)) throw new Error(`Unknown Veteran mission template: ${templateId}`)
-  return buildVeteranRoster(templateId, faction, missionId)
+  return buildVeteranRoster(templateId, faction, missionId, rosterVersion)
 }
 
 export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFaction: CharacterFaction, side: 'friendly' | 'enemy' = 'friendly'): NpcSpawnSpec {
@@ -370,7 +404,8 @@ export function acceptVeteranMission(current: CareerProfile, templateId: string,
   if (!missionDefinition || !getVeteranMissionAvailability(current, templateId).unlocked
     || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const missionId = options.missionId ?? createCareerMissionId(missionDefinition.id)
-  const roster = createVeteranRoster(missionDefinition.id, current.faction, missionId)
+  const veteranRosterVersion = missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined
+  const roster = createVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2)
   const mount = missionDefinition.requiresMount ? resolveCareerReliefMount(current) : undefined
   if (missionDefinition.requiresMount && !mount) return null
   const profile = cloneCareerProfile(current)
@@ -390,6 +425,7 @@ export function acceptVeteranMission(current: CareerProfile, templateId: string,
     acceptedAt: options.acceptedAt ?? Date.now(),
     ...(mount ? { mountState: { activeMountId: mount, hp: {}, unavailable: [] } } : {}),
     borrowedActorIds: roster.friendly.filter(unit => unit.source === 'town').map(unit => unit.actorId),
+    ...(veteranRosterVersion ? { veteranRosterVersion } : {}),
     reinforcementActorIds: roster.reinforcements.map(unit => unit.actorId),
     reinforcementElapsed: 0,
     reinforcementSpawned: false,

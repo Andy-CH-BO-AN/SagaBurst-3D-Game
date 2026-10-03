@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { createCampaignOutpost } from '../campaign/CampaignOutpost'
+import { createCampaignOutpost, getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { applyCampaignBreachOrders } from '../campaign/CampaignGate'
 import { DefenseCampaignRuntime } from '../campaign/DefenseCampaignRuntime'
 import { Faction, AIType } from '../world/NPC'
@@ -116,15 +116,15 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.campaignReinforcementArrived).toBe(false)
   })
 
-  it('counts saved living rescue riders still queued while an arrived wave reloads', () => {
+  it('counts saved living rescue riders still queued while the wave is still marching', () => {
     const profile = veteranProfile('veteran-dread-outpost', 'arrived-rescue')
     const plan = createCareerVeteranOutpostSpawnPlan(createCareerVeteranOutpostLaunch(profile), 'reinforcement')
     const deadActorId = plan.npcSpecs[0].actorId!
     profile.activeMission!.outpostBattleState = {
       phase: 'assault', activePhase: 'assault', assaultElapsedSeconds: 105,
       deploymentRemainingSeconds: 0, reinforcementTriggered: true,
-      reinforcementSpawned: true, reinforcementArrived: true,
-      reinforcementQueueIndex: 50, assaultChargeTriggered: true, battleFinished: false,
+      reinforcementSpawned: false, reinforcementArrived: false,
+      reinforcementQueueIndex: 0, assaultChargeTriggered: false, battleFinished: false,
     }
     profile.activeMission!.deadFriendlyActorIds = [deadActorId]
     profile.activeMission!.actorHealth = { [deadActorId]: { hp: 0, mountHp: 0 } }
@@ -134,8 +134,8 @@ describe('Veteran Campaign Outpost Game integration', () => {
     const enemies = Array.from({ length: 50 }, () => ({ dead: false, characterFaction: 'viking' }))
     game.npcs = [...initialFriendlies, ...enemies]
     game.campaignOriginalDefenders = initialFriendlies
-    game.campaignReinforcementArrived = true
-    game.campaignReinforcementSpawned = true
+    game.campaignReinforcementArrived = false
+    game.campaignReinforcementSpawned = false
     game.player = { dead: true, hp: 0, staminaValue: 0 }
     game.defenseCampaignRuntime = new DefenseCampaignRuntime({
       reinforcementsEnabled: true,
@@ -164,6 +164,99 @@ describe('Veteran Campaign Outpost Game integration', () => {
 
     expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'defeat', battleFinished: true })
     expect(game._showDefenseCampaignResult).toHaveBeenCalledExactlyOnceWith('defeat')
+  })
+
+
+
+  it('activates the rescue wave at 90 seconds and survives an initial-defender wipe while the wave is queued', () => {
+    const profile = veteranProfile('veteran-dread-outpost', 'due-rescue')
+    profile.activeMission!.outpostBattleState = {
+      phase: 'assault', activePhase: 'assault', assaultElapsedSeconds: 89.9,
+      deploymentRemainingSeconds: 0, reinforcementTriggered: false,
+      reinforcementSpawned: false, reinforcementArrived: false,
+      reinforcementQueueIndex: 0, assaultChargeTriggered: false, battleFinished: false,
+    }
+    const launch = createCareerVeteranOutpostLaunch(profile)
+    const game = createGameFixture(launch, profile)
+    const defenders = Array.from({ length: 99 }, (_, index) => ({
+      dead: false, characterFaction: 'roman', combatantId: `initial-${index}`,
+    }))
+    const enemies = Array.from({ length: 50 }, (_, index) => ({
+      dead: false, characterFaction: 'viking', combatantId: `enemy-${index}`,
+    }))
+    game.npcs = [...defenders, ...enemies]
+    game.campaignOriginalDefenders = defenders
+    game.player = { dead: true, hp: 0, staminaValue: 0 }
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      reinforcementsEnabled: true, reinforcementDelaySeconds: 90,
+      initialSnapshot: launch.careerVeteranOutpost!.runtimeState,
+    })
+    game.defenseCampaignHud = { updateGate: vi.fn(), update: vi.fn() }
+    game.previewCampaignGate = { state: 'closed' }
+    game._showDefenseCampaignResult = vi.fn()
+
+    game._updateDefenseCampaign(0.1)
+    expect(game.campaignSpawnWave).toBe('reinforcement')
+    expect(game.campaignSpawnQueue).toHaveLength(50)
+    expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', reinforcementTriggered: true })
+
+    game._updateDefenseCampaign(0.1)
+    expect(game.campaignSpawnQueueIndex).toBe(1)
+    defenders.forEach((npc: any) => { npc.dead = true })
+    game._updateDefenseCampaign(0.1)
+
+    expect(game.campaignSpawnQueueIndex).toBe(2)
+    expect(game.npcs.filter((npc: any) => npc.characterFaction === 'roman' && !npc.dead)).toHaveLength(2)
+    expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false })
+    expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+  })
+
+  it('keeps a standard Campaign or Soldier defense alive for living reinforcements still queued', () => {
+    const launch = {
+      ...createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost', 'generic-wave')),
+      careerMissionId: undefined, careerMissionKind: undefined, careerVeteranOutpost: undefined,
+      defenderFaction: 'roman' as const, stageId: 1 as const, deploymentSeconds: 0,
+      capabilities: { reinforcementsEnabled: true },
+    }
+    const game = createGameFixture(launch as any)
+    game.player = { dead: true, hp: 0, staminaValue: 0 }
+    const original = Array.from({ length: 80 }, () => ({ dead: true, characterFaction: 'roman' }))
+    game.campaignOriginalDefenders = original
+    game.npcs = [...original, { dead: false, characterFaction: 'viking' }]
+    game.campaignSpawnQueue = [
+      { x: 0, z: 0, faction: Faction.PLAYER, characterFaction: 'roman', aiType: AIType.MELEE, name: 'queued-a', tier: 3, cavalry: false, loadout: {}, presetId: 'roman_heavy_infantry', squadId: 1 },
+      { x: 1, z: 0, faction: Faction.PLAYER, characterFaction: 'roman', aiType: AIType.MELEE, name: 'queued-b', tier: 3, cavalry: false, loadout: {}, presetId: 'roman_heavy_infantry', squadId: 1 },
+    ]
+    game.campaignSpawnWave = 'reinforcement'
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      reinforcementsEnabled: true,
+      initialSnapshot: { phase: 'assault', activePhase: 'assault', assaultElapsedSeconds: 121, reinforcementTriggered: true },
+    })
+    game.defenseCampaignHud = { updateGate: vi.fn(), update: vi.fn() }
+    game.previewCampaignGate = { state: 'closed' }
+    game._showDefenseCampaignResult = vi.fn()
+
+    game._updateDefenseCampaign(0.1)
+
+    expect(game.campaignSpawnQueueIndex).toBe(1)
+    expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false })
+    expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+  })
+
+  it('uses the shared attacker staging helper for normal Campaign assault waves', () => {
+    const launch = {
+      ...createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost', 'campaign-attacker-staging')),
+      careerMissionId: undefined, careerMissionKind: undefined, careerVeteranOutpost: undefined,
+      defenderFaction: 'roman' as const, stageId: 1 as const, deploymentSeconds: 60,
+      defenderArmy: { roman_heavy_infantry: { 1: 0, 2: 1, 3: 0 } },
+      capabilities: { reinforcementsEnabled: true },
+    }
+    const game = createGameFixture(launch as any)
+    expect(game._queueDefenseCampaignWave('attackers')).toBeGreaterThan(0)
+
+    const placement = getCampaignOutpostPlacement('roman')
+    const inward = Math.sign(placement.backZ - placement.frontZ)
+    expect(Math.min(...game.campaignSpawnQueue.map((spec: NpcSpawnSpec) => (placement.frontZ - spec.z) * inward))).toBeGreaterThanOrEqual(100)
   })
 
   it('restores and checkpoints a dead rider mount through its stable actor association', () => {

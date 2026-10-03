@@ -25,7 +25,7 @@ export class TownWorld {
   private readonly roofMat = this.mat(this.faction === 'roman' ? 0x9f4f35 : 0x55574a)
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
-  constructor(readonly faction: CharacterFaction, scene: THREE.Scene) {
+  constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07
     this.stone.map = this.surfaceTexture('stone'); this.stone.color.setHex(0xffffff)
@@ -280,7 +280,7 @@ export class TownWorld {
     this.batch(root); this.batch(roof); this.batch(ruin)
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-w / 2 - .2, -100, -d / 2 - .2), new THREE.Vector3(w / 2 + .2, h + 3, d / 2 + .2)).applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }
     const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }))]
-    this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : Faction.TOWN, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
+    this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : this.ownerAllegiance, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
     hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })
   }
   refreshDamage(): void { for (const b of this.buildings) if (!b.damaged && b.hp.hpRatio <= .6 && !b.hp.destroyed) { b.damaged = true; b.roof.rotation.z = .14; b.roof.position.y -= 1; b.roof.children.slice(0, 2).forEach(c => c.visible = false) } }

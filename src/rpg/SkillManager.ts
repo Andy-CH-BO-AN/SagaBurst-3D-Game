@@ -211,7 +211,7 @@ export class SkillManager {
     this.levelupToast.textContent = message
     this.levelupToast.classList.add('visible')
     this.toastTimer = window.setTimeout(() => {
-      this.levelupToast.classList.remove('visible')
+      this.levelupToast?.classList.remove('visible')
       this.toastTimer = window.setTimeout(() => this._showNextToast(), 220)
     }, 2200)
   }
