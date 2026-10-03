@@ -38,7 +38,6 @@ function createGateController() {
     leftHinge,
     rightHinge,
     openRotationY: Math.PI / 2,
-    breachController,
   })
 
   return {
@@ -53,7 +52,7 @@ function createGateController() {
 }
 
 describe('CampaignGateController', () => {
-  it('opens by removing collision, rotating leaves, and emitting breach once', () => {
+  it('opens by removing collision and rotating leaves without a breach side effect', () => {
     const {
       controller,
       obstacle,
@@ -66,22 +65,22 @@ describe('CampaignGateController', () => {
     breachController.onBreach(onBreach)
 
     expect(controller.state).toBe('closed')
-    expect(controller.breached).toBe(false)
+    expect(breachController.breached).toBe(false)
     expect(controller.open()).toBe(true)
 
     expect(controller.state).toBe('open')
-    expect(controller.breached).toBe(true)
+    expect(breachController.breached).toBe(false)
     expect(obstacles).not.toContain(obstacle)
     expect(leftHinge.rotation.y).toBeCloseTo(Math.PI / 2)
     expect(rightHinge.rotation.y).toBeCloseTo(-Math.PI / 2)
-    expect(onBreach).toHaveBeenCalledTimes(1)
+    expect(onBreach).not.toHaveBeenCalled()
 
     controller.open()
-    expect(onBreach).toHaveBeenCalledTimes(1)
+    expect(onBreach).not.toHaveBeenCalled()
   })
 
-  it('closes only when the doorway is clear and does not reset breach state', () => {
-    const { controller, obstacle, obstacles } = createGateController()
+  it('closes only when the doorway is clear without a breach side effect', () => {
+    const { controller, obstacle, obstacles, breachController } = createGateController()
 
     controller.open()
 
@@ -91,11 +90,11 @@ describe('CampaignGateController', () => {
 
     expect(controller.close(false)).toBe(true)
     expect(controller.state).toBe('closed')
-    expect(controller.breached).toBe(true)
+    expect(breachController.breached).toBe(false)
     expect(obstacles.filter(candidate => candidate === obstacle)).toHaveLength(1)
   })
 
-  it('destroying a closed gate removes the route blocker and emits breach once', () => {
+  it('destroying a closed gate removes the route blocker without a breach side effect', () => {
     const {
       controller,
       damageable,
@@ -109,15 +108,15 @@ describe('CampaignGateController', () => {
     damageable.destroy()
 
     expect(controller.state).toBe('destroyed')
-    expect(controller.breached).toBe(true)
+    expect(breachController.breached).toBe(false)
     expect(obstacles).not.toContain(obstacle)
-    expect(onBreach).toHaveBeenCalledTimes(1)
+    expect(onBreach).not.toHaveBeenCalled()
 
     damageable.destroy()
-    expect(onBreach).toHaveBeenCalledTimes(1)
+    expect(onBreach).not.toHaveBeenCalled()
   })
 
-  it('does not emit a second breach when an open gate is later destroyed', () => {
+  it('leaves breach policy to its caller when an open gate is destroyed', () => {
     const { controller, damageable, breachController } = createGateController()
     const onBreach = vi.fn()
     breachController.onBreach(onBreach)
@@ -126,7 +125,7 @@ describe('CampaignGateController', () => {
     damageable.destroy()
 
     expect(controller.state).toBe('destroyed')
-    expect(onBreach).toHaveBeenCalledTimes(1)
+    expect(onBreach).not.toHaveBeenCalled()
   })
 })
 

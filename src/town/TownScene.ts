@@ -1,3 +1,4 @@
+import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
@@ -101,6 +102,7 @@ export class TownScene {
   private readonly neighbors: NPC[] = []
   private nextTrainingSound = 0
   private readonly previousControls = document.getElementById('controls-hint')!.textContent
+  private npcObstacleRevision = -1
   private npcObstacles: ObstacleData[] = []
   private readonly navigation = new NavigationWorld()
   private readonly hp = new HpBar()
@@ -187,21 +189,22 @@ export class TownScene {
     let spawned = 0
     for (const { spec, characterFaction, allegiance, borrowed } of roster) {
       if (spawned++ % 4 === 0) { progress((context.missionOnlyResidents ? '建立敵城與斥候隊 ' : '建立駐軍與居民 ') + Math.min(spawned, roster.length) + ' / ' + roster.length + '…'); await yieldFrame() }
-      const civilian = isCivilian(spec.role), ranger = spec.role === 'ranger', cavalry = spec.role.includes('cavalry') || spec.role === 'captain', ranged = spec.role.startsWith('ranged') || ranger
+      const civilian = isCivilian(spec.role), ranger = spec.role === 'ranger', cavalry = spec.mounted, ranged = spec.unitKind === 'ranged' || spec.unitKind === 'archer' || spec.unitKind === 'horse_archer' || ranger
       const residentArmyFaction = context.missionOnlyResidents && !borrowed ? context.worldFaction : context.residentFaction
-      const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec.role) : null
+      const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
       const preset = military?.presetId
       const captain = spec.role === 'captain' ? townCaptainProfile(residentArmyFaction) : undefined
       const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout
       const npc = new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : captain?.visualAssetId, ranger ? 'ranger' : captain?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction)
-      npc.setTownPeaceful(); npc.group.rotation.y = Math.PI
+      npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
       let homeMount: Mount | undefined
       if (ranger) homeMount = this.cat
       if (cavalry) { const mount = new Mount(this.scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); this.mounts.push(mount); homeMount = mount }
       if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : captain ? 2 : 2.2)) }
-      const training = !context.missionOnlyResidents && spec.role.includes('_'), target = training ? this.world.addTarget(spec.x, spec.z - (ranged ? 3 : 1.5), ranged) : undefined
+      const training = !context.missionOnlyResidents && spec.training, target = training ? this.world.addTarget(spec.x, spec.z - (spec.mounted ? ranged ? 4 : 3 : ranged ? 3 : 1.5), ranged) : undefined
       this.residents.push({ spec, npc, homeMount, target, cycle: -1, walkTime: 0 }); this.event.register(spec.id, npc)
     }
+    this.world.finalizeTrainingTargets()
     progress('預熱動畫、材質與陰影…')
     this.camera.position.set(0, 24, 42); this.camera.lookAt(0, 0, 0)
     for (const distance of [100, 35, 0]) {
@@ -725,7 +728,7 @@ export class TownScene {
     const availableTownCavalryActorIds = definition.id === 'veteran-village-intercept' || definition.id === 'veteran-spear-line-hunt'
       ? this.residents.filter(({ spec, npc, homeMount }) => {
         const mount = npc.mount && !npc.mount.dead ? npc.mount : homeMount
-        return spec.role.endsWith('_cavalry') && !npc.dead && mount && !mount.dead
+        return spec.mounted && spec.duty === 'training' && !npc.dead && mount && !mount.dead
       }).map(({ npc }) => npc.combatantId) : undefined
     const next = acceptVeteranMission(fresh, definition.id, { availableTownCavalryActorIds })
     if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
@@ -890,7 +893,7 @@ export class TownScene {
       return
     }
     if (template.kind === 'town-defense') {
-      const defenders = this.residents.filter(resident => resident.spec.role.includes('_')).map(resident => resident.spec.id)
+      const defenders = this.residents.filter(resident => resident.spec.defenseGroup).map(resident => resident.spec.id)
       const captain = this.residents.find(resident => resident.spec.role === 'captain')?.spec.id
       const ranger = this.residents.find(resident => resident.spec.role === 'ranger')?.spec.id
       const deployment = this.residents.find(resident => resident.spec.role === 'deployment')?.spec.id
@@ -1197,7 +1200,7 @@ export class TownScene {
   private persistCasualties(): void {
     const current = this.profile.townEvent
     if (!current || current.state !== 'hostile') return
-    const deadActorIds = [...this.event.actors].filter(([, actor]) => actor.dead).map(([id]) => id)
+    const deadActorIds = [...this.event.allActors].filter(([, actor]) => actor.dead).map(([id]) => id)
     const destroyedBuildingIds = this.world.buildings.filter(b => b.ownerFaction !== Faction.BANDIT && b.hp.destroyed).map(b => b.id)
     if (deadActorIds.length === (current.deadActorIds?.length ?? 0) && destroyedBuildingIds.length === (current.destroyedBuildingIds?.length ?? 0)) return
     const next = cloneCareerProfile(this.profile)
@@ -1273,12 +1276,14 @@ export class TownScene {
       const to = s.arrow.mesh.position, delta = to.clone().sub(from), length = delta.length(), ray = new THREE.Ray(from, delta.normalize())
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       let nearest = length + .01, hit: (() => void) | null = null
-      for (let i = 0; i < this.world.buildings.length; i++) {
-        const b = this.world.buildings[i]
-        if (b.hp.destroyed) continue
-        for (const obstacle of b.obstacles) {
-          const p = ray.intersectBox(obstacle.box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
-          if (distance < nearest) { nearest = distance; hit = () => { if (s.player) this.damageBuilding(i, s.arrow.damage, p!) } }
+      for (const obstacle of this.world.obstacles) {
+        for (const box of obstacle.projectileBoxes?.length ? obstacle.projectileBoxes : [obstacle.box]) {
+          const p = ray.intersectBox(box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
+          if (distance < nearest) {
+            nearest = distance
+            const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
+            hit = () => { if (s.player && buildingIndex >= 0) this.damageBuilding(buildingIndex, s.arrow.damage, p!) }
+          }
         }
       }
       for (const target of this.world.targets) {
@@ -1474,7 +1479,10 @@ export class TownScene {
   }
   private updateHostile(dt: number): void {
     this.navigation.sync(this.world.obstacles); this.navigation.beginFrame()
-    if (this.npcObstacles.length !== this.world.obstacles.length) this.npcObstacles = this.world.obstacles.map(o => ({ box: o.box, isBarricade: o.isBarricade }))
+    if (this.npcObstacles.length !== this.world.obstacles.length || this.npcObstacleRevision !== obstacleTopologyRevision(this.world.obstacles)) {
+      this.npcObstacles = this.world.obstacles.map(o => ({ box: o.box, isBarricade: o.isBarricade }))
+      this.npcObstacleRevision = obstacleTopologyRevision(this.world.obstacles)
+    }
     this.grid.clear(); for (const r of this.residents) if (!r.npc.dead) this.grid.insert(r.npc)
     const ranger = this.ranger, status = updateRangerMount(ranger, this.cat, ranger.combatPosition.distanceTo(this.cat.group.position))
     this.cat.catVisual?.setEquipmentVisible(status === 'mounted')

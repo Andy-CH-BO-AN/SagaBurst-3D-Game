@@ -154,7 +154,7 @@ describe('Town Duel combat isolation', () => {
     opponent.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_archer.tierLoadouts[1])
     opponent.setDuelHostility(true)
     town.player = player; town.duel.opponent = opponent; town.profile.activeMission.phase = 'ENGAGING'
-    town.world = { buildings: [], targets: [] }; town.hp = { setFill: vi.fn() }; town.shots = []
+    town.world = { buildings: [], targets: [], obstacles: [] }; town.hp = { setFill: vi.fn() }; town.shots = []
     const playerHp = player.hp, mountHp = mount?.currentHp
     const fire = (origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum') => {
       town.shots.push({ arrow: new ArrowProjectile(scene, origin, direction, opponent.rangedProjectileSpeed,

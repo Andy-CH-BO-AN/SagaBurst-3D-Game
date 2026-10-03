@@ -290,7 +290,7 @@ describe('exact animal GLB playback evidence', () => {
     const tool = path.resolve('tools/blender/animal_glb.mjs')
     let failure: any
     try {
-      execFileSync('rtk', ['proxy', process.execPath, tool, 'promote', 'corgi'], {
+      execFileSync(process.execPath, [tool, 'promote', 'corgi'], {
         cwd: root, env: { ...process.env, SAGABURST_ANIMATION_STAGE: stage }, stdio: 'pipe',
       })
     } catch (error) { failure = error }

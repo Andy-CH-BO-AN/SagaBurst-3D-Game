@@ -43,13 +43,13 @@ describe('campaign defender gate input', () => {
     const gate = outpost.gateController
     pressG()
     expect(gate.state).toBe('closed')
-    expect(gate.breached).toBe(false)
+    expect(outpost.breachController.breached).toBe(false)
     game._spawnNextDefenseCampaignNpc()
     expect(game.campaignSpawnQueueIndex).toBe(1)
     expect(game.campaignSpawnWave).toBe('attackers')
     pressG()
     expect(gate.state).toBe('open')
-    expect(gate.breached).toBe(true)
+    expect(outpost.breachController.breached).toBe(true)
     expect(outpost.obstacles.some(o => o.damageable === outpost.gate)).toBe(false)
     // Losing the first attacker while later attackers are queued must not relock it.
     game.npcs[0].dead = true

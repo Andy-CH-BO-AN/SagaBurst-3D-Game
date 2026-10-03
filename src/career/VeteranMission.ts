@@ -70,7 +70,7 @@ export interface AcceptVeteranMissionOptions {
   availableTownCavalryActorIds?: readonly string[]
 }
 
-const TOWN_CAVALRY = townRoster().filter(actor => actor.role.endsWith('_cavalry'))
+const TOWN_CAVALRY = townRoster().filter(actor => actor.mounted && actor.duty === 'training')
 
 function reusesAllTownCavalry(templateId: string): boolean {
   return templateId === 'veteran-village-intercept' || templateId === 'veteran-spear-line-hunt'
@@ -79,7 +79,10 @@ function reusesAllTownCavalry(templateId: string): boolean {
 /** Persist resident identities while changing only their mission equipment. */
 function equipExistingTownCavalry(roster: VeteranMissionRoster, missionId: string, actorIds?: readonly string[]): void {
   const requested = new Set(actorIds ?? TOWN_CAVALRY.map(actor => actor.id))
-  const available = TOWN_CAVALRY.filter(actor => requested.has(actor.id))
+  // Accepted missions may retain pre-expansion IDs whose peaceful slots are now infantry.
+  // Only explicit saved borrowing can temporarily re-equip those actors as mounted mission units.
+  const legacySlots = townRoster().filter(actor => actor.defenseGroup === 'E' || actor.defenseGroup === 'F')
+  const available = [...TOWN_CAVALRY, ...legacySlots].filter(actor => requested.has(actor.id))
   roster.friendly.filter(unit => unit.tier === 3).forEach((unit, index) => {
     const resident = available[index]
     unit.source = resident ? 'town' : 'temporary'
