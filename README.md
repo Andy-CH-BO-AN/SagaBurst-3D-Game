@@ -78,7 +78,7 @@ Free ride uses the normal movement, sprint, jump, and mount controls.
 | `W` `A` `S` `D` | Move |
 | Mouse | Look / control camera |
 | `Shift` | Sprint |
-| `Space` | Jump |
+| `Space` | Hold to raise an equipped shield; jump without a shield |
 | Left Mouse Button | Melee attack when not aiming |
 | Hold Right Mouse + hold/release Left Mouse | Aim / draw / fire Bow |
 | Hold Right Mouse + click Left Mouse | Aim / throw Pilum |

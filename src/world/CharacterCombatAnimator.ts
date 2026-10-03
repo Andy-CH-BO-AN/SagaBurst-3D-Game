@@ -65,6 +65,7 @@ export class CharacterCombatAnimator {
   private elapsed = 0
   private actionTimeScale = 1
   private shieldGuardEnabled = false
+  private shieldRaised = false
   private lanceEquipped = false
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
   private locomotionTimeScale = 1
@@ -83,6 +84,11 @@ export class CharacterCombatAnimator {
   }
 
   get currentAction(): CombatAction { return this.action }
+  get meleeHitActive(): boolean {
+    if (this.action === 'idle' || this.action === 'bowAim' || this.action === 'bowRelease' || this.action === 'pilumThrow') return false
+    const p = COMBAT_ANIMATION_PROFILES[this.action]
+    return this.elapsed >= p.windup && this.elapsed <= p.windup + p.active
+  }
   get currentOwnership(): 'clip' | 'procedural' { return this.ownership }
   get busy(): boolean { return this.action !== 'idle' && this.action !== 'bowAim' }
   get isLanceThrustActive(): boolean {
@@ -94,6 +100,11 @@ export class CharacterCombatAnimator {
   setShieldGuard(enabled: boolean): void {
     this.shieldGuardEnabled = enabled
     this.rig.animation?.setEquipmentState?.({ shield: enabled })
+  }
+
+  setShieldRaised(raised: boolean): void {
+    this.shieldRaised = raised
+    this.rig.animation?.setEquipmentState?.({ shieldRaised: raised })
   }
 
   setEquipment(lance: boolean, shield: boolean, mountKind: MountedPoseKind = 'HORSE', alive = true): void {
@@ -474,7 +485,7 @@ export class CharacterCombatAnimator {
 
   /** Raises the shield hand to the torso and extends it along character-forward (-Z). */
   private applyShieldGuard(): void {
-    if (!this.shieldGuardEnabled) return
+    if (!this.shieldGuardEnabled || !this.shieldRaised || this.busy) return
     const { left } = this.rig
     setRigRotation(left.shoulder, 1.05, -0.05, 0.1)
     setRigRotation(left.elbow, 0.45, 0, -0.04)

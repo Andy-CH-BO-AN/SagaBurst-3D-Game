@@ -23,6 +23,7 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
     destroy: vi.fn(() => { arrow.isAlive = false }),
   }
   const player = Object.create(Player.prototype)
+  player.group = new THREE.Group(); player.group.position.set(100, 100, 100)
   Object.defineProperties(player, { dead: { value: false }, position: { value: new THREE.Vector3(100, 100, 100) } })
   const town = Object.create(TownScene.prototype) as any
   Object.assign(town, {
@@ -40,7 +41,7 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
 describe('Veteran field projectile routing', () => {
   it.each([true, false])('routes opposing-faction field arrows enemyShot=%s to mission peers', enemyShot => {
     const { town, arrow, target, source } = shotFixture(enemyShot)
-    expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 25, 'projectile', source)
+    expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 25, 'projectile', source, expect.objectContaining({ kind: 'body' }))
     expect(arrow.destroy).toHaveBeenCalledOnce()
     expect(town.hitResident).not.toHaveBeenCalled()
   })

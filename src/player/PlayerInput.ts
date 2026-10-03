@@ -47,6 +47,7 @@ export class PlayerInput {
     window.addEventListener('keydown', (e) => {
       if (!this.isLocked) return
       if (!this.keys[e.code]) this._keyPresses.add(e.code)
+      if (e.code === 'Space') e.preventDefault()
       this.keys[e.code] = true
       if (e.code === 'KeyE') {
         this._keyETriggered = true
@@ -120,6 +121,7 @@ export class PlayerInput {
       this._dy += e.movementY
     }, { signal: this.listeners.signal })
 
+    window.addEventListener('blur', () => this.clear(), { signal: this.listeners.signal })
     document.addEventListener('pointerlockchange', () => {
       this._syncPointerLockState()
     }, { signal: this.listeners.signal })

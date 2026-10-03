@@ -5,7 +5,7 @@
 import type { NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
-import { ARMORS } from '../rpg/ArmorDatabase'
+import { weaponShieldImpact } from './ShieldBlocking'
 import type {
   DamageableObstacle,
   DamageableObstacleHitResult,
@@ -26,7 +26,7 @@ import {
 export interface DamageResult {
   /** Whether takeDamage() accepted the hit (target was not already dead). */
   hitSuccess: boolean
-  /** Requested incoming damage before shield reduction / HP clamping. */
+  /** Requested damage before physical shield absorption / HP clamping. */
   requestedDamage: number
   /** Actual HP removed after reduction and overkill clamping. */
   appliedDamage: number
@@ -44,12 +44,18 @@ export interface DamageResult {
   mountDied: boolean
 }
 
-/** Applies shield passive damage reduction to incoming damage. */
-function applyShieldReduction(baseDamage: number, shieldId: string | null): number {
-  if (!shieldId) return baseDamage
-  const armor = ARMORS[shieldId]
-  if (!armor) return baseDamage
-  return baseDamage * (1 - armor.damageReduction)
+/** Only an authoritative geometric SHIELD_HIT can consume durability. */
+function shieldDamage(target: NPC | Player, damage: number, context?: CombatDamageContext): number {
+  if (target.dead || context?.contact?.kind !== 'shield'
+    || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return damage
+  const player = 'blockingLevel' in target ? target : null
+  const result = target.shield.absorb(damage, context.method === 'projectile' ? 1 : weaponShieldImpact(context.weaponId), player?.blockingLevel ?? 0)
+  target.shieldCollider?.refreshVisibility()
+  const hostile = context.hostileToTarget ?? context.source.allegiance === 'ENEMY'
+  if (player && !player.spectatorOnly && hostile && context.source.actorType !== 'player' && result.blockedImpact > 0) {
+    player.onShieldBlock?.(result.blockedImpact)
+  }
+  return result.damage
 }
 
 /** Apply damage to an NPC, routing to its mount when mounted. */
@@ -59,9 +65,10 @@ export function damageNpc(
   context?: CombatDamageContext,
 ): DamageResult {
   const requestedDamage = damage
-  const finalDamage = applyShieldReduction(damage, npc.shieldId)
+  const shieldHit = npc.shield?.active && context?.contact?.kind === 'shield' && (context.method === 'melee' || context.method === 'projectile')
+  const finalDamage = shieldDamage(npc, damage, context)
 
-  if (npc.isMounted && npc.mount) {
+  if (npc.isMounted && npc.mount && !shieldHit) {
     const mount = npc.mount
     const beforeHp = mount.currentHp
     const wasDead = mount.dead
@@ -91,7 +98,7 @@ export function damageNpc(
   const target = createNpcCombatTargetRef(npc)
   const beforeHp = npc.hp
   const wasDead = npc.dead
-  const hitSuccess = npc.takeDamage(finalDamage)
+  const hitSuccess = finalDamage === 0 ? !npc.dead : npc.takeDamage(finalDamage)
   const appliedDamage = Math.max(0, beforeHp - npc.hp)
   const killed = !wasDead && npc.dead
 
@@ -116,7 +123,7 @@ export function damagePlayer(
   player: Player,
   damage: number,
   hpBar: HpBar,
-  equippedShieldId: string | null,
+  _equippedShieldId: string | null,
   context?: CombatDamageContext,
 ): DamageResult {
   const requestedDamage = damage
@@ -134,9 +141,10 @@ export function damagePlayer(
     }
   }
 
-  const finalDamage = applyShieldReduction(damage, equippedShieldId)
+  const shieldHit = player.shield?.active && context?.contact?.kind === 'shield' && (context.method === 'melee' || context.method === 'projectile')
+  const finalDamage = shieldDamage(player, damage, context)
 
-  if (player.isMounted && player.currentMount) {
+  if (player.isMounted && player.currentMount && !shieldHit) {
     const mount = player.currentMount
     const beforeHp = mount.currentHp
     const wasDead = mount.dead
@@ -166,7 +174,7 @@ export function damagePlayer(
   const target = createPlayerCombatTargetRef(player)
   const beforeHp = player.hp
   const wasDead = player.dead
-  const hitSuccess = player.takeDamage(finalDamage, hpBar)
+  const hitSuccess = finalDamage === 0 ? !player.dead : player.takeDamage(finalDamage, hpBar, Boolean(shieldHit))
   const appliedDamage = Math.max(0, beforeHp - player.hp)
   const killed = !wasDead && player.dead
 

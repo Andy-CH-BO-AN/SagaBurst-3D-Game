@@ -389,7 +389,7 @@ describe('Town orchestration transitions', () => {
     town.updateShots(.1)
     expect(source.faction).toBe(Faction.TOWN)
     expect(source.hostileToPlayer).toBe(true)
-    expect(damagePlayerFromNpc).toHaveBeenCalledExactlyOnceWith(source, 10, 'projectile')
+    expect(damagePlayerFromNpc).toHaveBeenCalledExactlyOnceWith(source, 10, 'projectile', expect.objectContaining({ kind: 'body' }))
     expect(town.player.hp).toBeLessThan(hpBefore)
   })
 
@@ -406,7 +406,7 @@ describe('Town orchestration transitions', () => {
     town.player = {
       position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
       getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
-      isHitFrame: () => true, markHitProcessed: vi.fn(),
+      weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     installNoProgressTownSkillFixture(town)
@@ -487,7 +487,7 @@ describe('Town orchestration transitions', () => {
     town.player = {
       position: new THREE.Vector3(0, .9, 0), facingYaw: 0, isMounted: false, characterFaction: 'roman',
       getSwordTipPosition: () => new THREE.Vector3(0, 1, 1), getWeaponGripPosition: () => new THREE.Vector3(0, 1, .2),
-      isHitFrame: () => true, markHitProcessed: vi.fn(),
+      weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn(),
     }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     installNoProgressTownSkillFixture(town)
@@ -632,7 +632,7 @@ describe('Town orchestration transitions', () => {
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-5, -2, 1), new THREE.Vector3(5, 5, 10)), damageable: hp }
     town.world = { buildings: [{ ownerFaction: Faction.TOWN, hp, obstacles: [obstacle] }], obstacles: [obstacle], refreshDamage: vi.fn() }
     town.inventory = { meleeEnabled: true, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } }
-    town.player = { position: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), isHitFrame: () => true, markHitProcessed: vi.fn() }
+    town.player = { position: new THREE.Vector3(0, .9, 0), facingYaw: 0, getSwordTipPosition: () => new THREE.Vector3(1.5, 1.2, .1), getWeaponGripPosition: () => new THREE.Vector3(.2, 1.2, .1), weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() }
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }

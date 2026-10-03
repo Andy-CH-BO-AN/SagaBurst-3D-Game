@@ -9,6 +9,7 @@ const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
 export interface EquipmentPoseState {
   shield: boolean
+  shieldRaised?: boolean
   lance: boolean
   mounted: boolean
   moving?: boolean
@@ -332,11 +333,16 @@ export class CharacterEquipmentPose {
         if (angle > 1e-6) this.rotateArm(this.rig.right.shoulder, angle * clearance)
       }
     }
+    // Keep the existing attack/equipment grip solve; only idle/moving gets raised stance.
     if (live && state.shield) {
       this.root.updateWorldMatrix(true, true)
       this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
       this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
-      if (state.mounted && state.mountKind === 'CORGI') {
+      if (state.shieldRaised && state.action === 'idle') {
+        this.target.set(.12, this.hipsY + .38, .46).applyMatrix4(this.shieldBodyDelta)
+        this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
+        this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
+      } else if (state.mounted && state.mountKind === 'CORGI') {
         // Hold the tall scutum outside the saddle during torso rotation.
         // The shield remains attached to the same palm grip.
         this.target.set(.55, this.hipsY + .26, .22)

@@ -285,6 +285,6 @@ export function getTraitDescription(trait: UnitPresetTrait): string {
     case 'javelin_throw':
       return `標槍投擲（傷害 ×${COMBAT_BALANCE.javelin.damageMultiplier}、射速 ×${COMBAT_BALANCE.javelin.attackRateMultiplier}、徒步射程 ${COMBAT_BALANCE.javelin.footAttackRange}m / 騎乘 ${COMBAT_BALANCE.javelin.mountedAttackRange}m）`
     case 'shield_defense':
-      return `持盾防禦（持盾受傷減免：T1 ${Math.round(ARMORS.round_shield_t1.damageReduction * 100)}%、T2 ${Math.round(ARMORS.round_shield_t2.damageReduction * 100)}%、T3 ${Math.round(ARMORS.round_shield_t3.damageReduction * 100)}%）`
+      return `盾面格擋（衝擊耐久：T1 ${ARMORS.round_shield_t1.shieldImpactMax}、T2 ${ARMORS.round_shield_t2.shieldImpactMax}、T3 ${ARMORS.round_shield_t3.shieldImpactMax}；無全身減傷）`
   }
 }

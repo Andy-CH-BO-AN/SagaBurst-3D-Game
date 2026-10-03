@@ -34,6 +34,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
+import { SHIELD_CONFIG, traceCombatSegment, type CombatContact } from '../combat/ShieldBlocking'
 import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { CareerProfileStore } from '../career/CareerProfileStore'
@@ -204,6 +205,7 @@ export class TownScene {
     for (const resident of this.residents) { resident.npc.setTownPeaceful(); resident.npc.updateTownPeace(.2, resident.npc.group.position.distanceTo(this.camera.position), false, false) }
     progress('村莊準備完成，生成玩家…')
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile))
+    this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
     this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
@@ -355,6 +357,10 @@ export class TownScene {
     const next = cloneCareerProfile(profile)
     next.skills = this.skills.skillState
     if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id) {
+      this.player?.shield?.reset()
+      for (const resident of this.residents ?? []) resident.npc?.shield?.reset()
+    }
     if (next.activeMission?.id !== this.profile.activeMission?.id || next.faction !== this.profile.faction) sound?.cancelCareerAudio()
     if (next.rank !== this.profile.rank) this.deploymentPage = undefined
     this.profile = next
@@ -362,14 +368,19 @@ export class TownScene {
     return true
   }
 
-  private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number): void {
+  private bindBlockingProgression(): void {
+    this.player.blockingLevel = this.skills.skillState.blocking.level
+    this.player.onShieldBlock = impact => this.awardCareerSkillXp('melee', impact * SHIELD_CONFIG.xpPerBlockedImpact, 'blocking')
+  }
+
+  private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number, skillOverride?: 'blocking'): void {
     if (!canAwardPlayerSkillProgression({
       dead: this.player.dead,
       spectatorOnly: this.player.spectatorOnly,
       observer: Boolean(this.spectator),
     })) return
     if (appliedDamage <= 0) return
-    const skill = resolveCombatSkill(
+    const skill = skillOverride ?? resolveCombatSkill(
       method,
       this.inventory.equippedMelee,
       Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
@@ -379,6 +390,7 @@ export class TownScene {
     const before = this.skills.skillState
     const levelsGained = this.skills.addXp(skill, appliedDamage, sound)
     const after = this.skills.skillState
+    this.player.blockingLevel = after.blocking.level
     if (skillStatesEqual(before, after)) return
 
     const next = cloneCareerProfile(this.profile)
@@ -870,6 +882,7 @@ export class TownScene {
     if (mount) old.dismountFromMount()
     old.dispose()
     this.player = new Player(this.scene, this.profile.faction, hero)
+    this.bindBlockingProgression()
     const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
     this.player.setMaxHp(newMaxHp, true)
     this.player.group.position.copy(position)
@@ -1009,7 +1022,7 @@ export class TownScene {
       : target.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
     return Boolean(ally && (this.mission?.friendlies?.includes(ally) || this.missionCombat?.isExternalThreatDefender(ally)))
   }
-  private hitResident(npc: NPC | Mount, amount: number, method: CombatDamageMethod = 'melee'): void {
+  private hitResident(npc: NPC | Mount, amount: number, method: CombatDamageMethod = 'melee', contact?: CombatContact): void {
     if (this.duel?.active) return
     if (this.isProtectedTownAlly(npc) || npc.dead || amount <= 0 || !this.prepareDamage()) return
     let applied = 0
@@ -1018,7 +1031,7 @@ export class TownScene {
       const playerAmount = method === 'mount-impact'
         ? Math.round(amount * this.skills.getMountedImpactMultiplier())
         : amount
-      const result = damageNpc(npc, playerAmount)
+      const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? this.inventory.equippedMelee?.id : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
       applied = result.appliedDamage
       if (applied > 0) this.awardCareerSkillXp(method, applied)
     } else {
@@ -1068,7 +1081,7 @@ export class TownScene {
       this.button(panel, '重試保存事件', () => { if (this.commit(next)) this.closePanel() })
     }
   }
-  private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC): void {
+  private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact): void {
     if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
     if (this.defense?.active && (source ? !townWartimeHostile(source, target) : target.faction !== Faction.ENEMY)) return
@@ -1076,12 +1089,13 @@ export class TownScene {
       ? Math.round(amount * this.skills.getMountedImpactMultiplier())
       : amount
     const result = damageNpc(target, playerAmount, {
+      contact: contact ?? (method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined),
       source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player),
       method,
-      weaponId: source?.meleeWeaponId ?? (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
-    if (result.appliedDamage <= 0) return
+    if (!result.hitSuccess) return
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
@@ -1095,10 +1109,12 @@ export class TownScene {
     if (!source && !(this.defense.active && target.townCategory === 'civilian') && !target.dead && (target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) target.retaliateAgainstPlayer()
     if (!source) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
   }
-  private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod): void {
+  private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
     if (this.duel?.active && !this.duel.canDamagePlayer(source)) return
     if (this.defense?.phase === 'PREPARING' || this.defense?.active && !source.hostileToPlayer) return
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
+      contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined),
+      hostileToTarget: source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source)),
       source: createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.appliedDamage <= 0) return
@@ -1154,18 +1170,23 @@ export class TownScene {
             : [this.player]
       for (const target of targets) {
         if (target.dead) continue
+        const broadPosition = target.group.position
+        if (broadPosition.distanceToSquared(from) > (length + 4) ** 2) continue
         const center = target instanceof Player
           ? this.duel?.active ? target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)) : target.position.clone()
           : target instanceof NPC ? target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)) : target.group.position.clone().add(new THREE.Vector3(0, 1, 0))
-        const p = ray.intersectSphere(new THREE.Sphere(center, .8), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
+        const contact: CombatContact = { kind: 'body', time: Infinity }
+        const p = target instanceof Mount ? ray.intersectSphere(new THREE.Sphere(center, .8), new THREE.Vector3()) : null
+        const distance = target instanceof Mount ? p?.distanceTo(from) ?? Infinity
+          : traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
         if (distance < nearest) { nearest = distance; hit = () => {
-          if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile')
-          else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source)
+          if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact)
+          else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact)
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
             this.cat.takeDamage(s.arrow.damage)
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
-          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile')
+          else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)
         } }
       }
       if (hit) { hit(); s.arrow.destroy() }
@@ -1207,10 +1228,11 @@ export class TownScene {
     const combatTargets = this.duel?.active ? this.duel.opponent ? [this.duel.opponent] : [] : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies, ...(this.missionCombat?.enemyTownHostiles ?? [])]
     for (const target of combatTargets) {
       if (target.dead) continue
+      if (target.combatPosition.distanceToSquared(this.player.position) > ((weapon.range ?? 1.8) + 3) ** 2) continue
       const center = target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0))
       const line = new THREE.Ray(this.player.position, center.clone().sub(this.player.position).normalize())
       const blocked = this.world.obstacles.some(o => { const hit = line.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(this.player.position) < center.distanceTo(this.player.position) - .4 })
-      if (!blocked && townMeleeContact(this.player.position, this.player.facingYaw, from, tip, previousTip, center, weapon.range ?? 1.8, weapon.combatKind === 'lance')) {
+      if (!blocked && this.player.weaponSweep.trace(target)) {
         this.player.markHitProcessed()
         this.hitFieldNpc(target, Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, target.isMounted)), 'melee')
         if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
@@ -1219,10 +1241,12 @@ export class TownScene {
     }
     for (const target of [...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))) {
       if (target.dead) continue
+      const targetPosition = target instanceof NPC ? target.combatPosition : target.group.position
+      if (targetPosition.distanceToSquared(this.player.position) > ((weapon.range ?? 1.8) + 3) ** 2) continue
       const center = target instanceof NPC ? target.combatPosition.clone() : target.group.position.clone(); center.y += 1
       const line = new THREE.Ray(this.player.position, center.clone().sub(this.player.position).normalize())
       const blocked = this.world.obstacles.some(o => { const hit = line.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(this.player.position) < center.distanceTo(this.player.position) - .4 })
-      if (!blocked && townMeleeContact(this.player.position, this.player.facingYaw, from, tip, previousTip, center, weapon.range ?? 1.8, weapon.combatKind === 'lance')) {
+      if (!blocked && (target instanceof NPC ? this.player.weaponSweep.trace(target) : townMeleeContact(this.player.position, this.player.facingYaw, from, tip, previousTip, center, weapon.range ?? 1.8, weapon.combatKind === 'lance'))) {
         this.player.markHitProcessed()
         const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, target instanceof Mount || target.isMounted))
         if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && target instanceof NPC && target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee')
@@ -1336,7 +1360,7 @@ export class TownScene {
       if (r.npc === ranger && status === 'approach') {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }
-      r.npc.update(dt, this.player, [], this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp, (damage, isPlayer) => { if (isPlayer) damagePlayer(this.player, damage, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null) }, (origin, direction, kind) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc), false, r.npc.group.position.distanceTo(this.camera.position), null, null, this.navigation)
+      r.npc.update(dt, this.player, [], this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp, (damage, isPlayer) => { if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee') }, (origin, direction, kind) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc), false, r.npc.group.position.distanceTo(this.camera.position), null, null, this.navigation)
     }
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc && checkMountImpact(mount, this.player.combatPosition, .6)) {
       applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null))

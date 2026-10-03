@@ -300,9 +300,9 @@ describe('Veteran VI native Town combat routing', () => {
       defense: { active: false, playerEnemies: [] }, residents: [{ spec: { id: guard.combatantId, role: 'melee_infantry' }, npc: guard }],
       cat: null, stableHorses: [], inventory: { meleeEnabled: true, equippedMelee: { range: 1.8, damageMax: 12, combatKind: 'sword' } },
       skills: { getOneHandedMultiplier: () => 1, getMultiplier: () => 1 },
-      player: { dead: false, position: new THREE.Vector3(0, .9, 0), facingYaw: 0,
+      player: { group: { position: new THREE.Vector3(0, .9, 0) }, dead: false, position: new THREE.Vector3(0, .9, 0), facingYaw: 0,
         getSwordTipPosition: () => new THREE.Vector3(0, 1.2, 2), getWeaponGripPosition: () => new THREE.Vector3(0, 1.2, .2),
-        isHitFrame: () => true, markHitProcessed: vi.fn() },
+        weaponSweep: { trace: () => ({ kind: 'body', time: .5 }), contact: { kind: 'body', time: .5 } }, isHitFrame: () => true, markHitProcessed: vi.fn() },
       previousTip: new THREE.Vector3(), hasPreviousTip: false, hitFieldNpc: vi.fn(), hitResident: vi.fn(),
     })
     Object.setPrototypeOf(town.player, Player.prototype)
@@ -320,6 +320,7 @@ describe('Veteran VI native Town combat routing', () => {
   it.each(['guard', 'scout'] as const)('routes %s projectiles between native guards and scouts', shooter => {
     const { town, guard, scout } = fixture()
     town.player.position.set(30, .9, 30)
+    town.player.group.position.copy(town.player.position)
     const source = shooter === 'guard' ? guard : scout
     const target = shooter === 'guard' ? scout : guard
     let alive = true
@@ -328,7 +329,7 @@ describe('Veteran VI native Town combat routing', () => {
       update() { this.mesh.position.copy(center).z += 1 }, destroy() { alive = false }, get isAlive() { return alive } }
     town.shots = [{ arrow, training: false, player: false, source, age: 0 }]
     town.updateShots(.1)
-    expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 12, 'projectile', source)
+    expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 12, 'projectile', source, expect.objectContaining({ kind: 'body' }))
     expect(town.hitResident).not.toHaveBeenCalled()
     guard.dispose(); scout.dispose()
   })

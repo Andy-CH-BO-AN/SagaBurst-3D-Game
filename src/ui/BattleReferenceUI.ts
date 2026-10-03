@@ -314,7 +314,7 @@ export class BattleReferenceUI {
                   <tr>
                     <th>名稱</th>
                     <th>階級</th>
-                    <th>減傷</th>
+                    <th>盾牌衝擊耐久</th>
                     <th>簡短說明</th>
                   </tr>
                 </thead>
@@ -323,7 +323,7 @@ export class BattleReferenceUI {
                     <tr>
                       <td><b>${a.name}</b></td>
                       <td><span class="ref-tier-badge tier-${a.tier}">T${a.tier}</span></td>
-                      <td><b>${Math.round(a.damageReduction * 100)}%</b></td>
+                      <td><b>${a.shieldImpactMax}</b></td>
                       <td>${a.description}</td>
                     </tr>
                   `).join('')}

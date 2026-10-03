@@ -397,6 +397,7 @@ describe('CharacterCombatAnimator timeline events', () => {
     rig.left.handSocket.add(bow)
     const animator = new CharacterCombatAnimator(rig, melee, bow)
     animator.setShieldGuard(true)
+    animator.setShieldRaised(true)
     animator.poseIdle()
     const shield = new THREE.Group()
     rig.left.handSocket.add(shield)

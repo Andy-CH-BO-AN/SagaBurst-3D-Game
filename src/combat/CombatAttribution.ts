@@ -32,6 +32,8 @@ export interface CombatTargetRef {
 }
 
 export interface CombatDamageContext {
+  contact?: import('./ShieldBlocking').CombatContact
+  hostileToTarget?: boolean
   source: CombatActorRef
   method: CombatDamageMethod
   weaponId?: string

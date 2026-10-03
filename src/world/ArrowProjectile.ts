@@ -5,7 +5,8 @@
 import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import { getTerrainHeight, obstacleContainsProjectilePoint, type ObstacleData } from './Terrain'
+import { getTerrainHeight, type ObstacleData } from './Terrain'
+import { traceCombatSegment, segmentBoxTime, type CombatContact } from '../combat/ShieldBlocking'
 import { damageNpc, damageObstacle, type DamageResult } from '../combat/DamageRouter'
 import type {
   CombatActorRef,
@@ -102,6 +103,9 @@ export class ArrowProjectile {
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpTargetPos = new THREE.Vector3()
+  private readonly previousPosition = new THREE.Vector3()
+  private readonly contact: CombatContact = { kind: 'body', time: Infinity }
+  private readonly bestContact: CombatContact = { kind: 'body', time: Infinity }
 
   readonly damage: number
   readonly shooterFaction: Faction
@@ -222,6 +226,7 @@ export class ArrowProjectile {
       return
     }
 
+    this.previousPosition.copy(this.mesh.position)
     // Apply gravity
     this.velocity.y += GRAVITY * dt
 
@@ -240,18 +245,50 @@ export class ArrowProjectile {
     // the global y=0 plane, which incorrectly swallowed shots fired in valleys.
     const worldCollisionsEnabled = this.travelledDistance >= 0.12
     const groundY = getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.05
-    if (worldCollisionsEnabled && this.mesh.position.y <= groundY) {
-      this.mesh.position.y = groundY
-      this.stuck = true
-      return
-    }
+    let nearest = worldCollisionsEnabled && this.mesh.position.y <= groundY
+      ? Math.max(0, Math.min(1, (this.previousPosition.y - groundY) / Math.max(1e-9, this.previousPosition.y - this.mesh.position.y))) : Infinity
+    let hitObstacle: ObstacleData | undefined
+    let hitNpc: NPC | undefined
+    let hitPlayer = false
 
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
       for (const obs of obstacles) {
-        if (!obstacleContainsProjectilePoint(obs, this.mesh.position)) continue
-
-        const damageable = obs.damageable
+        const time = segmentBoxTime(this.previousPosition, this.mesh.position, obs.box)
+        if (time < nearest) { nearest = time; hitObstacle = obs }
+      }
+    }
+    const broadRadius = this.previousPosition.distanceTo(this.mesh.position) + 4
+    if (this.shooterFaction === Faction.ENEMY && player.targetable
+      && player.group.position.distanceToSquared(this.previousPosition) <= broadRadius * broadRadius
+      && traceCombatSegment(player, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
+      nearest = this.contact.time; hitPlayer = true; hitObstacle = undefined
+      Object.assign(this.bestContact, this.contact)
+    }
+    for (const npc of npcs) {
+      if (npc.dead || npc.faction === this.shooterFaction || npc.group.position.distanceToSquared(this.previousPosition) > broadRadius * broadRadius) continue
+      if (traceCombatSegment(npc, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
+        nearest = this.contact.time; hitNpc = npc; hitPlayer = false; hitObstacle = undefined
+        Object.assign(this.bestContact, this.contact)
+      }
+    }
+    if (Number.isFinite(nearest)) {
+      this.mesh.position.lerpVectors(this.previousPosition, this.mesh.position, nearest)
+      if (hitNpc || hitPlayer) {
+        const context = this._damageContext()
+        if (context) context.contact = this.bestContact
+        // Unattributed projectiles still physically block, but never award XP.
+        const physicalContext = context ?? {
+          source: { actorId: 'unattributed-projectile', actorType: 'npc' as const, allegiance: this.shooterFaction, characterFaction: player.characterFaction },
+          method: 'projectile' as const, contact: this.bestContact, hostileToTarget: false,
+        }
+        const result = hitNpc ? damageNpc(hitNpc, this.damage, physicalContext) : onDamagePlayer(this.damage, physicalContext)
+        if (result.hitSuccess) onHitTarget(result.appliedDamage, this.mesh.position.clone(), result.targetName, result.hpRatio, hitPlayer, hitNpc, result.isMountHit)
+        this.destroy()
+        return
+      }
+      if (hitObstacle) {
+        const damageable = hitObstacle.damageable
         const canDamageObstacle = damageable
           && !damageable.destroyed
           && (
@@ -270,50 +307,9 @@ export class ArrowProjectile {
           }
         }
 
-        this.stuck = true
-        return
       }
-    }
-
-    // ── Hit Detection 4: Player (If shooter is ENEMY) ──
-    if (this.shooterFaction === Faction.ENEMY && player.targetable) {
-      const playerCenter = player.combatPosition.clone()
-      playerCenter.y += 1.0 // Torso height
-      const dist = this.mesh.position.distanceTo(playerCenter)
-      if (dist <= 0.9) {
-        const result = onDamagePlayer(this.damage, this._damageContext())
-
-        if (result.hitSuccess) {
-          onHitTarget(
-            this.damage,
-            this.mesh.position.clone(),
-            result.targetName,
-            result.hpRatio,
-            true,
-            undefined,
-            result.isMountHit
-          )
-        }
-        this.destroy()
-        return
-      }
-    }
-
-    // ── Hit Detection 5: NPCs (Faction Check) ──
-    for (const npc of npcs) {
-      if (npc.dead || npc.faction === this.shooterFaction) continue
-      const aiCenter = npc.combatPosition.clone()
-      aiCenter.y += 1.0 // Torso height
-
-      const dist = this.mesh.position.distanceTo(aiCenter)
-      if (dist <= 1.0) {
-        const result = damageNpc(npc, this.damage, this._damageContext())
-        if (result.hitSuccess) {
-          onHitTarget(this.damage, this.mesh.position.clone(), result.targetName, result.hpRatio, false, npc, result.isMountHit)
-        }
-        this.destroy()
-        return
-      }
+      this.stuck = true
+      return
     }
 
     // Out of bounds check (despawn radius scaled with world scale)

@@ -86,4 +86,6 @@ export function skillStatesEqual(a: SkillState, b: SkillState): boolean {
     && a.ranged.xp === b.ranged.xp
     && a.mountedImpact.level === b.mountedImpact.level
     && a.mountedImpact.xp === b.mountedImpact.xp
+    && a.blocking.level === b.blocking.level
+    && a.blocking.xp === b.blocking.xp
 }

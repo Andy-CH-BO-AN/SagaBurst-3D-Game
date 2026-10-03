@@ -824,6 +824,10 @@
             </div>
             <div class="skill-xp-bar"><div id="skill-mount-fill" class="skill-xp-fill"></div></div>
           </div>
+          <div class="skill-row" title="每級 +1 HP；只降低破盾當次的溢出傷害，每級 1%，最高 50%">
+            <div><span class="skill-name">🛡️ 格擋 Blocking</span><span id="skill-block-lvl" class="skill-level"> Lv.1</span></div>
+            <div class="skill-xp-bar"><div id="skill-block-fill" class="skill-xp-fill"></div></div>
+          </div>
         </div>
         <div class="modal-section">
           <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>
@@ -832,6 +836,7 @@
       </div>
 
       <!-- Damage numbers overlay container -->
+      <div id="shield-hud" style="position:absolute;left:24px;bottom:145px;color:#eee;pointer-events:none" hidden></div>
       <div id="damage-container" style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;"></div>
 
       <!-- Quiver HUD -->
