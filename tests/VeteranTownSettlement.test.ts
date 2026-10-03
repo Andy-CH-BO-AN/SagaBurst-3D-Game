@@ -66,3 +66,18 @@ describe('Veteran field return through existing Career settlement', () => {
     expect(f.field.cleanupMission).not.toHaveBeenCalled()
   })
 })
+
+it('clears a completed physical return without awarding merit again or restarting the scene', () => {
+  const f = fixture()
+  f.profile().activeMission!.phase = 'RETURNING'
+  f.town.player.group.position.set(8, 0, 12)
+  const position = f.town.player.group.position.clone()
+  const merit = f.profile().totalMerit
+  expect(f.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
+  expect(f.profile().activeMission).toBeUndefined()
+  expect(f.profile().totalMerit).toBe(merit)
+  expect(f.town.player.group.position).toEqual(position)
+  expect(f.npc.restoreForTown).toHaveBeenCalledOnce()
+  expect(f.town.restart).not.toHaveBeenCalled()
+  expect(f.settlement.returnToTown('arrived')).toEqual({ status: 'ignored' })
+})

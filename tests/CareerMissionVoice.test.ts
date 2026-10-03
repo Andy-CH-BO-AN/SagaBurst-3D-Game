@@ -182,9 +182,15 @@ describe('Career mission voice events', () => {
     expect(audio.cancelCareerAudio).toHaveBeenCalledOnce()
   })
 
-  it.each(['living', 'dead', 'save-failed'])('physical return is voiced only for a living party on success: %s', state => {
+  it.each([
+    ['recruit-bandits-01', 'living'], ['recruit-bandits-01', 'dead'], ['recruit-bandits-01', 'save-failed'],
+    ['veteran-scout-hunters', 'living'], ['veteran-scout-hunters', 'dead'], ['veteran-scout-hunters', 'save-failed'],
+    ['veteran-village-intercept', 'living'], ['veteran-village-intercept', 'dead'], ['veteran-village-intercept', 'save-failed'],
+    ['veteran-spear-line-hunt', 'living'], ['veteran-spear-line-hunt', 'dead'], ['veteran-spear-line-hunt', 'save-failed'],
+  ])('physical return for %s is voiced only for a living party on success: %s', (templateId, state) => {
     const town = townHarness('viking')
-    town.profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
+    town.profile.activeMission = createActiveCareerMission(templateId, 0, 3, 0)
+    if (templateId.startsWith('veteran-')) town.profile.activeMission.kind = 'veteran-field'
     town.profile.activeMission.phase = 'RESULT'
     town.mission.friendlies = [{ dead: state === 'dead' }]
     if (state === 'save-failed') town.mission.startReturning.mockReturnValue(false)
@@ -198,6 +204,19 @@ describe('Career mission voice events', () => {
       expect(town.mission.startReturning).toHaveBeenCalledOnce()
       expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('viking', 'return')
     } else expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['veteran-scout-hunters', 'victory', false],
+    ['veteran-village-intercept', 'failure', true],
+    ['veteran-tragedy-of-the-scouts', 'victory', true],
+  ])('keeps direct return only for %s with outcome=%s, survived=%s', (templateId, outcome, survived) => {
+    const town = townHarness()
+    town.profile.activeMission = { ...createActiveCareerMission(templateId, 0, 3, 0), kind: 'veteran-field', phase: 'RESULT' }
+    const callbacks = new Map<string, () => void>()
+    town.button = (_panel: unknown, label: string, callback: () => void) => callbacks.set(label, callback)
+    town.openMissionResult({ outcome, stats: { survived, damageDealt: 20, kills: 1 }, merit: { total: 3 } }, false)
+    expect([...callbacks.keys()]).toEqual(['返回 Career Town'])
   })
 })
 

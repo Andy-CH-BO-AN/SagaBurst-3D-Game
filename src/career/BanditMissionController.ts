@@ -402,15 +402,22 @@ export class BanditMissionController {
 
   startReturning(): boolean {
     const active = this.active
+    const veteranField = active?.kind === 'veteran-field'
+      && getVeteranMissionDefinition(active.templateId)?.objective.kind === 'eliminate-all'
     const template = active ? getRecruitMissionTemplate(active.templateId) : null
     const camp = active ? this.camps[active.targetCampId] : null
-    if (!active || !template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault') || !camp || !this.setPhase('RETURNING', 0)) return false
+    if (!active || (!veteranField && (!template || template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || !camp))) return false
+    if (veteranField && (active.result?.outcome !== 'victory' || !active.result.stats.survived || this.player().dead)) return false
+    if (!this.setPhase('RETURNING', 0)) return false
+    this.mountedMarch = null
     if (!this.ensureLivingLeader() || !this.leader) {
       this.route = []
       this.routeIndex = 0
       return true
     }
-    const start = template.kind === 'cavalry-sweep' ? this.leader.combatPosition : this.marchTarget(template, active, camp.center)
+    const start = !veteranField && camp && template && (template.kind === 'bandit' || template.kind === 'patrol')
+      ? this.marchTarget(template, active, camp.center)
+      : this.leader.combatPosition
     this.setRoute(this.buildRoute(start, this.assemblyPoint()), start)
     this.assignLeader(this.assemblyPoint())
     this.assignFollowers()
@@ -593,6 +600,13 @@ export class BanditMissionController {
     if (active.phase === phase && (active.patrolStage ?? 0) === (patrolStage ?? 0) && (active.routeStage ?? 0) === routeStage) return true
     return this.checkpoint.persist(() => ({ ...active, phase, routeStage, ...(patrolStage !== undefined ? { patrolStage } : {}),
       ...(active.kind === 'cavalry-sweep' && this.leader && !this.leader.dead ? { mountedMarchPosition: { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } } : {}),
+      ...(active.kind === 'veteran-field' && phase === 'RETURNING' ? {
+        actorPositions: this.snapshotVeteranActorPositions(),
+        actorHealth: this.snapshotVeteranActorHealth(),
+        deadTargetActorIds: this.deadActorIds(active.targetActorIds, this.missionBandits, active.deadTargetActorIds),
+        deadFriendlyActorIds: this.deadActorIds(active.friendlyActorIds, this.friendlies, active.deadFriendlyActorIds),
+        mountedMarchPosition: this.mountedMarchAnchor(active),
+      } : {}),
       playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }), { immediate: true })
   }
 
@@ -898,7 +912,7 @@ export class BanditMissionController {
 
     for (const unit of roster.enemy) {
       this.veteranTargetActorIds.add(unit.actorId)
-      if (deadTargets.has(unit.actorId)) continue
+      if (active.result || deadTargets.has(unit.actorId)) continue
       const spec = createVeteranSpawnSpec(unit, faction, 'enemy')
       const slot = enemySlots.get(unit.squadId) ?? 0
       enemySlots.set(unit.squadId, slot + 1)
@@ -968,6 +982,18 @@ export class BanditMissionController {
         ?? (event.target.ownerActorId ? this.veteranEnemySquadByActorId.get(event.target.ownerActorId) : undefined)
       if (squadId !== undefined) this.markVeteranEnemySquadEngaged(squadId)
     })
+
+    if (active.phase === 'RETURNING') {
+      this.mountedMarch = null
+      if (this.ensureLivingLeader() && this.leader) {
+        const start = this.leader.combatPosition
+        this.setRoute(this.buildRoute(start, this.assemblyPoint()), start)
+        this.assignLeader(this.assemblyPoint())
+        this.assignFollowers()
+      }
+      return true
+    }
+    if (active.result) return true
 
     if (survival) {
       this.mountedMarch = null
