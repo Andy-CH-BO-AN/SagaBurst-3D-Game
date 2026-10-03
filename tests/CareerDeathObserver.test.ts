@@ -1,3 +1,4 @@
+import { checkMountImpact } from '../src/combat/MountImpact'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
@@ -328,6 +329,33 @@ describe('Town mission death observer orchestration', () => {
     expect(town.spectator).toBeNull()
     expect(town.orbit.update).toHaveBeenCalledOnce()
     expect(controls.textContent).toContain('Tab')
+    player.dispose()
+  })
+})
+
+describe('Career mount impact frame lifetime', () => {
+  it('expires lance suppression after impact resolution so the next frame can collide', () => {
+    const { town, player } = townFixture()
+    town.world = { obstacles: [] }
+    town.resolveBodies = vi.fn()
+    town.interaction = vi.fn()
+    vi.spyOn(player, 'update').mockImplementation(() => {})
+    const mount = {
+      group: new THREE.Group(), previousPosition: new THREE.Vector3(),
+      skipImpactThisFrame: false, dead: false, setCameraDistance: vi.fn(),
+    }
+    mount.group.position.set(2, 0, 0)
+    town.mounts = [mount]
+    const impacts: boolean[] = []
+    town.melee.mockImplementationOnce(() => { mount.skipImpactThisFrame = true })
+    town.missionCombat.update.mockImplementation(() => {
+      impacts.push(checkMountImpact(mount as any, new THREE.Vector3(1, 0, 0), .5))
+    })
+    town.frame(16)
+    expect(impacts).toEqual([false])
+    expect(mount.skipImpactThisFrame).toBe(false)
+    town.frame(32)
+    expect(impacts).toEqual([false, true])
     player.dispose()
   })
 })
