@@ -1,4 +1,4 @@
-import { cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile } from '../career/CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -124,4 +124,52 @@ export function purchaseTownEquipment(profile: CareerProfile, productId: string)
   return purchaseCareerContent(profile, {
     id: item.id, kind: item.category, requiredTier: item.tier, cost: item.price,
   })
+}
+
+export const TOWN_RESALE_PERCENT: Readonly<Record<CareerRank, number>> = {
+  recruit: 50, soldier: 60, veteran: 70, captain: 80, commander: 90,
+}
+
+export function townResalePrice(profile: CareerProfile, productId: string): number {
+  const item = TOWN_PRODUCTS.find(product => product.id === productId)
+  return item ? Math.floor(item.price * TOWN_RESALE_PERCENT[profile.rank] / 100) : 0
+}
+
+export function townSaleStatus(profile: CareerProfile, productId: string): 'sellable' | 'invalid-id' | 'not-owned' | 'last-weapon' {
+  const item = TOWN_PRODUCTS.find(product => product.id === productId)
+  if (!item) return 'invalid-id'
+  if (!isTownProductOwned(profile, item)) return 'not-owned'
+  if (item.category === 'weapon' && new Set(profile.ownedWeapons.filter(isTownShopWeapon)).size <= 1) return 'last-weapon'
+  return 'sellable'
+}
+
+/** Selling changes spendable merit and ownership only; rank never gates resale. */
+export function sellTownProduct(current: CareerProfile, productId: string) {
+  const status = townSaleStatus(current, productId)
+  const profile = cloneCareerProfile(current)
+  if (status !== 'sellable') return { profile, sold: false, earnedMerit: 0, reason: status }
+  const item = TOWN_PRODUCTS.find(product => product.id === productId)!
+  const earnedMerit = townResalePrice(current, productId)
+  profile.availableMerit += earnedMerit
+  if (item.category === 'weapon') profile.ownedWeapons = profile.ownedWeapons.filter(id => id !== productId)
+  if (item.category === 'armor') profile.ownedArmors = profile.ownedArmors.filter(id => id !== productId)
+  if (profile.equipment) {
+    for (const slot of ['melee', 'ranged', 'shield'] as const) {
+      if (profile.equipment[slot] === productId) delete profile.equipment[slot]
+    }
+  }
+  if (item.category === 'mount') {
+    profile.ownedMounts = profile.ownedMounts.filter(id => id !== productId)
+    if (productId === 'horse') delete profile.ownedHorseTiers
+    if (profile.selectedMountId && canonicalCareerMountId(profile.selectedMountId) === productId) delete profile.selectedMountId
+    const state = profile.activeMission?.mountState
+    if (state) {
+      if (state.activeMountId && canonicalCareerMountId(state.activeMountId) === productId) delete state.activeMountId
+      for (const id of Object.keys(state.hp) as (keyof typeof state.hp)[]) {
+        if (canonicalCareerMountId(id) === productId) delete state.hp[id]
+      }
+      state.unavailable = state.unavailable.filter(id => canonicalCareerMountId(id) !== productId)
+    }
+  }
+  return { profile, sold: true, earnedMerit }
 }

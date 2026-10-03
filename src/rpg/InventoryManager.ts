@@ -146,6 +146,13 @@ export class InventoryManager {
     return true
   }
 
+  protected removeOwnedItem(id: string): void {
+    this.items = this.items.filter(item => item.id !== id)
+    if (this.equippedMeleeId === id) { this.equippedMeleeId = ''; this.meleeEnabled = false }
+    if (this.equippedRangedId === id) { this.equippedRangedId = ''; this.rangedEnabled = false }
+    if (this.equippedShieldId === id) { this.equippedShieldId = null; this.shieldEnabled = false }
+  }
+
   equipWeapon(id: string): boolean {
     if (!this.canEquipWeapon(id)) return false
     const weapon = WEAPONS[id], armor = ARMORS[id]

@@ -31,7 +31,7 @@ import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareer
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownHorse, purchaseTownEquipment } from './TownRules'
+import { isTownProductOwned, purchaseTownHorse, purchaseTownEquipment, sellTownProduct, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
 import { getCareerPurchaseTier } from '../career/CareerProfile'
 import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
@@ -484,7 +484,7 @@ export class TownScene {
     document.body.append(panel); this.panel = panel; return panel
   }
   private button(parent: HTMLElement, label: string, action: () => void): void { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b) }
-  private talk(id: string, response?: string): void {
+  private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy'): void {
     if (this.player.dead || this.event.hostile || !this.serviceAvailable(id)) return
     const role = id as DialogueRole, key = this.profile.faction + ':' + id
     const firstMeet = !this.profile.townDialogueSeen?.includes(key)
@@ -514,11 +514,18 @@ export class TownScene {
     } else {
       const mount = id !== 'merchant', panel = this.openPanel(NAMES[id], greeting)
       const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 軍用戰馬只需購買一次，隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
-      const showProducts = () => {
+      const tabs = document.createElement('div'); tabs.className = 'town-shop-tabs'; panel.append(tabs)
+      this.button(tabs, '購買', () => showProducts('buy'))
+      this.button(tabs, '賣出', () => showProducts('sell'))
+      const showProducts = (page: 'buy' | 'sell' = shopPage) => {
+        for (const tab of Array.from(tabs.children) as HTMLButtonElement[]) tab.disabled = tab.textContent === (page === 'buy' ? '購買' : '賣出')
+        summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : mount ? ' · 軍用戰馬隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備')
         panel.querySelector('.town-products')?.remove()
         const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
         let section = ''
-        for (const item of TOWN_PRODUCTS.filter(i => (i.category === 'mount') === mount).sort((a, b) => {
+        const products = TOWN_PRODUCTS.filter(i => (i.category === 'mount') === mount && (page === 'buy' || isTownProductOwned(this.profile, i)))
+        if (!products.length) { const empty = document.createElement('p'); empty.textContent = '沒有可賣出的物品。'; list.append(empty) }
+        for (const item of products.sort((a, b) => {
           const group = (item: typeof a) => item.category === 'armor' ? 2 : WEAPONS[item.id]?.type === 'ranged' ? 1 : 0
           return mount ? 0 : group(a) - group(b)
         })) {
@@ -530,6 +537,23 @@ export class TownScene {
           const title = document.createElement('strong'); title.textContent = item.name
           const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item)
           row.append(title, meta)
+          if (page === 'sell') {
+            const price = townResalePrice(this.profile, item.id)
+            meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ` · 回收 ${price} 軍功`
+            const button = document.createElement('button'); button.className = 'town-button'
+            button.disabled = townSaleStatus(this.profile, item.id) !== 'sellable'
+            button.textContent = button.disabled ? '至少保留一件武器' : `賣出 · 收回 ${price} 軍功`
+            button.onclick = () => {
+              const result = sellTownProduct(this.profile, item.id)
+              if (!result.sold) { this.talk(id, result.reason === 'last-weapon' ? '至少保留一件武器。' : '物品已不存在或無法賣出。', 'sell'); return }
+              if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
+              this.inventory.syncOwnership()
+              this.careerMounts.syncOwnership()
+              this.player.clearTownAction()
+              this.talk(id, `賣出成功：${item.name}\n收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+            }
+            row.append(button); list.append(row); continue
+          }
           if (!mount) {
             const status = productStatus(this.profile, item)
             const button = document.createElement('button'); button.className = 'town-button'
@@ -561,7 +585,7 @@ export class TownScene {
           list.append(row)
         }
       }
-      if (id === 'cat' && !response) this.button(panel, '查看坐騎', showProducts)
+      if (id === 'cat' && !response) this.button(panel, '查看坐騎', () => showProducts())
       else showProducts()
     }
   }
