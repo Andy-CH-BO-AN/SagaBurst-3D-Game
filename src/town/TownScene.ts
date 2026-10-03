@@ -1489,6 +1489,9 @@ export class TownScene {
       sound?.updateHorseGallopLoops([])
       this.missionCombat.updateDuelDefeatedActors(dt)
     }
+    // Lance hits suppress mount impact only for that simulation frame, as in Game.
+    // Clear after all Career impact checks so subsequent guarded riding can hit again.
+    for (const mount of this.mounts) mount.skipImpactThisFrame = false
     const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
