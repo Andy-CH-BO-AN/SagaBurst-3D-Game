@@ -227,7 +227,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     reinforcementActorIds,
     chargedSquadIds: Array.isArray(raw.chargedSquadIds) ? [...new Set(raw.chargedSquadIds.filter((id): id is number => Number.isInteger(id) && id >= 1 && id <= 8))] : [],
     borrowedActorIds: uniqueStrings(raw.borrowedActorIds).filter(id => friendlyActorIds.includes(id)),
-    ...(raw.veteranRosterVersion === 1 || raw.veteranRosterVersion === 2 ? { veteranRosterVersion: raw.veteranRosterVersion } : {}),
+    ...(raw.veteranRosterVersion === 1 || raw.veteranRosterVersion === 2 || raw.veteranRosterVersion === 3 ? { veteranRosterVersion: raw.veteranRosterVersion } : {}),
     ...(actorHealth ? { actorHealth } : {}),
     ...(actorPositions ? { actorPositions } : {}),
     ...(engagedEnemySquadIds ? { engagedEnemySquadIds } : {}),
