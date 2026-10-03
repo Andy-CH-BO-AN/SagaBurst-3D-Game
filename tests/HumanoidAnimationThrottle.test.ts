@@ -100,7 +100,7 @@ function npcFixture(type = AIType.MELEE) {
 }
 
 describe('NPC / combat animator distance forwarding and gameplay isolation', () => {
-  it.each(['idle', 'chase', 'melee', 'ranged', 'recovery', 'dead'] as const)('forwards distance on the %s path', path => {
+  it.each(['idle', 'chase', 'melee', 'ranged', 'recovery', 'dead'] as const)('keeps physical melee current and forwards distance on the %s path', path => {
     const { npc, fixture, target, forward, tick } = npcFixture(path === 'ranged' || path === 'recovery' ? AIType.RANGED : AIType.MELEE)
     if (path === 'dead') npc.takeDamage(99999)
     if (path === 'chase') npc.state = AIState.CHASE
@@ -112,8 +112,9 @@ describe('NPC / combat animator distance forwarding and gameplay isolation', () 
       fixture.animator.start('bowRelease')
       fixture.bowArrowReleased = true
     }
+    if (path === 'melee') fixture.animator.start('swordSlash')
     tick(60)
-    expect(forward).toHaveBeenCalledExactlyOnceWith(1 / 60, 60)
+    expect(forward).toHaveBeenCalledExactlyOnceWith(1 / 60, path === 'melee' ? 0 : 60)
   })
 
   it.each<Exclude<CombatAction, 'idle' | 'bowAim'>>(['swordSlash', 'lanceThrust', 'mountedLance', 'bowRelease', 'pilumThrow'])('keeps every %s gameplay event on the same frame near and far', action => {

@@ -837,6 +837,9 @@ export class NPC {
     while (this.swordGripPivot.children.length > 0) {
       this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
+    // A new weapon must not inherit the old blade's mounted/foot attachment.
+    this.swordPivot.userData.swordAttachmentOwned = false
+    delete this.swordPivot.userData.equipmentAttachmentOwned
     if (!this.meleeWeaponId || this.specialCombatProfile === 'maki-ranger' || this.faction === Faction.BANDIT) return
     this.swordTipLocal.copy(
       WeaponMeshFactory.buildNpcMelee(
@@ -849,7 +852,6 @@ export class NPC {
     )
     this.swordGripPivot.position.set(0, 0, 0)
     this.swordGripPivot.rotation.set(0, 0, 0)
-    delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.equipmentGripFrames && this.isUsingLance) {
       applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     } else if (this.rig.swordGripFrame) {
