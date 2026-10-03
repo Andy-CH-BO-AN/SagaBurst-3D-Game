@@ -746,7 +746,7 @@ export class BanditMissionController {
     if (!definition || definition.kind !== 'veteran-field') return false
     const templateId = active.templateId as VeteranMissionTemplateId
     const faction = this.readProfile().faction
-    const roster = createVeteranRoster(templateId, faction, active.id, active.veteranRosterVersion ?? 1)
+    const roster = createVeteranRoster(templateId, faction, active.id, active.veteranRosterVersion ?? 1, active.borrowedActorIds)
     if (roster.friendlyTotal !== definition.friendlyCombatants
       || roster.enemyTotal !== definition.enemyCombatants
       || roster.friendly.length + 1 !== roster.friendlyTotal
@@ -1251,14 +1251,8 @@ export class BanditMissionController {
         }
       }
       const living = this.friendlies.filter(npc => !npc.dead)
-      const assembled = living.length === 0 || living.every(npc => {
-        const muster = this.veteranMusterPositions.get(npc.combatantId)
-        return npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID)
-          || Boolean(muster && npc.combatPosition.distanceToSquared(muster) <= VETERAN_ASSEMBLY_RADIUS ** 2)
-      })
-      const leader = this.leader && !this.leader.dead ? this.leader : living[0]
-      const joined = this.player().dead || Boolean(leader && this.player().combatPosition.distanceTo(leader.combatPosition) <= PLAYER_RETURN_RADIUS)
-      if (assembled && joined && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
+      const assembled = living.every(npc => npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID))
+      if (assembled && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
     }
     if (definition.objective.kind !== 'survive' && this.phase !== 'ASSEMBLING') this.mountedMarch?.update()
     this.persistRuntimeProgress()

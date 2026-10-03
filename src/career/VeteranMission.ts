@@ -6,6 +6,7 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { cloneCareerProfile, CAREER_RANKS, type CareerProfile } from './CareerProfile'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
+import { townRoster } from '../town/TownRules'
 
 export const VETERAN_MISSION_IDS = [
   'veteran-dread-outpost',
@@ -16,7 +17,7 @@ export const VETERAN_MISSION_IDS = [
   'veteran-tragedy-of-the-scouts',
 ] as const
 export type VeteranMissionTemplateId = typeof VETERAN_MISSION_IDS[number]
-export type VeteranRosterVersion = 1 | 2
+export type VeteranRosterVersion = 1 | 2 | 3
 export type VeteranMissionKind = 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
 export type VeteranTownRole = 'captain' | 'ranger' | 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry'
 export type VeteranMissionObjective = { kind: 'eliminate-all' } | { kind: 'survive'; seconds: 120 }
@@ -63,7 +64,30 @@ export interface VeteranMissionAvailability {
   reason?: '軍階未達Veteran' | '前置任務未完成' | '需要坐騎'
 }
 
-export interface AcceptVeteranMissionOptions { missionId?: string; acceptedAt?: number }
+export interface AcceptVeteranMissionOptions {
+  missionId?: string
+  acceptedAt?: number
+  availableTownCavalryActorIds?: readonly string[]
+}
+
+const TOWN_CAVALRY = townRoster().filter(actor => actor.role.endsWith('_cavalry'))
+
+function reusesAllTownCavalry(templateId: string): boolean {
+  return templateId === 'veteran-village-intercept' || templateId === 'veteran-spear-line-hunt'
+}
+
+/** Persist resident identities while changing only their mission equipment. */
+function equipExistingTownCavalry(roster: VeteranMissionRoster, missionId: string, actorIds?: readonly string[]): void {
+  const requested = new Set(actorIds ?? TOWN_CAVALRY.map(actor => actor.id))
+  const available = TOWN_CAVALRY.filter(actor => requested.has(actor.id))
+  roster.friendly.filter(unit => unit.tier === 3).forEach((unit, index) => {
+    const resident = available[index]
+    unit.source = resident ? 'town' : 'temporary'
+    unit.actorId = resident?.id ?? `${missionId}:temporary:friendly:cavalry-${index}`
+    if (resident) unit.townRole = resident.role as VeteranTownRole
+    else delete unit.townRole
+  })
+}
 
 const definition = (
   id: VeteranMissionTemplateId,
@@ -366,10 +390,13 @@ export function createVeteranRoster(
   templateId: VeteranMissionTemplateId,
   faction: CharacterFaction,
   missionId: string = templateId,
-  rosterVersion: VeteranRosterVersion = 2,
+  rosterVersion: VeteranRosterVersion = 3,
+  townCavalryActorIds?: readonly string[],
 ): VeteranMissionRoster {
   if (!getVeteranMissionDefinition(templateId)) throw new Error(`Unknown Veteran mission template: ${templateId}`)
-  return buildVeteranRoster(templateId, faction, missionId, rosterVersion)
+  const roster = buildVeteranRoster(templateId, faction, missionId, rosterVersion)
+  if (rosterVersion === 3 && reusesAllTownCavalry(templateId)) equipExistingTownCavalry(roster, missionId, townCavalryActorIds)
+  return roster
 }
 
 export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFaction: CharacterFaction, side: 'friendly' | 'enemy' = 'friendly'): NpcSpawnSpec {
@@ -404,8 +431,10 @@ export function acceptVeteranMission(current: CareerProfile, templateId: string,
   if (!missionDefinition || !getVeteranMissionAvailability(current, templateId).unlocked
     || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const missionId = options.missionId ?? createCareerMissionId(missionDefinition.id)
-  const veteranRosterVersion = missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined
-  const roster = createVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2)
+  const veteranRosterVersion = reusesAllTownCavalry(templateId) ? 3 as const
+    : missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined
+  const roster = createVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2,
+    options.availableTownCavalryActorIds)
   const mount = missionDefinition.requiresMount ? resolveCareerReliefMount(current) : undefined
   if (missionDefinition.requiresMount && !mount) return null
   const profile = cloneCareerProfile(current)

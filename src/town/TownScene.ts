@@ -662,7 +662,12 @@ export class TownScene {
     const definition = getVeteranMissionDefinition(templateId)
     const fresh = this.store.loadChecked().profile
     if (!definition || !fresh || this.player.dead || this.event.hostile) return
-    const next = acceptVeteranMission(fresh, definition.id)
+    const availableTownCavalryActorIds = definition.id === 'veteran-village-intercept' || definition.id === 'veteran-spear-line-hunt'
+      ? this.residents.filter(({ spec, npc, homeMount }) => {
+        const mount = npc.mount && !npc.mount.dead ? npc.mount : homeMount
+        return spec.role.endsWith('_cavalry') && !npc.dead && mount && !mount.dead
+      }).map(({ npc }) => npc.combatantId) : undefined
+    const next = acceptVeteranMission(fresh, definition.id, { availableTownCavalryActorIds })
     if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {

@@ -7,7 +7,7 @@ import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { claimCareerMission, createCareerProfile, type CareerProfile } from './CareerProfile'
 import { BanditMissionController, VETERAN_FIELD_LAYOUT } from './BanditMissionController'
-import { VETERAN_MISSION_IDS, acceptVeteranMission, createVeteranRoster } from './VeteranMission'
+import { VETERAN_MISSION_IDS, acceptVeteranMission, createVeteranRoster, createVeteranSpawnSpec } from './VeteranMission'
 import type { TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
 import type { UnitLoadout } from '../battle/UnitPresetCatalog'
@@ -141,7 +141,9 @@ function setupField(
   obstacles: ObstacleData[] = [],
 ) {
   const missionId = initialProfile?.activeMission?.id ?? `controller-${templateId}`
-  const roster = createVeteranRoster(templateId, 'roman', missionId)
+  const roster = createVeteranRoster(templateId, 'roman', missionId,
+    initialProfile ? initialProfile.activeMission?.veteranRosterVersion ?? 1 : 3,
+    initialProfile?.activeMission?.borrowedActorIds)
   const index = VETERAN_MISSION_IDS.indexOf(templateId)
   const base: CareerProfile = {
     ...createCareerProfile('roman'),
@@ -183,8 +185,9 @@ function setupField(
 }
 
 describe('Veteran field controller staging and lifecycle', () => {
-  it('keeps borrowed Town actors at home and orders them to ride or walk to muster', () => {
-    const setup = setupField('veteran-scout-hunters', undefined, undefined, undefined, true)
+  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const)(
+    'keeps borrowed Town actors at home and orders them to ride or walk to muster in %s', templateId => {
+    const setup = setupField(templateId, undefined, undefined, undefined, true)
     const initial = new Map(setup.residents.map(({ npc }) => [npc.combatantId, npc.combatPosition.clone()]))
     expect(setup.controller.startActiveMission()).toBe(true)
 
@@ -304,8 +307,8 @@ describe('Veteran field controller staging and lifecycle', () => {
 
   it.each([
     ['veteran-scout-hunters', 100, 40, 22, 77, 40],
-    ['veteran-village-intercept', 50, 100, 7, 42, 100],
-    ['veteran-spear-line-hunt', 50, 100, 11, 38, 100],
+    ['veteran-village-intercept', 50, 100, 22, 27, 100],
+    ['veteran-spear-line-hunt', 50, 100, 21, 28, 100],
     ['veteran-tragedy-of-the-scouts', 20, 100, 2, 17, 100],
   ] as const)('stages the exact Veteran roster for %s', (id, friendlyTotal, enemyTotal, borrowedCount, temporaryFriendlyCount, tempEnemyCount) => {
     const setup = setupField(id)
@@ -356,6 +359,37 @@ describe('Veteran field controller staging and lifecycle', () => {
     setup.controller.dispose()
   })
 
+  it.each(['veteran-village-intercept', 'veteran-spear-line-hunt'] as const)(
+    'restores the same reequipped residents, mounts, and shortages after reloading %s', templateId => {
+    const setup = setupField(templateId)
+    const borrowed = setup.residents.filter(({ spec }) => spec.role.endsWith('_cavalry'))
+    expect(borrowed).toHaveLength(20)
+    for (const { npc, homeMount } of borrowed) {
+      expect(npc.mount).toBe(homeMount)
+      expect(npc.temporaryTier).toBe(3)
+      expect(npc.temporaryLoadout).toEqual(createVeteranSpawnSpec(setup.roster.friendly.find(unit => unit.actorId === npc.combatantId)!, 'roman').loadout)
+    }
+    borrowed[0].npc.hp = 37
+    const savedPosition = borrowed[0].npc.combatPosition.clone()
+    expect(setup.controller.persistRuntimeProgress(true)).toBe(true)
+    setup.controller.cleanupMission()
+    for (const { npc, homeMount } of borrowed) {
+      expect(npc.temporaryLoadout).toBeUndefined()
+      expect(npc.tier).toBe(2)
+      expect(npc.mount).toBe(homeMount)
+      expect(npc.respawnEnabled).toBe(true)
+    }
+    const reloaded = setupField(templateId, setup.profile(), setup.residents, setup.player)
+    expect(reloaded.start).toBe(true)
+    expect(reloaded.controller.friendlies.filter(npc => borrowed.some(resident => resident.npc === npc as unknown as FieldTestNpc))).toHaveLength(20)
+    expect(borrowed[0].npc.hp).toBe(37)
+    expect(borrowed[0].npc.combatPosition.x).toBe(savedPosition.x)
+    expect(borrowed[0].npc.combatPosition.z).toBe(savedPosition.z)
+    expect(reloaded.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)).toHaveLength(templateId === 'veteran-village-intercept' ? 27 : 28)
+    reloaded.controller.dispose()
+    setup.controller.dispose()
+  })
+
   it('restores the latest Player mount state when a four-squad charge checkpoints', () => {
     const setup = setupField('veteran-scout-hunters')
     expect(setup.start).toBe(true)
@@ -402,11 +436,13 @@ describe('Veteran field controller staging and lifecycle', () => {
     setup.controller.dispose()
   })
 
-  it('does not start the Veteran march until the Player and most friendly riders reach muster', () => {
-    const setup = setupField('veteran-village-intercept')
+  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const)(
+    'starts %s when NPCs reach their slots even while the Player stays far away', templateId => {
+    const setup = setupField(templateId)
     expect(setup.start).toBe(true)
     const captain = setup.controller.friendlies.find(npc => npc.combatantId === setup.roster.friendly.find(unit => unit.leader)?.actorId)!
-    setup.player.group.position.copy(captain.combatPosition)
+    setup.player.group.position.set(-150, 0, -150)
+    setup.controller.onMarchStarted = vi.fn()
     setup.controller.updateFlow(.016, 0)
     expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
     const candidates = setup.controller.friendlies as unknown as FieldTestNpc[]
@@ -419,8 +455,28 @@ describe('Veteran field controller staging and lifecycle', () => {
     expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
     for (const npc of candidates) npc.moveToFormationTarget()
     setup.controller.updateFlow(.016, 0)
-    expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
+    expect(setup.profile().activeMission?.phase).toBe('MARCHING')
+    expect(setup.player.combatPosition.distanceTo(captain.combatPosition)).toBeGreaterThan(100)
+    expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
+    setup.controller.updateFlow(.016, 0)
+    expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
+    setup.controller.dispose()
+  })
+
+  it('waits for a nearby Captain to walk to his own slot without snapping him into place', () => {
+    const setup = setupField('veteran-village-intercept')
+    const captain = setup.controller.missionLeader as unknown as FieldTestNpc
+    const candidates = setup.controller.friendlies as unknown as FieldTestNpc[]
+    for (const npc of candidates) if (npc !== captain) npc.moveToFormationTarget()
+    setup.controller.updateFlow(.016, 0)
+    for (const npc of candidates) if (npc !== captain) npc.moveToFormationTarget()
+    const nearby = captain.formationTarget!.position.clone().add(new THREE.Vector3(-8, 0, 0))
+    captain.combatPosition.copy(nearby)
     setup.player.group.position.copy(captain.combatPosition)
+    setup.controller.updateFlow(.016, 0)
+    expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
+    expect(captain.combatPosition).toEqual(nearby)
+    captain.moveToFormationTarget()
     setup.controller.updateFlow(.016, 0)
     expect(setup.profile().activeMission?.phase).toBe('MARCHING')
     setup.controller.dispose()
