@@ -30,7 +30,7 @@ describe('Veteran Home Defense career mission', () => {
     const template = getCareerMissionTemplate(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     expect(template).toMatchObject({
       id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID, kind: 'town-defense', name: '守衛家園 · 老兵守城',
-      minRank: 'veteran', requiresCompletions: 5, storyOnce: true,
+      minRank: 'veteran', requiresCompletions: 5, storyOnce: false,
       friendlySoldiers: 60, friendlyCombatants: 64, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
     })
     expect(careerMissionTierForTemplateId(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(3)
@@ -64,7 +64,7 @@ describe('Veteran Home Defense career mission', () => {
     expect(restored.activeMission!.templateId).toBe(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
   })
 
-  it('counts only Tier 3 victories, leaves failure locked, and persists one-time completion', () => {
+  it('counts only Tier 3 victories, leaves failure locked, and allows replay after a saved victory', () => {
     const profile = veteranProfile(4)
     const failed = acceptedHomeDefense(profile, 'home-defense-failed')
     const failureClaim = claimCareerMission(failed, failed.activeMission!.id, 'failure', stats)
@@ -82,7 +82,20 @@ describe('Veteran Home Defense career mission', () => {
     const duplicate = claimCareerMission(restored, restored.activeMission!.id, 'victory', stats)
     expect(duplicate.alreadyClaimed).toBe(true)
     expect(duplicate.profile.careerMissionCompletionsByTier).toEqual({ 1: 50, 2: 50, 3: 5 })
-    expect(availableCareerMissionsForPage(clearCareerMission(duplicate.profile, restored.activeMission!.id), 'veteran')
+    const ready = clearCareerMission(duplicate.profile, restored.activeMission!.id)
+    expect(ready.completedCareerMissionTemplateIds).toContain(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
+    expect(availableCareerMissionsForPage(ready, 'veteran')
+      .some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
+    expect(availableRecruitMissions(ready).some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
+
+    const replay = acceptedHomeDefense(ready, 'home-defense-replay')
+    expect(availableCareerMissionsForPage(replay, 'veteran')
       .some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
+    const replayClaim = claimCareerMission(replay, replay.activeMission!.id, 'victory', stats)
+    expect(replayClaim.alreadyClaimed).toBe(false)
+    expect(replayClaim.meritAwarded).toBeGreaterThan(0)
+    expect(careerMissionCompletionsForTier(replayClaim.profile, 3)).toBe(6)
+    expect(replayClaim.profile.completedCareerMissionTemplateIds!.filter(id => id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toHaveLength(1)
+    expect(claimCareerMission(replayClaim.profile, replay.activeMission!.id, 'victory', stats).alreadyClaimed).toBe(true)
   })
 })
