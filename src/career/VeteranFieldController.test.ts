@@ -5,7 +5,7 @@ import { Faction, type NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
-import { createCareerProfile, type CareerProfile } from './CareerProfile'
+import { claimCareerMission, createCareerProfile, type CareerProfile } from './CareerProfile'
 import { BanditMissionController, VETERAN_FIELD_LAYOUT } from './BanditMissionController'
 import { VETERAN_MISSION_IDS, acceptVeteranMission, createVeteranRoster } from './VeteranMission'
 import type { TownActorSpec } from '../town/TownRules'
@@ -496,6 +496,86 @@ describe('Veteran field controller staging and lifecycle', () => {
     setup.controller.friendlies.forEach(npc => ((npc as unknown as FieldTestNpc).dead = true))
     setup.controller.updateFlow(119.9, 0)
     expect(setup.controller.evaluate(true)).toBe('failure')
+    setup.controller.dispose()
+  })
+})
+
+const RETURN_MISSIONS = ['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const
+
+function finishField(setup: ReturnType<typeof setupField>) {
+  setup.controller.missionBandits.forEach(npc => npc.takeDamage(999999))
+  const stats = { damageDealt: 40, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
+  Object.assign(setup.profile(), claimCareerMission(setup.profile(), setup.profile().activeMission!.id, 'victory', stats).profile)
+}
+
+describe('Veteran elimination mission party return', () => {
+  it.each(RETURN_MISSIONS)('returns the surviving party from its current position and resumes after reload: %s', id => {
+    const setup = setupField(id)
+    setup.controller.friendlies[1].takeDamage(999999)
+    const leader = setup.controller.missionLeader! as unknown as FieldTestNpc
+    leader.combatPosition.set(170, 0, 20)
+    finishField(setup)
+    const merit = setup.profile().totalMerit
+    expect(setup.controller.startReturning()).toBe(true)
+    expect(setup.controller.phase).toBe('RETURNING')
+    expect(leader.combatPosition.x).toBe(170)
+    const home = leader.formationTarget!.position.clone()
+    const followers = setup.controller.friendlies.filter(npc => !npc.dead && npc !== setup.controller.missionLeader) as unknown as FieldTestNpc[]
+    expect(followers.every(npc => npc.assignFollowTarget.mock.lastCall?.[0] === leader)).toBe(true)
+    leader.combatPosition.set(80, 0, 20)
+    leader.hp = 37
+    setup.controller.updateFlow(5, 0)
+    setup.controller.persistRuntimeProgress(true)
+    setup.controller.cleanupMission()
+    const reload = setupField(id, setup.profile(), setup.residents, setup.player, true)
+    reload.controller.onMarchStarted = vi.fn()
+    reload.controller.onSweepCharge = vi.fn()
+    expect(reload.controller.startActiveMission()).toBe(true)
+    expect(reload.controller.phase).toBe('RETURNING')
+    expect(reload.controller.missionBandits).toHaveLength(0)
+    expect(reload.controller.friendlies.filter(npc => !npc.dead)).toHaveLength(setup.roster.friendly.length - 1)
+    const restoredLeader = reload.controller.missionLeader! as unknown as FieldTestNpc
+    expect(restoredLeader.combatPosition.x).toBe(80)
+    expect(restoredLeader.hp).toBe(37)
+    expect(restoredLeader.formationTarget!.position).toEqual(home)
+    reload.controller.updateFlow(.016, 0)
+    expect(reload.controller.onMarchStarted).not.toHaveBeenCalled()
+    expect(reload.controller.onSweepCharge).not.toHaveBeenCalled()
+    expect(reload.profile().totalMerit).toBe(merit)
+    restoredLeader.combatPosition.copy(home)
+    reload.player.group.position.set(170, 0, 20)
+    expect(reload.controller.partyReturned).toBe(true)
+    expect(reload.controller.returnComplete).toBe(false)
+    reload.player.group.position.copy(home)
+    expect(reload.controller.returnComplete).toBe(true)
+    reload.controller.dispose()
+    setup.controller.dispose()
+  })
+
+  it('elects a living leader and lets a sole surviving Player walk home', () => {
+    const setup = setupField('veteran-scout-hunters')
+    setup.controller.missionLeader!.takeDamage(999999)
+    finishField(setup)
+    expect(setup.controller.startReturning()).toBe(true)
+    expect(setup.controller.missionLeader!.dead).toBe(false)
+    const home = (setup.controller.missionLeader as unknown as FieldTestNpc).formationTarget!.position.clone()
+    setup.controller.friendlies.forEach(npc => npc.takeDamage(999999))
+    setup.controller.updateFlow(.016, 0)
+    expect(setup.controller.partyReturned).toBe(true)
+    setup.player.group.position.copy(home)
+    expect(setup.controller.returnComplete).toBe(true)
+    setup.controller.dispose()
+  })
+
+  it('keeps the result and existing orders when saving the return fails', () => {
+    const setup = setupField('veteran-village-intercept')
+    finishField(setup)
+    const leader = setup.controller.missionLeader! as unknown as FieldTestNpc
+    leader.assignFormationTarget.mockClear()
+    ;(setup.controller as unknown as { commit: (profile: CareerProfile) => boolean }).commit = () => false
+    expect(setup.controller.startReturning()).toBe(false)
+    expect(setup.controller.phase).toBe('RESULT')
+    expect(leader.assignFormationTarget).not.toHaveBeenCalled()
     setup.controller.dispose()
   })
 })

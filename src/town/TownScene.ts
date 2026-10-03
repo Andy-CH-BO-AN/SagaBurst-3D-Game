@@ -291,7 +291,8 @@ export class TownScene {
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
       this.flushCareerSkillProgression()
-      if (this.profile.activeMission?.kind === 'veteran-field' && !this.profile.activeMission.result) this.mission.persistRuntimeProgress(true)
+      if (this.profile.activeMission?.kind === 'veteran-field'
+        && (!this.profile.activeMission.result || this.profile.activeMission.phase === 'RETURNING')) this.mission.persistRuntimeProgress(true)
     }, { signal: this.listeners.signal })
     for (const type of ['mousedown', 'mouseup', 'wheel'] as const) window.addEventListener(type, e => { if (this.panel || this.equipment.visible) { e.stopImmediatePropagation(); this.input.clear() } }, { ...opts, passive: false })
     renderer.domElement.addEventListener('click', () => { if (!this.panel && !this.equipment.visible) { if (!location.search.includes('nolock')) this.input.requestPointerLock(renderer.domElement); sound.unlockAudio() } }, { signal: this.listeners.signal })
@@ -913,7 +914,7 @@ export class TownScene {
       })
       return
     }
-    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && this.profile?.activeMission?.kind !== 'veteran-field' && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
