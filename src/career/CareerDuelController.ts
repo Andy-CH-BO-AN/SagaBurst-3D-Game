@@ -38,12 +38,12 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
   if (tier === 4) opponent = archery ? ranger : captain
   else {
     const mounted = Boolean(loadout.mountId)
-    opponent = residents.filter(resident => resident.spec.role.includes('_') && !resident.npc.dead
+    opponent = residents.filter(resident => resident.spec.duty === 'training' && !resident.npc.dead
       && (!mounted || Boolean((resident.homeMount ?? resident.npc.mount) && !(resident.homeMount ?? resident.npc.mount)!.dead)))
       .sort((a, b) => {
         const score = (resident: CareerDuelResident) => Number(resident.npc.presetId === presetId) * 4
           + Number(Boolean(resident.homeMount ?? resident.npc.mount) === mounted) * 2
-          + Number(archery ? resident.spec.role.startsWith('ranged') : !resident.spec.role.startsWith('ranged'))
+          + Number(archery ? resident.spec.unitKind === 'ranged' || resident.spec.unitKind === 'horse_archer' : resident.spec.unitKind === 'melee' || resident.spec.unitKind === 'sword_cavalry')
         return score(b) - score(a)
       })[0]
   }

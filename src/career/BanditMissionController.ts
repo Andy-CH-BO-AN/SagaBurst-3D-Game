@@ -134,7 +134,7 @@ export function selectMissionCavalryActorIds(residents: readonly { spec: TownAct
     npc.mount && !npc.mount.dead || homeMount && !homeMount.dead))
   const captain = available.find(({ spec }) => spec.role === 'captain')
   const ranger = available.find(({ spec }) => spec.role === 'ranger')
-  const cavalry = available.filter(({ spec }) => spec.role.includes('cavalry'))
+  const cavalry = available.filter(({ spec }) => spec.mounted && spec.duty === 'training')
   let index = 0
   return Array.from({ length: Math.max(0, count) }, (_, slot) =>
     (slot === 0 ? captain : slot === 29 ? ranger : cavalry[index++])?.npc.combatantId)

@@ -30,7 +30,7 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
   Object.assign(town, {
     shots: [{ arrow, training: false, player: false, source, age: 0 }],
     player,
-    world: { buildings: [], targets: [] },
+    world: { buildings: [], targets: [], obstacles: [] },
     mission: { friendlies: [ally], missionBandits: [enemy], ambientBandits: [], combatPeersFor: () => onlyBystander ? [] : [target] },
     defense: { active: false }, residents: [{ npc: bystander }],
     hitFieldNpc: vi.fn(), damagePlayerFromNpc: vi.fn(), hitResident: vi.fn(),

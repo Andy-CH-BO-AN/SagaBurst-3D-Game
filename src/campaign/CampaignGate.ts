@@ -1,3 +1,4 @@
+import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import * as THREE from 'three'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { DamageableObstacle } from '../world/DamageableObstacle'
@@ -14,7 +15,7 @@ export interface CampaignGateControllerOptions {
   leftHinge: THREE.Object3D
   rightHinge: THREE.Object3D
   openRotationY: number
-  breachController: CampaignBreachController
+  initialState?: 'closed' | 'open'
 }
 
 export interface CampaignBreachOrderResult {
@@ -126,7 +127,7 @@ export class CampaignGateController {
   private readonly leftHinge: THREE.Object3D
   private readonly rightHinge: THREE.Object3D
   private readonly openRotationY: number
-  private readonly breachController: CampaignBreachController
+  private readonly stateCallbacks = new Set<(state: CampaignGateState) => void>()
 
   private _state: CampaignGateState = 'closed'
 
@@ -139,23 +140,29 @@ export class CampaignGateController {
     this.leftHinge = options.leftHinge
     this.rightHinge = options.rightHinge
     this.openRotationY = options.openRotationY
-    this.breachController = options.breachController
     this.collisionBox = options.obstacle.box
 
     this.damageable.onDestroyed(() => {
       this._state = 'destroyed'
       removeObstacleData(this.obstacles, this.obstacle)
-      this.breachController.trigger()
+      this.notifyState()
     })
+    if (options.initialState === 'open') this.open()
   }
 
   get state(): CampaignGateState {
     return this._state
   }
 
-  get breached(): boolean {
-    return this.breachController.breached
+  /** Campaign/Siege owns breach policy; physical gate changes have no implicit breach. */
+  onStateChange(callback: (state: CampaignGateState) => void): () => void {
+    this.stateCallbacks.add(callback)
+    return () => this.stateCallbacks.delete(callback)
   }
+
+  private notifyState(): void { for (const callback of [...this.stateCallbacks]) callback(this._state) }
+
+  destroy(): boolean { return this.damageable.destroy() }
 
   open(): boolean {
     if (this._state === 'destroyed') return false
@@ -165,7 +172,7 @@ export class CampaignGateController {
     removeObstacleData(this.obstacles, this.obstacle)
     this.leftHinge.rotation.y = this.openRotationY
     this.rightHinge.rotation.y = -this.openRotationY
-    this.breachController.trigger()
+    this.notifyState()
     return true
   }
 
@@ -177,9 +184,11 @@ export class CampaignGateController {
     this._state = 'closed'
     if (!this.obstacles.includes(this.obstacle)) {
       this.obstacles.push(this.obstacle)
+      markObstacleTopologyChanged(this.obstacles)
     }
     this.leftHinge.rotation.y = 0
     this.rightHinge.rotation.y = 0
+    this.notifyState()
     return true
   }
 

@@ -1,3 +1,4 @@
+import { createPalisadeSegment as buildPalisadeSegment, createPalisadeStakeGeometry } from '../world/PalisadeSegment'
 import * as THREE from 'three'
 import { createCampfireVisual, createChevalVisual, createTentVisual, timberMaterial, bakedMesh, beamBetween } from '../world/EnvironmentVisuals'
 import {
@@ -117,18 +118,7 @@ export function createCampaignOutpost(
   const darkWoodMaterial = timberMaterial(0x514333)
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
   const palisadeHeight = CAMPAIGN_PALISADE_HEIGHT[defenderFaction]
-  const palisadeStakeGeometry = new THREE.CylinderGeometry(0.11, 0.15, palisadeHeight, 7, 2)
-  // Shape each stake into a hewn point while retaining the exact wall height.
-  const stakePositions = palisadeStakeGeometry.getAttribute('position')
-  for (let i = 0; i < stakePositions.count; i++) {
-    if (Math.abs(stakePositions.getY(i)) < 0.001) {
-      stakePositions.setY(i, palisadeHeight / 2 - 0.18)
-    } else if (stakePositions.getY(i) > palisadeHeight * 0.49) {
-      stakePositions.setX(i, stakePositions.getX(i) * 0.16)
-      stakePositions.setZ(i, stakePositions.getZ(i) * 0.16)
-    }
-  }
-  palisadeStakeGeometry.computeVertexNormals()
+  const palisadeStakeGeometry = createPalisadeStakeGeometry(palisadeHeight)
 
   const unregisterHitMeshes = (hitMeshes: readonly THREE.Object3D[]): void => {
     for (const mesh of hitMeshes) {
@@ -173,72 +163,14 @@ export function createCampaignOutpost(
     widthX: number,
     depthZ: number,
   ): DamageableObstacle => {
-    const pieceRoot = new THREE.Group()
-    pieceRoot.name = name
-
-    // Render the palisade as tightly packed timber stakes. Actor collision and
-    // projectile collision both use the same continuous obstacle volume, so
-    // there are no visual/projectile gaps that can make ranged LoS flicker.
-    const horizontal = widthX >= depthZ
-    const length = horizontal ? widthX : depthZ
-    const spacing = 0.20
-    const stakeCount = Math.max(2, Math.ceil(length / spacing))
-    const actualSpacing = length / stakeCount
-    const stakes = new THREE.InstancedMesh(
-      palisadeStakeGeometry,
-      woodMaterial,
-      stakeCount,
-    )
-    stakes.name = `${name}-stakes`
-    stakes.castShadow = true
-    stakes.receiveShadow = true
-
-    const matrix = new THREE.Matrix4()
-    let minTerrainY = Infinity
-    let maxTerrainY = -Infinity
-    for (let i = 0; i < stakeCount; i++) {
-      const offset = -length / 2 + actualSpacing * (i + 0.5)
-      const stakeX = horizontal ? x + offset : x
-      const stakeZ = horizontal ? z : z + offset
-      const terrainY = getTerrainHeight(stakeX, stakeZ)
-      minTerrainY = Math.min(minTerrainY, terrainY)
-      maxTerrainY = Math.max(maxTerrainY, terrainY)
-      matrix.makeTranslation(stakeX, terrainY + palisadeHeight / 2, stakeZ)
-      stakes.setMatrixAt(i, matrix)
-      stakes.setColorAt(i, new THREE.Color().setHSL(0.09, 0.12, 0.65 + Math.sin(i * 13.7) * 0.12))
-    }
-    stakes.instanceMatrix.needsUpdate = true
-    pieceRoot.add(stakes)
-
-    const createRail = (heightRatio: number): THREE.Mesh => {
-      const parts: THREE.BufferGeometry[] = []
-      const sections = Math.ceil(length / 2)
-      const pointAt = (offset: number): THREE.Vector3 => {
-        const px = horizontal ? x + offset : x + 0.17
-        const pz = horizontal ? z + 0.17 : z + offset
-        return new THREE.Vector3(px, getTerrainHeight(px, pz) + palisadeHeight * heightRatio, pz)
-      }
-      for (let i = 0; i < sections; i++) {
-        parts.push(beamBetween(pointAt(-length / 2 + length * i / sections),
-          pointAt(-length / 2 + length * (i + 1) / sections), 0.075))
-      }
-      return bakedMesh(parts, darkWoodMaterial)
-    }
-    const lowerRail = createRail(0.42)
-    const upperRail = createRail(0.76)
-    pieceRoot.add(lowerRail, upperRail)
-
-    root.add(pieceRoot)
-
-    const box = new THREE.Box3(
-      new THREE.Vector3(x - widthX / 2, minTerrainY, z - depthZ / 2),
-      new THREE.Vector3(x + widthX / 2, maxTerrainY + palisadeHeight, z + depthZ / 2),
-    )
+    const segment = buildPalisadeSegment({ name, x, z, widthX, depthZ, height: palisadeHeight,
+      stakeGeometry: palisadeStakeGeometry, woodMaterial, railMaterial: darkWoodMaterial })
+    root.add(segment.root)
     const palisade = registerDamageablePiece({
       kind: 'palisade',
-      root: pieceRoot,
-      hitMeshes: [stakes, lowerRail, upperRail],
-      box,
+      root: segment.root,
+      hitMeshes: segment.hitMeshes,
+      box: segment.box,
       isBarricade: true,
     })
     palisade.onDestroyed(() => {
@@ -379,8 +311,8 @@ export function createCampaignOutpost(
     leftHinge: leftGateHinge,
     rightHinge: rightGateHinge,
     openRotationY: zSign * Math.PI / 2,
-    breachController,
   })
+  gateController.onStateChange(state => { if (state !== 'closed') breachController.trigger() })
 
   const stakeXs = [-40, -32, -24, -16, -10, 10, 16, 24, 32, 40]
   for (const [index, x] of stakeXs.entries()) {

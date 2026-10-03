@@ -72,9 +72,9 @@ describe('Town population and civilian combat', () => {
     expect((roman.getObjectByName('Tunic_1') as THREE.Mesh).material).toBe(cloth)
     expect(cloth.color.getHex()).toBe(0xff2222)
   })
-  it('registers exactly 85 unique principals, with 60 garrison and 20 additional pedestrians', () => {
+  it('registers the 85 explicit principals independently of 100 additional military residents', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
-    expect(counts).toMatchObject({ melee_cavalry: 5, lancer_cavalry: 5, ranged_cavalry: 10, ranged_infantry: 20, melee_infantry: 10, spearman_infantry: 10, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
+    expect(counts).toMatchObject({ melee_cavalry: 20, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
     const e = new TownEvent(); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(85)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
@@ -361,7 +361,7 @@ describe('Town orchestration transitions', () => {
     source.setTownPeaceful()
     const town = createTownCombatFixture() as any
     town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
-    town.world = { buildings: [], targets: [] }
+    town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
     town.defense = { active: false, playerEnemies: [], releasedEnemies: [] }
     town.hp = { setFill: vi.fn() }; town.inventory = { shieldEnabled: false }
@@ -578,7 +578,7 @@ describe('Town orchestration transitions', () => {
   it('dismounts Maki when enemy fire kills the black cat during Town Defense', () => {
     const town = createTownCombatFixture() as any
     town.profile = { activeMission: { kind: 'town-defense', phase: 'ATTACKING' } }
-    town.world = { buildings: [], targets: [] }
+    town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [] }
     town.defense = { active: true, playerEnemies: [], releasedEnemies: [], peersFor: vi.fn(() => []) }
     town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }

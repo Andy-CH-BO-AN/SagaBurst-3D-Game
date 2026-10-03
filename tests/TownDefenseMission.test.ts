@@ -73,10 +73,10 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(groups.find(group => group.id === 'B')?.actorIds.every(id => id.startsWith('spearman_infantry'))).toBe(true)
   })
 
-  it('keeps cavalry as a reserve and mounted archers on the outer screen', () => {
-    expect(groups.find(group => group.id === 'E')).toMatchObject({ role: 'reserve', initialOrder: 'DEFEND', mounted: true })
+  it('retains converted infantry in the reserve and outer screen under stable actor IDs', () => {
+    expect(groups.find(group => group.id === 'E')).toMatchObject({ role: 'reserve', initialOrder: 'DEFEND', mounted: false })
     expect(groups.find(group => group.id === 'E')?.actorIds.filter(id => id.startsWith('lancer_cavalry'))).toHaveLength(5)
-    expect(groups.find(group => group.id === 'F')).toMatchObject({ role: 'outer-screen', initialOrder: 'DEFEND', mounted: true })
+    expect(groups.find(group => group.id === 'F')).toMatchObject({ role: 'outer-screen', initialOrder: 'DEFEND', mounted: false })
   })
 
   it('forms three front-facing horseshoe layers, with spears outside swords and ranged troops', () => {
@@ -122,8 +122,8 @@ describe('Recruit Town Defense layout and rosters', () => {
       { box: new THREE.Box3(new THREE.Vector3(-36, -10, -17), new THREE.Vector3(-22, 10, -3)), isBarricade: false },
       { box: new THREE.Box3(new THREE.Vector3(-42, -10, 14), new THREE.Vector3(-26, 10, 27)), isBarricade: false },
     ])
-    const actors = roster.filter(spec => spec.role.includes('_') || ['captain', 'ranger', 'deployment', 'civilian'].includes(spec.role))
-      .map(spec => ({ spec, npc: { dead: false, isMounted: spec.role.includes('cavalry') || spec.role === 'captain' || spec.role === 'ranger', mount: null as unknown, assignFormationTarget: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) } }))
+    const actors = roster.filter(spec => Boolean(spec.defenseGroup) || ['captain', 'ranger', 'deployment', 'civilian'].includes(spec.role))
+      .map(spec => ({ spec, npc: { dead: false, isMounted: spec.mounted || spec.role === 'captain' || spec.role === 'ranger', mount: null as unknown, assignFormationTarget: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) } }))
     const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
     Object.assign(controller, { groups: groups.map(group => ({ id: group.id, members: group.actorIds.map(id => actors.find(actor => actor.spec.id === id)!.npc) })), residents: actors, navigation, blackCat: { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }, commandId: 0 })
@@ -141,7 +141,7 @@ describe('Recruit Town Defense layout and rosters', () => {
     expect(radius('deployment')).toBeGreaterThan(radius('ranged_infantry-0'))
     expect(radius('ranger')).toBeGreaterThan(radius('melee_infantry-0'))
     expect(actors.filter(actor => actor.spec.role !== 'civilian').every(actor => actor.npc.assignFormationTarget.mock.lastCall![1].z >= center.z)).toBe(true)
-    const horseArchers = actors.filter(actor => actor.spec.role === 'ranged_cavalry').map(actor => actor.npc.assignFormationTarget.mock.lastCall![1] as THREE.Vector3)
+    const horseArchers = actors.filter(actor => actor.spec.defenseGroup === 'F').map(actor => actor.npc.assignFormationTarget.mock.lastCall![1] as THREE.Vector3)
     expect(new Set(horseArchers.map(point => point.x)).size).toBe(1)
   })
 })
@@ -192,7 +192,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
   it('mounts Maki on the existing black cat, stages them on a separate flank, then joins the attack', () => {
     const roster = townRoster()
     const actor = () => ({ dead: false, mount: null as unknown, assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn(), mountVehicle: vi.fn(function (this: any, mount: unknown) { this.mount = mount }) })
-    const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'civilian').map(spec => ({ spec, npc: actor() }))
+    const residents = roster.filter(spec => Boolean(spec.defenseGroup) || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'civilian').map(spec => ({ spec, npc: actor() }))
     const blackCat = { dead: false, catVisual: { setEquipmentVisible: vi.fn() } }
     const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
@@ -321,10 +321,10 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
 
   it('persists the sergeant death and restores it as dead on Town Defense reload', () => {
     let profile = createCareerProfile('roman')
-    profile.activeMission = createTownDefenseMission([...townRoster().filter(actor => actor.role.includes('_')).map(actor => actor.id), 'captain', 'ranger', 'deployment'], [], 'sergeant-reload')
+    profile.activeMission = createTownDefenseMission([...townRoster().filter(actor => Boolean(actor.defenseGroup)).map(actor => actor.id), 'captain', 'ranger', 'deployment'], [], 'sergeant-reload')
     profile.activeMission.phase = 'ATTACKING'
     const roster = townRoster()
-    const residents = roster.filter(spec => spec.role.includes('_') || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'deployment')
+    const residents = roster.filter(spec => Boolean(spec.defenseGroup) || spec.role === 'captain' || spec.role === 'ranger' || spec.role === 'deployment')
       .map(spec => ({ spec, npc: { combatantId: spec.id, dead: spec.role === 'deployment', takeDamage: vi.fn(function (this: any) { this.dead = true }) } }))
     const controller = withMissionCheckpoint(Object.create(TownDefenseController.prototype)) as any
     controller.player = () => ({ dead: false })
@@ -364,7 +364,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
 
   it('creates Recruit rosters for 50 enemies, 60 garrison plus captain, Maki and sergeant, and 20 civilians', () => {
     const roster = townRoster()
-    const military = roster.filter(actor => actor.role.includes('_') || actor.role === 'captain' || actor.role === 'ranger' || actor.role === 'deployment').map(actor => actor.id)
+    const military = roster.filter(actor => Boolean(actor.defenseGroup) || actor.role === 'captain' || actor.role === 'ranger' || actor.role === 'deployment').map(actor => actor.id)
     const civilians = roster.filter(actor => actor.role === 'civilian').map(actor => actor.id)
     const mission = createTownDefenseMission(military, civilians, 'defense-stable')
     expect(mission.kind).toBe('town-defense')
@@ -413,7 +413,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const reset = clearCareerMission(profile, 'defense-reset')
     expect(reset.activeMission).toBeUndefined()
     expect(reset.ownedMounts).toEqual(['horse'])
-    expect(townRoster()).toHaveLength(85)
+    expect(townRoster()).toHaveLength(185)
   })
 
   it('never creates or clears Town Crime state as part of mission claiming/reset', () => {
