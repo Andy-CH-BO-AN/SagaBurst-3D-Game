@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +17,7 @@ vi.mock('../src/audio/SoundManager', () => ({ SoundManager: class {
 } }))
 
 function townHarness(faction: 'roman' | 'viking' = 'roman') {
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   town.profile = createCareerProfile(faction)
   town.profile.totalMerit = 120; town.profile.careerMissionCompletions = 5
   town.store = { load: () => town.profile }

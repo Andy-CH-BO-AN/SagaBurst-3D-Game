@@ -139,11 +139,11 @@ export function resolveMountImpacts(
       if (checkMountImpact(mount, player.position, 0.38)) {
         applyMountImpactDamage(mount, player, player.position, now, (damage) => {
           const rider = mount.riderNpc
-          const context: CombatDamageContext | undefined = rider ? {
+          const context: CombatDamageContext = rider ? {
             source: createNpcCombatActorRef(rider),
             method: 'mount-impact',
             emit: options.combatEvents,
-          } : undefined
+          } : { source: { actorId: 'unattributed-mount-impact', actorType: 'npc', allegiance: riderFaction, characterFaction: player.characterFaction }, method: 'mount-impact' }
           const result = options.onDamagePlayer(damage, context)
           if (result.hitSuccess) {
             options.onEnemyMountHitPlayer?.(damage, result)
@@ -175,7 +175,7 @@ export function resolveMountImpacts(
             source: createNpcCombatActorRef(rider),
             method: 'mount-impact',
             emit: options.combatEvents,
-          } : undefined)
+          } : { source: { actorId: 'unattributed-mount-impact', actorType: 'npc', allegiance: riderFaction, characterFaction: player.characterFaction }, method: 'mount-impact' })
           if (result.hitSuccess) {
             // NPC -> NPC: does NOT spawn floating damage numbers or change player HUD
             options.onNpcMountHitNpc?.(damage, mount, targetNpc, result)

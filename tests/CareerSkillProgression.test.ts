@@ -167,6 +167,7 @@ describe('Career skill progression', () => {
       },
       target: { targetId: 'npc:rider', targetType: 'npc', name: 'rider' },
       method: 'projectile',
+      contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
     } as CombatEvent
 
@@ -207,6 +208,7 @@ describe('Career skill progression', () => {
         characterFaction: 'roman',
       },
       method: 'projectile',
+      contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
       emit: stream.emit,
     })
@@ -215,7 +217,7 @@ describe('Career skill progression', () => {
       currentHp: 100,
       maxHp: 100,
       dead: false,
-      mountDisplayName: '戰馬',
+      displayName: '戰馬', mountDisplayName: '戰馬',
       group: { uuid: 'late-projectile-mount' },
       takeDamage(amount: number) {
         if (this.dead) return false
@@ -246,6 +248,7 @@ describe('Career skill progression', () => {
         characterFaction: 'roman',
       },
       method: 'projectile',
+      contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
       emit: stream.emit,
     })
@@ -378,7 +381,7 @@ describe('Career skill progression', () => {
       currentHp: 50,
       maxHp: 50,
       dead: false,
-      mountDisplayName: '戰馬',
+      displayName: '戰馬', mountDisplayName: '戰馬',
       group: { uuid: 'enemy-mount' },
       takeDamage(amount: number) {
         if (this.dead) return false
@@ -455,7 +458,7 @@ describe('Career skill progression', () => {
       currentHp: 80,
       maxHp: 80,
       dead: false,
-      mountDisplayName: '戰馬',
+      displayName: '戰馬', mountDisplayName: '戰馬',
       group: { uuid: 'mount-integration' },
       takeDamage(amount: number) {
         if (this.dead) return false
@@ -488,6 +491,7 @@ describe('Career skill progression', () => {
         characterFaction: 'roman',
       },
       method: 'melee',
+      contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.viking_axe_t2.id,
       emit: stream.emit,
     })
@@ -511,7 +515,7 @@ describe('Career skill progression', () => {
       currentHp: 100,
       maxHp: 100,
       dead: false,
-      mountDisplayName: '戰馬',
+      displayName: '戰馬', mountDisplayName: '戰馬',
       group: { uuid: 'mount-ranged' },
       takeDamage(amount: number) {
         this.currentHp = Math.max(0, this.currentHp - amount)
@@ -540,7 +544,8 @@ describe('Career skill progression', () => {
         allegiance: 'PLAYER' as never,
         characterFaction: 'roman',
       },
-      method: 'projectile',
+      method: 'projectile', contact: { kind: 'mount', time: .1 },
+      contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
       emit: stream.emit,
     })

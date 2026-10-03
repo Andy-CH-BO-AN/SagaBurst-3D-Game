@@ -24,7 +24,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { Mount, MountState } from '../world/Mount'
+import { Mount } from '../world/Mount'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
@@ -511,10 +511,11 @@ export class Player {
   }
 
   mountVehicle(mount: Mount, heading?: number): void {
-    if (this.spectatorOnly) return
+    if (this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
+    if (this.currentMount && this.currentMount !== mount) this.dismountFromMount()
     this.isMounted = true
     this.currentMount = mount
-    mount.state = MountState.CONTROLLED
+    mount.setPlayerRider(this)
     const targetHeading = heading !== undefined ? heading : this.facingYaw
     this.setMountedHeading(targetHeading)
     this.syncMountTransform()
@@ -563,16 +564,8 @@ export class Player {
     this.velY = 0
   }
 
-  takeDamage(amount: number, hpBar: HpBar, riderHit = false): boolean {
+  takeDamage(amount: number, hpBar: HpBar, _riderHit = true): boolean {
     if (this.isDead || this.spectatorOnly) return false
-
-    if (!riderHit && this.isMounted && this.currentMount) {
-      const hitSuccess = this.currentMount.takeDamage(amount)
-      if (hitSuccess && this.currentMount.dead) {
-        this.dismountFromMount()
-      }
-      return hitSuccess
-    }
 
     this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null))
     hpBar.setFill(this.hpRatio)

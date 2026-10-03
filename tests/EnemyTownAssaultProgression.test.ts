@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../src/town/TownScene'
 import { CAREER_RANKS, claimCareerMission, clearCareerMission, createCareerProfile } from '../src/career/CareerProfile'
@@ -90,7 +91,7 @@ describe('Enemy Town Assault canonical Relief prerequisite', () => {
   })
   it('rechecks the persisted prerequisite when accepting from a stale deployment UI', () => {
     const commit = vi.fn(), restart = vi.fn(), openPanel = vi.fn()
-    const scene = Object.assign(Object.create(TownScene.prototype), {
+    const scene = Object.assign(createTownCombatFixture(), {
       profile: settleRelief('victory'), store: { load: () => readyForRelief() },
       commit, onRestart: restart, openPanel,
     })

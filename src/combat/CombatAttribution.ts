@@ -143,18 +143,18 @@ export function createNpcCombatTargetRef(npc: NPC): CombatTargetRef {
 
 export function createMountCombatTargetRef(
   mount: Mount,
-  owner: CombatActorRef,
-  name: string,
+  owner: CombatActorRef | undefined = mount.combatOwner,
+  name: string = mount.displayName,
 ): CombatTargetRef {
   return {
     targetId: `mount:${mount.group.uuid}`,
     targetType: 'mount',
     name,
-    ownerActorId: owner.actorId,
-    allegiance: owner.allegiance,
-    characterFaction: owner.characterFaction,
-    presetId: owner.presetId,
-    squadId: owner.squadId,
+    ownerActorId: owner?.actorId,
+    allegiance: owner?.allegiance,
+    characterFaction: owner?.characterFaction,
+    presetId: owner?.presetId,
+    squadId: owner?.squadId,
   }
 }
 

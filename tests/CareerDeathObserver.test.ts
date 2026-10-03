@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { checkMountImpact } from '../src/combat/MountImpact'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
@@ -172,7 +173,7 @@ describe('Career objectives take priority over player death', () => {
 
 function townFixture() {
   const controls = { textContent: '', style: {} }
-  const town = Object.create(TownScene.prototype) as any
+  const town = createTownCombatFixture() as any
   const player = new Player(new THREE.Scene(), 'roman')
   vi.stubGlobal('document', { getElementById: () => controls })
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -334,7 +335,7 @@ describe('Town mission death observer orchestration', () => {
 })
 
 describe('Career mount impact frame lifetime', () => {
-  it('expires lance suppression after impact resolution so the next frame can collide', () => {
+  it.each(['town', 'owned', 'temporary'])('expires %s mount lance suppression after impact resolution so the next frame can collide', source => {
     const { town, player } = townFixture()
     town.world = { obstacles: [] }
     town.resolveBodies = vi.fn()
@@ -343,9 +344,13 @@ describe('Career mount impact frame lifetime', () => {
     const mount = {
       group: new THREE.Group(), previousPosition: new THREE.Vector3(),
       skipImpactThisFrame: false, dead: false, setCameraDistance: vi.fn(),
+      update: vi.fn(),
+      get combatPosition() { return this.group.position },
     }
     mount.group.position.set(2, 0, 0)
-    town.mounts = [mount]
+    if (source === 'town') town.mounts = [mount]
+    else if (source === 'owned') town.careerMounts = { activeMount: mount }
+    else town.temporaryMounts.track(mount, town.profile.activeMission.id)
     const impacts: boolean[] = []
     town.melee.mockImplementationOnce(() => { mount.skipImpactThisFrame = true })
     town.missionCombat.update.mockImplementation(() => {

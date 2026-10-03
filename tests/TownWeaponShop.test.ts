@@ -1,3 +1,4 @@
+import { createTownCombatFixture } from './townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, getCareerPurchaseTier, type CareerProfile, type CareerRank } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
@@ -137,7 +138,7 @@ function merchantHarness(failSave = false) {
   const current = profile(); current.townDialogueSeen = ['roman:merchant']
   const store = new CareerProfileStore(storage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
-  const town = Object.assign(Object.create(TownScene.prototype), {
+  const town = Object.assign(createTownCombatFixture(), {
     skills: { skillState: current.skills }, careerSkillSaveTimer: null,
     profile: current, store, player: { dead: false }, event: { hostile: false }, serviceAvailable: () => true,
     openPanel: function (_title: string, message: string) { this.message = message; this.panel = new PanelElement('panel'); return this.panel },

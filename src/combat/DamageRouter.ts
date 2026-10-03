@@ -3,6 +3,7 @@
  * Centralised damage routing for mounted/unmounted entities and destructible structures.
  */
 import type { NPC } from '../world/NPC'
+import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { weaponShieldImpact } from './ShieldBlocking'
@@ -14,8 +15,9 @@ import {
   createMountCombatTargetRef,
   createNpcCombatActorRef,
   createNpcCombatTargetRef,
-  createPlayerCombatActorRef,
   createPlayerCombatTargetRef,
+  createPlayerCombatActorRef,
+  type CombatActorRef,
   createStructureCombatTargetRef,
   emitActorKilled,
   emitDamageApplied,
@@ -58,41 +60,43 @@ function shieldDamage(target: NPC | Player, damage: number, context?: CombatDama
   return result.damage
 }
 
-/** Apply damage to an NPC, routing to its mount when mounted. */
+function routedMount(attached: Mount | null, context?: CombatDamageContext): Mount | undefined {
+  if (context?.method === 'mount-impact') return attached && !attached.dead ? attached : undefined
+  if ((context?.method === 'melee' || context?.method === 'projectile') && context.contact?.kind === 'mount') {
+    return context.contact.mount ?? attached ?? undefined
+  }
+  return undefined
+}
+
+/** Independent mount target: no rider HP damage, shield mitigation or actor-killed event. */
+export function damageMount(mount: Mount, damage: number, context?: CombatDamageContext, owner: CombatActorRef | undefined = mount.combatOwner): DamageResult {
+  const target = createMountCombatTargetRef(mount, owner)
+  const beforeHp = mount.currentHp, wasDead = mount.dead
+  const hitSuccess = mount.takeDamage(damage)
+  const appliedDamage = Math.max(0, beforeHp - mount.currentHp)
+  const mountDied = !wasDead && mount.dead
+  emitDamageApplied(context, target, damage, appliedDamage)
+  return {
+    hitSuccess, requestedDamage: damage, appliedDamage, targetId: target.targetId,
+    targetName: target.name, killed: mountDied, hpRatio: mount.currentHp / mount.maxHp,
+    isMountHit: true, mountDied,
+  }
+}
+
+/** Physical contact controls melee/projectiles; mount-impact explicitly targets a living mount. */
 export function damageNpc(
   npc: NPC,
   damage: number,
   context?: CombatDamageContext,
 ): DamageResult {
   const requestedDamage = damage
-  const shieldHit = npc.shield?.active && context?.contact?.kind === 'shield' && (context.method === 'melee' || context.method === 'projectile')
   const finalDamage = shieldDamage(npc, damage, context)
 
-  if (npc.isMounted && npc.mount && !shieldHit) {
-    const mount = npc.mount
-    const beforeHp = mount.currentHp
-    const wasDead = mount.dead
-    const owner = createNpcCombatActorRef(npc)
-    const targetName = `${npc.name} 的${mount.mountDisplayName}`
-    const target = createMountCombatTargetRef(mount, owner, targetName)
-    const hitSuccess = mount.takeDamage(finalDamage)
-    const appliedDamage = Math.max(0, beforeHp - mount.currentHp)
-    const mountDied = !wasDead && mount.dead
-
-    emitDamageApplied(context, target, requestedDamage, appliedDamage)
-
-    if (mountDied) npc.dismountFromMount()
-    return {
-      hitSuccess,
-      requestedDamage,
-      appliedDamage,
-      targetId: target.targetId,
-      targetName,
-      killed: mountDied,
-      hpRatio: mount.currentHp / mount.maxHp,
-      isMountHit: true,
-      mountDied,
-    }
+  const mount = routedMount(npc.mount, context)
+  if (mount) {
+    const result = damageMount(mount, damage, context, mount.combatOwner ?? (mount === npc.mount ? createNpcCombatActorRef(npc) : undefined))
+    if (result.mountDied && npc.mount === mount) npc.dismountFromMount()
+    return result
   }
 
   const target = createNpcCombatTargetRef(npc)
@@ -118,7 +122,7 @@ export function damageNpc(
   }
 }
 
-/** Apply damage to the Player, routing to their mount when mounted. */
+/** Apply a hit to the actual contacted entity, independently of Player mounted state. */
 export function damagePlayer(
   player: Player,
   damage: number,
@@ -144,31 +148,11 @@ export function damagePlayer(
   const shieldHit = player.shield?.active && context?.contact?.kind === 'shield' && (context.method === 'melee' || context.method === 'projectile')
   const finalDamage = shieldDamage(player, damage, context)
 
-  if (player.isMounted && player.currentMount && !shieldHit) {
-    const mount = player.currentMount
-    const beforeHp = mount.currentHp
-    const wasDead = mount.dead
-    const owner = createPlayerCombatActorRef(player)
-    const targetName = `坐騎：${mount.displayName}`
-    const target = createMountCombatTargetRef(mount, owner, targetName)
-    const hitSuccess = mount.takeDamage(finalDamage)
-    const appliedDamage = Math.max(0, beforeHp - mount.currentHp)
-    const mountDied = !wasDead && mount.dead
-
-    emitDamageApplied(context, target, requestedDamage, appliedDamage)
-
-    if (mountDied) player.dismountFromMount()
-    return {
-      hitSuccess,
-      requestedDamage,
-      appliedDamage,
-      targetId: target.targetId,
-      targetName,
-      killed: mountDied,
-      hpRatio: mount.currentHp / mount.maxHp,
-      isMountHit: true,
-      mountDied,
-    }
+  const mount = routedMount(player.currentMount, context)
+  if (mount) {
+    const result = damageMount(mount, damage, context, mount.combatOwner ?? (mount === player.currentMount ? createPlayerCombatActorRef(player) : undefined))
+    if (result.mountDied && player.currentMount === mount) player.dismountFromMount()
+    return result
   }
 
   const target = createPlayerCombatTargetRef(player)

@@ -1,3 +1,4 @@
+import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
 import * as THREE from 'three'
@@ -18,7 +19,7 @@ import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
 import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
-import { damageNpc, damagePlayer } from '../combat/DamageRouter'
+import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
@@ -63,7 +64,7 @@ import { createTownDefenseMission, type CareerMissionOutcome, type CareerMission
 import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../career/TownDefenseState'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
-import { townMeleeBuildingContact, townMeleeContact } from './TownCombat'
+import { townMeleeBuildingContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TownEquipment } from './TownEquipment'
 import { TownMissionSettlement } from './TownMissionSettlement'
@@ -91,6 +92,11 @@ export class TownScene {
   private readonly input = new PlayerInput()
   private orbit!: ThirdPersonCamera
   private spectator: SpectatorCameraController | null = null
+  private readonly combatMountGrid = new SpatialGrid<Mount>(8)
+  private readonly combatMounts: Mount[] = []
+  private readonly meleeMountCandidates: Mount[] = []
+  private readonly temporaryMounts = new TemporaryBattlefieldMounts()
+  private nearbyTemporaryMount: Mount | null = null
   private readonly grid = new SpatialGrid<NPC>(4)
   private readonly neighbors: NPC[] = []
   private nextTrainingSound = 0
@@ -458,7 +464,12 @@ export class TownScene {
     }
     if (e.repeat) return
     if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.(); this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts); return }
-    if (e.code === 'KeyE') { e.preventDefault(); e.stopImmediatePropagation(); if (this.target) this.talk(this.target) }
+    if (e.code === 'KeyE') {
+      e.preventDefault(); e.stopImmediatePropagation()
+      if (this.player.isMounted) this.player.dismountFromMount()
+      else if (this.nearbyTemporaryMount?.availableForPlayer) this.player.mountVehicle(this.nearbyTemporaryMount)
+      else if (this.target) this.talk(this.target)
+    }
   }
   private closePanel(): void {
     this.panel?.remove(); this.panel = null; this.equipment.close(); this.input.clear(); this.player.clearTownAction(); if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
@@ -925,6 +936,7 @@ export class TownScene {
       this.button(panel, '重試保存結算', () => this.finishMission(outcome))
       return
     }
+    this.temporaryMounts.cleanup()
     this.openMissionResult(finished.result, false)
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
@@ -959,6 +971,7 @@ export class TownScene {
     this.shots = []
   }
   private restPlayerInTown(): void {
+    this.temporaryMounts.cleanup()
     this.careerMounts.restInTown()
     this.inventory.sheathAll()
     this.player.restoreForTown()
@@ -1008,6 +1021,7 @@ export class TownScene {
     p.townEvent = { id: crypto.randomUUID(), state: 'hostile' }
     if (!this.commit(p)) return false
     if (active) {
+      this.temporaryMounts.cleanup()
       this.mission.cleanupMission(active.targetCampId)
       this.clearMissionCombatShots()
       this.missionResultOpen = false
@@ -1024,6 +1038,77 @@ export class TownScene {
     const speaker = this.residents.find(r => r.spec.role === 'captain' && !r.npc.dead) ?? this.residents.find(r => !r.npc.dead && !isCivilian(r.spec.role))
     this.chargeSpeakerId = speaker?.spec.id ?? null
     if (shout && speaker) sound.playCommanderCommand(this.profile.faction, 'charge')
+  }
+  private refreshCombatMounts(): void {
+    this.combatMountGrid.clear()
+    this.combatMounts.length = 0
+    const seen = new Set<Mount>()
+    const owned = this.careerMounts?.activeMount
+    const active = this.profile.activeMission
+    const combatActive = !this.result && (this.event?.hostile || Boolean(active && !active.result && active.phase !== 'RETURNING'))
+    const combatId = active?.id ?? this.profile.townEvent?.id ?? 'field'
+    if (combatActive) for (const resident of this.residents ?? []) {
+      const mount = resident.homeMount
+      if (resident.npc.dead && mount && !mount.dead && mount !== owned
+        && mount !== this.cat && !(this.stableHorses ?? []).includes(mount)) this.temporaryMounts.track(mount, combatId)
+    }
+    const add = (mount: Mount | null | undefined, battlefield = false): void => {
+      if (!mount || mount.disposed || !mount.group.visible || seen.has(mount)) return
+      seen.add(mount)
+      if (combatActive && battlefield && !this.mounts.includes(mount) && mount !== owned && !mount.reservedForTown) {
+        this.temporaryMounts.track(mount, combatId)
+      }
+      this.combatMounts.push(mount)
+      if (!mount.dead) this.combatMountGrid.insert(mount)
+    }
+    for (const mount of this.mounts ?? []) add(mount)
+    for (const mount of this.mission?.battlefieldMounts ?? []) add(mount, true)
+    for (const mount of this.defense?.enemyMounts ?? []) add(mount, true)
+    for (const mount of this.duel?.allMounts ?? []) add(mount, true)
+    for (const mount of this.temporaryMounts.all) add(mount)
+    add(owned)
+    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? [])]) {
+      npc.combatMountGrid = this.combatMountGrid
+    }
+  }
+  private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact): void {
+    if (mount.dead || mount.disposed || amount <= 0) return
+    if (!this.profile.activeMission && !this.event?.hostile && this.mounts.includes(mount) && !source) {
+      this.hitResident(mount, amount, method, contact)
+      return
+    }
+    const result = damageMount(mount, amount, {
+      contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
+        : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+      emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
+    })
+    if (!source && result.appliedDamage > 0) {
+      this.awardCareerSkillXp(method, result.appliedDamage)
+      this.damageNumbers.spawn(result.appliedDamage, mount.group.position.clone().add(new THREE.Vector3(0, 1, 0)))
+      this.showCombatTarget(result.targetName, result.hpRatio)
+    }
+    if (result.hitSuccess) {
+      if (method === 'projectile') sound?.playProjectileImpact(mount.currentLod, !source)
+      else sound?.playSwordHit(mount.currentLod, !source)
+    }
+  }
+  private showCombatTarget(name: string, ratio: number): void {
+    if (typeof document === 'undefined') return
+    const hud = document.getElementById('enemy-hud'), label = document.getElementById('enemy-name'), fill = document.getElementById('enemy-hp-fill')
+    if (label) label.textContent = name
+    if (fill) fill.style.width = `${Math.max(0, ratio * 100)}%`
+    hud?.classList?.add('visible')
+  }
+  private updateMountHud(): void {
+    if (typeof document === 'undefined') return
+    const mount = this.player.isMounted ? this.player.currentMount : null
+    const hud = document.getElementById('mount-hud'), label = document.getElementById('mount-name'), fill = document.getElementById('mount-hp-fill')
+    hud?.classList?.toggle('visible', Boolean(mount && !mount.dead && !this.player.dead))
+    if (mount) {
+      if (label) label.textContent = `坐騎：${mount.displayName}`
+      if (fill) fill.style.width = `${Math.max(0, mount.currentHp / mount.maxHp * 100)}%`
+    }
   }
   private get townServiceMounts(): Mount[] {
     return isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) ? [] : [...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])]
@@ -1054,11 +1139,10 @@ export class TownScene {
       applied = result.appliedDamage
       if (applied > 0) this.awardCareerSkillXp(method, applied)
     } else {
-      const before = npc.currentHp
-      npc.takeDamage(amount)
-      applied = before - npc.currentHp
+      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact })
+      applied = result.appliedDamage
       if (applied > 0) this.awardCareerSkillXp(method, applied)
-      if (npc.dead && this.ranger.mount === npc) this.ranger.dismountFromMount()
+      this.showCombatTarget(result.targetName, result.hpRatio)
     }
     if (applied > 0) {
       this.damageNumbers.spawn(applied, position)
@@ -1101,6 +1185,11 @@ export class TownScene {
     }
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact): void {
+    contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
+    if (contact?.kind === 'mount' && contact.mount) {
+      this.hitBattlefieldMount(contact.mount, amount, method, source, contact)
+      return
+    }
     if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
     if (this.defense?.active && (source ? !townWartimeHostile(source, target) : target.faction !== Faction.ENEMY)) return
@@ -1126,7 +1215,10 @@ export class TownScene {
       else this.mission.provokeGroupFor(target)
     }
     if (!source && !(this.defense.active && target.townCategory === 'civilian') && !target.dead && (target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) target.retaliateAgainstPlayer()
-    if (!source) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+    if (!source) {
+      if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
+      this.showCombatTarget(result.targetName, result.hpRatio)
+    }
   }
   private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
     if (this.duel?.active && !this.duel.canDamagePlayer(source)) return
@@ -1187,19 +1279,17 @@ export class TownScene {
           : s.source?.faction === Faction.PLAYER
             ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
             : [this.player]
+      targets.push(...this.combatMounts.filter(mount => mount !== this.player.currentMount || !s.player))
       for (const target of targets) {
+        if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) continue
         if (target.dead) continue
         const broadPosition = target.group.position
         if (broadPosition.distanceToSquared(from) > (length + 4) ** 2) continue
-        const center = target instanceof Player
-          ? this.duel?.active ? target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)) : target.position.clone()
-          : target instanceof NPC ? target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)) : target.group.position.clone().add(new THREE.Vector3(0, 1, 0))
         const contact: CombatContact = { kind: 'body', time: Infinity }
-        const p = target instanceof Mount ? ray.intersectSphere(new THREE.Sphere(center, .8), new THREE.Vector3()) : null
-        const distance = target instanceof Mount ? p?.distanceTo(from) ?? Infinity
-          : traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
+        const distance = traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
         if (distance < nearest) { nearest = distance; hit = () => {
-          if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact)
+          if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact)
+          else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact)
           else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact)
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
             this.cat.takeDamage(s.arrow.damage)
@@ -1244,36 +1334,26 @@ export class TownScene {
     }
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
-    const combatTargets = this.duel?.active ? this.duel.opponent ? [this.duel.opponent] : [] : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies, ...(this.missionCombat?.enemyTownHostiles ?? [])]
-    for (const target of combatTargets) {
-      if (target.dead) continue
-      if (target.combatPosition.distanceToSquared(this.player.position) > ((weapon.range ?? 1.8) + 3) ** 2) continue
-      const center = target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0))
-      const line = new THREE.Ray(this.player.position, center.clone().sub(this.player.position).normalize())
-      const blocked = this.world.obstacles.some(o => { const hit = line.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(this.player.position) < center.distanceTo(this.player.position) - .4 })
-      if (!blocked && this.player.weaponSweep.trace(target)) {
-        this.player.markHitProcessed()
-        this.hitFieldNpc(target, Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, target.isMounted)), 'melee')
-        if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
-        return
-      }
+    const combatTargets = this.duel?.active ? this.duel.opponent ? [this.duel.opponent] : []
+      : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
+        ...(this.missionCombat?.enemyTownHostiles ?? []),
+        ...this.residents.map(r => r.npc).filter(target => !this.isProtectedTownAlly(target))]
+    const targets = combatTargets.filter(target => !target.dead
+      && target.combatPosition.distanceToSquared(this.player.combatPosition) <= ((weapon.range ?? 1.8) + 4) ** 2)
+    const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, (weapon.range ?? 1.8) + 4, this.meleeMountCandidates)
+    const contact = this.player.weaponSweep.traceFirst(targets, mounts, this.player.currentMount)
+    if (!contact) return
+    this.player.markHitProcessed()
+    const target = contact.target as NPC | Mount
+    const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, contact.kind === 'mount' || target.isMounted))
+    if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
+    else if (target instanceof NPC) {
+      if (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+      else this.hitResident(target, amount, 'melee', contact)
     }
-    for (const target of [...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))) {
-      if (target.dead) continue
-      const targetPosition = target instanceof NPC ? target.combatPosition : target.group.position
-      if (targetPosition.distanceToSquared(this.player.position) > ((weapon.range ?? 1.8) + 3) ** 2) continue
-      const center = target instanceof NPC ? target.combatPosition.clone() : target.group.position.clone(); center.y += 1
-      const line = new THREE.Ray(this.player.position, center.clone().sub(this.player.position).normalize())
-      const blocked = this.world.obstacles.some(o => { const hit = line.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(this.player.position) < center.distanceTo(this.player.position) - .4 })
-      if (!blocked && (target instanceof NPC ? this.player.weaponSweep.trace(target) : townMeleeContact(this.player.position, this.player.facingYaw, from, tip, previousTip, center, weapon.range ?? 1.8, weapon.combatKind === 'lance'))) {
-        this.player.markHitProcessed()
-        const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, target instanceof Mount || target.isMounted))
-        if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && target instanceof NPC && target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee')
-        else this.hitResident(target, amount)
-        return
-      }
-    }
+    if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
   }
+
   private resolveBodies(): void {
     if (this.player.dead) return
     const playerBody = { position: this.player.group.position, radius: .42, height: 1.8, bottomOffset: .9 }
@@ -1382,7 +1462,7 @@ export class TownScene {
       r.npc.update(dt, this.player, [], this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp, (damage, isPlayer) => { if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee') }, (origin, direction, kind) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc), false, r.npc.group.position.distanceTo(this.camera.position), null, null, this.navigation)
     }
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc && checkMountImpact(mount, this.player.combatPosition, .6)) {
-      applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null))
+      applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => this.damagePlayerFromNpc(mount.riderNpc!, amount, 'mount-impact'))
     }
     const playerMount = this.player.currentMount
     if (playerMount && !playerMount.dead) {
@@ -1396,12 +1476,21 @@ export class TownScene {
       const dir = this.player.position.clone().sub(this.cat.group.position); dir.y = 0
       this.cat.beginControlledFrame(); this.cat.group.rotation.y = Math.atan2(dir.x, dir.z)
       if (dir.length() > 1.5) this.cat.addControlledMovement(dir.normalize(), 7, dt)
-      else if (this.cat.canImpact(this.player, this.elapsed)) damagePlayer(this.player, 15, this.hp, null)
+      else if (this.cat.canImpact(this.player, this.elapsed)) damagePlayer(this.player, 15, this.hp, null, { source: createNpcCombatActorRef(ranger), method: 'mount-impact' })
       this.cat.finishControlledFrame(dt, this.world.obstacles)
     }
   }
   private interaction(): void {
     if (this.player.dead) { this.target = null; this.hint.textContent = ''; this.hint.style.display = 'none'; return }
+    this.nearbyTemporaryMount = null
+    if (!this.player.isMounted) {
+      let mountDistance = 3
+      for (const mount of this.temporaryMounts.all) {
+        if (!mount.availableForPlayer) continue
+        const distance = Math.hypot(mount.group.position.x - this.player.combatPosition.x, mount.group.position.z - this.player.combatPosition.z)
+        if (distance < mountDistance) { mountDistance = distance; this.nearbyTemporaryMount = mount }
+      }
+    }
     this.target = null; let nearest = 2.6
     if (!this.event.hostile && !this.defense.active) for (const id of ['captain', 'deployment', 'merchant', 'ranger', 'cat']) {
       if (!this.serviceAvailable(id)) continue
@@ -1412,13 +1501,14 @@ export class TownScene {
       if (this.world.obstacles.some(o => { const hit = ray.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(start) < end.distanceTo(start) })) continue
       this.target = id; nearest = distance
     }
-    this.hint.textContent = this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
+    this.hint.textContent = this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
     this.hint.style.display = this.hint.textContent ? '' : 'none'
   }
   private finish(result: TownResult): void {
     this.result = result
     const next = settleTown(this.profile, this.profile.townEvent!.id, result)
     if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
+    this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
     this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(next) })
   }
@@ -1452,6 +1542,7 @@ export class TownScene {
     if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
+      this.refreshCombatMounts()
       if (!this.player.dead && !this.spectator) {
         let step: -1 | 0 | 1
         while ((step = this.input.consumeWheelStep()) !== 0) this.weaponWheel.cycle(this.inventory, step)
@@ -1464,7 +1555,10 @@ export class TownScene {
       this.missionCombat.updateDepartingCavalry(dt)
       this.updateCareerHorseAudio()
       for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
-      for (const m of this.mounts) { m.setCameraDistance(m.group.position.distanceTo(this.camera.position)); if (m.dead) m.update(dt, this.world.obstacles) }
+      for (const m of this.mounts) {
+        m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
+        if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, this.world.obstacles)
+      }
       if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
       this.resolveBodies(); this.updateShots(dt)
       if (this.duel?.active) this.duel.persistRuntimeProgress()
@@ -1492,6 +1586,7 @@ export class TownScene {
     }
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
     // Clear after all Career impact checks so subsequent guarded riding can hit again.
+    for (const mount of this.combatMounts) mount.skipImpactThisFrame = false
     for (const mount of this.mounts) mount.skipImpactThisFrame = false
     const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
@@ -1516,6 +1611,7 @@ export class TownScene {
         )
       : ''
     this.hud.textContent = `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+    this.updateMountHud()
     this.damageNumbers.update(dt, this.camera)
     this.updateAmbient()
     this.quiver.setArrowCount(this.player.arrowCount)
@@ -1532,7 +1628,8 @@ export class TownScene {
     sound?.cancelCareerAudio()
     document.getElementById('controls-hint')!.textContent = this.previousControls
     document.getElementById('quiver-hud')!.style.display = ''
-    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input.dispose(); this.panel?.remove(); this.equipment.close(); this.hud.remove(); this.hint.remove(); this.pointerPrompt.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); this.ambientLabel.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
+    this.temporaryMounts.cleanup()
+    this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input.dispose(); this.panel?.remove(); this.equipment.close(); this.hud.remove(); this.hint.remove(); this.pointerPrompt.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
 

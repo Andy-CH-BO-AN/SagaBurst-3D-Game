@@ -182,7 +182,7 @@ describe('Combat attribution foundation', () => {
       currentHp: 5,
       maxHp: 100,
       dead: false,
-      mountDisplayName: '戰馬坐騎',
+      displayName: '戰馬', mountDisplayName: '戰馬坐騎',
       group: new THREE.Group(),
       takeDamage(amount: number) {
         if (this.dead) return false
@@ -193,7 +193,7 @@ describe('Combat attribution foundation', () => {
     }
     npc.mount = mount
 
-    const result = damageNpc(npc, 50, sourceContext(stream))
+    const result = damageNpc(npc, 50, sourceContext(stream, { contact: { kind: 'mount', time: .1 } }))
 
     expect(result.isMountHit).toBe(true)
     expect(result.appliedDamage).toBe(5)

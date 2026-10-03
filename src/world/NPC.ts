@@ -284,6 +284,8 @@ export class NPC {
   readonly shield = new ShieldState()
   shieldCollider!: ShieldCollider
   readonly weaponSweep = new WeaponSweep()
+  combatMountGrid: SpatialGrid<Mount> | null = null
+  private readonly combatMountCandidates: Mount[] = []
   bodyHitNodes: THREE.Object3D[] = []
   private readonly sweepGrip = new THREE.Vector3()
   private rangedTargetHeightOffset = 0
@@ -745,6 +747,7 @@ export class NPC {
   }
 
   mountVehicle(mount: Mount): void {
+    if (mount.dead || mount.disposed || mount.riderPlayer || mount.riderNpc && mount.riderNpc !== this) return
     this.mount = mount
     this.mount.setNpcRider(this, this.faction)
     this._alignExternalVisualToMount(true)
@@ -2461,8 +2464,10 @@ export class NPC {
                 ? Boolean(player?.isMounted)
                 : Boolean(targetInfo.npc?.isMounted)
               const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
-              if (physicalTarget && this.weaponSweep.trace(physicalTarget)) {
-                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted)
+              const mounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], mounts, this.mount)
+              if (contact) {
+                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
                 this.attackHitProcessed = true
                 onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
               }
