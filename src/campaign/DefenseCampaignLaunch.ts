@@ -573,6 +573,20 @@ export function positionDefenseCampaignDefenders(
   }
 }
 
+/** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
+export function positionDefenseCampaignAttackers(
+  specs: NpcSpawnSpec[],
+  outpostFaction: CampaignFaction,
+): void {
+  if (specs.length === 0) return
+  const placement = getCampaignOutpostPlacement(outpostFaction)
+  const inwardSign = Math.sign(placement.backZ - placement.frontZ)
+  const closestOutsideDistance = Math.min(...specs.map(spec => (placement.frontZ - spec.z) * inwardSign))
+  const shiftOutward = Math.max(0, 100 - closestOutsideDistance)
+  if (shiftOutward === 0) return
+  for (const spec of specs) spec.z -= inwardSign * shiftOutward
+}
+
 export function positionDefenseCampaignReinforcements(
   specs: NpcSpawnSpec[],
   defenderFaction: CampaignFaction,

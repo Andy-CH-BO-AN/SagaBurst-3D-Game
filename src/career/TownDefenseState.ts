@@ -4,6 +4,7 @@ import { CAREER_RANKS, type CareerRank } from './CareerProfile'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
+export const VETERAN_TOWN_DEFENSE_TEMPLATE_ID = 'veteran-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
 export const TOWN_DEFENSE_PREPARATION_SECONDS = 20
 
@@ -112,6 +113,7 @@ const RECRUIT_TOWN_DEFENSE_ATTACK_GROUPS: readonly TownDefenseAttackGroup[] = [
 export function townDefenseEnemyCount(templateId = TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'soldier'): number {
   if (templateId === TOWN_DEFENSE_TEMPLATE_ID) return 50
   if (templateId === SOLDIER_TOWN_DEFENSE_TEMPLATE_ID) return Math.round(50 * 1.1 ** Math.max(1, CAREER_RANKS.indexOf(rank)))
+  if (templateId === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) return Math.round(50 * 1.1 ** Math.max(2, CAREER_RANKS.indexOf(rank)))
   throw new Error('Unknown Town Defense mission: ' + templateId)
 }
 

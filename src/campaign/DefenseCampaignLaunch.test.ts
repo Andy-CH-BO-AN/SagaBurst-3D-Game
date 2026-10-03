@@ -3,6 +3,7 @@ import {
   createDefaultDefenseArmy,
   createDefaultDefensePlayerLoadout,
   createDefenseCampaignWaveConfig,
+  positionDefenseCampaignAttackers,
   positionDefenseCampaignDefenders,
   positionDefenseCampaignReinforcements,
   validateDefenseCampaignLaunchConfig,
@@ -401,6 +402,23 @@ describe('Defense Campaign Stage 1 launch config', () => {
       expect(new Set(mounted.map(spec => `${spec.x},${spec.z}`)).size).toBe(90)
     },
   )
+
+
+
+  it('moves close attacker formations at least 100m beyond the outpost front and preserves distant waves', () => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const placement = getCampaignOutpostPlacement(faction)
+      const inward = Math.sign(placement.backZ - placement.frontZ)
+      const close = Array.from({ length: 4 }, (_, index) => ({ x: index * 2, z: placement.frontZ - inward * (24 + index), characterFaction: faction } as any))
+      positionDefenseCampaignAttackers(close, faction)
+      expect(Math.min(...close.map(spec => (placement.frontZ - spec.z) * inward))).toBeGreaterThanOrEqual(100)
+
+      const alreadyStaged = Array.from({ length: 3 }, (_, index) => ({ x: index, z: placement.frontZ - inward * (125 + index * 3), characterFaction: faction } as any))
+      const before = alreadyStaged.map(spec => ({ x: spec.x, z: spec.z }))
+      positionDefenseCampaignAttackers(alreadyStaged, faction)
+      expect(alreadyStaged.map(spec => ({ x: spec.x, z: spec.z }))).toEqual(before)
+    }
+  })
 
   it('places 50 reinforcements 250m away on the attacking army side for both factions', () => {
     for (const faction of ['roman', 'viking'] as const) {

@@ -155,6 +155,73 @@ describe('Veteran Career mission catalog and progression', () => {
     }
   })
 
+  it('uses nineteen T4 Captain and mounted Ranger NPCs in new VI runs while preserving legacy version-one rosters', () => {
+    const vi = VETERAN_IDS[5]
+    const briefing = VETERAN_MISSION_CATALOG[5].briefing
+    expect(briefing).toContain('敵方城鎮的騎兵出城迎擊')
+    expect(briefing).toContain('9 名 T4 隊長')
+    expect(briefing).toContain('10 名 T4 弓騎斥候')
+    expect(briefing).toContain('20 人')
+    expect(briefing).toContain('02:00')
+    const roster = createVeteranRoster(vi, 'roman', 'new-vi')
+    expect(roster).toMatchObject({ friendlyTotal: 20, squadSizes: [10, 10] })
+    expect(roster.friendly).toHaveLength(19)
+    expect(roster.friendly.every(unit => unit.tier === 4)).toBe(true)
+    expect(roster.friendly.filter(unit => unit.heroRole === 'captain')).toHaveLength(9)
+    expect(roster.friendly.filter(unit => unit.heroRole === 'ranger')).toHaveLength(10)
+    expect(roster.friendly.filter(unit => unit.source === 'town').map(unit => unit.actorId)).toEqual(['captain', 'ranger'])
+    expect(roster.friendly.filter(unit => unit.source === 'temporary')).toHaveLength(17)
+    expect(roster.friendly.filter(unit => unit.squadId === 1)).toHaveLength(9)
+    expect(roster.friendly.filter(unit => unit.squadId === 2)).toHaveLength(10)
+    expect(roster.friendly.filter(unit => unit.squadId === 1 && unit.leader).map(unit => unit.actorId)).toEqual(['captain'])
+    expect(roster.friendly.filter(unit => unit.squadId === 2 && unit.leader).map(unit => unit.actorId)).toEqual(['ranger'])
+    expect(roster.friendly.filter(unit => unit.heroRole === 'ranger').every(unit => unit.mounted)).toBe(true)
+
+    const captain = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'captain')!, 'roman')
+    expect(captain).toMatchObject({ tier: 4, visualAssetId: T4_UNIT_PROFILES.roman_sword_cavalry.visualAssetId, combatProfileId: T4_UNIT_PROFILES.roman_sword_cavalry.combatProfileId, cavalry: true })
+    expect(captain.loadout).toEqual({ ...UNIT_PRESETS.roman_sword_cavalry.tierLoadouts[3], mountId: T4_UNIT_PROFILES.roman_sword_cavalry.mountOverride })
+    const ranger = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'ranger')!, 'roman')
+    expect(ranger).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', cavalry: true, loadout: { mountId: 'black-cat' } })
+    for (const unit of roster.friendly) {
+      const spec = createVeteranSpawnSpec(unit, 'roman')
+      const t4Profile = T4_UNIT_PROFILES[unit.presetId]
+      expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
+      const expectedTier3Loadout = { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3] }
+      const spawnLoadout = { ...spec.loadout! }
+      delete expectedTier3Loadout.mountId
+      delete spawnLoadout.mountId
+      expect(spawnLoadout).toEqual(expectedTier3Loadout)
+      expect(spec.loadout!.mountId).toBe(unit.heroRole === 'ranger' ? 'black-cat' : t4Profile.mountOverride)
+      if (unit.heroRole === 'ranger') expect(spec).toMatchObject({ specialCombatProfile: 'maki-ranger', cavalry: true })
+    }
+    const vikingRoster = createVeteranRoster(vi, 'viking', 'new-vi-viking')
+    for (const unit of vikingRoster.friendly) {
+      const spec = createVeteranSpawnSpec(unit, 'viking')
+      const t4Profile = T4_UNIT_PROFILES[unit.presetId]
+      expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
+    }
+
+    const legacy = createVeteranRoster(vi, 'roman', 'legacy-vi', 1)
+    expect(legacy.friendly).toHaveLength(19)
+    expect(legacy.friendly.filter(unit => unit.source === 'town')).toHaveLength(16)
+    expect(legacy.friendly.filter(unit => unit.source === 'temporary')).toHaveLength(3)
+    expect(legacy.friendly.filter(unit => unit.tier === 3)).toHaveLength(17)
+    const accepted = acceptVeteranMission(withVeteranProgress(horseVeteran(), 5), vi, { missionId: 'new-vi-acceptance', acceptedAt: 20 })!
+    expect(accepted.activeMission).toMatchObject({ veteranRosterVersion: 2, borrowedActorIds: ['captain', 'ranger'] })
+    const loadedNew = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))!
+    expect(loadedNew.activeMission?.veteranRosterVersion).toBe(2)
+    const oldMission = { ...accepted.activeMission!, veteranRosterVersion: undefined,
+      friendlyActorIds: legacy.friendly.map(unit => unit.actorId),
+      borrowedActorIds: legacy.friendly.filter(unit => unit.source === 'town').map(unit => unit.actorId),
+      deadFriendlyActorIds: ['lancer_cavalry-0'],
+    }
+    const loadedOld = parseCareerProfile(JSON.parse(JSON.stringify({ ...accepted, activeMission: oldMission })))!
+    expect(loadedOld.activeMission?.veteranRosterVersion).toBeUndefined()
+    expect(loadedOld.activeMission?.friendlyActorIds).toEqual(oldMission.friendlyActorIds)
+    expect(loadedOld.activeMission?.borrowedActorIds).toEqual(oldMission.borrowedActorIds)
+    expect(loadedOld.activeMission?.deadFriendlyActorIds).toEqual(['lancer_cavalry-0'])
+  })
+
   it('reuses stable Town actors and persists borrowed identity through mission reload', () => {
     const expectations = [
       [VETERAN_IDS[1], ['captain', 'ranger', 'lancer_cavalry-0', 'melee_cavalry-0', 'ranged_cavalry-0']],

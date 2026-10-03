@@ -87,7 +87,10 @@ export interface ActiveCareerMission {
   reinforcementActorIds?: string[]
   chargedSquadIds?: number[]
   borrowedActorIds?: string[]
+  veteranRosterVersion?: 1 | 2
   actorHealth?: Record<string, { hp: number; mountHp?: number }>
+  actorPositions?: Record<string, { x: number; z: number; yaw: number }>
+  engagedEnemySquadIds?: number[]
   playerHp?: number
   playerStamina?: number
   outpostBattleState?: VeteranOutpostBattleState

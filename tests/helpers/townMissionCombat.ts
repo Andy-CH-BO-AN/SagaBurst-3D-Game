@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { vi } from 'vitest'
 import type { ActiveCareerMission, CareerMissionPhase } from '../../src/career/CareerMissionState'
+import type { VeteranMissionEnemySquad } from '../../src/career/BanditMissionController'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
 import { TownMissionCombat, type TownCombatResident } from '../../src/town/TownMissionCombat'
@@ -45,8 +46,16 @@ export function combatFixture(options: { controllers?: Partial<Controllers>; sim
   const field = {
     active: undefined as ActiveCareerMission | undefined,
     fieldNpcs: [] as NPC[], friendlies: [] as NPC[], ambientBandits: [] as NPC[], missionBandits: [] as NPC[],
+    veteranEnemySquads: [] as readonly VeteranMissionEnemySquad[],
     departingNpcs: [] as NPC[], cavalryMounts: [] as Mount[],
     combatPeersFor: vi.fn((_actor: NPC): NPC[] => field.fieldNpcs),
+    markVeteranEnemySquadEngaged: vi.fn((squadId: number) => {
+      const active = field.active
+      if (!active || active.kind !== 'veteran-field') return false
+      const engagedEnemySquadIds = [...new Set([...(active.engagedEnemySquadIds ?? []), squadId])]
+      field.active = { ...active, engagedEnemySquadIds }
+      return true
+    }),
     updateFlow: vi.fn<(dt: number, cameraYaw: number) => void>(), updateDepartingCavalry: vi.fn<() => void>(),
   }
   const duel = {

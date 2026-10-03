@@ -431,6 +431,8 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.chargedSquadIds ? { chargedSquadIds: [...profile.activeMission.chargedSquadIds] } : {}),
       ...(profile.activeMission.borrowedActorIds ? { borrowedActorIds: [...profile.activeMission.borrowedActorIds] } : {}),
       ...(profile.activeMission.actorHealth ? { actorHealth: Object.fromEntries(Object.entries(profile.activeMission.actorHealth).map(([actorId, health]) => [actorId, { ...health }])) } : {}),
+      ...(profile.activeMission.actorPositions ? { actorPositions: Object.fromEntries(Object.entries(profile.activeMission.actorPositions).map(([actorId, position]) => [actorId, { ...position }])) } : {}),
+      ...(profile.activeMission.engagedEnemySquadIds ? { engagedEnemySquadIds: [...profile.activeMission.engagedEnemySquadIds] } : {}),
       ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
     } } : {}),
     ...(profile.completedCareerMissionTemplateIds ? { completedCareerMissionTemplateIds: [...profile.completedCareerMissionTemplateIds] } : {}),

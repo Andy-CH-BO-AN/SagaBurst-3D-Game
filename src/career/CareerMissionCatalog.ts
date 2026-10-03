@@ -1,7 +1,7 @@
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
-import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
+import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { getVeteranMissionAvailability, getVeteranMissionDefinition, VETERAN_MISSION_CATALOG, type VeteranMissionDefinition } from './VeteranMission'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
@@ -107,6 +107,24 @@ const patrol = (
   minRank: 'recruit',
 })
 
+export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = {
+  id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
+  kind: 'town-defense',
+  name: '守衛家園 · 老兵守城',
+  briefing: '敵方騎兵正在逼近城鎮。加入守軍守住防線，並保護居民。',
+  targetArea: 'career-town',
+  friendlySoldiers: 60,
+  friendlyCombatants: 64,
+  enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
+  civilianCount: 20,
+  maxCivilianDeaths: 10,
+  risk: '極高',
+  requiresEnlistmentMerit: 0,
+  requiresCompletions: 5,
+  storyOnce: true,
+  minRank: 'veteran',
+}
+
 /**
  * The board stays intentionally compact and repeatable. Roughly ten ordinary,
  * credited contributions should earn enough merit for Soldier eligibility;
@@ -187,6 +205,7 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
 
 /** Generic lookup used by the active-mission save parser; the legacy Recruit lookup stays narrow. */
 export function getCareerMissionTemplate(id: string): CareerMissionTemplate | null {
+  if (id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) return VETERAN_TOWN_DEFENSE_TEMPLATE
   return getRecruitMissionTemplate(id) ?? getVeteranMissionDefinition(id)
 }
 
@@ -199,7 +218,7 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
   const merit = enlistmentMerit(profile)
   const completions = profile.careerMissionCompletions ?? 0
   const completedStory = profile.completedCareerMissionTemplateIds ?? []
-  return RECRUIT_MISSION_CATALOG.filter(template => (
+  const available = RECRUIT_MISSION_CATALOG.filter(template => (
     CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && merit >= template.requiresEnlistmentMerit
     && (template.kind === 'town-defense' ? careerMissionCompletionsForTier(profile, careerMissionTier(template)) : completions) >= template.requiresCompletions
@@ -209,6 +228,9 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
   )).map(template => template.kind === 'town-defense'
     ? { ...template, enemyCount: townDefenseEnemyCount(template.id, profile.rank) }
     : template)
+  return isTownDefenseMissionAvailable(profile, VETERAN_TOWN_DEFENSE_TEMPLATE)
+    ? [...available, { ...VETERAN_TOWN_DEFENSE_TEMPLATE, enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, profile.rank) }]
+    : available
 }
 
 export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran'
@@ -233,11 +255,25 @@ export function careerMissionTier(template: CareerMissionTemplate): CareerMissio
 }
 
 export function careerMissionTemplatesForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
-  if (page === 'veteran') return isCareerMissionPageUnlocked(profile, page) ? [...VETERAN_MISSION_CATALOG] : []
+  if (page === 'veteran') {
+    if (!isCareerMissionPageUnlocked(profile, page)) return []
+    const homeDefense = { ...VETERAN_TOWN_DEFENSE_TEMPLATE, enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, profile.rank) }
+    return [...VETERAN_MISSION_CATALOG, homeDefense]
+  }
   return availableRecruitMissions(profile).filter(template => careerMissionPage(template) === page)
 }
 
+function isTownDefenseMissionAvailable(profile: CareerProfile, template: RecruitTownDefenseMissionTemplate): boolean {
+  return !profile.activeMission
+    && CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
+    && enlistmentMerit(profile) >= template.requiresEnlistmentMerit
+    && careerMissionCompletionsForTier(profile, careerMissionTier(template)) >= template.requiresCompletions
+    && !(template.storyOnce && (profile.completedCareerMissionTemplateIds ?? []).includes(template.id))
+}
+
 export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
-  if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => getVeteranMissionAvailability(profile, template.id).unlocked)
+  if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => template.kind === 'town-defense'
+    ? availableRecruitMissions(profile).some(available => available.id === template.id)
+    : getVeteranMissionAvailability(profile, template.id).unlocked)
   return careerMissionTemplatesForPage(profile, page)
 }

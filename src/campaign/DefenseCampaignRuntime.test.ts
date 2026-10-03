@@ -7,6 +7,7 @@ function state(overrides: Partial<{
   defendersAlive: number
   attackersAlive: number
   reinforcementSpawned: boolean
+  reinforcementActive?: boolean
 }> = {}) {
   return {
     playerDead: false,
@@ -108,6 +109,40 @@ describe('DefenseCampaignRuntime', () => {
       attackersAlive: 20,
       reinforcementSpawned: true,
     }))).toEqual(['battle_defeat'])
+  })
+
+
+  it('keeps the defender side alive while an activated reinforcement queue has living riders pending', () => {
+    const runtime = new DefenseCampaignRuntime({ reinforcementDelaySeconds: 90 })
+    runtime.update(60, state())
+    runtime.update(90, state({ playerDead: true, originalDefendersAlive: 1, defendersAlive: 1, attackersAlive: 50 }))
+
+    expect(runtime.update(0.1, state({
+      playerDead: true,
+      originalDefendersAlive: 0,
+      defendersAlive: 2,
+      attackersAlive: 50,
+      reinforcementSpawned: false,
+      reinforcementActive: true,
+    }))).toEqual([])
+    expect(runtime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false, reinforcementTriggered: true })
+  })
+
+  it('still locks a wipe reported before reinforcement activation', () => {
+    const runtime = new DefenseCampaignRuntime({ reinforcementDelaySeconds: 90 })
+    runtime.update(60, state())
+    runtime.update(89.9, state({ playerDead: true, originalDefendersAlive: 0, defendersAlive: 0, attackersAlive: 50 }))
+
+    expect(runtime.getSnapshot()).toMatchObject({ phase: 'defeat', battleFinished: false })
+    expect(runtime.update(0.1, state({
+      playerDead: true,
+      originalDefendersAlive: 0,
+      defendersAlive: 50,
+      attackersAlive: 50,
+      reinforcementSpawned: false,
+      reinforcementActive: true,
+    }))).toEqual(['reinforcement_due'])
+    expect(runtime.getSnapshot()).toMatchObject({ phase: 'defeat', battleFinished: false, reinforcementTriggered: true })
   })
 
   it('wins immediately when attackers are eliminated before reinforcements spawn', () => {
