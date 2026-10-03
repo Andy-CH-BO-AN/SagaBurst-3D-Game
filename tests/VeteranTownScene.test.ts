@@ -134,6 +134,33 @@ describe('Veteran mission board integration', () => {
 })
 
 describe('Veteran field scene checkpoint presentation', () => {
+  it.each(['veteran-village-intercept', 'veteran-spear-line-hunt'])(
+    'borrows only living mounted Town cavalry when accepting %s', templateId => {
+    const profile = createCareerProfile('roman')
+    Object.assign(profile, { rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'], completedCareerMissionTemplateIds: [
+      'veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept', 'veteran-outpost-assault',
+    ] })
+    const residents = townRoster().map(spec => ({ spec, npc: { combatantId: spec.id, dead: false, mount: null },
+      homeMount: spec.role.endsWith('_cavalry') ? { dead: false } : undefined }))
+    residents.find(resident => resident.spec.id === 'melee_cavalry-0')!.npc.dead = true
+    residents.find(resident => resident.spec.id === 'lancer_cavalry-0')!.homeMount!.dead = true
+    residents.find(resident => resident.spec.id === 'ranged_cavalry-0')!.homeMount = undefined
+    const town = Object.create(TownScene.prototype) as any
+    Object.assign(town, { profile, residents, player: { dead: false }, event: { hostile: false },
+      store: { loadChecked: () => ({ profile }) }, commit: vi.fn(next => { town.profile = next; return true }),
+      mission: { startActiveMission: vi.fn(() => true) }, careerMounts: { activate: vi.fn() },
+      inventory: { prepareForCombat: vi.fn() }, closePanel: vi.fn(), playMissionVoice: vi.fn(),
+    })
+    town.acceptVeteranCareerMission(templateId)
+    const active = town.profile.activeMission
+    expect(active).toMatchObject({ veteranRosterVersion: 3, phase: 'ASSEMBLING' })
+    const borrowed = active.borrowedActorIds.filter((id: string) => id.includes('_cavalry-'))
+    expect(borrowed).toHaveLength(17)
+    for (const id of ['melee_cavalry-0', 'lancer_cavalry-0', 'ranged_cavalry-0']) expect(borrowed).not.toContain(id)
+    expect(active.friendlyActorIds).toHaveLength(49)
+    expect(town.mission.startActiveMission).toHaveBeenCalledOnce()
+  })
+
   it('saves Veteran VI and replaces the own-town scene with the enemy-territory mission scene', () => {
     const profile = createCareerProfile('roman')
     Object.assign(profile, { rank: 'veteran', totalMerit: 900, ownedMounts: ['horse'], completedCareerMissionTemplateIds: [

@@ -5,6 +5,7 @@ import { parseCareerProfile } from './CareerProfileStore'
 import { createVeteranRoster, getVeteranMissionAvailability, VETERAN_MISSION_CATALOG, acceptVeteranMission, createVeteranSpawnSpec } from './VeteranMission'
 import { UNIT_PRESETS } from '../battle/UnitPresetCatalog'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { townRoster } from '../town/TownRules'
 
 const victoryStats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900 })
@@ -236,6 +237,47 @@ describe('Veteran Career mission catalog and progression', () => {
       expect(loaded.activeMission!.borrowedActorIds).toEqual(mission!.activeMission!.borrowedActorIds)
       expect(loaded.activeMission!.friendlyActorIds).toEqual(mission!.activeMission!.friendlyActorIds)
     }
+  })
+
+  it.each(['roman', 'viking'] as const)('reequips all twenty %s Town cavalry before requesting support', faction => {
+    const townCavalry = townRoster().filter(actor => actor.role.endsWith('_cavalry')).map(actor => actor.id)
+    for (const [id, role, supports] of [
+      [VETERAN_IDS[2], 'lancer', 27], [VETERAN_IDS[4], 'horse_archer', 28],
+    ] as const) {
+      const roster = createVeteranRoster(id, faction, `equip-${id}`)
+      const ordinary = roster.friendly.filter(unit => unit.tier === 3)
+      expect(ordinary).toHaveLength(47)
+      expect(ordinary.filter(unit => unit.source === 'town').map(unit => unit.actorId)).toEqual(townCavalry)
+      expect(roster.friendly.filter(unit => unit.source === 'temporary')).toHaveLength(supports)
+      for (const unit of ordinary) {
+        expect(unit.presetId).toBe(`${faction}_${role}`)
+        expect(createVeteranSpawnSpec(unit, faction).loadout).toEqual(UNIT_PRESETS[unit.presetId].tierLoadouts[3])
+      }
+      expect(roster.squadSizes).toEqual([25, 25])
+      expect(new Set(roster.friendly.map(unit => unit.actorId)).size).toBe(49)
+    }
+  })
+
+  it.each([VETERAN_IDS[2], VETERAN_IDS[4]])('persists only available Town cavalry and the exact shortage for %s', id => {
+    for (const available of [[], ['ranged_cavalry-7', 'melee_cavalry-3', 'lancer_cavalry-1']] as string[][]) {
+      const accepted = acceptVeteranMission(withVeteranProgress(horseVeteran(), VETERAN_IDS.indexOf(id)), id, {
+        missionId: `available-${id}`, availableTownCavalryActorIds: [...available, 'civilian-0', ...available],
+      })!
+      expect(accepted.activeMission?.veteranRosterVersion).toBe(3)
+      const loaded = parseCareerProfile(JSON.parse(JSON.stringify(accepted)))!
+      const active = loaded.activeMission!
+      const roster = createVeteranRoster(id, loaded.faction, active.id, active.veteranRosterVersion, active.borrowedActorIds)
+      const ordinary = roster.friendly.filter(unit => unit.tier === 3)
+      expect(ordinary.filter(unit => unit.source === 'town').map(unit => unit.actorId).sort()).toEqual([...available].sort())
+      expect(ordinary.filter(unit => unit.source === 'temporary')).toHaveLength(47 - available.length)
+      expect(roster.friendly.map(unit => unit.actorId)).toEqual(active.friendlyActorIds)
+      expect(roster.friendly.filter(unit => unit.source === 'town').map(unit => unit.actorId)).toEqual(active.borrowedActorIds)
+    }
+  })
+
+  it('preserves existing version-one and version-two field mission identities', () => {
+    expect(createVeteranRoster(VETERAN_IDS[2], 'roman', 'old-village', 1).friendly.filter(unit => unit.source === 'town')).toHaveLength(7)
+    expect(createVeteranRoster(VETERAN_IDS[4], 'roman', 'old-hunt', 2).friendly.filter(unit => unit.source === 'town')).toHaveLength(11)
   })
 
   it('round-trips Veteran active checkpoint state and treats pre-tier-3 saves as zero Veteran progress', () => {

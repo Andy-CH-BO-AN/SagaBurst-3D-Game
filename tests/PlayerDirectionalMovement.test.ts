@@ -1,3 +1,8 @@
+import { resolveMountImpacts } from '../src/combat/MountImpact'
+import { calculateMountImpactDamage } from '../src/combat/CombatBalance'
+import type { CombatEvent } from '../src/combat/CombatAttribution'
+import { resolveSkillProgressionAward } from '../src/rpg/CombatSkillProgression'
+import { NPC, AIType, Faction } from '../src/world/NPC'
 import * as THREE from 'three'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { InventoryManager } from '../src/rpg/InventoryManager'
@@ -208,6 +213,49 @@ describe('Player Directional Movement & Stamina', () => {
   })
 
   describe('Mounted Player Directional Movement', () => {
+    it.each([false, true])('mounted sprint with shieldRaised=%s still deals impact damage and awards Mounted Impact XP', raised => {
+      const inventory = new InventoryManager({ meleeWeaponId: 'steel_sword', rangedWeaponId: '', shieldId: 'scutum_t1' })
+      const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      player.mountVehicle(mount)
+      player.setStamina(100)
+      const controls = createMockInput({ KeyW: true, ShiftLeft: true })
+      controls.isRightMouseDown = raised
+      const start = mount.group.position.clone()
+      player.update(.1, controls, 0, cameraAimPoint, [], staminaBar, quiverUI, soundManager, inventory)
+
+      expect(player.shield.shieldRaised).toBe(raised)
+      expect(player.isAiming).toBe(false)
+      expect(player.currentMount).toBe(mount)
+      expect(horizontalDistance(mount.group.position, start)).toBeCloseTo(mount.baseSpeed * .2, 5)
+      expect(mount.isSprinting).toBe(true)
+      expect(mount.skipImpactThisFrame).toBe(false)
+
+      const target = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'impact-target', 1, false)
+      target.group.position.copy(start).lerp(mount.group.position, .5)
+      const hp = target.hp, impact = target.shield.shieldImpactRemaining
+      const events: CombatEvent[] = []
+      const options = {
+        onDamagePlayer: () => { throw new Error('Player mount must not hit its own rider') },
+        combatEvents: (event: CombatEvent) => { events.push(event) },
+      }
+      resolveMountImpacts([mount], player, [target], 1, options)
+      const expected = Math.min(hp, calculateMountImpactDamage(mount.movementSpeed, true))
+      expect(target.hp).toBeCloseTo(hp - expected)
+      expect(target.shield.shieldImpactRemaining).toBe(impact)
+      expect(player.shield.shieldImpactRemaining).toBe(5)
+      const hit = events.find(event => event.type === 'damage_applied')
+      expect(hit).toBeDefined()
+      expect(resolveSkillProgressionAward(hit!, inventory.equippedMelee, true)).toEqual({ skill: 'mountedImpact', xp: expected })
+      resolveMountImpacts([mount], player, [target], 1, options)
+      expect(target.hp).toBeCloseTo(hp - expected) // Existing per-target cooldown still applies.
+
+      controls.keys.ShiftLeft = false
+      player.update(.1, controls, 0, cameraAimPoint, [], staminaBar, quiverUI, soundManager, inventory)
+      expect(mount.isSprinting).toBe(false)
+      expect(player.shield.shieldRaised).toBe(raised)
+      target.dispose(); player.dispose(); mount.dispose()
+    })
+
     it('applies 100% speed forward and 30% speed backward to Mount', () => {
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
       player.isMounted = true

@@ -16,7 +16,8 @@ import { CorgiVisual } from '../world/CorgiVisual'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
-import { ArrowProjectile } from '../world/ArrowProjectile'
+import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
+import { warmTownRenderResources } from './TownRenderWarmup'
 import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod } from '../combat/CombatAttribution'
@@ -195,6 +196,7 @@ export class TownScene {
       const npc = new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : captain?.visualAssetId, ranger ? 'ranger' : captain?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction)
       npc.setTownPeaceful(); npc.group.rotation.y = Math.PI
       let homeMount: Mount | undefined
+      if (ranger) homeMount = this.cat
       if (cavalry) { const mount = new Mount(this.scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); this.mounts.push(mount); homeMount = mount }
       if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : captain ? 2 : 2.2)) }
       const training = !context.missionOnlyResidents && spec.role.includes('_'), target = training ? this.world.addTarget(spec.x, spec.z - (ranged ? 3 : 1.5), ranged) : undefined
@@ -282,7 +284,15 @@ export class TownScene {
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
     this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.spectator) this.orbit.update(this.input)
-    await renderer.compileAsync(this.scene, this.camera)
+    progress('預熱近、中、遠景與訓練投射物…')
+    const projectiles = createProjectileWarmupGroup()
+    this.scene.add(projectiles)
+    try {
+      await warmTownRenderResources(renderer, this.scene, this.camera, yieldFrame)
+    } finally {
+      // Projectile resources are shared with training and combat; do not dispose them.
+      projectiles.removeFromParent()
+    }
     renderer.render(this.scene, this.camera); await yieldFrame()
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
@@ -689,7 +699,12 @@ export class TownScene {
     const definition = getVeteranMissionDefinition(templateId)
     const fresh = this.store.loadChecked().profile
     if (!definition || !fresh || this.player.dead || this.event.hostile) return
-    const next = acceptVeteranMission(fresh, definition.id)
+    const availableTownCavalryActorIds = definition.id === 'veteran-village-intercept' || definition.id === 'veteran-spear-line-hunt'
+      ? this.residents.filter(({ spec, npc, homeMount }) => {
+        const mount = npc.mount && !npc.mount.dead ? npc.mount : homeMount
+        return spec.role.endsWith('_cavalry') && !npc.dead && mount && !mount.dead
+      }).map(({ npc }) => npc.combatantId) : undefined
+    const next = acceptVeteranMission(fresh, definition.id, { availableTownCavalryActorIds })
     if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {
@@ -1569,6 +1584,10 @@ export class TownScene {
       sound?.updateHorseGallopLoops([])
       this.missionCombat.updateDuelDefeatedActors(dt)
     }
+    // Lance hits suppress mount impact only for that simulation frame, as in Game.
+    // Clear after all Career impact checks so subsequent guarded riding can hit again.
+    for (const mount of this.combatMounts) mount.skipImpactThisFrame = false
+    for (const mount of this.mounts) mount.skipImpactThisFrame = false
     const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)

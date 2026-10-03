@@ -927,6 +927,9 @@ export class Player {
 
     if (this.isMounted && this.currentMount) {
       this.currentMount.beginControlledFrame()
+      // Guarding does not change mounted movement or impact eligibility.
+      // MountImpact reads this flag for the existing sprint damage multiplier.
+      this.currentMount.isSprinting = this.isSprinting
       this.currentMount.addControlledMovement(moveDir, effectiveSpeed, dt)
       
       // Jump (Mount)
