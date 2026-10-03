@@ -18,13 +18,15 @@ export const SWEEP_DETECTION_RANGE = 80
 export const SWEEP_CENTER = new THREE.Vector3(110, 0, -275)
 export const SWEEP_CAPTAIN_START = new THREE.Vector3(55, 0, -55)
 export const SWEEP_YAW = Math.PI
+/** Indexed by mission slot: Captain at 0, Maki at 29; gaps receive temporary riders. */
+export type SweepGarrisonActorIds = readonly (string | undefined)[]
 export function sweepPlayerSpawn(captain = SWEEP_CAPTAIN_START, yaw = SWEEP_YAW): THREE.Vector3 {
   return followSlotWorldPosition(captain, yaw, returnFollowLocalOffset(0, 29, true, 5))
 }
 export function sweepBanditPosition(index: number): THREE.Vector3 {
   return SWEEP_CENTER.clone().add(new THREE.Vector3((Math.floor(index / 8) - 2) * 4, 0, (index % 8 - 3.5) * 3))
 }
-export function acceptCavalrySweep(current: CareerProfile, id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: readonly string[] = []): CareerProfile | null {
+export function acceptCavalrySweep(current: CareerProfile, id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: SweepGarrisonActorIds = []): CareerProfile | null {
   const mount = resolveCareerReliefMount(current)
   if (!mount || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const profile = cloneCareerProfile(current)
@@ -33,11 +35,12 @@ export function acceptCavalrySweep(current: CareerProfile, id = createCareerMiss
   profile.activeMission.mountState = { activeMountId: mount, hp: {}, unavailable: [] }
   return profile
 }
-export function createCavalrySweepMission(id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: readonly string[] = []): ActiveCareerMission {
+export function createCavalrySweepMission(id = createCareerMissionId(CAVALRY_SWEEP_ID), garrisonActorIds: SweepGarrisonActorIds = []): ActiveCareerMission {
   return {
     id, templateId: CAVALRY_SWEEP_ID, kind: 'cavalry-sweep', targetCampId: 0, phase: 'ASSEMBLING',
     targetActorIds: Array.from({ length: 40 }, (_, index) => `${id}:bandit:${index}`),
     friendlyActorIds: Array.from({ length: 59 }, (_, index) => garrisonActorIds[index] ?? `${id}:cavalry:${index}`), acceptedAt: Date.now(),
+    borrowedActorIds: garrisonActorIds.slice(0, 59).filter((id): id is string => id !== undefined),
   }
 }
 /** T4 leaders reuse the same profiles as Relief; every ordinary soldier is cavalry. */

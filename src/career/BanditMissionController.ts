@@ -129,10 +129,15 @@ export function selectMissionInfantryActorIds<T extends { spec: { role: string }
     .map(resident => resident.npc.combatantId)
 }
 
-export function selectMissionCavalryActorIds(residents: readonly { spec: TownActorSpec; npc: NPC }[], count: number): string[] {
-  return residents.filter(({ spec, npc }) => (spec.role === 'captain' || spec.role.includes('cavalry')) && !npc.dead && npc.mount && !npc.mount.dead)
-    .sort((a, b) => Number(b.spec.role === 'captain') - Number(a.spec.role === 'captain'))
-    .slice(0, Math.max(0, count)).map(({ npc }) => npc.combatantId)
+export function selectMissionCavalryActorIds(residents: readonly { spec: TownActorSpec; npc: NPC; homeMount?: Mount }[], count: number): (string | undefined)[] {
+  const available = residents.filter(({ npc, homeMount }) => !npc.dead && Boolean(
+    npc.mount && !npc.mount.dead || homeMount && !homeMount.dead))
+  const captain = available.find(({ spec }) => spec.role === 'captain')
+  const ranger = available.find(({ spec }) => spec.role === 'ranger')
+  const cavalry = available.filter(({ spec }) => spec.role.includes('cavalry'))
+  let index = 0
+  return Array.from({ length: Math.max(0, count) }, (_, slot) =>
+    (slot === 0 ? captain : slot === 29 ? ranger : cavalry[index++])?.npc.combatantId)
 }
 
 export function shouldPersistMissionRoute(savedStage: number, currentStage: number, lastStage: number): boolean {
@@ -163,7 +168,6 @@ export class BanditMissionController {
   private veteranDamageActivationUnsubscribe: (() => void) | null = null
   private veteranPlayerAnchor = VETERAN_FIELD_LAYOUT.rally.clone()
   private veteranMarchTarget = VETERAN_FIELD_LAYOUT.enemy.clone()
-  private sweepAssemblyCommandId = 0
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
   readonly camps: CampRuntime[]
@@ -600,7 +604,7 @@ export class BanditMissionController {
     if (active.phase === phase && (active.patrolStage ?? 0) === (patrolStage ?? 0) && (active.routeStage ?? 0) === routeStage) return true
     return this.checkpoint.persist(() => ({ ...active, phase, routeStage, ...(patrolStage !== undefined ? { patrolStage } : {}),
       ...(active.kind === 'cavalry-sweep' && this.leader && !this.leader.dead ? { mountedMarchPosition: { x: this.leader.combatPosition.x, z: this.leader.combatPosition.z } } : {}),
-      ...(active.kind === 'veteran-field' && phase === 'RETURNING' ? {
+      ...((active.kind === 'veteran-field' && phase === 'RETURNING') || active.kind === 'cavalry-sweep' ? {
         actorPositions: this.snapshotVeteranActorPositions(),
         actorHealth: this.snapshotVeteranActorHealth(),
         deadTargetActorIds: this.deadActorIds(active.targetActorIds, this.missionBandits, active.deadTargetActorIds),
@@ -808,73 +812,31 @@ export class BanditMissionController {
     const occupiedSupportEntry: THREE.Vector3[] = []
     const occupiedSupportApproach: THREE.Vector3[] = []
     const occupiedEnemy: THREE.Vector3[] = []
-    const safeSlot = (origin: THREE.Vector3, occupied: THREE.Vector3[]): THREE.Vector3 => {
-      const pointClear = (point: THREE.Vector3): boolean => {
-        if (Math.abs(point.x) > VETERAN_SAFE_WORLD_BOUND || Math.abs(point.z) > VETERAN_SAFE_WORLD_BOUND) return false
-        const blocked = this.world.obstacles.some(obstacle => {
-          const expanded = obstacle.box.clone().expandByScalar(1.05)
-          return expanded.containsPoint(new THREE.Vector3(point.x, Math.max(point.y + .8, expanded.min.y), point.z))
-        })
-        return !blocked && occupied.every(other => Math.hypot(other.x - point.x, other.z - point.z) >= 2.1)
-      }
-      const ground = origin.clone()
-      ground.y = getTerrainHeight(ground.x, ground.z)
-      if (pointClear(ground)) {
-        occupied.push(ground)
-        return ground
-      }
-      const clear = findSafeCareerMountPosition(ground, this.world.obstacles, occupied)
-      if (clear && pointClear(clear)) {
-        occupied.push(clear)
-        return clear
-      }
-      for (let ring = 1; ring <= 12; ring++) {
-        const radius = 5.6 + ring * 2.4
-        for (let index = 0; index < 16; index++) {
-          const angle = index / 16 * Math.PI * 2
-          const point = new THREE.Vector3(ground.x + Math.sin(angle) * radius, 0, ground.z + Math.cos(angle) * radius)
-          point.y = getTerrainHeight(point.x, point.z)
-          if (!pointClear(point)) continue
-          occupied.push(point)
-          return point
-        }
-      }
-      throw new Error('Veteran field mission has no clear in-bounds formation slot')
-    }
-    const validSavedPosition = (actorId: string): { position: THREE.Vector3; yaw: number } | undefined => {
-      const saved = active.actorPositions?.[actorId]
-      if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.z)
-        || Math.abs(saved.x) > PLAYABLE_WORLD_BOUND || Math.abs(saved.z) > PLAYABLE_WORLD_BOUND) return undefined
-      return { position: new THREE.Vector3(saved.x, getTerrainHeight(saved.x, saved.z), saved.z), yaw: saved.yaw }
-    }
     const enemyActivationIds = new Set(active.engagedEnemySquadIds ?? [])
 
     for (const unit of roster.friendly) {
       const spec = createVeteranSpawnSpec(unit, faction, 'friendly')
       const slot = friendlySlots.get(unit.squadId) ?? 0
       friendlySlots.set(unit.squadId, slot + 1)
-      const muster = safeSlot(veteranFieldPosition(friendlyAnchor, unit, slot, 'friendly', friendlySquadCount), occupiedMuster)
+      const muster = this.safeMountedMissionSlot(veteranFieldPosition(friendlyAnchor, unit, slot, 'friendly', friendlySquadCount), occupiedMuster)
       const supportEntry = !survival && unit.source !== 'town'
-        ? safeSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.townEntry, unit, slot, 'friendly', friendlySquadCount), occupiedSupportEntry)
+        ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.townEntry, unit, slot, 'friendly', friendlySquadCount), occupiedSupportEntry)
         : undefined
       const supportApproach = !survival && unit.source !== 'town'
-        ? safeSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.supportApproach, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
+        ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.supportApproach, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
         : undefined
       const resident = unit.source === 'town' ? residentsById.get(unit.actorId) : undefined
-      const saved = validSavedPosition(unit.actorId)
+      const saved = this.savedMountedActorPosition(active, unit.actorId)
       const homePosition = resident?.npc.combatPosition.clone()
       const savedSupportPassedEntry = Boolean(saved && supportEntry && saved.position.x >= supportEntry.x - VETERAN_ASSEMBLY_RADIUS)
       const initialPosition = saved?.position
         ?? (legacyMarchAnchor ? muster : resident && !survival ? homePosition! : survival
-          ? safeSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.scoutRally, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
+          ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.scoutRally, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
           : supportApproach ?? muster)
       spec.x = initialPosition.x; spec.z = initialPosition.z
       const npc = resident?.npc ?? this.createVeteranNpc(spec, unit.actorId)
       if (resident) {
-        const originalRespawn = this.borrowedRespawnEnabled.get(npc) ?? npc.respawnEnabled
-        this.borrowedRespawnEnabled.set(npc, originalRespawn)
-        this.borrowedMissionActors.add(npc)
-        npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, unit.tier, unit.squadId as NPC['squadId'])
+        this.borrowMountedMissionActor(npc, spec, unit.tier)
       }
       npc.respawnEnabled = false
       const previousMount = npc.mount
@@ -917,8 +879,8 @@ export class BanditMissionController {
       const slot = enemySlots.get(unit.squadId) ?? 0
       enemySlots.set(unit.squadId, slot + 1)
       const fallback = veteranFieldPosition(enemyAnchor, unit, slot, 'enemy', enemySquadCount)
-      const saved = validSavedPosition(unit.actorId)
-      const position = saved?.position ?? safeSlot(fallback, occupiedEnemy)
+      const saved = this.savedMountedActorPosition(active, unit.actorId)
+      const position = saved?.position ?? this.safeMountedMissionSlot(fallback, occupiedEnemy)
       spec.x = position.x; spec.z = position.z
       const npc = this.createVeteranNpc(spec, unit.actorId)
       npc.respawnEnabled = false
@@ -1029,6 +991,53 @@ export class BanditMissionController {
     return true
   }
 
+  private safeMountedMissionSlot(origin: THREE.Vector3, occupied: THREE.Vector3[]): THREE.Vector3 {
+    const pointClear = (point: THREE.Vector3): boolean => {
+      if (Math.abs(point.x) > VETERAN_SAFE_WORLD_BOUND || Math.abs(point.z) > VETERAN_SAFE_WORLD_BOUND) return false
+      const blocked = this.world.obstacles.some(obstacle => {
+        const expanded = obstacle.box.clone().expandByScalar(1.05)
+        return expanded.containsPoint(new THREE.Vector3(point.x, Math.max(point.y + .8, expanded.min.y), point.z))
+      })
+      return !blocked && occupied.every(other => Math.hypot(other.x - point.x, other.z - point.z) >= 2.1)
+    }
+    const ground = origin.clone()
+    ground.y = getTerrainHeight(ground.x, ground.z)
+    if (pointClear(ground)) {
+      occupied.push(ground)
+      return ground
+    }
+    const clear = findSafeCareerMountPosition(ground, this.world.obstacles, occupied)
+    if (clear && pointClear(clear)) {
+      occupied.push(clear)
+      return clear
+    }
+    for (let ring = 1; ring <= 12; ring++) {
+      const radius = 5.6 + ring * 2.4
+      for (let index = 0; index < 16; index++) {
+        const angle = index / 16 * Math.PI * 2
+        const point = new THREE.Vector3(ground.x + Math.sin(angle) * radius, 0, ground.z + Math.cos(angle) * radius)
+        point.y = getTerrainHeight(point.x, point.z)
+        if (!pointClear(point)) continue
+        occupied.push(point)
+        return point
+      }
+    }
+    throw new Error('Mounted mission has no clear in-bounds formation slot')
+  }
+
+  private savedMountedActorPosition(active: ActiveCareerMission, actorId: string): { position: THREE.Vector3; yaw: number } | undefined {
+    const saved = active.actorPositions?.[actorId]
+    if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.z) || !Number.isFinite(saved.yaw)
+      || Math.abs(saved.x) > PLAYABLE_WORLD_BOUND || Math.abs(saved.z) > PLAYABLE_WORLD_BOUND) return undefined
+    return { position: new THREE.Vector3(saved.x, getTerrainHeight(saved.x, saved.z), saved.z), yaw: saved.yaw }
+  }
+
+  private borrowMountedMissionActor(npc: NPC, spec: NpcSpawnSpec, tier?: NPC['tier']): void {
+    this.borrowedRespawnEnabled.set(npc, this.borrowedRespawnEnabled.get(npc) ?? npc.respawnEnabled)
+    this.borrowedMissionActors.add(npc)
+    npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, tier, spec.squadId)
+  }
+
   private createVeteranNpc(spec: NpcSpawnSpec, actorId: string): NPC {
     if (this.veteranFieldFactories.createNpc) return this.veteranFieldFactories.createNpc(spec, actorId)
     return new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier,
@@ -1128,6 +1137,8 @@ export class BanditMissionController {
 
   private startSweep(active: ActiveCareerMission, camp: CampRuntime): boolean {
     if (active.targetActorIds.length !== 40 || active.friendlyActorIds.length !== 59) return false
+    const residentsById = new Map(this.residents.map(resident => [resident.npc.combatantId, resident]))
+    if (active.borrowedActorIds?.some(id => !residentsById.has(id))) return false
     const saved = active.mountedMarchPosition
     const returning = active.phase === 'RETURNING'
     const routeStart = returning ? saved ? new THREE.Vector3(saved.x, 0, saved.z) : SWEEP_CENTER : SWEEP_CAPTAIN_START
@@ -1136,39 +1147,71 @@ export class BanditMissionController {
       : saved ? new THREE.Vector3(saved.x, 0, saved.z)
         : active.phase === 'ENGAGING' || active.result ? SWEEP_CENTER : this.route[this.routeIndex] ?? SWEEP_CAPTAIN_START
     const yaw = active.phase === 'ASSEMBLING' ? SWEEP_YAW : Math.atan2(SWEEP_CENTER.x - anchor.x, SWEEP_CENTER.z - anchor.z)
-    this.sweepAssemblyCommandId = this.commandId++
     active.targetActorIds.forEach((id, index) => {
       if (active.result) return
       if (active.deadTargetActorIds?.includes(id)) return
-      const point = sweepBanditPosition(index)
+      const savedEnemy = this.savedMountedActorPosition(active, id)
+      const point = savedEnemy?.position ?? sweepBanditPosition(index)
       const npc = new NPC(this.scene, point.x, point.z, Faction.BANDIT, 'viking', AIType.MELEE, 'Bandit', 1, false, BANDIT_LOADOUT, undefined, undefined, id, this.events.emit)
       npc.respawnEnabled = false
       npc.configureBanditEncounter(SWEEP_CENTER, [point], Infinity)
+      if (savedEnemy) npc.group.rotation.y = savedEnemy.yaw
+      if (active.actorHealth?.[id]) this.restoreVeteranActorHealth(npc, null, active, id, false)
       if (active.sweepAlerted || active.phase === 'ENGAGING') npc.triggerEncounterAlert()
       camp.mission.push(npc)
     })
-    const residentsById = new Map(this.residents.map(resident => [resident.npc.combatantId, resident.npc]))
-    createSweepRoster(this.readProfile().faction, anchor, yaw).forEach((spec, index) => {
+    const occupiedMuster: THREE.Vector3[] = []
+    const occupiedApproach: THREE.Vector3[] = []
+    const occupiedEntry: THREE.Vector3[] = []
+    const approachRoster = createSweepRoster(this.readProfile().faction, VETERAN_FIELD_LAYOUT.supportApproach, Math.PI / 2)
+    const entryRoster = createSweepRoster(this.readProfile().faction, VETERAN_FIELD_LAYOUT.townEntry, Math.PI / 2)
+    const legacyRoster = active.phase !== 'ASSEMBLING' ? createSweepRoster(this.readProfile().faction, anchor, yaw) : undefined
+    createSweepRoster(this.readProfile().faction, SWEEP_CAPTAIN_START, SWEEP_YAW).forEach((spec, index) => {
       const id = active.friendlyActorIds[index]
       const resident = residentsById.get(id)
-      if (active.deadFriendlyActorIds?.includes(id)) {
-        if (resident && !resident.dead) resident.takeDamage(999999)
-        if (resident) this.friendlies.push(resident)
-        return
+      const recordedDead = active.deadFriendlyActorIds?.includes(id) ?? false
+      if (recordedDead && !resident) return
+      const muster = this.safeMountedMissionSlot(new THREE.Vector3(spec.x, 0, spec.z), occupiedMuster)
+      const entrySpec = entryRoster[index], approachSpec = approachRoster[index]
+      const entry = !resident ? this.safeMountedMissionSlot(new THREE.Vector3(entrySpec.x, 0, entrySpec.z), occupiedEntry) : undefined
+      const savedActor = this.savedMountedActorPosition(active, id)
+      // Legacy saves have only a march anchor. Keep borrowed residents where they are;
+      // only temporary actors need a fallback location when no individual checkpoint exists.
+      const legacySpec = !savedActor && !resident ? legacyRoster?.[index] : undefined
+      const initialPosition = savedActor?.position ?? resident?.npc.combatPosition.clone()
+        ?? (legacySpec ? new THREE.Vector3(legacySpec.x, getTerrainHeight(legacySpec.x, legacySpec.z), legacySpec.z)
+          : this.safeMountedMissionSlot(new THREE.Vector3(approachSpec.x, 0, approachSpec.z), occupiedApproach))
+      spec.x = initialPosition.x; spec.z = initialPosition.z
+      const npc = resident?.npc ?? this.createVeteranNpc(spec, id)
+      if (resident) {
+        if (resident.spec.role === 'ranger') spec.loadout = {
+          ...spec.loadout, meleeWeaponId: npc.meleeWeaponId, rangedWeaponId: npc.rangedWeaponId ?? null, shieldId: npc.shieldId,
+        }
+        this.borrowMountedMissionActor(npc, spec)
       }
-      const npc = resident ?? new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, true, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile)
       npc.respawnEnabled = false
-      const point = (active.phase === 'ASSEMBLING' ? findSafeCareerMountPosition(new THREE.Vector3(spec.x, 0, spec.z), this.world.obstacles,
-        [...this.residents.map(resident => resident.npc.combatPosition), ...this.friendlies.map(friendly => friendly.combatPosition)])
-        : null) ?? new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
-      const mount = resident?.mount ?? new Mount(this.scene, mountTypeFromId(spec.loadout!.mountId!), spec.x, spec.z)
-      if (!resident || active.phase !== 'ASSEMBLING') {
-        mount.group.position.copy(point); mount.group.rotation.y = yaw
-        npc.group.position.copy(point); npc.mountVehicle(mount); npc.group.rotation.y = yaw
+      const previousMount = npc.mount
+      const mount = this.resolveVeteranMount(spec, npc, resident?.homeMount, !resident)
+      if (resident && mount && mount !== resident.homeMount && mount !== previousMount) this.borrowedTemporaryMounts.push({ npc, mount })
+      if (savedActor || !resident) this.positionVeteranActor(npc, mount, initialPosition, savedActor?.yaw ?? (legacySpec ? yaw : Math.PI / 2))
+      else if (mount && npc.mount !== mount) {
+        mount.group.position.copy(initialPosition); mount.group.rotation.y = npc.group.rotation.y
+        npc.mountVehicle(mount)
       }
-      if (!resident) { this.temporaryCavalry.push({ npc, mount }); this.cavalryMounts.push(mount) }
+      if (recordedDead || active.actorHealth?.[id]) this.restoreVeteranActorHealth(npc, mount, active, id, recordedDead)
+      this.fieldActorMounts.set(id, mount ?? resident?.homeMount ?? npc.mount)
+      if (!resident) {
+        this.temporaryCavalry.push({ npc, ...(mount ? { mount } : {}) })
+        if (mount) this.cavalryMounts.push(mount)
+      }
       this.friendlies.push(npc)
-      if (active.phase === 'ASSEMBLING') npc.assignFormationTarget(this.sweepAssemblyCommandId, point, new THREE.Vector3(0, 0, -1), mount.baseSpeed)
+      this.veteranMusterPositions.set(id, muster)
+      if (active.phase === 'ASSEMBLING' && !npc.dead) {
+        const entryStage = entry && (!savedActor || savedActor.position.x < entry.x - VETERAN_ASSEMBLY_RADIUS)
+        if (entryStage) this.veteranSupportEntryPositions.set(id, entry)
+        npc.assignFormationTarget(entryStage ? VETERAN_SUPPORT_ENTRY_COMMAND_ID : VETERAN_ASSEMBLY_COMMAND_ID,
+          entryStage ? entry : muster, new THREE.Vector3(0, 0, -1), mount?.baseSpeed ?? MISSION_LEADER_MARCH_SPEED)
+      }
     })
     const firstSquad = this.friendlies.filter(npc => active.friendlyActorIds.indexOf(npc.combatantId) < 29)
     const secondSquad = this.friendlies.filter(npc => active.friendlyActorIds.indexOf(npc.combatantId) >= 29)
@@ -1207,13 +1250,7 @@ export class BanditMissionController {
     const active = this.active
     if (!active || active.result) { this.guide.hide(); return }
     this.checkpoint.advance(dt)
-    if (active.phase === 'ASSEMBLING') {
-      const living = this.friendlies.filter(npc => !npc.dead)
-      const assembled = living.filter(npc => npc.isFormationTargetReached(this.sweepAssemblyCommandId)).length >= Math.ceil(living.length * .75)
-      const joined = this.player().dead || this.leader && this.player().combatPosition.distanceTo(this.leader.combatPosition) <= 12
-      const captainReady = this.leader?.isFormationTargetReached(this.sweepAssemblyCommandId)
-      if ((!this.leader || this.leader.dead || captainReady && assembled && joined) && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
-    }
+    if (active.phase === 'ASSEMBLING') this.updateMountedAssembly(SWEEP_YAW, { assemblyRadius: VETERAN_ASSEMBLY_RADIUS })
     if (this.phase === 'MARCHING' && this.leader) this.advanceRoute(this.leader)
     const observers = [...this.friendlies.filter(npc => !npc.dead).map(npc => npc.combatPosition), ...(this.player().dead ? [] : [this.player().combatPosition])]
     const alert = active.sweepAlerted || this.missionBandits.some(npc => npc.encounterIsAlerted)
@@ -1230,6 +1267,28 @@ export class BanditMissionController {
       this.phase === 'ASSEMBLING' ? SWEEP_CAPTAIN_START : this.leader?.combatPosition ?? SWEEP_CENTER, this.remainingEnemies)
   }
 
+  private updateMountedAssembly(yaw: number, { assemblyRadius = 0 } = {}): void {
+    for (const npc of this.friendlies) {
+      const entry = this.veteranSupportEntryPositions.get(npc.combatantId)
+      const muster = this.veteranMusterPositions.get(npc.combatantId)
+      if (npc.dead || !entry || !muster) continue
+      if (npc.isFormationTargetReached(VETERAN_SUPPORT_ENTRY_COMMAND_ID)
+        || npc.combatPosition.distanceToSquared(entry) <= VETERAN_ASSEMBLY_RADIUS ** 2) {
+        this.veteranSupportEntryPositions.delete(npc.combatantId)
+        npc.assignFormationTarget(VETERAN_ASSEMBLY_COMMAND_ID, muster,
+          new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
+          npc.mount?.baseSpeed ?? MISSION_LEADER_MARCH_SPEED)
+      }
+    }
+    const living = this.friendlies.filter(npc => !npc.dead)
+    const assembled = living.every(npc => {
+      const muster = this.veteranMusterPositions.get(npc.combatantId)
+      return npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID)
+        || Boolean(assemblyRadius > 0 && muster && npc.combatPosition.distanceToSquared(muster) <= assemblyRadius ** 2)
+    })
+    if (assembled && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
+  }
+
   private updateVeteranField(dt: number, cameraYaw: number): void {
     const active = this.active
     const definition = active ? getVeteranMissionDefinition(active.templateId) : null
@@ -1238,21 +1297,7 @@ export class BanditMissionController {
     if (definition.objective.kind === 'survive') {
       this.veteranSurvivalElapsed = Math.min(definition.objective.seconds, this.veteranSurvivalElapsed + Math.max(0, dt))
     } else if (active.phase === 'ASSEMBLING') {
-      for (const npc of this.friendlies) {
-        const entry = this.veteranSupportEntryPositions.get(npc.combatantId)
-        const muster = this.veteranMusterPositions.get(npc.combatantId)
-        if (npc.dead || !entry || !muster) continue
-        if (npc.isFormationTargetReached(VETERAN_SUPPORT_ENTRY_COMMAND_ID)
-          || npc.combatPosition.distanceToSquared(entry) <= VETERAN_ASSEMBLY_RADIUS ** 2) {
-          this.veteranSupportEntryPositions.delete(npc.combatantId)
-          npc.assignFormationTarget(VETERAN_ASSEMBLY_COMMAND_ID, muster,
-            new THREE.Vector3(Math.sin(veteranPlayerYaw(active.templateId)), 0, Math.cos(veteranPlayerYaw(active.templateId))),
-            npc.mount?.baseSpeed ?? MISSION_LEADER_MARCH_SPEED)
-        }
-      }
-      const living = this.friendlies.filter(npc => !npc.dead)
-      const assembled = living.every(npc => npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID))
-      if (assembled && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
+      this.updateMountedAssembly(veteranPlayerYaw(active.templateId))
     }
     if (definition.objective.kind !== 'survive' && this.phase !== 'ASSEMBLING') this.mountedMarch?.update()
     this.persistRuntimeProgress()
@@ -1395,10 +1440,11 @@ export class BanditMissionController {
     const statsChanged = JSON.stringify(playerStats) !== JSON.stringify(active.playerStats)
     const playerDead = this.player().dead
     const veteranField = active.kind === 'veteran-field'
-    const actorHealth = veteranField ? this.snapshotVeteranActorHealth() : active.actorHealth
-    const actorHealthChanged = veteranField && JSON.stringify(actorHealth) !== JSON.stringify(active.actorHealth)
-    const actorPositions = veteranField ? this.snapshotVeteranActorPositions() : active.actorPositions
-    const actorPositionsChanged = veteranField && JSON.stringify(actorPositions) !== JSON.stringify(active.actorPositions)
+    const mountedField = veteranField || active.kind === 'cavalry-sweep'
+    const actorHealth = mountedField ? this.snapshotVeteranActorHealth() : active.actorHealth
+    const actorHealthChanged = mountedField && JSON.stringify(actorHealth) !== JSON.stringify(active.actorHealth)
+    const actorPositions = mountedField ? this.snapshotVeteranActorPositions() : active.actorPositions
+    const actorPositionsChanged = mountedField && JSON.stringify(actorPositions) !== JSON.stringify(active.actorPositions)
     const survivalElapsed = veteranField ? this.survivalElapsedSeconds : active.survivalElapsed
     const survivalChanged = veteranField && survivalElapsed !== active.survivalElapsed
     const fieldMarchPosition = veteranField && this.leader && !this.leader.dead
@@ -1415,9 +1461,8 @@ export class BanditMissionController {
       ...(fieldMarchPosition ? { mountedMarchPosition: fieldMarchPosition } : {}),
       routeStage: this.routeIndex,
       ...(playerStats ? { playerStats } : {}),
+      ...(mountedField ? { actorHealth, actorPositions } : {}),
       ...(veteranField ? {
-        actorHealth,
-        actorPositions,
         survivalElapsed,
         playerHp,
         playerStamina,
