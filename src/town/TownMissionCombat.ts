@@ -162,7 +162,7 @@ export class TownMissionCombat {
 
   /** Also checks current positions because Player attacks precede threat assignment in a frame. */
   isExternalThreatDefender(ally: NPC): boolean {
-    if (this.town.patrol?.().combatEnabled(ally)) return true
+    if (this.town.patrol?.().combatEnabled(ally) && !ally.hostileToPlayer) return true
     if (this.missions.field.active?.kind === 'veteran-field') return false
     if (this.externalThreatActors.has(ally)) return true
     const resident = this.town.residents.find(candidate => candidate.npc === ally)
