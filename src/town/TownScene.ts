@@ -73,6 +73,7 @@ import { TownEquipment } from './TownEquipment'
 import { TownMissionSettlement } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
+import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
 import { TOWN_RULES, townActorCaptainProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
@@ -146,6 +147,7 @@ export class TownScene {
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
   private missionCombat!: TownMissionCombat
+  private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
   private duelPresetId?: UnitPresetId
@@ -230,6 +232,9 @@ export class TownScene {
     this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
+    this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
+      () => this.profile, this.world.obstacles, this.navigation)
+    this.outskirts.synchronizeRank()
     // Enemy-territory field missions may reserve a Patrol officer instead of the
     // service Captain, or use only temporary officers. Recruit-party captain access
     // is unused there, but constructing the field controller must still succeed.
@@ -263,6 +268,7 @@ export class TownScene {
         player: () => this.player,
         residents: this.residents, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
         navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
+        outskirts: () => this.outskirts,
         preparePeaceResidents: excluded => this.patrol.beginFrame(excluded),
         ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null,
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
@@ -385,6 +391,7 @@ export class TownScene {
       return false
     }
     this.profile = next
+    this.outskirts?.synchronizeRank()
     this.careerSkillsDirty = false
     return true
   }
@@ -1111,9 +1118,11 @@ export class TownScene {
     for (const mount of this.mission?.battlefieldMounts ?? []) add(mount, true)
     for (const mount of this.defense?.enemyMounts ?? []) add(mount, true)
     for (const mount of this.duel?.allMounts ?? []) add(mount, true)
+    // Outskirts mounts keep their controller's lifetime, independently of mission settlement.
+    for (const mount of this.outskirts?.mounts ?? []) add(mount)
     for (const mount of this.temporaryMounts.all) add(mount)
     add(owned)
-    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? [])]) {
+    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? [])]) {
       npc.combatMountGrid = this.combatMountGrid
     }
   }
@@ -1123,12 +1132,16 @@ export class TownScene {
       this.hitResident(mount, amount, method, contact)
       return
     }
+    const rider = mount.riderNpc
     const result = damageMount(mount, amount, {
       contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
+    if (result.appliedDamage > 0 && rider && this.outskirts?.owns(rider)) {
+      this.outskirts.noteHit(rider, !source)
+    }
     if (!source && result.appliedDamage > 0) {
       this.awardCareerSkillXp(method, result.appliedDamage)
       this.damageNumbers.spawn(result.appliedDamage, mount.group.position.clone().add(new THREE.Vector3(0, 1, 0)))
@@ -1160,10 +1173,11 @@ export class TownScene {
     return isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) ? [] : [...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])]
   }
   private isProtectedTownAlly(target: NPC | Mount): boolean {
+    if (target instanceof NPC && this.outskirts?.owns(target)) return !target.hostileToPlayer
     if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && (target === this.cat || (this.stableHorses ?? []).includes(target as Mount))) return true
     const active = this.profile?.activeMission
     if (active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault') {
-      if (target instanceof NPC) return target.faction !== Faction.ENEMY
+      if (target instanceof NPC) return target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT
       return target === this.cat || (this.stableHorses ?? []).includes(target)
         || (this.residents ?? []).some(resident => resident.homeMount === target)
     }
@@ -1238,7 +1252,9 @@ export class TownScene {
     }
     if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
-    if (this.defense?.active && (source ? !townWartimeHostile(source, target) : target.faction !== Faction.ENEMY)) return
+    if (!source && this.outskirts?.owns(target) && this.isProtectedTownAlly(target)) return
+    if (source && !townWartimeHostile(source, target)) return
+    if (this.defense?.active && !source && target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT) return
     const playerAmount = !source && method === 'mount-impact'
       ? Math.round(amount * this.skills.getMountedImpactMultiplier())
       : amount
@@ -1250,6 +1266,12 @@ export class TownScene {
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (!result.hitSuccess) return
+    if (result.appliedDamage > 0) {
+      this.outskirts?.noteHit(target, !source)
+      if (this.outskirts?.owns(target) || source && this.outskirts?.owns(source)) {
+        this.missionCombat?.noteExternalHit(target, source)
+      }
+    }
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
@@ -1288,7 +1310,16 @@ export class TownScene {
     this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind), training, player, source, age: 0 })
     if (!training && kind === 'arrow') sound?.playBowRelease(player ? 0 : source?.currentLod ?? 0, player, player ? 0 : origin.distanceTo(this.player.combatPosition))
   }
+  /** Physical participants never become mission objective, checkpoint or contribution rosters. */
+  private runtimeCombatActors(): NPC[] {
+    return [...new Set([
+      ...(this.residents ?? []).map(resident => resident.npc),
+      ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []),
+      ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []),
+    ])]
+  }
   private updateShots(dt: number): void {
+    const runtimeActors = this.outskirts?.actors.length ? this.runtimeCombatActors() : null
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       const from = s.arrow.mesh.position.clone(); s.age += dt
@@ -1312,6 +1343,12 @@ export class TownScene {
       }
       const targets: Array<Player | NPC | Mount> = this.duel?.active
         ? s.player ? this.duel.opponent ? [this.duel.opponent] : [] : s.source === this.duel.opponent ? [this.player] : []
+        : runtimeActors
+          ? s.player
+            ? runtimeActors.filter(target => !this.isProtectedTownAlly(target))
+            : s.source
+              ? [...(s.source.hostileToPlayer ? [this.player] : []), ...runtimeActors.filter(target => townWartimeHostile(s.source!, target))]
+              : [this.player]
         : s.player
         ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
           ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
@@ -1383,6 +1420,7 @@ export class TownScene {
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
     const combatTargets = this.duel?.active ? this.duel.opponent ? [this.duel.opponent] : []
+      : this.outskirts?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
       : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
         ...(this.missionCombat?.enemyTownHostiles ?? []),
         ...this.residents.map(r => r.npc).filter(target => !this.isProtectedTownAlly(target))]
@@ -1396,7 +1434,7 @@ export class TownScene {
     const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, contact.kind === 'mount' || target.isMounted))
     if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
     else if (target instanceof NPC) {
-      if (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+      if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
       else this.hitResident(target, amount, 'melee', contact)
     }
     if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
@@ -1413,7 +1451,7 @@ export class TownScene {
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
     for (const mount of this.townServiceMounts) if (!mount.dead) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
-    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
+    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
     this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
   }
   private updateAmbient(): void {
@@ -1484,7 +1522,7 @@ export class TownScene {
       distance: playerMount.group.position.distanceTo(this.camera.position),
       isPlayer: true,
     })
-    const actors = this.duel?.active ? this.duel.fieldNpcs : this.defense.active ? this.defense.fieldNpcs : this.mission.fieldNpcs
+    const actors = [...(this.duel?.active ? this.duel.fieldNpcs : this.defense.active ? this.defense.fieldNpcs : this.mission.fieldNpcs), ...(this.outskirts?.actors ?? [])]
     for (const actor of actors) {
       const mount = actor.mount
       if (!mount || mount.dead || mount.type !== MountType.HORSE || actor.dead || mount === playerMount) continue
@@ -1500,6 +1538,7 @@ export class TownScene {
   }
   private updateHostile(dt: number): void {
     this.navigation.sync(this.world.obstacles); this.navigation.beginFrame()
+    this.missionCombat.updateOutskirtsHostile(dt, this.elapsed)
     if (this.npcObstacles.length !== this.world.obstacles.length || this.npcObstacleRevision !== obstacleTopologyRevision(this.world.obstacles)) {
       this.npcObstacles = this.world.obstacles.map(o => ({ box: o.box, isBarricade: o.isBarricade }))
       this.npcObstacleRevision = obstacleTopologyRevision(this.world.obstacles)
@@ -1511,7 +1550,14 @@ export class TownScene {
       if (r.npc === ranger && status === 'approach') {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }
-      r.npc.update(dt, this.player, [], this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp, (damage, isPlayer) => { if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee') }, (origin, direction, kind) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc), false, r.npc.group.position.distanceTo(this.camera.position), null, null, this.navigation)
+      const warfare = Boolean(this.outskirts?.actors.length)
+      r.npc.update(dt, this.player, warfare ? this.missionCombat.runtimeParticipants : [],
+        this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp,
+        (damage, isPlayer, targetNpc) => {
+          if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee')
+          else if (targetNpc) this.hitFieldNpc(targetNpc, damage, 'melee', r.npc)
+        }, (origin, direction, kind) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc), false,
+        r.npc.group.position.distanceTo(this.camera.position), null, warfare ? this.missionCombat.runtimeGrid : null, this.navigation)
     }
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc && checkMountImpact(mount, this.player.combatPosition, .6)) {
       applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => this.damagePlayerFromNpc(mount.riderNpc!, amount, 'mount-impact'))
@@ -1537,7 +1583,7 @@ export class TownScene {
     this.nearbyTemporaryMount = null
     if (!this.player.isMounted) {
       let mountDistance = 3
-      for (const mount of this.temporaryMounts.all) {
+      for (const mount of [...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])]) {
         if (!mount.availableForPlayer) continue
         const distance = Math.hypot(mount.group.position.x - this.player.combatPosition.x, mount.group.position.z - this.player.combatPosition.z)
         if (distance < mountDistance) { mountDistance = distance; this.nearbyTemporaryMount = mount }
@@ -1594,6 +1640,7 @@ export class TownScene {
     if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     if (!this.panel && !this.equipment.visible && !this.result) {
       this.elapsed += dt
+      this.outskirts?.synchronizeRank()
       this.refreshCombatMounts()
       if (!this.player.dead && !this.spectator) {
         let step: -1 | 0 | 1
@@ -1610,6 +1657,11 @@ export class TownScene {
       for (const m of this.mounts) {
         m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
         if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, this.world.obstacles)
+      }
+      for (const mount of this.outskirts?.mounts ?? []) {
+        if (mount.disposed) continue
+        mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+        if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.world.obstacles)
       }
       if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
       this.resolveBodies(); this.updateShots(dt)
@@ -1674,6 +1726,7 @@ export class TownScene {
     this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])
     if (this.disposed) return
+    this.outskirts?.dispose()
     this.weaponWheelUI.dispose()
     this.duelHud.dispose()
     this.duelGuide.dispose()

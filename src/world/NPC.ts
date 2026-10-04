@@ -450,6 +450,9 @@ export class NPC {
     this._clearNavigationPath()
   }
 
+  /** Squad controllers share the same encounter return semantics as camp Bandits. */
+  returnFromEncounter(): void { this._beginEncounterReturn() }
+
   /** An effective Player hit interrupts a stale NPC target and makes Player the combat target. */
   retaliateAgainstPlayer(): void {
     if (this.dead || !this.targetsPlayer) return
