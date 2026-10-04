@@ -5,12 +5,14 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { followLocalOffset } from '../battle/FollowOrder'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
 export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian'
-export type TownDuty = 'training' | 'gate_guard' | 'service' | 'civilian'
+export type TownDuty = 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
+export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 export type TownUnitKind = 'sword_cavalry' | 'lancer' | 'horse_archer' | 'melee' | 'spearman' | 'ranged' | 'archer'
 export interface TownActorSpec {
@@ -25,6 +27,9 @@ export interface TownActorSpec {
   /** Settlement principals are independent of the expanded ambient city population. */
   settlementObjective: boolean
   assaultObjective: boolean
+  patrolId?: TownPatrolId
+  /** Permanent Captain identity, independent of the runtime acting leader. */
+  patrolLeader?: boolean
   gateId?: TownGateId
   tier: 2 | 3 | 4
   x: number
@@ -43,8 +48,9 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const kind = unitKind === 'melee' || !unitKind ? faction === 'roman' ? 'heavy_infantry' : 'berserker'
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
   const presetId = `${faction}_${kind}` as UnitPresetId
-  const tier = role === 'captain' || role === 'deployment' ? 3 : TOWN_RULES.garrisonTier
-  const level: 1 | 2 | 3 | 4 = role === 'captain' ? 4 : tier
+  const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
+  const tier = role === 'captain' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
+  const level: 1 | 2 | 3 | 4 = role === 'captain' || patrolCaptain ? 4 : tier
   return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
 }
 export const TOWN_SITES = {
@@ -97,6 +103,21 @@ export function townRoster(): TownActorSpec[] {
     tier: role === 'captain' || role === 'ranger' ? 4 : role === 'deployment' ? 3 : 2,
     settlementObjective: true, assaultObjective: role === 'captain' || role === 'deployment' || role === 'ranger',
   })
+  for (const patrolId of ['A', 'B'] as const) {
+    const muster = townSitePoint('barracks', patrolId === 'A' ? 46 : 66, patrolId === 'A' ? -43 : 35)
+    const yaw = patrolId === 'A' ? Math.PI / 2 : -Math.PI / 2
+    for (let i = -1; i < 19; i++) {
+      const offset = i < 0 ? { x: 0, z: 0 } : followLocalOffset(i, true)
+      result.push({
+        id: `town-patrol:${patrolId.toLowerCase()}:${i < 0 ? 'captain' : i}`,
+        role: 'melee_cavalry', unitKind: 'sword_cavalry', duty: 'patrol', patrolId, patrolLeader: i < 0,
+        mounted: true, training: false, tier: i < 0 ? 4 : 2, index: i + 1,
+        settlementObjective: false, assaultObjective: false,
+        x: muster.x + Math.cos(yaw) * offset.x + Math.sin(yaw) * offset.z,
+        z: muster.z - Math.sin(yaw) * offset.x + Math.cos(yaw) * offset.z, yaw,
+      })
+    }
+  }
   return result
 }
 export function townSettlementRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => actor.settlementObjective) }
@@ -248,4 +269,11 @@ export function sellTownProduct(current: CareerProfile, productId: string) {
     }
   }
   return { profile, sold: true, earnedMerit }
+}
+
+/** Patrol officers share the faction Captain profile but always ride an ordinary Horse. */
+export function townActorCaptainProfile(faction: CharacterFaction, spec: TownActorSpec) {
+  if (spec.role === 'captain') return townCaptainProfile(faction)
+  if (spec.duty === 'patrol' && spec.patrolLeader) return { ...townCaptainProfile(faction), mountOverride: 'horse' as const }
+  return undefined
 }

@@ -1,3 +1,4 @@
+export const TOWN_PATROL_WALL_OFFSET = 12.5
 export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6 } as const
 export type TownGateId = 'north' | 'south' | 'east' | 'west'
 export interface TownGateSpec { id: TownGateId; x: number; z: number; yaw: number }
@@ -33,6 +34,8 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
   if (x >= TOWN_CITY.minX - radius - 4 && x <= TOWN_CITY.maxX + radius + 4
     && z >= TOWN_CITY.minZ - radius - 4 && z <= TOWN_CITY.maxZ + radius + 4) return true
+  const exteriorDistance = Math.hypot(Math.max(TOWN_CITY.minX - x, 0, x - TOWN_CITY.maxX), Math.max(TOWN_CITY.minZ - z, 0, z - TOWN_CITY.maxZ))
+  if (radius <= 7 && Math.abs(exteriorDistance - TOWN_PATROL_WALL_OFFSET) < radius + 6) return true
   return TOWN_CITY_ROADS.some(road => {
     const dx = road.bx - road.ax, dz = road.bz - road.az
     const t = Math.max(0, Math.min(1, ((x - road.ax) * dx + (z - road.az) * dz) / (dx * dx + dz * dz)))

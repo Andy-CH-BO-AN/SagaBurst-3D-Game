@@ -70,7 +70,8 @@ import { TownWorld } from './TownWorld'
 import { TownEquipment } from './TownEquipment'
 import { TownMissionSettlement } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
-import { TOWN_RULES, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TownCavalryPatrolController } from './TownCavalryPatrolController'
+import { TOWN_RULES, townActorCaptainProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; age: number }
@@ -141,6 +142,7 @@ export class TownScene {
   private defense!: TownDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
+  private patrol!: TownCavalryPatrolController
   private missionCombat!: TownMissionCombat
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
@@ -193,7 +195,7 @@ export class TownScene {
       const residentArmyFaction = context.missionOnlyResidents && !borrowed ? context.worldFaction : context.residentFaction
       const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
       const preset = military?.presetId
-      const captain = spec.role === 'captain' ? townCaptainProfile(residentArmyFaction) : undefined
+      const captain = townActorCaptainProfile(residentArmyFaction, spec)
       const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout
       const npc = new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : captain?.visualAssetId, ranger ? 'ranger' : captain?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction)
       npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
@@ -204,6 +206,7 @@ export class TownScene {
       const training = !context.missionOnlyResidents && spec.training, target = training ? this.world.addTarget(spec.x, spec.z - (spec.mounted ? ranged ? 4 : 3 : ranged ? 3 : 1.5), ranged) : undefined
       this.residents.push({ spec, npc, homeMount, target, cycle: -1, walkTime: 0 }); this.event.register(spec.id, npc)
     }
+    this.patrol = new TownCavalryPatrolController(this.residents)
     this.world.finalizeTrainingTargets()
     progress('預熱動畫、材質與陰影…')
     this.camera.position.set(0, 24, 42); this.camera.lookAt(0, 0, 0)
@@ -252,6 +255,7 @@ export class TownScene {
         player: () => this.player,
         residents: this.residents, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
         navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
+        preparePeaceResidents: excluded => this.patrol.beginFrame(excluded),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateCommandCue: () => this.updateCareerCommandCue(),
         clearCombatShots: () => this.clearMissionCombatShots(),
@@ -1060,6 +1064,7 @@ export class TownScene {
     // A real hit must not cancel the current swing or clear held movement / Shift keys.
     if (this.panel || this.equipment.visible) this.closePanel()
     this.notice = '全鎮反擊！所有服務停止。'
+    this.patrol?.stopForHostility()
     for (const r of this.residents) r.npc.beginTownHostility()
     const speaker = this.residents.find(r => r.spec.role === 'captain' && !r.npc.dead) ?? this.residents.find(r => !r.npc.dead && !isCivilian(r.spec.role))
     this.chargeSpeakerId = speaker?.spec.id ?? null
@@ -1411,6 +1416,7 @@ export class TownScene {
     this.ambientLabel.style.left = (point.x * .5 + .5) * innerWidth + 'px'; this.ambientLabel.style.top = (-point.y * .5 + .5) * innerHeight + 'px'
   }
   private updatePeace(r: Resident, dt: number): void {
+    if (this.patrol?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
     const { npc, spec, target } = r, distance = npc.group.position.distanceTo(this.camera.position), phase = this.elapsed + spec.index * .41
     let speed = 0
     if (npc.mount) {

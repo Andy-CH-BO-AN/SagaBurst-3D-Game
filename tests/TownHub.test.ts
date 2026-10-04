@@ -72,9 +72,9 @@ describe('Town population and civilian combat', () => {
     expect((roman.getObjectByName('Tunic_1') as THREE.Mesh).material).toBe(cloth)
     expect(cloth.color.getHex()).toBe(0xff2222)
   })
-  it('registers the 85 explicit principals independently of 100 additional military residents', () => {
+  it('registers the 85 explicit principals independently of 140 additional military residents', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
-    expect(counts).toMatchObject({ melee_cavalry: 20, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
+    expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
     const e = new TownEvent(); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(85)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)

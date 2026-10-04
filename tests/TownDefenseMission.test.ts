@@ -413,7 +413,7 @@ describe('Recruit Town Defense outcome, orders and rewards', () => {
     const reset = clearCareerMission(profile, 'defense-reset')
     expect(reset.activeMission).toBeUndefined()
     expect(reset.ownedMounts).toEqual(['horse'])
-    expect(townRoster()).toHaveLength(185)
+    expect(townRoster()).toHaveLength(225)
   })
 
   it('never creates or clears Town Crime state as part of mission claiming/reset', () => {

@@ -20,6 +20,7 @@ import {
   getTerrainHeight,
   ObstacleData,
   resolveObstacleCollision,
+  resolveEntityCollision,
   type ObstacleDetourPlan,
   type ObstacleDetourSide,
 } from './Terrain'
@@ -738,6 +739,27 @@ export class NPC {
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
     return events.projectileRelease
   }
+  /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
+  updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,
+    followAnchor?: { position: THREE.Vector3; yaw: number }): void {
+    if (this.dead || !this.mount || this.mount.dead) { this.updateTownPeace(dt, distance, false, false); return }
+    this.visualMovementSpeed = 0
+    this.isSprinting = false
+    this.mount.setCameraDistance(distance)
+    this.mount.beginControlledFrame()
+    this._updateFormationMovement(dt, nearby, obstacles, false, navigation, followAnchor)
+    for (const other of nearby) {
+      if (other === this || other.dead) continue
+      resolveEntityCollision(
+        { position: this.combatPosition, radius: 1, height: 2.6, bottomOffset: 0 },
+        { position: other.combatPosition, radius: other.isMounted ? 1 : .42, height: other.isMounted ? 2.6 : 1.8, bottomOffset: 0, anchored: true },
+        obstacles,
+      )
+    }
+    this.mount.finishControlledFrame(dt, obstacles)
+    this.updateTownPeace(dt, distance, false, false, this.mount.movementSpeed)
+  }
+
   dispose(): void {
     this.animator.cancel()
     this.rig.animation?.stop()
@@ -1058,7 +1080,8 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
 
-  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number): void {
+  assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
+    anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -1068,12 +1091,12 @@ export class NPC {
     this.followTarget = target
     this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
     this.followLocalOffset.copy(localOffset)
-    this.followSmoothedLeaderPosition.copy(target.combatPosition)
-    this.followSmoothedLeaderYaw = target.group.rotation.y
+    this.followSmoothedLeaderPosition.copy(anchor?.position ?? target.combatPosition)
+    this.followSmoothedLeaderYaw = anchor?.yaw ?? target.group.rotation.y
     this.followCombatActive = false
     this._resetFollowNavigation()
     this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
-    const position = followSlotWorldPosition(target.combatPosition, target.group.rotation.y, this.followLocalOffset)
+    const position = followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset)
     this.formationTarget = {
       commandId: -1,
       position,
@@ -2620,6 +2643,7 @@ export class NPC {
     obstacles: ObstacleData[],
     skipBoidsAndObstacles: boolean,
     navigationWorld: NavigationWorld | null,
+    followAnchor?: { position: THREE.Vector3; yaw: number },
   ): void {
     const target = this.formationTarget
     if (!target) return
@@ -2630,8 +2654,8 @@ export class NPC {
         this.state = AIState.IDLE
         return
       }
-      const leaderPosition = leader.combatPosition
-      const leaderYaw = leader.group.rotation.y
+      const leaderPosition = followAnchor?.position ?? leader.combatPosition
+      const leaderYaw = followAnchor?.yaw ?? leader.group.rotation.y
       if (this.followSmoothedLeaderPosition.distanceToSquared(leaderPosition) > 1600) {
         this.followSmoothedLeaderPosition.copy(leaderPosition)
         this.followSmoothedLeaderYaw = leaderYaw
