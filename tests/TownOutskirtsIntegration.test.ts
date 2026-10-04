@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../src/career/BanditMissionController'
 import { createCareerProfile } from '../src/career/CareerProfile'
+import { careerTownSceneRoster } from '../src/career/CareerFieldSceneContext'
 import { acceptsCareerMissionStat, type ActiveCareerMission } from '../src/career/CareerMissionState'
 import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../src/combat/CombatAttribution'
@@ -10,6 +11,9 @@ import { Player } from '../src/player/Player'
 import { AIType, Faction, NPC } from '../src/world/NPC'
 import { Mount, MountState, MountType } from '../src/world/Mount'
 import { createTownCombatFixture } from './townCombatFixture'
+import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
+import { townRoster } from '../src/town/TownRules'
+import { combatFixture } from './helpers/townMissionCombat'
 
 const cleanup: Array<() => void> = []
 afterEach(() => { cleanup.splice(0).forEach(dispose => dispose()); vi.unstubAllGlobals() })
@@ -36,7 +40,7 @@ function fixture(roaming: NPC[], missionTargets: NPC[] = []) {
   const tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
   cleanup.push(() => tracker.dispose())
   const mission = Object.assign(Object.create(BanditMissionController.prototype), {
-    readProfile: () => profile, player: () => player, events, tracker, friendlies: [],
+    readProfile: () => profile, player: () => player, events, tracker, friendlies: [], veteranEnemies: [],
     camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: missionTargets }],
     alertGroupFor: vi.fn(), provokeGroupFor: vi.fn(), combatPeersFor: () => missionTargets,
   }) as BanditMissionController
@@ -77,6 +81,55 @@ function independentHorse(rider: NPC): Mount {
 }
 
 describe('Town outskirts combat routing', () => {
+  it.each((['roaming', 'mission'] as const).flatMap(origin => (['body', 'shield', 'mount', 'mount-death', 'lethal'] as const).map(kind => [origin, kind] as const)))(
+    'routes a hostile %s %s contact into the whole Patrol even without rider HP loss', (origin, kind) => {
+    const hostile = actor(`${origin}:attacker`, Faction.ENEMY, 3)
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').slice(0, 3)
+      .map(spec => ({ spec, npc: actor(spec.id, Faction.TOWN) }))
+    const [victim, ...survivors] = residents
+    const patrol = new TownCavalryPatrolController(residents)
+    const { town } = fixture(origin === 'roaming' ? [hostile] : [], origin === 'mission' ? [hostile] : [])
+    Object.assign(town, { residents, patrol })
+    const combat = combatFixture({ simulation: { residents: residents as any, patrol: () => patrol, outskirts: () => town.outskirts as any } })
+    if (origin === 'mission') { combat.field.fieldNpcs = [hostile]; combat.field.missionBandits = [hostile] }
+    town.missionCombat = combat.combat
+    const beforeHp = victim.npc.hp
+    if (kind === 'shield') Object.assign(victim.npc, { shield: { active: true, absorb: () => ({ damage: 0, blockedImpact: 10 }) }, shieldCollider: null })
+    if (kind === 'mount' || kind === 'mount-death') {
+      const mount = independentHorse(victim.npc)
+      victim.npc.mount = mount
+      if (kind === 'mount-death') mount.takeDamage = amount => {
+        mount.currentHp = Math.max(0, mount.currentHp - amount)
+        if (mount.currentHp === 0) { mount.state = MountState.DEAD; mount.riderNpc = null; victim.npc.mount = null }
+        return true
+      }
+      town.hitFieldNpc(victim.npc, kind === 'mount-death' ? 9999 : 10, 'melee', hostile, { kind: 'mount', mount, time: .5 })
+      expect(victim.npc.hp).toBe(beforeHp)
+      if (kind === 'mount-death') expect(mount.dead).toBe(true)
+    } else town.hitFieldNpc(victim.npc, kind === 'lethal' ? 9999 : 10, 'melee', hostile, { kind: kind === 'shield' ? 'shield' : 'body', time: .5 })
+    if (kind === 'shield') expect(victim.npc.hp).toBe(beforeHp)
+    if (kind === 'lethal') expect(victim.npc.dead).toBe(true)
+    expect(survivors.every(r => patrol.combatEnabled(r.npc))).toBe(true)
+    expect(patrol.squads[0].state).toBe('ENGAGING')
+    expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it('ignores friendly, zero-damage and formally borrowed Patrol contacts when routing squad alert', () => {
+    const friendly = actor('roaming:ally', Faction.TOWN), enemy = actor('roaming:enemy', Faction.ENEMY)
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').slice(0, 3).map(spec => ({ spec, npc: actor(spec.id, Faction.TOWN) }))
+    const patrol = new TownCavalryPatrolController(residents)
+    const { town } = fixture([friendly, enemy])
+    Object.assign(town, { residents, patrol })
+    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteHostileHit(target, source))
+    const victim = residents[0].npc
+    town.hitFieldNpc(victim, 10, 'melee', friendly, { kind: 'body', time: .5 })
+    town.hitFieldNpc(victim, 0, 'melee', enemy, { kind: 'body', time: .5 })
+    patrol.relinquish(victim.combatantId)
+    town.hitFieldNpc(victim, 10, 'melee', enemy, { kind: 'body', time: .5 })
+    expect(patrol.combatActors).toHaveLength(0)
+    expect(patrol.squads[0].state).not.toBe('ENGAGING')
+  })
+
   it('lets an NPC kill a mission target and advance the unchanged objective without claiming player contribution', () => {
     const target = actor('mission-bandit-0', Faction.BANDIT, 20)
     const roaming = actor('town-roaming:enemy:0:0', Faction.ENEMY)
@@ -124,6 +177,62 @@ describe('Town outskirts combat routing', () => {
     expect(outskirts.noteHit).not.toHaveBeenCalled()
     expect(town.prepareDamage).not.toHaveBeenCalled()
     expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it.each(['melee', 'projectile'] as const)('lets Player %s damage a Veteran VI native Patrol engaged with allied roaming cavalry', method => {
+    const allied = actor('town-roaming:cavalry:a:0', Faction.TOWN, 50)
+    const { town, player, active } = fixture([allied])
+    active.kind = 'veteran-field'; active.templateId = 'veteran-tragedy-of-the-scouts'
+    const residents = careerTownSceneRoster(town.profile).filter(entry => entry.spec.patrolId === 'A').slice(0, 3)
+      .map(({ spec, allegiance }, index) => ({ spec, npc: actor(spec.id, allegiance, index * 8), cycle: -1, walkTime: 0 }))
+    const patrol = new TownCavalryPatrolController(residents), target = residents[0].npc
+    const { combat, field } = combatFixture({ simulation: { residents, patrol: () => patrol } })
+    field.active = active
+    Object.assign(town, { residents, patrol, missionCombat: combat })
+    patrol.noteHostileHit(target, allied)
+    expect(patrol.combatEnabled(target)).toBe(true)
+    expect(target.faction).toBe(Faction.ENEMY)
+    expect(target.hostileToPlayer).toBe(true)
+    const before = target.hp
+    if (method === 'melee') {
+      player.group.position.set(0, 39, -1.2)
+      const grip = new THREE.Vector3(0, 40, -.8), tip = new THREE.Vector3(0, 40, .2)
+      const sweep = new WeaponSweep(); sweep.capture(grip, tip)
+      Object.assign(player, { getWeaponGripPosition: () => grip, getSwordTipPosition: () => tip,
+        weaponSweep: sweep, isHitFrame: () => true, markHitProcessed: vi.fn() })
+      town.melee()
+      expect(target.hp).toBeLessThan(before)
+      expect(player.markHitProcessed).toHaveBeenCalledOnce()
+    } else {
+      const shot = arrowThrough(target); town.shots = [shot]; town.updateShots(.05)
+      expect(target.hp).toBe(before - 10)
+      expect(shot.arrow.destroy).toHaveBeenCalledOnce()
+    }
+    expect(town.isProtectedTownAlly(target)).toBe(false)
+    expect(town.prepareDamage).not.toHaveBeenCalled()
+    expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it('continues protecting a home Town Patrol engaged with hostile roaming cavalry', () => {
+    const hostile = actor('town-roaming:cavalry:a:0', Faction.ENEMY, 50)
+    const { town } = fixture([hostile])
+    const residents = careerTownSceneRoster(town.profile).filter(entry => entry.spec.patrolId === 'A').slice(0, 3)
+      .map(({ spec, allegiance }, index) => ({ spec, npc: actor(spec.id, allegiance, index * 8), cycle: -1, walkTime: 0 }))
+    const patrol = new TownCavalryPatrolController(residents), target = residents[0].npc
+    const { combat, field } = combatFixture({ simulation: { residents, patrol: () => patrol } })
+    field.active = town.profile.activeMission
+    Object.assign(town, { residents, patrol, missionCombat: combat })
+    patrol.noteHostileHit(target, hostile)
+    expect(patrol.combatEnabled(target)).toBe(true)
+    expect(target.faction).toBe(Faction.TOWN)
+    expect(target.hostileToPlayer).toBe(false)
+    expect(town.isProtectedTownAlly(target)).toBe(true)
+    const before = target.hp, shot = arrowThrough(target)
+    town.shots = [shot]; town.updateShots(.05)
+    town.hitResident(target, 10)
+    expect(target.hp).toBe(before)
+    expect(shot.arrow.isAlive).toBe(true)
+    expect(town.prepareDamage).not.toHaveBeenCalled()
   })
 
   it.each([Faction.BANDIT, Faction.ENEMY, Faction.TOWN])('player melee and arrows use faction protection for a roaming %s rider', faction => {

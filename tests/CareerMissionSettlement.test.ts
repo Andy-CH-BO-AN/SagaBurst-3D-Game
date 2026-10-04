@@ -242,6 +242,8 @@ describe('Town mission return saving and recovery through the settlement interfa
   it.each([['bandit', 'arrived'], ['patrol', 'arrived'], ['cavalry-sweep', 'direct'], ['cavalry-sweep', 'arrived'], ['duel', 'arrived']] as const)('returns %s %s borrowed residents and their home mounts without resetting a bystander', (kind, intent) => {
     const f = fixture(kind, { savedResult: true, phase: intent === 'arrived' ? 'RETURNING' : 'RESULT' })
     const [captain, infantry, bystander] = f.town.residents
+    // This bystander was not a casualty; dead nonborrowed residents now recover on return.
+    Object.assign(bystander.npc, { dead: false })
     const position = f.town.player.group.position.clone()
     expect(f.settlement.returnToTown(intent).status).toBe('returned')
     for (const resident of [captain, infantry]) {
@@ -273,19 +275,14 @@ describe('Town mission return saving and recovery through the settlement interfa
     else expect(f.town.player.group.position).toEqual(position)
   })
 
-  it('restores the existing defense garrison, civilians, homes and services, preserving the player position', () => {
+  it('restores all Town casualties after defense, including guards outside the defense roster', () => {
     const f = fixture('town-defense', { savedResult: true, fullTown: true })
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'defense' })
     expect(f.town.residents).toHaveLength(224)
     for (const resident of f.town.residents) {
-      if (!resident.spec.defenseGroup && !['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)) {
-        expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
-        expect(f.threats.has(resident.npc)).toBe(true)
-      } else {
-        expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
-        expect(resident.npc.dead).toBe(false)
-        expect(f.threats.has(resident.npc)).toBe(false)
-      }
+      expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
+      expect(resident.npc.dead).toBe(false)
+      expect(f.threats.has(resident.npc)).toBe(false)
       expect(resident.npc.dispose).not.toHaveBeenCalled()
     }
     const catSpot = townSitePoint('stable', -3, 8)
@@ -297,6 +294,50 @@ describe('Town mission return saving and recovery through the settlement interfa
     expect(f.events.indexOf('navigation')).toBeLessThan(f.events.indexOf('player-rest'))
     expect(f.town.player.group.position).toEqual(new THREE.Vector3(9, 1, -4))
     expect(f.town.restart).not.toHaveBeenCalled()
+  })
+
+  it.each(['cavalry-sweep', 'town-defense'] as const)('recovers all 40 gate guards after a failed %s without resetting living reserve cavalry', kind => {
+    const f = fixture(kind, { savedResult: true, fullTown: true })
+    f.profile().activeMission!.result!.outcome = 'failure'
+    for (const resident of f.town.residents) Object.assign(resident.npc, { dead: resident.spec.duty === 'gate_guard' })
+    const guards = f.town.residents.filter(resident => resident.spec.duty === 'gate_guard')
+    const originals = guards.map(resident => ({ npc: resident.npc, id: resident.spec.id }))
+    const livingReserve = f.town.residents.filter(resident => resident.spec.mounted && resident.spec.duty === 'training')
+    expect(guards).toHaveLength(40)
+
+    expect(f.settlement.returnToTown('direct').status).toBe('returned')
+
+    for (const [i, resident] of guards.entries()) {
+      expect(resident.npc).toBe(originals[i].npc)
+      expect(resident.spec.id).toBe(originals[i].id)
+      expect(resident.npc.dead).toBe(false)
+      expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
+      expect(f.threats.has(resident.npc)).toBe(false)
+    }
+    for (const resident of livingReserve) expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
+    expect(f.profile().activeMission).toBeUndefined()
+  })
+
+  it('keeps dead gate guards untouched when saving the defense return fails', () => {
+    const f = fixture('town-defense', { savedResult: true, fullTown: true })
+    f.storage.writable = false
+    expect(f.settlement.returnToTown('direct').status).toBe('save-failed')
+    expect(f.town.residents.filter(resident => resident.spec.duty === 'gate_guard').every(resident => resident.npc.dead)).toBe(true)
+    expectSceneUntouched(f)
+  })
+
+  it('returns dead Patrol members to their barracks lifecycle after defense', () => {
+    const f = fixture('town-defense', { savedResult: true, fullTown: true })
+    const patrol = f.town.residents.filter(resident => resident.spec.duty === 'patrol')
+    const beginPatrolMissionReturn = vi.fn(() => expect(f.profile().activeMission).toBeUndefined())
+    Object.assign(f.town, { beginPatrolMissionReturn })
+    expect(f.settlement.returnToTown('direct').status).toBe('returned')
+    expect(beginPatrolMissionReturn).toHaveBeenCalledTimes(40)
+    for (const resident of patrol) {
+      expect(beginPatrolMissionReturn).toHaveBeenCalledWith(resident.spec.id)
+      expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
+      expect(resident.homeMount!.restoreForTown).not.toHaveBeenCalled()
+    }
   })
 
   it.each(kinds)('keeps %s active when physical return is requested before RETURNING', kind => {

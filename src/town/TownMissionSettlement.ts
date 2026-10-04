@@ -38,7 +38,7 @@ interface TownReturnScene {
   residents: readonly ReturnResident[]
   releaseExternalThreat(npc: NPC): void
   beginPatrolMissionReturn?(actorId: string): void
-  cat: Pick<Mount, 'restoreForTown' | 'catVisual'>
+  cat: Pick<Mount, 'restoreForTown' | 'catVisual'> & Partial<Pick<Mount, 'dead'>>
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
   inventory: Pick<TownEquipment, 'sheathAll'>
@@ -124,17 +124,17 @@ export class TownMissionSettlement {
     else this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
-      const restore = defense
+      const restore = resident.npc.dead || (defense
         ? Boolean(resident.spec.defenseGroup) || ['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)
-        : borrowed!.has(resident.npc)
+        : borrowed!.has(resident.npc))
       if (restore) {
-        if (!defense && resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
+        if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
           this.town.releaseExternalThreat(resident.npc)
           this.town.beginPatrolMissionReturn(resident.spec.id)
         } else this.restoreResident(resident)
       }
     }
-    if (defense || active.kind === 'duel') this.restoreCat()
+    if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()
     if (defense) {
       this.town.world.restoreTownDamage()
       this.town.navigation.sync(this.town.world.obstacles)

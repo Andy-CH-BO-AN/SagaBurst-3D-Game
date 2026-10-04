@@ -13,7 +13,7 @@ function fixture(result = true, liveSkills?: CareerProfile['skills']) {
     ...(result ? { result: { outcome: 'victory', stats, claimed: true, merit: { damage: 2, kills: 6, contribution: 12, total: 20 } } as const } : {}),
   }
   const npc = { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
-  const bystander = { group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
+  const bystander = { dead: false, group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
   const homeMount = { restoreForTown: vi.fn(), dispose: vi.fn() }
   const friendlies = [npc]
   const field = { friendlies, snapshot: () => ({ player: stats, squads: [] }), cleanupMission: vi.fn(() => { friendlies.length = 0 }) }
@@ -34,6 +34,40 @@ function fixture(result = true, liveSkills?: CareerProfile['skills']) {
 }
 
 describe('Veteran field return through existing Career settlement', () => {
+  it.each(['failure', 'victory'] as const)('restores nonborrowed Town casualties and services after %s is cleared', outcome => {
+    const f = fixture()
+    f.profile().activeMission!.result!.outcome = outcome
+    f.bystander.dead = true
+    f.bystander.restoreForTown.mockImplementation(() => { f.bystander.dead = false })
+    const npc = { dead: true, group: new THREE.Group(), dismountFromMount: vi.fn(), restoreForTown: vi.fn(), mountVehicle: vi.fn() }
+    npc.restoreForTown.mockImplementation(() => { npc.dead = false })
+    const mount = { restoreForTown: vi.fn(), dispose: vi.fn() }
+    f.town.residents.push({ npc, homeMount: mount, spec: { role: 'melee_cavalry', x: 35, z: -90, yaw: .5 }, cycle: 5, walkTime: 4 } as any)
+    Object.assign(f.town.cat, { dead: true })
+    const merit = f.profile().totalMerit
+    expect(f.settlement.returnToTown('direct').status).toBe('returned')
+    expect(f.bystander.dead).toBe(false)
+    expect(f.bystander.restoreForTown).toHaveBeenCalledOnce()
+    expect(npc.dead).toBe(false)
+    expect(mount.restoreForTown).toHaveBeenCalledExactlyOnceWith(35, -90, .5)
+    expect(f.town.cat.restoreForTown).toHaveBeenCalledOnce()
+    expect(f.town.releaseExternalThreat).toHaveBeenCalledWith(npc)
+    expect(f.town.releaseExternalThreat).toHaveBeenCalledWith(f.bystander)
+    expect(f.profile().activeMission).toBeUndefined()
+    expect(f.profile().totalMerit).toBe(merit)
+  })
+
+  it('keeps nonborrowed casualties dead when clearing the mission cannot be saved', () => {
+    const f = fixture()
+    f.profile().activeMission!.result!.outcome = 'failure'
+    f.bystander.dead = true
+    ;(f.settlement as any).profiles.commit = () => false
+    expect(f.settlement.returnToTown('direct').status).toBe('save-failed')
+    expect(f.bystander.dead).toBe(true)
+    expect(f.bystander.restoreForTown).not.toHaveBeenCalled()
+    expect(f.field.cleanupMission).not.toHaveBeenCalled()
+    expect(f.profile().activeMission).toBeDefined()
+  })
   it('restarts from the committed live skills when returning from enemy territory', () => {
     const skills = { ...createCareerProfile('roman').skills!, ranged: { level: 3, xp: 61 } }
     const f = fixture(true, skills)

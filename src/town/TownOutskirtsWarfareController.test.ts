@@ -19,6 +19,7 @@ class TestMount {
   readonly group = new THREE.Group()
   dead = false
   disposed = false
+  deathPresentationComplete = false
   riderNpc: TestNpc | null = null
   riderPlayer: object | null = null
   dispose = vi.fn(() => { this.disposed = true })
@@ -62,7 +63,10 @@ class TestNpc {
   updateTownTravel = vi.fn()
   dispose = vi.fn(() => { this.disposed = true })
   move(x: number, z: number): void { this.group.position.set(x, 0, z); this.mount?.group.position.set(x, 0, z) }
-  die(): void { this.dead = true; this.deathPresentationComplete = false; this.deathPresentation.start(this.group) }
+  die(): void {
+    if (this.mount) { this.group.position.copy(this.mount.group.position); this.mount.riderNpc = null; this.mount = null }
+    this.dead = true; this.deathPresentationComplete = false; this.deathPresentation.start(this.group)
+  }
   updateDeathPresentation(dt: number): void { this.deathPresentationComplete = this.deathPresentation.update(this.group, dt) }
 }
 
@@ -228,16 +232,16 @@ describe('Town outskirts runtime', () => {
     test.controller.dispose()
   })
 
-  it('reinforces only a complete human wipe from a safe edge without teleporting or replacing surviving horses', () => {
+  it('reinforces only a complete human wipe from a safe edge while preserving player-ridden retired horses', () => {
     const test = setup(); test.isolate()
     const squad = test.controller.squads[6], initial = [...squad.members]
-    initial.slice(0, -1).forEach(npc => { asTest(npc).dead = true })
+    initial.slice(0, -1).forEach(npc => { asTest(npc).die() })
     test.frame()
     expect(test.created).toHaveLength(60)
     expect(squad.members).toEqual(initial)
     const oldHorse = test.horses[0]
     oldHorse.riderPlayer = {}
-    asTest(initial[initial.length - 1]).dead = true
+    asTest(initial[initial.length - 1]).die()
     test.frame()
     expect(squad.members).toHaveLength(10)
     expect(squad.state).toBe('ENTERING')
@@ -245,7 +249,7 @@ describe('Town outskirts runtime', () => {
     expect(test.created).toHaveLength(70)
     expect(squad.members.every(npc => Math.abs(npc.combatPosition.z) >= 335 && Math.abs(npc.combatPosition.z) <= 345)).toBe(true)
     expect(squad.members.every(npc => npc.combatantId.endsWith(':wave:1') && !npc.respawnEnabled)).toBe(true)
-    expect(test.controller.mounts).toHaveLength(40)
+    expect(test.controller.mounts).toHaveLength(31)
     expect(oldHorse.dispose).not.toHaveBeenCalled()
     expect(oldHorse.riderPlayer).toBeTruthy()
     const position = squad.leader!.combatPosition.clone()
@@ -329,13 +333,14 @@ describe('Town outskirts runtime', () => {
     expect(test.controller.actors).not.toContain(last)
     expect(test.controller.owns(last)).toBe(false)
     expect(asTest(last).dispose).toHaveBeenCalledOnce()
-    expect(priorMounts.every(mount => test.controller.mounts.includes(mount))).toBe(true)
-    expect(test.horses.every(mount => !mount.dispose.mock.calls.length)).toBe(true)
+    expect(priorMounts.slice(0, 10).every(mount => !test.controller.mounts.includes(mount))).toBe(true)
+    expect(priorMounts.slice(10).every(mount => test.controller.mounts.includes(mount))).toBe(true)
+    expect(test.horses.slice(0, 10).every(mount => mount.dispose.mock.calls.length === 1)).toBe(true)
     test.controller.dispose()
     expect(old.every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
   })
 
-  it('bounds actor history across continuous full-squad waves and disposes each finished actor exactly once without touching horses', () => {
+  it('bounds actors and mounts across eight full-squad waves, retaining a ridden horse until dismount and finishing dead mounts', () => {
     const test = setup(); test.isolate()
     const retainedHorse = test.horses[0]
     retainedHorse.dead = true
@@ -355,13 +360,23 @@ describe('Town outskirts runtime', () => {
       expect(test.controller.actors).toHaveLength(60)
       expect(previous.every(npc => !test.controller.owns(npc) && !test.controller.combatEnabled(npc))).toBe(true)
       expect(previous.every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
-      expect(test.controller.mounts).toHaveLength(30 * (wave + 1))
-      expect(test.horses.every(horse => !horse.dispose.mock.calls.length)).toBe(true)
+      expect(test.controller.mounts).toHaveLength(32)
+      expect(test.horses.filter(horse => horse.disposed).every(horse => horse.dispose.mock.calls.length === 1)).toBe(true)
       expect(test.controller.mounts).toContain(retainedHorse)
       expect(test.controller.mounts).toContain(borrowedHorse)
       expect(borrowedHorse.riderPlayer).toBeTruthy()
     }
     expect(test.created).toHaveLength(540)
+    retainedHorse.deathPresentationComplete = true
+    test.frame()
+    expect(test.controller.mounts).toHaveLength(31)
+    expect(retainedHorse.dispose).toHaveBeenCalledOnce()
+    borrowedHorse.riderPlayer = null
+    test.frame()
+    expect(test.controller.mounts).toHaveLength(30)
+    expect(borrowedHorse.dispose).toHaveBeenCalledOnce()
+    test.frame()
+    expect(borrowedHorse.dispose).toHaveBeenCalledOnce()
     test.controller.dispose()
     expect(test.created.every(npc => npc.dispose.mock.calls.length === 1)).toBe(true)
     expect(test.horses.every(horse => horse.dispose.mock.calls.length === 1)).toBe(true)

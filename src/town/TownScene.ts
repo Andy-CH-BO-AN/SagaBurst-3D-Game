@@ -266,11 +266,12 @@ export class TownScene {
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
         player: () => this.player,
-        residents: this.residents, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
+        residents: this.residents, mounts: this.mounts, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
         navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
         outskirts: () => this.outskirts,
+        patrol: () => this.patrol,
         preparePeaceResidents: excluded => this.patrol.beginFrame(excluded),
-        ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null,
+        ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateCommandCue: () => this.updateCareerCommandCue(),
         clearCombatShots: () => this.clearMissionCombatShots(),
@@ -1139,8 +1140,9 @@ export class TownScene {
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
-    if (result.appliedDamage > 0 && rider && this.outskirts?.owns(rider)) {
-      this.outskirts.noteHit(rider, !source)
+    if (result.appliedDamage > 0 && rider) {
+      this.outskirts?.noteHit(rider, !source)
+      this.missionCombat?.noteExternalHit(rider, source)
     }
     if (!source && result.appliedDamage > 0) {
       this.awardCareerSkillXp(method, result.appliedDamage)
@@ -1268,9 +1270,10 @@ export class TownScene {
     if (!result.hitSuccess) return
     if (result.appliedDamage > 0) {
       this.outskirts?.noteHit(target, !source)
-      if (this.outskirts?.owns(target) || source && this.outskirts?.owns(source)) {
-        this.missionCombat?.noteExternalHit(target, source)
-      }
+      this.missionCombat?.noteExternalHit(target, source)
+    }
+    if (result.blockedImpact > 0 && result.appliedDamage === 0 && source) {
+      this.missionCombat?.noteExternalHit(target, source)
     }
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
@@ -1320,6 +1323,7 @@ export class TownScene {
   }
   private updateShots(dt: number): void {
     const runtimeActors = this.outskirts?.actors.length ? this.runtimeCombatActors() : null
+    const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
       const from = s.arrow.mesh.position.clone(); s.age += dt
@@ -1352,11 +1356,16 @@ export class TownScene {
         : s.player
         ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
           ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
+        : s.source && externalDefenders.includes(s.source)
+          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
+            .filter(npc => townWartimeHostile(s.source!, npc))
         : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
           ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
-            ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? [])].filter(npc => npc.faction !== s.source!.faction)]
+            ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
           : this.defense.active && s.source
-            ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source), ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
+            ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
+              ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
+              ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
           : s.source?.faction === Faction.TOWN
             ? s.source.hostileToPlayer
               ? [this.player]
@@ -1686,7 +1695,7 @@ export class TownScene {
     }
     else {
       sound?.updateHorseGallopLoops([])
-      this.missionCombat.updateDuelDefeatedActors(dt)
+      this.missionCombat.updateDefeatedActors(dt)
     }
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
     // Clear after all Career impact checks so subsequent guarded riding can hit again.

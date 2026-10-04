@@ -121,10 +121,10 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
     const world = new TownWorld(faction, new THREE.Scene())
     const bandits = Array.from({ length: 40 }, (_, i) => sweepBanditPosition(i))
     expect(new Set(bandits.map(p => `${p.x},${p.z}`)).size).toBe(40)
-    const lane = new THREE.Box3(new THREE.Vector3(-145, -100, -299), new THREE.Vector3(145, 100, -250))
+    const lane = new THREE.Box3(new THREE.Vector3(-145, -100, SWEEP_CENTER.z - 14), new THREE.Vector3(145, 100, SWEEP_CENTER.z + 25))
     expect(world.obstacles.some(o => lane.intersectsBox(o.box))).toBe(false)
     for (const p of [...bandits, ...createSweepRoster(faction).map(s => new THREE.Vector3(s.x, 0, s.z))]) {
-      expect(Math.abs(p.x)).toBeLessThan(300); expect(Math.abs(p.z)).toBeLessThan(300)
+      expect(Math.abs(p.x)).toBeLessThan(350); expect(Math.abs(p.z)).toBeLessThan(350)
     }
     world.dispose()
   })
@@ -189,22 +189,25 @@ describe('Sweep runtime and checkpoint', () => {
     c.dispose()
     for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
   })
-  it('waits for the last living rider instead of departing when 75 percent have assembled', () => {
+  it('departs at 90 percent of living riders and lets the remaining riders catch up', () => {
     const f = fixture(59, false), c = f.controller
-    const straggler = c.friendlies[58]
-    for (const npc of c.friendlies) {
-      if (npc === straggler) continue
+    const required = Math.ceil(c.friendlies.length * .9)
+    for (const npc of c.friendlies.slice(0, required - 1)) {
       npc.mount.group.position.copy(npc.formationTarget.position); npc.formationTarget.reached = true
     }
-    straggler.mount.group.position.set(-200, 0, 0)
+    for (const npc of c.friendlies.slice(required - 1)) npc.mount.group.position.set(-200, 0, 0)
     f.player.combatPosition.set(-200, 0, 200)
     c.updateFlow(.1, 0)
     expect(c.phase).toBe('ASSEMBLING')
     expect(c.onMarchStarted).not.toHaveBeenCalled()
-    straggler.mount.group.position.copy(straggler.formationTarget.position); straggler.formationTarget.reached = true
+    const arrival = c.friendlies[required - 1]
+    arrival.mount.group.position.copy(arrival.formationTarget.position); arrival.formationTarget.reached = true
+    const stragglers = c.friendlies.slice(required), positions = stragglers.map((npc: NPC) => npc.combatPosition.clone())
     c.updateFlow(.1, 0)
     expect(c.phase).toBe('MARCHING')
     expect(c.onMarchStarted).toHaveBeenCalledOnce()
+    expect(stragglers.map((npc: NPC) => npc.combatPosition)).toEqual(positions)
+    expect(stragglers.every((npc: NPC) => npc.activeFollowTarget)).toBe(true)
     c.dispose()
     for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
   })

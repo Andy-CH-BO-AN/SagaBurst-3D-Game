@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { TownActorSpec, TownDefenseGroupId } from '../town/TownRules'
 import { CAREER_RANKS, type CareerRank } from './CareerProfile'
+import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
@@ -20,9 +21,9 @@ export interface TownDefenseAnchor {
 }
 
 export const TOWN_DEFENSE_LAYOUT = {
-  southApproach: { x: 0, z: 145, facingX: 0, facingZ: -1 },
-  westStableApproach: { x: -145, z: 20, facingX: 1, facingZ: 0 },
-  eastBarracksApproach: { x: 185, z: 45, facingX: -1, facingZ: 0 },
+  southApproach: { x: 0, z: TOWN_PLAYABLE_WORLD_BOUND - 40, facingX: 0, facingZ: -1 },
+  westStableApproach: { x: -TOWN_PLAYABLE_WORLD_BOUND + 30, z: 20, facingX: 1, facingZ: 0 },
+  eastBarracksApproach: { x: TOWN_PLAYABLE_WORLD_BOUND - 30, z: 45, facingX: -1, facingZ: 0 },
   cavalryReserve: { x: -27, z: 30, facingX: 0, facingZ: 1 },
   horseArcherLine: { x: 27, z: 22, facingX: 1, facingZ: 0 },
   rangerFlank: { x: -20, z: 5, facingX: -1, facingZ: 0 },

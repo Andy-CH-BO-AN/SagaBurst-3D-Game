@@ -193,7 +193,7 @@ function townFixture() {
     duel: { active: undefined, phase: null, countdownRemaining: 0, combatRemaining: 0, guideTarget: null },
     weaponWheelUI: { update: vi.fn() }, weaponWheel: { cycle: vi.fn() },
     duelHud: { update: vi.fn() }, duelGuide: { updateDuel: vi.fn() },
-    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn(), updateDuelDefeatedActors: vi.fn() },
+    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn(), updateDefeatedActors: vi.fn() },
     updatePointerPrompt: vi.fn(), melee: vi.fn(), updateCareerHorseAudio: vi.fn(), updateShots: vi.fn(), updateAmbient: vi.fn(), finishMission: vi.fn(),
   })
   player.onPlayerDeath = () => town.enterMissionObserver()
