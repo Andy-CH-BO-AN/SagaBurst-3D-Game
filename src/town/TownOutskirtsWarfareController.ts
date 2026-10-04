@@ -23,6 +23,7 @@ export interface OutskirtsSquad {
   readonly spec: OutskirtsSquadSpec
   readonly route: THREE.Vector3[]
   members: NPC[]
+  mounts: Mount[]
   leader: NPC | null
   state: OutskirtsSquadState
   waypoint: number
@@ -45,6 +46,7 @@ export class TownOutskirtsWarfareController {
   readonly squads: OutskirtsSquad[] = []
   private readonly allActors: NPC[] = []
   private readonly allMounts: Mount[] = []
+  private readonly retiredMounts = new Set<Mount>()
   private readonly squadForActor = new Map<NPC, OutskirtsSquad>()
   private readonly grid = new SpatialGrid<NPC>(16)
   private readonly nearby: NPC[] = []
@@ -62,10 +64,14 @@ export class TownOutskirtsWarfareController {
     this.synchronizeRank()
   }
 
-  /** Old-wave corpses stay through their normal death presentation; every horse retains normal Mount behavior. */
+  /** Retired corpses finish their presentation; occupied old horses remain temporary battlefield mounts. */
   get actors(): readonly NPC[] { return this.allActors }
   get mounts(): readonly Mount[] { return this.allMounts }
   owns(npc: NPC): boolean { return this.squadForActor.has(npc) }
+  squadMembersFor(npc: NPC): readonly NPC[] {
+    const squad = this.squadForActor.get(npc)
+    return squad?.members.includes(npc) ? squad.members : []
+  }
   combatEnabled(npc: NPC): boolean {
     const squad = this.squadForActor.get(npc)
     return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
@@ -78,7 +84,7 @@ export class TownOutskirtsWarfareController {
     if (!enabled) { this.clearEntities(); return }
     for (const [index, spec] of outskirtsSquadSpecs().entries()) {
       const route = spec.route.map(point => this.safePoint(point, spec.kind === 'cavalry' ? 1.3 : .65))
-      const squad: OutskirtsSquad = { id: spec.id, spec, route, members: [], leader: null,
+      const squad: OutskirtsSquad = { id: spec.id, spec, route, members: [], mounts: [], leader: null,
         state: 'PATROLLING', waypoint: spec.phase % route.length, generation: 0, engagementOrigin: null,
         trail: new FollowTrail(), sensorRemaining: index * OUTSKIRTS_SENSOR_INTERVAL / 9, commandedWaypoint: null }
       this.squads.push(squad)
@@ -101,6 +107,7 @@ export class TownOutskirtsWarfareController {
       }
     }
     this.pruneRetiredActors()
+    this.pruneRetiredMounts()
     this.grid.clear()
     for (const actor of participants) if (!actor.dead && !this.owns(actor)) this.grid.insert(actor)
     // Include newly reinforced members even if the caller built its participant list before this frame.
@@ -218,6 +225,8 @@ export class TownOutskirtsWarfareController {
   }
 
   private spawnSquad(squad: OutskirtsSquad, edge: boolean): void {
+    for (const mount of squad.mounts) this.retiredMounts.add(mount)
+    squad.mounts = []
     const army = outskirtsCavalryFaction(this.townFaction, this.readProfile().faction)
     const cavalry = squad.spec.kind === 'cavalry'
     const goal = squad.route[squad.waypoint]
@@ -248,6 +257,7 @@ export class TownOutskirtsWarfareController {
         mount.group.rotation.y = yaw
         npc.mountVehicle(mount)
         this.allMounts.push(mount)
+        squad.mounts.push(mount)
       }
       npc.configureBanditEncounter(npc.combatPosition, [npc.combatPosition], OUTSKIRTS_ENCOUNTER_LEASH)
       this.allActors.push(npc)
@@ -319,6 +329,17 @@ export class TownOutskirtsWarfareController {
     for (const mount of this.allMounts) mount.dispose()
     this.allActors.length = 0; this.allMounts.length = 0; this.squads.length = 0
     this.squadForActor.clear(); this.grid.clear()
+    this.retiredMounts.clear()
+  }
+
+  private pruneRetiredMounts(): void {
+    for (let index = this.allMounts.length - 1; index >= 0; index--) {
+      const mount = this.allMounts[index]
+      if (!this.retiredMounts.has(mount) || mount.riderNpc || mount.riderPlayer
+        || mount.dead && !mount.deathPresentationComplete) continue
+      this.allMounts.splice(index, 1); this.retiredMounts.delete(mount)
+      mount.dispose()
+    }
   }
 
   private pruneRetiredActors(): void {

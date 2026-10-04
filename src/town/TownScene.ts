@@ -269,8 +269,9 @@ export class TownScene {
         residents: this.residents, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
         navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
         outskirts: () => this.outskirts,
+        patrol: () => this.patrol,
         preparePeaceResidents: excluded => this.patrol.beginFrame(excluded),
-        ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null,
+        ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateCommandCue: () => this.updateCareerCommandCue(),
         clearCombatShots: () => this.clearMissionCombatShots(),
@@ -1139,8 +1140,9 @@ export class TownScene {
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
-    if (result.appliedDamage > 0 && rider && this.outskirts?.owns(rider)) {
-      this.outskirts.noteHit(rider, !source)
+    if (result.appliedDamage > 0 && rider) {
+      this.outskirts?.noteHit(rider, !source)
+      if (this.outskirts?.owns(rider) || source && this.outskirts?.owns(source)) this.missionCombat?.noteExternalHit(rider, source)
     }
     if (!source && result.appliedDamage > 0) {
       this.awardCareerSkillXp(method, result.appliedDamage)
@@ -1271,6 +1273,9 @@ export class TownScene {
       if (this.outskirts?.owns(target) || source && this.outskirts?.owns(source)) {
         this.missionCombat?.noteExternalHit(target, source)
       }
+    }
+    if (result.blockedImpact > 0 && result.appliedDamage === 0 && source && this.outskirts?.owns(source)) {
+      this.patrol?.noteRoamingHit(target, source)
     }
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)

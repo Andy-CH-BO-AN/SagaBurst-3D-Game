@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { TOWN_SITES, townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster } from '../src/town/TownRules'
+import { TOWN_SITES, townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster, townPatrolRefitPoint } from '../src/town/TownRules'
 import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
 import { townPatrolRoute, townPatrolDeparture } from '../src/town/TownPatrolRoute'
 import { TOWN_CITY, TOWN_GATES } from '../src/town/TownLayout'
@@ -15,6 +15,7 @@ import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../
 import { selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
 import { createTownDefenseGroups } from '../src/career/TownDefenseState'
 import { combatActor, combatFixture } from './helpers/townMissionCombat'
+import { SpatialGrid } from '../src/world/SpatialGrid'
 
 // Only rendering is substituted; NPC movement, mount physics/collision and navigation are real.
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
@@ -518,5 +519,180 @@ describe('Patrol mission return and barracks refit', () => {
     const position = sameActor.npc.combatPosition.clone()
     reload.step(20)
     expect(sameActor.npc.combatPosition.distanceTo(position)).toBeGreaterThan(1)
+  })
+})
+
+function outskirtsEncounter(h: ReturnType<typeof harness>) {
+  const bandit = combatActor('roaming:bandit', Faction.BANDIT)
+  const cavalry = combatActor('roaming:cavalry', Faction.ENEMY)
+  Object.assign(bandit, { encounterAggroState: 'alerted' }); Object.assign(cavalry, { encounterAggroState: 'alerted' })
+  const actors = [bandit, cavalry], grid = new SpatialGrid<NPC>(8)
+  const roaming = { owns: (npc: NPC) => actors.includes(npc), squadMembersFor: (npc: NPC) => [npc] }
+  const a = h.controller.squads[0], b = h.controller.squads[1]
+  for (const [index, r] of a.members.entries()) r.homeMount!.group.position.set(150 + index * 2, getTerrainHeight(150 + index * 2, 0), 0)
+  for (const [index, r] of b.members.entries()) r.homeMount!.group.position.set(-220 + index * 2, getTerrainHeight(-220 + index * 2, -200), -200)
+  bandit.group.position.copy(a.members[19].npc.combatPosition).x += 25
+  cavalry.group.position.set(320, 0, 300)
+  const frame = (dt = .4, excluded = new Set<NPC>()) => {
+    h.controller.beginFrame(excluded); grid.clear()
+    for (const npc of actors) if (!npc.dead) grid.insert(npc)
+    h.controller.prepareCombatFrame(dt, grid, roaming)
+  }
+  return { a, b, bandit, cavalry, actors, grid, roaming, frame }
+}
+
+describe('Patrol outskirts engagement and casualty lifecycle', () => {
+  it('alerts from a rear member, excludes seven mission borrowers, keeps B independent and uses throttled squad queries', () => {
+    const h = harness(), e = outskirtsEncounter(h), borrowed = e.a.members.slice(0, 7)
+    for (const r of borrowed) h.controller.relinquish(r.spec.id)
+    const commands = borrowed.map(r => r.npc.formationCommandId)
+    const query = vi.spyOn(e.grid, 'getNearbyInto')
+    e.frame(.1)
+    expect(e.a.state).toBe('ENGAGING'); expect(e.b.state).not.toBe('ENGAGING')
+    expect(h.controller.combatActors).toHaveLength(13)
+    expect(e.a.members.slice(7).every(r => !h.controller.isReserveAvailable(r.spec.id))).toBe(true)
+    expect(borrowed.every(r => !h.controller.combatEnabled(r.npc))).toBe(true)
+    expect(borrowed.map(r => r.npc.formationCommandId)).toEqual(commands)
+    expect(query).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 3; i++) e.frame(.01)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(h.controller.relinquish(e.a.members[7].spec.id)).toBe(false)
+  })
+
+  it('keeps one origin while a second hostile squad joins, then returns everyone after the last squad disengages', () => {
+    const h = harness(), e = outskirtsEncounter(h)
+    e.frame()
+    const origin = e.a.engagementOrigin!.clone()
+    e.cavalry.group.position.copy(origin).x += 30
+    e.frame()
+    e.bandit.dead = true; e.frame()
+    expect(e.a.state).toBe('ENGAGING'); expect(e.a.engagementOrigin).toEqual(origin)
+    Object.assign(e.cavalry, { encounterAggroState: 'returning' }); e.frame()
+    expect(e.a.state).toBe('RETURN_TO_BARRACKS')
+    expect(e.a.members.every(r => h.controller.returnStateFor(r.spec.id) === 'RETURN_TO_BARRACKS')).toBe(true)
+    expect(h.controller.combatActors).toHaveLength(0)
+  })
+
+  it('ends a leashed engagement without pursuing the surviving enemy across the map', () => {
+    const h = harness(), e = outskirtsEncounter(h)
+    e.frame(); const origin = e.a.engagementOrigin!.clone()
+    e.bandit.group.position.copy(origin).x += 59
+    e.frame()
+    expect(e.bandit.dead).toBe(false); expect(e.a.state).toBe('RETURN_TO_BARRACKS')
+    e.frame()
+    expect(e.a.state).toBe('RETURN_TO_BARRACKS')
+  })
+
+  it('lets a lethal first hit alert the survivors, delays Captain restore and keeps a returning deputy until physical reunion', () => {
+    const h = harness(), e = outskirtsEncounter(h), [captain, deputy] = e.a.members
+    const identity = captain.npc, originalMount = captain.homeMount
+    e.bandit.group.position.copy(captain.npc.combatPosition).x += 3
+    captain.npc.takeDamage(999999)
+    expect(h.controller.noteRoamingHit(captain.npc, e.bandit)).toBe(true)
+    e.frame()
+    expect(captain.npc.dead).toBe(true); expect(h.controller.returnStateFor(captain.spec.id)).toBeNull()
+    expect(h.controller.combatActors).toHaveLength(20)
+    expect(e.a.activeLeaderActorId).toBe(deputy.spec.id)
+    e.bandit.dead = true; e.frame()
+    expect(captain.npc).toBe(identity); expect(captain.homeMount).toBe(originalMount)
+    expect(captain.npc.dead).toBe(false); expect(h.controller.returnStateFor(captain.spec.id)).toBe('REJOIN_PATROL')
+    expectBarracksRefitPoint(captain.npc.combatPosition)
+    e.frame()
+    expect(e.a.activeLeaderActorId).toBe(deputy.spec.id)
+    expect(h.controller.isReserveAvailable(captain.spec.id)).toBe(true)
+  })
+
+  it('keeps a dismounted Captain leading and ordinary dismounted members fighting until human death', () => {
+    const h = harness(), e = outskirtsEncounter(h), [captain, ordinary, deputy] = e.a.members
+    e.frame()
+    captain.homeMount!.takeDamage(999999); ordinary.homeMount!.takeDamage(999999)
+    e.frame()
+    expect(captain.npc.isMounted).toBe(false); expect(ordinary.npc.isMounted).toBe(false)
+    expect(e.a.activeLeaderActorId).toBe(captain.spec.id)
+    expect(h.controller.combatEnabled(captain.npc)).toBe(true); expect(h.controller.combatEnabled(ordinary.npc)).toBe(true)
+    captain.npc.takeDamage(999999); e.frame()
+    expect(e.a.activeLeaderActorId).toBe(ordinary.spec.id)
+    expect(e.a.activeLeaderActorId).not.toBe(deputy.spec.id)
+  })
+
+  it('treats a complete Patrol wipe as engagement end and restores the same twenty identities only then', () => {
+    const h = harness(), e = outskirtsEncounter(h), identities = e.a.members.map(r => r.npc)
+    e.frame()
+    for (const r of e.a.members) { r.npc.takeDamage(999999); r.homeMount!.takeDamage(999999) }
+    expect(e.a.members.every(r => r.npc.dead)).toBe(true)
+    e.frame(.01)
+    expect(e.a.members.map(r => r.npc)).toEqual(identities)
+    expect(e.a.members.every(r => !r.npc.dead && r.npc.mount === r.homeMount && h.controller.returnStateFor(r.spec.id) === 'REJOIN_PATROL')).toBe(true)
+    expect(new Set(e.a.members.map(r => `${r.npc.combatPosition.x},${r.npc.combatPosition.z}`)).size).toBe(20)
+  })
+
+  it('reengages returners and refitted rejoiners on a hit at B, preserving wounds and the original refit destination', () => {
+    const h = harness(), e = outskirtsEncounter(h), [captain, rejoined, borrowed, wounded] = e.a.members
+    e.frame(); e.bandit.dead = true; e.frame()
+    for (const r of [rejoined, borrowed]) {
+      const p = townPatrolRefitPoint(r.spec)
+      r.homeMount!.group.position.set(p.x, getTerrainHeight(p.x, p.z), p.z)
+      h.navigation.beginFrame(); h.controller.updateResident(r, .1, h.camera, h.obstacles, h.navigation)
+      expect(h.controller.returnStateFor(r.spec.id)).toBe('REJOIN_PATROL')
+    }
+    h.controller.relinquish(borrowed.spec.id)
+    wounded.homeMount!.takeDamage(999999); wounded.npc.takeDamage(30)
+    const hp = wounded.npc.hp, target = vi.spyOn(wounded.npc, 'assignFormationTarget')
+    h.navigation.beginFrame(); h.controller.updateResident(wounded, .1, h.camera, h.obstacles, h.navigation)
+    const originalDestination = target.mock.calls[0][1].clone()
+    e.bandit.dead = false
+    captain.homeMount!.group.position.set(80, getTerrainHeight(80, 0), 0)
+    e.bandit.group.position.copy(captain.npc.combatPosition).x += 3
+    expect(h.controller.noteRoamingHit(captain.npc, e.bandit)).toBe(true)
+    expect(e.a.engagementOrigin).toEqual(captain.npc.combatPosition)
+    expect(h.controller.combatActors).toHaveLength(19)
+    expect(h.controller.combatEnabled(rejoined.npc)).toBe(true)
+    expect(h.controller.combatEnabled(borrowed.npc)).toBe(false)
+    expect(h.controller.combatEnabled(wounded.npc)).toBe(true)
+    expect(wounded.npc.hp).toBe(hp); expect(wounded.homeMount!.dead).toBe(true)
+    e.bandit.dead = true; e.frame()
+    h.navigation.beginFrame(); h.controller.updateResident(wounded, .1, h.camera, h.obstacles, h.navigation)
+    expect(target.mock.calls.at(-1)![1]).toEqual(originalDestination)
+    expect(wounded.npc.hp).toBe(hp); expect(wounded.homeMount!.dead).toBe(true)
+  })
+
+  it.each(['roman', 'viking'] as const)('restores %s combat casualties with canonical Captain mounts and loadout only at their slots', faction => {
+    const h = harness(faction), e = outskirtsEncounter(h), [captain, foot, dead] = e.a.members
+    e.frame()
+    captain.npc.applyTemporaryCombatLoadout(townMilitaryEquipment(faction, 'lancer_cavalry').loadout, 3)
+    captain.npc.takeDamage(999999); captain.homeMount!.takeDamage(999999)
+    dead.npc.takeDamage(999999); foot.homeMount!.takeDamage(999999); foot.npc.takeDamage(30)
+    e.frame()
+    expect(captain.npc.dead).toBe(true); expect(dead.npc.dead).toBe(true); expect(foot.homeMount!.dead).toBe(true)
+    e.bandit.dead = true; e.frame()
+    expect(captain.npc.hpRatio).toBe(1); expect(captain.npc.tier).toBe(4)
+    expect(captain.npc.meleeWeaponId).toBe(townMilitaryEquipment(faction, captain.spec).loadout.meleeWeaponId)
+    expect(captain.homeMount!.type).toBe(faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
+    expect(dead.npc.hpRatio).toBe(1); expect(dead.npc.mount).toBe(dead.homeMount)
+    expect(foot.homeMount!.dead).toBe(true); expect(h.controller.isReserveAvailable(foot.spec.id)).toBe(false)
+    const p = townPatrolRefitPoint(foot.spec)
+    foot.npc.group.position.set(p.x, getTerrainHeight(p.x, p.z), p.z)
+    h.navigation.beginFrame(); h.controller.updateResident(foot, .1, h.camera, h.obstacles, h.navigation)
+    expect(foot.npc.mount).toBe(foot.homeMount); expect(foot.homeMount!.dead).toBe(false)
+    expect(foot.npc.hpRatio).toBe(1); expect(h.controller.isReserveAvailable(foot.spec.id)).toBe(true)
+  })
+
+  it('runs the whole available Patrol exactly once through shared mission combat without stealing borrowed actors', () => {
+    const h = harness(), e = outskirtsEncounter(h), borrowed = e.a.members.slice(0, 7)
+    for (const r of borrowed) h.controller.relinquish(r.spec.id)
+    const outskirts = { ...e.roaming, actors: e.actors, mounts: [], synchronizeRank() {}, prepareFrame() {}, combatEnabled: () => true, updateTravel() {} }
+    const f = combatFixture({ simulation: {
+      residents: h.residents, patrol: () => h.controller, outskirts: () => outskirts,
+      preparePeaceResidents: excluded => h.controller.beginFrame(excluded),
+      peaceResident: vi.fn(r => { h.controller.updateResident(r, .1, h.camera, h.obstacles, h.navigation) }),
+    } })
+    f.field.fieldNpcs = borrowed.map(r => r.npc); f.field.friendlies = borrowed.map(r => r.npc)
+    const updates = h.residents.map(r => vi.spyOn(r.npc, 'update').mockImplementation(() => {}))
+    f.combat.update(.4, 0, 1)
+    expect(h.controller.combatActors).toHaveLength(13)
+    expect(updates.slice(0, 20).every(update => update.mock.calls.length === 1)).toBe(true)
+    expect(updates.slice(20).every(update => update.mock.calls.length === 0)).toBe(true)
+    expect(f.simulation.peaceResident).toHaveBeenCalledTimes(20)
+    expect(f.combat.isExternalThreatDefender(e.a.members[7].npc)).toBe(true)
   })
 })

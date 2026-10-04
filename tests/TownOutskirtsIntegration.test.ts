@@ -10,6 +10,8 @@ import { Player } from '../src/player/Player'
 import { AIType, Faction, NPC } from '../src/world/NPC'
 import { Mount, MountState, MountType } from '../src/world/Mount'
 import { createTownCombatFixture } from './townCombatFixture'
+import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
+import { townRoster } from '../src/town/TownRules'
 
 const cleanup: Array<() => void> = []
 afterEach(() => { cleanup.splice(0).forEach(dispose => dispose()); vi.unstubAllGlobals() })
@@ -77,6 +79,52 @@ function independentHorse(rider: NPC): Mount {
 }
 
 describe('Town outskirts combat routing', () => {
+  it.each(['body', 'shield', 'mount', 'mount-death', 'lethal'] as const)('routes a hostile %s contact into the whole Patrol even without rider HP loss', kind => {
+    const hostile = actor('roaming:attacker', Faction.ENEMY, 3)
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').slice(0, 3)
+      .map(spec => ({ spec, npc: actor(spec.id, Faction.TOWN) }))
+    const [victim, ...survivors] = residents
+    const patrol = new TownCavalryPatrolController(residents)
+    const { town } = fixture([hostile])
+    Object.assign(town, { residents, patrol })
+    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteRoamingHit(target, source))
+    const beforeHp = victim.npc.hp
+    if (kind === 'shield') Object.assign(victim.npc, { shield: { active: true, absorb: () => ({ damage: 0, blockedImpact: 10 }) }, shieldCollider: null })
+    if (kind === 'mount' || kind === 'mount-death') {
+      const mount = independentHorse(victim.npc)
+      victim.npc.mount = mount
+      if (kind === 'mount-death') mount.takeDamage = amount => {
+        mount.currentHp = Math.max(0, mount.currentHp - amount)
+        if (mount.currentHp === 0) { mount.state = MountState.DEAD; mount.riderNpc = null; victim.npc.mount = null }
+        return true
+      }
+      town.hitFieldNpc(victim.npc, kind === 'mount-death' ? 9999 : 10, 'melee', hostile, { kind: 'mount', mount, time: .5 })
+      expect(victim.npc.hp).toBe(beforeHp)
+      if (kind === 'mount-death') expect(mount.dead).toBe(true)
+    } else town.hitFieldNpc(victim.npc, kind === 'lethal' ? 9999 : 10, 'melee', hostile, { kind: kind === 'shield' ? 'shield' : 'body', time: .5 })
+    if (kind === 'shield') expect(victim.npc.hp).toBe(beforeHp)
+    if (kind === 'lethal') expect(victim.npc.dead).toBe(true)
+    expect(survivors.every(r => patrol.combatEnabled(r.npc))).toBe(true)
+    expect(patrol.squads[0].state).toBe('ENGAGING')
+    expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+
+  it('ignores friendly, zero-damage and formally borrowed Patrol contacts when routing squad alert', () => {
+    const friendly = actor('roaming:ally', Faction.TOWN), enemy = actor('roaming:enemy', Faction.ENEMY)
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').slice(0, 3).map(spec => ({ spec, npc: actor(spec.id, Faction.TOWN) }))
+    const patrol = new TownCavalryPatrolController(residents)
+    const { town } = fixture([friendly, enemy])
+    Object.assign(town, { residents, patrol })
+    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteRoamingHit(target, source))
+    const victim = residents[0].npc
+    town.hitFieldNpc(victim, 10, 'melee', friendly, { kind: 'body', time: .5 })
+    town.hitFieldNpc(victim, 0, 'melee', enemy, { kind: 'body', time: .5 })
+    patrol.relinquish(victim.combatantId)
+    town.hitFieldNpc(victim, 10, 'melee', enemy, { kind: 'body', time: .5 })
+    expect(patrol.combatActors).toHaveLength(0)
+    expect(patrol.squads[0].state).not.toBe('ENGAGING')
+  })
+
   it('lets an NPC kill a mission target and advance the unchanged objective without claiming player contribution', () => {
     const target = actor('mission-bandit-0', Faction.BANDIT, 20)
     const roaming = actor('town-roaming:enemy:0:0', Faction.ENEMY)

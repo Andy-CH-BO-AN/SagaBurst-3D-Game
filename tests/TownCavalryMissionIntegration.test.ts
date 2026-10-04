@@ -108,6 +108,23 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
 }
 
 describe('Town cavalry mission and Patrol integration', () => {
+  it('keeps both engaging Patrols busy and fills a mission shortage with temporary reinforcement', () => {
+    const f = fixture({ unavailableTraining: 60 })
+    const hostile = new NPC(f.scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'roaming', 1, false,
+      undefined, undefined, undefined, 'roaming:bandit')
+    cleanup.push(() => hostile.dispose())
+    for (const squad of f.patrol.squads) expect(f.patrol.noteRoamingHit(squad.members[0].npc, hostile)).toBe(true)
+    const patrolActors = f.residents.filter(r => r.spec.duty === 'patrol').map(r => r.npc)
+    const positions = patrolActors.map(npc => npc.combatPosition.clone())
+    f.accept()
+    expect(f.town.openPanel).not.toHaveBeenCalled()
+    expect(f.profile().activeMission!.borrowedActorIds).toEqual(['captain', 'ranger'])
+    expect(f.mission.friendlies.filter(npc => !['captain', 'ranger'].includes(npc.combatantId))).toHaveLength(97)
+    expect(patrolActors.every(npc => f.patrol.combatEnabled(npc) && !f.mission.friendlies.includes(npc))).toBe(true)
+    expect(patrolActors.map(npc => npc.combatPosition)).toEqual(positions)
+    expect(f.borrow.mock.calls.some(([id]) => id.startsWith('town-patrol:'))).toBe(false)
+  })
+
   it('physically assembles all 59 Town Sweep riders through the full Town obstacles and starts marching with Player far away', () => {
     const f = fixture({ world: true }), existing = new Set(f.residents.map(r => r.spec.id))
     // Include the 122 remaining peaceful residents, as in the normal 224-NPC Town runtime.

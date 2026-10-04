@@ -280,6 +280,9 @@ export class Mount {
     this.group.removeFromParent()
   }
 
+  /** The existing dead update, rather than visibility or a new retirement timer, owns completion. */
+  get deathPresentationComplete(): boolean { return this.dead && this.deathTimer <= 0 }
+
   /**
    * DEV-only diagnostic hook to replace mount visual materials with simple diagnostic materials.
    */

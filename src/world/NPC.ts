@@ -422,6 +422,19 @@ export class NPC {
     this._targetAcquisitionInitialized = false
   }
 
+  /** Release encounter targeting before another owner takes over travel or Town hostility. */
+  clearEncounter(): void {
+    this.encounterOrigin = null
+    this.encounterLeash = Infinity
+    this.encounterAggro = 'idle'
+    this.playerHitFocus = 0
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this.alertSprite.visible = false
+    if (!this.dead) this.state = AIState.IDLE
+  }
+
   triggerEncounterAlert(): void {
     if (this.dead) return
     if (this.encounterAggro === 'provoked' || this.encounterAggro === 'alerted') return
