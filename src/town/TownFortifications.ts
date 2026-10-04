@@ -40,15 +40,13 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
             else wallRoot.add(mesh)
           }
           collision = segment.box
-          // Broad snow caps retain the snowy settlement palette without multiplying stake meshes.
-          cube(wallRoot, x, getTerrainHeight(x, z) + TOWN_CITY.wallHeight - .8, z, w, .18, d, materials.snow)
         } else {
           const heights = [low + span * i, along, low + span * (i + 1)].map(value => getTerrainHeight(horizontal ? value : x, horizontal ? z : value))
           const base = Math.min(...heights) - 1, top = Math.max(...heights) + TOWN_CITY.wallHeight
           cube(wallRoot, x, (base + top) / 2, z, w, top - base, d, materials.stone)
           cube(wallRoot, x, top + .1, z, w + .05, .35, d + .3, materials.stone)
           for (let merlon = 1; merlon < span; merlon += 3) cube(wallRoot, horizontal ? low + i * span + merlon : x,
-            top + .65, horizontal ? z : low + i * span + merlon, horizontal ? 1.4 : d, 1, horizontal ? d : 1.4, materials.stone)
+            top + .65, horizontal ? z : low + i * span + merlon, horizontal ? 1.4 : w, 1, horizontal ? d : 1.4, materials.stone)
           collision = new THREE.Box3(new THREE.Vector3(x - w / 2, base, z - d / 2), new THREE.Vector3(x + w / 2, top + 1.2, z + d / 2))
         }
         const obstacle = { box: collision, isBarricade: false }; obstacles.push(obstacle); walls.push(obstacle)
@@ -119,13 +117,23 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     const count = palisadeInstances.reduce((sum, mesh) => sum + mesh.count, 0)
     const stakes = new THREE.InstancedMesh(stakeGeometry, materials.wood, count)
     stakes.name = 'town-palisade-stakes'; stakes.castShadow = stakes.receiveShadow = true
+    // Cover each pointed crown using its terrain-following stake transform.
+    // A single instanced batch avoids flat snow strips cutting through sloped walls.
+    const snowCaps = new THREE.InstancedMesh(new THREE.CylinderGeometry(.1, .49, .38, 7), materials.snow, count)
+    snowCaps.name = 'town-palisade-snow-caps'; snowCaps.castShadow = snowCaps.receiveShadow = true
     const matrix = new THREE.Matrix4(), color = new THREE.Color()
+    const snowOffset = new THREE.Matrix4().makeTranslation(0, TOWN_CITY.wallHeight / 2 + .01, 0)
     let slot = 0
     for (const mesh of palisadeInstances) {
-      for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, matrix); stakes.setMatrixAt(slot, matrix); mesh.getColorAt(i, color); stakes.setColorAt(slot++, color) }
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, matrix); stakes.setMatrixAt(slot, matrix)
+        snowCaps.setMatrixAt(slot, matrix.multiply(snowOffset))
+        mesh.getColorAt(i, color); stakes.setColorAt(slot++, color)
+      }
       mesh.dispose()
     }
     stakes.instanceMatrix.needsUpdate = true; stakes.computeBoundingSphere(); wallRoot.add(stakes)
+    snowCaps.instanceMatrix.needsUpdate = true; snowCaps.computeBoundingSphere(); wallRoot.add(snowCaps)
   }
   return { root, wallRoot, gates, walls }
 }
