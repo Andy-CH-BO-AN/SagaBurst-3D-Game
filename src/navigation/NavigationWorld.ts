@@ -2,6 +2,7 @@ import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import {
   NavigationGrid,
   type NavigationCell,
+  type NavigationGridOptions,
 } from './NavigationGrid'
 import {
   PLAYABLE_WORLD_BOUND,
@@ -38,13 +39,13 @@ export class NavigationWorld {
   private pathRequestsThisFrame = 0
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
 
-  constructor() {
-    this.grid = new NavigationGrid({
-      minX: -PLAYABLE_WORLD_BOUND,
-      maxX: PLAYABLE_WORLD_BOUND,
-      minZ: -PLAYABLE_WORLD_BOUND,
-      maxZ: PLAYABLE_WORLD_BOUND,
-    })
+  constructor(bounds: NavigationGridOptions = {
+    minX: -PLAYABLE_WORLD_BOUND,
+    maxX: PLAYABLE_WORLD_BOUND,
+    minZ: -PLAYABLE_WORLD_BOUND,
+    maxZ: PLAYABLE_WORLD_BOUND,
+  }) {
+    this.grid = new NavigationGrid(bounds)
     this.componentIds = new Int32Array(this.grid.cellCount)
     this.componentIds.fill(-1)
   }

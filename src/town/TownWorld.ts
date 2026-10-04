@@ -7,7 +7,8 @@ import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { TOWN_SITES, townSitePoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
 export class TownWorld {
@@ -30,17 +31,18 @@ export class TownWorld {
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
   constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
+    setScenePlayableWorldBound(scene, TOWN_PLAYABLE_WORLD_BOUND)
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07
     this.stone.map = this.surfaceTexture('stone'); this.stone.color.setHex(0xffffff)
     this.plaster.map = this.surfaceTexture('plaster'); this.plaster.color.setHex(0xffffff)
     scene.background = new THREE.Color(faction === 'roman' ? 0xb8ccd1 : 0x8d9ea9)
-    scene.fog = new THREE.Fog(scene.background, 120, 290)
+    scene.fog = new THREE.Fog(scene.background, 120, 350)
     scene.add(new THREE.AmbientLight(faction === 'roman' ? 0xffedcf : 0xe0e9f2, .35))
     const porchFill = new THREE.DirectionalLight(0xdde7ec, .7); porchFill.position.set(0, 12, 70); scene.add(porchFill)
     scene.add(new THREE.HemisphereLight(faction === 'roman' ? 0xfff1d8 : 0xc5d6ef, 0x66614d, 1.5))
     const sun = new THREE.DirectionalLight(0xffecd0, 2.4); sun.position.set(-40, 75, 30); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -95, right: 95, top: 90, bottom: -90, far: 180 }); sun.shadow.bias = -.002; scene.add(sun)
-    const g = this.geo(new THREE.PlaneGeometry(600, 600, 400, 400)); g.rotateX(-Math.PI / 2)
+    const g = this.geo(new THREE.PlaneGeometry(TOWN_GROUND_SIZE, TOWN_GROUND_SIZE, 400, 400)); g.rotateX(-Math.PI / 2)
     const p = g.attributes.position, colors = []
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), z = p.getZ(i); p.setY(i, getTerrainHeight(x, z))
@@ -85,14 +87,13 @@ export class TownWorld {
     for (const [x, z] of [[-10, -19], [10, -19], [20, 30], [-22, 22]]) this.campfire(x, z)
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
-      const a = i * 2.399, x = Math.cos(a) * (105 + i % 5 * 8), z = Math.sin(a) * (82 + i % 7 * 5), y = getTerrainHeight(x, z)
-      if (townSceneryExcluded(x, z, 4)) continue
+      const { x, z } = townSceneryPoint(i, 110, 7), y = getTerrainHeight(x, z)
+      if (townSceneryExcluded(x, z, 4) || nearTownBanditCamp(x, z, 26)) continue
       this.solid(x, z, 3.3, 3, 2.7)
       const rock = new THREE.Mesh(rockGeo, this.stone); rock.position.set(x, y, z); rock.scale.set(2, 1.5, 1.8); this.root.add(rock)
       if (faction === 'viking') this.cube(this.root, x, y + 1.2, z, 1.8, .18, 1.4, this.snow)
     }
-    for (const [campId, [cx, cz]] of [[-175, -135], [170, -165], [-190, 145], [185, 160], [20, 230]].entries()) {
-      if (townSceneryExcluded(cx, cz, 24)) continue
+    for (const [campId, [cx, cz]] of TOWN_BANDIT_CAMP_CENTERS.entries()) {
       const spawnPoints: THREE.Vector3[] = []
       this.campfire(cx, cz)
       for (let i = 0; i < 5; i++) {
@@ -108,9 +109,8 @@ export class TownWorld {
     const tree = createPineVisual(42, faction === 'viking')
     this.trackOwned(tree)
     for (let i = 0; i < 90; i++) {
-      const angle = i * 2.399, radius = 112 + i % 13 * 11
-      const x = Math.sin(angle) * radius, z = Math.cos(angle) * radius
-      if (townSceneryExcluded(x, z, 7)) continue
+      const { x, z, angle } = townSceneryPoint(i, 112, 13)
+      if (townSceneryExcluded(x, z, 7) || nearTownBanditCamp(x, z, 26)) continue
       if (this.camps.some(c => c.spawnPoints.some(p => Math.hypot(p.x - x, p.z - z) < 18))) continue
       const copy = tree.clone(true), scale = .8 + i % 5 * .13
       copy.position.set(x, getTerrainHeight(x, z), z); copy.scale.setScalar(scale); copy.rotation.y = angle

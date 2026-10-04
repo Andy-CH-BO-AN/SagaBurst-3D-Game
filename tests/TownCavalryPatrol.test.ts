@@ -1,13 +1,16 @@
 import * as THREE from 'three'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { TOWN_SITES, townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster } from '../src/town/TownRules'
 import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
 import { townPatrolRoute, townPatrolDeparture } from '../src/town/TownPatrolRoute'
 import { TOWN_CITY, TOWN_GATES } from '../src/town/TownLayout'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { installBlackCatTestAsset } from './helpers/blackCatAsset'
+import { TOWN_NAVIGATION_BOUNDS } from '../src/town/TownBounds'
 import { TownWorld } from '../src/town/TownWorld'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { AIType, Faction, NPC } from '../src/world/NPC'
-import { Mount, MountType } from '../src/world/Mount'
+import { Mount, MountType, mountTypeFromId } from '../src/world/Mount'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../src/world/Terrain'
 import { selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
 import { createTownDefenseGroups } from '../src/career/TownDefenseState'
@@ -23,6 +26,7 @@ vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await 
   },
 } }))
 
+beforeAll(async () => { await installCorgiTestAsset(); await installBlackCatTestAsset() })
 const cleanup: (() => void)[] = []
 afterEach(() => { cleanup.splice(0).reverse().forEach(f => f()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function harness(faction: 'roman' | 'viking' = 'roman', withWorld = false) {
@@ -35,12 +39,13 @@ function harness(faction: 'roman' | 'viking' = 'roman', withWorld = false) {
   const residents = townRoster().filter(s => s.duty === 'patrol').map(spec => {
     const equipment = townMilitaryEquipment(faction, spec)
     const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, faction, AIType.MELEE, spec.id, equipment.level, true, equipment.loadout, equipment.presetId, undefined, spec.id)
-    const homeMount = new Mount(scene, MountType.HORSE, spec.x, spec.z)
+    const captain = townActorCaptainProfile(faction, spec)
+    const homeMount = new Mount(scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z)
     homeMount.group.rotation.y = spec.yaw!; npc.mountVehicle(homeMount); npc.setTownPeaceful()
     cleanup.push(() => { npc.dispose(); homeMount.dispose() })
     return { spec, npc, homeMount, cycle: -1, walkTime: 0 }
   })
-  const controller = new TownCavalryPatrolController(residents), navigation = new NavigationWorld(), camera = new THREE.Vector3(0, 0, 100)
+  const controller = new TownCavalryPatrolController(residents), navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS), camera = new THREE.Vector3(0, 0, 100)
   const obstacles = world?.obstacles ?? []; navigation.sync(obstacles)
   const step = (frames = 1, excluded = new Set<NPC>()) => {
     for (let frame = 0; frame < frames; frame++) {
@@ -62,7 +67,7 @@ function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number })
 }
 
 describe('Town patrol roster and route contracts', () => {
-  it.each(['roman', 'viking'] as const)('has stable 2 × 20 %s mounted residents and two T4 Horse officers, independent of service Captain', faction => {
+  it.each(['roman', 'viking'] as const)('has stable 2 × 20 %s mounted residents and two T4 hero-mounted officers, independent of service Captain', faction => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
     expect(roster).toHaveLength(225); expect(patrol).toHaveLength(40)
     expect(new Set(roster.map(s => s.id)).size).toBe(225); expect(townRoster()).toEqual(roster)
@@ -76,7 +81,7 @@ describe('Town patrol roster and route contracts', () => {
         expect(s.defenseGroup).toBeUndefined(); expect(s.role).not.toBe('captain')
         const equipment = townMilitaryEquipment(faction, s)
         expect(equipment.presetId).toBe(`${faction}_sword_cavalry`); expect(equipment.loadout.mountId).toBe('horse')
-        if (s.patrolLeader) expect(townActorCaptainProfile(faction, s)).toEqual({ ...townCaptainProfile(faction), mountOverride: 'horse' })
+        if (s.patrolLeader) expect(townActorCaptainProfile(faction, s)).toEqual(townCaptainProfile(faction))
         else { expect(equipment.level).toBe(2); expect(townActorCaptainProfile(faction, s)).toBeUndefined() }
         if (faction === 'viking' && !s.patrolLeader) expect(equipment.loadout.meleeWeaponId).toBe('viking_axe_t2')
       }
@@ -228,6 +233,27 @@ describe('Patrol runtime movement and individual ownership', () => {
 })
 
 describe('Patrol mission return and barracks refit', () => {
+  it.each([
+    ['roman', 'captain'], ['roman', 'mount'], ['viking', 'captain'], ['viking', 'mount'],
+  ] as const)('keeps both %s Captains on their canonical mount through %s death, refit and Town reload', (faction, casualty) => {
+    const h = harness(faction, true), expected = mountTypeFromId(townCaptainProfile(faction).mountOverride)
+    for (const resident of h.residents.filter(r => r.spec.patrolLeader)) {
+      const mount = resident.homeMount
+      h.controller.relinquish(resident.spec.id)
+      mount.group.position.set(20, getTerrainHeight(20, 140), 140)
+      if (casualty === 'captain') resident.npc.takeDamage(999999)
+      else mount.takeDamage(999999)
+      h.controller.beginMissionReturn(resident.spec.id)
+      for (let frame = 0; frame < 2500 && h.controller.returnStateFor(resident.spec.id) === 'RETURN_TO_BARRACKS'; frame++) h.step()
+      expect(h.controller.returnStateFor(resident.spec.id)).toBe('REJOIN_PATROL')
+      expect(resident.npc.dead).toBe(false); expect(resident.npc.mount).toBe(mount)
+      expect(mount.dead).toBe(false); expect(mount.type).toBe(expected)
+    }
+    const reload = harness(faction)
+    expect(reload.residents.filter(r => r.homeMount.type === expected)).toHaveLength(2)
+    expect(reload.residents.filter(r => r.homeMount.type === MountType.HORSE)).toHaveLength(38)
+  }, 20000)
+
   it.each(['roman', 'viking'] as const)('restores all 40 %s identities at distinct, navigable real Barracks slots independent of startup positions and roster order', faction => {
     const h = harness(faction, true)
     const controller = new TownCavalryPatrolController([...h.residents].reverse())
@@ -254,6 +280,7 @@ describe('Patrol mission return and barracks refit', () => {
       points.push(position)
       expect(resident.npc).toBe(npc); expect(npc.combatantId).toBe(actorId)
       expect(npc.mount).toBe(mount); expect(npc.hpRatio).toBe(1); expect(mount.currentHp).toBe(mount.maxHp)
+      expect(mount.type).toBe(resident.spec.patrolLeader ? mountTypeFromId(townCaptainProfile(faction).mountOverride) : MountType.HORSE)
       expect(controller.returnStateFor(actorId)).toBe('REJOIN_PATROL')
       expect(controller.isReserveAvailable(actorId)).toBe(true)
     }
@@ -446,11 +473,11 @@ describe('Patrol mission return and barracks refit', () => {
     expect(resident.npc.combatPosition.x).toBe(x); expect(resident.npc.combatPosition.z).toBe(z)
     expect(h.controller.returnStateFor(resident.spec.id)).toBe('REJOIN_PATROL')
     expect(resident.npc.mount).toBe(resident.homeMount); expect(resident.npc.hpRatio).toBe(1)
-    expect(resident.homeMount.dead).toBe(false); expect(resident.homeMount.type).toBe(MountType.HORSE)
+    expect(resident.homeMount.dead).toBe(false); expect(resident.homeMount.type).toBe(resident.spec.patrolLeader ? MountType.CORGI : MountType.HORSE)
     expect(targetSearch).not.toHaveBeenCalled()
   }, 20000)
 
-  it('replaces a dead Captain with the same actor and original Horse at barracks, then retains the deputy until physical reunion', () => {
+  it('replaces a dead Captain with the same actor and original Corgi at barracks, then retains the deputy until physical reunion', () => {
     const h = harness('roman', true), [captain, deputy] = h.residents, squad = h.controller.squads[0]
     h.step(800); h.controller.relinquish(captain.spec.id); h.step(20)
     expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
@@ -465,7 +492,7 @@ describe('Patrol mission return and barracks refit', () => {
     expectBarracksRefitPoint(npc.combatPosition)
     expect(npc.dead).toBe(false); expect(npc.hpRatio).toBe(1); expect(npc.tier).toBe(4)
     expect(npc.meleeWeaponId).toBe(townMilitaryEquipment('roman', captain.spec).loadout.meleeWeaponId)
-    expect(npc.mount).toBe(mount); expect(mount.type).toBe(MountType.HORSE); expect(mount.currentHp).toBe(mount.maxHp)
+    expect(npc.mount).toBe(mount); expect(mount.type).toBe(MountType.CORGI); expect(mount.currentHp).toBe(mount.maxHp)
     expect(h.controller.isReserveAvailable(actorId)).toBe(true)
     h.step()
     expect(squad.activeLeaderActorId).toBe(deputy.spec.id)

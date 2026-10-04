@@ -13,6 +13,7 @@ import type { SpatialGrid } from './SpatialGrid'
 import type { HpBar } from '../ui/HpBar'
 import {
   clampToPlayableWorld,
+  getScenePlayableWorldBound,
   findBlockingObstacleAlongPath,
   findBlockingProjectileObstacleAlongPath,
   findObstacleDetourPlan,
@@ -478,6 +479,8 @@ export class NPC {
     return weaponGripWorld(this.swordGripPivot, target)
   }
 
+  private readonly playableWorldBound: number
+
   constructor(
     scene: THREE.Scene,
     spawnX: number,
@@ -499,6 +502,7 @@ export class NPC {
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
   ) {
+    this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this.faction = faction
@@ -2255,7 +2259,7 @@ export class NPC {
           this.tacticalOrder === 'charge' && !siegeObstacle,
         )
 
-        clampToPlayableWorld(this.group.position)
+        clampToPlayableWorld(this.group.position, this.playableWorldBound)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
         break
       }
@@ -2590,7 +2594,7 @@ export class NPC {
     const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles)
     this.velY = collision.velocityY
     this.onGround = collision.onGround
-    clampToPlayableWorld(this.group.position)
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
   }
 
   private _beginEncounterReturn(): void {
@@ -2783,7 +2787,7 @@ export class NPC {
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
     this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint)
-    clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position)
+    clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position, this.playableWorldBound)
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {

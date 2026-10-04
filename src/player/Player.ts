@@ -22,7 +22,7 @@ import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
-import { clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
@@ -266,7 +266,10 @@ export class Player {
     this.arrows = count
   }
 
+  private readonly playableWorldBound: number
+
   constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null) {
+    this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.group = new THREE.Group()
     this.group.name = 'player'
 
@@ -973,8 +976,8 @@ export class Player {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 
-      // Keep movement inside the rendered terrain with the shared world boundary.
-      clampToPlayableWorld(this.group.position)
+      // Keep movement inside the rendered terrain with the scene world boundary.
+      clampToPlayableWorld(this.group.position, this.playableWorldBound)
 
       // Jump
       if (input.keys['Space'] && this.onGround) {
@@ -1010,7 +1013,7 @@ export class Player {
       this.onGround = playerCollision.onGround
 
       // Re-apply after collision resolution in case the push-out moved us past the edge.
-      clampToPlayableWorld(this.group.position)
+      clampToPlayableWorld(this.group.position, this.playableWorldBound)
     }
   }
 

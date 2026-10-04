@@ -7,7 +7,7 @@ import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleSt
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
-import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../world/Terrain'
+import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../world/Terrain'
 import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownWorld } from '../town/TownWorld'
 import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
@@ -1041,7 +1041,8 @@ export class BanditMissionController {
   private savedMountedActorPosition(active: ActiveCareerMission, actorId: string): { position: THREE.Vector3; yaw: number } | undefined {
     const saved = active.actorPositions?.[actorId]
     if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.z) || !Number.isFinite(saved.yaw)
-      || Math.abs(saved.x) > PLAYABLE_WORLD_BOUND || Math.abs(saved.z) > PLAYABLE_WORLD_BOUND) return undefined
+      || saved.x < this.navigation.grid.minX || saved.x > this.navigation.grid.maxX
+      || saved.z < this.navigation.grid.minZ || saved.z > this.navigation.grid.maxZ) return undefined
     return { position: new THREE.Vector3(saved.x, getTerrainHeight(saved.x, saved.z), saved.z), yaw: saved.yaw }
   }
 
@@ -1432,6 +1433,13 @@ export class BanditMissionController {
       if (friendly.dead) continue
       const offset = friendly === this.leader ? new THREE.Vector3() : new THREE.Vector3((slot++ % 3 - 1) * 1.8, 0, Math.floor(slot / 3) * 1.8)
       const point = anchor.clone().add(offset)
+      point.y = getTerrainHeight(point.x, point.z)
+      // A saved waypoint index resumes on the rebuilt route. Snap formation
+      // offsets out of new scenery without changing phase, casualties or campId.
+      if (!isObstaclePathClear(point, point, friendly.mount ? 1 : .4, 2.6, 0, this.world.obstacles)) {
+        const cell = this.navigation.grid.findNearestWalkableCell(point, 4)
+        if (cell) point.copy(this.navigation.grid.cellToWorld(cell))
+      }
       point.y = getTerrainHeight(point.x, point.z)
       if (friendly.mount && !friendly.mount.dead) friendly.mount.group.position.copy(point)
       else friendly.group.position.copy(point)

@@ -14,6 +14,16 @@ import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
 export const TERRAIN_SIZE = 640
 export const PLAYABLE_WORLD_BOUND = 300
 
+// Scene ownership keeps Town limits out of Campaign/Outpost and also covers
+// actors created later by missions, equipment changes and mount purchases.
+const scenePlayableBounds = new WeakMap<THREE.Scene, number>()
+export function setScenePlayableWorldBound(scene: THREE.Scene, bound: number): void {
+  scenePlayableBounds.set(scene, bound)
+}
+export function getScenePlayableWorldBound(scene: THREE.Scene): number {
+  return scenePlayableBounds.get(scene) ?? PLAYABLE_WORLD_BOUND
+}
+
 /** Hardcoded pine tree positions calibrated with getTerrainHeight. */
 export const TERRAIN_TREE_POSITIONS: readonly [number, number][] = [
   [18, -22], [-28, 18], [40, -5], [-12, 35], [25, 15],
@@ -54,9 +64,9 @@ export function getFortifiedCampHeightOffset(
 }
 
 /** Keeps actors on the rendered terrain while leaving a 20m safety margin at each edge. */
-export function clampToPlayableWorld(position: THREE.Vector3): void {
-  position.x = THREE.MathUtils.clamp(position.x, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
-  position.z = THREE.MathUtils.clamp(position.z, -PLAYABLE_WORLD_BOUND, PLAYABLE_WORLD_BOUND)
+export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_WORLD_BOUND): void {
+  position.x = THREE.MathUtils.clamp(position.x, -bound, bound)
+  position.z = THREE.MathUtils.clamp(position.z, -bound, bound)
 }
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
