@@ -742,7 +742,10 @@ export class NPC {
   }
   /** Peace uses animation and assigned motion only: no battle target search or A*. */
   updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
-    if (this.dead) { this.animator.update(dt, distance); return false }
+    if (this.dead) {
+      if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance)
+      return false
+    }
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted)
     if (training && startAttack && !this.animator.busy) {

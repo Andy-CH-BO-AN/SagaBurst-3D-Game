@@ -4,6 +4,26 @@ import { NPC, Faction, AIType, AIState } from "../src/world/NPC"
 import { Player } from "../src/player/Player"
 
 describe("NPC Deterministic Respawn Rules", () => {
+  it.each(['peace', 'travel'] as const)('hides a Town corpse after three seconds during %s without reviving it', mode => {
+    const npc = new NPC(new THREE.Scene(), 0, 80, Faction.TOWN, 'roman', AIType.MELEE, 'Town guard', 1, false)
+    npc.setTownPeaceful()
+    npc.takeDamage(9999)
+    const tick = (dt: number) => mode === 'peace'
+      ? npc.updateTownPeace(dt, 0, false, false)
+      : npc.updateTownTravel(dt, 0, [], [], null as any)
+    tick(2.99)
+    expect(npc.group.visible).toBe(true)
+    tick(.02)
+    expect(npc.group.visible).toBe(false)
+    expect(npc.deathPresentationComplete).toBe(true)
+    tick(10)
+    expect(npc.dead).toBe(true)
+    expect(npc.hp).toBe(0)
+    npc.restoreForTown()
+    expect(npc.group.visible).toBe(true)
+    expect(npc.dead).toBe(false)
+    npc.dispose()
+  })
   it("never respawns when respawnEnabled is false, even after advancing past the 10.0s window", () => {
     const scene = new THREE.Scene()
     const player = new Player(scene)

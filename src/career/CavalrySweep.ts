@@ -8,6 +8,7 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
 import { townCaptainProfile } from '../town/TownRules'
 import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
+import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
@@ -16,7 +17,7 @@ export const CAVALRY_SWEEP_ID = 'career-cavalry-sweep'
 export const SWEEP_CHARGE_DISTANCE = 60
 export const SWEEP_DETECTION_RANGE = 80
 // Existing Town terrain: cavalry entrance forecourt, then march south.
-export const SWEEP_CENTER = new THREE.Vector3(110, 0, -275)
+export const SWEEP_CENTER = new THREE.Vector3(110, 0, -TOWN_PLAYABLE_WORLD_BOUND + 35)
 export const SWEEP_CAPTAIN_START = new THREE.Vector3(TOWN_MOUNTED_MISSION_MUSTER.x, 0, TOWN_MOUNTED_MISSION_MUSTER.z)
 export const SWEEP_YAW = Math.PI
 /** Indexed by mission slot: Captain at 0, Maki at 29; gaps receive temporary riders. */

@@ -81,15 +81,18 @@ function independentHorse(rider: NPC): Mount {
 }
 
 describe('Town outskirts combat routing', () => {
-  it.each(['body', 'shield', 'mount', 'mount-death', 'lethal'] as const)('routes a hostile %s contact into the whole Patrol even without rider HP loss', kind => {
-    const hostile = actor('roaming:attacker', Faction.ENEMY, 3)
+  it.each((['roaming', 'mission'] as const).flatMap(origin => (['body', 'shield', 'mount', 'mount-death', 'lethal'] as const).map(kind => [origin, kind] as const)))(
+    'routes a hostile %s %s contact into the whole Patrol even without rider HP loss', (origin, kind) => {
+    const hostile = actor(`${origin}:attacker`, Faction.ENEMY, 3)
     const residents = townRoster().filter(spec => spec.patrolId === 'A').slice(0, 3)
       .map(spec => ({ spec, npc: actor(spec.id, Faction.TOWN) }))
     const [victim, ...survivors] = residents
     const patrol = new TownCavalryPatrolController(residents)
-    const { town } = fixture([hostile])
+    const { town } = fixture(origin === 'roaming' ? [hostile] : [], origin === 'mission' ? [hostile] : [])
     Object.assign(town, { residents, patrol })
-    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteRoamingHit(target, source))
+    const combat = combatFixture({ simulation: { residents: residents as any, patrol: () => patrol, outskirts: () => town.outskirts as any } })
+    if (origin === 'mission') { combat.field.fieldNpcs = [hostile]; combat.field.missionBandits = [hostile] }
+    town.missionCombat = combat.combat
     const beforeHp = victim.npc.hp
     if (kind === 'shield') Object.assign(victim.npc, { shield: { active: true, absorb: () => ({ damage: 0, blockedImpact: 10 }) }, shieldCollider: null })
     if (kind === 'mount' || kind === 'mount-death') {
@@ -117,7 +120,7 @@ describe('Town outskirts combat routing', () => {
     const patrol = new TownCavalryPatrolController(residents)
     const { town } = fixture([friendly, enemy])
     Object.assign(town, { residents, patrol })
-    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteRoamingHit(target, source))
+    town.missionCombat.noteExternalHit.mockImplementation((target: NPC, source: NPC) => patrol.noteHostileHit(target, source))
     const victim = residents[0].npc
     town.hitFieldNpc(victim, 10, 'melee', friendly, { kind: 'body', time: .5 })
     town.hitFieldNpc(victim, 0, 'melee', enemy, { kind: 'body', time: .5 })
@@ -186,7 +189,7 @@ describe('Town outskirts combat routing', () => {
     const { combat, field } = combatFixture({ simulation: { residents, patrol: () => patrol } })
     field.active = active
     Object.assign(town, { residents, patrol, missionCombat: combat })
-    patrol.noteRoamingHit(target, allied)
+    patrol.noteHostileHit(target, allied)
     expect(patrol.combatEnabled(target)).toBe(true)
     expect(target.faction).toBe(Faction.ENEMY)
     expect(target.hostileToPlayer).toBe(true)
@@ -219,7 +222,7 @@ describe('Town outskirts combat routing', () => {
     const { combat, field } = combatFixture({ simulation: { residents, patrol: () => patrol } })
     field.active = town.profile.activeMission
     Object.assign(town, { residents, patrol, missionCombat: combat })
-    patrol.noteRoamingHit(target, hostile)
+    patrol.noteHostileHit(target, hostile)
     expect(patrol.combatEnabled(target)).toBe(true)
     expect(target.faction).toBe(Faction.TOWN)
     expect(target.hostileToPlayer).toBe(false)

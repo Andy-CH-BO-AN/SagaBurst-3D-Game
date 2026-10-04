@@ -40,7 +40,7 @@ interface PatrolSquad {
   sensorRemaining: number
 }
 
-interface PatrolRoamingRuntime {
+interface PatrolThreatRuntime {
   owns(npc: NPC): boolean
   squadMembersFor?(npc: NPC): readonly NPC[]
 }
@@ -117,8 +117,8 @@ export class TownCavalryPatrolController {
       ? s.members.filter(r => s.participants.has(r.spec.id) && this.owns(r.npc)).map(r => r.npc) : [])
   }
 
-  /** Called only for an accepted hostile roaming contact, including lethal rider/mount hits and shield blocks. */
-  noteRoamingHit(target: NPC, source: NPC): boolean {
+  /** Accepted mission or roaming contacts include lethal rider/mount hits and shield blocks. */
+  noteHostileHit(target: NPC, source: NPC): boolean {
     if (!this.owns(target) || !townWartimeHostile(target, source) || this.returning.get(target.combatantId)?.state === 'REFIT') return false
     const squad = this.squads.find(s => s.id === this.residents.get(target.combatantId)!.spec.patrolId)!
     this.alertSquad(squad, target.combatPosition, true)
@@ -128,8 +128,8 @@ export class TownCavalryPatrolController {
     return true
   }
 
-  /** One throttled broad-phase query per squad; individual members never scan the full roaming roster. */
-  prepareCombatFrame(dt: number, roamingGrid: SpatialGrid<NPC>, roaming: PatrolRoamingRuntime): void {
+  /** One throttled broad-phase query per squad across actual mission and roaming participants. */
+  prepareCombatFrame(dt: number, threatGrid: SpatialGrid<NPC>, threats: PatrolThreatRuntime): void {
     if (this.hostile) return
     for (const squad of this.squads) {
       squad.sensorRemaining -= Math.max(0, dt)
@@ -156,23 +156,23 @@ export class TownCavalryPatrolController {
         this.sensorCenter.set((minX + maxX) / 2, observers[0].npc.combatPosition.y, (minZ + maxZ) / 2)
         range = Math.hypot((maxX - minX) / 2, (maxZ - minZ) / 2) + OUTSKIRTS_ALERT_RANGE
       }
-      for (const threat of roamingGrid.getNearbyInto(this.sensorCenter, range, this.threatsNearby)) {
-        if (threat.dead || threat.encounterAggroState === 'returning' || !roaming.owns(threat)) continue
+      for (const threat of threatGrid.getNearbyInto(this.sensorCenter, range, this.threatsNearby)) {
+        if (threat.dead || threat.encounterAggroState === 'returning' || !threats.owns(threat)) continue
         const observer = observers.find(r => townWartimeHostile(r.npc, threat)
           && this.distance(r.npc.combatPosition, threat.combatPosition) <= OUTSKIRTS_ALERT_RANGE)
         if (!observer) continue
         if (squad.state !== 'ENGAGING') {
           this.alertSquad(squad, observer.npc.combatPosition, false)
         }
-        for (const member of roaming.squadMembersFor?.(threat) ?? [threat]) squad.threats.add(member)
+        for (const member of threats.squadMembersFor?.(threat) ?? [threat]) squad.threats.add(member)
       }
       if (squad.state !== 'ENGAGING') continue
-      // Hit events can precede a sensor tick; expand their actual roaming squad here too.
+      // Hit events can precede a sensor tick; expand their actual hostile squad here too.
       for (const threat of [...squad.threats]) {
-        for (const member of roaming.squadMembersFor?.(threat) ?? []) squad.threats.add(member)
+        for (const member of threats.squadMembersFor?.(threat) ?? []) squad.threats.add(member)
       }
       for (const threat of squad.threats) {
-        if (threat.dead || !roaming.owns(threat) || threat.encounterAggroState === 'returning'
+        if (threat.dead || !threats.owns(threat) || threat.encounterAggroState === 'returning'
           || this.distance(threat.combatPosition, squad.engagementOrigin!) > OUTSKIRTS_ENCOUNTER_LEASH) squad.threats.delete(threat)
       }
       if (!squad.threats.size) this.finishEngagement(squad)

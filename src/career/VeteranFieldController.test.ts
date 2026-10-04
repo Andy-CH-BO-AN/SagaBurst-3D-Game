@@ -12,6 +12,7 @@ import type { TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
 import type { UnitLoadout } from '../battle/UnitPresetCatalog'
 import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../world/Terrain'
+import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_NAVIGATION_BOUNDS } from '../town/TownBounds'
 
 vi.mock('./MissionGuide', () => ({
   MissionGuide: class {
@@ -185,6 +186,28 @@ function setupField(
 }
 
 describe('Veteran field controller staging and lifecycle', () => {
+  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt', 'veteran-tragedy-of-the-scouts'] as const)(
+    'deploys %s mission enemies at the map edge and scouts at the opposite edge', templateId => {
+      const setup = setupField(templateId)
+      const enemies = setup.controller.missionBandits
+      expect(enemies.length).toBeGreaterThan(0)
+      const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
+      navigation.sync([])
+      for (const enemy of enemies) {
+        expect(enemy.combatPosition.x).toBeGreaterThan(TOWN_PLAYABLE_WORLD_BOUND - 45)
+        expect(Math.abs(enemy.combatPosition.x)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 10)
+        expect(Math.abs(enemy.combatPosition.z)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 10)
+        expect(navigation.areConnected(enemy.combatPosition, { x: 0, z: 0 })).toBe(true)
+      }
+      if (templateId === 'veteran-tragedy-of-the-scouts') {
+        for (const scout of setup.controller.friendlies) {
+          expect(scout.combatPosition.z).toBeGreaterThan(TOWN_PLAYABLE_WORLD_BOUND - 60)
+          expect(scout.combatPosition.z).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 10)
+          expect(navigation.areConnected(scout.combatPosition, { x: 0, z: 0 })).toBe(true)
+        }
+      }
+      setup.controller.dispose()
+    })
   it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const)(
     'keeps borrowed Town actors at home and orders them to ride or walk to muster in %s', templateId => {
     const setup = setupField(templateId, undefined, undefined, undefined, true)
@@ -268,11 +291,11 @@ describe('Veteran field controller staging and lifecycle', () => {
       }
       const enemies = setup.controller.missionBandits.map(npc => npc.combatPosition)
       for (const point of [...goals, ...enemies]) {
-        expect(Math.abs(point.x)).toBeLessThan(280)
-        expect(Math.abs(point.z)).toBeLessThan(280)
+        expect(Math.abs(point.x)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
+        expect(Math.abs(point.z)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
         expect(obstacles.some(item => item.box.clone().expandByScalar(1.05).containsPoint(new THREE.Vector3(point.x, Math.max(point.y + .8, item.box.min.y), point.z)))).toBe(false)
       }
-      const navigation = new NavigationWorld()
+      const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
       navigation.sync(obstacles)
       expect(navigation.areConnected(templateId === 'veteran-tragedy-of-the-scouts' ? VETERAN_FIELD_LAYOUT.scoutEnemyCourtyard : VETERAN_FIELD_LAYOUT.supportApproach,
         templateId === 'veteran-tragedy-of-the-scouts' ? VETERAN_FIELD_LAYOUT.scoutRally : VETERAN_FIELD_LAYOUT.rally)).toBe(true)
@@ -284,11 +307,11 @@ describe('Veteran field controller staging and lifecycle', () => {
     const setup = setupField('veteran-village-intercept')
     expect(setup.start).toBe(true)
     for (const actor of [...setup.controller.friendlies, ...setup.controller.missionBandits]) {
-      expect(Math.abs(actor.combatPosition.x)).toBeLessThan(280)
-      expect(Math.abs(actor.combatPosition.z)).toBeLessThan(280)
+      expect(Math.abs(actor.combatPosition.x)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
+      expect(Math.abs(actor.combatPosition.z)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
       if (actor.mount && !actor.mount.dead) {
-        expect(Math.abs(actor.mount.group.position.x)).toBeLessThan(280)
-        expect(Math.abs(actor.mount.group.position.z)).toBeLessThan(280)
+        expect(Math.abs(actor.mount.group.position.x)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
+        expect(Math.abs(actor.mount.group.position.z)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
       }
     }
     setup.controller.dispose()
@@ -411,7 +434,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     expect(mission.followVoicePlayed).toBe(true)
     mission.mountState = { activeMountId: 'horse', hp: { horse: 0 }, unavailable: ['horse'] }
     const captainAgain = setup.controller.friendlies.find(npc => npc.combatantId === captain.combatantId)!
-    captainAgain.combatPosition.set(161, 0, 20)
+    captainAgain.combatPosition.set(VETERAN_FIELD_LAYOUT.enemy.x - 59, 0, VETERAN_FIELD_LAYOUT.enemy.z)
     setup.controller.updateFlow(.016, 0)
     expect(setup.controller.onSweepCharge).toHaveBeenCalledTimes(1)
     expect(setup.profile().activeMission).toMatchObject({ phase: 'ENGAGING', chargedSquadIds: [1, 2, 3, 4], followVoicePlayed: true,
@@ -465,8 +488,9 @@ describe('Veteran field controller staging and lifecycle', () => {
     setup.controller.dispose()
   })
 
-  it('waits for a nearby Captain to walk to his own slot without snapping him into place', () => {
+  it('departs with a lagging Captain after 90% assemble without snapping him into place', () => {
     const setup = setupField('veteran-village-intercept')
+    setup.controller.onMarchStarted = vi.fn()
     const captain = setup.controller.missionLeader as unknown as FieldTestNpc
     const candidates = setup.controller.friendlies as unknown as FieldTestNpc[]
     for (const npc of candidates) if (npc !== captain) npc.moveToFormationTarget()
@@ -475,12 +499,15 @@ describe('Veteran field controller staging and lifecycle', () => {
     const nearby = captain.formationTarget!.position.clone().add(new THREE.Vector3(-8, 0, 0))
     captain.combatPosition.copy(nearby)
     setup.player.group.position.copy(captain.combatPosition)
+    expect(captain.isFormationTargetReached(9000)).toBe(false)
+    expect(candidates.filter(npc => npc.isFormationTargetReached(9000)).length)
+      .toBeGreaterThanOrEqual(Math.ceil(candidates.length * .9))
     setup.controller.updateFlow(.016, 0)
-    expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
+    expect(['MARCHING', 'ENGAGING']).toContain(setup.profile().activeMission?.phase)
+    expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
     expect(captain.combatPosition).toEqual(nearby)
-    captain.moveToFormationTarget()
-    setup.controller.updateFlow(.016, 0)
-    expect(setup.profile().activeMission?.phase).toBe('MARCHING')
+    expect(setup.controller.missionLeader).toBe(captain)
+    expect(['formation', 'charge']).toContain(captain.tacticalOrder)
     setup.controller.dispose()
   })
 
@@ -491,9 +518,13 @@ describe('Veteran field controller staging and lifecycle', () => {
       ...profile.activeMission!, phase: 'MARCHING', mountedMarchPosition: { x: 110, z: -275 }, actorPositions: undefined,
     }
     expect(setup.controller.startActiveMission()).toBe(true)
-    for (const actor of [...setup.controller.friendlies, ...setup.controller.missionBandits]) {
+    for (const actor of setup.controller.friendlies) {
       expect(Math.abs(actor.combatPosition.x)).toBeLessThan(280)
       expect(Math.abs(actor.combatPosition.z)).toBeLessThan(280)
+    }
+    for (const enemy of setup.controller.missionBandits) {
+      expect(Math.abs(enemy.combatPosition.x)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
+      expect(Math.abs(enemy.combatPosition.z)).toBeLessThan(TOWN_PLAYABLE_WORLD_BOUND - 20)
     }
     setup.controller.dispose()
   })
