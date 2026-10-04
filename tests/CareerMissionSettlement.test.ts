@@ -276,9 +276,9 @@ describe('Town mission return saving and recovery through the settlement interfa
   it('restores the existing defense garrison, civilians, homes and services, preserving the player position', () => {
     const f = fixture('town-defense', { savedResult: true, fullTown: true })
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'defense' })
-    expect(f.town.residents).toHaveLength(84)
+    expect(f.town.residents).toHaveLength(184)
     for (const resident of f.town.residents) {
-      if (resident.spec.role === 'merchant') {
+      if (!resident.spec.defenseGroup && !['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)) {
         expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
         expect(f.threats.has(resident.npc)).toBe(true)
       } else {

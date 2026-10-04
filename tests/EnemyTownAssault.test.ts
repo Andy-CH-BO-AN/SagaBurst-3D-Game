@@ -3,9 +3,10 @@ import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from '../src/career/EnemyTownAssault'
 import { MAX_COMMAND_SQUAD_SIZE } from '../src/battle/CommandTarget'
-import { claimCareerMission, createCareerProfile, clearCareerMission } from '../src/career/CareerProfile'
+import { CAREER_RANK_THRESHOLDS, claimCareerMission, createCareerProfile, clearCareerMission, type CareerRank } from '../src/career/CareerProfile'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { townCaptainProfile, townMilitaryEquipment, townRoster } from '../src/town/TownRules'
+import { TOWN_CITY } from '../src/town/TownLayout'
 import { townWartimeHostile, civilianWartimeWeapon } from '../src/town/TownWartime'
 import { NPC, Faction, AIType } from '../src/world/NPC'
 import { Mount, MountType } from '../src/world/Mount'
@@ -13,6 +14,7 @@ import { Player } from '../src/player/Player'
 import { TownDefenseController } from '../src/career/TownDefenseController'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { createTownDefenseMission } from '../src/career/CareerMissionState'
+import { TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../src/career/TownDefenseState'
 import { damageNpc } from '../src/combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef } from '../src/combat/CombatAttribution'
 import { calculateMerit } from '../src/career/MeritCalculator'
@@ -37,18 +39,19 @@ beforeAll(async () => { await Promise.all([installCorgiTestAsset(), installBlack
 const dispose: (() => void)[] = []
 afterEach(() => { dispose.splice(0).forEach(fn => fn()); vi.unstubAllGlobals() })
 
-function fixture(faction: 'roman' | 'viking', assault = true) {
+function fixture(faction: 'roman' | 'viking', assault = true, templateId = TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'recruit') {
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
+  profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
   const townFaction = assault ? faction === 'roman' ? 'viking' : 'roman' : faction
   const roster = townRoster().filter(spec => spec.role !== 'cat' && spec.role !== 'merchant')
   const residents = roster.map(spec => {
     const civilian = spec.role === 'civilian', ranger = spec.role === 'ranger'
-    const military = townMilitaryEquipment(townFaction, spec.role)
+    const military = townMilitaryEquipment(townFaction, spec)
     const hero = spec.role === 'captain' ? townCaptainProfile(townFaction) : undefined
     const npc = new NPC(scene, spec.x, spec.z, assault ? Faction.ENEMY : Faction.TOWN, townFaction,
-      ranger || spec.role.startsWith('ranged') ? AIType.RANGED : AIType.MELEE, spec.id, ranger || hero ? 4 : 2,
-      spec.role.includes('cavalry') || spec.role === 'captain',
+      ranger || spec.unitKind === 'ranged' || spec.unitKind === 'archer' || spec.unitKind === 'horse_archer' ? AIType.RANGED : AIType.MELEE, spec.id, ranger || hero ? 4 : 2,
+      spec.mounted,
       civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow' } : military.loadout,
       military.presetId, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : hero?.visualAssetId,
       ranger ? 'ranger' : hero?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, townFaction)
@@ -60,7 +63,7 @@ function fixture(faction: 'roman' | 'viking', assault = true) {
   const navigation = new NavigationWorld()
   navigation.sync([{ box: new THREE.Box3(new THREE.Vector3(-56, -10, 125), new THREE.Vector3(-49, 20, 138)), isBarricade: false }])
   profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
-    residents.filter(r => r.spec.role !== 'civilian').map(r => r.spec.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test')
+    residents.filter(r => r.spec.defenseGroup || r.spec.assaultObjective).map(r => r.spec.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation)
   expect(controller.startActiveMission()).toBe(true)
   dispose.push(() => { controller.dispose(); residents.forEach(r => r.npc.dispose()); player.dispose(); cat.dispose() })
@@ -370,5 +373,35 @@ describe('shared Town wartime and settlement', () => {
     town.equipment.visible = false; town.equipment.open.mockClear()
     f.player.takeDamage(999999, town.hp)
     town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
+  })
+})
+
+
+describe.each(['roman', 'viking'] as const)('%s expanded city defense compatibility', faction => {
+  it.each([
+    [TOWN_DEFENSE_TEMPLATE_ID, 'recruit'],
+    [SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 'soldier'],
+    [VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'],
+  ] as const)('starts, reloads and settles %s with exactly sixty scripted defenders', (templateId, rank) => {
+    const f = fixture(faction, false, templateId, rank)
+    expect(f.controller.groups).toHaveLength(6)
+    expect(f.controller.groups.every(group => group.members.length === 10)).toBe(true)
+    expect(f.controller.defenders).toHaveLength(60)
+    expect(f.profile().activeMission!.friendlyActorIds).toHaveLength(63)
+    expect(f.controller.civilians).toHaveLength(20)
+    const ambient = f.residents.filter(resident => !resident.spec.defenseGroup && !resident.spec.assaultObjective && resident.spec.role !== 'civilian')
+    expect(ambient).toHaveLength(100)
+    expect(ambient.every(resident => !f.controller.fieldNpcs.includes(resident.npc))).toBe(true)
+    expect(f.controller.enemies.every(npc => npc.combatPosition.x < TOWN_CITY.minX - 2 || npc.combatPosition.x > TOWN_CITY.maxX + 2 || npc.combatPosition.z > TOWN_CITY.maxZ + 2)).toBe(true)
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!
+    f.setProfile(saved)
+    expect(f.controller.startActiveMission()).toBe(true)
+    f.controller.updateFlow(21, 0)
+    expect(f.controller.phase).toBe('ATTACKING')
+    for (const enemy of f.controller.enemies) enemy.takeDamage(999999)
+    expect(f.controller.evaluate(true)).toBe('victory')
+    expect(f.controller.civilianDeaths).toBe(0)
+    f.controller.civilians.slice(0, 11).forEach(civilian => civilian.takeDamage(999999))
+    expect(f.controller.evaluate(false)).toBe('failure')
   })
 })

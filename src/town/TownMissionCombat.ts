@@ -12,7 +12,7 @@ import type { Mount } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { isCivilian, type TownActorSpec } from './TownRules'
+import { isTownMilitary, isCivilian, type TownActorSpec } from './TownRules'
 import { townWartimeHostile } from './TownWartime'
 
 export interface TownCombatResident {
@@ -384,13 +384,15 @@ export class TownMissionCombat {
     }
   }
 
-  private isMilitary(spec: TownActorSpec): boolean { return spec.role.includes('_') || spec.role === 'captain' || spec.role === 'deployment' }
+  private isMilitary(spec: TownActorSpec): boolean { return isTownMilitary(spec) }
 
   private updateDefense(dt: number, cameraYaw: number, elapsed: number): void {
     const { defense } = this.missions
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const actors = defense.fieldNpcs
+    const missionActors = new Set(actors)
+    for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     this.grid.clear(); this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear()
     for (const actor of actors) {
       if (actor.dead) continue

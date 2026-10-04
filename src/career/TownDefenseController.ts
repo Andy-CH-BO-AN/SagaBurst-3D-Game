@@ -8,7 +8,7 @@ import { createAssaultRoster, prepareEnemyTownAssaultEquipment, resolveAssaultOu
 import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '../town/TownWartime'
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { AIType, Faction, NPC } from '../world/NPC'
-import type { TownActorSpec } from '../town/TownRules'
+import { townAssaultObjectiveRoster, type TownActorSpec } from '../town/TownRules'
 import type { CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
@@ -101,7 +101,7 @@ export class TownDefenseController {
     this.groups.length = 0
     for (const plan of plans) this.groups.push({ id: plan.id, members: plan.actorIds.map(id => byId.get(id)!) })
     if (this.assault && (active.friendlyActorIds.length !== 89 || new Set(active.friendlyActorIds).size !== 89
-      || active.targetActorIds.length !== 63 || this.military.some(npc => !active.targetActorIds.includes(npc.combatantId))
+      || active.targetActorIds.length !== townAssaultObjectiveRoster(this.residents.map(resident => resident.spec)).length || new Set(active.targetActorIds).size !== active.targetActorIds.length || this.military.some(npc => !active.targetActorIds.includes(npc.combatantId))
       || active.civilianActorIds?.length !== 20)) return false
     const deadFriendlies = new Set(this.assault ? active.deadTargetActorIds ?? [] : active.deadFriendlyActorIds ?? [])
     const deadCivilians = new Set(active.deadCivilianActorIds ?? [])
@@ -151,7 +151,7 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.result || active.phase === 'RESULT') return null
     if (this.assault) {
-      if (this.military.length !== 63 || new Set([...this.enemies.map(npc => npc.combatantId), ...(active.deadFriendlyActorIds ?? [])]).size !== 89) return null
+      if (this.military.length !== active.targetActorIds.length || new Set([...this.enemies.map(npc => npc.combatantId), ...(active.deadFriendlyActorIds ?? [])]).size !== 89) return null
       return resolveAssaultOutcome(playerDead, this.military.filter(npc => !npc.dead).length, this.enemies.filter(npc => !npc.dead).length)
     }
     const expectedIds = new Set(active.targetActorIds)
@@ -225,17 +225,17 @@ export class TownDefenseController {
     assignArc(ranged, [10, 13])
     assignArc(melee, [18])
     assignArc(spearmen, [24])
-    const screenAnchor = TOWN_DEFENSE_LAYOUT.horseArcherLine
-    const screenSlots = formationSlots(screenAnchor, screen.length, true, screen.length)
+    const screenAnchor = screen.every(member => member.isMounted) ? TOWN_DEFENSE_LAYOUT.horseArcherLine : { ...TOWN_DEFENSE_LAYOUT.horseArcherLine, x: 45 }
+    const screenSlots = formationSlots(screenAnchor, screen.length, screen.every(member => member.isMounted), screen.length, 4.2)
     screen.forEach((member, index) => {
-      const point = place(screenSlots[index], 4), facing = new THREE.Vector3(screenAnchor.facingX, 0, screenAnchor.facingZ)
+      const point = place(screenSlots[index], member.isMounted ? 4 : 2.2), facing = new THREE.Vector3(screenAnchor.facingX, 0, screenAnchor.facingZ)
       if (this.assault) this.positionNpc(member, point, facing)
       member.assignFormationTarget(this.commandId++, point, facing, undefined, 'defend')
     })
     const reserve = byGroup('E')
-    const reserveSlots = formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, reserve.length, true)
+    const reserveSlots = formationSlots(TOWN_DEFENSE_LAYOUT.cavalryReserve, reserve.length, reserve.every(member => member.isMounted))
     reserve.forEach((member, index) => {
-      const point = place(reserveSlots[index], 5), facing = new THREE.Vector3(0, 0, 1)
+      const point = place(reserveSlots[index], member.isMounted ? 5 : 2.2), facing = new THREE.Vector3(0, 0, 1)
       if (this.assault) this.positionNpc(member, point, facing)
       member.assignFormationTarget(this.commandId++, point, facing, undefined, 'defend')
     })

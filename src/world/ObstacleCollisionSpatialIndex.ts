@@ -1,3 +1,4 @@
+import { obstacleTopologyRevision } from './ObstacleTopology'
 import type { ObstacleData } from './Terrain'
 
 export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
@@ -6,8 +7,8 @@ export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
  * Static spatial index for local obstacle collision queries.
  *
  * Obstacles themselves do not move. Gate/wall destruction and gate open/close
- * mutate the shared obstacle array length, so sync() only rebuilds when that
- * topology count changes.
+ * mutate the shared obstacle revision or length, so sync() only rebuilds when
+ * topology changes.
  *
  * queryNear() returns an ephemeral internal buffer. Callers must consume it
  * immediately and must not retain or mutate it.
@@ -20,14 +21,16 @@ export class ObstacleCollisionSpatialIndex {
   private seenStamp = new Uint32Array(0)
   private queryStamp = 0
   private obstacleCount = -1
+  private obstacleRevision = -1
 
   sync(obstacles: readonly ObstacleData[]): void {
-    if (this.obstacles === obstacles && this.obstacleCount === obstacles.length) {
+    if (this.obstacles === obstacles && this.obstacleCount === obstacles.length && this.obstacleRevision === obstacleTopologyRevision(obstacles)) {
       return
     }
 
     this.obstacles = obstacles
     this.obstacleCount = obstacles.length
+    this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this.cells.clear()
     this.seenStamp = new Uint32Array(obstacles.length)
 

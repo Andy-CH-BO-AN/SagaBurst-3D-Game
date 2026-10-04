@@ -307,8 +307,8 @@ describe('Veteran field controller staging and lifecycle', () => {
 
   it.each([
     ['veteran-scout-hunters', 100, 40, 22, 77, 40],
-    ['veteran-village-intercept', 50, 100, 22, 27, 100],
-    ['veteran-spear-line-hunt', 50, 100, 21, 28, 100],
+    ['veteran-village-intercept', 50, 100, 49, 0, 100],
+    ['veteran-spear-line-hunt', 50, 100, 48, 1, 100],
     ['veteran-tragedy-of-the-scouts', 20, 100, 2, 17, 100],
   ] as const)('stages the exact Veteran roster for %s', (id, friendlyTotal, enemyTotal, borrowedCount, temporaryFriendlyCount, tempEnemyCount) => {
     const setup = setupField(id)
@@ -363,7 +363,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     'restores the same reequipped residents, mounts, and shortages after reloading %s', templateId => {
     const setup = setupField(templateId)
     const borrowed = setup.residents.filter(({ spec }) => spec.role.endsWith('_cavalry'))
-    expect(borrowed).toHaveLength(20)
+    expect(borrowed).toHaveLength(47)
     for (const { npc, homeMount } of borrowed) {
       expect(npc.mount).toBe(homeMount)
       expect(npc.temporaryTier).toBe(3)
@@ -381,11 +381,11 @@ describe('Veteran field controller staging and lifecycle', () => {
     }
     const reloaded = setupField(templateId, setup.profile(), setup.residents, setup.player)
     expect(reloaded.start).toBe(true)
-    expect(reloaded.controller.friendlies.filter(npc => borrowed.some(resident => resident.npc === npc as unknown as FieldTestNpc))).toHaveLength(20)
+    expect(reloaded.controller.friendlies.filter(npc => borrowed.some(resident => resident.npc === npc as unknown as FieldTestNpc))).toHaveLength(47)
     expect(borrowed[0].npc.hp).toBe(37)
     expect(borrowed[0].npc.combatPosition.x).toBe(savedPosition.x)
     expect(borrowed[0].npc.combatPosition.z).toBe(savedPosition.z)
-    expect(reloaded.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)).toHaveLength(templateId === 'veteran-village-intercept' ? 27 : 28)
+    expect(reloaded.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)).toHaveLength(templateId === 'veteran-village-intercept' ? 0 : 1)
     reloaded.controller.dispose()
     setup.controller.dispose()
   })

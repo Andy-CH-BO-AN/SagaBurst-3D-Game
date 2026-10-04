@@ -226,8 +226,8 @@ describe('Veteran Career mission catalog and progression', () => {
   it('reuses stable Town actors and persists borrowed identity through mission reload', () => {
     const expectations = [
       [VETERAN_IDS[1], ['captain', 'ranger', 'lancer_cavalry-0', 'melee_cavalry-0', 'ranged_cavalry-0']],
-      [VETERAN_IDS[2], ['captain', 'ranger', 'lancer_cavalry-0']],
-      [VETERAN_IDS[4], ['ranger', 'ranged_cavalry-0']],
+      [VETERAN_IDS[2], ['captain', 'ranger', 'cavalry-training:lancer_cavalry:0']],
+      [VETERAN_IDS[4], ['ranger', 'cavalry-training:melee_cavalry:0']],
     ] as const
     for (const [id, required] of expectations) {
       const mission = acceptVeteranMission(withVeteranProgress(horseVeteran(), VETERAN_IDS.indexOf(id)), id, { missionId: `borrow-${id}`, acceptedAt: 10 })
@@ -239,15 +239,15 @@ describe('Veteran Career mission catalog and progression', () => {
     }
   })
 
-  it.each(['roman', 'viking'] as const)('reequips all twenty %s Town cavalry before requesting support', faction => {
+  it.each(['roman', 'viking'] as const)('reequips the required %s city cavalry before requesting support', faction => {
     const townCavalry = townRoster().filter(actor => actor.role.endsWith('_cavalry')).map(actor => actor.id)
     for (const [id, role, supports] of [
-      [VETERAN_IDS[2], 'lancer', 27], [VETERAN_IDS[4], 'horse_archer', 28],
+      [VETERAN_IDS[2], 'lancer', 0], [VETERAN_IDS[4], 'horse_archer', 1],
     ] as const) {
       const roster = createVeteranRoster(id, faction, `equip-${id}`)
       const ordinary = roster.friendly.filter(unit => unit.tier === 3)
       expect(ordinary).toHaveLength(47)
-      expect(ordinary.filter(unit => unit.source === 'town').map(unit => unit.actorId)).toEqual(townCavalry)
+      expect(ordinary.filter(unit => unit.source === 'town').map(unit => unit.actorId)).toEqual(townCavalry.slice(0, 47))
       expect(roster.friendly.filter(unit => unit.source === 'temporary')).toHaveLength(supports)
       for (const unit of ordinary) {
         expect(unit.presetId).toBe(`${faction}_${role}`)
@@ -259,7 +259,7 @@ describe('Veteran Career mission catalog and progression', () => {
   })
 
   it.each([VETERAN_IDS[2], VETERAN_IDS[4]])('persists only available Town cavalry and the exact shortage for %s', id => {
-    for (const available of [[], ['ranged_cavalry-7', 'melee_cavalry-3', 'lancer_cavalry-1']] as string[][]) {
+    for (const available of [[], ['cavalry-training:ranged_cavalry:7', 'cavalry-training:melee_cavalry:3', 'cavalry-training:lancer_cavalry:1']] as string[][]) {
       const accepted = acceptVeteranMission(withVeteranProgress(horseVeteran(), VETERAN_IDS.indexOf(id)), id, {
         missionId: `available-${id}`, availableTownCavalryActorIds: [...available, 'civilian-0', ...available],
       })!

@@ -1,3 +1,4 @@
+import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import {
   NavigationGrid,
   type NavigationCell,
@@ -31,6 +32,8 @@ export class NavigationWorld {
 
   private _revision = 0
   private obstacleCount = -1
+  private obstacleRevision = -1
+  private obstacleSource: readonly ObstacleData[] | undefined
   private componentIds: Int32Array
   private pathRequestsThisFrame = 0
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
@@ -56,10 +59,10 @@ export class NavigationWorld {
 
   /**
    * Obstacle creation/destruction and gate open/close all change the shared
-   * obstacle collection length. Rebuild only when that topology changes.
+   * obstacle collection revision or length. Rebuild only when topology changes.
    */
   sync(obstacles: readonly ObstacleData[]): boolean {
-    if (obstacles.length === this.obstacleCount) return false
+    if (obstacles === this.obstacleSource && obstacles.length === this.obstacleCount && obstacleTopologyRevision(obstacles) === this.obstacleRevision) return false
     this.rebuild(obstacles)
     return true
   }
@@ -67,11 +70,13 @@ export class NavigationWorld {
   rebuild(obstacles: readonly ObstacleData[]): void {
     this.grid.clear()
     for (const obstacle of obstacles) {
-      this.grid.setBlockedBox(obstacle.box, true)
+      this.grid.setBlockedBox(obstacle.navigationBox ?? obstacle.box, true)
     }
     this._rebuildComponents()
     this.sharedPathCache.clear()
     this.obstacleCount = obstacles.length
+    this.obstacleSource = obstacles
+    this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this._revision++
   }
 

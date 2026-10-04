@@ -1,3 +1,5 @@
+import { createTownFortifications } from './TownFortifications'
+import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, townSceneryExcluded } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -13,6 +15,8 @@ export class TownWorld {
   readonly obstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
+  readonly fortifications: ReturnType<typeof createTownFortifications>
+  get gates() { return this.fortifications.gates }
   readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean }[] = []
   private readonly geometries = new Set<THREE.BufferGeometry>()
   private readonly materials = new Set<THREE.Material>()
@@ -53,9 +57,15 @@ export class TownWorld {
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
     for (let i = 0; i < 5; i++) this.building('home-' + i, '住宅', i > 2 ? (i === 3 ? -54 : -12) : -52, i > 2 ? 52 : -28 + i * 23, 9, faction === 'roman' ? 8 : 12, 3.4, 'home')
     this.trainingEntrance()
+    for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
+    this.cavalryTrainingGround()
+    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow })
+    this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
+    this.batch(this.fortifications.wallRoot)
+    for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
     this.building('barracks', '', 34, 30, 7, 7, 3, 'home', TOWN_SITES.barracks.yaw)
     this.road(10, 20, 33, 16, 5)
-    for (const [x, z] of [[43, -41, '近戰騎兵'], [70, -41, '弓騎兵'], [43, -6, '遠程步兵'], [70, -6, '近戰步兵']] as const) {
+    for (const [x, z] of [[43, -41, '近戰步兵'], [70, -41, '遠程步兵'], [43, 2, '遠程步兵'], [70, 2, '近戰步兵']] as const) {
       for (let row = 0; row < (z < -10 ? 2 : 4); row++) this.road(x - 11, z + 3 + row * 7, x + 11, z + 3 + row * 7, 5)
       for (let i = 0; i < 2; i++) this.building('tent-' + x + '-' + z + '-' + i, '', x - 6 + i * 11, z - 9, 7, 6, 2.6, 'tent')
     }
@@ -75,11 +85,13 @@ export class TownWorld {
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
       const a = i * 2.399, x = Math.cos(a) * (105 + i % 5 * 8), z = Math.sin(a) * (82 + i % 7 * 5), y = getTerrainHeight(x, z)
+      if (townSceneryExcluded(x, z, 4)) continue
       this.solid(x, z, 3.3, 3, 2.7)
       const rock = new THREE.Mesh(rockGeo, this.stone); rock.position.set(x, y, z); rock.scale.set(2, 1.5, 1.8); this.root.add(rock)
       if (faction === 'viking') this.cube(this.root, x, y + 1.2, z, 1.8, .18, 1.4, this.snow)
     }
     for (const [campId, [cx, cz]] of [[-175, -135], [170, -165], [-190, 145], [185, 160], [20, 230]].entries()) {
+      if (townSceneryExcluded(cx, cz, 24)) continue
       const spawnPoints: THREE.Vector3[] = []
       this.campfire(cx, cz)
       for (let i = 0; i < 5; i++) {
@@ -97,6 +109,7 @@ export class TownWorld {
     for (let i = 0; i < 90; i++) {
       const angle = i * 2.399, radius = 112 + i % 13 * 11
       const x = Math.sin(angle) * radius, z = Math.cos(angle) * radius
+      if (townSceneryExcluded(x, z, 7)) continue
       if (this.camps.some(c => c.spawnPoints.some(p => Math.hypot(p.x - x, p.z - z) < 18))) continue
       const copy = tree.clone(true), scale = .8 + i % 5 * .13
       copy.position.set(x, getTerrainHeight(x, z), z); copy.scale.setScalar(scale); copy.rotation.y = angle
@@ -152,13 +165,42 @@ export class TownWorld {
       const point = townSitePoint('barracks', side * 8, 4); this.solid(point.x, point.z, .4, 3.4, .4)
     }
     this.cube(root, 0, 3.3, 0, 16.5, .35, .45, this.dark)
-    this.sign(root, 'BARRACKS', 0, 2.9, .3, 6)
+    this.sign(root, 'INFANTRY TRAINING', 0, 2.9, .3, 10)
     for (const side of [-1, 1]) for (let i = 0; i < 5; i++) {
       const point = townSitePoint('barracks', side * (10 + i * 2), 4), y = getTerrainHeight(point.x, point.z)
       this.cube(this.root, point.x, y + .7, point.z, .2, 1.4, .2, this.wood)
       this.cube(this.root, point.x, y + 1, point.z, .18, .16, 2.2, this.wood); this.solid(point.x, point.z, .25, 1.3, 2.2)
     }
     this.batch(root)
+  }
+  private cavalryTrainingGround(): void {
+    const field = TOWN_CAVALRY_FIELD
+    const ground = this.mat(this.faction === 'roman' ? 0x92856a : 0xa5aaa5)
+    // Dirt/snow drill lanes are independent of the public stone road network.
+    for (const x of [35, 70, 105]) {
+      for (let row = 0; row < 4; row++) {
+        const z = -90 + row * 8
+        const lane = this.geo(new THREE.PlaneGeometry(29, 6)); lane.rotateX(-Math.PI / 2)
+        const positions = lane.attributes.position
+        for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)) + .025)
+        lane.computeVertexNormals()
+        const mesh = new THREE.Mesh(lane, ground); mesh.position.set(x + 12, 0, z); mesh.receiveShadow = true; this.root.add(mesh)
+      }
+      this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
+      const sign = new THREE.Group(); sign.position.set(x + 12, getTerrainHeight(x + 12, -101), -101)
+      this.root.add(sign)
+      for (const side of [-1, 1]) { this.cube(sign, side * 5, 1.8, 0, .2, 3.6, .2, this.wood); this.solid(x + 12 + side * 5, -101, .25, 3.6, .25) }
+      this.sign(sign, x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS', 0, 3, 0, 10)
+      this.batch(sign)
+    }
+    // Wide south-facing entrance connects to the internal mounted road.
+    const entrance = new THREE.Group(); entrance.position.set((field.minX + field.maxX) / 2, getTerrainHeight(82, -53), -53)
+    this.root.add(entrance); this.sign(entrance, 'CAVALRY TRAINING', 0, 4.2, 0, 12)
+    for (const side of [-1, 1]) {
+      this.cube(entrance, side * 8, 2.2, 0, .25, 4.4, .25, this.wood)
+      this.solid(82 + side * 8, -53, .25, 4.4, .25)
+    }
+    this.batch(entrance)
   }
   private medievalFrame(root: THREE.Group, w: number, d: number, h: number, roman: boolean): void {
     for (const side of [-1, 1]) {
@@ -174,7 +216,7 @@ export class TownWorld {
   /** Batch static siblings per material, retaining damageable roofs and shader effects as separate roots. */
   private batch(parent: THREE.Group): void {
     const buckets = new Map<THREE.Material, THREE.Mesh[]>()
-    for (const child of parent.children) if (child instanceof THREE.Mesh && !Array.isArray(child.material) && child.geometry.attributes.normal && !child.geometry.attributes.color) {
+    for (const child of parent.children) if (child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh) && !Array.isArray(child.material) && child.geometry.attributes.normal && !child.geometry.attributes.color) {
       const bucket = buckets.get(child.material) ?? []; bucket.push(child); buckets.set(child.material, bucket)
     }
     for (const [material, meshes] of buckets) {
@@ -306,6 +348,7 @@ export class TownWorld {
     this.solid(x, z, .5, 1.7, .35)
     this.targets.push(target); return target
   }
+  finalizeTrainingTargets(): void { this.batch(this.root) }
   private textTexture(text: string): THREE.CanvasTexture {
     const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 160
     const ctx = canvas.getContext('2d')!
@@ -359,5 +402,5 @@ export class TownWorld {
       item(side < 0 ? 'recurve_longbow' : 'wooden_shortbow', 'ranged', side * 4.5, 2, front + .4, side * .3)
     }
   }
-  dispose(): void { this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
+  dispose(): void { this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
 }

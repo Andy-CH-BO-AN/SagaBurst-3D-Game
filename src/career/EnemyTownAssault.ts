@@ -4,7 +4,7 @@ import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { Faction, AIType } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { townCaptainProfile, townRoster } from '../town/TownRules'
+import { townCaptainProfile, townRoster, townAssaultObjectiveRoster } from '../town/TownRules'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { cloneCareerProfile, canonicalCareerMountId, type CareerProfile } from './CareerProfile'
 import { availableRecruitMissions } from './CareerMissionCatalog'
@@ -44,7 +44,7 @@ export function createEnemyTownAssaultMission(id = createCareerMissionId(ENEMY_T
   const roster = townRoster()
   return {
     id, templateId: ENEMY_TOWN_ASSAULT_ID, kind: 'enemy-town-assault', targetCampId: -1, phase: 'ATTACKING',
-    targetActorIds: roster.filter(actor => actor.role.includes('_') || ['captain', 'ranger', 'deployment'].includes(actor.role)).map(actor => actor.id),
+    targetActorIds: townAssaultObjectiveRoster(roster).map(actor => actor.id),
     civilianActorIds: roster.filter(actor => actor.role === 'civilian').map(actor => actor.id),
     friendlyActorIds: Array.from({ length: 89 }, (_, index) => `${id}:assault:${index}`), acceptedAt: Date.now(),
   }

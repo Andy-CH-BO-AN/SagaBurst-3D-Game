@@ -26,7 +26,7 @@ interface MissionControllers {
 }
 
 interface ReturnResident {
-  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw'>
+  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'>
   npc: NPC
   homeMount?: Mount
   cycle: number
@@ -124,7 +124,7 @@ export class TownMissionSettlement {
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
       const restore = defense
-        ? resident.spec.role.includes('_') || ['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)
+        ? Boolean(resident.spec.defenseGroup) || ['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)
         : borrowed!.has(resident.npc)
       if (restore) this.restoreResident(resident)
     }

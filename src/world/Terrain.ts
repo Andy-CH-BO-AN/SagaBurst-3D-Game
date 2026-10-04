@@ -1,3 +1,4 @@
+import { markObstacleTopologyChanged } from './ObstacleTopology'
 /**
  * Terrain.ts
  * Creates a procedural 3D heightmap terrain with undulating hills and valleys.
@@ -79,6 +80,8 @@ export function getTerrainHeight(x: number, z: number): number {
 export interface ObstacleData {
   /** Continuous body/nav collision volume. */
   box: THREE.Box3
+  /** Optional ground footprint for overhead arches/lintels. Body/projectile collision still uses box. */
+  navigationBox?: THREE.Box3
   isBarricade: boolean
   damageable?: DamageableObstacle
   /**
@@ -120,6 +123,7 @@ export function removeObstacleData(obstacles: ObstacleData[], obstacle: Obstacle
   const index = obstacles.indexOf(obstacle)
   if (index < 0) return false
   obstacles.splice(index, 1)
+  markObstacleTopologyChanged(obstacles)
   return true
 }
 

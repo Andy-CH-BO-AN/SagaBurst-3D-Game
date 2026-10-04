@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { TownActorSpec, TownRole } from '../town/TownRules'
+import type { TownActorSpec, TownDefenseGroupId } from '../town/TownRules'
 import { CAREER_RANKS, type CareerRank } from './CareerProfile'
 
 export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
@@ -9,7 +9,7 @@ export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
 export const TOWN_DEFENSE_PREPARATION_SECONDS = 20
 
 export type TownDefensePhase = 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESULT' | 'RESET'
-export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
+export type { TownDefenseGroupId } from '../town/TownRules'
 export type TownDefenseOrder = 'ATTACK' | 'DEFEND' | 'SKIRMISH' | 'CHARGE'
 
 export interface TownDefenseAnchor {
@@ -22,7 +22,7 @@ export interface TownDefenseAnchor {
 export const TOWN_DEFENSE_LAYOUT = {
   southApproach: { x: 0, z: 145, facingX: 0, facingZ: -1 },
   westStableApproach: { x: -145, z: 20, facingX: 1, facingZ: 0 },
-  eastBarracksApproach: { x: 145, z: 45, facingX: -1, facingZ: 0 },
+  eastBarracksApproach: { x: 185, z: 45, facingX: -1, facingZ: 0 },
   cavalryReserve: { x: -27, z: 30, facingX: 0, facingZ: 1 },
   horseArcherLine: { x: 27, z: 22, facingX: 1, facingZ: 0 },
   rangerFlank: { x: -20, z: 5, facingX: -1, facingZ: 0 },
@@ -39,24 +39,13 @@ export interface TownDefenseGroupPlan {
   mounted: boolean
 }
 
-const takeRole = (roster: readonly TownActorSpec[], role: TownRole): string[] => (
-  roster.filter(actor => actor.role === role).sort((a, b) => a.index - b.index).map(actor => actor.id)
-)
-
 export function createTownDefenseGroups(roster: readonly TownActorSpec[]): TownDefenseGroupPlan[] {
-  const melee = takeRole(roster, 'melee_infantry')
-  const spearmen = takeRole(roster, 'spearman_infantry')
-  const ranged = takeRole(roster, 'ranged_infantry')
-  const cavalry = [...takeRole(roster, 'melee_cavalry'), ...takeRole(roster, 'lancer_cavalry')]
-  const horseArchers = takeRole(roster, 'ranged_cavalry')
-  return [
-    { id: 'A', actorIds: melee, role: 'melee-ring', initialOrder: 'DEFEND', mounted: false },
-    { id: 'B', actorIds: spearmen, role: 'melee-ring', initialOrder: 'DEFEND', mounted: false },
-    { id: 'C', actorIds: ranged.slice(0, 10), role: 'ranged-ring', initialOrder: 'DEFEND', mounted: false },
-    { id: 'D', actorIds: ranged.slice(10, 20), role: 'ranged-ring', initialOrder: 'DEFEND', mounted: false },
-    { id: 'E', actorIds: cavalry, role: 'reserve', initialOrder: 'DEFEND', mounted: true },
-    { id: 'F', actorIds: horseArchers, role: 'outer-screen', initialOrder: 'DEFEND', mounted: true },
-  ]
+  return (['A', 'B', 'C', 'D', 'E', 'F'] as const).map(id => {
+    const actors = roster.filter(actor => actor.defenseGroup === id)
+    return { id, actorIds: actors.map(actor => actor.id),
+      role: id === 'A' || id === 'B' ? 'melee-ring' : id === 'C' || id === 'D' ? 'ranged-ring' : id === 'E' ? 'reserve' : 'outer-screen',
+      initialOrder: 'DEFEND', mounted: actors.length > 0 && actors.every(actor => actor.mounted) }
+  })
 }
 
 /** Front and flank arcs leave the town-facing rear open behind the civilians. */
@@ -72,8 +61,7 @@ export function horseshoeDefenseSlots(count: number, radii: readonly number[]): 
   })
 }
 
-export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted = false, columns = mounted ? 2 : 5): THREE.Vector3[] {
-  const spacing = mounted ? 4.2 : 2.2
+export function formationSlots(anchor: TownDefenseAnchor, count: number, mounted = false, columns = mounted ? 2 : 5, spacing = mounted ? 4.2 : 2.2): THREE.Vector3[] {
   const forward = new THREE.Vector3(anchor.facingX, 0, anchor.facingZ).normalize()
   const right = new THREE.Vector3(forward.z, 0, -forward.x)
   return Array.from({ length: count }, (_, index) => {

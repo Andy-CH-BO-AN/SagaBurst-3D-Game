@@ -5,7 +5,7 @@ import type { VeteranMissionEnemySquad } from '../../src/career/BanditMissionCon
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
 import { TownMissionCombat, type TownCombatResident } from '../../src/town/TownMissionCombat'
-import type { TownActorSpec } from '../../src/town/TownRules'
+import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { townWartimePeers } from '../../src/town/TownWartime'
 import type { HpBar } from '../../src/ui/HpBar'
 import type { Mount } from '../../src/world/Mount'
@@ -38,7 +38,7 @@ export function combatMount() {
 }
 
 export function combatResident(npc: NPC, role: TownActorSpec['role'] = 'melee_infantry'): TownCombatResident {
-  return { npc, spec: { id: npc.combatantId, role, x: 5, z: 6, index: 0, yaw: .7 }, cycle: -1, walkTime: 0 }
+  return { npc, spec: { ...townRoster().find(spec => spec.role === role)!, id: npc.combatantId, x: 5, z: 6, index: 0, yaw: .7 }, cycle: -1, walkTime: 0 }
 }
 
 /** Typed substitutes at the simulation's public seam; no TownScene or controller internals. */
