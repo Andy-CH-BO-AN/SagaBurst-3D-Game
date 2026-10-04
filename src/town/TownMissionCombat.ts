@@ -161,9 +161,11 @@ export class TownMissionCombat {
     if (this.externalThreatActors.has(ally)) return true
     const resident = this.town.residents.find(candidate => candidate.npc === ally)
     if (!resident || ally.dead || !this.isMilitary(resident.spec)) return false
+    const outskirts = this.town.outskirts?.()
     return [...this.missions.field.ambientBandits, ...this.missions.field.missionBandits,
       ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, 20, this.protectionCandidates)]
       .some(threat => !threat.dead && townWartimeHostile(ally, threat)
+        && (resident.spec.duty !== 'patrol' || !outskirts?.owns(threat))
         && threat.combatPosition.distanceToSquared(ally.combatPosition) <= 20 * 20)
   }
 
@@ -492,8 +494,9 @@ export class TownMissionCombat {
   private updateExternalThreatAssignments(options: { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean } = {}): void {
     const { field } = this.missions
     const enemyTownScouts = options.enemyTownScouts
+    const outskirts = this.town.outskirts?.()
     const threatActors = [...(enemyTownScouts ?? (options.roamingOnly ? [] : [...field.ambientBandits, ...field.missionBandits])),
-      ...(this.town.outskirts?.()?.actors ?? [])].filter(npc => !npc.dead)
+      ...(outskirts?.actors ?? [])].filter(npc => !npc.dead)
     this.banditThreatGrid.clear()
     for (const actor of threatActors) if (!actor.dead) this.banditThreatGrid.insert(actor)
     const missionFriendlies = new Set([...field.friendlies, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
@@ -511,7 +514,9 @@ export class TownMissionCombat {
           ? true
           : spec.id.startsWith('enemy-town:') && npc.faction === Faction.ENEMY)
       const nearbyMissionActor = eligible && this.banditThreatGrid.getNearbyInto(npc.combatPosition, 20, this.neighbors)
-        .some(threat => !threat.dead && townWartimeHostile(npc, threat))
+        // Patrol keeps its own route until the full encounter/return lifecycle is available.
+        .some(threat => !threat.dead && townWartimeHostile(npc, threat)
+          && (spec.duty !== 'patrol' || !outskirts?.owns(threat)))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
         && !options.player.dead && npc.combatPosition.distanceToSquared(options.player.combatPosition) <= 20 * 20
       const threatened = Boolean(nearbyMissionActor || nearbyPlayer)

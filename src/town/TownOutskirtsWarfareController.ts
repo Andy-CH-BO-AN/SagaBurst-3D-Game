@@ -62,12 +62,13 @@ export class TownOutskirtsWarfareController {
     this.synchronizeRank()
   }
 
-  /** Corpses continue through the normal NPC death presentation; freed horses retain normal Mount behavior. */
+  /** Old-wave corpses stay through their normal death presentation; every horse retains normal Mount behavior. */
   get actors(): readonly NPC[] { return this.allActors }
   get mounts(): readonly Mount[] { return this.allMounts }
   owns(npc: NPC): boolean { return this.squadForActor.has(npc) }
   combatEnabled(npc: NPC): boolean {
-    return npc.dead || this.squadForActor.get(npc)?.state === 'ENGAGING'
+    const squad = this.squadForActor.get(npc)
+    return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
   }
 
   synchronizeRank(): void {
@@ -99,6 +100,7 @@ export class TownOutskirtsWarfareController {
         if (squad.leader) squad.trail.rebase(squad.leader.combatPosition, squad.leader.group.rotation.y)
       }
     }
+    this.pruneRetiredActors()
     this.grid.clear()
     for (const actor of participants) if (!actor.dead && !this.owns(actor)) this.grid.insert(actor)
     // Include newly reinforced members even if the caller built its participant list before this frame.
@@ -317,6 +319,17 @@ export class TownOutskirtsWarfareController {
     for (const mount of this.allMounts) mount.dispose()
     this.allActors.length = 0; this.allMounts.length = 0; this.squads.length = 0
     this.squadForActor.clear(); this.grid.clear()
+  }
+
+  private pruneRetiredActors(): void {
+    for (let index = this.allActors.length - 1; index >= 0; index--) {
+      const npc = this.allActors[index], squad = this.squadForActor.get(npc)
+      // Current rosters retain casualties until the whole squad is wiped and replaced.
+      if (!npc.dead || !npc.deathPresentationComplete || squad?.members.includes(npc)) continue
+      this.allActors.splice(index, 1)
+      this.squadForActor.delete(npc)
+      npc.dispose()
+    }
   }
 
   private distance(a: THREE.Vector3, b: THREE.Vector3): number { return Math.hypot(a.x - b.x, a.z - b.z) }

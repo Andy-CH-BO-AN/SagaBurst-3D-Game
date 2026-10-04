@@ -6,7 +6,9 @@ import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { Mount } from '../world/Mount'
-import { Faction, type BanditAggroState, type NPC } from '../world/NPC'
+import { AIType, Faction, NPC, type BanditAggroState } from '../world/NPC'
+import { DeathFadeController, DEATH_DESPAWN_DELAY_SECONDS } from '../world/DeathFade'
+import type { HpBar } from '../ui/HpBar'
 import type { ObstacleData } from '../world/Terrain'
 import { TOWN_NAVIGATION_BOUNDS } from './TownBounds'
 import { OUTSKIRTS_ENCOUNTER_LEASH, outskirtsActorId, outskirtsCavalryFaction, outskirtsSquadSpecs } from './TownOutskirtsRules'
@@ -24,6 +26,8 @@ class TestMount {
 class TestNpc {
   readonly group = new THREE.Group()
   dead = false
+  deathPresentationComplete = false
+  private readonly deathPresentation = new DeathFadeController()
   respawnEnabled = true
   mount: TestMount | null = null
   encounterAggroState: BanditAggroState = 'idle'
@@ -58,6 +62,8 @@ class TestNpc {
   updateTownTravel = vi.fn()
   dispose = vi.fn(() => { this.disposed = true })
   move(x: number, z: number): void { this.group.position.set(x, 0, z); this.mount?.group.position.set(x, 0, z) }
+  die(): void { this.dead = true; this.deathPresentationComplete = false; this.deathPresentation.start(this.group) }
+  updateDeathPresentation(dt: number): void { this.deathPresentationComplete = this.deathPresentation.update(this.group, dt) }
 }
 
 function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'roman', playerFaction: CharacterFaction = 'roman', obstacles: ObstacleData[] = []) {
@@ -290,6 +296,102 @@ describe('Town outskirts runtime', () => {
     expect(reads.every(read => read.mock.calls.length === 0)).toBe(true)
     expect(previous.every(npc => !asTest(npc).updateTownTravel.mock.calls.length && !asTest(npc).dispose.mock.calls.length)).toBe(true)
     test.controller.dispose()
+  })
+
+  it('prunes only retired generations after the existing death presentation, preserving pending deaths and current casualties', () => {
+    const test = setup(); test.isolate()
+    const squad = test.controller.squads[6], old = [...squad.members]
+    const priorMounts = [...test.controller.mounts]
+    old.slice(0, -1).forEach(npc => {
+      asTest(npc).die()
+      asTest(npc).updateDeathPresentation(DEATH_DESPAWN_DELAY_SECONDS)
+    })
+    test.frame()
+    expect(test.controller.actors).toHaveLength(60)
+    expect(old.slice(0, -1).every(npc => test.controller.owns(npc) && !asTest(npc).disposed)).toBe(true)
+    asTest(old[old.length - 1]).die()
+    test.frame()
+    expect(test.controller.actors).toHaveLength(61)
+    expect(old.slice(0, -1).every(npc => !test.controller.owns(npc) && !test.controller.combatEnabled(npc))).toBe(true)
+    expect(old.slice(0, -1).every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
+    const last = old[old.length - 1]
+    expect(test.controller.owns(last)).toBe(true)
+    asTest(last).group.visible = false
+    asTest(last).updateDeathPresentation(DEATH_DESPAWN_DELAY_SECONDS - .01)
+    test.frame()
+    expect(test.controller.actors).toHaveLength(61)
+    expect(test.controller.combatEnabled(last)).toBe(true)
+    expect(asTest(last).dispose).not.toHaveBeenCalled()
+    asTest(last).updateDeathPresentation(.01)
+    const oldParticipants = [...test.controller.actors]
+    test.controller.prepareFrame(.4, oldParticipants, test.player)
+    expect(test.controller.actors).toHaveLength(60)
+    expect(test.controller.actors).not.toContain(last)
+    expect(test.controller.owns(last)).toBe(false)
+    expect(asTest(last).dispose).toHaveBeenCalledOnce()
+    expect(priorMounts.every(mount => test.controller.mounts.includes(mount))).toBe(true)
+    expect(test.horses.every(mount => !mount.dispose.mock.calls.length)).toBe(true)
+    test.controller.dispose()
+    expect(old.every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('bounds actor history across continuous full-squad waves and disposes each finished actor exactly once without touching horses', () => {
+    const test = setup(); test.isolate()
+    const retainedHorse = test.horses[0]
+    retainedHorse.dead = true
+    const borrowedHorse = test.horses[1]
+    borrowedHorse.riderPlayer = {}
+    for (let wave = 1; wave <= 8; wave++) {
+      const previous = test.controller.squads.flatMap(squad => squad.members)
+      previous.forEach(npc => asTest(npc).die())
+      test.frame()
+      expect(test.controller.actors).toHaveLength(120)
+      expect(test.controller.actors.filter(npc => !npc.dead)).toHaveLength(60)
+      previous.forEach(npc => asTest(npc).updateDeathPresentation(DEATH_DESPAWN_DELAY_SECONDS - .01))
+      test.frame()
+      expect(previous.every(npc => test.controller.combatEnabled(npc) && !asTest(npc).disposed)).toBe(true)
+      previous.forEach(npc => asTest(npc).updateDeathPresentation(.01))
+      test.frame()
+      expect(test.controller.actors).toHaveLength(60)
+      expect(previous.every(npc => !test.controller.owns(npc) && !test.controller.combatEnabled(npc))).toBe(true)
+      expect(previous.every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
+      expect(test.controller.mounts).toHaveLength(30 * (wave + 1))
+      expect(test.horses.every(horse => !horse.dispose.mock.calls.length)).toBe(true)
+      expect(test.controller.mounts).toContain(retainedHorse)
+      expect(test.controller.mounts).toContain(borrowedHorse)
+      expect(borrowedHorse.riderPlayer).toBeTruthy()
+    }
+    expect(test.created).toHaveLength(540)
+    test.controller.dispose()
+    expect(test.created.every(npc => npc.dispose.mock.calls.length === 1)).toBe(true)
+    expect(test.horses.every(horse => horse.dispose.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('reports real NPC death completion from the original dead update, independent of visibility and reset on respawn', () => {
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'Presentation probe', 1, false,
+      { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null })
+    npc.respawnEnabled = false
+    const player = { dead: false } as Player
+    const update = (dt: number) => npc.update(dt, player, [], [], [], null as unknown as HpBar, () => {}, () => {})
+    try {
+      npc.group.visible = false
+      expect(npc.deathPresentationComplete).toBe(false)
+      npc.takeDamage(npc.maxHp * 10)
+      expect(npc.deathPresentationComplete).toBe(false)
+      npc.group.visible = false
+      update(DEATH_DESPAWN_DELAY_SECONDS - .01)
+      expect(npc.deathPresentationComplete).toBe(false)
+      update(.01)
+      expect(npc.deathPresentationComplete).toBe(true)
+      npc.group.visible = true
+      expect(npc.deathPresentationComplete).toBe(true)
+      npc.respawn()
+      expect(npc.dead).toBe(false)
+      expect(npc.deathPresentationComplete).toBe(false)
+      npc.takeDamage(npc.maxHp * 10)
+      update(.01)
+      expect(npc.deathPresentationComplete).toBe(false)
+    } finally { npc.dispose() }
   })
 
   it.each(['roman', 'viking'] as const)('connects actual %s Town spawn slots, loops, and reinforced edge entries to each own sector', faction => {

@@ -389,6 +389,8 @@ export class NPC {
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
   get currentState(): AIState { return this.state }
   get dead(): boolean { return this.state === AIState.DEAD }
+  /** Completion comes from the death update, never normal visibility or visual LOD. */
+  get deathPresentationComplete(): boolean { return this.dead && this.deathFade.completed }
   
   get inCombat(): boolean {
     return this.state === AIState.CHASE || this.state === AIState.ATTACK

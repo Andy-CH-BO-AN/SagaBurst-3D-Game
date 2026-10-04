@@ -126,17 +126,92 @@ describe('Outskirts participants alongside existing Town missions', () => {
     expect(h.simulation.damagePlayer).not.toHaveBeenCalled()
   })
 
-  it('retains Patrol return ownership while enrolling other military against roaming enemies', () => {
+  it('keeps roaming threats out of Patrol registration and protection while other military retaliate', () => {
     const enemy = combatActor('outskirts:cavalry:a:0', Faction.ENEMY)
-    const returning = combatActor('town-patrol:a:0'), defender = combatActor('gate:north:0')
+    const patrol = combatActor('town-patrol:a:0'), returning = combatActor('town-patrol:a:1')
+    const defender = combatActor('gate:north:0'), trainee = combatActor('training:0')
     const h = warfareFixture([enemy])
-    const home = combatResident(returning), guard = combatResident(defender)
-    h.simulation.residents = [home, guard]
+    const route = combatResident(patrol, 'melee_cavalry'), home = combatResident(returning, 'melee_cavalry')
+    route.spec.duty = 'patrol'; home.spec.duty = 'patrol'
+    const guard = combatResident(defender), training = combatResident(trainee)
+    guard.spec.duty = 'gate_guard'; training.spec.duty = 'training'
+    h.simulation.residents = [route, home, guard, training]
     h.simulation.ownsPeacefulTravel = actor => actor === returning
+    enemy.update.mockImplementation((_dt, _player, peers, _neighbors, _obstacles, _hp, hit) => {
+      expect(peers).toContain(patrol); hit(9, false, patrol)
+    })
     h.combat.update(.02, 0, 1)
-    expect(returning.beginExternalThreat).not.toHaveBeenCalled(); expect(returning.update).not.toHaveBeenCalled()
-    expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(home, .02)
-    expect(defender.beginExternalThreat).toHaveBeenCalledOnce(); expect(defender.update).toHaveBeenCalledOnce()
+    for (const npc of [patrol, returning]) {
+      expect(npc.beginExternalThreat).not.toHaveBeenCalled(); expect(npc.update).not.toHaveBeenCalled()
+      expect(h.combat.isExternalThreatDefender(npc)).toBe(false)
+      expect(h.combat.runtimeParticipants).toContain(npc)
+    }
+    expect(h.simulation.peaceResident).toHaveBeenCalledWith(route, .02)
+    expect(h.simulation.peaceResident).toHaveBeenCalledWith(home, .02)
+    for (const npc of [defender, trainee]) {
+      expect(npc.beginExternalThreat).toHaveBeenCalledOnce(); expect(npc.update).toHaveBeenCalledOnce()
+      expect(h.combat.isExternalThreatDefender(npc)).toBe(true)
+    }
+    expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(patrol, 9, 'melee', enemy)
+  })
+
+  it('preserves Patrol camp defense and releases it without teleporting when only roaming threats remain', () => {
+    const enemy = combatActor('outskirts:cavalry:a:0', Faction.ENEMY), camp = combatActor('ambient:0:0', Faction.BANDIT)
+    const patrol = combatActor('town-patrol:a:0'), h = warfareFixture([enemy])
+    const resident = combatResident(patrol, 'melee_cavalry'); resident.spec.duty = 'patrol'
+    h.simulation.residents = [resident]; h.field.ambientBandits = [camp]; h.field.fieldNpcs = [camp]
+    expect(h.combat.isExternalThreatDefender(patrol)).toBe(true)
+    h.combat.update(.02, 0, 1)
+    expect(patrol.beginExternalThreat).toHaveBeenCalledOnce(); expect(patrol.update).toHaveBeenCalledOnce()
+    camp.group.position.x = 100; patrol.group.position.set(3, 0, 1)
+    h.combat.update(.02, 0, 2)
+    expect(patrol.endExternalThreat).toHaveBeenCalledOnce()
+    expect(patrol.beginExternalThreat).toHaveBeenCalledOnce(); expect(patrol.update).toHaveBeenCalledOnce()
+    expect(patrol.group.position).toEqual(new THREE.Vector3(3, 0, 1))
+    expect(h.combat.isExternalThreatDefender(patrol)).toBe(false)
+    expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(resident, .02)
+  })
+
+  it.each(['field', 'defense'] as const)('keeps a formally borrowed Patrol actor fighting in its %s mission roster', owner => {
+    const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT), patrol = combatActor('town-patrol:a:0')
+    bandit.group.position.x = 6; patrol.tacticalOrder = 'formation'
+    const h = warfareFixture([bandit]), resident = combatResident(patrol, 'melee_cavalry')
+    resident.spec.duty = 'patrol'; h.simulation.residents = [resident]
+    h.simulation.ownsPeacefulTravel = actor => actor === patrol
+    const mission = { ...veteranMission(owner === 'field' ? 'MARCHING' : 'ENGAGING'), friendlyActorIds: [patrol.combatantId] }
+    if (owner === 'field') {
+      h.field.active = mission; h.field.friendlies = [patrol]; h.field.fieldNpcs = [patrol]
+    } else {
+      h.defense.active = { ...mission, kind: 'town-defense', phase: 'ATTACKING' }
+      h.defense.phase = 'ATTACKING'; h.defense.fieldNpcs = [patrol]
+    }
+    patrol.update.mockImplementation((_dt, _player, peers, _neighbors, _obstacles, _hp, hit) => {
+      expect(peers).toContain(bandit); expect(patrol.tacticalOrder).toBe('attack'); hit(5, false, bandit)
+    })
+    h.combat.update(.02, 0, 1)
+    expect(patrol.update).toHaveBeenCalledOnce(); expect(patrol.tacticalOrder).toBe('formation')
+    expect(patrol.beginExternalThreat).not.toHaveBeenCalled(); expect(patrol.endExternalThreat).not.toHaveBeenCalled()
+    expect(h.simulation.peaceResident).not.toHaveBeenCalled()
+    expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(bandit, 5, 'melee', patrol)
+    expect(owner === 'field' ? h.field.fieldNpcs : h.defense.fieldNpcs).toEqual([patrol])
+    expect(owner === 'field' ? h.field.active : h.defense.active).toMatchObject({
+      phase: owner === 'field' ? 'MARCHING' : 'ATTACKING', friendlyActorIds: [patrol.combatantId], targetActorIds: ['objective'],
+    })
+  })
+
+  it.each(['scout', 'player'] as const)('preserves Veteran VI native Patrol response to its existing %s threat', threat => {
+    const allied = combatActor('outskirts:cavalry:a:0', Faction.TOWN)
+    const native = combatActor('enemy-town:town-patrol:a:0', Faction.ENEMY), scout = combatActor('friendly')
+    const h = warfareFixture([allied]), resident = combatResident(native, 'melee_cavalry')
+    resident.spec.duty = 'patrol'; h.simulation.residents = [resident]
+    h.field.active = veteranMission(); h.field.active.templateId = 'veteran-tragedy-of-the-scouts'
+    h.field.friendlies = [scout]; h.field.fieldNpcs = [scout]
+    h.player.combatPosition.x = threat === 'player' ? 6 : 1000
+    scout.group.position.x = threat === 'scout' ? 6 : 1000
+    h.combat.update(.02, 0, 1)
+    expect(native.beginExternalThreat).toHaveBeenCalledOnce(); expect(native.update).toHaveBeenCalledOnce()
+    expect(h.combat.enemyTownHostiles).toEqual([native]); expect(native.respawnEnabled).toBe(false)
+    expect(h.field.friendlies).toEqual([scout]); expect(h.field.active.friendlyActorIds).toEqual(['friendly'])
   })
 
   it('releases old resident threat membership without resetting a newly borrowed mission actor', () => {
