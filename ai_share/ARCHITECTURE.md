@@ -65,7 +65,8 @@
 - 老兵「守衛家園 · 老兵守城」需 5 次 Tier 3 任務勝利，解鎖後可重複接取；既有完成紀錄不隱藏或封鎖任務，各場仍以 mission ID 獨立結算。
 - `TownScene` 自有 renderer、input、projectiles、城鎮呈現與玩家觀戰控制，不借用 `Game` 迴圈；`TownWorld` 管建物、障礙與場景資源，`TownRules` 管居民配置，`TownEquipment` 管可用裝備及拔出狀態，`TownCombat` 管城鎮命中。
 - `TownMissionCombat.update(dt, cameraYaw, elapsed)` 擁有野外、Duel 與城鎮戰鬥的角色集合、準備階段例外、敵我 grid、NPC／坐騎更新及順序；各任務保留自己的 phase 規則與 controller checkpoint。模組接收明確的傷害、射擊及呈現回呼，TownScene 保留歸因與投射物管理；外部威脅駐軍由此模組登記，結算僅透過 `releaseExternalThreat` 歸還登記。鄰居陣列重用，抽取不增加逐幀輸入物件配置。
-- `TownCavalryPatrolController` 管理兩隊各 20 名 `duty: patrol` residents（總 roster 225）；永久 `patrolId`／`patrolLeader` 與 runtime `activeLeaderActorId` 分開。兩隊從兵營經東／西門出城，沿 `TownPatrolRoute` 同向順時針循環。`TownMissionCombat` 以實際 actor 集合排除任務接管者，未被調用者在任務期間仍巡邏；`relinquish`／`reclaim` 逐人交接，借方負責赴任務集結點的移動。Captain 缺席時依 roster 順序選可騎乘代理，Captain 實際追隊接近後才接回 leadership。`NPC.updateTownTravel` 重用 formation/follow movement 與受預算限制的 navigation，不執行 combat target search；`FollowTrail` 讓長列沿領隊實際路徑轉彎。全城 hostile 清除巡邏控制權並保留位置。巡邏位置與 waypoint 不存檔，現有 mission 借兵仍只選既有 training 騎兵與 service actors。
+- `TownCavalryPatrolController` 管理兩隊各 20 名 `duty: patrol` residents（總 roster 225）；永久 `patrolId`／`patrolLeader` 與 runtime `activeLeaderActorId` 分開。兩隊從兵營經東／西門出城，沿 `TownPatrolRoute` 同向順時針循環。`TownMissionCombat` 以實際 actor 集合排除任務接管者，未被調用者仍巡邏；借方在下達集合命令前逐人 `relinquish`。任務結算後，Patrol 以 `RETURN_TO_BARRACKS → REFIT → REJOIN_PATROL` 接回角色：整補使用 `TOWN_SITES.barracks` 南側庭院的 40 個固定騎乘 slot（間距 4.5 公尺），與巡邏 startup 編隊座標分開；存活者實際騎乘／步行抵達才整補，死亡者以同 ID 在該 slot 恢復；原裝備、HP、盾、彈藥及 Horse 恢復後即可再次借用。Captain 缺席時由 runtime deputy 帶隊，Captain 實際追隊接近後才接回 leadership。`NPC.updateTownTravel` 重用 mounted／foot formation、follow 與 navigation，不執行 combat target search；`FollowTrail` 讓長列沿實際路徑轉彎。巡邏位置、waypoint 及結算後回營狀態不存檔，正常 reload 從兵營整補後重新出發。
+- `TownCavalryReserve` 只填任務 authoritative roster 的既定 slot，不新增領隊或改變兵種／人數。普通池為 Training 60、Patrol A 19、Patrol B 19；依來源順序，每層先 matching 再暫換裝，不足才 temporary。兩名 Patrol Captain 是獨立、相容 mounted Captain profile 的 T4 officer pool，不能填普通 slot 或 Maki/ranger slot。Cavalry Sweep 與 Town Veteran field acceptance 共用 selection；active mission 以既有 `friendlyActorIds`／`borrowedActorIds`、位置與傷勢 checkpoint 恢復同一份 assignment，不重新挑兵。Campaign／Outpost 與 Enemy Town Assault 保持既有流程。
 - `TownMissionSettlement` 集中任務結果保存與返回順序：沿用 `claimCareerMission`／`clearCareerMission`，保存成功後才清理、歸還借用居民及坐騎或重建場景；保存失敗保留現場供重試。守城及清剿原地結算，其他任務依直接返回或步行返抵採取既有恢復方式，TownScene 保留結果 UI 與玩家觀戰控制。
 - `CareerMissionCheckpoint` 擁有 controller checkpoint 的 5 秒 clock、立即／週期保存資格、profile clone 與同步提交，成功才重設 clock；失敗由 controller 下次提供最新快照重試。各任務保留快照生產、phase guard 及保存頻率：Bandit 的 route／傷亡立即保存，stats／騎兵位置走週期；城防時間每 1 秒、傷亡等變化立即保存；Duel 每次 runtime 快照變化立即保存。立即保存也包含當前完整快照，force 只提前已變更的週期資料，不改存檔格式。
 - visual faction 與 `CombatFaction` 分開；城鎮平時不敵視 Player。首次有效犯罪先保存 hostile event，保存失敗則不施加第一擊；只在死亡／建物摧毀時保存終止狀態。自由遭遇與官方任務不等同城鎮犯罪。
@@ -75,7 +76,7 @@
 | 任務模組 | 契約 |
 | --- | --- |
 | `BanditMissionController` | 剿匪／巡邏與返程；借用同一位隊長，穩定 FOLLOW slots，僅正式名單納入任務歸因 |
-| `CavalrySweep`、`MountedMissionMarch` | 優先借用駐軍／既有坐騎，只生成缺額；歸還借用者、移除臨時角色，保存行軍與 Charge 階段 |
+| `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 共用騎兵入口前空地的集合點；既有 actor 從目前位置集合，temporary 沿既有 supportApproach／townEntry 從 map edge 進場。集合完成即自動行軍；友軍 temporary 結算後沿既有 departure 實際騎乘／步行到 edge 才移除，結算後 reload 不重建，敵軍仍正常清理 |
 | `TownDefenseController` | 重用城鎮駐軍／平民；接受時固定敵軍名單與比例，按該名單恢復，不因升階重算已接受任務 |
 | `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；Duel 敵意不擴散到城鎮，結算歸還角色 |
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |

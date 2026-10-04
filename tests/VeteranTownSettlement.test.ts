@@ -50,7 +50,7 @@ describe('Veteran field return through existing Career settlement', () => {
     const f = fixture()
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })
     expect(f.profile().activeMission).toBeUndefined()
-    expect(f.field.cleanupMission).toHaveBeenCalledExactlyOnceWith(0)
+    expect(f.field.cleanupMission).toHaveBeenCalledExactlyOnceWith(0, true)
     expect(f.npc.restoreForTown).toHaveBeenCalledOnce()
     expect(f.homeMount.restoreForTown).toHaveBeenCalledExactlyOnceWith(5, 7, .3)
     expect(f.homeMount.dispose).not.toHaveBeenCalled()
@@ -64,6 +64,38 @@ describe('Veteran field return through existing Career settlement', () => {
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'ignored' })
     expect(f.profile().activeMission).toBeDefined()
     expect(f.field.cleanupMission).not.toHaveBeenCalled()
+  })
+  it('hands borrowed Patrol members to the barracks lifecycle after saving, without restoring them in place', () => {
+    const f = fixture()
+    Object.assign(f.town.residents[0].spec, { id: 'town-patrol:a:0', duty: 'patrol' })
+    f.profile().activeMission!.borrowedActorIds = ['town-patrol:a:0']
+    f.profile().activeMission!.friendlyActorIds = ['town-patrol:a:0']
+    const beginReturn = vi.fn(() => expect(f.profile().activeMission).toBeUndefined())
+    Object.assign(f.town, { beginPatrolMissionReturn: beginReturn })
+    f.npc.group.position.set(180, 0, -130)
+    const position = f.npc.group.position.clone()
+
+    expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })
+
+    expect(beginReturn).toHaveBeenCalledExactlyOnceWith('town-patrol:a:0')
+    expect(f.npc.restoreForTown).not.toHaveBeenCalled()
+    expect(f.npc.dismountFromMount).not.toHaveBeenCalled()
+    expect(f.homeMount.restoreForTown).not.toHaveBeenCalled()
+    expect(f.npc.group.position).toEqual(position)
+    expect(f.bystander.restoreForTown).not.toHaveBeenCalled()
+  })
+  it('does not release Patrol ownership when settlement saving fails', () => {
+    const f = fixture()
+    Object.assign(f.town.residents[0].spec, { id: 'town-patrol:a:captain', duty: 'patrol' })
+    const beginReturn = vi.fn()
+    Object.assign(f.town, { beginPatrolMissionReturn: beginReturn })
+    ;(f.settlement as any).profiles.commit = () => false
+
+    expect(f.settlement.returnToTown('direct')).toEqual({ status: 'save-failed', destination: 'party' })
+    expect(f.profile().activeMission).toBeDefined()
+    expect(beginReturn).not.toHaveBeenCalled()
+    expect(f.field.cleanupMission).not.toHaveBeenCalled()
+    expect(f.npc.restoreForTown).not.toHaveBeenCalled()
   })
 })
 

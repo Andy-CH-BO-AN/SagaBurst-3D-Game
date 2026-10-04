@@ -11,7 +11,7 @@ import { VETERAN_MISSION_IDS, acceptVeteranMission, createVeteranRoster, createV
 import type { TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
 import type { UnitLoadout } from '../battle/UnitPresetCatalog'
-import type { ObstacleData } from '../world/Terrain'
+import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../world/Terrain'
 
 vi.mock('./MissionGuide', () => ({
   MissionGuide: class {
@@ -204,8 +204,10 @@ describe('Veteran field controller staging and lifecycle', () => {
     expect(setup.start).toBe(true)
     const temporary = setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)
     expect(temporary.length).toBe(77)
-    expect(temporary.every(({ npc }) => Math.abs(npc.combatPosition.x) < 280 && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
-    expect(temporary.every(({ npc }) => npc.combatPosition.distanceTo(new THREE.Vector3(55, 0, -55)) > 80)).toBe(true)
+    expect(temporary.every(({ npc }) => npc.combatPosition.x < -270
+      && Math.abs(npc.combatPosition.x) <= PLAYABLE_WORLD_BOUND - 4
+      && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
+    expect(temporary.every(({ npc }) => npc.combatPosition.distanceTo(VETERAN_FIELD_LAYOUT.rally) > 80)).toBe(true)
     expect(temporary.every(({ npc }) => (npc as unknown as FieldTestNpc).formationTarget !== null)).toBe(true)
     const support = temporary.map(({ npc }) => npc as unknown as FieldTestNpc)
     const averageTravel = support.reduce((sum, npc) => sum + npc.moveToFormationTarget(), 0) / support.length

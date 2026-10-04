@@ -742,22 +742,25 @@ export class NPC {
   /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
   updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,
     followAnchor?: { position: THREE.Vector3; yaw: number }): void {
-    if (this.dead || !this.mount || this.mount.dead) { this.updateTownPeace(dt, distance, false, false); return }
+    if (this.dead) { this.updateTownPeace(dt, distance, false, false); return }
+    if (this.mount?.dead) this.dismountFromMount()
+    const previousPosition = this._tmpPreviousPosition.copy(this.group.position)
     this.visualMovementSpeed = 0
     this.isSprinting = false
-    this.mount.setCameraDistance(distance)
-    this.mount.beginControlledFrame()
+    this.mount?.setCameraDistance(distance)
+    this.mount?.beginControlledFrame()
     this._updateFormationMovement(dt, nearby, obstacles, false, navigation, followAnchor)
     for (const other of nearby) {
       if (other === this || other.dead) continue
       resolveEntityCollision(
-        { position: this.combatPosition, radius: 1, height: 2.6, bottomOffset: 0 },
+        { position: this.combatPosition, radius: this.isMounted ? 1 : .5, height: this.isMounted ? 2.6 : 2.3, bottomOffset: 0 },
         { position: other.combatPosition, radius: other.isMounted ? 1 : .42, height: other.isMounted ? 2.6 : 1.8, bottomOffset: 0, anchored: true },
         obstacles,
       )
     }
-    this.mount.finishControlledFrame(dt, obstacles)
-    this.updateTownPeace(dt, distance, false, false, this.mount.movementSpeed)
+    if (this.mount) this.mount.finishControlledFrame(dt, obstacles)
+    else this._updateFootPhysics(previousPosition, dt, obstacles)
+    this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
   }
 
   dispose(): void {
@@ -2568,36 +2571,26 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { _collector.endPhase('mountUpdate', _tMount!) }
     } else {
       if (import.meta.env.DEV && _collector) { var _tFoot = performance.now() }
-      this.group.rotation.x = 0 // reset posture
-      // NPCs use the same terrain/platform gravity as the player and mounts.
-      const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
-      this.velY += -22 * dt
-      this.group.position.y += this.velY * dt
-      if (this.group.position.y <= terrainY) {
-        this.group.position.y = terrainY
-        this.velY = 0
-        this.onGround = true
-      } else {
-        this.onGround = false
-      }
-
-      const collision = resolveObstacleCollision(
-        this.group.position,
-        previousPosition,
-        this.velY,
-        this.onGround,
-        0.5,
-        2.3,
-        0,
-        obstacles,
-      )
-      this.velY = collision.velocityY
-      this.onGround = collision.onGround
-      
-      // Re-apply after terrain / obstacle resolution for foot NPCs.
-      clampToPlayableWorld(this.group.position)
+      this._updateFootPhysics(previousPosition, dt, obstacles)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('footPhysics', _tFoot!) }
     }
+  }
+
+  /** Shared by combat and peaceful travel, including a rider walking home after losing its Horse. */
+  private _updateFootPhysics(previousPosition: THREE.Vector3, dt: number, obstacles: ObstacleData[]): void {
+    this.group.rotation.x = 0
+    const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
+    this.velY += -22 * dt
+    this.group.position.y += this.velY * dt
+    if (this.group.position.y <= terrainY) {
+      this.group.position.y = terrainY
+      this.velY = 0
+      this.onGround = true
+    } else this.onGround = false
+    const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles)
+    this.velY = collision.velocityY
+    this.onGround = collision.onGround
+    clampToPlayableWorld(this.group.position)
   }
 
   private _beginEncounterReturn(): void {
@@ -2961,7 +2954,7 @@ export class NPC {
     if (cancelAnimation) this.animator.cancel()
   }
 
-  respawn(): void {
+  respawn(destination?: { x: number; z: number; yaw?: number }): void {
     this.shield.reset()
     this.weaponSweep.reset()
     this.meleeApproachLimit = Infinity
@@ -2985,11 +2978,12 @@ export class NPC {
       this.bowPivot.visible = false
     }
 
-    const terrainY = getTerrainHeight(this.spawnX, this.spawnZ)
-    this.group.position.set(this.spawnX, terrainY, this.spawnZ)
+    const x = destination?.x ?? this.spawnX, z = destination?.z ?? this.spawnZ
+    const terrainY = getTerrainHeight(x, z)
+    this.group.position.set(x, terrainY, z)
     this.velY = 0
     this.onGround = true
-    this.group.rotation.set(0, 0, 0)
+    this.group.rotation.set(0, destination?.yaw ?? 0, 0)
     this._alignExternalVisualToMount(false)
     this.animator.cancel()
     this.alertSprite.visible = false
@@ -3000,9 +2994,9 @@ export class NPC {
     for (const cb of this.onRespawnCallbacks) cb(this)
   }
 
-  restoreForTown(): void {
+  restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {
     this.restoreCombatLoadout()
-    this.respawn()
+    this.respawn(destination)
     this._cancelEquipmentCombatState()
     this.townArmed = false
     if (this.loadout) {

@@ -170,7 +170,7 @@ describe('Veteran field scene checkpoint presentation', () => {
     ] })
     const town = createTownCombatFixture() as any
     const player = { dead: false, group: new THREE.Group(), faceDirection: vi.fn() }
-    Object.assign(town, { profile, player, event: { hostile: false }, store: { loadChecked: () => ({ profile }), save: () => true },
+    Object.assign(town, { profile, player, residents: [], event: { hostile: false }, store: { loadChecked: () => ({ profile }), save: () => true },
       skills: { skillState: { ...profile.skills, ranged: { level: 2, xp: 37 } } }, careerSkillSaveTimer: null,
       mission: { startActiveMission: () => true }, careerMounts: { activate: vi.fn() }, inventory: { prepareForCombat: vi.fn() },
       closePanel: vi.fn(), playMissionVoice: vi.fn(), dispose: vi.fn(), onRestart: vi.fn(),
@@ -192,7 +192,7 @@ describe('Veteran field scene checkpoint presentation', () => {
       'veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept', 'veteran-outpost-assault', 'veteran-spear-line-hunt',
     ] })
     const town = createTownCombatFixture() as any
-    Object.assign(town, { profile, player: { dead: false }, event: { hostile: false },
+    Object.assign(town, { profile, residents: [], player: { dead: false }, event: { hostile: false },
       store: { loadChecked: () => ({ profile }) }, commit: vi.fn(() => false),
       mission: { startActiveMission: vi.fn() }, dispose: vi.fn(), onRestart: vi.fn(),
     })
