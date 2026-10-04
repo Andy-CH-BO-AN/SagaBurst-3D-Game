@@ -11,6 +11,8 @@ import { PLAYABLE_WORLD_BOUND, getTerrainHeight } from '../world/Terrain'
 import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownWorld } from '../town/TownWorld'
 import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
+import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
+import { selectTownCavalryReserve, type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import {
@@ -21,7 +23,7 @@ import {
 import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import { followLocalOffset, returnFollowLocalOffset } from '../battle/FollowOrder'
-import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
+import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, restoreVeteranTownCavalryReserveRoster, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
 import type { MountedMissionSquad } from './MountedMissionMarch'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 
@@ -55,9 +57,9 @@ const VETERAN_ASSEMBLY_COMMAND_ID = 9000
 const VETERAN_SUPPORT_ENTRY_COMMAND_ID = 9001
 
 export const VETERAN_FIELD_LAYOUT = Object.freeze({
-  rally: new THREE.Vector3(8, 0, 20),
+  rally: new THREE.Vector3(TOWN_MOUNTED_MISSION_MUSTER.x, 0, TOWN_MOUNTED_MISSION_MUSTER.z),
   enemy: new THREE.Vector3(220, 0, 20),
-  supportApproach: new THREE.Vector3(-230, 0, 0),
+  supportApproach: new THREE.Vector3(-288, 0, 0),
   townEntry: new THREE.Vector3(-65, 0, 0),
   scoutRally: new THREE.Vector3(8, 0, 190),
   scoutEnemyCourtyard: new THREE.Vector3(8, 0, 40),
@@ -129,15 +131,19 @@ export function selectMissionInfantryActorIds<T extends { spec: { role: string }
     .map(resident => resident.npc.combatantId)
 }
 
-export function selectMissionCavalryActorIds(residents: readonly { spec: TownActorSpec; npc: NPC; homeMount?: Mount }[], count: number): (string | undefined)[] {
-  const available = residents.filter(({ npc, homeMount }) => !npc.dead && Boolean(
-    npc.mount && !npc.mount.dead || homeMount && !homeMount.dead))
-  const captain = available.find(({ spec }) => spec.role === 'captain')
-  const ranger = available.find(({ spec }) => spec.role === 'ranger')
-  const cavalry = available.filter(({ spec }) => spec.mounted && spec.duty === 'training')
-  let index = 0
-  return Array.from({ length: Math.max(0, count) }, (_, slot) =>
-    (slot === 0 ? captain : slot === 29 ? ranger : cavalry[index++])?.npc.combatantId)
+export function selectMissionCavalryActorIds(
+  residents: readonly { spec: TownActorSpec; npc: NPC; homeMount?: Mount }[], count: number,
+  unavailableActorIds?: ReadonlySet<string>,
+): (string | undefined)[] {
+  const roster = createSweepRoster('roman')
+  const slots: TownCavalryMissionSlot[] = Array.from({ length: Math.max(0, count) }, (_, slot) => ({
+    unitType: roster[slot]?.presetId?.endsWith('_lancer') ? 'lancer' : slot === 29 ? 'horse_archer' : 'sword_cavalry',
+    ...(slot === 0 || slot === 29 ? {
+      officer: slot === 0 ? 'captain' as const : 'ranger' as const,
+      preferredActorId: residents.find(({ spec }) => spec.role === (slot === 0 ? 'captain' : 'ranger'))?.npc.combatantId,
+    } : {}),
+  }))
+  return selectTownCavalryReserve(residents, slots, unavailableActorIds)
 }
 
 export function shouldPersistMissionRoute(savedStage: number, currentStage: number, lastStage: number): boolean {
@@ -148,6 +154,7 @@ export function shouldPersistMissionRoute(savedStage: number, currentStage: numb
 export class BanditMissionController {
   onMarchStarted: (() => void) | null = null
   onSweepCharge: (() => void) | null = null
+  onBorrowMountedActor: ((actorId: string) => void) | null = null
   readonly cavalryMounts: Mount[] = []
 
   get battlefieldMounts(): Mount[] {
@@ -756,6 +763,7 @@ export class BanditMissionController {
     const templateId = active.templateId as VeteranMissionTemplateId
     const faction = this.readProfile().faction
     const roster = createVeteranRoster(templateId, faction, active.id, active.veteranRosterVersion ?? 1, active.borrowedActorIds)
+    restoreVeteranTownCavalryReserveRoster(roster, active)
     if (roster.friendlyTotal !== definition.friendlyCombatants
       || roster.enemyTotal !== definition.enemyCombatants
       || roster.friendly.length + 1 !== roster.friendlyTotal
@@ -828,7 +836,7 @@ export class BanditMissionController {
         ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.townEntry, unit, slot, 'friendly', friendlySquadCount), occupiedSupportEntry)
         : undefined
       const supportApproach = !survival && unit.source !== 'town'
-        ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.supportApproach, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
+        ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.supportApproach, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach, PLAYABLE_WORLD_BOUND - 4)
         : undefined
       const resident = unit.source === 'town' ? residentsById.get(unit.actorId) : undefined
       const saved = this.savedMountedActorPosition(active, unit.actorId)
@@ -996,9 +1004,9 @@ export class BanditMissionController {
     return true
   }
 
-  private safeMountedMissionSlot(origin: THREE.Vector3, occupied: THREE.Vector3[]): THREE.Vector3 {
+  private safeMountedMissionSlot(origin: THREE.Vector3, occupied: THREE.Vector3[], worldBound = VETERAN_SAFE_WORLD_BOUND): THREE.Vector3 {
     const pointClear = (point: THREE.Vector3): boolean => {
-      if (Math.abs(point.x) > VETERAN_SAFE_WORLD_BOUND || Math.abs(point.z) > VETERAN_SAFE_WORLD_BOUND) return false
+      if (Math.abs(point.x) > worldBound || Math.abs(point.z) > worldBound) return false
       const blocked = this.world.obstacles.some(obstacle => {
         const expanded = obstacle.box.clone().expandByScalar(1.05)
         return expanded.containsPoint(new THREE.Vector3(point.x, Math.max(point.y + .8, expanded.min.y), point.z))
@@ -1038,6 +1046,7 @@ export class BanditMissionController {
   }
 
   private borrowMountedMissionActor(npc: NPC, spec: NpcSpawnSpec, tier?: NPC['tier']): void {
+    this.onBorrowMountedActor?.(npc.combatantId)
     this.borrowedRespawnEnabled.set(npc, this.borrowedRespawnEnabled.get(npc) ?? npc.respawnEnabled)
     this.borrowedMissionActors.add(npc)
     npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, tier, spec.squadId)
@@ -1168,7 +1177,6 @@ export class BanditMissionController {
     const occupiedMuster: THREE.Vector3[] = []
     const occupiedApproach: THREE.Vector3[] = []
     const occupiedEntry: THREE.Vector3[] = []
-    const approachRoster = createSweepRoster(this.readProfile().faction, VETERAN_FIELD_LAYOUT.supportApproach, Math.PI / 2)
     const entryRoster = createSweepRoster(this.readProfile().faction, VETERAN_FIELD_LAYOUT.townEntry, Math.PI / 2)
     const legacyRoster = active.phase !== 'ASSEMBLING' ? createSweepRoster(this.readProfile().faction, anchor, yaw) : undefined
     createSweepRoster(this.readProfile().faction, SWEEP_CAPTAIN_START, SWEEP_YAW).forEach((spec, index) => {
@@ -1177,7 +1185,9 @@ export class BanditMissionController {
       const recordedDead = active.deadFriendlyActorIds?.includes(id) ?? false
       if (recordedDead && !resident) return
       const muster = this.safeMountedMissionSlot(new THREE.Vector3(spec.x, 0, spec.z), occupiedMuster)
-      const entrySpec = entryRoster[index], approachSpec = approachRoster[index]
+      const entrySpec = entryRoster[index]
+      const approach = veteranFieldPosition(VETERAN_FIELD_LAYOUT.supportApproach,
+        { squadId: spec.squadId ?? 1 } as VeteranRosterUnit, index < 29 ? index : index - 29, 'friendly', 2)
       const entry = !resident ? this.safeMountedMissionSlot(new THREE.Vector3(entrySpec.x, 0, entrySpec.z), occupiedEntry) : undefined
       const savedActor = this.savedMountedActorPosition(active, id)
       // Legacy saves have only a march anchor. Keep borrowed residents where they are;
@@ -1185,7 +1195,7 @@ export class BanditMissionController {
       const legacySpec = !savedActor && !resident ? legacyRoster?.[index] : undefined
       const initialPosition = savedActor?.position ?? resident?.npc.combatPosition.clone()
         ?? (legacySpec ? new THREE.Vector3(legacySpec.x, getTerrainHeight(legacySpec.x, legacySpec.z), legacySpec.z)
-          : this.safeMountedMissionSlot(new THREE.Vector3(approachSpec.x, 0, approachSpec.z), occupiedApproach))
+          : this.safeMountedMissionSlot(approach, occupiedApproach, PLAYABLE_WORLD_BOUND - 4))
       spec.x = initialPosition.x; spec.z = initialPosition.z
       const npc = resident?.npc ?? this.createVeteranNpc(spec, id)
       if (resident) {
@@ -1342,13 +1352,17 @@ export class BanditMissionController {
     }
     this.borrowedTemporaryMounts.length = 0
     for (const npc of this.borrowedMissionActors) {
-      npc.restoreCombatLoadout()
+      // Patrol owns restoration at the barracks, after physical return. Other residents
+      // keep the existing settlement restoration; scene disposal still restores everyone.
+      if (!departTemporaryCavalry || !this.residents.some(resident => resident.npc === npc && resident.spec.duty === 'patrol')) {
+        npc.restoreCombatLoadout()
+      }
       npc.respawnEnabled = this.borrowedRespawnEnabled.get(npc) ?? false
     }
     this.borrowedMissionActors.clear()
     this.borrowedRespawnEnabled.clear()
     for (const rider of this.temporaryCavalry ?? []) {
-      if (departTemporaryCavalry && rider.mount && !rider.npc.dead) {
+      if (departTemporaryCavalry && this.friendlies.includes(rider.npc) && rider.mount && !rider.npc.dead) {
         const exit = new THREE.Vector3(-290, 0, THREE.MathUtils.clamp(rider.npc.combatPosition.z, -290, -255))
         rider.npc.assignFormationTarget(this.commandId++, exit, new THREE.Vector3(-1, 0, 0))
         this.departingCavalry.push({ npc: rider.npc, mount: rider.mount })

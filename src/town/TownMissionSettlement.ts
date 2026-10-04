@@ -26,7 +26,7 @@ interface MissionControllers {
 }
 
 interface ReturnResident {
-  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'>
+  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty'>>
   npc: NPC
   homeMount?: Mount
   cycle: number
@@ -37,6 +37,7 @@ interface ReturnResident {
 interface TownReturnScene {
   residents: readonly ReturnResident[]
   releaseExternalThreat(npc: NPC): void
+  beginPatrolMissionReturn?(actorId: string): void
   cat: Pick<Mount, 'restoreForTown' | 'catVisual'>
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
@@ -119,14 +120,19 @@ export class TownMissionSettlement {
 
     if (defense) this.missions.defense.cleanupMission()
     else if (active.kind === 'duel') this.missions.duel.cleanupMission()
-    else if (active.kind === 'cavalry-sweep') this.missions.field.cleanupMission(active.targetCampId, true)
+    else if (active.kind === 'cavalry-sweep' || veteranField) this.missions.field.cleanupMission(active.targetCampId, true)
     else this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
       const restore = defense
         ? Boolean(resident.spec.defenseGroup) || ['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)
         : borrowed!.has(resident.npc)
-      if (restore) this.restoreResident(resident)
+      if (restore) {
+        if (!defense && resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
+          this.town.releaseExternalThreat(resident.npc)
+          this.town.beginPatrolMissionReturn(resident.spec.id)
+        } else this.restoreResident(resident)
+      }
     }
     if (defense || active.kind === 'duel') this.restoreCat()
     if (defense) {

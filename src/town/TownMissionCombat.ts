@@ -39,6 +39,8 @@ interface TownCombatScene {
   navigation: NavigationWorld
   hp: HpBar
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
+  /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
+  ownsPeacefulTravel?(npc: NPC): boolean
   preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
   peaceResident(resident: TownCombatResident, dt: number): void
   updateCommandCue(): void
@@ -351,6 +353,10 @@ export class TownMissionCombat {
     const missionFriendlies = new Set(field.friendlies)
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (this.town.ownsPeacefulTravel?.(npc)) {
+        if (this.externalThreatActors.delete(npc) && !npc.dead) npc.endExternalThreat()
+        continue
+      }
       const military = enemyTownScouts === undefined
         ? this.isMilitary(spec)
         : !isCivilian(spec.role) && spec.role !== 'cat'
@@ -371,6 +377,9 @@ export class TownMissionCombat {
       } else if (this.externalThreatActors.delete(npc)) {
         if (npc.dead) continue
         npc.endExternalThreat()
+        // Patrol resumes its own navigation from the actual position, including a
+        // recently released mission actor travelling to barracks. It owns arrival.
+        if (spec.duty === 'patrol') continue
         const point = new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
         if (npc.mount && !npc.mount.dead) {
           npc.mount.group.position.copy(point)

@@ -45,7 +45,8 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
-import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission } from '../career/VeteranMission'
+import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
+import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController } from '../career/CareerDuelController'
@@ -228,8 +229,14 @@ export class TownScene {
     this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
-    const missionCaptain = this.residents.find(resident => resident.spec.id === 'captain')!.npc
+    // Enemy-territory field missions may reserve a Patrol officer instead of the
+    // service Captain, or use only temporary officers. Recruit-party captain access
+    // is unused there, but constructing the field controller must still succeed.
+    const missionCaptain = (this.residents.find(resident => resident.spec.id === 'captain')
+      ?? this.residents.find(resident => resident.npc.faction === Faction.TOWN)
+      ?? this.residents[0]).npc
     this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p))
+    this.mission.onBorrowMountedActor = actorId => { this.patrol.relinquish(actorId) }
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p))
@@ -256,6 +263,7 @@ export class TownScene {
         residents: this.residents, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
         navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
         preparePeaceResidents: excluded => this.patrol.beginFrame(excluded),
+        ownsPeacefulTravel: npc => this.patrol.returnStateFor(npc.combatantId) !== null,
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateCommandCue: () => this.updateCareerCommandCue(),
         clearCombatShots: () => this.clearMissionCombatShots(),
@@ -271,6 +279,7 @@ export class TownScene {
       {
         residents: this.residents, cat: this.cat,
         releaseExternalThreat: npc => this.missionCombat.releaseExternalThreat(npc),
+        beginPatrolMissionReturn: actorId => { this.patrol.beginMissionReturn(actorId) },
         world: this.world, navigation: this.navigation, inventory: this.inventory,
         get player() { return town.player },
         clearCombatShots: () => this.clearMissionCombatShots(),
@@ -729,12 +738,12 @@ export class TownScene {
     const definition = getVeteranMissionDefinition(templateId)
     const fresh = this.store.loadChecked().profile
     if (!definition || !fresh || this.player.dead || this.event.hostile) return
-    const availableTownCavalryActorIds = definition.id === 'veteran-village-intercept' || definition.id === 'veteran-spear-line-hunt'
-      ? this.residents.filter(({ spec, npc, homeMount }) => {
-        const mount = npc.mount && !npc.mount.dead ? npc.mount : homeMount
-        return spec.mounted && spec.duty === 'training' && !npc.dead && mount && !mount.dead
-      }).map(({ npc }) => npc.combatantId) : undefined
-    const next = acceptVeteranMission(fresh, definition.id, { availableTownCavalryActorIds })
+    const townCavalryReserveActorIds = definition.kind === 'veteran-field'
+      ? selectTownCavalryReserve(this.residents,
+        veteranTownCavalryReserveSlots(createVeteranRoster(definition.id, fresh.faction)),
+        this.unavailableTownCavalryActorIds())
+      : undefined
+    const next = acceptVeteranMission(fresh, definition.id, { townCavalryReserveActorIds })
     if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {
@@ -881,7 +890,7 @@ export class TownScene {
     if (fresh.activeMission || this.event.hostile || fresh.townEvent?.state === 'hostile') { this.openPanel('無法接受任務', '目前已有任務或小鎮處於敵對狀態。'); return }
     if (this.player.dead) { this.openPanel('無法接受任務', '你目前仍在另一場交戰中。'); return }
     if (template.kind === 'cavalry-sweep') {
-      const next = acceptCavalrySweep(fresh, undefined, selectMissionCavalryActorIds(this.residents, 59))
+      const next = acceptCavalrySweep(fresh, undefined, selectMissionCavalryActorIds(this.residents, 59, this.unavailableTownCavalryActorIds()))
       if (!next || !this.commit(next)) return
       if (!this.mission.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，重新載入後可恢復同一支騎兵隊伍。'); return }
       this.careerMounts.activate(next.selectedMountId!)
@@ -924,6 +933,10 @@ export class TownScene {
     this.notice = `已接受 ${template.name}。前往兵營外集合。`
     this.playMissionVoice('missionAccepted')
     this.closePanel()
+  }
+  private unavailableTownCavalryActorIds(): ReadonlySet<string> {
+    return new Set(this.residents.filter(({ spec }) => this.patrol && !this.patrol.isReserveAvailable(spec.id))
+      .map(({ npc }) => npc.combatantId))
   }
   private applyCareerPlayerIdentity(): void {
     const hero = resolveCareerHeroAsset(this.profile)

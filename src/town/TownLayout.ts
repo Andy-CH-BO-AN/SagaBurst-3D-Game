@@ -14,6 +14,8 @@ export function townGatePoint(gate: TownGateSpec, side: number, inward: number) 
     z: gate.z - Math.sin(gate.yaw) * side - Math.cos(gate.yaw) * inward, yaw: gate.yaw }
 }
 export const TOWN_CAVALRY_FIELD = { minX: 27, maxX: 137, minZ: -101, maxZ: -53 } as const
+/** Shared mounted mission muster on the open forecourt in front of the cavalry entrance. */
+export const TOWN_MOUNTED_MISSION_MUSTER = { x: 124, z: -30 } as const
 export interface TownRoad { ax: number; az: number; bx: number; bz: number; width: number }
 export const TOWN_CITY_ROADS: readonly TownRoad[] = [
   { ax: 0, az: 0, bx: 18, bz: -20, width: 10 },

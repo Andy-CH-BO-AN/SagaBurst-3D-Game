@@ -11,7 +11,7 @@ import { Mount, MountType } from '../src/world/Mount'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../src/world/Terrain'
 import { selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
 import { createTownDefenseGroups } from '../src/career/TownDefenseState'
-import { combatFixture } from './helpers/townMissionCombat'
+import { combatActor, combatFixture } from './helpers/townMissionCombat'
 
 // Only rendering is substituted; NPC movement, mount physics/collision and navigation are real.
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
@@ -19,7 +19,7 @@ vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await 
   createInstance: () => {
     const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
     return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null,
-      setLocomotion() {}, setAppearanceVariant() {}, playOnce() {}, playDeath() {}, update() {}, dispose() {} }
+      setLocomotion() {}, setAppearanceVariant() {}, playOnce() {}, playDeath() {}, playStudioClip() {}, update() {}, dispose() {} }
   },
 } }))
 
@@ -215,4 +215,214 @@ describe('Patrol runtime movement and individual ownership', () => {
       for (const r of squad.members) expect(r.npc.combatPosition.distanceTo(leader.combatPosition), r.spec.id).toBeLessThan(70)
     }
   }, 60000)
+})
+
+describe('Patrol mission return and barracks refit', () => {
+  it('finishes a rear ordinary follower rejoin at its own slot while remaining farther than nine metres from the leader', () => {
+    const h = harness('roman', true), resident = h.residents[19], squad = h.controller.squads[0]
+    h.step(800)
+    expect(h.controller.relinquish(resident.spec.id)).toBe(true)
+    resident.npc.takeDamage(999999)
+    h.controller.beginMissionReturn(resident.spec.id)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('REJOIN_PATROL')
+    for (let frame = 0; frame < 2500 && h.controller.returnStateFor(resident.spec.id); frame++) {
+      const previous = resident.npc.combatPosition.clone()
+      h.step()
+      expect(resident.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    }
+    expect(resident.npc.activeFollowSlotIndex).toBeGreaterThanOrEqual(15)
+    expect(resident.npc.activeFollowTarget?.combatantId).toBe(squad.activeLeaderActorId)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBeNull()
+    expect(resident.npc.combatPosition.distanceTo(resident.npc.activeFollowTarget!.combatPosition)).toBeGreaterThan(9)
+    expect(resident.npc.isFormationTargetReached(-1)).toBe(true)
+  }, 20000)
+
+  it('keeps physical return ownership when an ambient bandit is nearby, without combat enrollment or a spawn reset', () => {
+    const h = harness('roman', true), resident = h.residents[1]
+    h.controller.relinquish(resident.spec.id)
+    resident.homeMount.group.position.set(20, getTerrainHeight(20, 140), 140)
+    resident.npc.takeDamage(30)
+    h.controller.beginMissionReturn(resident.spec.id)
+    const bandit = combatActor('ambient-return-threat', Faction.BANDIT)
+    bandit.group.position.copy(resident.npc.combatPosition)
+    const combat = combatFixture({ simulation: {
+      residents: h.residents, navigation: h.navigation, obstacles: h.obstacles, cameraPosition: h.camera,
+      ownsPeacefulTravel: npc => h.controller.returnStateFor(npc.combatantId) !== null,
+      preparePeaceResidents: excluded => h.controller.beginFrame(excluded),
+      peaceResident: (r, dt) => { h.controller.updateResident(r, dt, h.camera, h.obstacles, h.navigation) },
+    } })
+    combat.field.ambientBandits = [bandit]; combat.field.fieldNpcs = [bandit]
+    const enroll = vi.spyOn(resident.npc, 'beginExternalThreat'), targetSearch = vi.spyOn(resident.npc as any, '_getTarget')
+    const start = resident.npc.combatPosition.clone(), hp = resident.npc.hp
+    for (let frame = 0; frame < 30; frame++) {
+      const previous = resident.npc.combatPosition.clone()
+      combat.combat.update(.1, 0, frame / 10)
+      expect(resident.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    }
+    expect(resident.npc.combatPosition.distanceTo(start)).toBeGreaterThan(1)
+    expect(enroll).not.toHaveBeenCalled(); expect(targetSearch).not.toHaveBeenCalled()
+    expect(resident.npc.hp).toBe(hp)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('RETURN_TO_BARRACKS')
+    combat.field.ambientBandits = []; combat.field.fieldNpcs = []
+    const previous = resident.npc.combatPosition.clone()
+    combat.combat.update(.1, 0, 3)
+    expect(resident.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('RETURN_TO_BARRACKS')
+  })
+
+  it('resumes ordinary Patrol navigation at its actual position after an ambient threat ends', () => {
+    const h = harness(), captain = h.residents[0]
+    h.step(250)
+    const bandit = combatActor('ambient-patrol-threat', Faction.BANDIT)
+    bandit.group.position.copy(captain.npc.combatPosition)
+    const combat = combatFixture({ simulation: {
+      residents: h.residents, navigation: h.navigation, cameraPosition: h.camera,
+      preparePeaceResidents: excluded => h.controller.beginFrame(excluded),
+      peaceResident: (r, dt) => { h.controller.updateResident(r, dt, h.camera, h.obstacles, h.navigation) },
+    } })
+    h.residents.forEach(r => vi.spyOn(r.npc, 'update').mockImplementation(() => {}))
+    combat.field.ambientBandits = [bandit]; combat.field.fieldNpcs = [bandit]
+    combat.combat.update(.1, 0, 0)
+    expect(captain.npc.formationCommandId).toBeNull()
+    combat.field.ambientBandits = []; combat.field.fieldNpcs = []
+    const previous = captain.npc.combatPosition.clone()
+    combat.combat.update(.1, 0, .1)
+    expect(captain.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    for (let frame = 0; frame < 20; frame++) combat.combat.update(.1, 0, .2 + frame / 10)
+    expect(captain.npc.combatPosition.distanceTo(previous)).toBeGreaterThan(1)
+    expect(captain.npc.formationCommandId).toBe(-3)
+  })
+
+  it('chooses another deputy when the acting leader is borrowed while a refitted Captain remains far away', () => {
+    const h = harness(), [captain, deputy, replacement] = h.residents, squad = h.controller.squads[0]
+    h.step(800); h.controller.relinquish(captain.spec.id); h.step(20)
+    expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
+    captain.npc.takeDamage(999999)
+    h.controller.beginMissionReturn(captain.spec.id)
+    expect(h.controller.returnStateFor(captain.spec.id)).toBe('REJOIN_PATROL')
+    expect(captain.npc.combatPosition.distanceTo(replacement.npc.combatPosition)).toBeGreaterThan(9)
+    h.controller.relinquish(deputy.spec.id); h.step()
+    expect(squad.activeLeaderActorId).toBe(replacement.spec.id)
+    expect(captain.npc.activeFollowTarget).toBe(replacement.npc)
+    for (let frame = 0; frame < 2500 && squad.activeLeaderActorId !== captain.spec.id; frame++) h.step()
+    expect(squad.activeLeaderActorId).toBe(captain.spec.id)
+  }, 20000)
+
+  it('lets a refitted Captain lead when it is the only remaining available squad member', () => {
+    const h = harness(), captain = h.residents[0], squad = h.controller.squads[0]
+    h.step(100)
+    for (const member of squad.members) h.controller.relinquish(member.spec.id)
+    h.step(); expect(squad.state).toBe('PAUSED')
+    captain.npc.takeDamage(999999); h.controller.beginMissionReturn(captain.spec.id)
+    h.step()
+    expect(squad.activeLeaderActorId).toBe(captain.spec.id)
+    expect(h.controller.returnStateFor(captain.spec.id)).toBeNull()
+  })
+
+  it('physically rides home with mission wounds and loadout, refits at barracks, and can be borrowed during rejoin', () => {
+    const h = harness('roman', true), resident = h.residents[1]
+    h.step(500)
+    const originalEquipment = { weapon: resident.npc.meleeWeaponId, shield: resident.npc.shieldId, tier: resident.npc.tier }
+    expect(h.controller.relinquish(resident.spec.id)).toBe(true)
+    resident.homeMount.group.position.set(20, getTerrainHeight(20, 140), 140)
+    resident.npc.applyTemporaryCombatLoadout(townMilitaryEquipment('roman', 'lancer_cavalry').loadout, 3)
+    resident.npc.takeDamage(30); resident.homeMount.takeDamage(40)
+    resident.npc.shield.absorb(0, 2)
+    const hp = resident.npc.hp, mountHp = resident.homeMount.currentHp, missionWeapon = resident.npc.meleeWeaponId
+    const before = resident.npc.combatPosition.clone(), targetSearch = vi.spyOn(resident.npc as any, '_getTarget')
+    const restore = vi.spyOn(resident.npc, 'restoreForTown')
+    expect(h.controller.beginMissionReturn(resident.spec.id)).toBe(true)
+    expect(resident.npc.combatPosition.equals(before)).toBe(true)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('RETURN_TO_BARRACKS')
+    expect(h.controller.isReserveAvailable(resident.spec.id)).toBe(false)
+    expect(h.controller.relinquish(resident.spec.id)).toBe(false)
+    h.step(20)
+    expect(resident.npc.combatPosition.distanceTo(before)).toBeGreaterThan(1)
+    expect(resident.npc.hp).toBe(hp); expect(resident.homeMount.currentHp).toBe(mountHp)
+    expect(resident.npc.meleeWeaponId).toBe(missionWeapon); expect(restore).not.toHaveBeenCalled()
+    for (let i = 0; i < 2500 && h.controller.returnStateFor(resident.spec.id) === 'RETURN_TO_BARRACKS'; i++) {
+      const previous = resident.npc.combatPosition.clone()
+      h.step()
+      expect(resident.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    }
+    expect(restore).toHaveBeenCalledExactlyOnceWith({ x: resident.spec.x, z: resident.spec.z, yaw: resident.spec.yaw })
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('REJOIN_PATROL')
+    expect(resident.npc.hpRatio).toBe(1); expect(resident.homeMount.currentHp).toBe(resident.homeMount.maxHp)
+    expect(resident.npc.mount).toBe(resident.homeMount); expect(resident.npc.combatAmmo).toBe(0)
+    expect(resident.npc.shield.shieldImpactRemaining).toBe(resident.npc.shield.shieldImpactMax)
+    expect({ weapon: resident.npc.meleeWeaponId, shield: resident.npc.shieldId, tier: resident.npc.tier }).toEqual(originalEquipment)
+    expect(targetSearch).not.toHaveBeenCalled()
+    expect(h.controller.isReserveAvailable(resident.spec.id)).toBe(true)
+    expect(h.controller.relinquish(resident.spec.id)).toBe(true)
+    resident.npc.assignFormationTarget(988, new THREE.Vector3(70, 0, 60), new THREE.Vector3(0, 0, 1))
+    h.step(10)
+    expect(resident.npc.formationCommandId).toBe(988)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBeNull()
+  }, 20000)
+
+  it('walks through real navigation after its Horse dies and replaces it only at barracks', () => {
+    const h = harness('roman', true), resident = h.residents[1]
+    h.step(500); h.controller.relinquish(resident.spec.id)
+    resident.homeMount.group.position.set(20, getTerrainHeight(20, 140), 140)
+    resident.homeMount.takeDamage(999999); resident.npc.takeDamage(30)
+    const horsePosition = resident.homeMount.group.position.clone(), hp = resident.npc.hp
+    const restoreHorse = vi.spyOn(resident.homeMount, 'restoreForTown'), targetSearch = vi.spyOn(resident.npc as any, '_getTarget')
+    h.controller.beginMissionReturn(resident.spec.id)
+    expect(resident.npc.isMounted).toBe(false)
+    h.step(20)
+    expect(resident.npc.combatPosition.distanceTo(horsePosition)).toBeGreaterThan(1)
+    expect(resident.npc.hp).toBe(hp); expect(resident.homeMount.dead).toBe(true)
+    expect(resident.homeMount.group.position.equals(horsePosition)).toBe(true); expect(restoreHorse).not.toHaveBeenCalled()
+    for (let i = 0; i < 2500 && h.controller.returnStateFor(resident.spec.id) === 'RETURN_TO_BARRACKS'; i++) {
+      const previous = resident.npc.combatPosition.clone()
+      h.step()
+      expect(resident.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    }
+    expect(restoreHorse).toHaveBeenCalledExactlyOnceWith(resident.spec.x, resident.spec.z, resident.spec.yaw)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBe('REJOIN_PATROL')
+    expect(resident.npc.mount).toBe(resident.homeMount); expect(resident.npc.hpRatio).toBe(1)
+    expect(resident.homeMount.dead).toBe(false); expect(resident.homeMount.type).toBe(MountType.HORSE)
+    expect(targetSearch).not.toHaveBeenCalled()
+  }, 20000)
+
+  it('replaces a dead Captain with the same actor and original Horse at barracks, then retains the deputy until physical reunion', () => {
+    const h = harness('roman', true), [captain, deputy] = h.residents, squad = h.controller.squads[0]
+    h.step(800); h.controller.relinquish(captain.spec.id); h.step(20)
+    expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
+    const npc = captain.npc, actorId = npc.combatantId, mount = captain.homeMount
+    npc.applyTemporaryCombatLoadout(townMilitaryEquipment('roman', 'lancer_cavalry').loadout, 4)
+    npc.takeDamage(999999); mount.takeDamage(999999)
+    const restore = vi.spyOn(npc, 'restoreForTown')
+    h.controller.beginMissionReturn(actorId)
+    expect(captain.npc).toBe(npc); expect(npc.combatantId).toBe(actorId)
+    expect(restore).toHaveBeenCalledExactlyOnceWith({ x: captain.spec.x, z: captain.spec.z, yaw: captain.spec.yaw })
+    expect(npc.dead).toBe(false); expect(npc.hpRatio).toBe(1); expect(npc.tier).toBe(4)
+    expect(npc.meleeWeaponId).toBe(townMilitaryEquipment('roman', captain.spec).loadout.meleeWeaponId)
+    expect(npc.mount).toBe(mount); expect(mount.type).toBe(MountType.HORSE); expect(mount.currentHp).toBe(mount.maxHp)
+    expect(h.controller.isReserveAvailable(actorId)).toBe(true)
+    h.step()
+    expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
+    expect(h.controller.returnStateFor(actorId)).toBe('REJOIN_PATROL')
+    for (let i = 0; i < 2500 && squad.activeLeaderActorId !== actorId; i++) h.step()
+    expect(squad.activeLeaderActorId).toBe(actorId)
+    expect(h.controller.returnStateFor(actorId)).toBeNull()
+    expect(deputy.npc.activeFollowTarget).toBe(npc)
+  }, 20000)
+
+  it('starts a new Town controller with ordinary barracks startup and no previous return state', () => {
+    const h = harness(), resident = h.residents[1]
+    h.controller.relinquish(resident.spec.id)
+    resident.homeMount.group.position.set(50, getTerrainHeight(50, 140), 140)
+    h.controller.beginMissionReturn(resident.spec.id)
+    expect(h.controller.isReserveAvailable(resident.spec.id)).toBe(false)
+    const reload = harness(), sameActor = reload.residents.find(r => r.spec.id === resident.spec.id)!
+    expect(reload.controller.returnStateFor(sameActor.spec.id)).toBeNull()
+    expect(reload.controller.isReserveAvailable(sameActor.spec.id)).toBe(true)
+    expect(sameActor.npc.combatPosition.x).toBe(sameActor.spec.x)
+    expect(sameActor.npc.combatPosition.z).toBe(sameActor.spec.z)
+    expect(sameActor.npc.hpRatio).toBe(1)
+    const position = sameActor.npc.combatPosition.clone()
+    reload.step(20)
+    expect(sameActor.npc.combatPosition.distanceTo(position)).toBeGreaterThan(1)
+  })
 })

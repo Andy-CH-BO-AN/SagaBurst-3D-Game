@@ -7,6 +7,7 @@ import { cloneCareerProfile, CAREER_RANKS, type CareerProfile } from './CareerPr
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { townRoster } from '../town/TownRules'
+import type { TownCavalryMissionSlot } from '../town/TownCavalryReserve'
 
 export const VETERAN_MISSION_IDS = [
   'veteran-dread-outpost',
@@ -68,6 +69,8 @@ export interface AcceptVeteranMissionOptions {
   missionId?: string
   acceptedAt?: number
   availableTownCavalryActorIds?: readonly string[]
+  /** Friendly-slot aligned selection; undefined slots require temporary support. */
+  townCavalryReserveActorIds?: readonly (string | undefined)[]
 }
 
 const TOWN_CAVALRY = townRoster().filter(actor => actor.mounted && actor.duty === 'training')
@@ -90,6 +93,63 @@ function equipExistingTownCavalry(roster: VeteranMissionRoster, missionId: strin
     if (resident) unit.townRole = resident.role as VeteranTownRole
     else delete unit.townRole
   })
+}
+
+/** Describe the authoritative mounted roster without adding officers or ordinary slots. */
+export function veteranTownCavalryReserveSlots(roster: VeteranMissionRoster): TownCavalryMissionSlot[] {
+  return roster.friendly.map(unit => {
+    if (!unit.mounted) throw new Error('Town cavalry reserve requires mounted mission slots')
+    const unitType: TownCavalryMissionSlot['unitType'] = unit.heroRole === 'ranger'
+      || unit.presetId.endsWith('_horse_archer') || unit.presetId.endsWith('_archer')
+      ? 'horse_archer' : unit.presetId.endsWith('_lancer') ? 'lancer' : 'sword_cavalry'
+    const officer = unit.tier === 4 ? unit.heroRole : undefined
+    const preferredActorId = unit.source === 'town' && officer
+      && (unit.actorId === 'captain' || unit.actorId === 'ranger') ? unit.actorId : undefined
+    return { unitType, ...(officer ? { officer } : {}), ...(preferredActorId ? { preferredActorId } : {}) }
+  })
+}
+
+function assignTownCavalryReserve(
+  roster: VeteranMissionRoster,
+  missionId: string,
+  actorIds: readonly (string | undefined)[],
+): void {
+  const residentsById = new Map(townRoster().map(actor => [actor.id, actor]))
+  roster.friendly.forEach((unit, index) => {
+    const actorId = actorIds[index]
+    if (actorId !== undefined) {
+      unit.actorId = actorId
+      unit.source = 'town'
+      const resident = residentsById.get(actorId)
+      if (resident) unit.townRole = resident.role as VeteranTownRole
+      else delete unit.townRole
+      return
+    }
+    // Keep the mission's existing temporary identity where it already has one.
+    if (unit.source !== 'temporary') unit.actorId = `${missionId}:temporary:friendly:reserve-${index}`
+    unit.source = 'temporary'
+    delete unit.townRole
+  })
+}
+
+/** Reload the saved full-slot assignment instead of selecting against today's Town availability. */
+export function restoreVeteranTownCavalryReserveRoster(
+  roster: VeteranMissionRoster,
+  active: Pick<ActiveCareerMission, 'kind' | 'friendlyActorIds' | 'borrowedActorIds'>,
+): VeteranMissionRoster {
+  if (active.kind !== 'veteran-field' || active.friendlyActorIds.length !== roster.friendly.length) return roster
+  const residentsById = new Map(townRoster().map(actor => [actor.id, actor]))
+  const borrowed = new Set(active.borrowedActorIds ?? [])
+  roster.friendly.forEach((unit, index) => {
+    const actorId = active.friendlyActorIds[index]
+    const resident = residentsById.get(actorId)
+    const existingTownRole = unit.actorId === actorId ? unit.townRole : undefined
+    unit.actorId = actorId
+    unit.source = borrowed.has(actorId) || resident ? 'town' : 'temporary'
+    if (unit.source === 'town' && resident) unit.townRole = existingTownRole ?? resident.role as VeteranTownRole
+    else delete unit.townRole
+  })
+  return roster
 }
 
 const definition = (
@@ -436,8 +496,12 @@ export function acceptVeteranMission(current: CareerProfile, templateId: string,
   const missionId = options.missionId ?? createCareerMissionId(missionDefinition.id)
   const veteranRosterVersion = reusesAllTownCavalry(templateId) ? 3 as const
     : missionDefinition.id === VETERAN_MISSION_IDS[5] ? 2 as const : undefined
-  const roster = createVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2,
-    options.availableTownCavalryActorIds)
+  const selectedTownReserve = missionDefinition.kind === 'veteran-field' && options.townCavalryReserveActorIds !== undefined
+  const roster = selectedTownReserve
+    ? buildVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2)
+    : createVeteranRoster(missionDefinition.id, current.faction, missionId, veteranRosterVersion ?? 2,
+      options.availableTownCavalryActorIds)
+  if (selectedTownReserve) assignTownCavalryReserve(roster, missionId, options.townCavalryReserveActorIds!)
   const mount = missionDefinition.requiresMount ? resolveCareerReliefMount(current) : undefined
   if (missionDefinition.requiresMount && !mount) return null
   const profile = cloneCareerProfile(current)

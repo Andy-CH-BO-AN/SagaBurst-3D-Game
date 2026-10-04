@@ -69,8 +69,9 @@ export class TownWorld {
       for (let row = 0; row < (z < -10 ? 2 : 4); row++) this.road(x - 11, z + 3 + row * 7, x + 11, z + 3 + row * 7, 5)
       for (let i = 0; i < 2; i++) this.building('tent-' + x + '-' + z + '-' + i, '', x - 6 + i * 11, z - 9, 7, 6, 2.6, 'tent')
     }
-    for (let i = 0; i < 12; i++) {
-      const x = 86, z = -48 + i * 7, y = getTerrainHeight(x, z)
+    // Separate six-metre rails with four-metre passages, leaving the cavalry entrance clear.
+    for (let i = 0; i < 8; i++) {
+      const x = 86, z = -48 + i * 10, y = getTerrainHeight(x, z)
       this.solid(x, z, .5, 1.4, 6)
       this.cube(this.root, x, y + .7, z, .2, 1.4, .2, this.wood); this.cube(this.root, x, y + 1, z, .18, .18, 6, this.wood)
       if (faction === 'viking') this.cube(this.root, x, y + 1.15, z, .24, .12, 6, this.snow)
