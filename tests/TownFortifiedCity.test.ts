@@ -29,8 +29,8 @@ function fortifications(faction: 'roman' | 'viking') {
 describe('Fortified city explicit rosters', () => {
   it('keeps sixty scripted infantry in six disjoint groups despite same-role ambient additions', () => {
     const roster = townRoster(), groups = createTownDefenseGroups([...roster].reverse())
-    expect(roster).toHaveLength(185)
-    expect(new Set(roster.map(actor => actor.id)).size).toBe(185)
+    expect(roster).toHaveLength(225)
+    expect(new Set(roster.map(actor => actor.id)).size).toBe(225)
     expect(groups).toHaveLength(6)
     const ids = groups.flatMap(group => group.actorIds)
     expect(ids).toHaveLength(60); expect(new Set(ids).size).toBe(60)

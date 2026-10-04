@@ -39,6 +39,7 @@ interface TownCombatScene {
   navigation: NavigationWorld
   hp: HpBar
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
+  preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
   peaceResident(resident: TownCombatResident, dt: number): void
   updateCommandCue(): void
   clearCombatShots(): void
@@ -144,6 +145,7 @@ export class TownMissionCombat {
     const veteranMarchingPeers = veteranField ? [...field.friendlies] : null
     const missionActors = new Set(veteranActors ?? field.fieldNpcs)
     if (veteranField) for (const npc of this.enemyTownHostileActors) missionActors.add(npc)
+    this.town.preparePeaceResidents?.(new Set([...missionActors, ...this.externalThreatActors]))
     for (const resident of this.town.residents) {
       if (!missionActors.has(resident.npc) && !this.externalThreatActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     }
@@ -302,6 +304,7 @@ export class TownMissionCombat {
     const before = duel.phase
     duel.update(dt)
     if (before !== duel.phase && duel.phase === 'ENGAGING') this.town.clearCombatShots()
+    this.town.preparePeaceResidents?.(new Set(this.town.residents.filter(r => duel.isMissionActor(r.npc)).map(r => r.npc)))
     for (const resident of this.town.residents) {
       if (!duel.isMissionActor(resident.npc)) this.town.peaceResident(resident, dt)
     }
@@ -392,6 +395,7 @@ export class TownMissionCombat {
     this.town.updateCommandCue()
     const actors = defense.fieldNpcs
     const missionActors = new Set(actors)
+    this.town.preparePeaceResidents?.(missionActors)
     for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     this.grid.clear(); this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear()
     for (const actor of actors) {

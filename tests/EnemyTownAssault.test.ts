@@ -390,7 +390,7 @@ describe.each(['roman', 'viking'] as const)('%s expanded city defense compatibil
     expect(f.profile().activeMission!.friendlyActorIds).toHaveLength(63)
     expect(f.controller.civilians).toHaveLength(20)
     const ambient = f.residents.filter(resident => !resident.spec.defenseGroup && !resident.spec.assaultObjective && resident.spec.role !== 'civilian')
-    expect(ambient).toHaveLength(100)
+    expect(ambient).toHaveLength(140)
     expect(ambient.every(resident => !f.controller.fieldNpcs.includes(resident.npc))).toBe(true)
     expect(f.controller.enemies.every(npc => npc.combatPosition.x < TOWN_CITY.minX - 2 || npc.combatPosition.x > TOWN_CITY.maxX + 2 || npc.combatPosition.z > TOWN_CITY.maxZ + 2)).toBe(true)
     const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!
