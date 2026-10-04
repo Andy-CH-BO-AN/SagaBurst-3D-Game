@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
+import { getScenePlayableWorldBound, clampToPlayableWorld, getObstacleAvoidanceDirection, getTerrainHeight, ObstacleData, resolveObstacleCollision } from './Terrain'
 import type { Faction, NPC } from './NPC'
 import {
   HorseAssetRegistry,
@@ -107,6 +107,8 @@ export class Mount {
   private hasGroundedOnce = false
   private pendingJumpLanding = false
 
+  private readonly playableWorldBound: number
+
   constructor(
     scene: THREE.Scene,
     type: MountType,
@@ -115,6 +117,7 @@ export class Mount {
     y?: number,
     appearanceVariant: HorseAppearanceVariant = 0,
   ) {
+    this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.type = type
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
@@ -409,7 +412,7 @@ export class Mount {
     this.onGround = collision.onGround
     if (import.meta.env.DEV && collector) { collector.endPhase('mountObstacleCollision', _tObstacle!) }
 
-    clampToPlayableWorld(this.group.position)
+    clampToPlayableWorld(this.group.position, this.playableWorldBound)
     this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, 0.0001)
     if (this.proceduralVisual) {
       // Terrain following can briefly leave the ground on slopes without a jump.
@@ -445,7 +448,7 @@ export class Mount {
       0,
       this.group.position.z + Math.sin(angle) * distance,
     )
-    clampToPlayableWorld(this.wanderTarget)
+    clampToPlayableWorld(this.wanderTarget, this.playableWorldBound)
   }
 
   update(dt: number, obstacles: ObstacleData[]): void {

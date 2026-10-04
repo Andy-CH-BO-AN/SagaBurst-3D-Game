@@ -276,9 +276,9 @@ export function sellTownProduct(current: CareerProfile, productId: string) {
   return { profile, sold: true, earnedMerit }
 }
 
-/** Patrol officers share the faction Captain profile but always ride an ordinary Horse. */
+/** Service and Patrol Captains share the faction's canonical T4 mounted profile. */
 export function townActorCaptainProfile(faction: CharacterFaction, spec: TownActorSpec) {
   if (spec.role === 'captain') return townCaptainProfile(faction)
-  if (spec.duty === 'patrol' && spec.patrolLeader) return { ...townCaptainProfile(faction), mountOverride: 'horse' as const }
+  if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
   return undefined
 }

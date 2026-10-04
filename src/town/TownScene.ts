@@ -68,6 +68,7 @@ import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from '../combat/PlayerMeleeDamage'
 import { townMeleeBuildingContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
+import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { TownEquipment } from './TownEquipment'
 import { TownMissionSettlement } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
@@ -106,7 +107,7 @@ export class TownScene {
   private readonly previousControls = document.getElementById('controls-hint')!.textContent
   private npcObstacleRevision = -1
   private npcObstacles: ObstacleData[] = []
-  private readonly navigation = new NavigationWorld()
+  private readonly navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   private readonly hp = new HpBar()
   private readonly stamina = new StaminaBar()
   private readonly quiver = new QuiverUI()
@@ -454,6 +455,7 @@ export class TownScene {
       return
     }
     this.spectator = new SpectatorCameraController(this.camera)
+    this.spectator.worldBound = TOWN_PLAYABLE_WORLD_BOUND
     this.spectator.initFromCamera()
     this.input.clear()
     this.player.clearTownAction()

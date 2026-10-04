@@ -34,6 +34,8 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
 ]
 /** Placement-time exclusion, including enough clearance for tree crowns and mounts. */
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
+  // Preserve the existing Cavalry Sweep charge lane as scenery moves outward.
+  if (x >= -145 - radius && x <= 145 + radius && z >= -299 - radius && z <= -250 + radius) return true
   if (x >= TOWN_CITY.minX - radius - 4 && x <= TOWN_CITY.maxX + radius + 4
     && z >= TOWN_CITY.minZ - radius - 4 && z <= TOWN_CITY.maxZ + radius + 4) return true
   const exteriorDistance = Math.hypot(Math.max(TOWN_CITY.minX - x, 0, x - TOWN_CITY.maxX), Math.max(TOWN_CITY.minZ - z, 0, z - TOWN_CITY.maxZ))
