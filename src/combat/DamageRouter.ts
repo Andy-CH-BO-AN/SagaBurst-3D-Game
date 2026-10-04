@@ -32,6 +32,8 @@ export interface DamageResult {
   requestedDamage: number
   /** Actual HP removed after reduction and overkill clamping. */
   appliedDamage: number
+  /** Actual shield impact absorbed, including a successful block that removes no HP. */
+  blockedImpact: number
   /** Stable runtime identity for the entity that actually took the hit. */
   targetId: string
   /** Display name of the entity that actually took the hit (mount or entity). */
@@ -47,9 +49,9 @@ export interface DamageResult {
 }
 
 /** Only an authoritative geometric SHIELD_HIT can consume durability. */
-function shieldDamage(target: NPC | Player, damage: number, context?: CombatDamageContext): number {
+function shieldDamage(target: NPC | Player, damage: number, context?: CombatDamageContext): { damage: number; blockedImpact: number } {
   if (target.dead || context?.contact?.kind !== 'shield'
-    || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return damage
+    || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return { damage, blockedImpact: 0 }
   const player = 'blockingLevel' in target ? target : null
   const result = target.shield.absorb(damage, context.method === 'projectile' ? 1 : weaponShieldImpact(context.weaponId), player?.blockingLevel ?? 0)
   target.shieldCollider?.refreshVisibility()
@@ -57,7 +59,7 @@ function shieldDamage(target: NPC | Player, damage: number, context?: CombatDama
   if (player && !player.spectatorOnly && hostile && context.source.actorType !== 'player' && result.blockedImpact > 0) {
     player.onShieldBlock?.(result.blockedImpact)
   }
-  return result.damage
+  return { damage: result.damage, blockedImpact: result.blockedImpact }
 }
 
 function routedMount(attached: Mount | null, context?: CombatDamageContext): Mount | undefined {
@@ -77,7 +79,7 @@ export function damageMount(mount: Mount, damage: number, context?: CombatDamage
   const mountDied = !wasDead && mount.dead
   emitDamageApplied(context, target, damage, appliedDamage)
   return {
-    hitSuccess, requestedDamage: damage, appliedDamage, targetId: target.targetId,
+    hitSuccess, requestedDamage: damage, appliedDamage, blockedImpact: 0, targetId: target.targetId,
     targetName: target.name, killed: mountDied, hpRatio: mount.currentHp / mount.maxHp,
     isMountHit: true, mountDied,
   }
@@ -90,7 +92,7 @@ export function damageNpc(
   context?: CombatDamageContext,
 ): DamageResult {
   const requestedDamage = damage
-  const finalDamage = shieldDamage(npc, damage, context)
+  const shield = shieldDamage(npc, damage, context), finalDamage = shield.damage
 
   const mount = routedMount(npc.mount, context)
   if (mount) {
@@ -113,6 +115,7 @@ export function damageNpc(
     hitSuccess,
     requestedDamage,
     appliedDamage,
+    blockedImpact: shield.blockedImpact,
     targetId: target.targetId,
     targetName: npc.name,
     killed,
@@ -136,6 +139,7 @@ export function damagePlayer(
       hitSuccess: false,
       requestedDamage,
       appliedDamage: 0,
+      blockedImpact: 0,
       targetId: 'player',
       targetName: 'Player',
       killed: false,
@@ -146,7 +150,7 @@ export function damagePlayer(
   }
 
   const shieldHit = player.shield?.active && context?.contact?.kind === 'shield' && (context.method === 'melee' || context.method === 'projectile')
-  const finalDamage = shieldDamage(player, damage, context)
+  const shield = shieldDamage(player, damage, context), finalDamage = shield.damage
 
   const mount = routedMount(player.currentMount, context)
   if (mount) {
@@ -169,6 +173,7 @@ export function damagePlayer(
     hitSuccess,
     requestedDamage,
     appliedDamage,
+    blockedImpact: shield.blockedImpact,
     targetId: target.targetId,
     targetName: 'Player',
     killed,

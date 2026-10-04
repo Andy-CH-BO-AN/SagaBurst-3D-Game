@@ -16,16 +16,19 @@ describe('DeathFadeController', () => {
     root.add(body)
 
     const death = new DeathFadeController()
+    expect(death.completed).toBe(false)
     death.start(root)
 
     death.update(root, DEATH_DESPAWN_DELAY_SECONDS - 0.01)
     expect(root.visible).toBe(true)
+    expect(death.completed).toBe(false)
     expect(body.material).toBe(material)
     expect(weapon.material).toBe(material)
     expect(material.opacity).toBe(0.8)
 
     death.update(root, 0.01)
     expect(root.visible).toBe(false)
+    expect(death.completed).toBe(true)
     expect(body.material).toBe(material)
     expect(weapon.material).toBe(material)
   })
@@ -40,5 +43,6 @@ describe('DeathFadeController', () => {
 
     death.reset(root)
     expect(root.visible).toBe(true)
+    expect(death.completed).toBe(false)
   })
 })

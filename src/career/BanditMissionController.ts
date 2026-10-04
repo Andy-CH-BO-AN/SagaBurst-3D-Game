@@ -12,6 +12,7 @@ import { AIType, Faction, NPC } from '../world/NPC'
 import type { TownWorld } from '../town/TownWorld'
 import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
 import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
+import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { selectTownCavalryReserve, type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
@@ -51,17 +52,19 @@ const MISSION_LEADER_MARCH_SPEED = 7.5
 const LEADER_RETURN_RADIUS = 5
 const PLAYER_RETURN_RADIUS = 12
 const PERCEPTION_INTERVAL_SECONDS = .2
-const VETERAN_SAFE_WORLD_BOUND = PLAYABLE_WORLD_BOUND - 20
+const VETERAN_SAFE_WORLD_BOUND = TOWN_PLAYABLE_WORLD_BOUND - 20
 const VETERAN_ASSEMBLY_RADIUS = 12
+const MOUNTED_ASSEMBLY_RATIO = .9
 const VETERAN_ASSEMBLY_COMMAND_ID = 9000
 const VETERAN_SUPPORT_ENTRY_COMMAND_ID = 9001
 
 export const VETERAN_FIELD_LAYOUT = Object.freeze({
   rally: new THREE.Vector3(TOWN_MOUNTED_MISSION_MUSTER.x, 0, TOWN_MOUNTED_MISSION_MUSTER.z),
-  enemy: new THREE.Vector3(220, 0, 20),
+  enemy: new THREE.Vector3(TOWN_PLAYABLE_WORLD_BOUND - 28, 0, 20),
   supportApproach: new THREE.Vector3(-288, 0, 0),
   townEntry: new THREE.Vector3(-65, 0, 0),
-  scoutRally: new THREE.Vector3(8, 0, 190),
+  scoutRally: new THREE.Vector3(8, 0, TOWN_PLAYABLE_WORLD_BOUND - 40),
+  scoutEnemyApproach: new THREE.Vector3(TOWN_PLAYABLE_WORLD_BOUND - 28, 0, 20),
   scoutEnemyCourtyard: new THREE.Vector3(8, 0, 40),
 })
 
@@ -802,18 +805,19 @@ export class BanditMissionController {
     const squadCount = roster.squadSizes.length
     const legacyMarchAnchor = !survival && !active.actorPositions && active.phase !== 'ASSEMBLING' && active.mountedMarchPosition
       ? new THREE.Vector3(
-        THREE.MathUtils.clamp(active.mountedMarchPosition.x, -VETERAN_SAFE_WORLD_BOUND + 80, VETERAN_SAFE_WORLD_BOUND - 80),
+        THREE.MathUtils.clamp(active.mountedMarchPosition.x, -PLAYABLE_WORLD_BOUND + 100, PLAYABLE_WORLD_BOUND - 100),
         0,
-        THREE.MathUtils.clamp(active.mountedMarchPosition.z, -VETERAN_SAFE_WORLD_BOUND + 80, VETERAN_SAFE_WORLD_BOUND - 80),
+        THREE.MathUtils.clamp(active.mountedMarchPosition.z, -PLAYABLE_WORLD_BOUND + 100, PLAYABLE_WORLD_BOUND - 100),
       )
       : null
     const friendlyAnchor = survival ? VETERAN_FIELD_LAYOUT.scoutRally.clone()
       : legacyMarchAnchor ? legacyMarchAnchor.clone().sub(veteranSquadOffset(0, squadCount))
         : VETERAN_FIELD_LAYOUT.rally.clone()
-    const enemyAnchor = survival ? VETERAN_FIELD_LAYOUT.scoutEnemyCourtyard.clone() : VETERAN_FIELD_LAYOUT.enemy.clone()
+    const enemyAnchor = survival ? VETERAN_FIELD_LAYOUT.scoutEnemyApproach.clone() : VETERAN_FIELD_LAYOUT.enemy.clone()
     this.veteranPlayerAnchor = friendlyAnchor.clone().add(veteranSquadOffset(0, squadCount))
     this.veteranMarchTarget = enemyAnchor.clone()
-    const friendlyYaw = Math.atan2(enemyAnchor.x - friendlyAnchor.x, enemyAnchor.z - friendlyAnchor.z)
+    const friendlyYaw = survival ? veteranPlayerYaw(active.templateId)
+      : Math.atan2(enemyAnchor.x - friendlyAnchor.x, enemyAnchor.z - friendlyAnchor.z)
     const enemyYaw = Math.atan2(friendlyAnchor.x - enemyAnchor.x, friendlyAnchor.z - enemyAnchor.z)
     const friendlySlots = new Map<number, number>()
     const enemySlots = new Map<number, number>()
@@ -1297,12 +1301,12 @@ export class BanditMissionController {
       }
     }
     const living = this.friendlies.filter(npc => !npc.dead)
-    const assembled = living.every(npc => {
+    const assembledCount = living.filter(npc => {
       const muster = this.veteranMusterPositions.get(npc.combatantId)
       return npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID)
         || Boolean(assemblyRadius > 0 && muster && npc.combatPosition.distanceToSquared(muster) <= assemblyRadius ** 2)
-    })
-    if (assembled && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
+    }).length
+    if (assembledCount >= Math.ceil(living.length * MOUNTED_ASSEMBLY_RATIO) && this.setPhase('MARCHING', 0)) this.mountedMarch?.start()
   }
 
   private updateVeteranField(dt: number, cameraYaw: number): void {

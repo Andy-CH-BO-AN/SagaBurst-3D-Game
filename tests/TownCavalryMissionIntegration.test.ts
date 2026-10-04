@@ -108,7 +108,51 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
 }
 
 describe('Town cavalry mission and Patrol integration', () => {
-  it('physically assembles all 59 Town Sweep riders through the full Town obstacles and starts marching with Player far away', () => {
+  it.each([0, 10])('starts Veteran field at 90 percent of survivors with %s casualties and retains the stragglers', casualties => {
+    const f = fixture(); f.accept()
+    const friendlies = f.mission.friendlies
+    if (casualties) for (const npc of friendlies.slice(-casualties)) npc.takeDamage(999999)
+    const living = friendlies.filter(npc => !npc.dead), required = Math.ceil(living.length * .9)
+    const placeAtMuster = (npc: NPC) => {
+      const muster = (f.mission as any).veteranMusterPositions.get(npc.combatantId)
+      npc.assignFormationTarget(9000, muster, new THREE.Vector3(0, 0, 1))
+      const target = (npc as any).formationTarget
+      npc.mount!.group.position.copy(target.position); npc.group.position.copy(target.position); target.reached = true
+    }
+    for (const npc of living.slice(0, required - 1)) placeAtMuster(npc)
+    for (const npc of living.slice(required - 1)) npc.mount!.group.position.set(-280, 0, -260)
+    f.player.dead = true
+    f.mission.updateFlow(.1, 0)
+    expect(f.mission.phase).toBe('ASSEMBLING')
+    placeAtMuster(living[required - 1])
+    const stragglers = living.slice(required), positions = stragglers.map(npc => npc.combatPosition.clone())
+    const actorIds = f.profile().activeMission!.friendlyActorIds
+    f.mission.updateFlow(.1, 0)
+    expect(f.mission.phase).toBe('MARCHING')
+    expect(stragglers.map(npc => npc.combatPosition)).toEqual(positions)
+    expect(stragglers.every(npc => npc.activeFollowTarget)).toBe(true)
+    expect(f.profile().activeMission!.friendlyActorIds).toEqual(actorIds)
+    expect(f.mission.friendlies).toEqual(friendlies)
+  })
+
+  it('keeps both engaging Patrols busy and fills a mission shortage with temporary reinforcement', () => {
+    const f = fixture({ unavailableTraining: 60 })
+    const hostile = new NPC(f.scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'roaming', 1, false,
+      undefined, undefined, undefined, 'roaming:bandit')
+    cleanup.push(() => hostile.dispose())
+    for (const squad of f.patrol.squads) expect(f.patrol.noteHostileHit(squad.members[0].npc, hostile)).toBe(true)
+    const patrolActors = f.residents.filter(r => r.spec.duty === 'patrol').map(r => r.npc)
+    const positions = patrolActors.map(npc => npc.combatPosition.clone())
+    f.accept()
+    expect(f.town.openPanel).not.toHaveBeenCalled()
+    expect(f.profile().activeMission!.borrowedActorIds).toEqual(['captain', 'ranger'])
+    expect(f.mission.friendlies.filter(npc => !['captain', 'ranger'].includes(npc.combatantId))).toHaveLength(97)
+    expect(patrolActors.every(npc => f.patrol.combatEnabled(npc) && !f.mission.friendlies.includes(npc))).toBe(true)
+    expect(patrolActors.map(npc => npc.combatPosition)).toEqual(positions)
+    expect(f.borrow.mock.calls.some(([id]) => id.startsWith('town-patrol:'))).toBe(false)
+  })
+
+  it('physically assembles the Town Sweep through the full Town obstacles and starts marching with Player far away', () => {
     const f = fixture({ world: true }), existing = new Set(f.residents.map(r => r.spec.id))
     // Include the 122 remaining peaceful residents, as in the normal 224-NPC Town runtime.
     for (const spec of townRoster().filter(spec => !existing.has(spec.id) && spec.role !== 'cat')) {

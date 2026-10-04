@@ -8,9 +8,11 @@ import { SpatialGrid } from '../world/SpatialGrid'
 import type { ObstacleData } from '../world/Terrain'
 import { townPatrolRefitPoint, type TownActorSpec, type TownPatrolId } from './TownRules'
 import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownPatrolRoute'
+import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
+import { townWartimeHostile } from './TownWartime'
 
 interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
-export type TownPatrolState = 'BARRACKS' | 'MOVING_TO_ROUTE' | 'PATROLLING' | 'PAUSED'
+export type TownPatrolState = 'BARRACKS' | 'MOVING_TO_ROUTE' | 'PATROLLING' | 'PAUSED' | 'ENGAGING' | 'RETURN_TO_BARRACKS'
 export type TownPatrolReturnState = 'RETURN_TO_BARRACKS' | 'REFIT' | 'REJOIN_PATROL'
 interface PatrolReturn {
   state: TownPatrolReturnState
@@ -32,9 +34,18 @@ interface PatrolSquad {
   departure: ReturnType<typeof townPatrolDeparture>
   trail: FollowTrail
   commandedWaypoint: THREE.Vector3 | null
+  engagementOrigin: THREE.Vector3 | null
+  participants: Set<string>
+  threats: Set<NPC>
+  sensorRemaining: number
 }
 
-/** Owns patrol travel and barracks refit after a borrower releases an individual actor. */
+interface PatrolThreatRuntime {
+  owns(npc: NPC): boolean
+  squadMembersFor?(npc: NPC): readonly NPC[]
+}
+
+/** Owns Patrol travel, squad encounters and the shared physical mission/combat refit lifecycle. */
 export class TownCavalryPatrolController {
   readonly route = townPatrolRoute()
   readonly squads: PatrolSquad[]
@@ -42,8 +53,11 @@ export class TownCavalryPatrolController {
   private readonly relinquished = new Set<string>()
   private readonly returning = new Map<string, PatrolReturn>()
   private readonly available = new Set<string>()
+  private excluded: ReadonlySet<NPC> = new Set()
   private readonly grid = new SpatialGrid<NPC>(8)
   private readonly nearby: NPC[] = []
+  private readonly threatsNearby: NPC[] = []
+  private readonly sensorCenter = new THREE.Vector3()
   private readonly anchor = { position: new THREE.Vector3(), yaw: 0 }
   private hostile = false
 
@@ -56,7 +70,8 @@ export class TownCavalryPatrolController {
       const departure = townPatrolDeparture(id, this.route), trail = new FollowTrail()
       trail.reset(captain.npc.combatPosition, captain.npc.group.rotation.y)
       return [{ id, members, followers: [], canonicalLeaderActorId: captain.spec.id, activeLeaderActorId: null,
-        state: 'BARRACKS' as TownPatrolState, waypoint: departure.phase, departureIndex: 0, departure, trail, commandedWaypoint: null }]
+        state: 'BARRACKS' as TownPatrolState, waypoint: departure.phase, departureIndex: 0, departure, trail, commandedWaypoint: null,
+        engagementOrigin: null, participants: new Set<string>(), threats: new Set<NPC>(), sensorRemaining: id === 'A' ? 0 : OUTSKIRTS_SENSOR_INTERVAL / 2 }]
     })
   }
 
@@ -81,23 +96,107 @@ export class TownCavalryPatrolController {
   /** Refit actors can be borrowed again while still catching up with their squad. */
   isReserveAvailable(actorId: string): boolean {
     if (!this.residents.has(actorId)) return true
-    return !this.hostile && !this.relinquished.has(actorId) && this.returning.get(actorId)?.state !== 'RETURN_TO_BARRACKS'
+    return !this.hostile && !this.relinquished.has(actorId) && !this.combatEnabled(this.residents.get(actorId)!.npc)
+      && this.returning.get(actorId)?.state !== 'RETURN_TO_BARRACKS'
       && this.returning.get(actorId)?.state !== 'REFIT'
   }
 
   returnStateFor(actorId: string): TownPatrolReturnState | null { return this.returning.get(actorId)?.state ?? null }
 
+  owns(npc: NPC): boolean {
+    return !this.hostile && this.residents.get(npc.combatantId)?.npc === npc
+      && !this.relinquished.has(npc.combatantId) && !this.excluded.has(npc)
+  }
+
+  combatEnabled(npc: NPC): boolean {
+    return this.owns(npc) && this.squads.some(s => s.state === 'ENGAGING' && s.participants.has(npc.combatantId))
+  }
+
+  get combatActors(): NPC[] {
+    return this.squads.flatMap(s => s.state === 'ENGAGING'
+      ? s.members.filter(r => s.participants.has(r.spec.id) && this.owns(r.npc)).map(r => r.npc) : [])
+  }
+
+  /** Accepted mission or roaming contacts include lethal rider/mount hits and shield blocks. */
+  noteHostileHit(target: NPC, source: NPC): boolean {
+    if (!this.owns(target) || !townWartimeHostile(target, source) || this.returning.get(target.combatantId)?.state === 'REFIT') return false
+    const squad = this.squads.find(s => s.id === this.residents.get(target.combatantId)!.spec.patrolId)!
+    this.alertSquad(squad, target.combatPosition, true)
+    // A lethal hit still belongs to this encounter and must be restored only after its end.
+    squad.participants.add(target.combatantId)
+    squad.threats.add(source)
+    return true
+  }
+
+  /** One throttled broad-phase query per squad across actual mission and roaming participants. */
+  prepareCombatFrame(dt: number, threatGrid: SpatialGrid<NPC>, threats: PatrolThreatRuntime): void {
+    if (this.hostile) return
+    for (const squad of this.squads) {
+      squad.sensorRemaining -= Math.max(0, dt)
+      if (squad.state === 'ENGAGING' && !squad.members.some(r => squad.participants.has(r.spec.id) && this.owns(r.npc) && !r.npc.dead)) {
+        this.finishEngagement(squad)
+        continue
+      }
+      if (squad.sensorRemaining > 0) continue
+      squad.sensorRemaining = OUTSKIRTS_SENSOR_INTERVAL
+      const observers = squad.members.filter(r => this.owns(r.npc) && !r.npc.dead
+        && this.returning.get(r.spec.id)?.state !== 'REFIT'
+        && (squad.state === 'ENGAGING' ? squad.participants.has(r.spec.id) : this.returning.get(r.spec.id)?.state !== 'RETURN_TO_BARRACKS'))
+      if (!observers.length) continue
+      const origin = squad.engagementOrigin
+      let range = OUTSKIRTS_ENCOUNTER_LEASH
+      if (origin) this.sensorCenter.copy(origin)
+      else {
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+        for (const { npc } of observers) {
+          const p = npc.combatPosition
+          minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+          minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
+        }
+        this.sensorCenter.set((minX + maxX) / 2, observers[0].npc.combatPosition.y, (minZ + maxZ) / 2)
+        range = Math.hypot((maxX - minX) / 2, (maxZ - minZ) / 2) + OUTSKIRTS_ALERT_RANGE
+      }
+      for (const threat of threatGrid.getNearbyInto(this.sensorCenter, range, this.threatsNearby)) {
+        if (threat.dead || threat.encounterAggroState === 'returning' || !threats.owns(threat)) continue
+        const observer = observers.find(r => townWartimeHostile(r.npc, threat)
+          && this.distance(r.npc.combatPosition, threat.combatPosition) <= OUTSKIRTS_ALERT_RANGE)
+        if (!observer) continue
+        if (squad.state !== 'ENGAGING') {
+          this.alertSquad(squad, observer.npc.combatPosition, false)
+        }
+        for (const member of threats.squadMembersFor?.(threat) ?? [threat]) squad.threats.add(member)
+      }
+      if (squad.state !== 'ENGAGING') continue
+      // Hit events can precede a sensor tick; expand their actual hostile squad here too.
+      for (const threat of [...squad.threats]) {
+        for (const member of threats.squadMembersFor?.(threat) ?? []) squad.threats.add(member)
+      }
+      for (const threat of squad.threats) {
+        if (threat.dead || !threats.owns(threat) || threat.encounterAggroState === 'returning'
+          || this.distance(threat.combatPosition, squad.engagementOrigin!) > OUTSKIRTS_ENCOUNTER_LEASH) squad.threats.delete(threat)
+      }
+      if (!squad.threats.size) this.finishEngagement(squad)
+    }
+  }
+
   /** Living casualties retain their mission position and readiness until they physically reach barracks. */
   beginMissionReturn(actorId: string): boolean {
+    if (this.returning.has(actorId)) return true
+    return this.beginPatrolReturn(actorId)
+  }
+
+  beginPatrolReturn(actorId: string): boolean {
     const resident = this.residents.get(actorId)
     if (!resident?.homeMount || this.hostile) return false
-    if (this.returning.has(actorId)) return true
     this.relinquished.delete(actorId)
     this.available.delete(actorId)
     const refitPoint = townPatrolRefitPoint(resident.spec)
     const destination = new THREE.Vector3(refitPoint.x, 0, refitPoint.z)
-    const returning: PatrolReturn = { state: 'RETURN_TO_BARRACKS', destination, yaw: refitPoint.yaw, commandedMounted: null }
+    const returning: PatrolReturn = this.returning.get(actorId)
+      ?? { state: 'RETURN_TO_BARRACKS', destination, yaw: refitPoint.yaw, commandedMounted: null }
+    returning.state = 'RETURN_TO_BARRACKS'; returning.commandedMounted = null
     this.returning.set(actorId, returning)
+    resident.npc.clearEncounter()
     resident.npc.setTownPeaceful()
     resident.npc.setTacticalOrder('attack')
     if (resident.npc.dead) this.refit(resident, returning)
@@ -108,12 +207,14 @@ export class TownCavalryPatrolController {
     if (this.hostile) return
     this.hostile = true
     this.returning.clear()
-    for (const r of this.residents.values()) r.npc.setTacticalOrder('attack')
+    for (const squad of this.squads) { squad.participants.clear(); squad.threats.clear(); squad.engagementOrigin = null }
+    for (const r of this.residents.values()) { r.npc.clearEncounter(); r.npc.setTacticalOrder('attack') }
     this.available.clear()
   }
 
   /** Mission simulation supplies its actual actor set, never an Active Mission boolean. */
   beginFrame(excluded: ReadonlySet<NPC>): void {
+    this.excluded = excluded
     this.available.clear(); this.grid.clear()
     if (this.hostile) return
     for (const [id, r] of this.residents) {
@@ -123,17 +224,20 @@ export class TownCavalryPatrolController {
       }
     }
     for (const squad of this.squads) {
-      let leader = squad.members.find(r => r.spec.id === squad.activeLeaderActorId && this.available.has(r.spec.id))
-      const captain = squad.members.find(r => r.spec.id === squad.canonicalLeaderActorId && this.available.has(r.spec.id))
+      const leadEligible = (r: PatrolResident) => this.owns(r.npc) && !r.npc.dead
+        && (this.available.has(r.spec.id) || this.combatEnabled(r.npc)
+          || r.spec.id === squad.activeLeaderActorId && this.returning.get(r.spec.id)?.state === 'RETURN_TO_BARRACKS')
+      let leader = squad.members.find(r => r.spec.id === squad.activeLeaderActorId && leadEligible(r))
+      const captain = squad.members.find(r => r.spec.id === squad.canonicalLeaderActorId && leadEligible(r))
       if (!leader) {
-        const deputy = squad.members.find(r => r !== captain && this.available.has(r.spec.id) && this.returning.get(r.spec.id)?.state !== 'REJOIN_PATROL')
-          ?? squad.members.find(r => r !== captain && this.available.has(r.spec.id))
+        const deputy = squad.members.find(r => r !== captain && leadEligible(r) && this.returning.get(r.spec.id)?.state !== 'REJOIN_PATROL')
+          ?? squad.members.find(r => r !== captain && leadEligible(r))
         const captainCatchingUp = captain && this.returning.get(captain.spec.id)?.state === 'REJOIN_PATROL'
         leader = captainCatchingUp && deputy && this.distance(captain.npc.combatPosition, deputy.npc.combatPosition) >= 9
           ? deputy : captain ?? deputy
       }
       else if (captain && captain !== leader && this.distance(captain.npc.combatPosition, leader.npc.combatPosition) < 9) leader = captain
-      if (!leader) { squad.activeLeaderActorId = null; squad.state = 'PAUSED'; continue }
+      if (!leader) { squad.activeLeaderActorId = null; if (squad.state !== 'ENGAGING') squad.state = 'PAUSED'; continue }
       if (squad.activeLeaderActorId !== leader.spec.id) {
         squad.activeLeaderActorId = leader.spec.id
         squad.commandedWaypoint = null
@@ -142,12 +246,15 @@ export class TownCavalryPatrolController {
       squad.followers = squad.members.filter(r => this.available.has(r.spec.id) && r !== leader)
       // Return the canonical Captain to the first row for a nearby leadership handover.
       squad.followers.sort((a, b) => Number(Boolean(b.spec.patrolLeader)) - Number(Boolean(a.spec.patrolLeader)))
-      if (squad.state === 'PAUSED') squad.state = squad.departureIndex < squad.departure.waypoints.length ? 'MOVING_TO_ROUTE' : 'PATROLLING'
+      if (squad.state === 'PAUSED' || squad.state === 'RETURN_TO_BARRACKS' && this.returning.get(leader.spec.id)?.state !== 'RETURN_TO_BARRACKS') {
+        squad.state = squad.departureIndex < squad.departure.waypoints.length ? 'MOVING_TO_ROUTE' : 'PATROLLING'
+      }
     }
   }
 
   updateResident(resident: PatrolResident, dt: number, camera: THREE.Vector3, obstacles: ObstacleData[], navigation: NavigationWorld): boolean {
     if (!this.residents.has(resident.spec.id)) return false
+    if (this.combatEnabled(resident.npc)) return true
     const returning = this.returning.get(resident.spec.id)
     if (returning?.state === 'RETURN_TO_BARRACKS') {
       const npc = resident.npc
@@ -209,6 +316,30 @@ export class TownCavalryPatrolController {
     resident.homeMount!.restoreForTown(destination.x, destination.z, destination.yaw)
     resident.npc.mountVehicle(resident.homeMount!)
     returning.state = 'REJOIN_PATROL'
+  }
+
+  private alertSquad(squad: PatrolSquad, origin: THREE.Vector3, includeReturning: boolean): void {
+    if (squad.state !== 'ENGAGING') {
+      squad.state = 'ENGAGING'; squad.engagementOrigin = origin.clone(); squad.commandedWaypoint = null
+      squad.participants.clear(); squad.threats.clear()
+    }
+    for (const resident of squad.members) {
+      const state = this.returning.get(resident.spec.id)?.state
+      if (!this.owns(resident.npc) || resident.npc.dead || state === 'REFIT' || !includeReturning && state === 'RETURN_TO_BARRACKS') continue
+      if (!squad.participants.has(resident.spec.id)) {
+        squad.participants.add(resident.spec.id)
+        resident.npc.configureBanditEncounter(squad.engagementOrigin!, [], OUTSKIRTS_ENCOUNTER_LEASH)
+        resident.npc.triggerEncounterAlert()
+      }
+    }
+  }
+
+  private finishEngagement(squad: PatrolSquad): void {
+    squad.state = 'RETURN_TO_BARRACKS'; squad.engagementOrigin = null; squad.threats.clear(); squad.commandedWaypoint = null
+    for (const resident of squad.members) {
+      if (squad.participants.has(resident.spec.id) && this.owns(resident.npc)) this.beginPatrolReturn(resident.spec.id)
+    }
+    squad.participants.clear()
   }
 
   private distance(a: THREE.Vector3, b: THREE.Vector3): number { return Math.hypot(a.x - b.x, a.z - b.z) }

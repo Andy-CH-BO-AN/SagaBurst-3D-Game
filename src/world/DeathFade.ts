@@ -13,6 +13,8 @@ export class DeathFadeController {
   private active = false
   private finished = false
 
+  get completed(): boolean { return this.finished }
+
   start(root: THREE.Object3D): void {
     this.elapsed = 0
     this.active = true

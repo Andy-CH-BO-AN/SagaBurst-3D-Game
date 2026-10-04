@@ -12,12 +12,14 @@ function actor(id: string, faction: Faction, x = 0) {
   npc.group.position.set(x, 39, 0)
   return npc as NPC
 }
-function shotFixture(enemyShot: boolean, onlyBystander = false) {
+function shotFixture(enemyShot: boolean, onlyBystander = false, externalDefense = false) {
   const ally = actor('borrowed-ranger', Faction.TOWN)
   const enemy = actor('mission-ranger', Faction.ENEMY)
   const bystander = actor('town-resident', Faction.TOWN)
-  const source = enemyShot ? enemy : ally
-  const target = enemyShot ? ally : enemy
+  const source = enemyShot ? enemy : externalDefense ? bystander : ally
+  const missionTarget = enemyShot ? ally : enemy
+  const target = enemyShot && externalDefense ? bystander : missionTarget
+  if (enemyShot && externalDefense) ally.group.position.x = 100
   const arrow = {
     isAlive: true, damage: 25, mesh: { position: new THREE.Vector3(-2, 40, 0) },
     update: vi.fn(() => arrow.mesh.position.set(2, 40, 0)),
@@ -31,7 +33,9 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
     shots: [{ arrow, training: false, player: false, source, age: 0 }],
     player,
     world: { buildings: [], targets: [], obstacles: [] },
-    mission: { friendlies: [ally], missionBandits: [enemy], ambientBandits: [], combatPeersFor: () => onlyBystander ? [] : [target] },
+    mission: { friendlies: [ally], missionBandits: [enemy], ambientBandits: [], combatPeersFor: () => onlyBystander ? [] : [missionTarget] },
+    missionCombat: { enemyTownHostiles: [], externalDefenders: externalDefense ? [bystander] : [],
+      isExternalThreatDefender: (npc: NPC) => externalDefense && npc === bystander },
     defense: { active: false }, residents: [{ npc: bystander }],
     hitFieldNpc: vi.fn(), damagePlayerFromNpc: vi.fn(), hitResident: vi.fn(),
   })
@@ -40,6 +44,12 @@ function shotFixture(enemyShot: boolean, onlyBystander = false) {
 }
 
 describe('Veteran field projectile routing', () => {
+  it.each([true, false])('routes mission enemy and training defender arrows without roaming actors, enemyShot=%s', enemyShot => {
+    const { town, arrow, target, source } = shotFixture(enemyShot, false, true)
+    expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 25, 'projectile', source, expect.objectContaining({ kind: 'body' }))
+    expect(arrow.destroy).toHaveBeenCalledOnce()
+    expect(town.hitResident).not.toHaveBeenCalled()
+  })
   it.each([true, false])('routes opposing-faction field arrows enemyShot=%s to mission peers', enemyShot => {
     const { town, arrow, target, source } = shotFixture(enemyShot)
     expect(town.hitFieldNpc).toHaveBeenCalledExactlyOnceWith(target, 25, 'projectile', source, expect.objectContaining({ kind: 'body' }))

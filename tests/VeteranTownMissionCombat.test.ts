@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { Faction, type NPC } from '../src/world/NPC'
+import { AIType, Faction, NPC } from '../src/world/NPC'
 import { combatActor, combatFixture, combatMount, combatResident } from './helpers/townMissionCombat'
 
 function activateVeteranField(
@@ -12,6 +12,71 @@ function activateVeteranField(
 }
 
 describe('Veteran Town mission combat', () => {
+  it.each([false, true])('finishes both mission enemy and garrison corpse presentation with paused=%s', paused => {
+    const h = combatFixture()
+    const guard = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Guard', 1, false)
+    const enemy = new NPC(new THREE.Scene(), 5, 0, Faction.ENEMY, 'viking', AIType.MELEE, 'Enemy', 1, false)
+    guard.setTownPeaceful(); enemy.respawnEnabled = false
+    h.simulation.residents = [combatResident(guard)]
+    h.simulation.peaceResident = (r, dt) => { r.npc.updateTownPeace(dt, 0, false, false) }
+    h.field.fieldNpcs = [enemy]; h.field.missionBandits = [enemy]
+    activateVeteranField(h, 'ASSEMBLING')
+    guard.takeDamage(999999); enemy.takeDamage(999999)
+    const tick = (dt: number) => paused ? h.combat.updateDefeatedActors(dt) : h.combat.update(dt, 0, 0)
+    tick(.5)
+    expect(guard.group.visible).toBe(true); expect(enemy.group.visible).toBe(true)
+    tick(2.6)
+    expect(guard.group.visible).toBe(false); expect(enemy.group.visible).toBe(false)
+    expect(guard.dead).toBe(true); expect(enemy.dead).toBe(true)
+    guard.dispose(); enemy.dispose()
+  })
+  it('lets nearby training guards defend against Cavalry Sweep enemies without roaming actors', () => {
+    const h = combatFixture(), guard = combatActor('training:guard'), bandit = combatActor('sweep-bandit', Faction.BANDIT)
+    const resident = combatResident(guard); resident.spec.duty = 'training'
+    bandit.group.position.x = 8
+    h.simulation.residents = [resident]
+    h.field.active = { kind: 'cavalry-sweep', phase: 'ASSEMBLING' } as any
+    h.field.missionBandits = [bandit]; h.field.fieldNpcs = [bandit]
+    h.player.dead = true
+    h.combat.update(.02, 0, 1)
+    expect(guard.beginExternalThreat).toHaveBeenCalledOnce()
+    expect(guard.update).toHaveBeenCalledOnce()
+    expect(h.combat.isExternalThreatDefender(guard)).toBe(true)
+    expect(h.field.friendlies).toEqual([])
+  })
+
+  it.each(['ASSEMBLING', 'MARCHING', 'ENGAGING'] as const)('lets training guards retaliate against mission enemies during %s even after Player death', phase => {
+    const h = combatFixture(), guard = combatActor('training:guard'), distant = combatActor('training:distant')
+    const civilian = combatActor('civilian'), borrowed = combatActor('borrowed'), enemy = combatActor('mission-enemy', Faction.ENEMY)
+    const resident = combatResident(guard); resident.spec.duty = 'training'
+    distant.group.position.x = 200; borrowed.group.position.x = 200
+    enemy.group.position.x = 8; enemy.hostileToPlayer = true
+    h.player.dead = true; h.player.combatPosition.x = 1000
+    h.simulation.residents = [resident, combatResident(distant), combatResident(civilian, 'civilian'), combatResident(borrowed)]
+    h.field.friendlies = [borrowed]; h.field.missionBandits = [enemy]; h.field.fieldNpcs = [borrowed, enemy]
+    h.field.veteranEnemySquads = [{ squadId: 1, leader: enemy, members: [enemy] }]
+    activateVeteranField(h, phase); h.field.active!.engagedEnemySquadIds = [1]
+    guard.update.mockImplementation((_dt, _player, peers, _nearby, _obstacles, _hp, hit, _fire, _skip, _distance, _collector, hostileGrid) => {
+      expect(peers).toContain(enemy)
+      expect(hostileGrid!.findNearest(guard.combatPosition, npc => npc.faction === Faction.ENEMY)).toBe(enemy)
+      hit(9, false, enemy)
+    })
+    enemy.update.mockImplementation((_dt, _player, peers, _nearby, _obstacles, _hp, _hit, _fire, _skip, _distance, _collector, hostileGrid) => {
+      expect(peers).toContain(guard)
+      expect(hostileGrid!.findNearest(enemy.combatPosition)).toBe(guard)
+    })
+    h.combat.update(.02, 0, 1)
+    expect(guard.beginExternalThreat).toHaveBeenCalledOnce()
+    expect(guard.update).toHaveBeenCalledOnce()
+    expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(enemy, 9, 'melee', guard)
+    expect(h.combat.isExternalThreatDefender(guard)).toBe(true)
+    expect(distant.beginExternalThreat).not.toHaveBeenCalled()
+    expect(civilian.beginExternalThreat).not.toHaveBeenCalled()
+    expect(borrowed.beginExternalThreat).not.toHaveBeenCalled()
+    expect(h.field.friendlies).toEqual([borrowed]); expect(h.field.missionBandits).toEqual([enemy])
+    expect(h.combat.enemyTownHostiles).toEqual([])
+  })
+
   it('preserves the existing Ranger behavior when Bandits approach the home Town', () => {
     const h = combatFixture()
     const bandit = combatActor('ambient-bandit', Faction.BANDIT)
@@ -249,7 +314,7 @@ describe('Veteran Town mission combat', () => {
     h.field.missionBandits = [enemyLeader, enemyMember]
     h.field.fieldNpcs = [enemyLeader, enemyMember]
     h.field.veteranEnemySquads = [{ squadId: 3, leader: enemyLeader, members: [enemyLeader, enemyMember] }]
-    h.simulation.residents = [combatResident(peaceful)]
+    h.simulation.residents = [combatResident(peaceful, 'civilian')]
     h.player.combatPosition.set(0, 0, 0)
     activateVeteranField(h, 'ASSEMBLING')
     ;(h.field.active as any).engagedEnemySquadIds = []
@@ -260,7 +325,7 @@ describe('Veteran Town mission combat', () => {
     expect(enemyLeader.update).toHaveBeenCalledOnce()
     expect(enemyMember.update).toHaveBeenCalledOnce()
     expect(peaceful.update).not.toHaveBeenCalled()
-    expect(h.simulation.peaceResident).toHaveBeenCalledWith(combatResident(peaceful), .02)
+    expect(h.simulation.peaceResident).toHaveBeenCalledWith(combatResident(peaceful, 'civilian'), .02)
   })
 
   it('lets Veteran VI engage immediately without the ordinary field phase gate', () => {
@@ -292,7 +357,7 @@ describe('Veteran Town mission combat', () => {
     h.field.veteranEnemySquads = [{ squadId: 1, leader: missionEnemy, members: [missionEnemy] }]
     h.field.fieldNpcs = [missionEnemy, borrowedAlly]
     h.field.ambientBandits = [combatActor('ambient-bandit', Faction.BANDIT)]
-    h.simulation.residents = [combatResident(borrowedAlly), combatResident(bystander)]
+    h.simulation.residents = [combatResident(borrowedAlly), combatResident(bystander, 'civilian')]
     activateVeteranField(h)
     ;(h.field.active as any).engagedEnemySquadIds = [1]
     borrowedAlly.update.mockImplementation((_dt, _player, _peers, _nearby, _obstacles, _hp, _hit, _fire, _skip, _distance, _collector, hostileGrid) => {
@@ -312,7 +377,7 @@ describe('Veteran Town mission combat', () => {
     expect(borrowedAlly.update).toHaveBeenCalledOnce()
     expect(missionEnemy.update).toHaveBeenCalledOnce()
     expect(bystander.update).not.toHaveBeenCalled()
-    expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(combatResident(bystander), .02)
+    expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(combatResident(bystander, 'civilian'), .02)
     expect(bystander.beginExternalThreat).not.toHaveBeenCalled()
     expect(h.field.combatPeersFor).not.toHaveBeenCalled()
   })
@@ -343,7 +408,7 @@ describe('Veteran Town mission combat', () => {
     expect(h.combat.isExternalThreatDefender(borrowedLeader)).toBe(false)
   })
 
-  it('ends existing external threats on Veteran entry and never treats nonborrowed residents as defenders', () => {
+  it('releases a military defender when the threats leave during a Veteran mission', () => {
     const h = combatFixture()
     const ambient = combatActor('ambient-bandit', Faction.BANDIT)
     const missionEnemy = combatActor('mission-enemy', Faction.ENEMY)
@@ -361,9 +426,10 @@ describe('Veteran Town mission combat', () => {
     h.field.friendlies = [borrowedAlly]
     h.field.missionBandits = [missionEnemy]
     h.field.fieldNpcs = [missionEnemy, borrowedAlly]
-    expect(h.combat.isExternalThreatDefender(bystander)).toBe(false)
+    ambient.group.position.x = 200; missionEnemy.group.position.x = 200
     h.combat.update(.02, 0, 2)
 
+    expect(h.combat.isExternalThreatDefender(bystander)).toBe(false)
     expect(bystander.endExternalThreat).toHaveBeenCalledOnce()
     expect(bystander.beginExternalThreat).toHaveBeenCalledOnce()
     expect(h.simulation.peaceResident).toHaveBeenCalledWith(bystanderResident, .02)
