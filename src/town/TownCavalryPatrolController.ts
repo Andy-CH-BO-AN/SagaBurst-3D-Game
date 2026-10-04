@@ -6,7 +6,7 @@ import type { Mount } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import type { ObstacleData } from '../world/Terrain'
-import type { TownActorSpec, TownPatrolId } from './TownRules'
+import { townPatrolRefitPoint, type TownActorSpec, type TownPatrolId } from './TownRules'
 import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownPatrolRoute'
 
 interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
@@ -15,6 +15,7 @@ export type TownPatrolReturnState = 'RETURN_TO_BARRACKS' | 'REFIT' | 'REJOIN_PAT
 interface PatrolReturn {
   state: TownPatrolReturnState
   destination: THREE.Vector3
+  yaw: number
   commandedMounted: boolean | null
 }
 const RETURN_COMMAND_ID = -4
@@ -65,6 +66,8 @@ export class TownCavalryPatrolController {
     if (!resident || this.relinquished.has(actorId) || !this.isReserveAvailable(actorId)) return false
     this.returning.delete(actorId)
     this.relinquished.add(actorId); this.available.delete(actorId)
+    const squad = this.squads.find(s => s.activeLeaderActorId === actorId)
+    if (squad) squad.activeLeaderActorId = null
     if (!this.hostile) resident.npc.setTacticalOrder('attack')
     return true
   }
@@ -91,9 +94,9 @@ export class TownCavalryPatrolController {
     if (this.returning.has(actorId)) return true
     this.relinquished.delete(actorId)
     this.available.delete(actorId)
-    // The roster's deterministic startup formation is the barracks muster, not a saved patrol position.
-    const destination = new THREE.Vector3(resident.spec.x, 0, resident.spec.z)
-    const returning: PatrolReturn = { state: 'RETURN_TO_BARRACKS', destination, commandedMounted: null }
+    const refitPoint = townPatrolRefitPoint(resident.spec)
+    const destination = new THREE.Vector3(refitPoint.x, 0, refitPoint.z)
+    const returning: PatrolReturn = { state: 'RETURN_TO_BARRACKS', destination, yaw: refitPoint.yaw, commandedMounted: null }
     this.returning.set(actorId, returning)
     resident.npc.setTownPeaceful()
     resident.npc.setTacticalOrder('attack')
@@ -200,7 +203,7 @@ export class TownCavalryPatrolController {
 
   private refit(resident: PatrolResident, returning: PatrolReturn): void {
     returning.state = 'REFIT'
-    const destination = { x: returning.destination.x, z: returning.destination.z, yaw: resident.spec.yaw ?? Math.PI }
+    const destination = { x: returning.destination.x, z: returning.destination.z, yaw: returning.yaw }
     resident.npc.dismountFromMount()
     resident.npc.restoreForTown(destination)
     resident.homeMount!.restoreForTown(destination.x, destination.z, destination.yaw)

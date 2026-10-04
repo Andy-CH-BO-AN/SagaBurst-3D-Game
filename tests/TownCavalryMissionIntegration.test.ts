@@ -266,15 +266,20 @@ describe('Town cavalry mission and Patrol integration', () => {
 
   it('settles Veteran missions in place, sends Patrol to barracks and keeps only friendly temporary actors alive for departure', () => {
     const f = fixture({ unavailableTraining: 10 })
+    const patrolRider = f.residents.find(r => r.spec.id === 'town-patrol:a:0')!
+    const originalEquipment = { melee: patrolRider.npc.meleeWeaponId, ranged: patrolRider.npc.rangedWeaponId,
+      shield: patrolRider.npc.shieldId, tier: patrolRider.npc.tier }
+    const restorePatrol = vi.spyOn(patrolRider.npc, 'restoreForTown')
     f.accept()
     const active = f.profile().activeMission!, borrowedIds = active.borrowedActorIds!
     const temporary = f.mission.friendlies.filter(npc => !borrowedIds.includes(npc.combatantId))
     const enemy = [...f.mission.missionBandits]
     const enemyMounts = enemy.map(npc => npc.mount!)
     for (const npc of f.mission.friendlies) npc.mount!.group.position.set(55, 0, -55)
-    const patrolRider = f.residents.find(r => r.spec.id === 'town-patrol:a:0')!
     patrolRider.npc.takeDamage(30)
+    patrolRider.homeMount.takeDamage(15)
     const returnPosition = patrolRider.npc.combatPosition.clone(), returnHp = patrolRider.npc.hp
+    const returnHorseHp = patrolRider.homeMount.currentHp
     const settlement = new TownMissionSettlement({ read: f.profile, commit: f.commit }, {
       field: f.mission, duel: { actors: [], cleanupMission: vi.fn(), snapshot: vi.fn() },
       defense: { active: false, cleanupMission: vi.fn(), snapshot: vi.fn(), civilianSurvived: 0, civilianDeaths: 0 },
@@ -297,11 +302,57 @@ describe('Town cavalry mission and Patrol integration', () => {
     expect(patrolRider.npc.tier).toBe(3)
     expect(f.patrol.returnStateFor(patrolRider.spec.id)).toBe('RETURN_TO_BARRACKS')
     expect(f.patrol.isReserveAvailable(patrolRider.spec.id)).toBe(false)
+    expect(restorePatrol).not.toHaveBeenCalled()
     f.mission.updateDepartingCavalry()
     expect(f.mission.departingNpcs).toHaveLength(8)
     for (const npc of temporary) npc.mount!.group.position.x = -285
     f.mission.updateDepartingCavalry()
     expect(f.mission.departingNpcs).toHaveLength(0)
     expect(temporary.every(npc => npc.group.parent === null)).toBe(true)
+
+    // Follow the actual settlement-issued return, rather than moving this rider to its target.
+    // Other returned riders are excluded here so this case isolates the refit/reborrow boundary.
+    const excluded = new Set(f.residents.filter(r => r !== patrolRider).map(r => r.npc))
+    const stepReturn = () => {
+      f.navigation.beginFrame(); f.patrol.beginFrame(excluded)
+      f.patrol.updateResident(patrolRider, .1, f.player.group.position, f.world.obstacles, f.navigation)
+    }
+    stepReturn()
+    const goal = (patrolRider.npc as any).formationTarget.position.clone()
+    // The Barracks courtyard lies directly south of the real hut at (34, 30).
+    // Assert its world bounds independently of the refit-position helper.
+    expect(goal.x).toBeGreaterThanOrEqual(33)
+    expect(goal.x).toBeLessThanOrEqual(64.5)
+    expect(goal.z).toBeGreaterThanOrEqual(38)
+    expect(goal.z).toBeLessThanOrEqual(56)
+    expect(Math.hypot(goal.x - patrolRider.spec.x, goal.z - patrolRider.spec.z)).toBeGreaterThan(20)
+    expect(patrolRider.npc.hp).toBe(returnHp)
+    expect(patrolRider.homeMount.currentHp).toBe(returnHorseHp)
+    for (let frame = 0; frame < 1200 && f.patrol.returnStateFor(patrolRider.spec.id) === 'RETURN_TO_BARRACKS'; frame++) {
+      const previous = patrolRider.npc.combatPosition.clone()
+      stepReturn()
+      expect(patrolRider.npc.combatPosition.distanceTo(previous)).toBeLessThan(2)
+    }
+    expect(f.patrol.returnStateFor(patrolRider.spec.id)).toBe('REJOIN_PATROL')
+    expect(restorePatrol).toHaveBeenCalledOnce()
+    expect(patrolRider.npc.combatPosition.x).toBe(goal.x)
+    expect(patrolRider.npc.combatPosition.z).toBe(goal.z)
+    expect({ melee: patrolRider.npc.meleeWeaponId, ranged: patrolRider.npc.rangedWeaponId,
+      shield: patrolRider.npc.shieldId, tier: patrolRider.npc.tier }).toEqual(originalEquipment)
+    expect(patrolRider.npc.hpRatio).toBe(1)
+    expect(patrolRider.homeMount.currentHp).toBe(patrolRider.homeMount.maxHp)
+    expect(patrolRider.npc.mount).toBe(patrolRider.homeMount)
+    expect(f.patrol.isReserveAvailable(patrolRider.spec.id)).toBe(true)
+
+    // Q5 permits borrowing immediately after refit, while this actor is still rejoining.
+    f.accept()
+    expect(f.profile().activeMission!.borrowedActorIds).toContain(patrolRider.spec.id)
+    expect(f.mission.friendlies.find(npc => npc.combatantId === patrolRider.spec.id)).toBe(patrolRider.npc)
+    expect(f.patrol.returnStateFor(patrolRider.spec.id)).toBeNull()
+    expect(f.patrol.isReserveAvailable(patrolRider.spec.id)).toBe(false)
+    const reborrowedPosition = patrolRider.npc.combatPosition.clone()
+    f.stepPatrol(10)
+    expect(patrolRider.npc.formationCommandId).toBe(9000)
+    expect(patrolRider.npc.combatPosition).toEqual(reborrowedPosition)
   })
 })

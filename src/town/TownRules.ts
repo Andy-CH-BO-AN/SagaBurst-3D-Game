@@ -62,6 +62,11 @@ export function townSitePoint(site: keyof typeof TOWN_SITES, side: number, forwa
   const { x, z, yaw } = TOWN_SITES[site]
   return { x: x + Math.cos(yaw) * side + Math.sin(yaw) * forward, z: z - Math.sin(yaw) * side + Math.cos(yaw) * forward, yaw }
 }
+/** Fixed mounted slots in the courtyard south of the Barracks hut, separate from Patrol startup formations. */
+export function townPatrolRefitPoint(actor: Pick<TownActorSpec, 'patrolId' | 'index'>) {
+  const slot = (actor.patrolId === 'B' ? 20 : 0) + actor.index
+  return townSitePoint('barracks', 22 + Math.floor(slot / 8) * 4.5, -(slot % 8) * 4.5)
+}
 export function townRoster(): TownActorSpec[] {
   const result: TownActorSpec[] = []
   // Preserve the original IDs even where mounted training slots become infantry.
