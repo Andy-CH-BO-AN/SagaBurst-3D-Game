@@ -33,8 +33,7 @@ import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareer
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownHorse, purchaseTownEquipment, sellTownProduct, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
-import { getCareerPurchaseTier } from '../career/CareerProfile'
+import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
 import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
@@ -585,35 +584,21 @@ export class TownScene {
             }
             row.append(button); list.append(row); continue
           }
-          if (!mount) {
-            const status = productStatus(this.profile, item)
-            const button = document.createElement('button'); button.className = 'town-button'
-            button.textContent = status === '已擁有' || status === '軍階未解鎖' ? status : this.profile.availableMerit < item.price ? '餘額不足' : '購買'
-            button.disabled = status !== '已解鎖・餘額足夠'
-            button.onclick = () => {
-              const result = purchaseTownEquipment(this.profile, item.id)
-              if (!result.purchased) {
-                const message = result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
-                this.talk(id, message); return
-              }
-              if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
-              this.talk(id, '購買成功：' + item.name + '\n按 Tab 選擇裝備。')
+          const status = productStatus(this.profile, item)
+          const button = document.createElement('button'); button.className = 'town-button'
+          button.textContent = status === '已擁有' || status === '軍階未解鎖' ? status : this.profile.availableMerit < item.price ? '餘額不足' : '購買'
+          button.disabled = status !== '已解鎖・餘額足夠'
+          button.onclick = () => {
+            const result = mount ? purchaseTownMount(this.profile, item.id) : purchaseTownEquipment(this.profile, item.id)
+            if (!result.purchased) {
+              const message = result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
+              this.talk(id, message); return
             }
-            row.append(button); list.append(row); continue
+            if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
+            const message = item.id === 'horse' ? selectTownDialogue(context, 'horsePurchaseSuccess') : '購買成功：' + item.name
+            this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'))
           }
-          this.button(row, item.id === 'horse' && !isTownProductOwned(this.profile, item) ? '購買' : '查看', () => {
-            const current = this.profile, owned = isTownProductOwned(current, item), tierUnlocked = getCareerPurchaseTier(current.rank) >= item.tier
-            let message = selectTownDialogue({ ...context, isOwned: owned, tierUnlocked, hasEnoughMerit: current.availableMerit >= item.price }, 'product')
-            if (item.id === 'horse' && !owned) {
-              const fresh = purchaseTownHorse(current, item.id)
-              if (fresh) {
-                if (!this.commit(fresh)) { this.talk(id, this.notice); return }
-                message = selectTownDialogue(context, 'horsePurchaseSuccess') + '\n按 Tab → 坐騎 → 騎乘。'
-              }
-            }
-            this.talk(id, message)
-          })
-          list.append(row)
+          row.append(button); list.append(row)
         }
       }
       if (id === 'cat' && !response) this.button(panel, '查看坐騎', () => showProducts())

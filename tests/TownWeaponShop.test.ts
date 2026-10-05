@@ -1,11 +1,13 @@
 import { createTownCombatFixture } from './townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, getCareerPurchaseTier, type CareerProfile, type CareerRank } from '../src/career/CareerProfile'
+import * as THREE from 'three'
+import { CareerMountController } from '../src/career/CareerMountController'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../src/rpg/WeaponDatabase'
 import { TownScene } from '../src/town/TownScene'
 import { TownEquipment } from '../src/town/TownEquipment'
-import { grantStarter, purchaseTownEquipment, purchaseTownHorse, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../src/town/TownRules'
+import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../src/town/TownRules'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
 
@@ -137,7 +139,7 @@ class PanelElement {
 }
 function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
-  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger']
+  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat']
   const store = new CareerProfileStore(storage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
@@ -241,5 +243,97 @@ describe('Merchant panel purchase integration', () => {
     expect(town.profile).toEqual(before); expect(store.load()).toEqual(before)
     expect(town.message).toContain('保存失敗')
     expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '購買', disabled: false })
+  })
+})
+
+describe('Career hero mount purchases', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it.each(['black-cat', 'corgi'] as const)('purchases %s at the catalog price and persists ownership and selection', id => {
+    for (const faction of ['roman', 'viking'] as const) {
+      const current = { ...profile('captain'), faction, totalMerit: 5000, availableMerit: 4229 }
+      const before = structuredClone(current)
+      const result = purchaseTownMount(current, id)
+      expect(result).toMatchObject({ purchased: true, spentMerit: 4000, profile: {
+        totalMerit: 5000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
+      } })
+      expect(current).toEqual(before)
+      const store = new CareerProfileStore(storage())
+      expect(store.save(result.profile)).toBe(true)
+      const reloaded = store.load()!
+      expect(reloaded.ownedMounts).toEqual([id])
+      expect(reloaded.selectedMountId).toBe(id)
+      expect(reloaded.availableMerit).toBe(229)
+      const mounts = new CareerMountController(new THREE.Scene(), () => null as any, () => reloaded, () => true, () => [], () => [])
+      expect(mounts.list()).toEqual([expect.objectContaining({ id, available: true, active: false })])
+      expect(purchaseTownMount(reloaded, id)).toMatchObject({ purchased: false, spentMerit: 0, reason: 'already-owned', profile: reloaded })
+    }
+  })
+
+  it.each(['black-cat', 'corgi'] as const)('enforces %s rank and balance without altering the profile', id => {
+    for (const rank of ['recruit', 'soldier', 'veteran'] as const) {
+      const current = { ...profile(rank), availableMerit: 8000 }
+      expect(purchaseTownMount(current, id)).toMatchObject({ purchased: false, reason: 'tier-locked', spentMerit: 0, profile: current })
+    }
+    const insufficient = { ...profile('captain'), totalMerit: 5000, availableMerit: 3999, selectedMountId: 'horse' as const }
+    expect(purchaseTownMount(insufficient, id)).toMatchObject({ purchased: false, reason: 'insufficient-merit', spentMerit: 0, profile: insufficient })
+    const exact = purchaseTownMount({ ...insufficient, rank: 'commander', availableMerit: 4000 }, id)
+    expect(exact.purchased).toBe(true)
+    expect(exact.profile.availableMerit).toBe(0)
+  })
+
+  it('rejects non-mount products and preserves legacy horse ownership', () => {
+    const current = { ...profile('captain'), totalMerit: 5000, availableMerit: 8000 }
+    for (const id of ['missing', '', 'horse-t1', 'steel_sword', 'scutum_t2', { id: 'black-cat', price: 0, tier: 1 }]) {
+      expect(purchaseTownMount(current, id as string)).toMatchObject({ purchased: false, reason: 'invalid-id', spentMerit: 0, profile: current })
+    }
+    const legacy = { ...current, ownedHorseTiers: [2] as (1 | 2 | 3)[], selectedMountId: 'horse-t2' as const }
+    expect(purchaseTownMount(legacy, 'horse')).toMatchObject({ purchased: false, reason: 'already-owned', profile: legacy })
+    expect(purchaseTownHorse(legacy, 'horse')).toBeNull()
+    expect(purchaseTownHorse(current, 'black-cat')).toBeNull()
+    const fresh = purchaseTownMount(profile('recruit'), 'horse')
+    expect(fresh).toMatchObject({ purchased: true, spentMerit: 200, profile: { selectedMountId: 'horse', ownedMounts: ['horse'], availableMerit: 300 } })
+  })
+
+  it.each(['cat', 'ranger'])('purchases both hero mounts through the actual %s panel handlers', shop => {
+    for (const name of ['黑貓英雄坐騎', '柯基英雄坐騎']) {
+      const id = name.startsWith('黑貓') ? 'black-cat' : 'corgi'
+      const { town, store, row } = merchantHarness(false, { ...profile('captain'), totalMerit: 5000, availableMerit: 4229 }, shop)
+      if (shop === 'cat') town.panel.children.find((child: PanelElement) => child.textContent === '查看坐騎').onclick()
+      expect(row(name).children[2]).toMatchObject({ textContent: '購買', disabled: false })
+      row(name).children[2].onclick!()
+      expect(store.load()).toMatchObject({ ownedMounts: [id], selectedMountId: id, availableMerit: 229, totalMerit: 5000 })
+      expect(row(name).children[2]).toMatchObject({ textContent: '已擁有', disabled: true })
+      expect(town.message).toContain(name)
+      expect(town.message).toContain('按 Tab → 坐騎 → 騎乘')
+      const before = structuredClone(town.profile)
+      row(name).children[2].onclick!()
+      expect(town.profile).toEqual(before)
+    }
+  })
+
+  it('shows locked and unaffordable mount buttons, and rejects stale purchase clicks', () => {
+    const locked = merchantHarness(false, { ...profile('veteran'), totalMerit: 5000, availableMerit: 8000 }, 'ranger')
+    expect(locked.row('黑貓英雄坐騎').children[2]).toMatchObject({ textContent: '軍階未解鎖', disabled: true })
+    locked.row('黑貓英雄坐騎').children[2].onclick!()
+    expect(locked.town.profile.ownedMounts).toEqual([])
+    const poor = merchantHarness(false, { ...profile('captain'), totalMerit: 5000, availableMerit: 3999 }, 'ranger')
+    expect(poor.row('柯基英雄坐騎').children[2]).toMatchObject({ textContent: '餘額不足', disabled: true })
+    const ready = merchantHarness(false, { ...profile('captain'), totalMerit: 5000, availableMerit: 4229 }, 'ranger')
+    ready.town.profile.availableMerit = 3999
+    ready.row('柯基英雄坐騎').children[2].onclick!()
+    expect(ready.town.profile.ownedMounts).toEqual([])
+    expect(ready.town.profile.availableMerit).toBe(3999)
+    expect(ready.town.message).toBe('可用軍功不足')
+  })
+
+  it.each(['黑貓英雄坐騎', '柯基英雄坐騎'])('keeps balance and ownership unchanged when saving %s fails', name => {
+    const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 5000, availableMerit: 4229, ownedMounts: ['horse'], selectedMountId: 'horse' }, 'ranger')
+    const before = structuredClone(town.profile)
+    row(name).children[2].onclick!()
+    expect(town.profile).toEqual(before)
+    expect(store.load()).toEqual(before)
+    expect(town.message).toContain('保存失敗')
+    expect(row(name).children[2]).toMatchObject({ textContent: '購買', disabled: false })
   })
 })

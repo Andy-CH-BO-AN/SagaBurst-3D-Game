@@ -1,4 +1,5 @@
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
+import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -208,15 +209,27 @@ export function isTownProductOwned(profile: CareerProfile, item: TownProduct): b
   return item.id === 'horse' ? ownsCareerHorse(profile)
     : (item.category === 'weapon' ? profile.ownedWeapons : item.category === 'armor' ? profile.ownedArmors : profile.ownedMounts as string[]).includes(item.id)
 }
-/** Never trust a UI-supplied price/tier; recheck against current rank and ownership. */
+/** Resolve mount purchases from the catalog and preserve legacy horse ownership. */
+export function purchaseTownMount(profile: CareerProfile, productId: string): CareerPurchaseResult {
+  const item = TOWN_PRODUCTS.find(product => product.id === productId && product.category === 'mount')
+  if (!item || !(PLAYER_MOUNT_IDS as readonly string[]).includes(item.id)) {
+    return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'invalid-id' }
+  }
+  if (isTownProductOwned(profile, item)) {
+    return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'already-owned' }
+  }
+  const result = purchaseCareerContent(profile, {
+    id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price,
+  })
+  if (result.purchased) result.profile.selectedMountId = item.id as PlayerMountId
+  return result
+}
+
+/** Compatibility entry point for callers buying the single military horse. */
 export function purchaseTownHorse(profile: CareerProfile, id: string): CareerProfile | null {
-  const item = TOWN_PRODUCTS.find(p => p.id === id && p.id === 'horse')
-  if (!item || productStatus(profile, item) !== '已解鎖・餘額足夠') return null
-  const next = cloneCareerProfile(profile)
-  next.availableMerit -= item.price
-  if (!next.ownedMounts.includes('horse')) next.ownedMounts.push('horse')
-  next.selectedMountId = 'horse'
-  return next
+  if (id !== 'horse') return null
+  const result = purchaseTownMount(profile, id)
+  return result.purchased ? result.profile : null
 }
 
 /** Resolve every purchase field from the catalog; callers supply only a product ID. */
