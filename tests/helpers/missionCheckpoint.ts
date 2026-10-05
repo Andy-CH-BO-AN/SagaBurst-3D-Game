@@ -1,3 +1,4 @@
+import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import type { CareerProfile } from '../../src/career/CareerProfile'
 
@@ -8,6 +9,7 @@ export function withMissionCheckpoint<T>(controller: T): T {
     readProfile(): CareerProfile
     commit(profile: CareerProfile): boolean
   }
+  if ('prepareTravelEncounter' in (controller as object)) Object.assign(controller, { travelEncounter: new MissionTravelEncounter() })
   host.checkpoint = new CareerMissionCheckpoint(() => host.readProfile(), profile => host.commit(profile))
   return controller
 }

@@ -19,6 +19,8 @@ export interface MountedMissionMarchOptions {
   chargeAfterFollow?: boolean
   squads?: readonly MountedMissionSquad[]
   leaderMode?: 'independent' | 'follow-first'
+  /** Town travel replaces fallen officers; Outpost relief retains its existing charge rule. */
+  leaderDeathMode?: 'charge' | 'replace'
   /** NPCs start after Player's reserved position in this squad; null means no Player. */
   playerSquadIndex?: number | null
 }
@@ -64,16 +66,52 @@ export class MountedMissionMarchController {
       return
     }
 
-    if (this.squads.some(squad => squad.leader?.dead)) {
-      this.charge()
-      return
+    if (this.options.leaderDeathMode !== 'replace' && this.squads.some(squad => squad.leader?.dead)) { this.charge(); return }
+    if (!this.assignTravelOrders()) { this.charge(); return }
+    if (this.options.playFollow !== false) this.followVoice(() => { this.followFinished = true })
+    else this.followFinished = true
+  }
+
+  update(restoreLeaderOrders = true): void {
+    if (!this.started || this.charged) return
+    if (this.options.leaderDeathMode !== 'replace' && this.squads.some(squad => squad.leader?.dead)) { this.charge(); return }
+    if (this.replaceFallenLeaders() && restoreLeaderOrders) this.assignTravelOrders()
+    const leader = this.squads.find(squad => squad.leader && !squad.leader.dead)?.leader
+    const distance = leader
+      ? Math.hypot(leader.combatPosition.x - this.breach.x, leader.combatPosition.z - this.breach.z)
+      : 0
+    const waiting = this.options.chargeAfterFollow
+      ? !this.followFinished
+      : distance > (this.options.chargeDistance ?? 50)
+    if (waiting && leader && !leader.dead) return
+    this.charge()
+  }
+
+  /** Reissue the remaining travel intent after an interruption, without replaying voices. */
+  resumeTravel(): void {
+    if (this.started && !this.charged) this.assignTravelOrders()
+  }
+
+  /** Formal mission contact supersedes any temporary travel interruption. */
+  engage(): void { if (this.started && !this.charged) this.charge() }
+
+  private replaceFallenLeaders(): boolean {
+    let changed = false
+    for (const squad of this.squads) {
+      if (squad.leader && !squad.leader.dead) continue
+      const fallback = squad.members.find(npc => !npc.dead)
+      if (fallback !== squad.leader) { squad.leader = fallback; changed = true }
     }
+    return changed
+  }
+
+  private assignTravelOrders(): boolean {
     const living = this.rescue.filter(npc => !npc.dead)
     if (!living.length) {
-      this.charge()
-      return
+      return false
     }
     const speed = Math.min(...living.map(npc => (npc.isMounted ?? Boolean(npc.mount && !npc.mount.dead)) && npc.mount ? npc.mount.baseSpeed : 7.5))
+    this.replaceFallenLeaders()
     const marchTarget = this.options.marchTarget ?? this.breach
     const leaders: NPC[] = []
     for (let squadIndex = 0; squadIndex < this.squads.length; squadIndex++) {
@@ -85,11 +123,11 @@ export class MountedMissionMarchController {
       squad.leader = leader
       leaders.push(leader)
       const leaderTarget = marchTarget.clone().add(squad.leaderOffset)
-      if (squadIndex === 0 || this.leaderMode === 'independent') {
+      if (leaders.length === 1 || this.leaderMode === 'independent') {
         const facing = marchTarget.clone().sub(leader.combatPosition).setY(0).normalize()
         leader.assignFormationTarget(1, leaderTarget, facing, speed)
       } else {
-        leader.assignFollowTarget(this.squads[0].leader!, 0, squad.leaderOffset.clone(), speed)
+        leader.assignFollowTarget(leaders[0], 0, squad.leaderOffset.clone(), speed)
       }
       const members = squad.members.filter(npc => !npc.dead && npc !== leader)
       const playerSlot = this.playerSquadIndex === squadIndex ? 1 : 0
@@ -102,29 +140,9 @@ export class MountedMissionMarchController {
       })
     }
     if (!leaders.length) {
-      this.charge()
-      return
+      return false
     }
-    if (this.options.playFollow !== false) this.followVoice(() => { this.followFinished = true })
-    else this.followFinished = true
-  }
-
-  update(): void {
-    if (!this.started || this.charged) return
-    // A dead squad leader should release the remaining force to combat.
-    if (this.squads.some(squad => squad.leader?.dead)) {
-      this.charge()
-      return
-    }
-    const leader = this.squads[0]?.leader
-    const distance = leader
-      ? Math.hypot(leader.combatPosition.x - this.breach.x, leader.combatPosition.z - this.breach.z)
-      : 0
-    const waiting = this.options.chargeAfterFollow
-      ? !this.followFinished
-      : distance > (this.options.chargeDistance ?? 50)
-    if (waiting && leader && !leader.dead) return
-    this.charge()
+    return true
   }
 
   private charge(): void {

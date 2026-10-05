@@ -8,7 +8,7 @@ import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { BanditMissionController, selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
 import { MountedMissionMarchController } from '../src/career/MountedMissionMarch'
 import { MAX_COMMAND_SQUAD_SIZE } from '../src/battle/CommandTarget'
-import { NPC, Faction } from '../src/world/NPC'
+import { NPC, Faction, AIType } from '../src/world/NPC'
 import { damageNpc } from '../src/combat/DamageRouter'
 import { CombatEventStream } from '../src/combat/CombatAttribution'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
@@ -338,18 +338,19 @@ describe('Sweep runtime and checkpoint', () => {
     expect(c.onMarchStarted).toHaveBeenCalledOnce(); expect(c.onSweepCharge).toHaveBeenCalledOnce()
     c.dispose()
   })
-  it.each(['Captain', 'Maki'])('persists Charge and casualties when %s falls; reload never follows or respawns them', leader => {
+  it.each(['Captain', 'Maki'])('replaces %s during travel and preserves casualties and march intent on reload', leader => {
     const f = fixture(), c = f.controller
     const npc = c.friendlies.find((n: NPC) => n.name === leader)
     npc.takeDamage(999999)
     c.missionBandits[0].takeDamage(999999)
     f.player.dead = true
     c.updateFlow(.1, 0)
-    expect(f.profile().activeMission).toMatchObject({ phase: 'ENGAGING', playerDead: true, deadFriendlyActorIds: [npc.combatantId] })
-    expect(c.onSweepCharge).toHaveBeenCalledTimes(leader === 'Captain' ? 0 : 1)
+    expect(f.profile().activeMission).toMatchObject({ phase: 'MARCHING', playerDead: true, deadFriendlyActorIds: [npc.combatantId] })
+    expect(c.onSweepCharge).not.toHaveBeenCalled()
     f.reload()
     expect(c.friendlies).toHaveLength(58); expect(c.missionBandits).toHaveLength(39)
-    expect(c.friendlies.every((n: NPC) => n.tacticalOrder === 'charge')).toBe(true)
+    expect(c.friendlies.every((n: NPC) => n.tacticalOrder === 'formation' || n.tacticalOrder === 'follow')).toBe(true)
+    expect(c.friendlies.some((n: NPC) => n.combatantId === npc.combatantId)).toBe(false)
     expect(c.onMarchStarted).toHaveBeenCalledOnce()
     expect(f.profile().activeMission!.playerDead).toBe(true)
     c.dispose()
@@ -370,6 +371,30 @@ describe('Sweep runtime and checkpoint', () => {
     expect(c.friendlies).toHaveLength(58); expect(c.missionBandits).toHaveLength(39)
     expect(c.onMarchStarted).toHaveBeenCalledOnce()
     c.dispose()
+  })
+  it('reloads encounter casualties, rider health and positions without persisting temporary threats or replacing lost mounts', () => {
+    const f = fixture(), c = f.controller
+    const member = c.friendlies[1], casualty = c.friendlies[2]
+    const source = new NPC(new THREE.Scene(), member.combatPosition.x + 3, member.combatPosition.z, Faction.BANDIT, 'roman', AIType.MELEE, 'roaming', 1, false)
+    const lostMount = member.mount
+    lostMount.takeDamage(999999)
+    member.takeDamage(7); casualty.takeDamage(999999)
+    c.noteTravelHit(member, source, { owns: (npc: NPC) => npc === source })
+    expect(c.travelEncounter.active).toBe(true)
+    c.persistRuntimeProgress(true)
+    const position = member.combatPosition.clone(), hp = member.hp, actorId = member.combatantId
+    expect(JSON.stringify(f.profile().activeMission)).not.toContain('engagementOrigin')
+    expect(f.profile().activeMission.targetActorIds).not.toContain(source.combatantId)
+    f.reload()
+    const restored = c.friendlies.find((npc: NPC) => npc.combatantId === actorId)
+    expect(c.travelEncounter.active).toBe(false)
+    expect(c.phase).toBe('MARCHING')
+    expect(restored.hp).toBe(hp)
+    expect(restored.isMounted).toBe(false)
+    expect(restored.combatPosition.x).toBeCloseTo(position.x)
+    expect(restored.combatPosition.z).toBeCloseTo(position.z)
+    expect(c.friendlies.some((npc: NPC) => npc.combatantId === casualty.combatantId)).toBe(false)
+    source.dispose(); c.dispose()
   })
   it('reuses the Bandit return route after victory and reloads the surviving party without respawning enemies', () => {
     const f = fixture(21), c = f.controller

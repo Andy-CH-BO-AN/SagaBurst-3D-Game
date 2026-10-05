@@ -1,3 +1,4 @@
+import { MissionTravelEncounter } from '../src/career/MissionTravelEncounter'
 import { createTownCombatFixture } from './townCombatFixture'
 import { checkMountImpact } from '../src/combat/MountImpact'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
@@ -267,6 +268,8 @@ describe('Town mission death observer orchestration', () => {
     }
     const simulation = combatFixture({
       controllers: { field: {
+        travelEncounter: new MissionTravelEncounter(), prepareTravelEncounter: vi.fn(), noteTravelHit: vi.fn(() => false),
+        engageFormalMission: vi.fn(), isMissionTarget: vi.fn(() => false), veteranEnemySquads: [], markVeteranEnemySquadEngaged: vi.fn(() => false),
         get active() { return town.profile.activeMission },
         fieldNpcs: town.mission.fieldNpcs, friendlies: town.mission.friendlies,
         ambientBandits: town.mission.ambientBandits, missionBandits: town.mission.missionBandits,

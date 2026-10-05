@@ -1,3 +1,4 @@
+import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
 import * as THREE from 'three'
 import { vi } from 'vitest'
 import type { ActiveCareerMission, CareerMissionPhase } from '../../src/career/CareerMissionState'
@@ -19,6 +20,10 @@ export function combatActor(id: string, faction = Faction.TOWN) {
     combatantId: id, faction, dead: false, group: new THREE.Group(), mount: null as Mount | null,
     townCategory: undefined as NPC['townCategory'], hostileToPlayer: false,
     get combatPosition() { return this.mount?.group.position ?? this.group.position },
+    clearEncounter: vi.fn<NPC['clearEncounter']>(),
+    setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order }),
+    tacticalOrder: 'attack' as NPC['tacticalOrder'],
+    assignFormationTarget: vi.fn<NPC['assignFormationTarget']>(),
     update: vi.fn<NPC['update']>(), updateTownPeace: vi.fn<NPC['updateTownPeace']>(),
     beginExternalThreat: vi.fn<NPC['beginExternalThreat']>(), endExternalThreat: vi.fn<NPC['endExternalThreat']>(),
   }
@@ -44,6 +49,9 @@ export function combatResident(npc: NPC, role: TownActorSpec['role'] = 'melee_in
 /** Typed substitutes at the simulation's public seam; no TownScene or controller internals. */
 export function combatFixture(options: { controllers?: Partial<Controllers>; simulation?: Partial<Simulation> } = {}) {
   const field = {
+    travelEncounter: new MissionTravelEncounter(),
+    prepareTravelEncounter: vi.fn(), noteTravelHit: vi.fn(() => false), engageFormalMission: vi.fn(),
+    isMissionTarget: vi.fn((actor: NPC) => field.missionBandits.includes(actor)),
     active: undefined as ActiveCareerMission | undefined,
     fieldNpcs: [] as NPC[], friendlies: [] as NPC[], ambientBandits: [] as NPC[], missionBandits: [] as NPC[],
     veteranEnemySquads: [] as readonly VeteranMissionEnemySquad[],
