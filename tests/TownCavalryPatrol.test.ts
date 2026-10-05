@@ -13,7 +13,7 @@ import { AIType, Faction, NPC } from '../src/world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../src/world/Mount'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../src/world/Terrain'
 import { selectMissionCavalryActorIds } from '../src/career/BanditMissionController'
-import { createTownDefenseGroups } from '../src/career/TownDefenseState'
+import { siegeDefensePlans } from '../src/career/TownSiege'
 import { combatActor, combatFixture } from './helpers/townMissionCombat'
 import { SpatialGrid } from '../src/world/SpatialGrid'
 
@@ -87,8 +87,8 @@ describe('Town patrol roster and route contracts', () => {
         if (faction === 'viking' && !s.patrolLeader) expect(equipment.loadout.meleeWeaponId).toBe('viking_axe_t2')
       }
     }
-    expect(townSettlementRoster()).toHaveLength(85); expect(townAssaultObjectiveRoster()).toHaveLength(63)
-    expect(createTownDefenseGroups(roster).map(g => g.actorIds.length)).toEqual([10, 10, 10, 10, 10, 10])
+    expect(townSettlementRoster()).toHaveLength(85); expect(townAssaultObjectiveRoster()).toHaveLength(203)
+    expect(siegeDefensePlans(roster).flatMap(g => g.cavalry)).toHaveLength(102)
     expect(roster.filter(s => s.mounted && s.duty === 'training')).toHaveLength(60)
     expect(roster.filter(s => s.duty === 'gate_guard')).toHaveLength(40)
     const fake = roster.map(spec => ({ spec, npc: { dead: false, combatantId: spec.id, mount: { dead: false } } as NPC }))

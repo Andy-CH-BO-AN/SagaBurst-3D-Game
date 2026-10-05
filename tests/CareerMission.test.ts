@@ -22,7 +22,7 @@ const playerStats = (damageDealt: number, kills: number, survived = true) => ({
 
 describe('Recruit mission catalog and merit', () => {
   it('defines a compact repeatable board plus a late one-time Town Defense milestone', () => {
-    expect(RECRUIT_MISSION_CATALOG).toHaveLength(10)
+    expect(RECRUIT_MISSION_CATALOG).toHaveLength(8)
     const bandits = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'bandit')
     const patrols = RECRUIT_MISSION_CATALOG.filter(mission => mission.kind === 'patrol')
     const defense = RECRUIT_MISSION_CATALOG.find(mission => mission.kind === 'town-defense')!
@@ -32,10 +32,7 @@ describe('Recruit mission catalog and merit', () => {
       ['forest-line', 8, 7],
     ])
     for (const mission of bandits) expect(mission.friendlyCombatants).toBe(mission.friendlySoldiers + 2)
-    expect(defense.storyOnce).toBe(true)
-    expect(defense.requiresCompletions).toBe(5)
-    expect([defense.friendlySoldiers, defense.enemyCount, defense.civilianCount, defense.maxCivilianDeaths]).toEqual([60, 50, 20, 10])
-    expect(defense.friendlyCombatants).toBe(64)
+    expect(defense).toBeUndefined()
     let profile = createCareerProfile('roman')
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(2)
     profile.careerMissionCompletions = 1
@@ -45,14 +42,14 @@ describe('Recruit mission catalog and merit', () => {
     profile.totalMerit = 90
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(5)
     profile.totalMerit = 120; profile.careerMissionCompletions = 5
-    expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(7)
-    profile.completedCareerMissionTemplateIds = [defense.id]
+    expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(6)
+    profile.completedCareerMissionTemplateIds = ['recruit-town-defense-01']
     expect(availableRecruitMissions(profile).filter(mission => mission.kind !== 'enemy-town-assault')).toHaveLength(6)
     profile.careerMissionCompletionsByTier = { 1: 5, 2: 5 }
     for (const rank of ['soldier', 'veteran', 'captain', 'commander'] as const) {
       profile.rank = rank
       expect(availableRecruitMissions(profile).filter(mission => mission.id !== 'soldier-town-defense-01').map(mission => mission.id)).toEqual(availableRecruitMissions({ ...profile, rank: 'recruit' }).map(mission => mission.id))
-      expect(availableRecruitMissions(profile).some(mission => mission.id === 'soldier-town-defense-01')).toBe(true)
+      expect(availableRecruitMissions(profile).some(mission => mission.id === 'soldier-town-defense-01')).toBe(false)
     }
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     expect(availableRecruitMissions(profile)).toEqual([])

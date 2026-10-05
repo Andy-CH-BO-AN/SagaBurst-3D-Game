@@ -314,7 +314,7 @@ describe('Town mission return saving and recovery through the settlement interfa
       expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
       expect(f.threats.has(resident.npc)).toBe(false)
     }
-    for (const resident of livingReserve) expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
+    for (const resident of livingReserve) expect(resident.npc.restoreForTown).toHaveBeenCalledTimes(kind === 'town-defense' ? 1 : 0)
     expect(f.profile().activeMission).toBeUndefined()
   })
 

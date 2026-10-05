@@ -60,6 +60,7 @@ class TestNpc {
   assignFollowTarget = vi.fn((leader: TestNpc, slot: number) => {
     this.activeFollowTarget = leader; this.activeFollowSlotIndex = slot; this.formationCommandId = -1
   })
+  clearEncounter = vi.fn()
   updateTownTravel = vi.fn()
   dispose = vi.fn(() => { this.disposed = true })
   move(x: number, z: number): void { this.group.position.set(x, 0, z); this.mount?.group.position.set(x, 0, z) }
@@ -116,6 +117,42 @@ describe('Town outskirts runtime', () => {
     expect(riders.every(npc => npc.spec.tier === 2 && npc.spec.characterFaction === visual && npc.faction === allegiance
       && npc.spec.loadout?.meleeWeaponId === weapon && npc.spec.loadout?.mountId === 'horse' && !npc.respawnEnabled)).toBe(true)
     expect(outskirtsCavalryFaction(town, player).faction).toBe(allegiance)
+    test.controller.dispose()
+  })
+
+  it('claims living cavalry identities and horses once, without repositioning or roaming replacements', () => {
+    const test = setup(); test.isolate()
+    const cavalry = test.controller.squads.filter(s => s.spec.kind === 'cavalry')
+    cavalry[0].members.slice(0, 7).forEach(n => asTest(n).die())
+    const living = cavalry.flatMap(s => s.members).filter(n => !n.dead)
+    const positions = living.map(n => n.combatPosition.clone()), mounts = living.map(n => n.mount)
+    const claim = test.controller.claimCavalryForSiege('viking')
+    expect(claim.actors).toEqual(living)
+    expect(claim.actors).toHaveLength(23)
+    expect(claim.mounts).toEqual(mounts)
+    expect(claim.actors.every((n, i) => n.combatPosition.equals(positions[i]))).toBe(true)
+    expect(living.some(n => test.controller.actors.includes(n))).toBe(false)
+    test.frame(120)
+    expect(cavalry.every(s => s.state === 'SIEGE_OWNED' && s.members.length === 0)).toBe(true)
+    expect(test.controller.claimCavalryForSiege('viking').actors).toHaveLength(0)
+    test.controller.releaseSiegeOwnership()
+    expect(cavalry.every(s => s.members.length === 10)).toBe(true)
+    test.controller.dispose()
+  })
+
+  it('starts each bandit squad cooldown at its own full wipe and waits exactly 60 seconds', () => {
+    const test = setup(); test.isolate()
+    const [a, b] = test.controller.squads
+    a.members.forEach(n => asTest(n).die()); test.frame()
+    test.frame(30)
+    b.members.forEach(n => asTest(n).die()); test.frame(0)
+    test.frame(29)
+    expect(a.state).toBe('RESPAWN_COOLDOWN'); expect(b.state).toBe('RESPAWN_COOLDOWN')
+    test.frame(1)
+    expect(a.members.every(n => !n.dead)).toBe(true)
+    expect(b.state).toBe('RESPAWN_COOLDOWN')
+    test.frame(30)
+    expect(b.members.every(n => !n.dead)).toBe(true)
     test.controller.dispose()
   })
 
@@ -291,7 +328,7 @@ describe('Town outskirts runtime', () => {
     const squad = test.controller.squads[0], previous = [...squad.members]
     previous.forEach(npc => { asTest(npc).dead = true })
     const reads = previous.map(npc => vi.spyOn(asTest(npc), 'combatPosition', 'get'))
-    test.frame()
+    test.frame(); test.frame(60)
     expect(previous.every(npc => test.controller.actors.includes(npc) && test.controller.combatEnabled(npc))).toBe(true)
     expect(squad.leader?.dead).toBe(false)
     expect(previous).not.toContain(squad.leader)
@@ -349,7 +386,7 @@ describe('Town outskirts runtime', () => {
     for (let wave = 1; wave <= 8; wave++) {
       const previous = test.controller.squads.flatMap(squad => squad.members)
       previous.forEach(npc => asTest(npc).die())
-      test.frame()
+      test.frame(); test.frame(60)
       expect(test.controller.actors).toHaveLength(120)
       expect(test.controller.actors.filter(npc => !npc.dead)).toHaveLength(60)
       previous.forEach(npc => asTest(npc).updateDeathPresentation(DEATH_DESPAWN_DELAY_SECONDS - .01))
@@ -442,7 +479,7 @@ describe('Town outskirts runtime', () => {
           asTest(member).dead = true
         }
       }
-      test.frame()
+      test.frame(); test.frame(60)
       for (const squad of test.controller.squads) for (const member of squad.members) {
         clearSlot(member)
         expect(Math.max(Math.abs(member.combatPosition.x), Math.abs(member.combatPosition.z)), member.combatantId).toBeGreaterThanOrEqual(335)

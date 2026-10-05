@@ -154,6 +154,15 @@ export class CampaignGateController {
     return this._state
   }
 
+  /** Only scenario cleanup calls this; same-battle restoration preserves breaches. */
+  restoreOpen(): void {
+    this.damageable.restore()
+    this._state = 'closed'
+    this.open()
+  }
+
+  get siegeObstacle(): ObstacleData { return this.obstacle }
+
   /** Campaign/Siege owns breach policy; physical gate changes have no implicit breach. */
   onStateChange(callback: (state: CampaignGateState) => void): () => void {
     this.stateCallbacks.add(callback)

@@ -31,7 +31,7 @@ describe('Veteran Home Defense career mission', () => {
     expect(template).toMatchObject({
       id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID, kind: 'town-defense', name: '守衛家園 · 老兵守城',
       minRank: 'veteran', requiresCompletions: 5, storyOnce: false,
-      friendlySoldiers: 60, friendlyCombatants: 64, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
+      friendlySoldiers: 203, friendlyCombatants: 204, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
     })
     expect(careerMissionTierForTemplateId(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(3)
     expect(availableCareerMissionsForPage(fourWins, 'veteran').some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
@@ -45,22 +45,22 @@ describe('Veteran Home Defense career mission', () => {
   })
 
   it('keeps the accepted 61-enemy Veteran roster stable across reload and promotion', () => {
-    expect(townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(50)
-    expect(townDefenseEnemyCount(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 'soldier')).toBe(55)
-    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(61)
-    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'captain')).toBe(67)
-    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'commander')).toBe(73)
+    expect(townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(120)
+    expect(townDefenseEnemyCount(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, 'soldier')).toBe(120)
+    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(120)
+    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'captain')).toBe(120)
+    expect(townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'commander')).toBe(120)
 
     const accepted = acceptedHomeDefense(veteranProfile(5))
     const stableTargets = [...accepted.activeMission!.targetActorIds]
     expect(accepted.activeMission).toMatchObject({ kind: 'town-defense', targetCampId: -1, friendlyActorIds: expect.arrayContaining(['home-defense-acceptance:friendly:0']) })
-    expect(accepted.activeMission!.targetActorIds).toHaveLength(61)
+    expect(accepted.activeMission!.targetActorIds).toHaveLength(120)
     expect(accepted.activeMission!.friendlyActorIds).toHaveLength(63)
     expect(accepted.activeMission!.civilianActorIds).toHaveLength(20)
     const promoted = { ...accepted, rank: 'commander' as const, totalMerit: 2000 }
     const restored = parseCareerProfile(JSON.parse(JSON.stringify(promoted)))!
     expect(restored.activeMission!.targetActorIds).toEqual(stableTargets)
-    expect(restored.activeMission!.targetActorIds).toHaveLength(61)
+    expect(restored.activeMission!.targetActorIds).toHaveLength(120)
     expect(restored.activeMission!.templateId).toBe(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
   })
 

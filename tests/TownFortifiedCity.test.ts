@@ -4,7 +4,7 @@ import { createTownFortifications } from '../src/town/TownFortifications'
 import { TOWN_CITY, TOWN_GATES, TOWN_CITY_ROADS, townGatePoint, townSceneryExcluded } from '../src/town/TownLayout'
 import { TownEvent, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster } from '../src/town/TownRules'
 import { TownWorld } from '../src/town/TownWorld'
-import { createTownDefenseGroups } from '../src/career/TownDefenseState'
+import { siegeDefensePlans } from '../src/career/TownSiege'
 import { createEnemyTownAssaultMission } from '../src/career/EnemyTownAssault'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../src/world/Terrain'
@@ -27,14 +27,13 @@ function fortifications(faction: 'roman' | 'viking') {
 }
 
 describe('Fortified city explicit rosters', () => {
-  it('keeps sixty scripted infantry in six disjoint groups despite same-role ambient additions', () => {
-    const roster = townRoster(), groups = createTownDefenseGroups([...roster].reverse())
+  it('distributes the complete military roster into four disjoint gate defense plans', () => {
+    const roster = townRoster(), groups = siegeDefensePlans([...roster].reverse())
     expect(roster).toHaveLength(225)
     expect(new Set(roster.map(actor => actor.id)).size).toBe(225)
-    expect(groups).toHaveLength(6)
-    const ids = groups.flatMap(group => group.actorIds)
-    expect(ids).toHaveLength(60); expect(new Set(ids).size).toBe(60)
-    for (const group of groups) { expect(group.actorIds).toHaveLength(10); expect(group.mounted).toBe(false) }
+    expect(groups).toHaveLength(4)
+    const ids = groups.flatMap(group => [...group.infantry, ...group.cavalry])
+    expect(ids).toHaveLength(203); expect(new Set(ids).size).toBe(203)
     expect(roster.filter(actor => actor.defenseGroup).every(actor => actor.duty === 'training' && actor.training && !actor.mounted)).toBe(true)
     for (const [prefix, count, role] of [['melee_cavalry', 5, 'melee_infantry'], ['lancer_cavalry', 5, 'spearman_infantry'], ['ranged_cavalry', 10, 'ranged_infantry']] as const) {
       for (let i = 0; i < count; i++) expect(roster.find(actor => actor.id === `${prefix}-${i}`)).toMatchObject({ role, mounted: false, duty: 'training', training: true })
@@ -92,10 +91,10 @@ describe('Fortified city explicit rosters', () => {
   it('assault acceptance targets exactly the scripted military identities, independent of ambient troops', () => {
     const mission = createEnemyTownAssaultMission('fortified-assault')
     expect(mission.targetActorIds).toEqual(townAssaultObjectiveRoster().map(actor => actor.id))
-    expect(mission.targetActorIds).toHaveLength(63)
+    expect(mission.targetActorIds).toHaveLength(203)
     const all = new Set(townRoster().map(actor => actor.id))
     expect(mission.targetActorIds.every(id => all.has(id))).toBe(true)
-    expect(mission.targetActorIds.some(id => id.startsWith('gate:') || id.startsWith('cavalry-training:'))).toBe(false)
+    expect(mission.targetActorIds.some(id => id.startsWith('gate:') || id.startsWith('cavalry-training:'))).toBe(true)
     expect(mission.civilianActorIds).toHaveLength(20)
   })
 })

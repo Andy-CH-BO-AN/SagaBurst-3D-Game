@@ -375,6 +375,16 @@ export class NPC {
   // Temporary destructible blocker target. NPCs never scan for structures;
   // they only react to the first blocker on the route to their human target.
   private _siegeTargetObstacle: ObstacleData | null = null
+  /** Opt-in mission travel: defend against immediate contact without abandoning the movement order. */
+  missionMovement = false
+  private assignedSiegeObstacle: ObstacleData | null = null
+  get hasSiegeObstacle(): boolean { return this._isAttackableObstacle(this.assignedSiegeObstacle) }
+  assignSiegeObstacle(obstacle: ObstacleData | null): void {
+    if (this.assignedSiegeObstacle === obstacle) return
+    this.assignedSiegeObstacle = obstacle
+    this._clearNavigationPath(); this._clearSiegeFallback()
+    if (obstacle) { this._siegeTargetObstacle = obstacle; this.state = AIState.CHASE }
+  }
   private readonly _tmpSiegeTarget = new THREE.Vector3()
   private readonly _tmpSiegeCandidateCenter = new THREE.Vector3()
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
@@ -476,6 +486,7 @@ export class NPC {
     this._cachedTargetNpc = null
     this._targetAcquisitionInitialized = true
     this._targetReacquireFramesRemaining = 0
+    if (this.missionMovement) return
     this.formationTarget = null
     if (this.state === AIState.IDLE) this.state = AIState.CHASE
     this._clearNavigationPath()
@@ -1556,6 +1567,7 @@ export class NPC {
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
   ): ObstacleData | null {
+    if (this._isAttackableObstacle(this.assignedSiegeObstacle)) { this._siegeTargetObstacle = this.assignedSiegeObstacle; return this.assignedSiegeObstacle }
     if (!this._isAttackableObstacle(this._siegeTargetObstacle)) {
       this._clearSiegeFallback()
       return null
@@ -1926,17 +1938,30 @@ export class NPC {
         }
       }
     }
-    if ((this.tacticalOrder === 'formation' || this.tacticalOrder === 'defend' && this.formationTarget?.arrivalOrder === 'defend' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget) {
+    const missionOrder = this.missionMovement ? this.tacticalOrder : null
+    const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
+    const missionContact = missionTarget && !missionTarget.isDead
+      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= Math.min(20, this.maxRangedAttackDistance) ** 2 : this._isTargetInDefendRange(missionTarget.position))
+      && this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null
+    if (missionContact) {
+      this.tacticalOrder = 'defend'
+      if (this.state !== AIState.ATTACK) this.state = AIState.ATTACK
+    }
+    if (!missionContact && ((this.tacticalOrder === 'formation'  || this.tacticalOrder === 'defend' && this.formationTarget?.arrivalOrder === 'defend' || this.tacticalOrder === 'follow' && !this.followCombatActive) && this.formationTarget)) {
       this._updateFormationMovement(dt, nearbyNPCs, obstacles, skipBoidsAndObstacles, navigationWorld)
     } else {
       if (import.meta.env.DEV && _collector) { var _tTargetAI = performance.now() }
-      const targetInfo = this._getTarget(
+      let targetInfo = missionContact ? missionTarget : this._getTarget(
         dt,
         player,
         allNPCs,
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
+      if (this.hasSiegeObstacle) {
+        targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
+        this._siegeTargetObstacle = this.assignedSiegeObstacle
+      }
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
       if (
         meleeTarget !== this.meleeApproachTarget
@@ -2077,7 +2102,7 @@ export class NPC {
         }
 
         const dist = Math.sqrt(distSq)
-        const navigationRoute = !skipBoidsAndObstacles
+        const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
           ? this._resolveNavigationMoveTarget(
             targetInfo.position,
             obstacles,
@@ -2289,7 +2314,7 @@ export class NPC {
 
         let siegeObstacle: ObstacleData | null = null
         if (this._siegeTargetObstacle) {
-          const navigationRoute = !skipBoidsAndObstacles
+          const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
             ? this._resolveNavigationMoveTarget(
               targetInfo.position,
               obstacles,
@@ -2557,6 +2582,7 @@ export class NPC {
       }
     }
 
+    if (missionOrder) this.tacticalOrder = missionOrder
     if (this.isSprinting) {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
     } else {

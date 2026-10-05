@@ -1,7 +1,8 @@
+import { newTownSiegeState } from '../src/career/TownSiege'
 import { describe, expect, it } from 'vitest'
 import type { PlayerBattleStats } from '../src/combat/BattleStatsTracker'
 import { calculateRecruitMissionMerit } from '../src/career/CareerMissionMeritPolicy'
-import { RECRUIT_MISSION_CATALOG } from '../src/career/CareerMissionCatalog'
+import { RECRUIT_MISSION_CATALOG, VETERAN_TOWN_DEFENSE_TEMPLATE } from '../src/career/CareerMissionCatalog'
 import { createActiveCareerMission, type ActiveCareerMission } from '../src/career/CareerMissionState'
 import { claimCareerMission, createCareerProfile } from '../src/career/CareerProfile'
 import { claimCareerOutpost } from '../src/career/CareerOutpostMission'
@@ -19,9 +20,9 @@ describe('Unified mission damage merit', () => {
   describe.each(missionKinds)('%s claims', kind => {
     it.each(damageCases)('awards %s effective damage as %s damage merit', (damage, expectedMerit) => {
       const profile = createCareerProfile('roman')
-      const template = RECRUIT_MISSION_CATALOG.find(mission => mission.kind === kind)!
+      const template = [...RECRUIT_MISSION_CATALOG, VETERAN_TOWN_DEFENSE_TEMPLATE].find(mission => mission.kind === kind)!
       const targetCampId = kind === 'town-defense' || kind === 'enemy-town-assault' ? -1 : 0
-      profile.activeMission = { ...createActiveCareerMission(template.id, targetCampId, 1, 0, 'merit-test'), kind } satisfies ActiveCareerMission
+      profile.activeMission = { ...createActiveCareerMission(template.id, targetCampId, 1, 0, 'merit-test'), kind, ...((kind === 'town-defense' || kind === 'enemy-town-assault') ? { siege: newTownSiegeState() } : {}) } satisfies ActiveCareerMission
       const claim = claimCareerMission(profile, 'merit-test', 'victory', playerStats(damage))
       expect(claim.profile.activeMission?.result?.merit.damage).toBe(expectedMerit)
       const loaded = parseCareerProfile(JSON.parse(JSON.stringify(claim.profile)))!

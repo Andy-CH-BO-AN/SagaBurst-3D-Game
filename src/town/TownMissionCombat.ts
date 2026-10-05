@@ -420,7 +420,7 @@ export class TownMissionCombat {
     const previousOutskirts = new Set(outskirts?.actors ?? [])
     const participants = [...new Set([
       ...this.town.residents.map(resident => resident.npc),
-      ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length ? this.missions.field.ambientBandits : []),
+      ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
       ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
       ...(outskirts?.actors ?? []),
     ])]
@@ -653,7 +653,7 @@ export class TownMissionCombat {
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const outskirts = this.prepareOutskirtsFrame(dt)
-    const warfareActive = Boolean(outskirts?.actors.length)
+    const warfareActive = Boolean(outskirts?.actors.length || defense.active)
     if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
     this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors]))
     const patrol = this.town.patrol?.()
@@ -672,7 +672,6 @@ export class TownMissionCombat {
       if (actor.faction === Faction.ENEMY) this.defenseEnemyGrid.insert(actor)
       else this.defenseTownGrid.insert(actor)
     }
-    const preparing = defense.phase === 'PREPARING'
     for (const actor of actors) {
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)
@@ -682,12 +681,8 @@ export class TownMissionCombat {
         this.updateOutskirtsActor(actor, outskirts, dt)
         continue
       }
-      if (preparing && defense.assault && actor.townCategory !== 'civilian' && !actor.dead) {
-        actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
-        continue
-      }
       defense.updateCivilianOrder(actor)
-      const individualDefense = !preparing && warfareActive && this.shouldDefendAgainstOutskirts(actor)
+      const individualDefense = !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
       const travelOrder = individualDefense && (actor.tacticalOrder === 'formation' || actor.tacticalOrder === 'follow'
         || actor.tacticalOrder === 'defend' && actor.formationCommandId != null)
         ? actor.tacticalOrder : null
@@ -727,8 +722,8 @@ export class TownMissionCombat {
         applyMountImpactDamage(mount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact'))
       }
     }
-    if (!preparing && warfareActive) this.updateRuntimeMountImpacts(actors, elapsed)
-    else if (!preparing) for (const actor of actors) {
+    if (warfareActive) this.updateRuntimeMountImpacts(actors, elapsed)
+    else for (const actor of actors) {
       const npcMount = actor.mount
       if (!npcMount || npcMount.dead || actor.dead) continue
       for (const target of this.grid.getNearby(npcMount.group.position, 2.5)) {

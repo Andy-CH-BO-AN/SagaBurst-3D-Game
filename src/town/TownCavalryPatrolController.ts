@@ -60,6 +60,26 @@ export class TownCavalryPatrolController {
   private readonly sensorCenter = new THREE.Vector3()
   private readonly anchor = { position: new THREE.Vector3(), yaw: 0 }
   private hostile = false
+  private siegeOwned = false
+
+  /** Siege owns recall travel and casualties, even for actors currently fighting or refitting. */
+  recallForSiege(): void {
+    this.siegeOwned = true
+    this.returning.clear(); this.available.clear()
+    for (const squad of this.squads) {
+      squad.participants.clear(); squad.threats.clear(); squad.engagementOrigin = null
+    }
+    for (const resident of this.residents.values()) {
+      this.relinquished.add(resident.spec.id)
+      resident.npc.clearEncounter()
+    }
+  }
+
+  releaseSiegeOwnership(): void {
+    this.siegeOwned = false
+    this.relinquished.clear()
+    for (const squad of this.squads) { squad.state = 'BARRACKS'; squad.activeLeaderActorId = null; squad.commandedWaypoint = null }
+  }
 
   constructor(residents: readonly PatrolResident[]) {
     this.squads = (['A', 'B'] as const).flatMap(id => {
@@ -104,7 +124,7 @@ export class TownCavalryPatrolController {
   returnStateFor(actorId: string): TownPatrolReturnState | null { return this.returning.get(actorId)?.state ?? null }
 
   owns(npc: NPC): boolean {
-    return !this.hostile && this.residents.get(npc.combatantId)?.npc === npc
+    return !this.siegeOwned && !this.hostile && this.residents.get(npc.combatantId)?.npc === npc
       && !this.relinquished.has(npc.combatantId) && !this.excluded.has(npc)
   }
 
@@ -130,7 +150,7 @@ export class TownCavalryPatrolController {
 
   /** One throttled broad-phase query per squad across actual mission and roaming participants. */
   prepareCombatFrame(dt: number, threatGrid: SpatialGrid<NPC>, threats: PatrolThreatRuntime): void {
-    if (this.hostile) return
+    if (this.hostile || this.siegeOwned) return
     for (const squad of this.squads) {
       squad.sensorRemaining -= Math.max(0, dt)
       if (squad.state === 'ENGAGING' && !squad.members.some(r => squad.participants.has(r.spec.id) && this.owns(r.npc) && !r.npc.dead)) {

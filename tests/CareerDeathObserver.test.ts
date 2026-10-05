@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../src/career/BanditMissionController'
 import { TownDefenseController } from '../src/career/TownDefenseController'
 import { createActiveCareerMission, createTownDefenseMission, resolveCareerMissionOutcome } from '../src/career/CareerMissionState'
-import { resolveTownDefenseOutcome, TOWN_DEFENSE_ATTACK_GROUPS, townDefenseEnemyTotals } from '../src/career/TownDefenseState'
+import { resolveTownDefenseOutcome } from '../src/career/TownDefenseState'
 import { claimCareerMission, createCareerProfile } from '../src/career/CareerProfile'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { TownScene } from '../src/town/TownScene'
@@ -164,12 +164,7 @@ describe('Career objectives take priority over player death', () => {
     expect(controller.evaluate(true)).toBe('failure')
   })
 
-  it('has 70 attackers with exact three-lane composition', () => {
-    expect(TOWN_DEFENSE_ATTACK_GROUPS.map(group => group.composition)).toEqual([
-      { melee: 11, lancer: 6, 'horse-archer': 4 }, { melee: 10, lancer: 4, 'horse-archer': 7 }, { melee: 7, lancer: 11, 'horse-archer': 10 },
-    ])
-    expect(townDefenseEnemyTotals()).toEqual({ melee: 28, lancer: 21, 'horse-archer': 21 })
-  })
+
 })
 
 function townFixture() {

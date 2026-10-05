@@ -17,7 +17,7 @@ import {
   outskirtsEnabled, outskirtsSquadSpecs, type OutskirtsSquadSpec,
 } from './TownOutskirtsRules'
 
-export type OutskirtsSquadState = 'PATROLLING' | 'ENGAGING' | 'REGROUPING' | 'ENTERING'
+export type OutskirtsSquadState = 'PATROLLING' | 'ENGAGING' | 'REGROUPING' | 'ENTERING' | 'RESPAWN_COOLDOWN' | 'SIEGE_OWNED'
 export interface OutskirtsSquad {
   readonly id: string
   readonly spec: OutskirtsSquadSpec
@@ -32,6 +32,7 @@ export interface OutskirtsSquad {
   readonly trail: FollowTrail
   sensorRemaining: number
   commandedWaypoint: THREE.Vector3 | null
+  respawnRemaining?: number
 }
 export interface OutskirtsFactories {
   createNpc(spec: NpcSpawnSpec): NPC
@@ -60,6 +61,7 @@ export class TownOutskirtsWarfareController {
     private readonly obstacles: ObstacleData[],
     private readonly navigation: NavigationWorld,
     private readonly factories?: OutskirtsFactories,
+    private readonly siegeClaimedSquads: readonly string[] = [],
   ) {
     this.synchronizeRank()
   }
@@ -88,7 +90,8 @@ export class TownOutskirtsWarfareController {
         state: 'PATROLLING', waypoint: spec.phase % route.length, generation: 0, engagementOrigin: null,
         trail: new FollowTrail(), sensorRemaining: index * OUTSKIRTS_SENSOR_INTERVAL / 9, commandedWaypoint: null }
       this.squads.push(squad)
-      this.spawnSquad(squad, false)
+      if (this.siegeClaimedSquads.includes(spec.id)) squad.state = 'SIEGE_OWNED'
+      else this.spawnSquad(squad, false)
     }
   }
 
@@ -96,7 +99,18 @@ export class TownOutskirtsWarfareController {
   prepareFrame(dt: number, participants: readonly NPC[], player: Player): void {
     if (!this.enabled) return
     for (const squad of this.squads) {
+      if (squad.state === 'SIEGE_OWNED') continue
+      if (squad.state === 'RESPAWN_COOLDOWN') {
+        squad.respawnRemaining = Math.max(0, (squad.respawnRemaining ?? 60) - Math.max(0, dt))
+        if (squad.respawnRemaining > 0) continue
+        squad.generation++
+        this.spawnSquad(squad, true)
+      }
       if (squad.members.every(member => member.dead)) {
+        if (squad.spec.kind === 'bandit') {
+          squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
+          continue
+        }
         squad.generation++
         this.spawnSquad(squad, true)
       }
@@ -113,6 +127,7 @@ export class TownOutskirtsWarfareController {
     // Include newly reinforced members even if the caller built its participant list before this frame.
     for (const actor of this.allActors) if (!actor.dead) this.grid.insert(actor)
     for (const squad of this.squads) {
+      if (squad.state === 'SIEGE_OWNED' || squad.state === 'RESPAWN_COOLDOWN') continue
       squad.sensorRemaining -= Math.max(0, dt)
       const sense = squad.sensorRemaining <= 0
       if (sense) squad.sensorRemaining = OUTSKIRTS_SENSOR_INTERVAL
@@ -157,6 +172,40 @@ export class TownOutskirtsWarfareController {
   }
 
   dispose(): void { this.enabled = false; this.clearEntities() }
+
+  /** Transfer both command and lifetime ownership, including the original rider/mount objects. */
+  claimCavalryForSiege(attackingFaction: CharacterFaction): { actors: NPC[]; mounts: Mount[]; squadIds: string[] } {
+    const result: { actors: NPC[]; mounts: Mount[]; squadIds: string[] } = { actors: [], mounts: [], squadIds: [] }
+    if (outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).characterFaction !== attackingFaction) return result
+    for (const squad of this.squads) {
+      if (squad.spec.kind !== 'cavalry' || squad.state === 'SIEGE_OWNED') continue
+      squad.state = 'SIEGE_OWNED'; squad.commandedWaypoint = null; squad.leader = null
+      result.squadIds.push(squad.id)
+      for (const npc of squad.members) {
+        this.squadForActor.delete(npc)
+        if (npc.dead) continue
+        npc.clearEncounter()
+        result.actors.push(npc)
+        this.allActors.splice(this.allActors.indexOf(npc), 1)
+        if (npc.mount) {
+          const mount = npc.mount
+          result.mounts.push(mount)
+          const index = this.allMounts.indexOf(mount)
+          if (index >= 0) this.allMounts.splice(index, 1)
+          this.retiredMounts.delete(mount)
+        }
+      }
+      squad.members = []; squad.mounts = []
+    }
+    return result
+  }
+
+  releaseSiegeOwnership(): void {
+    for (const squad of this.squads) if (squad.state === 'SIEGE_OWNED') {
+      squad.generation++
+      this.spawnSquad(squad, true)
+    }
+  }
 
   private updateTravelState(squad: OutskirtsSquad): void {
     const leader = squad.leader
