@@ -14,6 +14,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
+      - run: npm test -- tests/TownWeaponShop.test.ts tests/TownHub.test.ts
       - run: npm test
+        if: always()
       - run: npm run build
+        if: always()
