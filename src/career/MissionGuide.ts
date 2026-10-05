@@ -36,9 +36,14 @@ export class MissionGuide {
     remainingEnemies: number,
     lagging = false,
     patrol = false,
-    context?: 'mounted-field',
+    context?: 'mounted-field' | 'travel-encounter',
   ): void {
     this.root.hidden = false
+    if (context === 'travel-encounter' && target) {
+      this.pointAt(playerPosition, cameraYaw, target)
+      this.label.textContent = `途中遭遇敵軍 · 支援隊伍 · 剩餘 ${remainingEnemies}`
+      return
+    }
     if (phase === 'ENGAGING') {
       this.arrow.style.opacity = '.18'
       this.arrow.style.transform = 'rotate(-90deg) scale(.7)'

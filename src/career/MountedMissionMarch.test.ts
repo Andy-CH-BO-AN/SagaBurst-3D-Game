@@ -78,17 +78,45 @@ describe('MountedMissionMarchController squad scaling', () => {
     for (const npc of group) expect(npc.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
   })
 
-  it('continues if a squad leader is already dead', () => {
+  it('replaces a fallen squad leader without prematurely charging', () => {
     const leader = rider('dead-leader'); leader.dead = true
     const follower = rider('follower')
     const accepted = vi.fn(() => true)
-    const controller = new MountedMissionMarchController([leader, follower] as unknown as NPC[], new THREE.Vector3(), vi.fn(), accepted, vi.fn(), false, {
+    const controller = new MountedMissionMarchController([leader, follower] as unknown as NPC[], new THREE.Vector3(100, 0, 0), vi.fn(), accepted, vi.fn(), false, {
+      leaderDeathMode: 'replace',
       squads: [{ leader: leader as unknown as NPC, members: [leader, follower] as unknown as NPC[] }],
     })
     expect(() => controller.start()).not.toThrow()
-    expect(controller.hasCharged).toBe(true)
-    expect(accepted).toHaveBeenCalledTimes(1)
-    expect(follower.setTacticalOrder).toHaveBeenCalledWith('charge')
+    controller.update()
+    expect(controller.hasCharged).toBe(false)
+    expect(accepted).not.toHaveBeenCalled()
+    expect(follower.assignFormationTarget).toHaveBeenCalled()
+    expect(follower.setTacticalOrder).not.toHaveBeenCalled()
+  })
+
+  it('resumes the same march with a surviving leader and foot followers without replaying voices', () => {
+    const leader = rider('captain')
+    const deputy = rider('deputy')
+    const follower = rider('follower'); follower.mount = null
+    const follow = vi.fn()
+    const accepted = vi.fn(() => true)
+    const target = new THREE.Vector3(100, 0, 0)
+    const controller = new MountedMissionMarchController([leader, deputy, follower] as unknown as NPC[], target, follow, accepted, vi.fn(), false, {
+      leaderDeathMode: 'replace',
+      squads: [{ leader: leader as unknown as NPC, members: [leader, deputy, follower] as unknown as NPC[] }],
+    })
+    controller.start()
+    leader.dead = true
+    deputy.combatPosition.set(-20, 0, 0)
+    controller.update(false)
+    expect(deputy.assignFormationTarget).not.toHaveBeenCalled()
+    controller.resumeTravel()
+    expect(deputy.assignFormationTarget.mock.calls[0][1]).toEqual(target)
+    expect(deputy.assignFormationTarget.mock.calls[0][3]).toBe(7.5)
+    expect(follower.assignFollowTarget.mock.lastCall?.[0]).toBe(deputy)
+    expect(follow).toHaveBeenCalledTimes(1)
+    expect(accepted).not.toHaveBeenCalled()
+    expect(controller.hasCharged).toBe(false)
   })
 
   it('resumes living riders on foot when their saved mounts died', () => {

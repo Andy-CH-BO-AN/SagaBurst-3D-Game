@@ -27,7 +27,7 @@ function veteranMission(phase: 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' = 'ENGAGIN
 }
 
 describe('Outskirts participants alongside existing Town missions', () => {
-  it('prepares after mission flow, shares one grid, and keeps objective/friendly rosters unchanged', () => {
+  it('prepares sensors before mission flow, shares one grid, and keeps objective/friendly rosters unchanged', () => {
     const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT)
     const enemy = combatActor('outskirts:cavalry:a:0', Faction.ENEMY)
     const friendly = combatActor('friendly'), objective = combatActor('objective', Faction.ENEMY)
@@ -44,7 +44,7 @@ describe('Outskirts participants alongside existing Town missions', () => {
       expect(peers).toContain(objective); hit(7, false, objective)
     })
     h.combat.update(.02, 0, 1)
-    expect(log).toEqual(['mission-flow', 'outskirts-prepare'])
+    expect(log).toEqual(['outskirts-prepare', 'mission-flow'])
     expect(beginFrame).toHaveBeenCalledOnce()
     for (const actor of [friendly, objective, bandit, enemy]) expect(actor.update).toHaveBeenCalledOnce()
     expect(bandit.update.mock.calls[0][11]).toBe(friendly.update.mock.calls[0][11])
@@ -77,19 +77,45 @@ describe('Outskirts participants alongside existing Town missions', () => {
     expect(retired.update).not.toHaveBeenCalled()
   })
 
-  it('lets a marching mission actor defend itself while preserving formation intent and party phase', () => {
+  it('interrupts marching for whole-party combat while preserving the formal phase', () => {
     const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT)
     bandit.group.position.x = 6
     const friendly = combatActor('friendly'), h = warfareFixture([bandit])
     friendly.tacticalOrder = 'formation'
+    h.field.prepareTravelEncounter.mockImplementation((dt, grid, threats) => h.field.travelEncounter.prepareFrame(dt, h.field.friendlies, h.player, grid, threats))
     h.field.active = veteranMission('MARCHING'); h.field.friendlies = [friendly]; h.field.fieldNpcs = [friendly]
     friendly.update.mockImplementation((_dt, _player, peers, _neighbors, _obstacles, _hp, hit) => {
-      expect(friendly.tacticalOrder).toBe('attack'); expect(peers).toContain(bandit); hit(5, false, bandit)
+      expect(friendly.tacticalOrder).toBe('charge'); expect(peers).toContain(bandit); hit(5, false, bandit)
     })
     h.combat.update(.02, 0, 1)
-    expect(friendly.tacticalOrder).toBe('formation')
+    expect(friendly.tacticalOrder).toBe('charge')
+    expect(h.field.travelEncounter.active).toBe(true)
     expect(h.field.active.phase).toBe('MARCHING')
     expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(bandit, 5, 'melee', friendly)
+  })
+
+  it('hands an incidental encounter to formal Veteran combat as soon as the existing squad sensor activates', () => {
+    const roaming = combatActor('outskirts:bandit:a:0', Faction.BANDIT)
+    const friendly = combatActor('friendly'), objective = combatActor('objective', Faction.ENEMY)
+    const h = warfareFixture([roaming])
+    roaming.group.position.x = 10; objective.group.position.x = 200
+    h.field.active = veteranMission('MARCHING')
+    h.field.friendlies = [friendly]; h.field.missionBandits = [objective]; h.field.fieldNpcs = [friendly, objective]
+    h.field.veteranEnemySquads = [{ squadId: 1, leader: objective, members: [objective] }]
+    h.field.prepareTravelEncounter.mockImplementation((dt, grid, threats) => h.field.travelEncounter.prepareFrame(dt, h.field.friendlies, h.player, grid, threats))
+    h.field.engageFormalMission.mockImplementation(() => {
+      h.field.active = { ...h.field.active!, phase: 'ENGAGING' }
+      h.field.travelEncounter.clear(); friendly.setTacticalOrder('charge')
+    })
+    h.combat.update(.01, 0, 0)
+    expect(h.field.travelEncounter.active).toBe(true)
+    expect(h.field.active.phase).toBe('MARCHING')
+    objective.group.position.x = 20
+    h.combat.update(.01, 0, .01)
+    expect(h.field.engageFormalMission).toHaveBeenCalledOnce()
+    expect(h.field.active.phase).toBe('ENGAGING')
+    expect(h.field.travelEncounter.active).toBe(false)
+    expect(h.field.active.targetActorIds).toEqual(['objective'])
   })
 
   it('wakes a held Veteran squad near a hostile roaming member and on an attributed hit', () => {

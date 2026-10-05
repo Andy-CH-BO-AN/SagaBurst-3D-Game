@@ -1134,6 +1134,7 @@ export class TownScene {
     }
     if (!this.canHitTownMount(mount, source)) return
     const rider = mount.riderNpc
+    const playerMountHit = mount === this.player.currentMount
     const result = damageMount(mount, amount, {
       contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
@@ -1144,6 +1145,7 @@ export class TownScene {
       this.outskirts?.noteHit(rider, !source)
       this.missionCombat?.noteExternalHit(rider, source)
     }
+    if (source && playerMountHit && result.appliedDamage > 0) this.missionCombat?.noteExternalPlayerHit(source)
     if (!source && result.appliedDamage > 0) {
       this.awardCareerSkillXp(method, result.appliedDamage)
       this.damageNumbers.spawn(result.appliedDamage, mount.group.position.clone().add(new THREE.Vector3(0, 1, 0)))
@@ -1314,6 +1316,7 @@ export class TownScene {
       hostileToTarget: source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source)),
       source: createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
+    if (result.hitSuccess && (result.appliedDamage > 0 || result.blockedImpact > 0)) this.missionCombat?.noteExternalPlayerHit(source)
     if (result.appliedDamage <= 0) return
     if (method === 'projectile') sound?.playProjectileImpact(0, true)
     else if (method === 'mount-impact') sound?.playHorseImpact(0, true)
@@ -1718,7 +1721,9 @@ export class TownScene {
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
-      ? this.profile.activeMission.kind === 'duel'
+      ? this.mission?.travelEncounter?.active
+        ? '\n途中遭遇敵軍 · 全隊支援，解除威脅後繼續路線'
+        : this.profile.activeMission.kind === 'duel'
         ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回兵營' : this.duel.phase === 'ASSEMBLING' ? '前往兵營與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往訓練場間單挑場地' : this.duel.phase}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()

@@ -1,3 +1,5 @@
+import { TownMissionCombat } from '../src/town/TownMissionCombat'
+import { MissionTravelEncounter } from '../src/career/MissionTravelEncounter'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../src/career/BanditMissionController'
@@ -40,6 +42,7 @@ function fixture(roaming: NPC[], missionTargets: NPC[] = []) {
   const tracker = new BattleStatsTracker(events, false, event => acceptsCareerMissionStat(active, event))
   cleanup.push(() => tracker.dispose())
   const mission = Object.assign(Object.create(BanditMissionController.prototype), {
+    travelEncounter: new MissionTravelEncounter(),
     readProfile: () => profile, player: () => player, events, tracker, friendlies: [], veteranEnemies: [],
     camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: missionTargets }],
     alertGroupFor: vi.fn(), provokeGroupFor: vi.fn(), combatPeersFor: () => missionTargets,
@@ -53,7 +56,7 @@ function fixture(roaming: NPC[], missionTargets: NPC[] = []) {
     profile, player, outskirts, mission, residents: [], mounts: [], stableHorses: [], cat: null,
     event: { hostile: false }, world: { buildings: [], targets: [], obstacles: [] },
     defense: { active: false, phase: null, assault: false, events: new CombatEventStream(), playerEnemies: [], noteEffectiveFriendlyDamage: vi.fn(), peersFor: () => [] },
-    missionCombat: { enemyTownHostiles: [], isExternalThreatDefender: () => false, noteExternalHit: vi.fn() },
+    missionCombat: { enemyTownHostiles: [], isExternalThreatDefender: () => false, noteExternalHit: vi.fn(), noteExternalPlayerHit: vi.fn() },
     skills: { skillState, addXp: vi.fn(() => 0), getMultiplier: () => 1, getMountedImpactMultiplier: () => 1 },
     inventory: { meleeEnabled: true, equippedMelee: { id: 'gladius_rusty', combatKind: 'sword', damageMax: 12, range: 1.8 }, shieldEnabled: false },
     damageNumbers: { spawn: vi.fn() }, showCombatTarget: vi.fn(), activateHostility: vi.fn(), prepareDamage: vi.fn(() => true),
@@ -413,5 +416,70 @@ describe('Town outskirts combat routing', () => {
     })
     town.dispose(); town.dispose()
     expect(outskirts.dispose).toHaveBeenCalledOnce()
+  })
+})
+
+function activateMissionTravel(h: ReturnType<typeof fixture>, friendlies: NPC[]) {
+  h.active.phase = 'MARCHING'
+  h.active.friendlyActorIds = friendlies.map(actor => actor.combatantId)
+  h.active.borrowedActorIds = [friendlies[0].combatantId]
+  h.mission.friendlies.push(...friendlies)
+  h.town.missionCombat = new TownMissionCombat({ field: h.mission } as any, {
+    player: () => h.town.player, outskirts: () => h.outskirts,
+  } as any)
+}
+
+describe('Mission party effective contact wakeup', () => {
+  it.each(['body', 'shield', 'mount', 'mount-death', 'lethal'] as const)('immediately interrupts every mission-owned member on %s contact', kind => {
+    const enemy = actor('roaming:enemy', Faction.ENEMY)
+    const h = fixture([enemy])
+    const victim = actor('borrowed-patrol', Faction.TOWN), captain = actor('mission-captain', Faction.TOWN, -100)
+    activateMissionTravel(h, [victim, captain])
+    if (kind === 'shield') { victim.rebuildShield('scutum_t3'); victim.shield.shieldRaised = true }
+    if (kind === 'mount' || kind === 'mount-death') {
+      const mount = independentHorse(victim); mount.group.position.copy(victim.group.position); victim.mount = mount
+      h.town.combatMounts.push(mount); h.town.combatMountGrid.insert(mount)
+      mount.takeDamage = (damage: number) => { mount.currentHp = Math.max(0, mount.currentHp - damage); mount.state = mount.currentHp === 0 ? MountState.DEAD : MountState.IDLE; return true }
+      h.town.hitFieldNpc(victim, kind === 'mount-death' ? 9999 : 10, 'projectile', enemy, { kind: 'mount', mount, time: .5 })
+      expect(mount.dead).toBe(kind === 'mount-death')
+    } else h.town.hitFieldNpc(victim, kind === 'lethal' ? 9999 : 10, 'projectile', enemy, { kind: kind === 'shield' ? 'shield' : 'body', time: .5 })
+    expect(h.mission.travelEncounter.active).toBe(true)
+    expect(h.mission.travelEncounter.engagementOrigin).toEqual(victim.combatPosition)
+    expect(captain.formationCommandId).toBe(-3)
+    expect(h.active.phase).toBe('MARCHING')
+    expect(h.active.targetActorIds).toEqual([])
+    expect(h.active.borrowedActorIds).toEqual([victim.combatantId])
+    if (kind === 'shield') expect(victim.hp).toBe(victim.maxHp)
+    if (kind === 'lethal') expect(victim.dead).toBe(true)
+    expect(h.tracker.checkpoint()).toMatchObject({ damageDealt: 0, kills: 0 })
+  })
+
+  it.each(['body', 'shield', 'mount', 'mount-death', 'lethal', 'independent-mount'] as const)('supports Player immediately on %s contact', kind => {
+    const enemy = actor('roaming:enemy', Faction.ENEMY)
+    const h = fixture([enemy]), captain = actor('mission-captain', Faction.TOWN, -100)
+    const player = new Player(new THREE.Scene()); cleanup.push(() => player.dispose())
+    player.group.position.set(100, 39, 0)
+    h.town.player = player
+    ;(h.mission as any).player = () => player
+    h.town.hp = { setFill: vi.fn() }
+    activateMissionTravel(h, [captain])
+    if (kind === 'shield') { player.rebuildShield('scutum_t3'); player.shield.shieldRaised = true; h.town.inventory.shieldEnabled = true; h.town.inventory.equippedShield = { id: 'scutum_t3' } }
+    const origin = player.combatPosition.clone()
+    if (kind === 'mount' || kind === 'mount-death' || kind === 'independent-mount') {
+      const mount = independentHorse(captain)
+      mount.group.position.copy(player.group.position); mount.riderNpc = null; mount.riderPlayer = player
+      player.currentMount = mount; player.isMounted = true
+      vi.spyOn(player, 'dismountFromMount').mockImplementation(() => { player.isMounted = false; player.currentMount = null })
+      h.town.combatMounts.push(mount); h.town.combatMountGrid.insert(mount)
+      mount.takeDamage = (damage: number) => { mount.currentHp = Math.max(0, mount.currentHp - damage); mount.state = mount.currentHp === 0 ? MountState.DEAD : MountState.IDLE; return true }
+      if (kind === 'independent-mount') h.town.hitBattlefieldMount(mount, 10, 'projectile', enemy, { kind: 'mount', mount, time: .5 })
+      else h.town.damagePlayerFromNpc(enemy, kind === 'mount-death' ? 9999 : 10, 'projectile', { kind: 'mount', mount, time: .5 })
+      expect(mount.dead).toBe(kind === 'mount-death')
+    } else h.town.damagePlayerFromNpc(enemy, kind === 'lethal' ? 9999 : 10, 'projectile', { kind: kind === 'shield' ? 'shield' : 'body', time: .5 })
+    expect(h.mission.travelEncounter.active).toBe(true)
+    expect(h.mission.travelEncounter.engagementOrigin).toEqual(origin)
+    expect(captain.formationCommandId).toBe(-3)
+    if (kind === 'shield') expect(player.hp).toBe(player.maxHp)
+    if (kind === 'lethal') expect(player.dead).toBe(true)
   })
 })
