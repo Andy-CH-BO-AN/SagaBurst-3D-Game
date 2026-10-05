@@ -1,4 +1,4 @@
-import { townAssaultObjectiveRoster } from './TownRules'
+import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
@@ -251,6 +251,7 @@ export class TownScene {
     this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation, {
       gates: this.world.gates, obstacles: this.world.obstacles, patrol: this.patrol, outskirts: this.outskirts,
       closureBodies: () => this.siegeClosureBodies(),
+      ambientEnemies: () => this.mission.ambientBandits,
     })
     this.careerMounts = new CareerMountController(
       this.scene,
@@ -355,15 +356,17 @@ export class TownScene {
     if (!this.spectator) this.orbit.update(this.input)
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
   }
+  private siegeOpeningPending = false
   /** Called after the entry removes its loading overlay. */
   start(): void {
     this.last = performance.now()
     this.raf = requestAnimationFrame(t => {
       if (this.disposed) return
       this.frame(t)
-      if (this.defense.assault && !this.profile.activeMission?.result) {
+      if (this.siegeOpeningPending && !this.profile.activeMission?.result) {
+        this.siegeOpeningPending = false
         // Give the ready battlefield one paint before sounding its alarm.
-        requestAnimationFrame(() => { if (!this.disposed) void this.playAssaultAlert() })
+        requestAnimationFrame(() => { if (!this.disposed) void (this.defense.assault ? this.playAssaultAlert() : this.playTownDefenseAlert()) })
       }
     })
   }
@@ -688,9 +691,9 @@ export class TownScene {
       details.textContent = template.kind === 'cavalry-sweep'
         ? `${template.briefing}\n2 支小隊 · 含玩家 60 人 · 玩家無指揮權`
         : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n敵方 Career Town · 軍事守軍 63 · 平民 20 · 玩家無指揮權`
+        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
-        ? `${template.briefing}\n所屬 Career Town\n玩家 1 · AI 守軍 63（駐軍 ${template.friendlySoldiers}、隊長、Maki、士官長）\n敵方 T2 騎兵 ${template.enemyCount} · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
+        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
           ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n任務內容 沿線巡查 · 風險 ${template.risk}`
           : `${template.briefing}\n城外 Bandit Camp ${template.preferredCampIndex + 1}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\nBandits ${template.banditCount} · 風險 ${template.risk}`
@@ -727,7 +730,7 @@ export class TownScene {
     const row = document.createElement('article'); row.className = 'town-product'
     const title = document.createElement('strong'); title.textContent = homeDefense.name
     const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 友軍 64 人（含玩家） · 敵方 T2 騎兵 ${homeDefense.enemyCount} · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
+    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${homeDefense.friendlyCombatants} 人（含玩家；AI 守軍 ${homeDefense.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
     const accept = document.createElement('button'); accept.className = 'town-button'
     accept.textContent = unlocked ? '接受守城任務' : `需 ${homeDefense.requiresCompletions} 次老兵任務勝利 · ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}`
     accept.disabled = !unlocked
@@ -870,7 +873,10 @@ export class TownScene {
       if (profile.activeMission.kind === 'duel') {
         this.duel.startActiveMission()
       } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'enemy-town-assault') {
-        if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') this.defense.startActiveMission()
+        if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
+          this.siegeOpeningPending = Boolean(profile.activeMission.siege && !profile.activeMission.siege.rosterCreated)
+          this.defense.startActiveMission()
+        }
       } else {
         this.mission.startActiveMission()
       }
@@ -937,11 +943,7 @@ export class TownScene {
       const mission = createTownDefenseMission(defenders, civilians, undefined, template.id, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-      if (!this.defense.startActiveMission()) { this.openPanel('任務建立失敗', '任務已保存，但城防部署無法建立。重新載入後可恢復同一 missionId。'); return }
-      this.inventory.prepareForCombat()
-      this.notice = '警報！敌軍正在接近。前往主防線集合。'
-      void this.playTownDefenseAlert()
-      this.closePanel()
+      this.dispose(); this.onRestart(next)
       return
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
@@ -1013,7 +1015,7 @@ export class TownScene {
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
-    this.button(panel, '返回 Career Town', () => this.returnToTown('direct'))
+    this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'duel') {
       if (complete && result.stats.survived) this.button(panel, '跟隊長走回去', () => {
         if (!this.duel.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
@@ -1742,9 +1744,9 @@ export class TownScene {
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '四路集結、巡邏回城、守軍部署中' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
+        ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
         : this.profile.activeMission.kind === 'town-defense'
-        ? `\nTOWN DEFENSE ${this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
+        ? `\nTOWN DEFENSE ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(
           this.profile.activeMission.kind === 'patrol' ? 'patrol' : 'bandit',
           this.profile.activeMission.phase,

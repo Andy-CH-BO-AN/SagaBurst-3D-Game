@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { siegeRoster, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
+import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRoster, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
 import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateController } from '../campaign/CampaignGate'
 import { closeSiegeGate, overlapsGateClosure, type GateClosureBody } from '../town/TownSiegeGateClosure'
@@ -34,6 +34,7 @@ export interface TownSiegeContext {
   obstacles: ObstacleData[]
   patrol: TownCavalryPatrolController
   outskirts?: TownOutskirtsWarfareController
+  ambientEnemies?(): readonly NPC[]
   closureBodies(): GateClosureBody[]
 }
 interface RuntimeAttackGroup { id: TownGateId; members: NPC[]; released: boolean; leader: NPC | null }
@@ -76,6 +77,7 @@ export class TownDefenseController {
     const mission = this.readProfile().activeMission
     return mission?.kind === 'town-defense' || mission?.kind === 'enemy-town-assault' ? mission : undefined
   }
+  get preparationRemaining(): number { return Math.max(0, SIEGE_PREPARATION_SECONDS - this.preparationElapsed) }
   get assault(): boolean { return this.active?.kind === 'enemy-town-assault' }
   get military(): NPC[] { const ids = new Set(townAssaultObjectiveRoster(this.residents.map(r => r.spec)).map(s => s.id)); return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc) }
   get playerEnemies(): NPC[] { return this.fieldNpcs.filter(npc => npc.faction === Faction.ENEMY) }
@@ -97,7 +99,7 @@ export class TownDefenseController {
   startActiveMission(): boolean {
     const active = this.active, context = this.siegeContext
     if (!active?.siege || active.result || !context) return false
-    const freshAssault = this.assault && !active.siege.rosterCreated
+    const freshSiege = !active.siege.rosterCreated
     this.disposeEnemies()
     this.siege = cloneCareerProfile(this.readProfile()).activeMission!.siege!
     this.civilianCombat.clear(); this.orders.clear(); this.approached.clear()
@@ -144,15 +146,16 @@ export class TownDefenseController {
     if (active.playerHp !== undefined && !active.playerDead) this.player().setHp(active.playerHp)
     if (active.playerStamina !== undefined && !active.playerDead) this.player().setStamina(active.playerStamina)
     this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats)
-    // Assault enters a new battlefield: create the initial deployment before its
-    // first visible frame. Checkpoints keep their actual positions and breaches.
-    if (freshAssault) {
+    // Both roles enter a fully deployed battlefield during loading.
+    // Checkpoints keep their actual positions, countdown and breaches.
+    if (freshSiege) {
       for (const [npc, point] of this.orders) {
         this.positionNpc(npc, point, siegeOutward(this.groupFor(npc)?.id ?? 'south'))
       }
-      if (this.closeGates()) this.setPhase('ATTACKING')
     }
+    if (this.phase === 'PREPARING') this.closeGates()
     if (this.phase !== 'PREPARING') this.beginAttack()
+    else for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(null)
     this.persistRuntimeProgress(true)
     return true
   }
@@ -164,8 +167,8 @@ export class TownDefenseController {
     const rally = this.anchorVector('playerRallyPoint')
     this.checkpoint.advance(dt)
     if (active.phase === 'PREPARING') {
-      this.preparationElapsed += dt
-      if (this.patrolRecalled() && this.closeGates() && this.setPhase('ATTACKING')) {
+      this.preparationElapsed = Math.min(SIEGE_PREPARATION_SECONDS, this.preparationElapsed + dt)
+      if (this.preparationRemaining === 0 && this.closeGates() && this.setPhase('ATTACKING')) {
         this.beginAttack()
       }
     } else if (!this.assault) {
@@ -173,9 +176,9 @@ export class TownDefenseController {
       if (townDefenseFailureLocked(this.civilianDeaths) && active.phase !== 'FAILURE_LOCKED') this.setPhase('FAILURE_LOCKED')
       else if (!townDefenseFailureLocked(this.civilianDeaths) && this.remainingEnemies === 0 && active.phase !== 'VICTORY_LOCKED') this.setPhase('VICTORY_LOCKED')
     }
-    if (this.phase !== 'PREPARING') this.updateSiegeAttackOrders()
+    if (this.phase !== 'PREPARING') { this.updateSiegeAttackOrders(); this.updateGateDefenseOrders() }
     this.persistRuntimeProgress()
-    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths)
+    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
   }
 
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
@@ -227,7 +230,7 @@ export class TownDefenseController {
 
   cleanupMission(): void {
     this.disposeEnemies()
-    for (const npc of [...this.military, ...this.civilians]) { npc.missionMovement = false; npc.assignSiegeObstacle(null); npc.restoreCombatLoadout(); npc.endExternalThreat() }
+    for (const npc of [...this.military, ...this.civilians]) { npc.missionMovement = false; npc.setMissionCombatTarget(undefined); npc.assignSiegeObstacle(null); npc.restoreCombatLoadout(); npc.endExternalThreat() }
     this.siegeContext?.patrol.releaseSiegeOwnership()
     this.siegeContext?.outskirts?.releaseSiegeOwnership()
     for (const gate of this.siegeContext?.gates.values() ?? []) gate.restoreOpen()
@@ -243,11 +246,11 @@ export class TownDefenseController {
   private prepareDeployment(): void {
     const occupied: { point: THREE.Vector3; spacing: number }[] = []
     for (const npc of this.military) { npc.beginExternalThreat(); npc.respawnEnabled = false; if (npc.mount) this.actorMounts.set(npc, npc.mount) }
-    for (const [groupIndex, group] of this.groups.entries()) {
+    for (const group of this.groups) {
       group.members.forEach((npc, index) => this.order(npc, this.walkable(siegePoint(group.id, (index % 7 - 3) * 2.6, 12 + Math.floor(index / 7) * 3), occupied, 2.5)))
       group.cavalry.forEach((npc, index) => {
-        const point = new THREE.Vector3(-47 + (groupIndex % 2) * 67 + (index % 5) * 5, 0, -42 + Math.floor(groupIndex / 2) * 72 + Math.floor(index / 5) * 5)
-        this.order(npc, this.walkable(point, occupied, 4.8))
+        const point = siegeReservePoint(group.id, index)
+        this.order(npc, this.walkable(point, occupied, 4.8, group.id))
       })
     }
     this.civilians.forEach((npc, index) => this.order(npc, this.walkable(this.civilianShelterPoints()[index], occupied, 4.8)))
@@ -271,15 +274,6 @@ export class TownDefenseController {
 
   private groupFor(npc: NPC): RuntimeGroup | undefined { return this.groups.find(group => group.members.includes(npc) || group.cavalry.includes(npc)) }
 
-  private patrolRecalled(): boolean {
-    const context = this.siegeContext!
-    const doorway = (npc: NPC) => [...context.gates.values()].some(gate => overlapsGateClosure(gate.collisionBox, npc.combatPosition, npc.isMounted ? 1.4 : .5))
-    // The returning patrol is the only preparation barrier. Deployment continues
-    // during combat; doorway occupants still follow the shared closure displacement.
-    return this.residents.filter(r => r.spec.duty === 'patrol')
-      .every(r => r.npc.dead || insideSiegeTown(r.npc.combatPosition) || doorway(r.npc))
-  }
-
   private closeGates(): boolean {
     const context = this.siegeContext!
     for (const [id, gate] of context.gates) if (!closeSiegeGate(id, gate, context.closureBodies(), context.obstacles)) return false
@@ -290,8 +284,10 @@ export class TownDefenseController {
   }
 
   private beginAttack(): void {
+    for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(undefined)
     for (const group of this.attackGroups) group.released = true
     this.updateSiegeAttackOrders()
+    this.updateGateDefenseOrders()
   }
 
   private updateSiegeAttackOrders(): void {
@@ -330,15 +326,39 @@ export class TownDefenseController {
     if (!this.siege.destroyedGateIds.includes(id) && this.siegeContext?.gates.get(id)?.state === 'destroyed') this.siege.destroyedGateIds.push(id)
     if (!this.siege.releasedReserveGateIds.includes(id)) this.siege.releasedReserveGateIds.push(id)
     this.reserveCharged = true
-    const group = this.groups.find(group => group.id === id)
-    // A breach releases this gate's entire defense from its deployment orders.
-    // Holding a formation slot would leave infantry idle and cavalry unable to pursue.
-    for (const npc of [...group?.members ?? [], ...group?.cavalry ?? []]) {
-      if (npc.dead) continue
-      npc.missionMovement = false
-      npc.assignSiegeObstacle(null)
-      npc.setTacticalOrder('charge')
-      this.orders.delete(npc)
+    if (this.phase !== 'PREPARING') this.updateGateDefenseOrders()
+  }
+
+  private updateGateDefenseOrders(): void {
+    if (!this.siege) return
+    const player = this.player()
+    const attackers = [...this.enemies, ...(this.siegeContext?.outskirts?.actors ?? []), ...(this.siegeContext?.ambientEnemies?.() ?? [])]
+    for (const group of this.groups) {
+      if (!this.siege.releasedReserveGateIds.includes(group.id)) continue
+      const gate = siegePoint(group.id, 0, 0)
+      const inSector = (point: THREE.Vector3) => siegeNearestGate(point) === group.id
+        && Math.hypot(point.x - gate.x, point.z - gate.z) <= 75
+      const candidates: (NPC | Player)[] = attackers.filter(npc => !npc.dead && inSector(npc.combatPosition))
+      if (!player.dead && player.targetable && inSector(player.combatPosition)) candidates.push(player)
+      for (const [index, npc] of [...group.members, ...group.cavalry].entries()) {
+        if (npc.dead) continue
+        let target: NPC | Player | null = null, distance = Infinity
+        for (const candidate of candidates) {
+          if (candidate === player ? !npc.hostileToPlayer : (candidate as NPC).faction === npc.faction) continue
+          const d = npc.combatPosition.distanceToSquared(candidate.combatPosition)
+          if (d < distance) { distance = d; target = candidate }
+        }
+        npc.setMissionCombatTarget(target)
+        if (target) {
+          npc.missionMovement = false
+          npc.assignSiegeObstacle(null)
+          if (npc.tacticalOrder !== 'charge') npc.setTacticalOrder('charge')
+          this.orders.delete(npc)
+        } else if (!this.orders.has(npc)) {
+          // Return to this breach when its threat leaves, never chase to another gate.
+          this.order(npc, this.walkable(siegePoint(group.id, (index % 5 - 2) * 4, 12 + Math.floor(index / 5) * 4), [], npc.isMounted ? 4.8 : 2.5, group.id))
+        }
+      }
     }
   }
 
@@ -473,7 +493,7 @@ export class TownDefenseController {
     return point
   }
 
-  private walkable(point: THREE.Vector3, occupied: { point: THREE.Vector3; spacing: number }[], spacing: number): THREE.Vector3 {
+  private walkable(point: THREE.Vector3, occupied: { point: THREE.Vector3; spacing: number }[], spacing: number, gateId?: TownGateId): THREE.Vector3 {
     const grid = this.navigation.grid
     const inside = insideSiegeTown(point)
     for (const radius of [0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32]) {
@@ -483,6 +503,7 @@ export class TownDefenseController {
         const cell = grid.findNearestWalkableCell(candidate, 2)
         if (!cell) continue
         const snapped = grid.cellToWorld(cell)
+        if (gateId && siegeNearestGate(snapped) !== gateId) continue
         if (insideSiegeTown(snapped) !== inside || Math.abs(snapped.x) > 345 || Math.abs(snapped.z) > 345) continue
         if (this.siegeContext?.obstacles.some(obstacle => overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, snapped, spacing >= 4 ? 1.5 : .55))) continue
         if (occupied.some(other => snapped.distanceToSquared(other.point) < ((spacing + other.spacing) / 2) ** 2)) continue

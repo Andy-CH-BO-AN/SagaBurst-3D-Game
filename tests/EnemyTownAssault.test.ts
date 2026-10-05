@@ -1,7 +1,7 @@
 import { createTownFortifications } from '../src/town/TownFortifications'
 import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../src/town/TownBounds'
-import { siegeRoster, siegeDefensePlans, siegePoint } from '../src/career/TownSiege'
+import { siegeRoster, siegeDefensePlans, siegePoint, siegeNearestGate, siegeOutward } from '../src/career/TownSiege'
 import { townAssaultObjectiveRoster } from '../src/town/TownRules'
 import { createTownCombatFixture } from './townCombatFixture'
 import * as THREE from 'three'
@@ -99,85 +99,113 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     expect(objective.some(id => id.startsWith('civilian'))).toBe(false)
   })
 
-  it('opens a fresh Assault with deployed defenders, closed gates and attackers already advancing', () => {
-    const f = fixture(faction)
-    expect(f.controller.phase).toBe('ATTACKING')
-    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
-    expect(f.controller.releasedEnemies).toHaveLength(119)
-    for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
-      if (f.controller.military.includes(npc) || f.controller.civilians.includes(npc)) {
-        expect(npc.combatPosition.distanceTo(point)).toBeLessThan(.01)
-      }
-    }
-    const defender = f.controller.military[0]
-    defender.group.position.add(new THREE.Vector3(2, 0, 2))
-    const savedPosition = defender.combatPosition.clone()
-    f.controller.persistRuntimeProgress(true)
-    f.controller.startActiveMission()
-    expect(defender.combatPosition.x).toBeCloseTo(savedPosition.x)
-    expect(defender.combatPosition.z).toBeCloseTo(savedPosition.z)
-  })
-
-  it('sprints both infantry and cavalry to deployment slots and stops on arrival', () => {
-    const f = fixture(faction, false)
-    const orders = [...((f.controller as any).orders as Map<NPC, THREE.Vector3>)]
-    for (const mounted of [false, true]) {
-      const [npc, destination] = orders.find(([npc, point]) => npc.isMounted === mounted
-        && npc.combatPosition.distanceTo(point) > 20)!
-      const tick = () => npc.update(.05, f.player, [npc], [], [], null as never, () => {}, () => {}, true)
-      const start = npc.combatPosition.clone(), stamina = npc.stamina
-      tick()
-      expect(npc.sprinting).toBe(true)
-      expect(npc.combatPosition.distanceTo(start)).toBeGreaterThan(mounted ? 1 : .45)
-      expect(npc.stamina).toBeLessThan(stamina)
-      npc.group.position.copy(destination)
-      npc.mount?.group.position.copy(destination)
-      tick()
-      expect(npc.sprinting).toBe(false)
-      expect(npc.combatPosition.distanceTo(destination)).toBeLessThan(.1)
-    }
-  })
-
-  it('waits only for the living patrol, then opens combat before other units reach their slots', () => {
-    const f = fixture(faction, false)
-    const patrol = f.residents.find(r => r.spec.duty === 'patrol')!.npc
-    const outside = siegePoint('north', 0, -40)
-    patrol.group.position.copy(outside); patrol.mount?.group.position.copy(outside)
-    const attacker = f.controller.enemies[2]
-    attacker.group.position.x += 30; attacker.mount!.group.position.x += 30
-    const attackerPosition = attacker.combatPosition.clone()
-    const guard = f.residents.find(r => r.spec.duty !== 'patrol' && !r.npc.isMounted && f.controller.military.includes(r.npc)
-      && r.npc.combatPosition.distanceTo((f.controller as any).orders.get(r.npc)) > 20)!.npc
-    const guardPosition = guard.combatPosition.clone()
-    f.controller.updateFlow(30, 0)
+  it.each([true, false])('deploys the whole battlefield during loading and waits ten seconds, assault=%s', assault => {
+    const f = fixture(faction, assault)
     expect(f.controller.phase).toBe('PREPARING')
-    expect([...f.gates.values()].every(g => g.state === 'open')).toBe(true)
-    const inside = siegePoint('north', 0, 4)
-    patrol.group.position.copy(inside); patrol.mount?.group.position.copy(inside)
-    f.controller.updateFlow(.02, 0)
-    expect(f.controller.phase).toBe('ATTACKING')
+    expect(f.controller.preparationRemaining).toBe(10)
     expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
-    expect(f.controller.releasedEnemies).toHaveLength(120)
-    expect(guard.missionMovement).toBe(true)
-    expect(guard.combatPosition).toEqual(guardPosition)
-    expect(attacker.combatPosition).toEqual(attackerPosition)
+    expect(f.controller.releasedEnemies).toHaveLength(0)
+    for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
+      expect(npc.combatPosition.distanceTo(point)).toBeLessThan(.01)
+      expect((npc as any)._findTarget(f.player, f.controller.fieldNpcs)).toBeNull()
+    }
+    f.controller.updateFlow(9.9, 0)
+    expect(f.controller.phase).toBe('PREPARING')
+    expect(f.controller.releasedEnemies).toHaveLength(0)
+    f.controller.updateFlow(.1, 0)
+    expect(f.controller.phase).toBe('ATTACKING')
+    expect(f.controller.releasedEnemies).toHaveLength(assault ? 119 : 120)
   })
 
-  it('starts immediately with patrol inside, without a minimum timer or waiting for dead patrol riders', () => {
-    const f = fixture(faction, false)
-    const patrol = f.residents.filter(r => r.spec.duty === 'patrol')
-    for (const { npc } of patrol) {
-      const inside = siegePoint('north', 0, 4)
-      npc.group.position.copy(inside); npc.mount?.group.position.copy(inside)
-    }
-    const dead = patrol[0].npc
-    dead.group.position.copy(siegePoint('north', 0, -40))
-    dead.mount?.group.position.copy(dead.group.position)
-    dead.takeDamage(999999)
-    f.controller.updateFlow(.01, 0)
+  it.each([true, false])('resumes the remaining countdown without repositioning or reinforcing, assault=%s', assault => {
+    const f = fixture(faction, assault)
+    f.controller.updateFlow(4, 0)
+    const defender = f.controller.military.find(npc => !npc.isMounted)!
+    defender.group.position.add(new THREE.Vector3(2, 0, 2))
+    const position = defender.combatPosition.clone()
+    f.controller.enemies[2].takeDamage(999999)
+    f.gates.get('west')!.destroy()
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    f.controller.startActiveMission()
+    expect(f.controller.preparationRemaining).toBe(6)
+    expect(defender.combatPosition.x).toBeCloseTo(position.x)
+    expect(defender.combatPosition.z).toBeCloseTo(position.z)
+    expect(f.controller.enemies).toHaveLength(assault ? 118 : 119)
+    expect(f.gates.get('west')!.state).toBe('destroyed')
+    f.controller.updateFlow(5.9, 0)
+    expect(f.controller.phase).toBe('PREPARING')
+    f.controller.updateFlow(.1, 0)
     expect(f.controller.phase).toBe('ATTACKING')
-    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
-    expect((f.controller as any).preparationElapsed).toBeLessThan(1)
+  }, 15000)
+
+  it('applies outward doorway clearance when a preparation checkpoint restores open gates', () => {
+    const f = fixture(faction, false)
+    f.player.group.position.copy(siegePoint('north', 0, 0))
+    f.controller.updateFlow(3, 0)
+    f.controller.persistRuntimeProgress(true)
+    f.gates.get('north')!.restoreOpen()
+    const context = (f.controller as any).siegeContext
+    context.closureBodies = () => [{ position: f.player.combatPosition, radius: .5, moveTo: (point: THREE.Vector3) => f.player.group.position.copy(point) }]
+    const hp = f.player.hp
+    f.controller.startActiveMission()
+    expect(f.gates.get('north')!.state).toBe('closed')
+    expect(f.player.combatPosition.clone().sub(siegePoint('north', 0, 0)).dot(siegeOutward('north'))).toBeGreaterThan(.5)
+    expect(f.player.hp).toBe(hp)
+    expect(f.controller.preparationRemaining).toBe(7)
+  })
+
+  it('stages every cavalry reserve nearest its assigned gate', () => {
+    const f = fixture(faction)
+    for (const group of f.controller.groups) for (const npc of group.cavalry) {
+      expect(siegeNearestGate(npc.combatPosition)).toBe(group.id)
+      expect(npc.combatPosition.distanceTo(siegePoint(group.id, 0, 0))).toBeLessThan(75)
+    }
+  })
+
+  it.each(['north', 'south', 'east', 'west'] as const)('keeps %s relief focused on its own breach and returns when that threat leaves', gateId => {
+    const f = fixture(faction)
+    f.controller.updateFlow(10, 0)
+    const group = f.controller.groups.find(g => g.id === gateId)!
+    const otherGate = gateId === 'west' ? 'north' : 'west'
+    const [enemy, distraction] = f.controller.enemies.slice(2, 4)
+    const place = (npc: NPC, point: THREE.Vector3) => { npc.group.position.copy(point); npc.mount?.group.position.copy(point) }
+    place(enemy, siegePoint(gateId, 0, 5))
+    place(distraction, siegePoint(otherGate, 0, 5))
+    f.player.group.position.copy(siegePoint(otherGate, 0, 5))
+    f.gates.get(gateId)!.destroy()
+    for (const npc of [...group.members, ...group.cavalry]) {
+      expect(npc.missionMovement).toBe(false)
+      expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
+      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
+    }
+    const guard = group.cavalry[0]
+    const start = guard.combatPosition.clone()
+    guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
+    expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
+    place(enemy, siegePoint(otherGate, 0, 5))
+    f.controller.updateFlow(.05, 0)
+    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
+    expect(guard.missionMovement).toBe(true)
+    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
+    f.player.group.position.copy(siegePoint(gateId, 0, 5))
+    f.controller.updateFlow(.05, 0)
+    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
+    f.controller.cleanupMission()
+    expect((guard as any).missionCombatTarget).toBeUndefined()
+  })
+
+  it('still defends its own breach against nearby ambient Bandits', () => {
+    const f = fixture(faction, false)
+    const point = siegePoint('east', 0, 5)
+    const bandit = new NPC(f.scene, point.x, point.z, Faction.BANDIT, faction, AIType.MELEE, 'Ambient bandit')
+    dispose.push(() => bandit.dispose())
+    const context = (f.controller as any).siegeContext
+    context.ambientEnemies = () => [bandit]
+    f.controller.updateFlow(10, 0)
+    f.gates.get('east')!.destroy()
+    const guard = f.controller.groups.find(g => g.id === 'east')!.cavalry[0]
+    expect((guard as any)._getTarget(.05, f.player, [bandit])?.npc).toBe(bandit)
   })
 
   it('keeps gate guards local, balances infantry and assigns four existing cavalry officers', () => {
@@ -191,7 +219,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   it('releases only breached reserves, preserves casualties and breaches across repeated reloads', () => {
     const f = fixture(faction)
     expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
-    f.controller.updateFlow(.02, 0)
+    f.controller.updateFlow(10, 0)
     expect(f.controller.phase).toBe('ATTACKING')
     f.controller.noteEffectiveFriendlyDamage(f.controller.military[0])
     expect(f.controller.reserveHasCharged).toBe(false)
@@ -201,8 +229,9 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
         const released = group.id === 'north' || group.id === 'west'
         for (const npc of [...group.members, ...group.cavalry] as NPC[]) {
           if (npc.dead) continue
-          expect(npc.missionMovement).toBe(!released)
-          expect(npc.tacticalOrder).toBe(released ? 'charge' : 'formation')
+          expect(npc.missionMovement).toBe(true)
+          expect(npc.tacticalOrder).toBe('formation')
+          if (released) expect((npc as any).missionCombatTarget).toBeNull()
         }
       }
     }
@@ -259,7 +288,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   it('does not abandon North for an East breach, replaces dead leaders, and only clears after crossing North', () => {
     const f = fixture(faction)
     expect((f.controller as any).attackGroups.every((g: any) => g.leader.tier === 4)).toBe(true)
-    f.controller.updateFlow(.02, 0)
+    f.controller.updateFlow(10, 0)
     const group = (f.controller as any).attackGroups.find((g: any) => g.id === 'north')
     group.leader.takeDamage(999999)
     f.gates.get('east')!.destroy()
@@ -298,12 +327,12 @@ function townHarness(f: ReturnType<typeof fixture>) {
 
 
 describe('Siege retained combat and settlement contracts', () => {
-  it('sounds the assault alarm only after the ready battlefield has rendered a frame', () => {
+  it.each([true, false])('sounds the alarm only after the ready battlefield has rendered a frame, assault=%s', assault => {
     const callbacks: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
     const frame = vi.fn(), alert = vi.fn()
     const town = Object.assign(createTownCombatFixture(), {
-      disposed: false, defense: { assault: true }, profile: { activeMission: { id: 'ready-assault' } }, frame, playAssaultAlert: alert,
+      disposed: false, siegeOpeningPending: true, defense: { assault }, profile: { activeMission: { id: 'ready-assault' } }, frame, playAssaultAlert: alert, playTownDefenseAlert: alert,
     })
     town.start()
     expect(alert).not.toHaveBeenCalled()

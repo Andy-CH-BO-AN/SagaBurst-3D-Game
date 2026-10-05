@@ -82,6 +82,7 @@ export class MissionGuide {
     rallyPoint: THREE.Vector3,
     remainingEnemies: number,
     civilianDeaths: number,
+    preparationRemaining = 0,
   ): void {
     this.root.hidden = false
     if (phase === 'PREPARING') {
@@ -91,11 +92,11 @@ export class MissionGuide {
       if (distance > 8) {
         this.arrow.style.opacity = '.58'
         this.arrow.style.transform = `rotate(${missionGuideArrowAngle(dx, dz, cameraYaw)}rad)`
-        this.label.textContent = `巡邏回城後開戰 · 防守位置 ${Math.round(distance)}m`
+        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · 防守位置 ${Math.round(distance)}m`
       } else {
         this.arrow.style.opacity = '.18'
         this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-        this.label.textContent = '等待巡邏回城 · 進城後關門開戰'
+        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · 準備迎戰`
       }
       return
     }
