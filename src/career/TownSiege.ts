@@ -57,7 +57,7 @@ export function siegeRoster(faction: CharacterFaction, assault: boolean): SiegeR
       x: point.x, z: point.z, faction: assault ? Faction.TOWN : Faction.ENEMY, characterFaction: faction,
       aiType: slot >= 20 ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Maki' : `${gate.id} ${slot + 1}`,
       tier: hero ? 4 : 3, cavalry: true, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
-      loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[3], ...(hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
+      loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[3], ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
       ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
     } }
   }).filter((slot): slot is SiegeRosterSlot => slot !== null))

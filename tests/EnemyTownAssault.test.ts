@@ -95,6 +95,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       expect(roster).toHaveLength(assault ? 119 : 120)
       expect(roster.filter(s => s.spec.tier === 4)).toHaveLength(4)
       expect(roster.filter(s => s.spec.combatProfileId === 'ranger')).toHaveLength(1)
+      expect(roster.find(s => s.spec.combatProfileId === 'ranger')!.spec.loadout?.mountId).toBe('black-cat')
       for (const id of ['north', 'south', 'east', 'west']) expect(roster.filter(s => s.gateId === id).length + (assault && id === 'north' ? 1 : 0)).toBe(30)
       expect(roster.every(s => s.spec.tier === 4 || s.spec.tier === 3)).toBe(true)
     }
@@ -131,6 +132,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
 
   it('releases only breached reserves, preserves casualties and breaches across repeated reloads', () => {
     const f = fixture(faction)
+    expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
     stage(f); f.controller.updateFlow(.02, 0)
     expect(f.controller.phase).toBe('ATTACKING')
     f.controller.noteEffectiveFriendlyDamage(f.controller.military[0])
@@ -150,6 +152,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       f.setProfile(saved)
       expect(f.controller.startActiveMission()).toBe(true)
       expect(f.controller.enemies).toHaveLength(118)
+      expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
       expect(f.controller.enemies.some(n => n.combatantId === deadId)).toBe(false)
       expect(f.controller.enemies.find(n => n.combatantId === footId)!.isMounted).toBe(false)
       expect(f.gates.get('north')!.state).toBe('destroyed')
