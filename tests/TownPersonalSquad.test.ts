@@ -5,8 +5,8 @@ import { TownWorld } from '../src/town/TownWorld'
 import { resolveTownHRLayout, hrOfficerSpec } from '../src/town/TownHRLayout'
 import { TownPersonalSquadController } from '../src/town/TownPersonalSquadController'
 import { TOWN_CITY } from '../src/town/TownLayout'
-import { TOWN_SITES, isTownMilitary, townActorCaptainProfile, townAssaultObjectiveRoster, townSettlementRoster } from '../src/town/TownRules'
-import { NPC, AIType, Faction } from '../src/world/NPC'
+import { TOWN_SITES, isTownMilitary, townActorCaptainProfile, townAssaultObjectiveRoster, townSettlementRoster, settleTown } from '../src/town/TownRules'
+import { NPC, AIState, AIType, Faction } from '../src/world/NPC'
 import { MountType, mountTypeFromId } from '../src/world/Mount'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../src/town/TownBounds'
@@ -121,6 +121,59 @@ describe('HR Center and personal runtime', () => {
     expect(controller.state).toBe('RESERVE'); expect(controller.actors).toHaveLength(0)
     expect(profile.personalSquad.members).toHaveLength(3)
     controller.follow(); expect(controller.actors).toHaveLength(3)
+  })
+  it.each(['roman', 'viking'] as const)('holds %s personal Attack away from HR until Dismiss, including a targetless chase', faction => {
+    const { controller, world, player, navigation, step } = harness(faction)
+    controller.follow(); step(1000)
+    const held = controller.actors.map(actor => actor.combatPosition.clone())
+    for (const [index, actor] of controller.actors.entries()) {
+      expect(held[index].distanceTo(new THREE.Vector3(world.hr.muster[index].x, held[index].y, world.hr.muster[index].z))).toBeGreaterThan(50)
+      actor.setTacticalOrder('attack')
+      // An ended chase must take the same no-target path as a fresh Attack order.
+      actor.state = AIState.CHASE
+    }
+    const patrol = controller.actors.map(actor => vi.spyOn(actor as any, '_updatePatrol'))
+    for (let frame = 0; frame < 300; frame++) {
+      navigation.beginFrame()
+      for (const actor of controller.actors) actor.update(.05, player, controller.actors, controller.actors, [],
+        {} as any, () => {}, () => {}, true, 30, null, null, navigation)
+      controller.updateLifecycle()
+    }
+    for (const [index, actor] of controller.actors.entries()) {
+      expect(patrol[index].mock.calls.length).toBe(0)
+      expect(Math.hypot(actor.combatPosition.x - held[index].x, actor.combatPosition.z - held[index].z)).toBeLessThan(.05)
+      expect(actor.tacticalOrder).toBe('attack')
+    }
+    expect(controller.state).toBe('ACTIVE')
+    controller.dismiss(); step(1200); expect(controller.state).toBe('RESERVE')
+  })
+  it.each(['roman', 'viking'] as const)('preserves member IDs through %s Town faction switch and rebuilds native gear for the new faction', faction => {
+    const { controller, profile, scene, world, player } = harness(faction)
+    const current = { ...profile, townEvent: { id: 'switch', state: 'hostile' as const } }
+    const switched = settleTown(current, 'switch', 'town_defeated')
+    const opposite = faction === 'roman' ? 'viking' : 'roman'
+    expect(switched.faction).toBe(opposite); expect(switched.rank).toBe('recruit')
+    expect(switched.personalSquad).toEqual(profile.personalSquad)
+    const rebuilt = new TownPersonalSquadController(scene, world.hr, () => switched, () => player)
+    cleanups.push(() => rebuilt.cleanup())
+    controller.cleanup(); rebuilt.follow()
+    expect(rebuilt.actors.map(actor => actor.combatantId)).toEqual(profile.personalSquad.members.map(member => member.id))
+    expect(rebuilt.actors.every(actor => actor.characterFaction === opposite && actor.faction === Faction.PLAYER)).toBe(true)
+    expect(rebuilt.actors[0].presetId).toBe(`${opposite}_${opposite === 'roman' ? 'heavy_infantry' : 'berserker'}`)
+    expect(rebuilt.actors.slice(1).every(actor => actor.mount?.type === MountType.HORSE)).toBe(true)
+  })
+  it('keeps constructor patrol behavior for ordinary NPC Attack and still acquires hostiles for personal Attack', () => {
+    const { controller, scene, player } = harness(); controller.follow()
+    const ordinary = new NPC(scene, 0, 0, Faction.PLAYER, 'roman', AIType.MELEE, 'ordinary', 2)
+    const enemy = new NPC(scene, 0, 3, Faction.BANDIT, 'viking', AIType.MELEE, 'enemy', 2)
+    cleanups.push(() => ordinary.dispose(), () => enemy.dispose())
+    const patrol = vi.spyOn(ordinary as any, '_updatePatrol')
+    ordinary.update(.05, player, [], [], [], {} as any, () => {}, () => {}, true, 30)
+    expect(patrol.mock.calls.length).toBe(1)
+    const personal = controller.actors[0]
+    personal.group.position.copy(ordinary.combatPosition); personal.setTacticalOrder('attack')
+    personal.update(.05, player, [enemy], [enemy], [], {} as any, () => {}, () => {}, true, 30)
+    expect(personal.state).toBe(AIState.ALERT)
   })
   it('reload resets thirty owned identities to reserve and mission start excludes deployment', () => {
     const { controller, world, scene, player, profile } = harness('roman', 30)

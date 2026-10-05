@@ -256,8 +256,11 @@ export class TownScene {
         enabled: () => this.personalCommandsEnabled(),
         issue: order => {
           if (order === 'follow') {
-            if (this.personalSquad!.follow()) sound.playCareerMissionVoice(this.profile.faction, 'follow')
-          } else this.personalSquad!.dismiss()
+            const accepted = this.personalSquad!.follow()
+            if (accepted) sound.playCareerMissionVoice(this.profile.faction, 'follow')
+            return accepted
+          }
+          return this.personalSquad!.dismiss()
         },
       })
     this.personalCommandUI.setEnabled(this.personalCommandsEnabled())

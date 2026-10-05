@@ -2038,7 +2038,10 @@ export class NPC {
     } else switch (this.state) {
       case AIState.IDLE: {
         this.alertSprite.visible = false
-        if (this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
+        // Personal Attack holds its actual position when no hostile is available;
+        // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
+        const personalAttack = this.combatOwnership === 'player-personal' && this.tacticalOrder === 'attack'
+        if (!personalAttack && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
           this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 

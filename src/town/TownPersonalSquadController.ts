@@ -13,6 +13,8 @@ import type { TownHRLayout } from './TownHRLayout'
 
 export type PersonalSquadState = 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING'
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
+  // Permanent ownership/IDs survive Town faction switches; native gear and visuals
+  // adopt the Player's current faction on the next deployment (no recruited-faction lock).
   const presetId = `${faction}_${member.type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : member.type === 'ranger' ? 'horse_archer' : 'sword_cavalry'}` as UnitPresetId
   const hero = member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
   return { presetId, hero, tier: member.type === 'soldier' ? 2 as const : 4 as const,

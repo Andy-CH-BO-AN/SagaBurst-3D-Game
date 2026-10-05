@@ -113,7 +113,7 @@ export class ArmyCommandController {
     private readonly inventory: InventoryManager | null = null,
     groupingMode: CommandGroupingMode = 'preset',
     private readonly commandsEnabled = true,
-    private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): void; enabled(): boolean },
+    private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -344,8 +344,11 @@ export class ArmyCommandController {
     }
 
     if (this.personalCommands && (order === 'follow' || order === 'dismiss')) {
+      if (!this.personalCommands.issue(order)) {
+        this._closeSubmenu()
+        return
+      }
       this._clearFormationDesiredOrders('all')
-      this.personalCommands.issue(order)
       if (order === 'follow') this._setDesiredOrder('all', order)
       this.ui.showFeedback(order === 'follow' ? 'Personal Squad → Follow me' : 'Personal Squad → Dismiss · 收隊')
       this._closeSubmenu()
