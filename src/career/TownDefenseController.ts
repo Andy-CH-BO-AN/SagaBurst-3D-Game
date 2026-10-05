@@ -258,7 +258,8 @@ export class TownDefenseController {
     if (prior && Math.hypot(prior.x - point.x, prior.z - point.z) < .5 && npc.missionMovement) return
     npc.assignSiegeObstacle(null)
     npc.missionMovement = true
-    npc.assignFormationTarget(this.commandId++, this.withTerrain(point), siegeOutward(this.groupFor(npc)?.id ?? 'south'), npc.isMounted ? 6 : 2.2)
+    // Use native movement speed so urgent mission travel can sprint without patrol speed caps.
+    npc.assignFormationTarget(this.commandId++, this.withTerrain(point), siegeOutward(this.groupFor(npc)?.id ?? 'south'))
     this.orders.set(npc, point.clone())
   }
 

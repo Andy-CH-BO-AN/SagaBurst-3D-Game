@@ -375,7 +375,7 @@ export class NPC {
   // Temporary destructible blocker target. NPCs never scan for structures;
   // they only react to the first blocker on the route to their human target.
   private _siegeTargetObstacle: ObstacleData | null = null
-  /** Opt-in mission travel: defend against immediate contact without abandoning the movement order. */
+  /** Urgent mission travel: sprint to the destination, defending immediate contact without abandoning the order. */
   missionMovement = false
   private assignedSiegeObstacle: ObstacleData | null = null
   get hasSiegeObstacle(): boolean { return this._isAttackableObstacle(this.assignedSiegeObstacle) }
@@ -2827,7 +2827,7 @@ export class NPC {
     const baseSpeed = this.mount
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
-    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint)
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint || this.missionMovement)
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position, this.playableWorldBound)
   }
 

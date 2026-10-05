@@ -106,6 +106,26 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     expect(objective.some(id => id.startsWith('civilian'))).toBe(false)
   })
 
+  it('sprints both infantry and cavalry to deployment slots and stops on arrival', () => {
+    const f = fixture(faction, false)
+    const orders = [...((f.controller as any).orders as Map<NPC, THREE.Vector3>)]
+    for (const mounted of [false, true]) {
+      const [npc, destination] = orders.find(([npc, point]) => npc.isMounted === mounted
+        && npc.combatPosition.distanceTo(point) > 20)!
+      const tick = () => npc.update(.05, f.player, [npc], [], [], null as never, () => {}, () => {}, true)
+      const start = npc.combatPosition.clone(), stamina = npc.stamina
+      tick()
+      expect(npc.sprinting).toBe(true)
+      expect(npc.combatPosition.distanceTo(start)).toBeGreaterThan(mounted ? 1 : .45)
+      expect(npc.stamina).toBeLessThan(stamina)
+      npc.group.position.copy(destination)
+      npc.mount?.group.position.copy(destination)
+      tick()
+      expect(npc.sprinting).toBe(false)
+      expect(npc.combatPosition.distanceTo(destination)).toBeLessThan(.1)
+    }
+  })
+
   it('waits beyond the minimum for actual preparation, then closes all gates and releases four attacks', () => {
     const f = fixture(faction, false)
     f.controller.updateFlow(25, 0)
