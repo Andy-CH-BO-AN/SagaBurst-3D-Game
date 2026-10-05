@@ -211,7 +211,7 @@ describe('NPC temporary combat loadout', () => {
     npc.dispose()
   })
 
-  it('limits duel hostility to Player and clears it without changing the Town hostility flag', () => {
+  it('allows a closer faction enemy during Duel and clears Player hostility without changing Town hostility', () => {
     const npc = soldier(), equipment = fixture(npc), scene = new THREE.Scene(), player = new Player(scene)
     const otherEnemy = new NPC(scene, 12, 7, Faction.ENEMY, 'viking', AIType.MELEE, 'Unrelated enemy', 1, false)
     player.setPosition(40, 0, 40)
@@ -219,8 +219,12 @@ describe('NPC temporary combat loadout', () => {
     npc.setDuelHostility(true)
     expect(npc.hostileToPlayer).toBe(true)
     expect(equipment.townHostile).toBe(false)
+    expect(equipment._findTarget(player, [otherEnemy])?.npc).toBe(otherEnemy)
+    otherEnemy.group.position.set(200, 0, 200)
     expect(equipment._findTarget(player, [otherEnemy])?.isPlayer).toBe(true)
     Object.defineProperty(player, 'dead', { value: true })
+    expect(equipment._findTarget(player, [otherEnemy])?.npc).toBe(otherEnemy)
+    otherEnemy.takeDamage(1000)
     expect(equipment._findTarget(player, [otherEnemy])).toBeNull()
     npc.setDuelHostility(false)
     expect(npc.hostileToPlayer).toBe(false)

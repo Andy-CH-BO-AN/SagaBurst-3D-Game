@@ -320,14 +320,14 @@ describe('Outskirts participants alongside existing Town missions', () => {
     expect(h.field.ambientBandits).toEqual([camp, camp])
   })
 
-  it('keeps Duel simulation exclusive and never resets the hostile navigation frame', () => {
+  it('runs Outskirts alongside Duel and never resets the hostile navigation frame', () => {
     const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT), h = warfareFixture([bandit])
     h.duel.active = { ...veteranMission(), kind: 'duel' }
     h.combat.update(.02, 0, 1)
-    expect(h.outskirts.prepareFrame).not.toHaveBeenCalled(); expect(bandit.update).not.toHaveBeenCalled()
+    expect(h.outskirts.prepareFrame).toHaveBeenCalledOnce(); expect(bandit.update).toHaveBeenCalledOnce()
     h.duel.active = undefined
     const beginFrame = vi.spyOn(h.simulation.navigation, 'beginFrame')
     h.combat.updateOutskirtsHostile(.02, 2)
-    expect(beginFrame).not.toHaveBeenCalled(); expect(bandit.update).toHaveBeenCalledOnce()
+    expect(beginFrame).not.toHaveBeenCalled(); expect(bandit.update).toHaveBeenCalledTimes(2)
   })
 })

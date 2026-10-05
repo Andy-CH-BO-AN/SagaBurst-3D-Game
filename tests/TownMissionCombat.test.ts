@@ -17,6 +17,7 @@ function duelFixture(phase: CareerMissionPhase = 'ENGAGING') {
   const opponent = combatActor('opponent'), captain = combatActor('captain')
   h.duel.fieldNpcs = [captain, opponent]
   h.duel.opponent = opponent
+  opponent.hostileToPlayer = phase === 'ENGAGING'
   return { ...h, opponent, captain }
 }
 
@@ -159,6 +160,60 @@ describe('Town field combat through the mission interface', () => {
 })
 
 describe('Town Duel simulation through the mission interface', () => {
+  it.each(['ASSEMBLING', 'MARCHING', 'PREPARING', 'ENGAGING', 'RETURNING'] as const)('runs world warfare, sensors and Patrol while preserving mission ownership in %s', phase => {
+    const h = duelFixture(phase)
+    const bandit = combatActor('bandit', Faction.BANDIT), cavalry = combatActor('cavalry', Faction.ENEMY)
+    const patrolMember = combatActor('patrol'), training = combatActor('training'), civilian = combatActor('civilian')
+    const excluded: Set<NPC>[] = []
+    h.simulation.residents = [combatResident(h.captain, 'captain'), combatResident(h.opponent), combatResident(training), combatResident(patrolMember), combatResident(civilian, 'civilian')]
+    const outskirts = {
+      actors: [bandit, cavalry], mounts: [], synchronizeRank: vi.fn(), prepareFrame: vi.fn(),
+      owns: (npc: NPC) => npc === bandit || npc === cavalry,
+      combatEnabled: () => true, updateTravel: vi.fn(),
+    }
+    h.simulation.outskirts = () => outskirts
+    const patrol = { combatActors: [patrolMember, h.captain], prepareCombatFrame: vi.fn(), combatEnabled: () => false, noteHostileHit: vi.fn() }
+    h.simulation.patrol = () => patrol
+    h.simulation.preparePeaceResidents = set => { excluded.push(new Set(set)) }
+    // Duplicate rosters deliberately exercise mission ownership precedence.
+    h.field.fieldNpcs = [bandit, h.captain]; h.field.ambientBandits = [bandit]
+    for (let frame = 0; frame < 3; frame++) h.combat.update(.02, 0, frame)
+    expect(outskirts.synchronizeRank).toHaveBeenCalledTimes(3)
+    expect(outskirts.prepareFrame).toHaveBeenCalledTimes(3)
+    expect(patrol.prepareCombatFrame).toHaveBeenCalledTimes(3)
+    for (const npc of [bandit, cavalry, training, patrolMember, h.captain, h.opponent]) {
+      expect(npc.update.mock.calls.length + npc.updateTownPeace.mock.calls.length, npc.combatantId).toBe(3)
+      expect(h.combat.runtimeParticipants).toContain(npc)
+      expect(h.combat.runtimeGrid.getNearby(npc.combatPosition, 8)).toContain(npc)
+    }
+    expect(excluded.every(set => set.has(h.captain) && set.has(h.opponent))).toBe(true)
+    expect(h.captain.beginExternalThreat).not.toHaveBeenCalled()
+    expect(h.simulation.peaceResident).toHaveBeenCalledTimes(3)
+    expect(h.duel.setExternalCombat).toHaveBeenCalledWith(h.captain, true)
+    expect(h.duel.persistRuntimeProgress).toHaveBeenCalledTimes(3)
+  })
+
+  it('refreshes a replaced roaming generation and does not update a global mission mount twice', () => {
+    const h = duelFixture(), old = combatActor('old', Faction.BANDIT), replacement = combatActor('new', Faction.BANDIT), mount = combatMount()
+    const outskirts = { actors: [old], mounts: [mount], synchronizeRank: vi.fn(),
+      prepareFrame: vi.fn(() => { outskirts.actors = [replacement] }), owns: (actor: NPC) => outskirts.actors.includes(actor),
+      combatEnabled: () => true, updateTravel: vi.fn() }
+    h.simulation.outskirts = () => outskirts; h.simulation.mounts = [mount]; h.duel.allMounts = [mount, mount]
+    h.combat.update(.02, 0, 0)
+    expect(old.update).not.toHaveBeenCalled(); expect(replacement.update).toHaveBeenCalledOnce()
+    expect(h.combat.runtimeParticipants).not.toContain(old); expect(h.combat.runtimeParticipants).toContain(replacement)
+    expect(mount.update).not.toHaveBeenCalled()
+  })
+
+  it('lets a referee walk back to its mission station after an external fight during ENGAGING', () => {
+    const h = duelFixture()
+    Object.assign(h.captain, { formationCommandId: 9, isFormationTargetReached: vi.fn(() => false), updateTownTravel: vi.fn() })
+    h.combat.update(.02, 0, 1)
+    expect(h.duel.setExternalCombat).toHaveBeenCalledWith(h.captain, false)
+    expect(h.captain.updateTownTravel).toHaveBeenCalledOnce()
+    expect(h.captain.update).not.toHaveBeenCalled(); expect(h.captain.updateTownPeace).not.toHaveBeenCalled()
+    expect(h.opponent.update).toHaveBeenCalledOnce()
+  })
   it('advances a defeated opponent through collapse and despawn while the result panel pauses the duel', () => {
     const h = duelFixture('RESULT')
     const opponent = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Duel opponent', 1, false)
@@ -211,7 +266,7 @@ describe('Town Duel simulation through the mission interface', () => {
     expect(h.field.updateFlow).not.toHaveBeenCalled(); expect(h.defense.updateFlow).not.toHaveBeenCalled()
   })
 
-  it('clears preparing projectiles before the first FIGHT actor update and persists only after mounts advance', () => {
+  it('preserves world projectiles at FIGHT and persists after mounts advance', () => {
     const h = duelFixture('PREPARING'), log: string[] = [], mount = combatMount()
     mount.dead = true; h.duel.allMounts = [mount]
     h.duel.update.mockImplementation(() => { log.push('countdown'); h.duel.phase = 'ENGAGING'; h.duel.combatEnabled = true })
@@ -222,9 +277,9 @@ describe('Town Duel simulation through the mission interface', () => {
     h.careerMounts.update.mockImplementation(() => { log.push('career-mount') })
     h.duel.persistRuntimeProgress.mockImplementation(() => { log.push('persist') })
     h.combat.update(.02, 0, 1)
-    expect(log).toEqual(['countdown', 'clear-shots', 'referee', 'opponent', 'dead-mount', 'career-mount', 'persist'])
+    expect(log).toEqual(['countdown', 'referee', 'opponent', 'dead-mount', 'career-mount', 'persist'])
     h.combat.update(.02, 0, 2)
-    expect(h.simulation.clearCombatShots).toHaveBeenCalledOnce()
+    expect(h.simulation.clearCombatShots).not.toHaveBeenCalled()
   })
 
   it('keeps a timed-out ENGAGING opponent peaceful and updates abandoned mounts', () => {
@@ -237,14 +292,14 @@ describe('Town Duel simulation through the mission interface', () => {
     expect(controlled.update).not.toHaveBeenCalled(); expect(h.simulation.hitNpc).not.toHaveBeenCalled()
   })
 
-  it('routes opponent damage and shots with its identity while ignoring NPC damage requests', () => {
-    const h = duelFixture(), unrelated = combatActor('unrelated'), origin = new THREE.Vector3(), direction = new THREE.Vector3(0, 0, 1)
+  it('routes opponent damage and shots with its identity across ownership', () => {
+    const h = duelFixture(), unrelated = combatActor('unrelated', Faction.BANDIT), origin = new THREE.Vector3(), direction = new THREE.Vector3(0, 0, 1)
     h.opponent.update.mockImplementation((_dt, _player, _peers, _nearby, _obstacles, _hp, hit, fire) => {
       hit(8, true); hit(8, false, unrelated); fire(origin, direction, 'arrow')
     })
     h.combat.update(.02, 0, 0)
     expect(h.simulation.damagePlayer).toHaveBeenCalledExactlyOnceWith(h.opponent, 8, 'melee')
-    expect(h.simulation.hitNpc).not.toHaveBeenCalled()
+    expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(unrelated, 8, 'melee', h.opponent)
     expect(h.simulation.fireNpc).toHaveBeenCalledExactlyOnceWith(origin, direction, 'arrow', h.opponent)
   })
 

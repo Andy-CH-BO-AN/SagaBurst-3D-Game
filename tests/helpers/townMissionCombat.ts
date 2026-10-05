@@ -64,6 +64,7 @@ export function combatFixture(options: { controllers?: Partial<Controllers>; sim
     opponent: null as NPC | null, combatEnabled: false,
     update: vi.fn<(dt: number) => void>(), isMissionActor: vi.fn((actor: NPC) => duel.fieldNpcs.includes(actor)),
     persistRuntimeProgress: vi.fn<(force?: boolean) => void>(),
+    setExternalCombat: vi.fn<(actor: NPC, enabled: boolean) => void>(),
   }
   const defense = {
     active: undefined as ActiveCareerMission | undefined,

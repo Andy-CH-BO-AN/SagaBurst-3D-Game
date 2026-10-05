@@ -27,7 +27,7 @@ export interface TownCombatResident {
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'active' | 'fieldNpcs' | 'friendlies' | 'ambientBandits' | 'missionBandits' | 'combatPeersFor' | 'updateFlow' | 'updateDepartingCavalry' | 'departingNpcs' | 'cavalryMounts' | 'veteranEnemySquads' | 'markVeteranEnemySquadEngaged'>
-  duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'combatEnabled' | 'persistRuntimeProgress'>
+  duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'combatEnabled' | 'persistRuntimeProgress' | 'setExternalCombat'>
   defense: Pick<TownDefenseController, 'active' | 'phase' | 'assault' | 'updateFlow' | 'fieldNpcs' | 'peersFor' | 'updateCivilianOrder' | 'waitingEnemies' | 'enemyMounts'>
 }
 
@@ -97,7 +97,6 @@ export class TownMissionCombat {
 
   /** Damage wakes the actual actor/squad without changing a mission party's route phase. */
   noteExternalHit(target: NPC, source?: NPC): void {
-    if (this.missions.duel.active) return
     const outskirts = this.town.outskirts?.()
     if (source && (outskirts?.owns(source) || this.missions.field.fieldNpcs.includes(source)
       || this.missions.field.ambientBandits.includes(source) || this.missions.defense.fieldNpcs.includes(source))) {
@@ -135,7 +134,11 @@ export class TownMissionCombat {
   update(dt: number, cameraYaw: number, elapsed: number): void {
     this.town.navigation.sync(this.town.obstacles)
     this.town.navigation.beginFrame()
-    if (this.missions.duel.active) this.updateDuel(dt, elapsed)
+    if (this.missions.duel.active) {
+      this.missions.duel.update(dt)
+      this.updateTownWithDuel(dt, elapsed)
+      this.missions.duel.persistRuntimeProgress()
+    }
     else if (this.missions.defense.active) this.updateDefense(dt, cameraYaw, elapsed)
     else this.updateField(dt, cameraYaw, elapsed)
   }
@@ -375,7 +378,7 @@ export class TownMissionCombat {
     const participants = [...new Set([
       ...this.town.residents.map(resident => resident.npc),
       ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length ? this.missions.field.ambientBandits : []),
-      ...this.missions.defense.fieldNpcs,
+      ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
       ...(outskirts?.actors ?? []),
     ])]
     outskirts?.prepareFrame(dt, participants, this.town.player())
@@ -481,47 +484,53 @@ export class TownMissionCombat {
     }
   }
 
-  private updateDuel(dt: number, elapsed: number): void {
-    const { duel } = this.missions
-    const before = duel.phase
-    duel.update(dt)
-    if (before !== duel.phase && duel.phase === 'ENGAGING') this.town.clearCombatShots()
-    this.town.preparePeaceResidents?.(new Set(this.town.residents.filter(r => duel.isMissionActor(r.npc)).map(r => r.npc)))
-    for (const resident of this.town.residents) {
-      if (!duel.isMissionActor(resident.npc)) this.town.peaceResident(resident, dt)
-    }
-    const actors = duel.fieldNpcs
-    this.grid.clear(); for (const actor of actors) if (!actor.dead) this.grid.insert(actor)
+  private updateTownWithDuel(dt: number, elapsed: number): void {
+    const { duel, field } = this.missions
+    const outskirts = this.prepareOutskirtsFrame(dt)
+    this.updateExternalThreatAssignments()
+    const duelActors = new Set(duel.fieldNpcs)
+    this.town.preparePeaceResidents?.(new Set([...duelActors, ...this.externalThreatActors]))
+    this.preparePatrolCombatFrame(dt, outskirts)
+    const patrolActors = new Set(this.town.patrol?.().combatActors ?? [])
+    const actors = [...new Set([...duelActors, ...field.fieldNpcs, ...field.ambientBandits,
+      ...(outskirts?.actors ?? []), ...this.externalThreatActors, ...patrolActors])]
+    const activeActors = new Set(actors)
+    for (const resident of this.town.residents) if (!activeActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     for (const actor of actors) {
-      const distance = actor.group.position.distanceTo(this.town.cameraPosition)
-      if (actor.dead) { this.updateCorpse(actor, dt); continue }
-      const combatant = actor === duel.opponent && duel.combatEnabled
-      if (duel.phase === 'PREPARING' || duel.phase === 'RESULT' || duel.phase === 'ENGAGING' && !combatant) {
-        if (actor.mount) { actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }
-        actor.updateTownPeace(dt, distance, false, false)
-        continue
-      }
-      actor.update(dt, this.town.player(), [], this.grid.getNearbyInto(actor.combatPosition, 2, this.neighbors), this.town.obstacles, this.town.hp,
-        (damage, isPlayer) => { if (isPlayer) this.town.damagePlayer(actor, damage, 'melee') },
-        (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
-        false, distance, null, null, this.town.navigation)
+      // Mission behavior wins even if the actor also occurs in a world roster.
+      if (duelActors.has(actor)) {
+        if (actor.dead) { this.updateCorpse(actor, dt); continue }
+        const combatant = actor === duel.opponent && duel.combatEnabled
+        const externalCombat = this.warfareGrid.getNearbyInto(actor.combatPosition, 20, this.neighbors)
+          .some(target => !target.dead && townWartimeHostile(actor, target))
+        duel.setExternalCombat(actor, externalCombat)
+        if (combatant || externalCombat) this.updateRuntimeActor(actor, dt)
+        else if (duel.phase === 'PREPARING' || duel.phase === 'RESULT' || duel.phase === 'ENGAGING') {
+          if (actor.formationCommandId != null && !actor.isFormationTargetReached(actor.formationCommandId)) {
+            actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
+              this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.navigation)
+            continue
+          }
+          if (actor.mount) { actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }
+          actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
+        } else this.updateRuntimeActor(actor, dt)
+      } else if (outskirts?.owns(actor)) this.updateOutskirtsActor(actor, outskirts, dt)
+      else this.updateRuntimeActor(actor, dt)
     }
-    for (const mount of duel.allMounts) {
+    // TownScene owns global/Outskirts mounts; the career controller owns its active mount.
+    for (const mount of new Set(duel.allMounts)) {
+      if (this.town.mounts?.includes(mount) || outskirts?.mounts.includes(mount) || mount === this.town.careerMounts.activeMount) continue
       mount.setCameraDistance(mount.group.position.distanceTo(this.town.cameraPosition))
-      if (mount.dead || !mount.riderNpc) mount.update(dt, this.town.obstacles)
+      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.town.obstacles)
     }
-    const player = this.town.player(), opponent = duel.opponent, playerMount = player.currentMount
-    if (opponent && duel.combatEnabled) {
-      if (playerMount && !playerMount.dead && checkMountImpact(playerMount, opponent.combatPosition, .5)) {
-        applyMountImpactDamage(playerMount, opponent, opponent.combatPosition, elapsed, damage => this.town.hitNpc(opponent, damage, 'mount-impact'))
-      }
-      const opponentMount = opponent.mount
-      if (opponentMount && !opponentMount.dead && !player.dead && checkMountImpact(opponentMount, player.combatPosition, .6)) {
-        applyMountImpactDamage(opponentMount, player, player.combatPosition, elapsed, damage => this.town.damagePlayer(opponent, damage, 'mount-impact'))
-      }
+    this.updateRuntimeMountImpacts(actors, elapsed)
+    const player = this.town.player(), playerMount = player.currentMount
+    if (playerMount && !playerMount.dead) for (const target of this.runtimeActors) {
+      if (target.dead || !(target.hostileToPlayer || target === duel.opponent && duel.combatEnabled)
+        || !checkMountImpact(playerMount, target.combatPosition, .5)) continue
+      applyMountImpactDamage(playerMount, target, target.combatPosition, elapsed, damage => this.town.hitNpc(target, damage, 'mount-impact'))
     }
     this.town.careerMounts.update(dt)
-    duel.persistRuntimeProgress()
   }
 
   private updateExternalThreatAssignments(options: { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean } = {}): void {
@@ -532,9 +541,13 @@ export class TownMissionCombat {
       ...(outskirts?.actors ?? [])].filter(npc => !npc.dead)
     this.banditThreatGrid.clear()
     for (const actor of threatActors) if (!actor.dead) this.banditThreatGrid.insert(actor)
-    const missionFriendlies = new Set([...field.friendlies, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
+    const missionFriendlies = new Set([...field.friendlies, ...this.missions.duel.fieldNpcs, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (this.missions.duel.active && this.missions.duel.isMissionActor(npc)) {
+        this.externalThreatActors.delete(npc)
+        continue
+      }
       if (spec.duty === 'patrol' && this.town.patrol?.()) {
         this.externalThreatActors.delete(npc)
         continue

@@ -160,6 +160,15 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     h.controller.opponent!.combatPosition.copy(arena)
     h.player.group.position.copy(arena)
     h.controller.update(0)
+    expect(h.controller.phase).toBe('MARCHING')
+    // Actors walk to their formation slots; arrival never moves them instantly.
+    expect(h.controller.opponent!.combatPosition).toEqual(arena)
+    expect(h.controller.captain!.combatPosition).toEqual(arena)
+    for (const actor of h.controller.actors) {
+      const command = vi.mocked(actor.assignFormationTarget).mock.calls.at(-1)!
+      actor.combatPosition.copy(command[1])
+    }
+    h.controller.update(0)
     expect(h.controller.phase).toBe('PREPARING')
     expect(h.controller.guideTarget).toBeNull()
     h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, phase: 'RETURNING' } })
@@ -229,6 +238,47 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(victory.controller.outcome).toBe('victory')
     victory.player.dead = true
     expect(victory.controller.outcome).toBe('failure')
+  })
+
+  it('continues the timer away from the arena and ignores external kills while accepting third-party opponent death', () => {
+    const h = harness(); h.start('roman_archer', 1, 'ENGAGING')
+    const id = h.controller.opponent!.combatantId
+    h.controller.update(5)
+    h.player.group.position.set(-250, 0, 250)
+    const bandit = h.residents.find(resident => resident.spec.role === 'civilian')!.npc
+    h.controller.events.emit({ type: 'actor_killed', source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
+      target: { targetId: bandit.combatantId, targetType: 'npc', name: 'Bandit' }, method: 'melee' })
+    bandit.takeDamage(1000)
+    h.controller.update(10)
+    expect(h.controller.combatRemaining).toBe(15)
+    expect(h.controller.outcome).toBeNull()
+    expect(h.profile.activeMission!.duelOpponentActorId).toBe(id)
+    expect(h.controller.snapshot().player.kills).toBe(0)
+    h.controller.opponent!.takeDamage(1000)
+    expect(h.controller.outcome).toBe('victory')
+    expect(h.controller.snapshot().player.kills).toBe(0)
+  })
+
+  it('temporarily fights with Captain and resumes the same march from his actual position', () => {
+    const h = harness(); h.start('roman_archer', 1, 'MARCHING')
+    const captain = h.controller.captain!, location = captain.combatPosition.clone()
+    const previous = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
+    h.controller.setExternalCombat(captain, true)
+    h.controller.setExternalCombat(captain, true)
+    expect(captain.setTacticalOrder).toHaveBeenLastCalledWith('attack')
+    captain.combatPosition.x -= 8
+    const afterFight = captain.combatPosition.clone()
+    h.controller.update(1)
+    h.controller.setExternalCombat(captain, false)
+    expect(captain.combatPosition).toEqual(afterFight)
+    expect(captain.combatPosition).not.toEqual(location)
+    expect(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(previous)
+    expect(h.controller.phase).toBe('MARCHING')
+    h.controller.cleanupMission()
+    expect(h.controller.isMissionActor(captain)).toBe(false)
+    const calls = vi.mocked(captain.assignFormationTarget).mock.calls.length
+    h.controller.setExternalCombat(captain, false)
+    expect(vi.mocked(captain.assignFormationTarget).mock.calls).toHaveLength(calls)
   })
 
   it('reload keeps countdown, combat clock, actor ids, opponent health and mount health', () => {
