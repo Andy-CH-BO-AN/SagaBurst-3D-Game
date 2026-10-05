@@ -100,6 +100,7 @@ export class TownDefenseController {
   startActiveMission(): boolean {
     const active = this.active, context = this.siegeContext
     if (!active?.siege || active.result || !context) return false
+    const freshAssault = this.assault && !active.siege.rosterCreated
     this.disposeEnemies()
     this.siege = cloneCareerProfile(this.readProfile()).activeMission!.siege!
     this.civilianCombat.clear(); this.orders.clear(); this.approached.clear()
@@ -146,7 +147,15 @@ export class TownDefenseController {
     if (active.playerHp !== undefined && !active.playerDead) this.player().setHp(active.playerHp)
     if (active.playerStamina !== undefined && !active.playerDead) this.player().setStamina(active.playerStamina)
     this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats)
-    if (active.phase !== 'PREPARING') this.beginAttack()
+    // Assault enters a new battlefield: create the initial deployment before its
+    // first visible frame. Checkpoints keep their actual positions and breaches.
+    if (freshAssault) {
+      for (const [npc, point] of this.orders) {
+        this.positionNpc(npc, point, siegeOutward(this.groupFor(npc)?.id ?? 'south'))
+      }
+      if (this.closeGates()) this.setPhase('ATTACKING')
+    }
+    if (this.phase !== 'PREPARING') this.beginAttack()
     this.persistRuntimeProgress(true)
     return true
   }
@@ -324,7 +333,16 @@ export class TownDefenseController {
     if (!this.siege.destroyedGateIds.includes(id) && this.siegeContext?.gates.get(id)?.state === 'destroyed') this.siege.destroyedGateIds.push(id)
     if (!this.siege.releasedReserveGateIds.includes(id)) this.siege.releasedReserveGateIds.push(id)
     this.reserveCharged = true
-    this.groups.find(group => group.id === id)?.cavalry.forEach((npc, index) => this.order(npc, insideSiegeTown(npc.combatPosition) ? siegePoint(id, (index % 5 - 2) * 3, 8 + Math.floor(index / 5) * 4) : npc.combatPosition.clone()))
+    const group = this.groups.find(group => group.id === id)
+    // A breach releases this gate's entire defense from its deployment orders.
+    // Holding a formation slot would leave infantry idle and cavalry unable to pursue.
+    for (const npc of [...group?.members ?? [], ...group?.cavalry ?? []]) {
+      if (npc.dead) continue
+      npc.missionMovement = false
+      npc.assignSiegeObstacle(null)
+      npc.setTacticalOrder('charge')
+      this.orders.delete(npc)
+    }
   }
 
   /** Military damage no longer releases reserves; each gate's destruction owns that decision. */
