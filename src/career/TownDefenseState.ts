@@ -5,7 +5,6 @@ export const TOWN_DEFENSE_TEMPLATE_ID = 'recruit-town-defense-01'
 export const SOLDIER_TOWN_DEFENSE_TEMPLATE_ID = 'soldier-town-defense-01'
 export const VETERAN_TOWN_DEFENSE_TEMPLATE_ID = 'veteran-town-defense-01'
 export const TOWN_DEFENSE_CIVILIAN_LIMIT = 10
-export const TOWN_DEFENSE_PREPARATION_SECONDS = 20
 
 export type TownDefensePhase = 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESULT' | 'RESET'
 

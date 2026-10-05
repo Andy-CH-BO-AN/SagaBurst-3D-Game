@@ -22,7 +22,6 @@ import { MissionGuide } from './MissionGuide'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import {
   TOWN_DEFENSE_LAYOUT,
-  TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
   resolveTownDefenseOutcome,
   townDefenseFailureLocked,
@@ -80,7 +79,6 @@ export class TownDefenseController {
   get assault(): boolean { return this.active?.kind === 'enemy-town-assault' }
   get military(): NPC[] { const ids = new Set(townAssaultObjectiveRoster(this.residents.map(r => r.spec)).map(s => s.id)); return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc) }
   get playerEnemies(): NPC[] { return this.fieldNpcs.filter(npc => npc.faction === Faction.ENEMY) }
-  get preparationSeconds(): number { return this.assault ? 0 : TOWN_DEFENSE_PREPARATION_SECONDS }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
   get defenders(): NPC[] { return this.military }
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
@@ -94,7 +92,6 @@ export class TownDefenseController {
   get civilianDeaths(): number { return this.civilians.filter(civilian => civilian.dead).length }
   get civilianSurvived(): number { return this.civilians.length - this.civilianDeaths }
   get servicesLocked(): boolean { return Boolean(this.active && this.phase !== 'RESULT' && this.phase !== 'RESET') }
-  get preparationRemaining(): number { return Math.max(0, this.preparationSeconds - this.preparationElapsed) }
   get reserveHasCharged(): boolean { return this.reserveCharged }
 
   startActiveMission(): boolean {
@@ -168,7 +165,7 @@ export class TownDefenseController {
     this.checkpoint.advance(dt)
     if (active.phase === 'PREPARING') {
       this.preparationElapsed += dt
-      if (this.preparationElapsed >= this.preparationSeconds && this.preparationReady() && this.closeGates() && this.setPhase('ATTACKING')) {
+      if (this.patrolRecalled() && this.closeGates() && this.setPhase('ATTACKING')) {
         this.beginAttack()
       }
     } else if (!this.assault) {
@@ -178,7 +175,7 @@ export class TownDefenseController {
     }
     if (this.phase !== 'PREPARING') this.updateSiegeAttackOrders()
     this.persistRuntimeProgress()
-    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
+    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths)
   }
 
   evaluate(playerDead: boolean): CareerMissionOutcome | null {
@@ -274,13 +271,13 @@ export class TownDefenseController {
 
   private groupFor(npc: NPC): RuntimeGroup | undefined { return this.groups.find(group => group.members.includes(npc) || group.cavalry.includes(npc)) }
 
-  private preparationReady(): boolean {
+  private patrolRecalled(): boolean {
     const context = this.siegeContext!
     const doorway = (npc: NPC) => [...context.gates.values()].some(gate => overlapsGateClosure(gate.collisionBox, npc.combatPosition, npc.isMounted ? 1.4 : .5))
-    const patrol = this.residents.filter(r => r.spec.duty === 'patrol').every(r => r.npc.dead || insideSiegeTown(r.npc.combatPosition) || doorway(r.npc))
-    const attackers = this.enemies.every(npc => npc.dead || npc.combatPosition.distanceToSquared(this.orders.get(npc)!) < 64)
-    const deployed = this.military.every(npc => npc.dead || doorway(npc) || (this.orders.has(npc) && npc.combatPosition.distanceToSquared(this.orders.get(npc)!) < 100))
-    return patrol && attackers && deployed
+    // The returning patrol is the only preparation barrier. Deployment continues
+    // during combat; doorway occupants still follow the shared closure displacement.
+    return this.residents.filter(r => r.spec.duty === 'patrol')
+      .every(r => r.npc.dead || insideSiegeTown(r.npc.combatPosition) || doorway(r.npc))
   }
 
   private closeGates(): boolean {

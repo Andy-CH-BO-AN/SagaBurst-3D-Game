@@ -81,13 +81,6 @@ function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETER
 }
 
 
-function stage(f: ReturnType<typeof fixture>) {
-  for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
-    npc.group.position.copy(point)
-    npc.mount?.group.position.copy(point)
-  }
-}
-
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared four-gate Siege`, () => {
   it('uses four squads with four T4 officers and counts Player inside the Assault roster', () => {
     for (const assault of [false, true]) {
@@ -145,20 +138,46 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     }
   })
 
-  it('waits beyond the minimum for actual preparation, then closes all gates and releases four attacks', () => {
+  it('waits only for the living patrol, then opens combat before other units reach their slots', () => {
     const f = fixture(faction, false)
-    f.controller.updateFlow(25, 0)
+    const patrol = f.residents.find(r => r.spec.duty === 'patrol')!.npc
+    const outside = siegePoint('north', 0, -40)
+    patrol.group.position.copy(outside); patrol.mount?.group.position.copy(outside)
+    const attacker = f.controller.enemies[2]
+    attacker.group.position.x += 30; attacker.mount!.group.position.x += 30
+    const attackerPosition = attacker.combatPosition.clone()
+    const guard = f.residents.find(r => r.spec.duty !== 'patrol' && !r.npc.isMounted && f.controller.military.includes(r.npc)
+      && r.npc.combatPosition.distanceTo((f.controller as any).orders.get(r.npc)) > 20)!.npc
+    const guardPosition = guard.combatPosition.clone()
+    f.controller.updateFlow(30, 0)
     expect(f.controller.phase).toBe('PREPARING')
     expect([...f.gates.values()].every(g => g.state === 'open')).toBe(true)
-    stage(f)
-    const patrol = f.residents.find(r => r.spec.duty === 'patrol')!.npc
-    patrol.group.position.copy(siegePoint('north', 0, -40)); patrol.mount?.group.position.copy(patrol.group.position)
-    f.controller.updateFlow(1, 0)
-    expect(f.controller.phase).toBe('PREPARING')
-    stage(f); f.controller.updateFlow(.02, 0)
+    const inside = siegePoint('north', 0, 4)
+    patrol.group.position.copy(inside); patrol.mount?.group.position.copy(inside)
+    f.controller.updateFlow(.02, 0)
     expect(f.controller.phase).toBe('ATTACKING')
     expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
-    expect((f.controller as any).attackGroups.every((g: any) => g.released)).toBe(true)
+    expect(f.controller.releasedEnemies).toHaveLength(120)
+    expect(guard.missionMovement).toBe(true)
+    expect(guard.combatPosition).toEqual(guardPosition)
+    expect(attacker.combatPosition).toEqual(attackerPosition)
+  })
+
+  it('starts immediately with patrol inside, without a minimum timer or waiting for dead patrol riders', () => {
+    const f = fixture(faction, false)
+    const patrol = f.residents.filter(r => r.spec.duty === 'patrol')
+    for (const { npc } of patrol) {
+      const inside = siegePoint('north', 0, 4)
+      npc.group.position.copy(inside); npc.mount?.group.position.copy(inside)
+    }
+    const dead = patrol[0].npc
+    dead.group.position.copy(siegePoint('north', 0, -40))
+    dead.mount?.group.position.copy(dead.group.position)
+    dead.takeDamage(999999)
+    f.controller.updateFlow(.01, 0)
+    expect(f.controller.phase).toBe('ATTACKING')
+    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
+    expect((f.controller as any).preparationElapsed).toBeLessThan(1)
   })
 
   it('keeps gate guards local, balances infantry and assigns four existing cavalry officers', () => {

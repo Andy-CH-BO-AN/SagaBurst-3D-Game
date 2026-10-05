@@ -6,7 +6,6 @@ import { acceptsCareerMissionStat, createTownDefenseMission } from '../src/caree
 import {
   TOWN_DEFENSE_CIVILIAN_LIMIT,
   TOWN_DEFENSE_LAYOUT,
-  TOWN_DEFENSE_PREPARATION_SECONDS,
   civilianShelterSlots,
   resolveTownDefenseOutcome,
 } from '../src/career/TownDefenseState'
@@ -123,7 +122,7 @@ describe('Town Siege outcomes and rewards', () => {
     controller.player = () => ({ dead: false })
     Object.assign(controller, {
       residents: [{ spec: { role: 'ranger' }, npc: ranger }], enemies: [], groups: [],
-      blackCat: { dead: true }, attackElapsed: 1, preparationElapsed: TOWN_DEFENSE_PREPARATION_SECONDS,
+      blackCat: { dead: true }, attackElapsed: 1, preparationElapsed: 1,
       tracker: null,
     })
     controller.readProfile = () => profile
