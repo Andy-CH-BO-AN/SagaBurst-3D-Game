@@ -59,6 +59,8 @@ export class ArmyCommandUI {
     document.getElementById('hud')?.appendChild(this.root)
   }
 
+  dispose(): void { if (this.feedbackTimer !== null) window.clearTimeout(this.feedbackTimer); this.root.remove() }
+
   setEnabled(enabled: boolean): void { this.root.hidden = !enabled; this.root.style.display = enabled ? '' : 'none' }
 
   render(
@@ -70,6 +72,7 @@ export class ArmyCommandUI {
     wheelMode: WheelInputMode = 'weapon',
     selectedWeaponName = '',
     groupingMode: CommandGroupingMode = 'preset',
+    personalCommands = false,
   ): void {
     this.wheelHint.textContent = wheelMode === 'command'
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
@@ -101,12 +104,13 @@ export class ArmyCommandUI {
     title.textContent = armyCommandTargetLabel(selectedTarget)
     this.commands.appendChild(title)
 
-    const actions: ReadonlyArray<[string, string, TacticalOrder]> = [
+    const actions: Array<[string, string, TacticalOrder | 'dismiss']> = [
       ['1', '攻擊', 'attack'],
       ['2', '衝鋒', 'charge'],
       ['3', '防禦', 'defend'],
       ['4', '列陣', 'formation'],
     ]
+    if (personalCommands) actions.push(['5', 'Follow me · 跟隨', 'follow'], ['6', 'Dismiss · 收隊', 'dismiss'])
     actions.forEach(([key, label, order], index) => {
       const row = document.createElement('div')
       row.className = `army-command-entry army-command-action ${order}`

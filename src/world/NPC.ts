@@ -1,3 +1,4 @@
+import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
@@ -182,6 +183,7 @@ export class NPC {
   readonly presetId?: UnitPresetId
   private _squadId?: SquadId
   get squadId(): SquadId | undefined { return this._squadId }
+  combatOwnership?: 'player-personal'
   readonly combatantId: string
   private readonly combatEventSink?: CombatEventSink
 
@@ -1642,7 +1644,7 @@ export class NPC {
       if (
         candidate === this
         || candidate.dead
-        || candidate.faction === this.faction
+        || !combatAllegiancesHostile(this, candidate)
         || candidate === this._cachedTargetNpc
       ) return
 
@@ -1689,7 +1691,7 @@ export class NPC {
       return this.targetsPlayer && player.targetable && !player.dead
     }
     if (this._cachedTargetNpc !== null) {
-      return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
+      return !this._cachedTargetNpc.dead && combatAllegiancesHostile(this, this._cachedTargetNpc)
     }
     return false
   }
@@ -1823,7 +1825,7 @@ export class NPC {
       if (!target || target.dead) return null
       if (target === player) return this.targetsPlayer && player.targetable
         ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true } : null
-      if (target instanceof NPC && target.faction !== this.faction) return { position: target.combatPosition, isDead: false, isPlayer: false, npc: target }
+      if (target instanceof NPC && combatAllegiancesHostile(this, target)) return { position: target.combatPosition, isDead: false, isPlayer: false, npc: target }
       return null
     }
     let closestTarget = null
@@ -1850,7 +1852,7 @@ export class NPC {
         ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid)
         : hostileNpcGrid.findNearest(
           this.combatPosition,
-          candidate => !candidate.dead && candidate.faction !== this.faction,
+          candidate => !candidate.dead && combatAllegiancesHostile(this, candidate),
         )
       if (npc) {
         const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
@@ -1863,7 +1865,7 @@ export class NPC {
       // Compatibility fallback for isolated tests/dev callers that do not own a grid.
       for (let i = 0; i < allNPCs.length; i++) {
         const npc = allNPCs[i]
-        if (npc === this || npc.dead || npc.faction === this.faction) continue
+        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)) continue
         const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
         if (dSq < closestDistSq) {
           closestDistSq = dSq
@@ -1948,7 +1950,7 @@ export class NPC {
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
     if (this.tacticalOrder === 'follow') {
-      const contact = nearbyNPCs.some(other => other !== this && !other.dead && other.faction !== this.faction && other.combatPosition.distanceToSquared(this.combatPosition) <= 64)
+      const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64)
       if (contact) {
         this.followCombatActive = true
         this._targetAcquisitionInitialized = false

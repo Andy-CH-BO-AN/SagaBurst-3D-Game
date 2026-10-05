@@ -65,6 +65,7 @@ function controllerHarness(
   faction: 'viking' | 'roman' = 'viking',
   grouping: 'preset' | 'squad' = 'preset',
   commandsEnabled = true,
+  personalCommands?: { issue(order: TacticalOrder | 'dismiss'): void; enabled(): boolean },
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -115,6 +116,7 @@ function controllerHarness(
     inventory,
     grouping,
     commandsEnabled,
+    personalCommands,
   )
   return { controller, input, ui }
 }
@@ -1434,5 +1436,27 @@ describe('Soldier command capability', () => {
     input.wheel(1); controller.update()
     expect(inventory.equippedMelee.id).toBe('hunting_spear')
     expect(unit.setTacticalOrder).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Personal Squad command lifecycle routing', () => {
+  it('allows existing ALL → Follow me with an empty reserve runtime and routes Dismiss only to its owner', () => {
+    const issue = vi.fn(), npcs: any[] = []
+    const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
+    input.pressAll(); controller.update()
+    input.press('5'); controller.update()
+    expect(issue).toHaveBeenLastCalledWith('follow')
+    const member = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 1, dead: false, setTacticalOrder: vi.fn() }
+    npcs.push(member)
+    input.pressAll(); controller.update(); input.press('6'); controller.update()
+    expect(issue).toHaveBeenLastCalledWith('dismiss')
+    expect(member.setTacticalOrder).not.toHaveBeenCalled()
+  })
+  it('does not handle Personal Squad commands while a formal mission blocks the owner', () => {
+    const issue = vi.fn()
+    const { controller, input } = controllerHarness([], null, null, null, 'roman', 'squad', true, { issue, enabled: () => false })
+    input.pressAll(); controller.update(); input.press('5'); controller.update()
+    expect(issue).not.toHaveBeenCalled()
   })
 })
