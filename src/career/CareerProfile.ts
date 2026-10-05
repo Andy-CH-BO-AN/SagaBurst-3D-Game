@@ -409,6 +409,18 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      ...(profile.activeMission.siege ? { siege: {
+        ...profile.activeMission.siege,
+        attackerIds: [...profile.activeMission.siege.attackerIds],
+        claimedSquadIds: [...profile.activeMission.siege.claimedSquadIds],
+        destroyedGateIds: [...profile.activeMission.siege.destroyedGateIds],
+        releasedReserveGateIds: [...profile.activeMission.siege.releasedReserveGateIds],
+        crossedActorIds: [...profile.activeMission.siege.crossedActorIds],
+        approachedActorIds: [...profile.activeMission.siege.approachedActorIds],
+        defensePlans: profile.activeMission.siege.defensePlans.map(plan => ({ ...plan, infantry: [...plan.infantry], cavalry: [...plan.cavalry] })),
+        gateHealth: { ...profile.activeMission.siege.gateHealth },
+        ...(profile.activeMission.siege.playerPosition ? { playerPosition: { ...profile.activeMission.siege.playerPosition } } : {}),
+      } } : {}),
       targetActorIds: [...profile.activeMission.targetActorIds],
       friendlyActorIds: [...profile.activeMission.friendlyActorIds],
       ...(profile.activeMission.deadTargetActorIds ? { deadTargetActorIds: [...profile.activeMission.deadTargetActorIds] } : {}),

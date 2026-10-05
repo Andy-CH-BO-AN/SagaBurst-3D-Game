@@ -126,7 +126,7 @@ export function townRoster(): TownActorSpec[] {
   return result
 }
 export function townSettlementRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => actor.settlementObjective) }
-export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => actor.assaultObjective) }
+export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger') }
 export function isCivilian(role: TownRole): boolean { return role === 'civilian' || role === 'merchant' }
 export function isTownMilitary(actor: TownActorSpec): boolean { return Boolean(actor.unitKind) }
 export type TownResult = 'player_defeated' | 'town_defeated'

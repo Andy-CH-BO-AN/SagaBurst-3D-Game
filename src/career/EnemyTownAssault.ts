@@ -1,10 +1,7 @@
-import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { newTownSiegeState, siegeRoster } from './TownSiege'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
-import { Faction, AIType } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { townCaptainProfile, townRoster, townAssaultObjectiveRoster } from '../town/TownRules'
+import { townRoster, townAssaultObjectiveRoster } from '../town/TownRules'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { cloneCareerProfile, canonicalCareerMountId, type CareerProfile } from './CareerProfile'
 import { availableRecruitMissions } from './CareerMissionCatalog'
@@ -43,38 +40,15 @@ export function careerTownFaction(profile: { faction: CharacterFaction; activeMi
 export function createEnemyTownAssaultMission(id = createCareerMissionId(ENEMY_TOWN_ASSAULT_ID)): ActiveCareerMission {
   const roster = townRoster()
   return {
-    id, templateId: ENEMY_TOWN_ASSAULT_ID, kind: 'enemy-town-assault', targetCampId: -1, phase: 'ATTACKING',
+    id, templateId: ENEMY_TOWN_ASSAULT_ID, kind: 'enemy-town-assault', targetCampId: -1, phase: 'PREPARING', siege: newTownSiegeState(),
     targetActorIds: townAssaultObjectiveRoster(roster).map(actor => actor.id),
     civilianActorIds: roster.filter(actor => actor.role === 'civilian').map(actor => actor.id),
-    friendlyActorIds: Array.from({ length: 89 }, (_, index) => `${id}:assault:${index}`), acceptedAt: Date.now(),
+    friendlyActorIds: Array.from({ length: 119 }, (_, index) => `${id}:assault:${index}`), acceptedAt: Date.now(),
   }
 }
-/** Player occupies the second slot of A; only 89 NPC specs are emitted. */
+/** Player is one of the 120 combatants; four officers and 115 regular NPCs. */
 export function createAssaultRoster(faction: CharacterFaction): NpcSpawnSpec[] {
-  const result: NpcSpawnSpec[] = []
-  const kinds = faction === 'roman'
-    ? ['roman_heavy_infantry', 'roman_archer', 'roman_sword_cavalry', 'roman_lancer', 'roman_horse_archer'] as const
-    : ['viking_berserker', 'viking_archer', 'viking_sword_cavalry', 'viking_lancer', 'viking_horse_archer'] as const
-  for (const squadId of [1, 2, 3] as const) {
-    const count = MAX_COMMAND_SQUAD_SIZE - (squadId === 1 ? 1 : 0)
-    for (let index = 0; index < count; index++) {
-      const leader = index === 0
-      const presetId: UnitPresetId = leader ? squadId === 1 ? `${faction}_sword_cavalry` : squadId === 2 ? `${faction}_archer` : 'viking_berserker' : kinds[(index + squadId - 1) % kinds.length]
-      const hero = leader ? squadId === 1 ? townCaptainProfile(faction) : T4_UNIT_PROFILES[presetId] : undefined
-      const slot = squadId === 1 && index > 0 ? index + 1 : index
-      result.push({
-        x: (squadId - 2) * 44 + (slot % 5 - 2) * 7, z: 132 + Math.floor(slot / 5) * 7,
-        faction: Faction.TOWN, characterFaction: faction,
-        aiType: squadId === 2 && leader || presetId.endsWith('archer') ? AIType.RANGED : AIType.MELEE,
-        name: leader ? ['Captain', 'Maki', 'Varangian Captain'][squadId - 1] : `Expedition ${squadId}-${index}`,
-        tier: leader ? 4 : 2, cavalry: presetId.includes('cavalry') || presetId.endsWith('lancer') || presetId.endsWith('horse_archer'),
-        respawnEnabled: false, presetId, squadId,
-        loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[hero?.baseLoadoutTier ?? 2], ...(hero ? { mountId: hero.mountOverride } : {}) },
-        ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
-      })
-    }
-  }
-  return result
+  return siegeRoster(faction, true).map(slot => slot.spec)
 }
 export function resolveAssaultOutcome(playerDead: boolean, militaryAlive: number, assaultNpcAlive: number): 'victory' | 'failure' | null {
   if (militaryAlive === 0) return 'victory'

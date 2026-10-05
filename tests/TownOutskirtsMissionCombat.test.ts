@@ -318,7 +318,7 @@ describe('Outskirts participants alongside existing Town missions', () => {
     defender.tacticalOrder = 'formation'
     const h = warfareFixture([enemy])
     h.defense.active = { ...veteranMission(), kind: 'town-defense', phase: 'PREPARING' }
-    h.defense.phase = 'PREPARING'; h.defense.fieldNpcs = [defender]
+    h.defense.phase = 'PREPARING'; h.defense.fieldNpcs = [defender]; defender.missionMovement = true
     defender.update.mockImplementation(() => { expect(defender.tacticalOrder).toBe('formation') })
     h.combat.update(.02, 0, 1)
     expect(defender.update).toHaveBeenCalledOnce()

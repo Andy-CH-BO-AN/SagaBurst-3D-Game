@@ -1,8 +1,9 @@
+import { newTownSiegeState, type TownSiegeState } from './TownSiege'
 import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
-import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
+import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -45,6 +46,7 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  siege?: TownSiegeState
   id: string
   templateId: string
   kind?: CareerMissionKind
@@ -133,7 +135,7 @@ export function createTownDefenseMission(
   friendlyActorIds: string[],
   civilianActorIds: string[],
   id?: string,
-  templateId = TOWN_DEFENSE_TEMPLATE_ID,
+  templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID,
   rank: CareerRank = 'soldier',
 ): ActiveCareerMission {
   const missionId = id ?? createCareerMissionId(templateId)
@@ -141,6 +143,7 @@ export function createTownDefenseMission(
     id: missionId,
     templateId,
     kind: 'town-defense',
+    siege: newTownSiegeState(),
     targetCampId: -1,
     phase: 'PREPARING',
     targetActorIds: Array.from({ length: townDefenseEnemyCount(templateId, rank) }, (_, index) => `${missionId}:attacker:${index}`),

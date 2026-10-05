@@ -147,10 +147,36 @@ function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleSta
   }
 }
 
+function parseSiege(value: unknown): ActiveCareerMission['siege'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (raw.version !== 1) return undefined
+  const gates = (value: unknown) => uniqueStrings(value).filter((id): id is 'north' | 'south' | 'east' | 'west' => ['north', 'south', 'east', 'west'].includes(id))
+  const position = raw.playerPosition as { x?: unknown; z?: unknown; yaw?: unknown } | undefined
+  const health = raw.gateHealth && typeof raw.gateHealth === 'object' ? raw.gateHealth as Record<string, unknown> : {}
+  return {
+    version: 1, rosterCreated: raw.rosterCreated === true,
+    attackerIds: uniqueStrings(raw.attackerIds), claimedSquadIds: uniqueStrings(raw.claimedSquadIds).filter(id => /^outskirts:cavalry:[abc]$/.test(id)),
+    destroyedGateIds: gates(raw.destroyedGateIds), releasedReserveGateIds: gates(raw.releasedReserveGateIds),
+    crossedActorIds: uniqueStrings(raw.crossedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),
+    approachedActorIds: uniqueStrings(raw.approachedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),
+    defensePlans: Array.isArray(raw.defensePlans) ? raw.defensePlans.flatMap(value => {
+      if (!value || typeof value !== 'object') return []
+      const plan = value as Record<string, unknown>, gateId = gates([plan.gateId])[0]
+      return gateId ? [{ gateId, infantry: uniqueStrings(plan.infantry), cavalry: uniqueStrings(plan.cavalry), ...(typeof plan.leaderId === 'string' ? { leaderId: plan.leaderId } : {}) }] : []
+    }) : [],
+    gateHealth: Object.fromEntries(Object.entries(health).filter(([id, hp]) => gates([id]).length && typeof hp === 'number' && Number.isFinite(hp) && hp >= 0)),
+    ...(position && typeof position.x === 'number' && Number.isFinite(position.x) && typeof position.z === 'number' && Number.isFinite(position.z)
+      && typeof position.yaw === 'number' && Number.isFinite(position.yaw) ? { playerPosition: { x: position.x, z: position.z, yaw: position.yaw } } : {}),
+  }
+}
+
 function parseActiveMission(value: unknown, faction: CareerProfile['faction']): ActiveCareerMission | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   const template = typeof raw.templateId === 'string' ? getCareerMissionTemplate(raw.templateId) : null
+  const siege = parseSiege(raw.siege)
+  if ((raw.kind === 'town-defense' || raw.kind === 'enemy-town-assault') && !siege) return undefined
   const duel = raw.kind === 'duel' && raw.templateId === CAREER_DUEL_TEMPLATE_ID
   const duelOpponentActorId = typeof raw.duelOpponentActorId === 'string' ? raw.duelOpponentActorId.trim() : ''
   const duelCaptainActorId = typeof raw.duelCaptainActorId === 'string' ? raw.duelCaptainActorId.trim() : ''
@@ -175,7 +201,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   if (targetActorIds.length === 0 || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
-  const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds])
+  const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds, ...(siege ? uniqueStrings(raw.civilianActorIds) : [])])
   const actorHealth = parseActorHealth(raw.actorHealth, knownActorIds)
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
@@ -185,6 +211,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
 
   const mission: ActiveCareerMission = {
+    ...(siege ? { siege } : {}),
     id: raw.id,
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
     kind: duel ? 'duel' : template!.kind,

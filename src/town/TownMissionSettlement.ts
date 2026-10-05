@@ -125,7 +125,7 @@ export class TownMissionSettlement {
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
       const restore = resident.npc.dead || (defense
-        ? Boolean(resident.spec.defenseGroup) || ['captain', 'ranger', 'deployment', 'civilian'].includes(resident.spec.role)
+        ? true
         : borrowed!.has(resident.npc))
       if (restore) {
         if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {

@@ -83,7 +83,7 @@ describe('Enemy Town Assault canonical Relief prerequisite', () => {
     profile.ownedHorseTiers = [1, 2, 3]; profile.ownedMounts = ['horse', 'corgi']
     const original = JSON.stringify(profile)
     const next = acceptEnemyTownAssault(profile, 'equipped-assault')!
-    expect(next.activeMission!.phase).toBe('ATTACKING')
+    expect(next.activeMission!.phase).toBe('PREPARING')
     expect(next.equipment).toEqual({ melee: 'gladius_rusty', shield: rank === 'soldier' ? 'scutum_t2' : 'scutum_t3' })
     expect(next.selectedMountId).toBe('horse')
     expect(JSON.stringify(profile)).toBe(original)

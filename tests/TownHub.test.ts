@@ -584,6 +584,9 @@ describe('Town orchestration transitions', () => {
     town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }
     const cat = { dead: false, group: new THREE.Group(), takeDamage: vi.fn(function (this: any) { this.dead = true }) }
     cat.group.position.set(0, 0, 1)
+    town.runtimeCombatActors = () => []
+    town.combatMounts = [cat]
+    town.canHitTownMount = () => true
     const ranger = { mount: cat, dismountFromMount: vi.fn(function (this: any) { this.mount = null }) }
     town.residents = [{ spec: { role: 'ranger' }, npc: ranger }]
     town.cat = cat

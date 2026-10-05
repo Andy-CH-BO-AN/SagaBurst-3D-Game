@@ -1,7 +1,7 @@
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
-import { townDefenseEnemyCount, TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
+import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { getVeteranMissionAvailability, getVeteranMissionDefinition, VETERAN_MISSION_CATALOG, type VeteranMissionDefinition } from './VeteranMission'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
@@ -113,8 +113,8 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   name: '守衛家園 · 老兵守城',
   briefing: '敵方騎兵正在逼近城鎮。加入守軍守住防線，並保護居民。',
   targetArea: 'career-town',
-  friendlySoldiers: 60,
-  friendlyCombatants: 64,
+  friendlySoldiers: 203,
+  friendlyCombatants: 204,
   enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
   civilianCount: 20,
   maxCivilianDeaths: 10,
@@ -132,7 +132,7 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '軍營集結，跟隨騎兵出城清剿 · 60 騎兵 vs 40 Bandits', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
-  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '90 人遠征軍 · 3 支小隊 · 擊敗全部敵方軍事守軍', friendlyCombatants: 90, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
+  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '120 人攻城軍 · 四門進攻 · 擊敗全部敵方軍事守軍', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
   mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
 
@@ -159,40 +159,7 @@ export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   mission('recruit-bandits-03', '寡不敵眾', 6, 10, '高', 3, 90),
   mission('recruit-bandits-04', '深入敵營', 10, 20, '極高', 4, 120),
 
-  {
-    id: TOWN_DEFENSE_TEMPLATE_ID,
-    kind: 'town-defense',
-    name: '家門口的戰爭 · 菜兵守城',
-    briefing: '敵方騎兵正在逼近城鎮。加入守軍，守住防線並保護居民。',
-    targetArea: 'career-town',
-    friendlySoldiers: 60,
-    friendlyCombatants: 64,
-    enemyCount: townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID),
-    civilianCount: 20,
-    maxCivilianDeaths: 10,
-    risk: '極高',
-    requiresEnlistmentMerit: 120,
-    requiresCompletions: 5,
-    storyOnce: true,
-    minRank: 'recruit',
-  },
-  {
-    id: SOLDIER_TOWN_DEFENSE_TEMPLATE_ID,
-    kind: 'town-defense',
-    name: '守衛家園 · 士兵守城',
-    briefing: '敵方大隊騎兵正在逼近城鎮。加入守軍，守住防線並保護居民。',
-    targetArea: 'career-town',
-    friendlySoldiers: 60,
-    friendlyCombatants: 64,
-    enemyCount: townDefenseEnemyCount(SOLDIER_TOWN_DEFENSE_TEMPLATE_ID),
-    civilianCount: 20,
-    maxCivilianDeaths: 10,
-    risk: '極高',
-    requiresEnlistmentMerit: 0,
-    requiresCompletions: 5,
-    storyOnce: true,
-    minRank: 'soldier',
-  },
+
 ]
 
 export function patrolPreferredCamp(routeId: RecruitPatrolRouteId): number {

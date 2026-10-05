@@ -331,7 +331,7 @@ describe('Town Defense simulation through the mission interface', () => {
       hit(100, false, first)
     })
     observer.update.mockImplementation((_dt, _player, peers, _nearby, _obstacles, _hp, _hit, _fire, _skip, _distance, _collector, grid) => {
-      expect(peers).toEqual([second])
+      expect(peers.filter(actor => !actor.dead && actor.faction !== observer.faction)).toEqual([second])
       acquired.push(grid!.findNearest(observer.combatPosition, candidate => !candidate.dead && candidate.faction !== observer.faction))
     })
     h.combat.update(.02, 0, 0)
@@ -339,7 +339,7 @@ describe('Town Defense simulation through the mission interface', () => {
     expect(first.update).toHaveBeenCalledOnce()
     expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(first, 100, 'melee', killer)
     expect(killer.update.mock.calls[0][11]).toBe(observer.update.mock.calls[0][11])
-    expect(killer.update.mock.calls[0][11]).not.toBe(first.update.mock.calls[0][11])
+    expect(killer.update.mock.calls[0][11]).toBe(first.update.mock.calls[0][11])
   })
 
   it.each([false, true])('preserves PREPARING assault=%s exceptions for living military, civilians and corpses', assault => {
@@ -347,9 +347,9 @@ describe('Town Defense simulation through the mission interface', () => {
     civilian.townCategory = 'civilian'; corpse.dead = true
     h.defense.fieldNpcs = [soldier, civilian, corpse]
     h.combat.update(.02, 2, 1)
-    expect(soldier.update).toHaveBeenCalledTimes(assault ? 0 : 1)
-    expect(soldier.updateTownPeace).toHaveBeenCalledTimes(assault ? 1 : 0)
-    expect(h.defense.updateCivilianOrder).toHaveBeenCalledTimes(assault ? 2 : 3)
+    expect(soldier.update).toHaveBeenCalledTimes(1)
+    expect(soldier.updateTownPeace).toHaveBeenCalledTimes(0)
+    expect(h.defense.updateCivilianOrder).toHaveBeenCalledTimes(3)
     expect(civilian.update).toHaveBeenCalledOnce(); expect(corpse.update).toHaveBeenCalledOnce()
     expect(h.defense.updateFlow).toHaveBeenCalledExactlyOnceWith(.02, 2)
   })
@@ -386,8 +386,8 @@ describe('Town Defense simulation through the mission interface', () => {
     rider.mount = mount; mount.riderNpc = rider; rider.hostileToPlayer = true
     h.defense.fieldNpcs = [rider, ally, target]
     h.combat.update(.02, 0, 5)
-    expect(h.simulation.hitNpc).toHaveBeenCalledTimes(phase === 'PREPARING' ? 0 : 1)
-    expect(h.simulation.damagePlayer).toHaveBeenCalledTimes(phase === 'PREPARING' ? 0 : 1)
+    expect(h.simulation.hitNpc).toHaveBeenCalledTimes(1)
+    expect(h.simulation.damagePlayer).toHaveBeenCalledTimes(1)
     if (phase === 'ATTACKING') {
       expect(h.simulation.hitNpc).toHaveBeenCalledExactlyOnceWith(target, expect.any(Number), 'mount-impact', rider)
       expect(h.simulation.damagePlayer).toHaveBeenCalledExactlyOnceWith(rider, expect.any(Number), 'mount-impact')

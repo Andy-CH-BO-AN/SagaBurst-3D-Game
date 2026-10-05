@@ -196,8 +196,8 @@ describe('constructed controller checkpoint wiring', () => {
     h.civilian.dead = true
     h.cat.dead = true
     h.setSaving(true)
-    h.controller.noteEffectiveFriendlyDamage(h.captain)
-    expect(h.read().activeMission).toMatchObject({ defenseElapsed: 1, defenseReserveCharged: true, defenseCatDead: true,
+    h.controller.persistRuntimeProgress()
+    expect(h.read().activeMission).toMatchObject({ defenseElapsed: 1, defenseReserveCharged: false, defenseCatDead: true,
       deadCivilianActorIds: ['civilian'], deadTargetActorIds: [], deadFriendlyActorIds: [],
       playerStats: zeroStats(), mountState: { hp: { horse: 43 }, unavailable: ['corgi'] },
     })

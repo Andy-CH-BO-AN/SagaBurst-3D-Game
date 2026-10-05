@@ -19,7 +19,7 @@ vi.mock('../src/audio/SoundManager', () => ({ SoundManager: class {
 function townHarness(faction: 'roman' | 'viking' = 'roman') {
   const town = createTownCombatFixture() as any
   town.profile = createCareerProfile(faction)
-  town.profile.totalMerit = 120; town.profile.careerMissionCompletions = 5
+  town.profile.rank = 'veteran'; town.profile.totalMerit = 1000; town.profile.careerMissionCompletions = 5; town.profile.careerMissionCompletionsByTier = { 1: 5, 2: 5, 3: 5 }
   town.store = { load: () => town.profile }
   town.event = { hostile: false }
   town.player = { dead: false }
@@ -87,7 +87,7 @@ describe('Career mission voice events', () => {
     let finishAlarm!: (played: boolean) => void
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness(faction)
-    town.acceptMission('recruit-town-defense-01'); town.acceptMission('recruit-town-defense-01')
+    town.acceptMission('veteran-town-defense-01'); town.acceptMission('veteran-town-defense-01')
     expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
     expect(audio.playTownAlarm).toHaveBeenCalledOnce()
     town.careerCommandCue = null
@@ -113,7 +113,7 @@ describe('Career mission voice events', () => {
     const town = townHarness()
     if (failure === 'save') town.commit.mockReturnValue(false)
     else town.defense.startActiveMission.mockReturnValue(false)
-    town.acceptMission('recruit-town-defense-01')
+    town.acceptMission('veteran-town-defense-01')
     await vi.runAllTimersAsync()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
@@ -123,7 +123,7 @@ describe('Career mission voice events', () => {
     let finishAlarm!: (played: boolean) => void
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
-    town.acceptMission('recruit-town-defense-01')
+    town.acceptMission('veteran-town-defense-01')
     await vi.advanceTimersByTimeAsync(20000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
     finishAlarm(true)
@@ -135,7 +135,7 @@ describe('Career mission voice events', () => {
     let finishAlarm!: (played: boolean) => void
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
-    town.acceptMission('recruit-town-defense-01')
+    town.acceptMission('veteran-town-defense-01')
     if (state === 'disposed') town.disposed = true
     else delete town.profile.activeMission
     finishAlarm(true)
@@ -146,7 +146,7 @@ describe('Career mission voice events', () => {
   it('does not announce a cancelled or unavailable alarm sequence', async () => {
     audio.playTownAlarm.mockResolvedValueOnce(false)
     const town = townHarness()
-    town.acceptMission('recruit-town-defense-01')
+    town.acceptMission('veteran-town-defense-01')
     await Promise.resolve()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
   })
