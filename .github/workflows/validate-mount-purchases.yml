@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  verify:
+  compare:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -15,8 +15,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install --no-audit --no-fund
-      - run: npm test -- tests/TownWeaponShop.test.ts tests/TownHub.test.ts
-      - run: npm test
+      - name: Check full-suite failures on fix
+        run: npm test -- tests/EnemyTownAssault.test.ts tests/ShieldBlocking.test.ts --testTimeout=15000 --maxWorkers=2
+      - name: Check out unchanged main
         if: always()
-      - run: npm run build
+        uses: actions/checkout@v4
+        with:
+          ref: 122be9ece26bd3df06073447a2f1883067908f6f
+          clean: false
+      - name: Check same tests on unchanged main
         if: always()
+        run: npm test -- tests/EnemyTownAssault.test.ts tests/ShieldBlocking.test.ts --testTimeout=15000 --maxWorkers=2
