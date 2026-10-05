@@ -9,6 +9,7 @@ import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
 export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian'

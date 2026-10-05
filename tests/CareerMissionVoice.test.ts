@@ -37,6 +37,8 @@ function townHarness(faction: 'roman' | 'viking' = 'roman') {
   town.careerMounts = { restoreActiveMount: vi.fn() }
   town.openPanel = vi.fn(() => ({})); town.closePanel = vi.fn()
   town.button = vi.fn()
+  town.dispose = vi.fn()
+  town.onRestart = vi.fn()
   town.disposed = false
   return town
 }
@@ -88,13 +90,17 @@ describe('Career mission voice events', () => {
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness(faction)
     town.acceptMission('veteran-town-defense-01'); town.acceptMission('veteran-town-defense-01')
-    expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
+    expect(town.defense.startActiveMission).not.toHaveBeenCalled()
+    expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
+    expect(town.dispose).toHaveBeenCalledOnce()
+    expect(audio.playTownAlarm).not.toHaveBeenCalled()
+    void town.playTownDefenseAlert() // The loaded battlefield announces after its first paint.
     expect(audio.playTownAlarm).toHaveBeenCalledOnce()
     town.careerCommandCue = null
     town.defense.reserveHasCharged = false
     town.updateCareerCommandCue() // First resumed gameplay frame.
     expect(audio.playCommanderCommand).not.toHaveBeenCalled()
-    expect(town.defense.startActiveMission.mock.invocationCallOrder[0]).toBeLessThan(audio.playTownAlarm.mock.invocationCallOrder[0])
+    expect(town.onRestart.mock.invocationCallOrder[0]).toBeLessThan(audio.playTownAlarm.mock.invocationCallOrder[0])
     expect(audio.playTownAlarm).toHaveBeenCalledWith(true)
     await vi.advanceTimersByTimeAsync(8000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
@@ -109,11 +115,12 @@ describe('Career mission voice events', () => {
     expect(audio.playCommanderCommand).toHaveBeenCalledExactlyOnceWith(faction, 'charge')
   })
 
-  it.each(['save', 'start'])('stays silent on Town Defense %s failure', async failure => {
+  it('does not leave Town or announce when saving Defense fails', async () => {
     const town = townHarness()
-    if (failure === 'save') town.commit.mockReturnValue(false)
-    else town.defense.startActiveMission.mockReturnValue(false)
+    town.commit.mockReturnValue(false)
     town.acceptMission('veteran-town-defense-01')
+    expect(town.onRestart).not.toHaveBeenCalled()
+    expect(town.dispose).not.toHaveBeenCalled()
     await vi.runAllTimersAsync()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
@@ -124,6 +131,7 @@ describe('Career mission voice events', () => {
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
     town.acceptMission('veteran-town-defense-01')
+    void town.playTownDefenseAlert()
     await vi.advanceTimersByTimeAsync(20000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
     finishAlarm(true)
@@ -136,6 +144,7 @@ describe('Career mission voice events', () => {
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness()
     town.acceptMission('veteran-town-defense-01')
+    void town.playTownDefenseAlert()
     if (state === 'disposed') town.disposed = true
     else delete town.profile.activeMission
     finishAlarm(true)
@@ -147,6 +156,7 @@ describe('Career mission voice events', () => {
     audio.playTownAlarm.mockResolvedValueOnce(false)
     const town = townHarness()
     town.acceptMission('veteran-town-defense-01')
+    void town.playTownDefenseAlert()
     await Promise.resolve()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
   })
@@ -217,7 +227,7 @@ describe('Career mission voice events', () => {
     const callbacks = new Map<string, () => void>()
     town.button = (_panel: unknown, label: string, callback: () => void) => callbacks.set(label, callback)
     town.openMissionResult({ outcome, stats: { survived, damageDealt: 20, kills: 1 }, merit: { total: 3 } }, false)
-    expect([...callbacks.keys()]).toEqual(['返回 Career Town'])
+    expect([...callbacks.keys()]).toEqual(['返回 vinum 村'])
   })
 })
 

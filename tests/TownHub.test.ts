@@ -314,13 +314,13 @@ describe('Town orchestration transitions', () => {
   it.each(['bandit', 'cavalry-sweep'])('offers the shared troop return option after a surviving %s victory', kind => {
     const town = createTownCombatFixture() as any
     const callbacks = new Map<string, () => void>()
-    town.profile = { activeMission: { kind } }
+    town.profile = { faction: 'roman', activeMission: { kind } }
     town.mission = { phase: 'RESULT', friendlies: [{ dead: false }], startReturning: vi.fn(() => true) }
     town.openPanel = vi.fn(() => ({})); town.closePanel = vi.fn(); town.playMissionVoice = vi.fn()
     town.button = vi.fn((_panel: unknown, label: string, callback: () => void) => { callbacks.set(label, callback) })
     const result = { outcome: 'victory', stats: { damageDealt: 20, damageTaken: 0, kills: 1, survived: true }, merit: { damage: 1, kills: 1, contribution: 1, total: 3 }, claimed: true }
     town.openMissionResult(result, false)
-    expect(callbacks.has('返回 Career Town')).toBe(true)
+    expect(callbacks.has('返回 vinum 村')).toBe(true)
     expect(callbacks.has('跟隊伍走回去')).toBe(true)
     callbacks.get('跟隊伍走回去')!()
     expect(town.mission.startReturning).toHaveBeenCalledOnce()
@@ -329,6 +329,7 @@ describe('Town orchestration transitions', () => {
   })
   it('explains zero merit after real but sub-threshold damage', () => {
     const town = createTownCombatFixture() as any
+    town.profile = { faction: 'roman' }
     town.mission = { friendlies: [] }
     town.openPanel = vi.fn(() => ({}))
     town.button = vi.fn()
@@ -341,6 +342,7 @@ describe('Town orchestration transitions', () => {
   it('offers and starts the physical return when the player survives but every mission AI dies', () => {
     const town = createTownCombatFixture() as any
     const callbacks = new Map<string, () => void>()
+    town.profile = { faction: 'roman' }
     town.mission = { friendlies: [{ dead: true }], startReturning: vi.fn(() => true) }
     town.openPanel = vi.fn(() => ({}))
     town.button = vi.fn((_panel: unknown, label: string, callback: () => void) => { callbacks.set(label, callback) })

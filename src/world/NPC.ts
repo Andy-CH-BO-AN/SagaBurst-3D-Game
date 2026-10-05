@@ -377,6 +377,19 @@ export class NPC {
   private _siegeTargetObstacle: ObstacleData | null = null
   /** Urgent mission travel: sprint to the destination, defending immediate contact without abandoning the order. */
   missionMovement = false
+  /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
+  private missionCombatTarget: NPC | Player | null | undefined = undefined
+  setMissionCombatTarget(target: NPC | Player | null | undefined): void {
+    if (this.missionCombatTarget === target) return
+    this.missionCombatTarget = target
+    this._targetAcquisitionInitialized = false
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._rangedVisibleTargetHoldFrames = 0
+    this._clearNavigationPath()
+    this._clearObstacleDetour()
+    this._clearSiegeFallback()
+  }
   private assignedSiegeObstacle: ObstacleData | null = null
   get hasSiegeObstacle(): boolean { return this._isAttackableObstacle(this.assignedSiegeObstacle) }
   assignSiegeObstacle(obstacle: ObstacleData | null): void {
@@ -1599,6 +1612,7 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null,
     obstacles: ObstacleData[],
   ): boolean {
+    if (this.missionCombatTarget !== undefined) return false
     const range = this.maxRangedAttackDistance
     const minRangeSq = RANGED_ATTACK_MIN * RANGED_ATTACK_MIN
     const maxRangeSq = range * range
@@ -1741,6 +1755,7 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null {
+    if (this.missionCombatTarget !== undefined) return this._findTarget(player, allNPCs)
     if (!this._targetAcquisitionInitialized) {
       this._targetAcquisitionInitialized = true
       this._acquireTarget(player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
@@ -1803,6 +1818,14 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
+    if (this.missionCombatTarget !== undefined) {
+      const target = this.missionCombatTarget
+      if (!target || target.dead) return null
+      if (target === player) return this.targetsPlayer && player.targetable
+        ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true } : null
+      if (target instanceof NPC && target.faction !== this.faction) return { position: target.combatPosition, isDead: false, isPlayer: false, npc: target }
+      return null
+    }
     let closestTarget = null
     let closestDistSq = Infinity
 

@@ -96,7 +96,7 @@ describe('Town Duel acceptance and voices', () => {
     town.profile.activeMission.result = result; town.profile.activeMission.phase = 'RESULT'
     town.openMissionResult(result, false)
     const actions = new Map(town.button.mock.calls.map((call: any[]) => [call[1], call[2]])) as Map<string, () => void>
-    expect(actions.has('返回 Career Town')).toBe(true)
+    expect(actions.has('返回 vinum 村')).toBe(true)
     actions.get('跟隊長走回去')!(); actions.get('跟隊長走回去')!()
     expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('roman', 'return')
   })

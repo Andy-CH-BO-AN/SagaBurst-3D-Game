@@ -90,6 +90,11 @@ describe('Veteran mission board integration', () => {
     expect(unlockedRow).toBeDefined()
     expect(unlockedRow!.children.find(element => element.onclick)?.disabled).toBe(false)
     expect(unlocked.town.profile.ownedMounts).toEqual([])
+    const details = unlockedRow!.all().map(element => element.textContent).join(' ')
+    expect(details).toContain('守護 vinum 村')
+    expect(details).toContain('友軍 204 人（含玩家；AI 守軍 203）')
+    expect(details).toContain('敵軍 120 人（T3 騎兵、4 名 T4 隊長）')
+    expect(details).not.toMatch(/63|64|T2 騎兵/)
   })
 
   it('does not count lower-tier victories toward Veteran Home Defense and keeps completed saves replayable', () => {
@@ -124,14 +129,18 @@ describe('Veteran mission board integration', () => {
     town.inventory = { prepareForCombat: vi.fn() }
     town.closePanel = vi.fn()
     town.playTownDefenseAlert = vi.fn()
+    town.dispose = vi.fn()
+    town.onRestart = vi.fn()
     town.notice = ''
     town.commit = vi.fn((next: typeof profile) => { town.profile = next; return true })
 
     town.acceptMission('veteran-town-defense-01')
 
     expect(town.profile.activeMission).toMatchObject({ templateId: 'veteran-town-defense-01', kind: 'town-defense' })
-    expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
-    expect(town.inventory.prepareForCombat).toHaveBeenCalledOnce()
+    expect(town.defense.startActiveMission).not.toHaveBeenCalled()
+    expect(town.inventory.prepareForCombat).not.toHaveBeenCalled()
+    expect(town.dispose).toHaveBeenCalledOnce()
+    expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
   })
 })
 
