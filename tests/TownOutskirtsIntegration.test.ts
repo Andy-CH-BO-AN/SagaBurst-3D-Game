@@ -6,7 +6,7 @@ import { careerTownSceneRoster } from '../src/career/CareerFieldSceneContext'
 import { acceptsCareerMissionStat, type ActiveCareerMission } from '../src/career/CareerMissionState'
 import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../src/combat/CombatAttribution'
-import { WeaponSweep } from '../src/combat/ShieldBlocking'
+import { LocalBoxCollider, WeaponSweep } from '../src/combat/ShieldBlocking'
 import { Player } from '../src/player/Player'
 import { AIType, Faction, NPC } from '../src/world/NPC'
 import { Mount, MountState, MountType } from '../src/world/Mount'
@@ -79,6 +79,76 @@ function independentHorse(rider: NPC): Mount {
     takeDamage(amount: number) { this.currentHp = Math.max(0, this.currentHp - amount); return true },
   }) as Mount
 }
+
+function activateDuel(town: any, opponent: NPC, phase = 'ENGAGING') {
+  town.profile.activeMission.kind = 'duel'; town.profile.activeMission.phase = phase
+  town.profile.activeMission.duelOpponentActorId = opponent.combatantId
+  const events = new CombatEventStream()
+  town.duel = { active: town.profile.activeMission, opponent, fieldNpcs: [opponent], actors: [opponent], events,
+    combatEnabled: phase === 'ENGAGING', isMissionActor: (npc: NPC) => npc === opponent,
+    isMissionTarget: (npc: NPC) => npc === opponent,
+    canDamageOpponent: (npc: NPC) => phase === 'ENGAGING' && npc === opponent,
+    canDamagePlayer: (npc: NPC) => phase === 'ENGAGING' && npc === opponent }
+  opponent.setDuelHostility(phase === 'ENGAGING')
+}
+
+describe('Duel shares normal Town combat', () => {
+  it.each(['patrol', 'gate_guard', 'training'] as const)('protects an idle friendly %s actor and its mount during Duel', duty => {
+    const friendly = actor('town:ally', Faction.TOWN), opponent = actor('duel:opponent', Faction.TOWN, 80)
+    const { town } = fixture([]); activateDuel(town, opponent)
+    const mount = independentHorse(friendly); friendly.mount = mount
+    town.residents = [{ spec: { duty }, npc: friendly, homeMount: mount }]
+    const before = friendly.hp
+    expect(town.isProtectedTownAlly(friendly)).toBe(true); expect(town.isProtectedTownAlly(mount)).toBe(true)
+    town.hitFieldNpc(friendly, 10, 'melee', undefined, { kind: 'body', time: .5 })
+    town.hitBattlefieldMount(mount, 10, 'projectile', undefined, { kind: 'mount', mount, time: .5 })
+    expect(friendly.hp).toBe(before); expect(mount.currentHp).toBe(100)
+  })
+  it.each([Faction.BANDIT, Faction.ENEMY, Faction.TOWN])('keeps rider and mount protection consistent for %s during Duel', faction => {
+    const rider = actor('roaming:rider', faction), opponent = actor('duel:opponent', Faction.TOWN, 80)
+    const { town, player, outskirts } = fixture([rider]); activateDuel(town, opponent)
+    const mount = independentHorse(rider); rider.mount = mount; mount.group.position.copy(rider.group.position)
+    Object.assign(mount, { mountCollider: new LocalBoxCollider(mount.group, new THREE.Box3(new THREE.Vector3(-.6, 0, -1.1), new THREE.Vector3(.6, 1.6, 1.1))) })
+    outskirts.mounts.push(mount); town.combatMounts.push(mount); town.combatMountGrid.insert(mount)
+    const hp = rider.hp
+    town.hitFieldNpc(rider, 10, 'melee', undefined, { kind: 'body', time: .5 })
+    town.hitBattlefieldMount(mount, 10, 'melee', undefined, { kind: 'mount', mount, time: .5 })
+    expect(rider.hp).toBe(hp - (faction === Faction.TOWN ? 0 : 10))
+    expect(mount.currentHp).toBe(faction === Faction.TOWN ? 100 : 90)
+    expect(outskirts.noteHit).toHaveBeenCalledTimes(faction === Faction.TOWN ? 0 : 2)
+    if (faction !== Faction.TOWN) expect(rider.hostileToPlayer).toBe(true)
+    expect(town.activateHostility).not.toHaveBeenCalled(); expect(town.prepareDamage).not.toHaveBeenCalled()
+    expect(town.profile.activeMission.duelOpponentActorId).toBe(opponent.combatantId)
+    // Real sweep target selection must include the hostile rider, independently of mount contact.
+    const grip = new THREE.Vector3(0, 40, -.8), tip = new THREE.Vector3(0, 40, .2)
+    player.group.position.set(0, 39, -1.2); player.group.rotation.y = Math.PI
+    const sweep = new WeaponSweep(); sweep.capture(grip, tip)
+    Object.assign(player, { weaponSweep: sweep, getWeaponGripPosition: () => grip, getSwordTipPosition: () => tip,
+      isHitFrame: () => true, markHitProcessed: vi.fn() })
+    const trace = vi.spyOn(sweep, 'traceFirst')
+    town.melee()
+    expect(trace.mock.calls[0][0].includes(rider)).toBe(faction !== Faction.TOWN)
+    expect(trace.mock.calls[0][1]?.includes(mount)).toBe(faction !== Faction.TOWN)
+  })
+
+  it.each(['PREPARING', 'ENGAGING'])('routes world attacks, retaliation and cross-ownership projectiles in %s', phase => {
+    const bandit = actor('roaming:bandit', Faction.BANDIT), opponent = actor('duel:opponent', Faction.TOWN, 30)
+    const { town, outskirts } = fixture([bandit]); activateDuel(town, opponent, phase)
+    const playerShot = arrowThrough(bandit); town.shots = [playerShot]; town.updateShots(.05)
+    expect(bandit.hp).toBe(bandit.maxHp - 10)
+    expect(outskirts.noteHit).toHaveBeenCalledWith(bandit, true)
+    expect(bandit.hostileToPlayer).toBe(true)
+    const npcShot = arrowThrough(opponent, bandit); town.shots = [npcShot]; town.updateShots(.05)
+    expect(opponent.hp).toBe(opponent.maxHp - 10)
+    expect(npcShot.arrow.isAlive).toBe(false)
+    const worldTarget = actor('roaming:cavalry', Faction.ENEMY, 60); outskirts.actors.push(worldTarget)
+    town.hitFieldNpc(worldTarget, 10, 'melee', bandit, { kind: 'body', time: .5 })
+    expect(worldTarget.hp).toBe(worldTarget.maxHp - 10)
+    town.hitFieldNpc(bandit, 10, 'melee', opponent, { kind: 'body', time: .5 })
+    expect(bandit.hp).toBe(bandit.maxHp - 20)
+    expect(town.prepareDamage).not.toHaveBeenCalled(); expect(town.activateHostility).not.toHaveBeenCalled()
+  })
+})
 
 describe('Town outskirts combat routing', () => {
   it.each((['roaming', 'mission'] as const).flatMap(origin => (['body', 'shield', 'mount', 'mount-death', 'lethal'] as const).map(kind => [origin, kind] as const)))(
@@ -280,18 +350,18 @@ describe('Town outskirts combat routing', () => {
     expect(outskirts.noteHit).toHaveBeenCalledExactlyOnceWith(roaming, true)
   })
 
-  it('keeps the existing independent mount damage rules for a protected roaming ally', () => {
+  it('protects an independent mount contact belonging to a protected roaming ally', () => {
     const ally = actor('town-roaming:enemy:0:0', Faction.TOWN)
     const { town, outskirts } = fixture([ally])
     const mount = independentHorse(ally); ally.mount = mount; outskirts.mounts.push(mount)
     expect(town.isProtectedTownAlly(ally)).toBe(true)
-    expect(town.isProtectedTownAlly(mount)).toBe(false)
+    expect(town.isProtectedTownAlly(mount)).toBe(true)
     const before = ally.hp
     town.hitBattlefieldMount(mount, 10, 'melee', undefined, { kind: 'mount', mount, time: .5 })
-    expect(mount.currentHp).toBe(90)
+    expect(mount.currentHp).toBe(100)
     expect(ally.hp).toBe(before)
     expect(ally.hostileToPlayer).toBe(false)
-    expect(outskirts.noteHit).toHaveBeenCalledExactlyOnceWith(ally, true)
+    expect(outskirts.noteHit).not.toHaveBeenCalled()
     expect(town.activateHostility).not.toHaveBeenCalled()
   })
 

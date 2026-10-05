@@ -16,6 +16,7 @@ beforeAll(() => installCorgiTestAsset())
 
 const audio = vi.hoisted(() => ({ playCareerMissionVoice: vi.fn(), playSwordHit: vi.fn(), playProjectileImpact: vi.fn(), playHorseImpact: vi.fn() }))
 vi.mock('../src/audio/SoundManager', () => ({ SoundManager: class {
+  playBowRelease = vi.fn()
   playCareerMissionVoice = audio.playCareerMissionVoice
   playSwordHit = audio.playSwordHit
   playProjectileImpact = audio.playProjectileImpact
@@ -43,6 +44,7 @@ function harness() {
     canDamageOpponent: (npc: NPC) => town.duel.combatEnabled && town.duel.opponent === npc,
     canDamagePlayer: (npc: NPC) => town.duel.combatEnabled && town.duel.opponent === npc,
     isMissionTarget: (npc: NPC) => town.duel.opponent === npc,
+    isMissionActor: (npc: NPC) => town.duel.actors.includes(npc),
     startReturning: vi.fn(() => {
       if (town.profile.activeMission.phase === 'RETURNING') return false
       town.profile.activeMission.phase = 'RETURNING'; town.playMissionVoice('return'); return true
@@ -127,6 +129,7 @@ describe('Town Duel combat isolation', () => {
     town.prepareDamage = vi.fn(); town.activateHostility = vi.fn()
     const scene = new THREE.Scene(), referee = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Captain', 4, false)
     const cat = Object.assign(Object.create(Mount.prototype), { currentHp: 100 }) as Mount
+    town.duel.actors = [referee]
     const before = referee.hp, mountHp = cat.currentHp
     town.hitFieldNpc(referee, 100, 'melee'); town.hitResident(referee, 100); town.hitResident(cat, 100)
     town.damageBuilding(0, 100)
@@ -135,12 +138,13 @@ describe('Town Duel combat isolation', () => {
     expect(town.duel.events.emit).not.toHaveBeenCalled()
     referee.dispose()
   })
-  it('rejects opponent/referee projectiles during preparation before creating shots', () => {
+  it('allows Player and world projectiles during preparation', () => {
     const town = harness(); town.acceptDuel('roman_archer', 1); town.profile.activeMission.phase = 'PREPARING'
-    town.shots = []
+    town.shots = []; town.scene = new THREE.Scene(); town.player.combatPosition = new THREE.Vector3()
     town.fire(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 10, 20, true, false, 'arrow')
-    town.fire(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 10, 20, false, false, 'arrow', {})
-    expect(town.shots).toHaveLength(0)
+    town.fire(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), 10, 20, false, false, 'arrow', { group: new THREE.Group() })
+    expect(town.shots).toHaveLength(2)
+    town.shots.forEach((shot: any) => shot.arrow.destroy())
   })
 
   it.each([false, true])('a real T1 Archer projectile hits the stationary Duel player (mounted=%s)', mounted => {

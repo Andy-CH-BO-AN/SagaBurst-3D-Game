@@ -1614,8 +1614,7 @@ export class NPC {
 
     const considerNpc = (candidate: NPC): void => {
       if (
-        this.duelHostile
-        || candidate === this
+        candidate === this
         || candidate.dead
         || candidate.faction === this.faction
         || candidate === this._cachedTargetNpc
@@ -1664,7 +1663,7 @@ export class NPC {
       return this.targetsPlayer && player.targetable && !player.dead
     }
     if (this._cachedTargetNpc !== null) {
-      return !this.duelHostile && !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
+      return !this._cachedTargetNpc.dead && this._cachedTargetNpc.faction !== this.faction
     }
     return false
   }
@@ -1792,11 +1791,6 @@ export class NPC {
     hostileNpcGrid: SpatialGrid<NPC> | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
-    if (this.duelHostile) {
-      return player.targetable && !player.dead
-        ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true }
-        : null
-    }
     let closestTarget = null
     let closestDistSq = Infinity
 
@@ -1806,7 +1800,7 @@ export class NPC {
     }
 
     // Check Player separately because Player is not stored in the NPC spatial grids.
-    if (this.targetsPlayer && player.targetable) {
+    if (this.targetsPlayer && player.targetable && !player.dead) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const dSq = this.combatPosition.distanceToSquared(playerPos)
       if (dSq < closestDistSq) {

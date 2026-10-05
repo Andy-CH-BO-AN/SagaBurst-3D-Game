@@ -91,10 +91,12 @@
 | `BanditMissionController` | 剿匪／巡邏與返程；借用同一位隊長，穩定 FOLLOW slots，僅正式名單納入任務歸因 |
 | `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 共用騎兵入口前空地的集合點；既有 actor 從目前位置集合，temporary 沿既有 supportApproach／townEntry 從 map edge 進場。集合完成即自動行軍；友軍 temporary 結算後沿既有 departure 實際騎乘／步行到 edge 才移除，結算後 reload 不重建，敵軍仍正常清理 |
 | `TownDefenseController` | 重用城鎮駐軍／平民；接受時固定敵軍名單與比例，按該名單恢復，不因升階重算已接受任務 |
-| `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；Duel 敵意不擴散到城鎮，結算歸還角色 |
+| `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；任務 ownership 優先，外敵解除後恢復原路；帶路角色死亡由 Captain／referee／其餘存活任務角色接手剩餘路線，全隊死亡仍允許 Player 自行返營結算，結算歸還角色 |
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |
 
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
+
+Duel arena 由 `TownDuelArena` 在步兵／騎兵訓練區之間的 forecourt 搜尋，驗證障礙物、既有訓練站位與 navigation；無合法位置時部署失敗，不退回城外。NPC 自然走到各自站位後才進 PREPARING，Player 沿用自動就位；讀檔保留位置恢復。`TownMissionCombat` 同幀推進 Duel flow 與完整 Town runtime，Duel actors 排除於 Patrol／居民 controller，與 world actors 共用 participants／target grid，每個 actor 只模擬一次。TownScene 沿正常敵意與友軍保護路由 melee／projectile／mount contacts，受保護 rider 的 mount 也受保護。Duel opponent 可選更近外敵、受第三方傷害；Player 離開 arena 不停計時，objective／stats 仍只追蹤既有 opponent，RESULT 暫停與結算不變。
 
 `TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，不讀寫 Career profile／inventory／購買狀態。玩家用既有 mountVehicle／dismountFromMount 暫時騎乘、下馬與再騎；任務結算、失敗、放棄、撤退、回城／場景退出會解除臨時騎乘並沿用 controller cleanup。只登記本次 combat 生成或騎兵死亡後釋放的可借用坐騎，排除 owned mount 與 Town service／merchant mounts。原有駐軍坐騎僅在本次 combat 釋放後暫時允許騎乘；cleanup 保留其 Town 實體並恢復 reserved 資格，其他臨時無主坐騎清除，仍被 NPC 騎乘者依原 controller 返程／離場。永久選擇與 HP persistence 始終指向原購入坐騎，runtime temporary 標記不進存檔。
 

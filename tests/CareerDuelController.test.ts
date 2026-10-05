@@ -160,6 +160,15 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     h.controller.opponent!.combatPosition.copy(arena)
     h.player.group.position.copy(arena)
     h.controller.update(0)
+    expect(h.controller.phase).toBe('MARCHING')
+    // Actors walk to their formation slots; arrival never moves them instantly.
+    expect(h.controller.opponent!.combatPosition).toEqual(arena)
+    expect(h.controller.captain!.combatPosition).toEqual(arena)
+    for (const actor of h.controller.actors) {
+      const command = vi.mocked(actor.assignFormationTarget).mock.calls.at(-1)!
+      actor.combatPosition.copy(command[1])
+    }
+    h.controller.update(0)
     expect(h.controller.phase).toBe('PREPARING')
     expect(h.controller.guideTarget).toBeNull()
     h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, phase: 'RETURNING' } })
@@ -229,6 +238,105 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(victory.controller.outcome).toBe('victory')
     victory.player.dead = true
     expect(victory.controller.outcome).toBe('failure')
+  })
+
+  it('continues the timer away from the arena and ignores external kills while accepting third-party opponent death', () => {
+    const h = harness(); h.start('roman_archer', 1, 'ENGAGING')
+    const id = h.controller.opponent!.combatantId
+    h.controller.update(5)
+    h.player.group.position.set(-250, 0, 250)
+    const bandit = h.residents.find(resident => resident.spec.role === 'civilian')!.npc
+    h.controller.events.emit({ type: 'actor_killed', source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
+      target: { targetId: bandit.combatantId, targetType: 'npc', name: 'Bandit' }, method: 'melee' })
+    bandit.takeDamage(1000)
+    h.controller.update(10)
+    expect(h.controller.combatRemaining).toBe(15)
+    expect(h.controller.outcome).toBeNull()
+    expect(h.profile.activeMission!.duelOpponentActorId).toBe(id)
+    expect(h.controller.snapshot().player.kills).toBe(0)
+    h.controller.opponent!.takeDamage(1000)
+    expect(h.controller.outcome).toBe('victory')
+    expect(h.controller.snapshot().player.kills).toBe(0)
+  })
+
+  it('temporarily fights with Captain and resumes the same march from his actual position', () => {
+    const h = harness(); h.start('roman_archer', 1, 'MARCHING')
+    const captain = h.controller.captain!, location = captain.combatPosition.clone()
+    const previous = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
+    h.controller.setExternalCombat(captain, true)
+    h.controller.setExternalCombat(captain, true)
+    expect(captain.setTacticalOrder).toHaveBeenLastCalledWith('attack')
+    captain.combatPosition.x -= 8
+    const afterFight = captain.combatPosition.clone()
+    h.controller.update(1)
+    h.controller.setExternalCombat(captain, false)
+    expect(captain.combatPosition).toEqual(afterFight)
+    expect(captain.combatPosition).not.toEqual(location)
+    expect(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(previous)
+    expect(h.controller.phase).toBe('MARCHING')
+    h.controller.cleanupMission()
+    expect(h.controller.isMissionActor(captain)).toBe(false)
+    const calls = vi.mocked(captain.assignFormationTarget).mock.calls.length
+    h.controller.setExternalCombat(captain, false)
+    expect(vi.mocked(captain.assignFormationTarget).mock.calls).toHaveLength(calls)
+  })
+
+  it.each(['roman', 'viking'] as const)('%s replaces fallen march leaders with referee, then surviving opponent, without resetting the route', faction => {
+    const h = harness(faction)
+    h.start(`${faction}_archer`, 1, 'ASSEMBLING')
+    // Use three distinct mission residents to cover both fallback priorities.
+    const ranger = h.residents.find(resident => resident.spec.role === 'ranger')!.npc
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, duelRefereeActorId: ranger.combatantId } })
+    h.controller.startActiveMission()
+    const captain = h.controller.captain!, opponent = h.controller.opponent!
+    vi.mocked(h.navigation.queryPath).mockReturnValue({ status: 'path', path: [{ x: 40, z: 16 }, { x: 60, z: 16 }] })
+    vi.mocked(h.navigation.grid.cellToWorld).mockImplementation(cell => new THREE.Vector3(cell.x, 0, cell.z))
+    h.player.group.position.copy(captain.combatPosition)
+    h.controller.update(0)
+    captain.combatPosition.copy(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1])
+    h.controller.update(0)
+    expect(h.profile.activeMission!.routeStage).toBe(1)
+    const remainingTarget = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
+    const queries = vi.mocked(h.navigation.queryPath).mock.calls.length
+    h.controller.setExternalCombat(captain, true)
+    captain.takeDamage(1000)
+    const rangerPosition = ranger.combatPosition.clone()
+    h.controller.update(0)
+    expect(ranger.combatPosition).toEqual(rangerPosition)
+    expect(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(remainingTarget)
+    expect(vi.mocked(opponent.assignFollowTarget).mock.calls.at(-1)![0]).toBe(ranger)
+    expect(h.profile.activeMission!.routeStage).toBe(1)
+    h.controller.setExternalCombat(ranger, true)
+    ranger.takeDamage(1000)
+    const opponentPosition = opponent.combatPosition.clone()
+    h.controller.update(0)
+    expect(opponent.combatPosition).toEqual(opponentPosition)
+    expect(vi.mocked(opponent.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(remainingTarget)
+    expect(h.navigation.queryPath).toHaveBeenCalledTimes(queries)
+    // Arrive along the remaining path, then walk into the assigned duel slot.
+    opponent.combatPosition.copy(remainingTarget)
+    h.controller.update(0)
+    expect(h.profile.activeMission!.routeStage).toBe(2)
+    const arena = h.controller.guideTarget!.clone()
+    opponent.combatPosition.copy(arena)
+    h.player.group.position.copy(arena)
+    h.controller.update(0)
+    opponent.combatPosition.copy(vi.mocked(opponent.assignFormationTarget).mock.calls.at(-1)![1])
+    h.controller.update(0)
+    expect(h.controller.phase).toBe('PREPARING')
+    h.controller.update(5)
+    expect(h.controller.phase).toBe('ENGAGING')
+    expect(h.controller.outcome).toBeNull()
+  })
+
+  it('does not wait for dead NPCs at the arena when the whole march party is killed', () => {
+    const h = harness(); h.start('roman_archer', 1, 'MARCHING')
+    for (const actor of h.controller.actors) actor.takeDamage(1000)
+    h.player.group.position.copy(h.controller.guideTarget!)
+    h.controller.update(0)
+    expect(h.controller.phase).toBe('PREPARING')
+    h.controller.update(5)
+    expect(h.controller.outcome).toBe('victory')
   })
 
   it('reload keeps countdown, combat clock, actor ids, opponent health and mount health', () => {
@@ -395,6 +503,66 @@ describe('Career Duel return and cleanup', () => {
     h.player.group.position.copy(barracks)
     ranger.group.position.copy(barracks)
     expect(h.controller.returnComplete).toBe(true)
+  })
+
+  it('reassigns the remaining return route when its leader is killed by an external enemy', () => {
+    const h = harness(); h.start('roman_archer', 1, 'ENGAGING')
+    const ranger = h.residents.find(resident => resident.spec.role === 'ranger')!.npc
+    h.setProfile({ ...h.profile, activeMission: { ...h.profile.activeMission!, duelRefereeActorId: ranger.combatantId } })
+    h.controller.startActiveMission()
+    const captain = h.controller.captain!, opponent = h.controller.opponent!
+    opponent.takeDamage(1000)
+    result(h, 'victory')
+    vi.mocked(h.navigation.queryPath).mockReturnValue({ status: 'path', path: [{ x: 70, z: 16 }, { x: 40, z: 16 }] })
+    vi.mocked(h.navigation.grid.cellToWorld).mockImplementation(cell => new THREE.Vector3(cell.x, 0, cell.z))
+    expect(h.controller.startReturning()).toBe(true)
+    captain.combatPosition.copy(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1])
+    h.controller.update(0)
+    expect(h.profile.activeMission!.routeStage).toBe(1)
+    const remainingTarget = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
+    const queries = vi.mocked(h.navigation.queryPath).mock.calls.length
+    h.controller.setExternalCombat(captain, true)
+    captain.takeDamage(1000)
+    const rangerPosition = ranger.combatPosition.clone()
+    h.controller.update(0)
+    expect(ranger.combatPosition).toEqual(rangerPosition)
+    expect(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(remainingTarget)
+    expect(h.profile.activeMission!.routeStage).toBe(1)
+    expect(h.navigation.queryPath).toHaveBeenCalledTimes(queries)
+    ranger.combatPosition.copy(remainingTarget)
+    h.controller.update(0)
+    expect(h.profile.activeMission!.routeStage).toBe(2)
+    ranger.combatPosition.copy(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1])
+    h.player.group.position.copy(h.controller.guideTarget!)
+    h.controller.update(0)
+    expect(h.controller.returnComplete).toBe(true)
+  })
+
+  it.each(['before', 'during'] as const)('lets Player complete return when all mission NPCs die %s the return starts', when => {
+    const h = harness(); h.start('roman_heavy_infantry', 4, 'ENGAGING')
+    result(h, 'victory')
+    if (when === 'during') expect(h.controller.startReturning()).toBe(true)
+    for (const actor of h.controller.actors) actor.takeDamage(1000)
+    if (when === 'before') expect(h.controller.startReturning()).toBe(true)
+    h.controller.update(0)
+    expect(h.controller.returnComplete).toBe(false)
+    h.player.group.position.copy(h.controller.guideTarget!)
+    expect(h.controller.returnComplete).toBe(true)
+  })
+
+  it('restores RETURNING with no surviving NPC and still allows the player to finish', () => {
+    const h = harness(); h.start('roman_heavy_infantry', 4, 'ENGAGING')
+    result(h, 'victory')
+    h.controller.opponent!.takeDamage(1000)
+    h.controller.referee!.takeDamage(1000)
+    expect(h.controller.startReturning()).toBe(true)
+    const reload = harness('roman', JSON.parse(JSON.stringify(h.profile)))
+    reload.residents.find(resident => resident.spec.role === 'ranger')!.npc.takeDamage(1000)
+    expect(reload.controller.startActiveMission()).toBe(true)
+    expect(reload.controller.actors.every(actor => actor.dead)).toBe(true)
+    reload.controller.update(0)
+    reload.player.group.position.copy(reload.controller.guideTarget!)
+    expect(reload.controller.returnComplete).toBe(true)
   })
 
   it('cleanup restores canonical loadout and clears temporary hostility and movement without disposing Town actors or mounts', () => {

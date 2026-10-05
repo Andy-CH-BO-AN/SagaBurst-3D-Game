@@ -812,7 +812,6 @@ export class TownScene {
     if (!this.commit(next)) { this.openPanel('單挑保存失敗', '單挑尚未開始。請確認瀏覽器儲存空間後重試。'); return }
     this.playMissionVoice('missionAccepted')
     if (!this.duel.startActiveMission()) { this.openPanel('單挑部署失敗', '任務已保存，重新載入可恢復同一場單挑。'); return }
-    this.clearMissionCombatShots()
     this.inventory.prepareForCombat()
     this.notice = '已接受單挑。前往兵營與 Captain 集合。'
     this.closePanel()
@@ -1133,6 +1132,7 @@ export class TownScene {
       this.hitResident(mount, amount, method, contact)
       return
     }
+    if (!this.canHitTownMount(mount, source)) return
     const rider = mount.riderNpc
     const result = damageMount(mount, amount, {
       contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
@@ -1175,7 +1175,14 @@ export class TownScene {
     return isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) ? [] : [...(this.cat ? [this.cat] : []), ...(this.stableHorses ?? [])]
   }
   private isProtectedTownAlly(target: NPC | Mount): boolean {
-    if (target instanceof NPC && this.outskirts?.owns(target)) return !target.hostileToPlayer
+    const owner = target instanceof NPC ? target : target.riderNpc
+      ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
+      ?? this.outskirts?.actors.find(actor => actor.combatantId === target.combatOwner?.actorId)
+    if (this.duel?.active && owner === this.duel.opponent) return !this.duel.canDamageOpponent(target)
+    if (owner && this.outskirts?.owns(owner)) return !owner.hostileToPlayer
+    if (this.duel?.active && owner && this.duel.isMissionActor?.(owner)) return true
+    if (this.duel?.active && owner && !owner.hostileToPlayer && (this.residents ?? []).some(resident => resident.npc === owner
+      && (resident.spec.duty === 'patrol' || resident.spec.duty === 'gate_guard' || resident.spec.duty === 'training'))) return true
     if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && (target === this.cat || (this.stableHorses ?? []).includes(target as Mount))) return true
     const active = this.profile?.activeMission
     if (active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault') {
@@ -1187,6 +1194,14 @@ export class TownScene {
       ? target
       : target.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === target)?.npc
     return Boolean(ally && (this.mission?.friendlies?.includes(ally) || this.missionCombat?.isExternalThreatDefender(ally)))
+  }
+  /** Independent mount contacts retain their geometry while respecting their rider's protection. */
+  private canHitTownMount(mount: Mount, source?: NPC): boolean {
+    if (!source) return mount !== this.player.currentMount && !this.isProtectedTownAlly(mount)
+    if (mount.riderPlayer === this.player) return source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source))
+    const owner = mount.riderNpc ?? (this.residents ?? []).find(resident => resident.homeMount === mount)?.npc
+    if (owner) return source !== owner && townWartimeHostile(source, owner)
+    return !mount.combatOwner || mount.combatOwner.allegiance !== source.faction
   }
   private hitResident(npc: NPC | Mount, amount: number, method: CombatDamageMethod = 'melee', contact?: CombatContact): void {
     if (this.duel?.active) return
@@ -1252,9 +1267,9 @@ export class TownScene {
       this.hitBattlefieldMount(contact.mount, amount, method, source, contact)
       return
     }
-    if (this.duel?.active && (source || !this.duel.canDamageOpponent(target))) return
+    if (!source && this.duel?.active && target === this.duel.opponent && !this.duel.canDamageOpponent(target)) return
     if (target.dead || amount <= 0 || this.defense?.phase === 'PREPARING') return
-    if (!source && this.outskirts?.owns(target) && this.isProtectedTownAlly(target)) return
+    if (!source && this.isProtectedTownAlly(target)) return
     if (source && !townWartimeHostile(source, target)) return
     if (this.defense?.active && !source && target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT) return
     const playerAmount = !source && method === 'mount-impact'
@@ -1292,7 +1307,7 @@ export class TownScene {
     }
   }
   private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
-    if (this.duel?.active && !this.duel.canDamagePlayer(source)) return
+    if (!source.hostileToPlayer && !this.duel?.canDamagePlayer(source)) return
     if (this.defense?.phase === 'PREPARING' || this.defense?.active && !source.hostileToPlayer) return
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
       contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined),
@@ -1306,7 +1321,6 @@ export class TownScene {
     else sound?.playSwordHit(0, true)
   }
   private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, player: boolean, training: boolean, kind: 'arrow' | 'pilum', source?: NPC): void {
-    if (!training && this.duel?.active && (!this.duel.combatEnabled || !player && (!source || !this.duel.canDamagePlayer(source)))) return
     if (player && this.player.dead || !training && this.defense?.phase === 'PREPARING') return
     if (this.shots.length >= 100 || training && this.shots.filter(s => s.training).length >= 60) return
     const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
@@ -1317,12 +1331,12 @@ export class TownScene {
   private runtimeCombatActors(): NPC[] {
     return [...new Set([
       ...(this.residents ?? []).map(resident => resident.npc),
-      ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []),
+      ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []),
       ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []),
     ])]
   }
   private updateShots(dt: number): void {
-    const runtimeActors = this.outskirts?.actors.length ? this.runtimeCombatActors() : null
+    const runtimeActors = this.duel?.active || this.outskirts?.actors.length ? this.runtimeCombatActors() : null
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
@@ -1345,9 +1359,7 @@ export class TownScene {
         const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
         if (distance < nearest) { nearest = distance; hit = () => {} }
       }
-      const targets: Array<Player | NPC | Mount> = this.duel?.active
-        ? s.player ? this.duel.opponent ? [this.duel.opponent] : [] : s.source === this.duel.opponent ? [this.player] : []
-        : runtimeActors
+      const targets: Array<Player | NPC | Mount> = runtimeActors
           ? s.player
             ? runtimeActors.filter(target => !this.isProtectedTownAlly(target))
             : s.source
@@ -1373,7 +1385,7 @@ export class TownScene {
           : s.source?.faction === Faction.PLAYER
             ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
             : [this.player]
-      targets.push(...this.combatMounts.filter(mount => mount !== this.player.currentMount || !s.player))
+      targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
       for (const target of targets) {
         if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) continue
         if (target.dead) continue
@@ -1428,14 +1440,13 @@ export class TownScene {
     }
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
-    const combatTargets = this.duel?.active ? this.duel.opponent ? [this.duel.opponent] : []
-      : this.outskirts?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
+    const combatTargets = this.duel?.active || this.outskirts?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
       : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
         ...(this.missionCombat?.enemyTownHostiles ?? []),
         ...this.residents.map(r => r.npc).filter(target => !this.isProtectedTownAlly(target))]
     const targets = combatTargets.filter(target => !target.dead
       && target.combatPosition.distanceToSquared(this.player.combatPosition) <= ((weapon.range ?? 1.8) + 4) ** 2)
-    const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, (weapon.range ?? 1.8) + 4, this.meleeMountCandidates)
+    const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, (weapon.range ?? 1.8) + 4, this.meleeMountCandidates).filter(mount => this.canHitTownMount(mount))
     const contact = this.player.weaponSweep.traceFirst(targets, mounts, this.player.currentMount)
     if (!contact) return
     this.player.markHitProcessed()
@@ -1672,7 +1683,7 @@ export class TownScene {
         mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
         if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.world.obstacles)
       }
-      if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
+      if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
       this.resolveBodies(); this.updateShots(dt)
       if (this.duel?.active) this.duel.persistRuntimeProgress()
       if (this.player.dead) this.enterMissionObserver()
@@ -1708,7 +1719,7 @@ export class TownScene {
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.profile.activeMission.kind === 'duel'
-        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回兵營' : this.duel.phase === 'ASSEMBLING' ? '前往兵營與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往城外單挑場地' : this.duel.phase}`
+        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回兵營' : this.duel.phase === 'ASSEMBLING' ? '前往兵營與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往訓練場間單挑場地' : this.duel.phase}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'

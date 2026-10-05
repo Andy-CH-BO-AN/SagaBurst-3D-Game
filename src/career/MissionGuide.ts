@@ -66,7 +66,7 @@ export class MissionGuide {
     this.root.hidden = false
     this.arrow.style.opacity = '.58'
     this.arrow.style.transform = `rotate(${missionGuideArrowAngle(dx, dz, cameraYaw)}rad)`
-    const action = phase === 'ASSEMBLING' ? '前往兵營集合點' : phase === 'RETURNING' ? '返回兵營' : '前往城外單挑場地'
+    const action = phase === 'ASSEMBLING' ? '前往兵營集合點' : phase === 'RETURNING' ? '返回兵營' : '前往訓練場間單挑場地'
     this.label.textContent = `${action} · ${Math.round(Math.hypot(dx, dz))}m`
   }
 
