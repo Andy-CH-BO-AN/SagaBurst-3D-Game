@@ -154,6 +154,22 @@ describe('NPC melee physical-contact approach', () => {
     })
   }
 
+  it.each(weapons)('mounted %s physically hits a foot Player with body collision enabled', weaponId => {
+    const h = harness(weaponId, 'player', true)
+    // Match Town cavalry: Viking axemen carry a shield and use the one-handed arc.
+    if (weaponId === 'viking_axe_t2') h.attacker.applyTemporaryCombatLoadout({
+      meleeWeaponId: weaponId, rangedWeaponId: null, shieldId: 'round_shield_t2', mountId: null,
+    })
+    const mount = new Mount(h.scene, MountType.HORSE, 0, 0)
+    cleanup.push(() => mount.dispose())
+    h.attacker.mountVehicle(mount)
+    h.attacker.setTacticalOrder('charge')
+    h.moveTarget(4)
+    h.until(() => h.hit.mock.calls.length > 0)
+    expect(h.attacker.weaponSweep.contact.kind).toBe('body')
+    expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), true, undefined)
+  })
+
   it.each(weapons)('%s returns to approach after a complete miss before starting another attack', weaponId => {
     const h = harness(weaponId)
     h.moveTarget(h.attacker.meleeAttackRadius - .05)

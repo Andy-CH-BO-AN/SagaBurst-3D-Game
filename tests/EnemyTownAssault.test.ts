@@ -106,6 +106,45 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     expect(objective.some(id => id.startsWith('civilian'))).toBe(false)
   })
 
+  it('opens a fresh Assault with deployed defenders, closed gates and attackers already advancing', () => {
+    const f = fixture(faction)
+    expect(f.controller.phase).toBe('ATTACKING')
+    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
+    expect(f.controller.releasedEnemies).toHaveLength(119)
+    for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
+      if (f.controller.military.includes(npc) || f.controller.civilians.includes(npc)) {
+        expect(npc.combatPosition.distanceTo(point)).toBeLessThan(.01)
+      }
+    }
+    const defender = f.controller.military[0]
+    defender.group.position.add(new THREE.Vector3(2, 0, 2))
+    const savedPosition = defender.combatPosition.clone()
+    f.controller.persistRuntimeProgress(true)
+    f.controller.startActiveMission()
+    expect(defender.combatPosition.x).toBeCloseTo(savedPosition.x)
+    expect(defender.combatPosition.z).toBeCloseTo(savedPosition.z)
+  })
+
+  it('sprints both infantry and cavalry to deployment slots and stops on arrival', () => {
+    const f = fixture(faction, false)
+    const orders = [...((f.controller as any).orders as Map<NPC, THREE.Vector3>)]
+    for (const mounted of [false, true]) {
+      const [npc, destination] = orders.find(([npc, point]) => npc.isMounted === mounted
+        && npc.combatPosition.distanceTo(point) > 20)!
+      const tick = () => npc.update(.05, f.player, [npc], [], [], null as never, () => {}, () => {}, true)
+      const start = npc.combatPosition.clone(), stamina = npc.stamina
+      tick()
+      expect(npc.sprinting).toBe(true)
+      expect(npc.combatPosition.distanceTo(start)).toBeGreaterThan(mounted ? 1 : .45)
+      expect(npc.stamina).toBeLessThan(stamina)
+      npc.group.position.copy(destination)
+      npc.mount?.group.position.copy(destination)
+      tick()
+      expect(npc.sprinting).toBe(false)
+      expect(npc.combatPosition.distanceTo(destination)).toBeLessThan(.1)
+    }
+  })
+
   it('waits beyond the minimum for actual preparation, then closes all gates and releases four attacks', () => {
     const f = fixture(faction, false)
     f.controller.updateFlow(25, 0)
@@ -133,11 +172,22 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   it('releases only breached reserves, preserves casualties and breaches across repeated reloads', () => {
     const f = fixture(faction)
     expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
-    stage(f); f.controller.updateFlow(.02, 0)
+    f.controller.updateFlow(.02, 0)
     expect(f.controller.phase).toBe('ATTACKING')
     f.controller.noteEffectiveFriendlyDamage(f.controller.military[0])
     expect(f.controller.reserveHasCharged).toBe(false)
     f.gates.get('north')!.destroy(); f.gates.get('west')!.destroy()
+    const assertBreachOrders = () => {
+      for (const group of (f.controller as any).groups) {
+        const released = group.id === 'north' || group.id === 'west'
+        for (const npc of [...group.members, ...group.cavalry] as NPC[]) {
+          if (npc.dead) continue
+          expect(npc.missionMovement).toBe(!released)
+          expect(npc.tacticalOrder).toBe(released ? 'charge' : 'formation')
+        }
+      }
+    }
+    assertBreachOrders()
     const deadId = f.controller.enemies[2].combatantId
     f.controller.enemies[2].takeDamage(999999)
     const footId = f.controller.enemies[3].combatantId
@@ -158,6 +208,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       expect(f.gates.get('north')!.state).toBe('destroyed')
       expect(f.gates.get('east')!.state).toBe('closed')
       expect(f.controller.civilianDeaths).toBe(1)
+      assertBreachOrders()
     }
     f.controller.cleanupMission()
     expect([...f.gates.values()].every(g => g.state === 'open')).toBe(true)
@@ -189,17 +240,23 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   it('does not abandon North for an East breach, replaces dead leaders, and only clears after crossing North', () => {
     const f = fixture(faction)
     expect((f.controller as any).attackGroups.every((g: any) => g.leader.tier === 4)).toBe(true)
-    stage(f); f.controller.updateFlow(.02, 0)
+    f.controller.updateFlow(.02, 0)
     const group = (f.controller as any).attackGroups.find((g: any) => g.id === 'north')
     group.leader.takeDamage(999999)
     f.gates.get('east')!.destroy()
     const npc: NPC = group.members[2]
+    const tick = () => npc.update(.05, f.player, [npc], [], [], null as never, () => {}, () => {}, true)
+    tick()
+    expect(npc.sprinting).toBe(true)
+    expect(npc.visualMovementSpeed).toBeGreaterThanOrEqual(npc.mount!.baseSpeed * 2)
     const approach = siegePoint('north', 0, -12)
     npc.group.position.copy(approach); npc.mount?.group.position.copy(approach)
     f.controller.updateFlow(.02, 0)
     expect(group.leader.dead).toBe(false)
     expect(npc.hasSiegeObstacle).toBe(true)
     expect((npc as any).assignedSiegeObstacle).toBe(f.gates.get('north')!.siegeObstacle)
+    tick()
+    expect(npc.visualMovementSpeed).toBeGreaterThanOrEqual(npc.mount!.baseSpeed)
     f.gates.get('north')!.destroy(); f.controller.updateFlow(.02, 0)
     expect(npc.hasSiegeObstacle).toBe(false)
     expect(f.profile().activeMission!.siege!.crossedActorIds).not.toContain(npc.combatantId)

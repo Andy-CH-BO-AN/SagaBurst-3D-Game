@@ -4,7 +4,7 @@
 
 ## 目前狀態
 
-- Soldier Enemy Town Assault 與 Veteran Home Defense 共用四門、120 人 Siege；Recruit／Soldier 舊守城下架。實際 recall／muster、向城外推出卡門角色、指定破門與分門預備隊、同場 reload 戰損均由共用 controller 管理，詳細契約見 ARCHITECTURE。
+- Soldier Enemy Town Assault 與 Veteran Home Defense 共用四門、120 人 Siege；Recruit／Soldier 舊守城下架。新攻城地圖預先部署後直接開打，主城防守維持實際 recall／muster；破門即解除該門步兵與騎兵的部署命令投入戰鬥，同場 reload 保留戰損，詳細契約見 ARCHITECTURE。
 
 - 正式入口提供 Custom Battle、Defense Campaign 與 Career Town；有效存檔／session 可恢復對應流程。人物含 Viking／Roman 與 T4 英雄；Horse、Black Cat、Corgi 均已有模型載入路徑。
 - 近期開發集中在 Career Town：剿匪、巡邏、守城、騎兵清剿、Outpost 任務、敵城進攻，以及最新 1v1 Duel。任務結算、恢復與借用駐軍是主要交接區域，入口見 [ARCHITECTURE.md](ARCHITECTURE.md)。
