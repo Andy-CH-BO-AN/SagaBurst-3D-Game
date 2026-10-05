@@ -91,7 +91,7 @@
 | `BanditMissionController` | 剿匪／巡邏與返程；借用同一位隊長，穩定 FOLLOW slots，僅正式名單納入任務歸因 |
 | `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 共用騎兵入口前空地的集合點；既有 actor 從目前位置集合，temporary 沿既有 supportApproach／townEntry 從 map edge 進場。集合完成即自動行軍；友軍 temporary 結算後沿既有 departure 實際騎乘／步行到 edge 才移除，結算後 reload 不重建，敵軍仍正常清理 |
 | `TownDefenseController` | 重用城鎮駐軍／平民；接受時固定敵軍名單與比例，按該名單恢復，不因升階重算已接受任務 |
-| `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；任務 ownership 優先，外敵解除後恢復原路，結算歸還角色 |
+| `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；任務 ownership 優先，外敵解除後恢復原路；帶路角色死亡由 Captain／referee／其餘存活任務角色接手剩餘路線，全隊死亡仍允許 Player 自行返營結算，結算歸還角色 |
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |
 
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。

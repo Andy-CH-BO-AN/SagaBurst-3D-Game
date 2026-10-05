@@ -72,7 +72,7 @@ export class CareerDuelController {
   private missionCaptain: NPC | null = null
   private missionReferee: NPC | null = null
   private opponentMount: Mount | null = null
-  private returnLeader: NPC | null = null
+  private routeLeader: NPC | null = null
   private route: THREE.Vector3[] = []
   private routeIndex = 0
   private commandId = 1
@@ -182,12 +182,11 @@ export class CareerDuelController {
     else if (active.phase === 'MARCHING') {
       this.setRoute(this.assemblyPoint(), this.area, active.routeStage)
       this.placeMarchParty(this.route[this.routeIndex] ?? this.area)
-      this.assignMarch(captain.npc)
+      this.ensureRouteLeader()
     } else if (active.phase === 'RETURNING') {
-      this.returnLeader = !captain.npc.dead ? captain.npc : referee.npc
       this.setRoute(this.area, this.assemblyPoint(), active.routeStage)
       this.placeMarchParty(this.route[this.routeIndex] ?? this.assemblyPoint())
-      this.assignMarch(this.returnLeader)
+      this.ensureRouteLeader()
     } else {
       this.placeDuelParty()
       if (active.phase === 'ENGAGING' && !active.result) opponent.npc.setDuelHostility(true)
@@ -200,17 +199,20 @@ export class CareerDuelController {
     if (!active || !this.captain || !this.opponent || active.phase === 'RESULT') return
     for (const actor of this.externalCombat) if (actor.dead) this.externalCombat.delete(actor)
     const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0
-    if (active.phase === 'ASSEMBLING' && !this.player().dead && this.player().combatPosition.distanceTo(this.captain.combatPosition) <= 12) {
+    if (active.phase === 'ASSEMBLING' && !this.player().dead
+      && this.player().combatPosition.distanceTo(this.selectRouteLeader()?.combatPosition ?? this.assemblyPoint()) <= 12) {
       if (this.setPhase('MARCHING', 0)) {
-        this.setRoute(this.captain.combatPosition, this.area)
-        this.assignMarch(this.captain)
+        this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.area)
+        this.ensureRouteLeader()
         this.onMarchStarted?.()
       }
     } else if (active.phase === 'MARCHING') {
       if (!this.staging) {
-        if (!this.externalCombat.has(this.captain)) this.advanceRoute(this.captain)
-        if (!this.externalCombat.size && this.captain.combatPosition.distanceTo(this.area) < 6
-          && this.opponent.combatPosition.distanceTo(this.area) < 16 && this.player().combatPosition.distanceTo(this.area) < 20) {
+        const leader = this.ensureRouteLeader()
+        if (leader && !this.externalCombat.has(leader)) this.advanceRoute(leader)
+        if (!this.externalCombat.size && (!leader || leader.combatPosition.distanceTo(this.area) < 6)
+          && this.actors.filter(actor => !actor.dead).every(actor => actor.combatPosition.distanceTo(this.area) < 16)
+          && this.player().combatPosition.distanceTo(this.area) < 20) {
           this.staging = true
           this.assignDuelPositions()
         }
@@ -224,7 +226,10 @@ export class CareerDuelController {
     } else if (active.phase === 'ENGAGING') {
       this.combatElapsed = Math.min(DUEL_COMBAT_SECONDS, this.combatElapsed + elapsed)
       if (this.evaluate()) this.opponent.setDuelHostility(false)
-    } else if (active.phase === 'RETURNING' && this.returnLeader && !this.externalCombat.has(this.returnLeader)) this.advanceRoute(this.returnLeader)
+    } else if (active.phase === 'RETURNING') {
+      const leader = this.ensureRouteLeader()
+      if (leader && !this.externalCombat.has(leader)) this.advanceRoute(leader)
+    }
     this.persistRuntimeProgress()
   }
 
@@ -250,8 +255,10 @@ export class CareerDuelController {
       if (!this.externalCombat.has(actor)) { this.externalCombat.add(actor); actor.setTacticalOrder('attack') }
     } else if (this.externalCombat.delete(actor)) {
       if (this.phase === 'ASSEMBLING') this.assignAssembly()
-      else if (this.phase === 'MARCHING' && !this.staging) this.assignMarch(this.captain!)
-      else if (this.phase === 'RETURNING' && this.returnLeader) this.assignMarch(this.returnLeader)
+      else if ((this.phase === 'MARCHING' && !this.staging) || this.phase === 'RETURNING') {
+        const leader = this.ensureRouteLeader()
+        if (leader) this.assignMarch(leader)
+      }
       else this.assignDuelPositions()
     }
   }
@@ -265,12 +272,12 @@ export class CareerDuelController {
   beginReturn(): boolean {
     const active = this.active
     if (active?.phase !== 'RESULT' || active.result?.outcome !== 'victory' || this.player().dead || !this.captain || !this.referee) return false
-    const leader = !this.captain.dead ? this.captain : this.referee
-    if (leader.dead || !this.setPhase('RETURNING', 0)) return false
+    const leader = this.selectRouteLeader()
+    if (!this.setPhase('RETURNING', 0)) return false
     for (const actor of this.actors) actor.setDuelHostility(false)
-    this.returnLeader = leader
-    this.setRoute(leader.combatPosition, this.assemblyPoint())
-    this.assignMarch(leader)
+    this.routeLeader = null
+    this.setRoute(leader?.combatPosition ?? this.player().combatPosition, this.assemblyPoint())
+    this.ensureRouteLeader()
     this.onReturnStarted?.()
     return true
   }
@@ -289,7 +296,7 @@ export class CareerDuelController {
     for (const actor of this.actors) { actor.setDuelHostility(false); actor.restoreCombatLoadout(); actor.setTacticalOrder('attack') }
     this.missionActors = []
     this.missionMounts = []
-    this.missionCaptain = this.missionOpponent = this.missionReferee = this.returnLeader = null
+    this.missionCaptain = this.missionOpponent = this.missionReferee = this.routeLeader = null
     this.opponentMount = null
     this.route = []
     this.routeIndex = 0
@@ -324,7 +331,18 @@ export class CareerDuelController {
   private groundPoint(point: { x: number; z: number }): THREE.Vector3 { return new THREE.Vector3(point.x, getTerrainHeight(point.x, point.z), point.z) }
   private assignAssembly(): void {
     const assembly = this.assemblyPoint()
-    this.actors.forEach((actor, index) => { if (!this.externalCombat.has(actor)) actor.assignFormationTarget(this.commandId++, assembly.clone().add(new THREE.Vector3(index * 3, 0, 0)), new THREE.Vector3(0, 0, 1), MARCH_SPEED) })
+    this.actors.forEach((actor, index) => { if (!actor.dead && !this.externalCombat.has(actor)) actor.assignFormationTarget(this.commandId++, assembly.clone().add(new THREE.Vector3(index * 3, 0, 0)), new THREE.Vector3(0, 0, 1), MARCH_SPEED) })
+  }
+  private selectRouteLeader(): NPC | null {
+    return [this.captain, this.referee, ...this.actors].find((actor): actor is NPC => Boolean(actor && !actor.dead)) ?? null
+  }
+  /** Keep the remaining route and physical positions when a fallen leader is replaced. */
+  private ensureRouteLeader(): NPC | null {
+    if (!this.routeLeader || this.routeLeader.dead) {
+      this.routeLeader = this.selectRouteLeader()
+      if (this.routeLeader) this.assignMarch(this.routeLeader)
+    }
+    return this.routeLeader
   }
   private setRoute(from: THREE.Vector3, target: THREE.Vector3, stage = 0): void {
     this.navigation.beginFrame()
