@@ -42,11 +42,19 @@ export class ArmyCommandUI {
   private readonly feedback: HTMLElement
   private readonly wheelHint: HTMLElement
   private feedbackTimer: number | null = null
+  private townHudObserver: ResizeObserver | null = null
 
-  constructor(faction: CharacterFaction) {
+  constructor(faction: CharacterFaction, townHud?: HTMLElement) {
     this.root = document.createElement('div')
     this.root.id = 'army-command-hud'
     this.root.dataset.faction = faction
+    if (townHud) {
+      this.root.dataset.layout = 'town'
+      this.townHudObserver = new ResizeObserver(() => {
+        this.root.style.setProperty('--town-command-top', `${townHud.getBoundingClientRect().bottom + 18}px`)
+      })
+      this.townHudObserver.observe(townHud)
+    }
     this.targets = document.createElement('div')
     this.targets.className = 'army-command-targets'
     this.commands = document.createElement('div')
@@ -59,7 +67,11 @@ export class ArmyCommandUI {
     document.getElementById('hud')?.appendChild(this.root)
   }
 
-  dispose(): void { if (this.feedbackTimer !== null) window.clearTimeout(this.feedbackTimer); this.root.remove() }
+  dispose(): void {
+    if (this.feedbackTimer !== null) window.clearTimeout(this.feedbackTimer)
+    this.townHudObserver?.disconnect()
+    this.root.remove()
+  }
 
   setEnabled(enabled: boolean): void { this.root.hidden = !enabled; this.root.style.display = enabled ? '' : 'none' }
 

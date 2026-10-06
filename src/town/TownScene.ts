@@ -247,7 +247,7 @@ export class TownScene {
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds)
     this.outskirts.synchronizeRank()
     this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player)
-    this.personalCommandUI = new ArmyCommandUI(profile.faction)
+    this.personalCommandUI = new ArmyCommandUI(profile.faction, this.hud)
     this.personalFormation = new FormationController(this.scene, this.camera, this.personalSquad.actors, this.world.terrainMesh,
       this.world.obstacles, this.navigation, TOWN_NAVIGATION_BOUNDS)
     this.personalCommands = new ArmyCommandController(this.personalSquad.actors, profile.faction, this.input, this.personalCommandUI,
