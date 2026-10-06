@@ -1,3 +1,4 @@
+import { advanceNpcFrame, completeNpcDeployment } from './helpers/npcSpawnFrames'
 import { createTownFortifications } from '../src/town/TownFortifications'
 import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../src/town/TownBounds'
@@ -31,6 +32,13 @@ import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { combatFixture } from './helpers/townMissionCombat'
 
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
+const npcConstruction = vi.hoisted(() => ({ count: 0 }))
+vi.mock('../src/world/NPC', async original => {
+  const actual = await original<typeof import('../src/world/NPC')>()
+  return { ...actual, NPC: class extends actual.NPC {
+    constructor(...args: ConstructorParameters<typeof actual.NPC>) { super(...args); npcConstruction.count++ }
+  } }
+})
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: { ready: true, createInstance: () => {
   const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
   return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null, setLocomotion: vi.fn(), setAppearanceVariant: vi.fn(), playOnce: vi.fn(), playDeath: vi.fn(), update: vi.fn(), dispose: vi.fn() }
@@ -44,7 +52,7 @@ beforeAll(async () => { await Promise.all([installCorgiTestAsset(), installBlack
 const dispose: (() => void)[] = []
 afterEach(() => { dispose.splice(0).forEach(fn => fn()); vi.unstubAllGlobals() })
 
-function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'veteran') {
+function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'veteran', deferStart = false) {
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
   profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
@@ -75,9 +83,9 @@ function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETER
   profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
-  expect(controller.startActiveMission()).toBe(true)
+  if (!deferStart) expect(completeNpcDeployment(() => controller.startActiveMission())).toBe(true)
   dispose.push(() => { controller.dispose(); residents.forEach(r => r.npc.dispose()); player.dispose(); cat.dispose() })
-  return { controller, player, residents, navigation, scene, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { profile = p } }
+  return { controller, player, residents, navigation, scene, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
 
@@ -127,7 +135,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     f.gates.get('west')!.destroy()
     f.controller.persistRuntimeProgress(true)
     f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
-    f.controller.startActiveMission()
+    completeNpcDeployment(() => f.controller.startActiveMission())
     expect(f.controller.preparationRemaining).toBe(6)
     expect(defender.combatPosition.x).toBeCloseTo(position.x)
     expect(defender.combatPosition.z).toBeCloseTo(position.z)
@@ -148,7 +156,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     const context = (f.controller as any).siegeContext
     context.closureBodies = () => [{ position: f.player.combatPosition, radius: .5, moveTo: (point: THREE.Vector3) => f.player.group.position.copy(point) }]
     const hp = f.player.hp
-    f.controller.startActiveMission()
+    f.controller.dispose(); completeNpcDeployment(() => f.controller.startActiveMission())
     expect(f.gates.get('north')!.state).toBe('closed')
     expect(f.player.combatPosition.clone().sub(siegePoint('north', 0, 0)).dot(siegeOutward('north'))).toBeGreaterThan(.5)
     expect(f.player.hp).toBe(hp)
@@ -248,7 +256,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       expect(saved.activeMission!.siege!.releasedReserveGateIds.sort()).toEqual(['north', 'west'])
       expect(saved.activeMission!.actorHealth![footId].mountHp).toBe(0)
       f.setProfile(saved)
-      expect(f.controller.startActiveMission()).toBe(true)
+      expect(completeNpcDeployment(() => f.controller.startActiveMission())).toBe(true)
       expect(f.controller.enemies).toHaveLength(118)
       expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
       expect(f.controller.enemies.some(n => n.combatantId === deadId)).toBe(false)
@@ -268,7 +276,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     saved.activeMission!.playerDead = true
     f.setProfile(saved)
     expect(f.player.dead).toBe(false)
-    f.controller.startActiveMission()
+    completeNpcDeployment(() => f.controller.startActiveMission())
     expect(f.profile().activeMission!.playerDead).toBe(true)
   })
 
@@ -425,5 +433,27 @@ describe('Siege retained combat and settlement contracts', () => {
     town.equipment.visible = false; town.equipment.open.mockClear()
     f.player.takeDamage(999999, town.hp)
     town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Siege actual constructor frame budget', () => {
+  it.each([false, true])('creates the complete four-gate army one per frame before consuming preparation time, assault=%s', assault => {
+    const h = fixture('roman', assault, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran', true)
+    const before = npcConstruction.count, total = assault ? 119 : 120
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(npcConstruction.count).toBe(before)
+    for (let i = 1; i <= total; i++) {
+      advanceNpcFrame(); expect(npcConstruction.count - before).toBe(i)
+      if (i < total) {
+        expect(h.controller.ready).toBe(false); h.controller.updateFlow(100, 0)
+        expect(h.controller.preparationRemaining).toBe(10)
+        expect(h.controller.evaluate()).toBeNull()
+      }
+    }
+    expect(h.controller.ready).toBe(true); expect(h.controller.enemies).toHaveLength(total)
+    expect(h.controller.enemies.filter(npc => npc.isMounted).every(npc => npc.mount?.riderNpc === npc)).toBe(true)
+    expect(h.controller.preparationRemaining).toBe(10)
   })
 })

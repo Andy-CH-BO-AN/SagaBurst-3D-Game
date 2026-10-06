@@ -1,3 +1,5 @@
+import { gameplayNpcSpawns, NpcSpawnScheduler } from '../src/world/NpcSpawnScheduler'
+import { advanceNpcFrame } from './helpers/npcSpawnFrames'
 import { MissionTravelEncounter } from '../src/career/MissionTravelEncounter'
 import { createTownCombatFixture } from './townCombatFixture'
 import { checkMountImpact } from '../src/combat/MountImpact'
@@ -218,8 +220,13 @@ describe('Town mission death observer orchestration', () => {
     town.interaction = vi.fn()
     town.returnToTown = vi.fn(() => { town.disposed = true })
 
-    town.frame(16)
+    const batch = gameplayNpcSpawns.batch(), create = vi.fn()
+    batch.enqueue('previous-mission-actor', create); batch.seal()
+    town.mission.spawnBatches = [batch]
+    town.frame(advanceNpcFrame(new NpcSpawnScheduler()))
 
+    expect(batch.status).toBe('cancelled')
+    expect(create).not.toHaveBeenCalled()
     expect(town.returnToTown).toHaveBeenCalledExactlyOnceWith('direct')
     expect(town.finishMission).not.toHaveBeenCalled()
     expect(town.profile.totalMerit).toBe(merit)
@@ -238,7 +245,12 @@ describe('Town mission death observer orchestration', () => {
     town.button = vi.fn()
     town.closePanel = vi.fn()
 
+    const batch = gameplayNpcSpawns.batch(), create = vi.fn()
+    batch.enqueue('failed-return-actor', create); batch.seal()
+    town.mission.spawnBatches = [batch]
     town.returnToTown('direct')
+    advanceNpcFrame()
+    expect(batch.status).toBe('cancelled'); expect(create).not.toHaveBeenCalled()
     const retry = town.button.mock.calls[0][2]
     retry()
 
@@ -351,14 +363,17 @@ describe('Town mission death observer orchestration', () => {
     player.dispose()
   })
 
-  it('reload restores a dead active mission into observer without claiming or healing', () => {
+  it('reload restores a dead active mission into observer without claiming or healing', async () => {
     const { town, player } = townFixture()
     town.profile.activeMission.playerDead = true
     town.profile = parseCareerProfile(JSON.parse(JSON.stringify(town.profile)))!
     town.mission.startActiveMission = vi.fn()
     town.inventory.prepareForCombat = vi.fn()
     town.careerMounts = { restoreActiveMount: vi.fn() }
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     expect(town.mission.startActiveMission).toHaveBeenCalledOnce()
     expect(town.spectator).toBeInstanceOf(SpectatorCameraController)
     expect(player.dead).toBe(true)

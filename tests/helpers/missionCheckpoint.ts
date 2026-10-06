@@ -1,3 +1,4 @@
+import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
 import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import type { CareerProfile } from '../../src/career/CareerProfile'
@@ -10,6 +11,7 @@ export function withMissionCheckpoint<T>(controller: T): T {
     commit(profile: CareerProfile): boolean
   }
   if ('prepareTravelEncounter' in (controller as object)) Object.assign(controller, { travelEncounter: new MissionTravelEncounter() })
+  Object.assign(controller, { scheduler: gameplayNpcSpawns, ambientBatches: new Map() })
   host.checkpoint = new CareerMissionCheckpoint(() => host.readProfile(), profile => host.commit(profile))
   return controller
 }

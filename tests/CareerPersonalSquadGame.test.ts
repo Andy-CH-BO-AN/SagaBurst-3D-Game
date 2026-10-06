@@ -1,5 +1,6 @@
+import { advanceNpcFrame, installNpcLoadingFrames } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Game } from '../src/Game'
 import { DefenseCampaignRuntime } from '../src/campaign/DefenseCampaignRuntime'
 import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
@@ -14,6 +15,8 @@ import { createCareerProfile, type CareerProfile } from '../src/career/CareerPro
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { Faction } from '../src/world/NPC'
+
+afterEach(() => vi.unstubAllGlobals())
 
 function profile(): CareerProfile {
   return acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 6000, availableMerit: 6000,
@@ -32,6 +35,7 @@ function fixture(current = profile()) {
   const tracker = new BattleStatsTracker(events, false, undefined, current.activeOutpostMission!.battle?.playerStats,
     { acceptsSource: personalMissionSourcePolicy(current.activeOutpostMission!), initialContribution: personal.contribution })
   const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
     careerProfile: current, careerStore: store, defenseCampaignConfig: createCareerOutpostLaunch(current),
     defenseCampaignRuntime: new DefenseCampaignRuntime({ reinforcementsEnabled: true,
       initialSnapshot: current.activeOutpostMission!.battle?.runtime ?? { phase: 'assault', activePhase: 'assault' } }),
@@ -72,10 +76,10 @@ describe('Regular Career Outpost checkpoints with private members', () => {
     h.tracker.dispose()
   })
 
-  it('resumes a partial attacker wave without duplicates, restoring actual deaths and personal merit', () => {
+  it('resumes a partial attacker wave without duplicates, restoring actual deaths and personal merit', async () => {
     const first = fixture()
     const total = first.game._queueDefenseCampaignWave('attackers')
-    for (let i = 0; i < 3; i++) first.game._spawnNextDefenseCampaignNpc()
+    for (let i = 0; i < 3; i++) advanceNpcFrame()
     const [dead, wounded] = first.game.npcs
     dead.restoreCombatHealth(0); wounded.restoreCombatHealth(19)
     const source = { actorId: 'personal:game', actorType: 'npc' as const, allegiance: Faction.PLAYER,
@@ -88,28 +92,62 @@ describe('Regular Career Outpost checkpoints with private members', () => {
       player: { hp: 61, stamina: 42, ammo: 5, shieldImpact: 8 }, actors: { [dead.combatantId]: { hp: 0 }, [wounded.combatantId]: { hp: 19 } } })
     expect(saved.activeOutpostMission!.personalSquad).toMatchObject({ contribution: { damageDealt: 27 },
       members: { 'personal:game': { hp: 17, mount: { hp: 0 } } } })
+    first.game.spawnBatches.forEach((batch: any) => batch.cancel())
     const resumed = fixture(saved)
-    resumed.game._restorePersonalOutpostBattle()
+    installNpcLoadingFrames()
+    await resumed.game._restorePersonalOutpostBattle()
     expect(resumed.game.npcs).toHaveLength(3); expect(resumed.game.campaignSpawnQueueIndex).toBe(3)
     expect(resumed.game.npcs[0]).toMatchObject({ combatantId: dead.combatantId, hp: 0, dead: true })
     expect(resumed.game.npcs[1].hp).toBe(19)
-    for (let i = 3; i < total; i++) resumed.game._spawnNextDefenseCampaignNpc()
+    for (let i = 3; i < total; i++) advanceNpcFrame()
     expect(resumed.game.npcs).toHaveLength(total)
     expect(new Set(resumed.game.npcs.map((npc: any) => npc.combatantId)).size).toBe(total)
     expect(resumed.tracker.commandCheckpoint().damageDealt).toBe(27)
     first.tracker.dispose(); resumed.tracker.dispose()
   })
 
-  it('keeps completed reinforcement casualties and does not queue a second wave on reload', () => {
+  it('preserves historical wave progress during partial RAF restoration and a forced pagehide checkpoint', async () => {
+    const first = fixture(), total = first.game._queueDefenseCampaignWave('attackers')
+    for (let i = 0; i < 3; i++) advanceNpcFrame()
+    first.game.npcs[1].restoreCombatHealth(23)
+    expect(first.game._persistPersonalOutpost(true)).toBe(true)
+    first.game.spawnBatches.forEach((batch: any) => batch.cancel())
+    const saved = first.store.load()!, resumed = fixture(saved), callbacks: FrameRequestCallback[] = []
+    resumed.game.initializing = true
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const loading = resumed.game._restorePersonalOutpostBattle()
+    expect(resumed.game.npcs).toHaveLength(0)
+    callbacks.shift()!(advanceNpcFrame()); await Promise.resolve(); await Promise.resolve()
+    expect(resumed.game.npcs).toHaveLength(1)
+    expect(resumed.game._persistPersonalOutpost(true)).toBe(true)
+    expect(resumed.store.load()!.activeOutpostMission!.battle).toEqual(saved.activeOutpostMission!.battle)
+    expect(resumed.store.load()!.activeOutpostMission!.battle!.waveIndex).toBe(3)
+    resumed.game.spawnBatches.forEach((batch: any) => batch.cancel())
+    callbacks.shift()!(advanceNpcFrame())
+    await expect(loading).rejects.toThrow('cancelled')
+    const restarted = fixture(resumed.store.load()!)
+    installNpcLoadingFrames(); await restarted.game._restorePersonalOutpostBattle()
+    expect(restarted.game.npcs).toHaveLength(3)
+    expect(restarted.game.npcs[1].hp).toBe(23)
+    expect(restarted.game.campaignSpawnQueueIndex).toBe(3)
+    expect(restarted.game.campaignSpawnWave).toBe('attackers')
+    for (let i = 3; i < total; i++) advanceNpcFrame()
+    expect(restarted.game.npcs).toHaveLength(total)
+    expect(new Set(restarted.game.npcs.map((npc: any) => npc.combatantId)).size).toBe(total)
+    first.tracker.dispose(); resumed.tracker.dispose(); restarted.tracker.dispose()
+  })
+
+  it('keeps completed reinforcement casualties and does not queue a second wave on reload', async () => {
     const first = fixture()
     first.game.campaignAttackersStarted = false
     const total = first.game._queueDefenseCampaignWave('reinforcement')
-    for (let i = 0; i < total; i++) first.game._spawnNextDefenseCampaignNpc()
+    for (let i = 0; i < total; i++) advanceNpcFrame()
     first.game.npcs[1].restoreCombatHealth(0)
     first.game.careerVeteranActorMounts.get(first.game.npcs[1].combatantId).takeDamage(1000)
     expect(first.game._persistPersonalOutpost(true)).toBe(true)
     const resumed = fixture(first.store.load()!)
-    resumed.game._restorePersonalOutpostBattle()
+    installNpcLoadingFrames()
+    await resumed.game._restorePersonalOutpostBattle()
     expect(resumed.game.campaignReinforcementSpawned).toBe(true)
     expect(resumed.game.campaignSpawnWave).toBeNull()
     expect(resumed.game.npcs).toHaveLength(total)
