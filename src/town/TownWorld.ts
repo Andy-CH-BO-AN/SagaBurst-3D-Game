@@ -185,13 +185,19 @@ export class TownWorld {
   private cavalryTrainingGround(): void {
     const field = TOWN_CAVALRY_FIELD
     const ground = this.mat(this.faction === 'roman' ? 0x92856a : 0xa5aaa5)
+    // Keep the visible drill lanes on the exact same terrain surface used by
+    // actor physics. Polygon offset prevents z-fighting without raising the
+    // visual floor into boots or horse hooves.
+    ground.polygonOffset = true
+    ground.polygonOffsetFactor = -1
+    ground.polygonOffsetUnits = -1
     // Dirt/snow drill lanes are independent of the public stone road network.
     for (const x of [35, 70, 105]) {
       for (let row = 0; row < 4; row++) {
         const z = -90 + row * 8
         const lane = this.geo(new THREE.PlaneGeometry(29, 6)); lane.rotateX(-Math.PI / 2)
         const positions = lane.attributes.position
-        for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)) + .025)
+        for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)))
         lane.computeVertexNormals()
         const mesh = new THREE.Mesh(lane, ground); mesh.position.set(x + 12, 0, z); mesh.receiveShadow = true; this.root.add(mesh)
       }
