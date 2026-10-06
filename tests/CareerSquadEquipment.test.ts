@@ -7,6 +7,7 @@ import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, townResalePr
 import { TownEquipment } from '../src/town/TownEquipment'
 import { canUseCareerMount } from '../src/career/CareerMountController'
 import { personalMemberLoadout } from '../src/town/TownPersonalSquadController'
+import { prepareEnemyTownAssaultEquipment } from '../src/career/EnemyTownAssault'
 
 function harness(rank: CareerRank = 'captain') {
   let profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit: 60000, availableMerit: 60000 }
@@ -80,6 +81,16 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(h.change(b, 'mount', 'black-cat').reason).toBe('no-available-item')
     expect(canUseCareerMount(h.read(), 'black-cat')).toBe(true)
     expect(availableCareerItem(h.read(), 'horse')).toBe(1); balanced(h.read())
+  })
+  it('respects shared allocations when preparing existing enemy-town equipment, releasing an incompatible bow', () => {
+    const h = harness(); h.hire(); h.buy('recurve_longbow')
+    const equipment = new TownEquipment(h.read, h.save); expect(equipment.equipWeapon('recurve_longbow')).toBe(true)
+    const withoutFreeShield = prepareEnemyTownAssaultEquipment(h.read())
+    expect(withoutFreeShield.equipment?.ranged).toBe('recurve_longbow'); expect(withoutFreeShield.equipment?.shield).toBeNull()
+    h.buy('scutum_t3')
+    const prepared = prepareEnemyTownAssaultEquipment(h.read())
+    expect(prepared.equipment?.shield).toBe('scutum_t3'); expect(prepared.equipment?.ranged).toBeUndefined()
+    expect(availableCareerItem(prepared, 'recurve_longbow')).toBe(1); expect(h.save(prepared)).toBe(true); balanced(prepared)
   })
   it.each(['melee', 'ranged', 'shield'] as const)('locks Maki %s in domain', slot => {
     const h = harness(), id = h.hire('ranger'); h.buy('steel_sword'); h.buy('recurve_longbow')

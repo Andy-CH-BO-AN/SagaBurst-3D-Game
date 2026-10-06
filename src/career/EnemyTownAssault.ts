@@ -17,7 +17,10 @@ export function prepareEnemyTownAssaultEquipment(current: CareerProfile): Career
   const shields = [...(profile.equipment?.shield ? [profile.equipment.shield] : []), ...profile.ownedArmors]
     .filter(id => ARMORS[id] && canUseCareerEquipment(profile, id))
     .sort((a, b) => ARMORS[b].tier - ARMORS[a].tier)
-  if (shields[0]) profile.equipment = { ...profile.equipment, shield: shields[0] }
+  if (shields[0]) {
+    profile.equipment = { ...profile.equipment, shield: shields[0] }
+    delete profile.equipment.ranged
+  }
   const mounts = [...(profile.selectedMountId ? [profile.selectedMountId] : []), ...ownedCareerMountIds(profile)]
     .map(canonicalCareerMountId)
     .filter(id => canUseCareerMount(profile, id))
