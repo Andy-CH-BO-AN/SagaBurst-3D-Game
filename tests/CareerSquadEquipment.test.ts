@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile, type CareerRank } from '../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
-import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../src/career/CareerPersonalSquad'
+import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../src/career/CareerPersonalSquad'
 import { availableCareerItem, careerItemTotal, careerItemTotals, careerItemAllocated, type PersonalEquipmentSlot } from '../src/career/CareerInventory'
-import { purchaseTownEquipment, purchaseTownMount, sellTownProduct } from '../src/town/TownRules'
+import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, TOWN_PRODUCTS } from '../src/town/TownRules'
 import { TownEquipment } from '../src/town/TownEquipment'
 import { canUseCareerMount } from '../src/career/CareerMountController'
 import { personalMemberLoadout } from '../src/town/TownPersonalSquadController'
@@ -22,6 +22,7 @@ function harness(rank: CareerRank = 'captain') {
     buy(id: string) { const result = ['horse', 'corgi', 'black-cat'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
     change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
     sell(id: string) { return sellPersonalSquadMember(read, authority, id, save) },
+    sellMany(ids: string[]) { return sellPersonalSquadMembers(read, authority, ids, save) },
   }
 }
 function balanced(profile: CareerProfile) {
@@ -200,6 +201,83 @@ describe('Atomic HR release and refunds', () => {
     h.fail(); expect(h.sell(id).reason).toBe('save-failed'); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
     for (const rank of ['recruit', 'soldier', 'veteran'] as const) { h.set({ ...before, rank }); expect(h.sell(id).reason).toBe('rank-locked') }
     h.set(before); for (const id of ['hr-officer', 'patrol-a', 'town-resident']) expect(h.sell(id).reason).toBe('missing-member')
+  })
+})
+describe('Batch shop and HR resale', () => {
+  it('sells all available weapon and shield copies, retaining Player, squad and mount allocations', () => {
+    const h = harness(), member = h.hire()
+    for (let i = 0; i < 3; i++) h.buy('heavy_lance')
+    for (let i = 0; i < 2; i++) h.buy('recurve_longbow')
+    h.buy('scutum_t2'); h.buy('horse')
+    h.change(member, 'melee', 'heavy_lance')
+    const equipment = new TownEquipment(h.read, h.save)
+    expect(equipment.equipWeapon('heavy_lance')).toBe(true)
+    const before = cloneCareerProfile(h.read())
+    const result = sellTownProducts(before, TOWN_PRODUCTS.filter(item => item.category !== 'mount').map(item => item.id))
+    expect(result).toMatchObject({ sold: true, soldCount: 5, earnedMerit: 1968 })
+    expect(before).toEqual(h.read()); expect(h.save(result.profile)).toBe(true)
+    const after = h.store.load()!
+    expect(after.availableMerit).toBe(before.availableMerit + 1968)
+    expect(after.totalMerit).toBe(before.totalMerit); expect(after.rank).toBe(before.rank)
+    expect(after.equipment).toEqual(before.equipment); expect(after.personalSquad).toEqual(before.personalSquad)
+    expect(careerItemTotal(after, 'heavy_lance')).toBe(2); expect(availableCareerItem(after, 'heavy_lance')).toBe(0)
+    expect(careerItemTotal(after, 'scutum_t2')).toBe(1); expect(careerItemTotal(after, 'horse')).toBe(1)
+    expect(careerItemTotal(after, 'gladius_standard')).toBe(0); expect(careerItemTotal(after, 'recurve_longbow')).toBe(0)
+    expect(sellTownProducts(after, TOWN_PRODUCTS.filter(item => item.category !== 'mount').map(item => item.id)).sold).toBe(false)
+    balanced(after)
+  })
+  it('bulk sells only unused mount copies and preserves the equipped horse and member horse', () => {
+    const h = harness(); h.hire('captain')
+    for (let i = 0; i < 3; i++) h.buy('horse')
+    h.buy('black-cat')
+    const current = cloneCareerProfile(h.read()); current.selectedMountId = 'horse'; h.set(current)
+    const result = sellTownProducts(current, ['horse', 'black-cat', 'corgi'])
+    expect(result).toMatchObject({ sold: true, soldCount: 3, earnedMerit: 3520 })
+    expect(result.profile.selectedMountId).toBe('horse')
+    expect(careerItemTotal(result.profile, 'horse')).toBe(2); expect(careerItemTotal(result.profile, 'black-cat')).toBe(0)
+    expect(result.profile.personalSquad).toEqual(current.personalSquad); balanced(result.profile)
+  })
+  it('rejects invalid batches and quantities; duplicate IDs never refund a copy twice', () => {
+    const h = harness(); h.buy('heavy_lance'); h.buy('heavy_lance')
+    const before = cloneCareerProfile(h.read())
+    for (const quantity of [0, -1, 1.5, Infinity, 3]) expect(sellTownProduct(h.read(), 'heavy_lance', quantity).sold).toBe(false)
+    expect(sellTownProducts(h.read(), ['heavy_lance', 'missing'])).toMatchObject({ sold: false, earnedMerit: 0, profile: before })
+    expect(sellTownProducts(h.read(), [])).toMatchObject({ sold: false, soldCount: 0 })
+    expect(sellTownProducts(h.read(), ['heavy_lance', 'heavy_lance'])).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 1440 })
+    expect(h.read()).toEqual(before)
+    const staged = sellTownProducts(h.read(), ['heavy_lance']); h.fail()
+    expect(h.save(staged.profile)).toBe(false); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+  })
+  it.each(['captain', 'commander'] as const)('releases a mixed squad in one save at %s refunds, taking worn gear only', rank => {
+    const h = harness(rank), ids = [h.hire(), h.hire('captain'), h.hire('ranger')]
+    h.buy('heavy_lance'); h.change(ids[0], 'melee', 'heavy_lance'); h.buy('gladius_rusty')
+    const equipment = new TownEquipment(h.read, h.save); equipment.equipWeapon('gladius_rusty')
+    const before = cloneCareerProfile(h.read()); let saves = 0
+    const result = sellPersonalSquadMembers(h.read, h.authority, [...ids, ids[0]], next => { saves++; return h.save(next) })
+    expect(result).toMatchObject({ sold: true, soldCount: 3, refund: rank === 'captain' ? 840 : 945 }); expect(saves).toBe(1)
+    const after = h.store.load()!
+    expect(after.personalSquad!.members).toHaveLength(0); expect(after.equipment).toEqual(before.equipment)
+    expect(careerItemTotal(after, 'gladius_rusty')).toBe(1); expect(availableCareerItem(after, 'gladius_standard')).toBe(1)
+    for (const id of ['heavy_lance', 'scutum_t2', 'centurion_blade', 'scutum_t3', 'horse']) expect(careerItemTotal(after, id)).toBe(0)
+    expect(after.availableMerit).toBe(before.availableMerit + result.refund); expect(after.totalMerit).toBe(before.totalMerit)
+    balanced(after)
+  })
+  it('rejects stale members and non-RESERVE bulk release without selling an earlier valid member', () => {
+    const h = harness(), ids = [h.hire(), h.hire('captain')], before = cloneCareerProfile(h.read())
+    let saves = 0
+    const save = (next: CareerProfile) => { saves++; return h.save(next) }
+    expect(sellPersonalSquadMembers(h.read, h.authority, [ids[0], 'personal:missing'], save).reason).toBe('missing-member')
+    for (const state of ['DEPLOYING', 'ACTIVE', 'RETURNING'] as const) {
+      h.authority.state = state; expect(sellPersonalSquadMembers(h.read, h.authority, ids, save).reason).toBe('not-reserve')
+    }
+    expect(saves).toBe(0); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+  })
+  it('retains the entire squad, inventory and funds when the final bulk save fails', () => {
+    const h = harness(), ids = [h.hire(), h.hire('captain'), h.hire('ranger')], before = cloneCareerProfile(h.read())
+    h.fail(); expect(h.sellMany(ids).reason).toBe('save-failed')
+    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+    expect(sellPersonalSquadMembers(h.read, h.authority, ids, () => { throw Error('quota') }).reason).toBe('save-failed')
+    expect(h.read()).toEqual(before)
   })
 })
 describe('Inventory migration and normalization', () => {

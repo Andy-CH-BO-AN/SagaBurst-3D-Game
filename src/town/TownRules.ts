@@ -259,15 +259,21 @@ export function townSaleStatus(profile: CareerProfile, productId: string): 'sell
 }
 
 /** Selling changes spendable merit and ownership only; rank never gates resale. */
-export function sellTownProduct(current: CareerProfile, productId: string) {
+export function sellTownProduct(current: CareerProfile, productId: string, quantity = 1) {
   const status = townSaleStatus(current, productId)
   const profile = cloneCareerProfile(current)
   if (status !== 'sellable') return { profile, sold: false, earnedMerit: 0, reason: status }
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > availableCareerItem(current, productId)) {
+    return { profile, sold: false, earnedMerit: 0, reason: 'invalid-quantity' as const }
+  }
   const item = TOWN_PRODUCTS.find(product => product.id === productId)!
-  const earnedMerit = townResalePrice(current, productId)
+  const earnedMerit = townResalePrice(current, productId) * quantity
+  if (!Number.isSafeInteger(earnedMerit) || !Number.isSafeInteger(profile.availableMerit + earnedMerit)) {
+    return { profile, sold: false, earnedMerit: 0, reason: 'invalid-quantity' as const }
+  }
   profile.availableMerit += earnedMerit
   normalizeCareerInventory(profile)
-  addCareerItem(profile, productId, -1)
+  addCareerItem(profile, productId, -quantity)
   if (item.category === 'mount' && careerItemTotal(profile, productId) === 0) {
     const state = profile.activeMission?.mountState
     if (state) {
@@ -278,6 +284,25 @@ export function sellTownProduct(current: CareerProfile, productId: string) {
     }
   }
   return { profile, sold: true, earnedMerit }
+}
+
+/** Stage every available copy of the selected products for a single shop save. */
+export function sellTownProducts(current: CareerProfile, productIds: readonly string[]) {
+  const ids = [...new Set(productIds)]
+  const fail = (reason: string) => ({ profile: current, sold: false, soldCount: 0, earnedMerit: 0, reason })
+  if (ids.some(id => !TOWN_PRODUCTS.some(item => item.id === id))) return fail('invalid-id')
+  let profile = current, soldCount = 0, earnedMerit = 0
+  for (const id of ids) {
+    const quantity = availableCareerItem(profile, id)
+    if (!quantity) continue
+    const result = sellTownProduct(profile, id, quantity)
+    if (!result.sold) return fail(result.reason!)
+    profile = result.profile
+    soldCount += quantity
+    earnedMerit += result.earnedMerit
+  }
+  if (!soldCount) return fail('not-owned')
+  return { profile, sold: true, soldCount, earnedMerit, reason: undefined }
 }
 
 /** Service and Patrol Captains share the faction's canonical T4 mounted profile. */

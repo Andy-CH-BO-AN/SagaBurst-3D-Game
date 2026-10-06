@@ -1,6 +1,7 @@
 import { availableCareerItem, careerItemTotal } from '../career/CareerInventory'
 import { squadEquipmentUI } from './TownSquadEquipmentUI'
-import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMember } from '../career/CareerPersonalSquad'
+import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
+import { appendTownSaleDropdown } from './TownSaleUI'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController } from '../battle/FormationController'
@@ -42,7 +43,7 @@ import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareer
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
 import { selectTownDialogue, formatTownDialogue, promotionDetails, TownAmbientDialogue, type DialogueContext, type DialogueRole } from '../career/CareerTownDialogue'
 import { installTownStyles } from './TownUI'
-import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
+import { isTownProductOwned, purchaseTownMount, purchaseTownEquipment, sellTownProduct, sellTownProducts, townResalePrice, townSaleStatus, TOWN_RESALE_PERCENT } from './TownRules'
 import { HpBar } from '../ui/HpBar'
 import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
@@ -526,6 +527,9 @@ export class TownScene {
   }
   private key(e: KeyboardEvent): void {
     if (this.panel || this.equipment.visible) {
+      // Let focused equipment controls receive arrows, Enter and Space.
+      if (this.equipment.visible && (e.target as Element | null)?.closest?.('#character-modal')
+        && !['KeyQ', 'Escape', 'Tab'].includes(e.code)) return
       e.stopImmediatePropagation()
       if (['KeyQ', 'Escape', 'Tab'].includes(e.code)) { e.preventDefault(); if (!this.result && !this.missionResultOpen) this.closePanel() }
       return
@@ -599,9 +603,26 @@ export class TownScene {
         for (const tab of Array.from(tabs.children) as HTMLButtonElement[]) tab.disabled = tab.textContent === (page === 'buy' ? '購買' : '賣出')
         summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : mount ? ' · 軍用戰馬隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備')
         panel.querySelector('.town-products')?.remove()
-        const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
+        panel.querySelector('.town-sale')?.remove()
+        const list = document.createElement('div'); list.className = 'town-products'
         let section = ''
         const products = TOWN_PRODUCTS.filter(i => (i.category === 'mount') === mount && (page === 'buy' || isTownProductOwned(this.profile, i)))
+        if (page === 'sell') {
+          summary.textContent += ' · 只賣背包可用份數，已分配裝備會保留'
+          appendTownSaleDropdown(panel, products.filter(item => availableCareerItem(this.profile, item.id) > 0).map(item => {
+            const quantity = availableCareerItem(this.profile, item.id)
+            return { id: item.id, name: item.name, quantity, refund: townResalePrice(this.profile, item.id) * quantity }
+          }), ids => {
+            const result = sellTownProducts(this.profile, ids)
+            if (!result.sold) { this.talk(id, '目前沒有可賣出的份數，已分配裝備會保留。', 'sell'); return }
+            if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
+            this.inventory.syncOwnership()
+            this.careerMounts.syncOwnership()
+            this.player.clearTownAction()
+            this.talk(id, `已賣回 ${result.soldCount} 件物品，收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+          })
+        }
+        panel.append(list)
         if (!products.length) { const empty = document.createElement('p'); empty.textContent = '沒有可賣出的物品。'; list.append(empty) }
         for (const item of products.sort((a, b) => {
           const group = (item: typeof a) => item.category === 'armor' ? 2 : WEAPONS[item.id]?.type === 'ranged' ? 1 : 0
@@ -692,6 +713,11 @@ export class TownScene {
       row.append(title, price, button); list.append(row)
     }
     const heading = document.createElement('h3'); heading.textContent = 'Sell / Release Member · 賣回／解除僱用'; list.append(heading)
+    appendTownSaleDropdown(list, members.map((member, index) => ({
+      id: member.id, name: PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name + ` #${index + 1}`,
+      quantity: 1, refund: personalMemberRefund(this.profile, member),
+    })), ids => this.confirmPersonalSales(ids), '人', this.personalSquad?.state === 'RESERVE'
+      && !this.profile.activeMission && !this.profile.activeOutpostMission)
     for (const [index, member] of members.entries()) {
       const row = document.createElement('article'); row.className = 'town-product'
       const name = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name + ` #${index + 1}`
@@ -699,18 +725,25 @@ export class TownScene {
       const detail = document.createElement('small'); detail.textContent = `退款 ${personalMemberRefund(this.profile, member)} 軍功 · ${this.personalSquad?.state ?? 'RESERVE'}`
       const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '賣回／解除僱用'
       sell.disabled = this.personalSquad?.state !== 'RESERVE'
-      sell.onclick = () => {
-        const fresh = this.profile.personalSquad?.members.find(item => item.id === member.id)
-        if (!fresh || this.personalSquad?.state !== 'RESERVE' || !canRecruitPersonalSquad(this.profile)) { this.openRecruitmentPanel('目前不能賣回隊員。'); return }
-        const confirm = this.openPanel('賣回 ' + name + '？', `退款：${personalMemberRefund(this.profile, fresh)} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；普通兵與 Captain 至少要帶一把武器離開。\n這會永久解除僱用。`)
-        this.button(confirm, '確認', () => {
-          const result = sellPersonalSquadMember(() => this.profile, this.personalSquad!, member.id, next => this.commit(next))
-          this.openRecruitmentPanel(result.sold ? `已解除僱用，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')
-        })
-        this.button(confirm, '取消', () => this.openRecruitmentPanel())
-      }
+      sell.onclick = () => this.confirmPersonalSales([member.id])
       row.append(title, detail, sell); list.append(row)
     }
+  }
+  private confirmPersonalSales(memberIds: string[]): void {
+    const ids = [...new Set(memberIds)]
+    const members = ids.map(id => this.profile.personalSquad?.members.find(member => member.id === id))
+    if (!ids.length || members.some(member => !member) || this.personalSquad?.state !== 'RESERVE'
+      || this.profile.activeMission || this.profile.activeOutpostMission || !canRecruitPersonalSquad(this.profile)) {
+      this.openRecruitmentPanel('全隊回到人資中心、進入 RESERVE 後才能賣回隊員。'); return
+    }
+    const refund = members.reduce((sum, member) => sum + personalMemberRefund(this.profile, member!), 0)
+    const confirm = this.openPanel(`賣回 ${ids.length} 名隊員？`, `退款：${refund} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；普通兵與 Captain 至少要帶一把武器離開。\n這會永久解除僱用。`)
+    this.button(confirm, '確認', () => {
+      const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
+      if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
+      this.openRecruitmentPanel(result.sold ? `已解除僱用 ${result.soldCount} 人，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')
+    })
+    this.button(confirm, '取消', () => this.openRecruitmentPanel())
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean): void {
     const active = this.profile.activeMission

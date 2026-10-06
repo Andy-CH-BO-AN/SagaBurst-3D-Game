@@ -130,3 +130,19 @@ export function sellPersonalSquadMember(read: () => CareerProfile, authority: Pe
   try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }
   return { sold: true, profile: next, refund, reason: undefined }
 }
+
+/** Reuse member-sale rules, staging the whole selection before one persistent save. */
+export function sellPersonalSquadMembers(read: () => CareerProfile, authority: PersonalSquadAuthority, memberIds: readonly string[],
+  save: (profile: CareerProfile) => boolean) {
+  const current = read(), ids = [...new Set(memberIds)]
+  const fail = (reason: PersonalManagementFailure) => ({ sold: false, profile: current, soldCount: 0, refund: 0, reason })
+  if (!ids.length) return fail('missing-member')
+  let staged = current, refund = 0
+  for (const id of ids) {
+    const result = sellPersonalSquadMember(() => staged, authority, id, next => { staged = next; return true })
+    if (!result.sold) return fail(result.reason!)
+    refund += result.refund
+  }
+  try { if (!save(staged)) return fail('save-failed') } catch { return fail('save-failed') }
+  return { sold: true, profile: staged, soldCount: ids.length, refund, reason: undefined }
+}
