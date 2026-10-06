@@ -1,3 +1,4 @@
+import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
@@ -333,6 +334,9 @@ function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
+  if (raw.inventory !== undefined && (!raw.inventory || typeof raw.inventory !== 'object'
+    || (raw.inventory as CareerInventory).version !== 1 || !(raw.inventory as CareerInventory).quantities
+    || typeof (raw.inventory as CareerInventory).quantities !== 'object' || Array.isArray((raw.inventory as CareerInventory).quantities))) return null
   let personalSquad: CareerProfile['personalSquad']
   try { personalSquad = parsePersonalSquad(raw.personalSquad) } catch { return null }
 
@@ -347,7 +351,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     .filter(id => Boolean(WEAPONS[id]))
   const ownedArmors = uniqueStrings(raw.ownedArmors ?? raw.unlockedShields)
     .filter(id => Boolean(ARMORS[id]))
-  const ownedMounts = uniqueStrings(raw.ownedMounts ?? raw.unlockedMounts)
+  const ownedMounts = uniqueStrings(uniqueStrings(raw.ownedMounts ?? raw.unlockedMounts).map(canonicalInventoryId))
     .filter((id): id is PlayerMountId => (
       (PLAYER_MOUNT_IDS as readonly string[]).includes(id)
     ))
@@ -368,7 +372,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
-  return {
+  const profile: CareerProfile = {
+    ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,
     faction: raw.faction,
     totalMerit,
@@ -378,9 +383,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
     ...(equipment ? { equipment: {
-      melee: typeof equipment.melee === 'string' ? equipment.melee : undefined,
-      ranged: typeof equipment.ranged === 'string' ? equipment.ranged : undefined,
-      shield: typeof equipment.shield === 'string' ? equipment.shield : null,
+      ...(typeof equipment.melee === 'string' ? { melee: equipment.melee } : {}),
+      ...(typeof equipment.ranged === 'string' ? { ranged: equipment.ranged } : {}),
+      ...(typeof equipment.shield === 'string' || equipment.shield === null ? { shield: equipment.shield as string | null } : {}),
     } } : {}),
     ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
       ? { starterWeaponId: raw.starterWeaponId } : {}),
@@ -411,6 +416,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     lifetimeStats: parseLifetimeStats(raw.lifetimeStats),
     claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
+  try { normalizeCareerInventory(profile) } catch { return null }
+  return profile
 }
 
 export class CareerProfileStore {

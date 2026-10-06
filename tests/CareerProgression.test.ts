@@ -1,3 +1,4 @@
+import { careerItemTotal } from '../src/career/CareerInventory'
 import { describe, expect, it } from 'vitest'
 import type { BattleStatsSnapshot } from '../src/combat/BattleStatsTracker'
 import {
@@ -194,7 +195,7 @@ describe('Career progression and spending', () => {
     expect(result.profile.ownedHeroes).toEqual([])
   })
 
-  it('does not charge for duplicate ownership and blocks insufficient balance', () => {
+  it('charges for duplicate tradable ownership and blocks insufficient balance', () => {
     const profile = createCareerProfile('viking')
     profile.totalMerit = 5000
     profile.availableMerit = 100
@@ -207,8 +208,9 @@ describe('Career progression and spending', () => {
       cost: 50,
       requiredTier: 1,
     })
-    expect(duplicate.reason).toBe('already-owned')
-    expect(duplicate.profile.availableMerit).toBe(100)
+    expect(duplicate.purchased).toBe(true)
+    expect(duplicate.profile.availableMerit).toBe(50)
+    expect(careerItemTotal(duplicate.profile, 'horse')).toBe(2)
 
     const expensive = purchaseCareerContent(profile, {
       kind: 'mount',
@@ -256,7 +258,7 @@ describe('Career profile persistence', () => {
 
     expect(store.save(profile)).toBe(true)
     expect(storage.getItem(CAREER_STORAGE_KEY)).not.toBeNull()
-    expect(store.load()).toEqual(profile)
+    expect(store.load()).toEqual(parseCareerProfile(profile))
   })
 
   it('migrates the pre-merge single-merit/unlocked field shape safely', () => {

@@ -1,3 +1,4 @@
+import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
 import * as THREE from 'three'
 import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
@@ -38,7 +39,7 @@ export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanc
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
   const canonical = canonicalCareerMountId(id)
-  return ownedCareerMountIds(profile).includes(canonical) && careerMountTier(canonical, profile) <= getCareerPurchaseTier(profile.rank)
+  return canAllocateCareerItemToPlayer(profile, canonical) && careerMountTier(canonical, profile) <= getCareerPurchaseTier(profile.rank)
 }
 
 export function findSafeCareerMountPosition(
@@ -101,7 +102,9 @@ export class CareerMountController implements EquipmentMountAdapter {
       ...MOUNTS[canonicalCareerMountId(id)],
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
-      available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id),
+      available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id) && canAllocateCareerItemToPlayer(profile, id),
+      quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}`,
+      allocated: profile.selectedMountId === id,
     }))
   }
 
@@ -134,6 +137,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const previousHp = this.hp.get(id)
     this.hp.set(id, mount.currentHp)
     const next = cloneCareerProfile(profile)
+    normalizeCareerInventory(next)
     next.selectedMountId = id
     if (next.activeMission) next.activeMission.mountState = this.outingState(id)
     if (!this.commit(next)) {
@@ -177,6 +181,18 @@ export class CareerMountController implements EquipmentMountAdapter {
     return true
   }
 
+  release(rawId: string): boolean {
+    const id = canonicalCareerMountId(rawId as CareerMountId)
+    const next = cloneCareerProfile(this.readProfile())
+    if (next.selectedMountId !== id) return false
+    delete next.selectedMountId
+    if (next.activeMission?.mountState) delete next.activeMission.mountState.activeMountId
+    if (!this.commit(next)) return this.fail('保存失敗，分配沒有變更。')
+    if (this.active?.id === id) { this.removeMountVisual(this.active); this.active = null }
+    this.statusText = '坐騎已解除分配，可交給隊員或出售。'
+    return true
+  }
+
   update(dt: number): void {
     const active = this.active
     if (!active) return
@@ -203,7 +219,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   /** Called after an ownership change has been saved; never writes another transaction. */
   syncOwnership(): void {
     const owned = new Set(ownedCareerMountIds(this.readProfile()))
-    if (this.active && !owned.has(this.active.id)) {
+    if (this.active && (!owned.has(this.active.id) || this.readProfile().selectedMountId !== this.active.id)) {
       this.removeMountVisual(this.active)
       this.active = null
       this.statusText = '坐騎已賣出。'

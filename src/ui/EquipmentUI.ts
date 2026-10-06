@@ -13,6 +13,8 @@ export interface EquipmentMountItem {
   tier: number
   active: boolean
   available: boolean
+  quantityText?: string
+  allocated?: boolean
 }
 
 export interface EquipmentMountAdapter {
@@ -20,7 +22,10 @@ export interface EquipmentMountAdapter {
   list(): EquipmentMountItem[]
   activate(id: string): boolean
   dismiss(): boolean
+  release?(id: string): boolean
 }
+
+export interface EquipmentSquadAdapter { render(container: HTMLElement, refresh: () => void): void }
 
 export class EquipmentUI {
   private modal: HTMLElement
@@ -51,17 +56,17 @@ export class EquipmentUI {
     this.inventoryListEl = document.getElementById('inventory-list')!
   }
 
-  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
+  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
     if (this.isOpen) {
       this.close()
     } else {
-      this.open(skillManager, inventoryManager, onEquipChanged, mounts)
+      this.open(skillManager, inventoryManager, onEquipChanged, mounts, squad)
     }
   }
 
-  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
+  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
     this.isOpen = true
-    this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
+    this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
     this.modal.classList.add('visible')
   }
 
@@ -70,7 +75,7 @@ export class EquipmentUI {
     this.modal.classList.remove('visible')
   }
 
-  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter): void {
+  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
     const { oneHanded, twoHanded, ranged, mountedImpact, blocking } = skillManager.skillState
 
     const renderSkill = (levelEl: HTMLElement, fillEl: HTMLElement, data: { level: number; xp: number }): void => {
@@ -108,6 +113,7 @@ export class EquipmentUI {
         dmgText = `Shield Impact: ${(item as any).shieldImpactMax} ｜ 按住右鍵舉盾`
       }
 
+      const availability = inventoryManager.itemAvailability(item.id)
       const qtyBadge = quantity > 1 ? `<span style="background: rgba(232, 201, 106, 0.25); border: 1px solid #e8c96a; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff;">x${quantity}</span>` : ''
 
       const card = document.createElement('div')
@@ -118,20 +124,27 @@ export class EquipmentUI {
           <span class="inv-item-tier" style="color: ${tierColor};">${tierBadge}</span>
         </div>
         <div class="inv-item-stats">${dmgText}</div>
+        <div class="inv-item-desc">${availability}</div>
         <div class="inv-item-desc">${item.description}</div>
         <button class="btn-equip ${isEquipped ? 'is-active' : ''}">${isEquipped ? item.type === 'shield' ? '卸下盾牌' : '已裝備' : '【裝備】'}</button>
       `
 
       const btn = card.querySelector('.btn-equip')!
+      ;(btn as HTMLButtonElement).disabled = !isEquipped && !inventoryManager.canEquipWeapon(item.id)
       if (!isEquipped || item.type === 'shield') {
         btn.addEventListener('click', () => {
           if (isEquipped && item.type === 'shield') inventoryManager.unequipShield()
           else inventoryManager.equipWeapon(item.id)
-          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
           if (onEquipChanged) onEquipChanged()
         })
       }
 
+      if (inventoryManager.supportsWeaponRelease && inventoryManager.isAllocated(item.id)) {
+        const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'
+        release.onclick = () => { inventoryManager.unequipWeapon(item.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad); onEquipChanged?.() }
+        card.append(release)
+      }
       this.inventoryListEl.appendChild(card)
     })
 
@@ -145,15 +158,21 @@ export class EquipmentUI {
         card.className = `inventory-card ${mount.active ? 'equipped' : ''}`
         card.innerHTML = `
           <div class="inv-item-header"><span class="inv-item-name">${mount.name} T${mount.tier}</span></div>
-          <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.available ? '可騎乘' : '本次無法使用'}</div>
+          <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.allocated ? '已分配給 Player' : mount.available ? '可騎乘' : '本次無法使用'}</div>
+          <div class="inv-item-desc">${mount.quantityText ?? ''}</div>
           <button class="btn-equip ${mount.active ? 'is-active' : ''}" ${mount.available ? '' : 'disabled'}>${mount.active ? '【收起】' : '【騎乘】'}</button>
         `
         const button = card.querySelector('button')!
         button.addEventListener('click', () => {
           if (mount.active) mounts.dismiss()
           else mounts.activate(mount.id)
-          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
         })
+        if (mount.allocated && mounts.release) {
+          const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'
+          release.onclick = () => { mounts.release!(mount.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad) }
+          card.append(release)
+        }
         this.inventoryListEl.appendChild(card)
       }
       if (mounts.statusText) {
@@ -163,5 +182,6 @@ export class EquipmentUI {
         this.inventoryListEl.appendChild(status)
       }
     }
+    squad?.render(this.inventoryListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad))
   }
 }

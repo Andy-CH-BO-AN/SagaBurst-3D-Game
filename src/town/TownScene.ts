@@ -1,3 +1,6 @@
+import { availableCareerItem, careerItemTotal } from '../career/CareerInventory'
+import { squadEquipmentUI } from './TownSquadEquipmentUI'
+import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController } from '../battle/FormationController'
@@ -532,7 +535,10 @@ export class TownScene {
       return
     }
     if (e.repeat) return
-    if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.(); this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts); return }
+    if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.(); this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, squadEquipmentUI(() => this.profile, () => this.personalSquad!.state, (id, slot, item) => {
+      const result = changePersonalEquipment(() => this.profile, this.personalSquad!, id, slot, item, next => this.commit(next))
+      return result.changed ? '裝備已更新。' : result.reason === 'save-failed' ? this.notice : '無法換裝：請確認已回營、可用份數與至少一把武器。'
+    })); return }
     if (e.code === 'KeyE' && this.personalCommands?.isFormationPlacementMode) return
     if (e.code === 'KeyE') {
       e.preventDefault(); e.stopImmediatePropagation()
@@ -585,7 +591,7 @@ export class TownScene {
       this.openDeploymentPanel(greeting, context, firstOutpost)
     } else {
       const mount = id !== 'merchant', panel = this.openPanel(NAMES[id], greeting)
-      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 軍用戰馬只需購買一次，隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
+      const summary = document.createElement('p'); summary.className = 'town-summary'; summary.textContent = '可用軍功 ' + p.availableMerit + ' · ' + p.rank + (mount ? ' · 可重複購買；按 Tab 管理坐騎' : ' · 購買後按 Tab 選擇裝備'); panel.append(summary)
       const tabs = document.createElement('div'); tabs.className = 'town-shop-tabs'; panel.append(tabs)
       this.button(tabs, '購買', () => showProducts('buy'))
       this.button(tabs, '賣出', () => showProducts('sell'))
@@ -607,17 +613,17 @@ export class TownScene {
           }
           const row = document.createElement('article'); row.className = 'town-product'
           const title = document.createElement('strong'); title.textContent = item.name
-          const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item)
+          const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item) + ` · 總持有 ${careerItemTotal(this.profile, item.id)} · 可用 ${availableCareerItem(this.profile, item.id)}`
           row.append(title, meta)
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)
-            meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ` · 回收 ${price} 軍功`
+            meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ` · 回收 ${price} 軍功 · 總持有 ${careerItemTotal(this.profile, item.id)} · 可用 ${availableCareerItem(this.profile, item.id)}`
             const button = document.createElement('button'); button.className = 'town-button'
             button.disabled = townSaleStatus(this.profile, item.id) !== 'sellable'
-            button.textContent = button.disabled ? '至少保留一件武器' : `賣出 · 收回 ${price} 軍功`
+            button.textContent = button.disabled ? '已分配，請先換裝／解除分配' : `賣出 · 收回 ${price} 軍功`
             button.onclick = () => {
               const result = sellTownProduct(this.profile, item.id)
-              if (!result.sold) { this.talk(id, result.reason === 'last-weapon' ? '至少保留一件武器。' : '物品已不存在或無法賣出。', 'sell'); return }
+              if (!result.sold) { this.talk(id, result.reason === 'allocated' ? '物品正在使用，請先換裝或解除分配。' : '物品已不存在或無法賣出。', 'sell'); return }
               if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
               this.inventory.syncOwnership()
               this.careerMounts.syncOwnership()
@@ -637,6 +643,7 @@ export class TownScene {
               this.talk(id, message); return
             }
             if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
+            this.careerMounts.syncOwnership()
             const message = item.id === 'horse' ? selectTownDialogue(context, 'horsePurchaseSuccess') : '購買成功：' + item.name
             this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'))
           }
@@ -683,6 +690,26 @@ export class TownScene {
         this.openRecruitmentPanel(message)
       }
       row.append(title, price, button); list.append(row)
+    }
+    const heading = document.createElement('h3'); heading.textContent = 'Sell / Release Member · 賣回／解除僱用'; list.append(heading)
+    for (const [index, member] of members.entries()) {
+      const row = document.createElement('article'); row.className = 'town-product'
+      const name = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name + ` #${index + 1}`
+      const title = document.createElement('strong'); title.textContent = name
+      const detail = document.createElement('small'); detail.textContent = `退款 ${personalMemberRefund(this.profile, member)} 軍功 · ${this.personalSquad?.state ?? 'RESERVE'}`
+      const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '賣回／解除僱用'
+      sell.disabled = this.personalSquad?.state !== 'RESERVE'
+      sell.onclick = () => {
+        const fresh = this.profile.personalSquad?.members.find(item => item.id === member.id)
+        if (!fresh || this.personalSquad?.state !== 'RESERVE' || !canRecruitPersonalSquad(this.profile)) { this.openRecruitmentPanel('目前不能賣回隊員。'); return }
+        const confirm = this.openPanel('賣回 ' + name + '？', `退款：${personalMemberRefund(this.profile, fresh)} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；普通兵與 Captain 至少要帶一把武器離開。\n這會永久解除僱用。`)
+        this.button(confirm, '確認', () => {
+          const result = sellPersonalSquadMember(() => this.profile, this.personalSquad!, member.id, next => this.commit(next))
+          this.openRecruitmentPanel(result.sold ? `已解除僱用，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')
+        })
+        this.button(confirm, '取消', () => this.openRecruitmentPanel())
+      }
+      row.append(title, detail, sell); list.append(row)
     }
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean): void {

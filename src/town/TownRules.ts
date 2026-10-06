@@ -1,3 +1,4 @@
+import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
@@ -171,12 +172,14 @@ export const STARTER_WEAPONS = ['gladius_rusty', 'viking_axe_t1', 'hunting_spear
 export function grantStarter(current: CareerProfile, weapon: string): CareerProfile {
   if (current.starterWeaponId || !STARTER_WEAPONS.includes(weapon as typeof STARTER_WEAPONS[number])) return current
   const profile = cloneCareerProfile(current); profile.starterWeaponId = weapon
-  if (!profile.ownedWeapons.includes(weapon)) profile.ownedWeapons.push(weapon)
+  addCareerItem(profile, weapon, 1)
+  profile.equipment = { ...profile.equipment, [WEAPONS[weapon].type === 'ranged' ? 'ranged' : 'melee']: weapon }
+  if (WEAPONS[weapon].type === 'ranged') profile.equipment.shield = null
   return profile
 }
 export function careerTownWeapon(profile: CareerProfile): string {
   const tier = getCareerPurchaseTier(profile.rank)
-  return profile.ownedWeapons.find(id => WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && id !== 'maki-ranger-bow') ?? 'gladius_rusty'
+  return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
 }
 export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4; price: number }
 // Hero fixed equipment is not part of the ordinary Career collection.
@@ -191,7 +194,6 @@ export const TOWN_PRODUCTS: TownProduct[] = [
   { id: 'corgi', category: 'mount', name: '柯基英雄坐騎', tier: 4, price: 4000 },
 ]
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
-  if (isTownProductOwned(profile, item)) return '已擁有'
   if (getCareerPurchaseTier(profile.rank) < item.tier) return '軍階未解鎖'
   return profile.availableMerit < item.price ? '已解鎖・餘額不足' : '已解鎖・餘額足夠'
 }
@@ -216,9 +218,6 @@ export function purchaseTownMount(profile: CareerProfile, productId: string): Ca
   if (!item || !(PLAYER_MOUNT_IDS as readonly string[]).includes(item.id)) {
     return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'invalid-id' }
   }
-  if (isTownProductOwned(profile, item)) {
-    return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'already-owned' }
-  }
   const result = purchaseCareerContent(profile, {
     id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price,
   })
@@ -226,7 +225,7 @@ export function purchaseTownMount(profile: CareerProfile, productId: string): Ca
   return result
 }
 
-/** Compatibility entry point for callers buying the single military horse. */
+/** Compatibility entry point for the canonical military-horse product. */
 export function purchaseTownHorse(profile: CareerProfile, id: string): CareerProfile | null {
   if (id !== 'horse') return null
   const result = purchaseTownMount(profile, id)
@@ -251,11 +250,11 @@ export function townResalePrice(profile: CareerProfile, productId: string): numb
   return item ? Math.floor(item.price * TOWN_RESALE_PERCENT[profile.rank] / 100) : 0
 }
 
-export function townSaleStatus(profile: CareerProfile, productId: string): 'sellable' | 'invalid-id' | 'not-owned' | 'last-weapon' {
+export function townSaleStatus(profile: CareerProfile, productId: string): 'sellable' | 'invalid-id' | 'not-owned' | 'allocated' {
   const item = TOWN_PRODUCTS.find(product => product.id === productId)
   if (!item) return 'invalid-id'
   if (!isTownProductOwned(profile, item)) return 'not-owned'
-  if (item.category === 'weapon' && new Set(profile.ownedWeapons.filter(isTownShopWeapon)).size <= 1) return 'last-weapon'
+  if (availableCareerItem(profile, productId) < 1) return 'allocated'
   return 'sellable'
 }
 
@@ -267,20 +266,11 @@ export function sellTownProduct(current: CareerProfile, productId: string) {
   const item = TOWN_PRODUCTS.find(product => product.id === productId)!
   const earnedMerit = townResalePrice(current, productId)
   profile.availableMerit += earnedMerit
-  if (item.category === 'weapon') profile.ownedWeapons = profile.ownedWeapons.filter(id => id !== productId)
-  if (item.category === 'armor') profile.ownedArmors = profile.ownedArmors.filter(id => id !== productId)
-  if (profile.equipment) {
-    for (const slot of ['melee', 'ranged', 'shield'] as const) {
-      if (profile.equipment[slot] === productId) delete profile.equipment[slot]
-    }
-  }
-  if (item.category === 'mount') {
-    profile.ownedMounts = profile.ownedMounts.filter(id => id !== productId)
-    if (productId === 'horse') delete profile.ownedHorseTiers
-    if (profile.selectedMountId && canonicalCareerMountId(profile.selectedMountId) === productId) delete profile.selectedMountId
+  normalizeCareerInventory(profile)
+  addCareerItem(profile, productId, -1)
+  if (item.category === 'mount' && careerItemTotal(profile, productId) === 0) {
     const state = profile.activeMission?.mountState
     if (state) {
-      if (state.activeMountId && canonicalCareerMountId(state.activeMountId) === productId) delete state.activeMountId
       for (const id of Object.keys(state.hp) as (keyof typeof state.hp)[]) {
         if (canonicalCareerMountId(id) === productId) delete state.hp[id]
       }

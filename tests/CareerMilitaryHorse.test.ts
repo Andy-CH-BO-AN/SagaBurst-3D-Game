@@ -1,3 +1,4 @@
+import { careerItemTotal } from '../src/career/CareerInventory'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -51,7 +52,7 @@ const ranks = [
   ['recruit', 1], ['soldier', 2], ['veteran', 3], ['captain', 4], ['commander', 4],
 ] as const
 
-describe('Single military warhorse purchase', () => {
+describe('Military warhorse quantity purchases', () => {
   it('removes a sold active horse and its outing state without another save', () => {
     const profile = purchaseTownHorse(profileFor(), 'horse')!
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 0, 0, 'sale-mission')
@@ -60,6 +61,9 @@ describe('Single military warhorse purchase', () => {
     const mount = { currentHp: 20, dispose: vi.fn() }
     const player = { currentMount: mount, dismountFromMount: vi.fn() }
     Object.assign(controller, { active: { id: 'horse', mount }, player: () => player })
+    expect(sellTownProduct(profile, 'horse').reason).toBe('allocated')
+    delete profile.selectedMountId
+    delete profile.activeMission.mountState.activeMountId
     Object.assign(profile, sellTownProduct(profile, 'horse').profile)
     controller.syncOwnership()
     expect(player.dismountFromMount).toHaveBeenCalledOnce()
@@ -74,7 +78,7 @@ describe('Single military warhorse purchase', () => {
     expect(horses).toEqual([{ id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 }])
   })
 
-  it.each(ranks)('buys once at %s and uses the rank-appropriate T%i horse', (rank, tier) => {
+  it.each(ranks)('buys repeatedly at %s and uses the rank-appropriate T%i horse', (rank, tier) => {
     const profile = profileFor(rank)
     const original = JSON.stringify(profile)
     const purchased = purchaseTownHorse(profile, 'horse')!
@@ -88,7 +92,7 @@ describe('Single military warhorse purchase', () => {
     expect(careerMountTier('horse', purchased)).toBe(tier)
     expect(canUseCareerMount(purchased, 'horse')).toBe(true)
     expect(JSON.stringify(profile)).toBe(original)
-    expect(purchaseTownHorse(purchased, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(purchased, 'horse')!, 'horse')).toBe(2)
   })
 
   it('requires sufficient funds and rejects retired or unrelated purchase IDs', () => {
@@ -105,7 +109,7 @@ describe('Single military warhorse purchase', () => {
   it('unlocks T4 after promotion and returns to the enlistment tier after demotion without another purchase', () => {
     const profile = purchaseTownHorse(profileFor(), 'horse')!
     const { controller } = mountController(profile)
-    expect(controller.list()).toEqual([{ id: 'horse', name: '軍用戰馬', tier: 1, active: false, available: true }])
+    expect(controller.list()).toEqual([expect.objectContaining({ id: 'horse', name: '軍用戰馬', tier: 1, active: false, available: true })])
     const afterPurchase = profile.availableMerit
     profile.rank = 'captain'
     expect(controller.list()[0]).toMatchObject({ id: 'horse', tier: 4, available: true })
@@ -115,7 +119,7 @@ describe('Single military warhorse purchase', () => {
     expect(controller.list()[0]).toMatchObject({ id: 'horse', tier: 1, available: true })
     expect(ownedCareerMountIds(profile)).toEqual(['horse'])
     expect(profile.availableMerit).toBe(afterPurchase)
-    expect(purchaseTownHorse(profile, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(profile, 'horse')!, 'horse')).toBe(2)
   })
 
   it('preserves captain T4 ownership and selection through a saved profile', () => {
@@ -128,7 +132,7 @@ describe('Single military warhorse purchase', () => {
     expect(loaded.selectedMountId).toBe('horse')
     expect(ownedCareerMountIds(loaded)).toEqual(['horse'])
     expect(careerMountTier('horse', loaded)).toBe(4)
-    expect(purchaseTownHorse(loaded, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(loaded, 'horse')!, 'horse')).toBe(2)
   })
 })
 
@@ -144,8 +148,8 @@ describe('Legacy warhorse ownership and outing migration', () => {
     const profile = { ...profileFor('captain'), ...legacy }
     const horse = TOWN_PRODUCTS.find(item => item.id === 'horse')!
     expect(ownedCareerMountIds(profile)).toEqual(['horse'])
-    expect(productStatus(profile, horse)).toBe('已擁有')
-    expect(purchaseTownHorse(profile, 'horse')).toBeNull()
+    expect(productStatus(profile, horse)).toBe('已解鎖・餘額足夠')
+    expect(careerItemTotal(purchaseTownHorse(profile, 'horse')!, 'horse')).toBe(2)
     for (const id of ['horse', 'horse-t1', 'horse-t2', 'horse-t3'] as const) {
       expect(canUseCareerMount(profile, id)).toBe(true)
       expect(careerMountTier(id, profile)).toBe(4)
@@ -203,7 +207,7 @@ describe('Legacy warhorse ownership and outing migration', () => {
     loaded.rank = 'captain'
     expect(loaded.activeMission!.mountState).toEqual({ activeMountId: 'horse', hp: { horse: 0 }, unavailable: ['horse'] })
     const { controller, commit } = mountController(loaded)
-    expect(controller.list()).toEqual([{ id: 'horse', name: '軍用戰馬', tier: 4, active: false, available: false }])
+    expect(controller.list()).toEqual([expect.objectContaining({ id: 'horse', name: '軍用戰馬', tier: 4, active: false, available: false })])
     expect(controller.restoreActiveMount()).toBe(false)
     expect(controller.activate('horse')).toBe(false)
     expect(controller.activate('horse-t3')).toBe(false)

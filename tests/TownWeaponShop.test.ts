@@ -1,3 +1,4 @@
+import { careerItemTotal, addCareerItem } from '../src/career/CareerInventory'
 import { createTownCombatFixture } from './townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, getCareerPurchaseTier, type CareerProfile, type CareerRank } from '../src/career/CareerProfile'
@@ -12,7 +13,9 @@ import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../src/career/Ca
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
 
 function profile(rank: CareerRank = 'soldier'): CareerProfile {
-  return { ...grantStarter(createCareerProfile('roman'), 'gladius_rusty'), rank, totalMerit: 800, availableMerit: 500 }
+  const legacy = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
+  delete legacy.inventory // Fixture exercises migration from the original ownership arrays.
+  return { ...legacy, rank, totalMerit: 800, availableMerit: 500 }
 }
 function storage(): Storage {
   const values = new Map<string, string>()
@@ -38,7 +41,9 @@ describe('Career weapon shop canonical purchases', () => {
     expect(result).toMatchObject({ purchased: true, spentMerit: 400, profile: { totalMerit: 800, availableMerit: 100, ownedWeapons: ['gladius_rusty', 'steel_sword'], equipment: current.equipment, starterWeaponId: 'gladius_rusty' } })
     expect(current).toEqual(before)
     const duplicate = purchaseTownEquipment(result.profile, 'steel_sword')
-    expect(duplicate.reason).toBe('already-owned'); expect(duplicate.profile).toEqual(result.profile)
+    expect(duplicate.reason).toBe('insufficient-merit'); expect(duplicate.profile).toEqual(result.profile)
+    const repeated = purchaseTownEquipment({ ...result.profile, availableMerit: 500 }, 'steel_sword')
+    expect(repeated.purchased).toBe(true); expect(careerItemTotal(repeated.profile, 'steel_sword')).toBe(2)
   })
   it('rejects insufficient merit, missing IDs, mounts and caller supplied product objects without mutation', () => {
     const current = profile(); current.availableMerit = 399
@@ -90,9 +95,9 @@ describe('Career purchased inventory and persistence', () => {
     current = purchaseTownEquipment(current, 'steel_sword').profile
     expect(inventory.equipWeapon('steel_sword')).toBe(false)
     expect(inventory.isEquipped('steel_sword')).toBe(false)
-    expect(current.equipment).toEqual({ ranged: 'recurve_longbow', shield: null })
+    expect(current.equipment).toEqual({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: null })
   })
-  it('saves ownership and merit, rejects duplicates after reload and passes equipment into Outpost', () => {
+  it('saves ownership and merit, supports duplicates after reload and passes equipment into Outpost', () => {
     const store = new CareerProfileStore(storage())
     let current = profile(); current.totalMerit = 2000; current.availableMerit = 2000
     const inventory = new TownEquipment(() => current, next => { if (!store.save(next)) return false; current = next; return true })
@@ -105,19 +110,20 @@ describe('Career purchased inventory and persistence', () => {
     expect(reloaded.totalMerit).toBe(2000); expect(reloaded.availableMerit).toBe(840)
     expect(reloaded.ownedWeapons).toEqual(['gladius_rusty', 'steel_sword', 'recurve_longbow'])
     expect(reloaded.ownedArmors).toEqual(['scutum_t2'])
-    expect(purchaseTownEquipment(reloaded, 'steel_sword')).toMatchObject({ purchased: false, reason: 'already-owned', profile: reloaded })
+    expect(careerItemTotal(purchaseTownEquipment(reloaded, 'steel_sword').profile, 'steel_sword')).toBe(2)
     const launch = createCareerOutpostLaunch(acceptCareerOutpost(reloaded, 1, 'shop-outpost')!)
     const expected = { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', shieldId: 'scutum_t2' }
     expect(launch.playerLoadout).toMatchObject(expected)
+    addCareerItem(reloaded, 'horse', 1)
     const relief = acceptCareerOutpostRelief({ ...reloaded, completedOutpostStages: [1, 2, 3], ownedMounts: ['horse'], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }, 'shop-relief')!
     expect(createCareerOutpostLaunch(relief).playerLoadout).toMatchObject(expected)
   })
-  it('buys one military horse alongside equipment and rejects a second horse charge', () => {
+  it('buys repeated military horses alongside equipment', () => {
     const current = { ...profile('veteran'), availableMerit: 2500 }
     expect(purchaseTownHorse(current, 'horse-t2')).toBeNull()
     const horse = purchaseTownHorse(current, 'horse')!
     const weapon = purchaseTownEquipment(horse, 'steel_sword').profile
-    expect(purchaseTownHorse(weapon, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(weapon, 'horse')!, 'horse')).toBe(2)
     expect(weapon.ownedMounts).toEqual(['horse']); expect(weapon.ownedWeapons).toContain('steel_sword')
     expect(weapon.selectedMountId).toBe('horse')
     expect(weapon.availableMerit).toBe(1900); expect(weapon.totalMerit).toBe(800)
@@ -144,7 +150,7 @@ function merchantHarness(failSave = false, initial = profile(), shop = 'merchant
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
     skills: { skillState: current.skills }, careerSkillSaveTimer: null,
-    profile: current, store, player: { dead: false, clearTownAction: vi.fn() }, event: { hostile: false }, serviceAvailable: () => true,
+    profile: store.load()!, store, player: { dead: false, clearTownAction: vi.fn() }, event: { hostile: false }, serviceAvailable: () => true,
     careerMounts: { syncOwnership: vi.fn() },
     openPanel: function (_title: string, message: string) { this.message = message; this.panel = new PanelElement('panel'); return this.panel },
   }) as any
@@ -166,16 +172,16 @@ describe('Career shop resale', () => {
     expect(sellTownProduct(result.profile, 'steel_sword')).toMatchObject({ sold: false, reason: 'not-owned', earnedMerit: 0 })
   })
   it('counts locked weapons but not shields, and preserves starter grant history', () => {
-    const current = { ...profile('recruit'), ownedWeapons: ['gladius_rusty', 'runic_greatsword'], ownedArmors: ['scutum_t1'], equipment: { melee: 'gladius_rusty', shield: 'scutum_t1' } }
+    const current = { ...profile('recruit'), ownedWeapons: ['gladius_rusty', 'runic_greatsword'], ownedArmors: ['scutum_t1'], equipment: {} }
     const sold = sellTownProduct(current, 'gladius_rusty').profile
     expect(sold.equipment?.melee).toBeUndefined()
     expect(grantStarter(sold, 'gladius_rusty').ownedWeapons).toEqual(['runic_greatsword'])
-    expect(townSaleStatus(sold, 'runic_greatsword')).toBe('last-weapon')
+    expect(townSaleStatus(sold, 'runic_greatsword')).toBe('sellable')
     expect(sellTownProduct(sold, 'scutum_t1')).toMatchObject({ sold: true, earnedMerit: 45, profile: { ownedArmors: [] } })
     expect(sellTownProduct(current, 'missing')).toMatchObject({ sold: false, reason: 'invalid-id' })
   })
   it('sells legacy horse ownership and all pets, then allows a new horse purchase', () => {
-    let current = { ...profile(), ownedMounts: ['black-cat', 'corgi'], ownedHorseTiers: [2], selectedMountId: 'horse-t2' } as CareerProfile
+    let current = { ...profile(), ownedMounts: ['black-cat', 'corgi'], ownedHorseTiers: [2] } as CareerProfile
     current = sellTownProduct(current, 'horse').profile
     expect(current.selectedMountId).toBeUndefined(); expect(current.ownedHorseTiers).toBeUndefined()
     for (const id of ['black-cat', 'corgi']) current = sellTownProduct(current, id).profile
@@ -184,20 +190,22 @@ describe('Career shop resale', () => {
   })
   it('keeps resale proceeds above lifetime merit after reload', () => {
     const store = new CareerProfileStore(storage())
-    const current = { ...profile('recruit'), totalMerit: 0, availableMerit: 0, ownedWeapons: ['gladius_rusty', 'wooden_shortbow'] }
+    const current = { ...profile('recruit'), totalMerit: 0, availableMerit: 0, ownedWeapons: ['gladius_rusty', 'wooden_shortbow'], equipment: { ranged: 'wooden_shortbow' } }
     expect(store.save(sellTownProduct(current, 'gladius_rusty').profile)).toBe(true)
     expect(store.load()).toMatchObject({ availableMerit: 50, totalMerit: 0, rank: 'recruit', ownedWeapons: ['wooden_shortbow'] })
   })
-  it('switches tabs, sells equipped items, disables the last weapon and permits rebuying', () => {
+  it('switches tabs, requires releasing equipped items before sale, and permits rebuying', () => {
     const { town, store, row } = merchantHarness(false, { ...profile(), ownedWeapons: ['gladius_rusty', 'steel_sword'] })
     town.inventory.equipWeapon('steel_sword')
+    expect(sellTownProduct(town.profile, 'steel_sword').reason).toBe('allocated')
+    town.inventory.unequipWeapon('steel_sword')
     town.panel.querySelector('.town-shop-tabs').children[1].onclick()
     expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '賣出 · 收回 240 軍功', disabled: false })
     row('Steel Sword').children[2].onclick()
     expect(store.load()).toMatchObject({ availableMerit: 740, ownedWeapons: ['gladius_rusty'], equipment: {} })
     expect(town.inventory.meleeEnabled).toBe(false)
     expect(town.inventory.isEquipped('steel_sword')).toBe(false)
-    expect(row('Gladius Rusty').children[2]).toMatchObject({ textContent: '至少保留一件武器', disabled: true })
+    expect(row('Gladius Rusty').children[2]).toMatchObject({ textContent: '賣出 · 收回 60 軍功', disabled: false })
     town.panel.querySelector('.town-shop-tabs').children[0].onclick()
     row('Steel Sword').children[2].onclick()
     expect(town.inventory.inventoryStacks.find((s: any) => s.item.id === 'steel_sword')?.quantity).toBe(1)
@@ -213,7 +221,7 @@ describe('Career shop resale', () => {
     expect(row('Steel Sword').children[2].disabled).toBe(false)
   })
   it('offers mount resale and shows an empty list after selling the last mount', () => {
-    const { town, row, rows, store } = merchantHarness(false, { ...profile(), ownedMounts: ['horse'], selectedMountId: 'horse' }, 'ranger')
+    const { town, row, rows, store } = merchantHarness(false, { ...profile(), ownedMounts: ['horse'] }, 'ranger')
     town.panel.querySelector('.town-shop-tabs').children[1].onclick()
     row('軍用戰馬').children[2].onclick()
     expect(store.load()).toMatchObject({ ownedMounts: [], availableMerit: 620 })
@@ -229,11 +237,11 @@ describe('Merchant panel purchase integration', () => {
     expect(rows().filter(child => child.tag === 'h3').map(child => child.textContent)).toEqual(['近戰武器', '遠程武器', '盾牌'])
     expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '購買', disabled: false })
     expect(row('Runic Sword').children[2]).toMatchObject({ textContent: '軍階未解鎖', disabled: true })
-    expect(row('Gladius Rusty').children[2]).toMatchObject({ textContent: '已擁有', disabled: true })
+    expect(row('Gladius Rusty').children[2]).toMatchObject({ textContent: '購買', disabled: false })
     row('Steel Sword').children[2].onclick!()
     expect(store.load()).toMatchObject({ availableMerit: 100, totalMerit: 800, ownedWeapons: ['gladius_rusty', 'steel_sword'] })
     expect(town.panel.children[0].textContent).toContain('可用軍功 100')
-    expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '已擁有', disabled: true })
+    expect(row('Steel Sword').children[2]).toMatchObject({ textContent: '餘額不足', disabled: true })
     expect(row('Recurve').children[2]).toMatchObject({ textContent: '餘額不足', disabled: true })
   })
   it('retains profile and offers purchase again when saving fails', () => {
@@ -266,7 +274,7 @@ describe('Career hero mount purchases', () => {
       expect(reloaded.availableMerit).toBe(229)
       const mounts = new CareerMountController(new THREE.Scene(), () => null as any, () => reloaded, () => true, () => [], () => [])
       expect(mounts.list()).toEqual([expect.objectContaining({ id, available: true, active: false })])
-      expect(purchaseTownMount(reloaded, id)).toMatchObject({ purchased: false, spentMerit: 0, reason: 'already-owned', profile: reloaded })
+      expect(purchaseTownMount(reloaded, id)).toMatchObject({ purchased: false, spentMerit: 0, reason: 'insufficient-merit', profile: reloaded })
     }
   })
 
@@ -288,8 +296,8 @@ describe('Career hero mount purchases', () => {
       expect(purchaseTownMount(current, id as string)).toMatchObject({ purchased: false, reason: 'invalid-id', spentMerit: 0, profile: current })
     }
     const legacy = { ...current, ownedHorseTiers: [2] as (1 | 2 | 3)[], selectedMountId: 'horse-t2' as const }
-    expect(purchaseTownMount(legacy, 'horse')).toMatchObject({ purchased: false, reason: 'already-owned', profile: legacy })
-    expect(purchaseTownHorse(legacy, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownMount(legacy, 'horse').profile, 'horse')).toBe(2)
+    expect(purchaseTownHorse(legacy, 'horse')).not.toBeNull()
     expect(purchaseTownHorse(current, 'black-cat')).toBeNull()
     const fresh = purchaseTownMount(profile('recruit'), 'horse')
     expect(fresh).toMatchObject({ purchased: true, spentMerit: 200, profile: { selectedMountId: 'horse', ownedMounts: ['horse'], availableMerit: 300 } })
@@ -303,7 +311,7 @@ describe('Career hero mount purchases', () => {
       expect(row(name).children[2]).toMatchObject({ textContent: '購買', disabled: false })
       row(name).children[2].onclick!()
       expect(store.load()).toMatchObject({ ownedMounts: [id], selectedMountId: id, availableMerit: 229, totalMerit: 5000 })
-      expect(row(name).children[2]).toMatchObject({ textContent: '已擁有', disabled: true })
+      expect(row(name).children[2]).toMatchObject({ textContent: '餘額不足', disabled: true })
       expect(town.message).toContain(name)
       expect(town.message).toContain('按 Tab → 坐騎 → 騎乘')
       const before = structuredClone(town.profile)

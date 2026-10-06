@@ -34,6 +34,7 @@
         pointer-events: none;
         color: #fff;
       }
+      #hud:has(#character-modal.visible) { z-index: 1001; }
 
       /* Crosshair */
       #crosshair {
@@ -485,6 +486,7 @@
       /* ── RPG Character & Equipment Modal (Tab) ── */
       #character-modal {
         position: absolute;
+        z-index: 1001;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%);
         width: 540px;
