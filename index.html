@@ -489,7 +489,11 @@
         z-index: 1001;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        width: 540px;
+        box-sizing: border-box;
+        width: min(680px, calc(100vw - 40px));
+        height: min(620px, calc(100dvh - 80px));
+        display: flex;
+        flex-direction: column;
         background: rgba(18, 16, 14, 0.92);
         border: 1.5px solid rgba(232, 201, 106, 0.5);
         border-radius: 10px;
@@ -506,6 +510,7 @@
         pointer-events: all;
       }
       #character-modal h2 {
+        flex-shrink: 0;
         font-size: 20px;
         color: #e8c96a;
         letter-spacing: 0.1em;
@@ -514,8 +519,40 @@
         padding-bottom: 8px;
         text-align: center;
       }
-      .modal-section {
+      .equipment-tabs {
+        display: flex;
+        flex-shrink: 0;
+        gap: 8px;
         margin-bottom: 18px;
+      }
+      .equipment-tab {
+        flex: 1;
+        padding: 10px 8px;
+        border: 1px solid rgba(232, 201, 106, 0.25);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.25);
+        color: #c8bfae;
+        font: 600 14px system-ui;
+        cursor: pointer;
+      }
+      .equipment-tab[aria-selected="true"] {
+        border-color: #e8c96a;
+        background: rgba(232, 201, 106, 0.15);
+        color: #e8c96a;
+      }
+      #character-modal button:focus-visible,
+      #character-modal select:focus-visible {
+        outline: 2px solid #e8c96a;
+        outline-offset: 2px;
+      }
+      .equipment-panel {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 6px;
+      }
+      .equipment-panel[hidden] {
+        display: none;
       }
       .modal-section-title {
         font-size: 12px;
@@ -529,6 +566,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
         margin-bottom: 10px;
         background: rgba(0,0,0,0.3);
         padding: 8px 14px;
@@ -552,31 +591,54 @@
       }
       .inventory-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
-        max-height: 200px;
-        overflow-y: auto;
-        padding-right: 6px;
       }
       .inventory-wide { grid-column: 1 / -1; }
-      /* Custom Scrollbar for Inventory Modal & Grid */
-      #character-modal::-webkit-scrollbar,
-      .inventory-grid::-webkit-scrollbar {
+      #character-modal .inventory-card {
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid rgba(232, 201, 106, 0.2);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.25);
+        overflow-wrap: anywhere;
+      }
+      #character-modal .inventory-card.equipped { border-color: #e8c96a; }
+      #character-modal .inv-item-header { margin-bottom: 8px; }
+      #character-modal .inv-item-name { font-weight: 600; }
+      #character-modal .inv-item-tier { display: block; font-size: 12px; margin-top: 4px; }
+      #character-modal .inv-item-stats { font-size: 13px; line-height: 1.6; }
+      #character-modal .inv-item-desc { margin: 6px 0; color: #c8bfae; font-size: 13px; line-height: 1.6; }
+      #character-modal .btn-equip {
+        margin: 8px 6px 0 0;
+        padding: 6px 10px;
+        border: 1px solid rgba(232, 201, 106, 0.5);
+        border-radius: 4px;
+        background: rgba(232, 201, 106, 0.1);
+        color: #e8e0d0;
+        cursor: pointer;
+      }
+      #character-modal .btn-equip:disabled { opacity: 0.45; cursor: default; }
+      #character-modal .btn-equip.is-active { color: #e8c96a; }
+      #character-modal select { max-width: 100%; }
+      .equipment-panel::-webkit-scrollbar {
         width: 7px;
       }
-      #character-modal::-webkit-scrollbar-track,
-      .inventory-grid::-webkit-scrollbar-track {
+      .equipment-panel::-webkit-scrollbar-track {
         background: rgba(0, 0, 0, 0.4);
         border-radius: 4px;
       }
-      #character-modal::-webkit-scrollbar-thumb,
-      .inventory-grid::-webkit-scrollbar-thumb {
+      .equipment-panel::-webkit-scrollbar-thumb {
         background: #e8c96a;
         border-radius: 4px;
       }
-      #character-modal::-webkit-scrollbar-thumb:hover,
-      .inventory-grid::-webkit-scrollbar-thumb:hover {
+      .equipment-panel::-webkit-scrollbar-thumb:hover {
         background: #f39c12;
+      }
+      @media (max-width: 600px) {
+        #character-modal { padding: 18px 16px; }
+        #character-modal h2 { font-size: 16px; letter-spacing: 0.04em; }
+        .inventory-grid { grid-template-columns: minmax(0, 1fr); }
       }
       .equip-card {
         background: rgba(255,255,255,0.04);
@@ -837,9 +899,14 @@
       </div>
 
       <!-- RPG Character & Equipment Modal (Tab key toggle) -->
-      <div id="character-modal">
-        <h2>角色與裝備 Character & Equipment</h2>
-        <div class="modal-section">
+      <div id="character-modal" role="dialog" aria-modal="true" aria-labelledby="equipment-title" inert>
+        <h2 id="equipment-title">角色與裝備 Character & Equipment</h2>
+        <div class="equipment-tabs" role="tablist" aria-label="角色與裝備分頁">
+          <button id="equipment-tab-skills" class="equipment-tab" role="tab" aria-controls="equipment-panel-skills" aria-selected="false" tabindex="-1">技能 Skills</button>
+          <button id="equipment-tab-items" class="equipment-tab" role="tab" aria-controls="equipment-panel-items" aria-selected="true">個人物品</button>
+          <button id="equipment-tab-squad" class="equipment-tab" role="tab" aria-controls="equipment-panel-squad" aria-selected="false" tabindex="-1">小隊</button>
+        </div>
+        <div id="equipment-panel-skills" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-skills" hidden>
           <div class="modal-section-title">技能成長 Skills</div>
           <div class="skill-row">
             <div>
@@ -874,9 +941,12 @@
             <div class="skill-xp-bar"><div id="skill-block-fill" class="skill-xp-fill"></div></div>
           </div>
         </div>
-        <div class="modal-section">
+        <div id="equipment-panel-items" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-items">
           <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>
           <div id="inventory-list" class="inventory-grid"></div>
+        </div>
+        <div id="equipment-panel-squad" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-squad" hidden>
+          <div id="squad-list" class="inventory-grid"></div>
         </div>
       </div>
 

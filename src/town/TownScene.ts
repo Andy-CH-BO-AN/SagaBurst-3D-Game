@@ -526,6 +526,9 @@ export class TownScene {
   }
   private key(e: KeyboardEvent): void {
     if (this.panel || this.equipment.visible) {
+      // Let focused equipment controls receive arrows, Enter and Space.
+      if (this.equipment.visible && (e.target as Element | null)?.closest?.('#character-modal')
+        && !['KeyQ', 'Escape', 'Tab'].includes(e.code)) return
       e.stopImmediatePropagation()
       if (['KeyQ', 'Escape', 'Tab'].includes(e.code)) { e.preventDefault(); if (!this.result && !this.missionResultOpen) this.closePanel() }
       return

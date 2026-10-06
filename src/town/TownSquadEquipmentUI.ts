@@ -1,6 +1,6 @@
 import type { CareerProfile } from '../career/CareerProfile'
 import { availableCareerItem, careerItemTotal, careerItemTotals, initialPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
-import { PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
+import { canRecruitPersonalSquad, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { EquipmentSquadAdapter } from '../ui/EquipmentUI'
@@ -11,11 +11,22 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
   let message = ''
   return { render(container, refresh) {
     const profile = read(), currentState = state()
+    if (!canRecruitPersonalSquad(profile)) {
+      const locked = document.createElement('p'); locked.className = 'inv-item-desc inventory-wide'
+      locked.textContent = '升任隊長（Captain）後，可到人資中心（HR Center）雇用隊員。'
+      container.append(locked)
+      return
+    }
     const heading = document.createElement('div'); heading.className = 'modal-section-title inventory-wide'
     heading.textContent = `Personal Squad · ${profile.personalSquad?.members.length ?? 0}/30 · ${currentState}`; container.append(heading)
     const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
     notice.textContent = message || (currentState === 'RESERVE' ? '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : '全隊回到 HR、進入 RESERVE 後才能換裝。')
     container.append(notice)
+    if (!profile.personalSquad?.members.length) {
+      const empty = document.createElement('p'); empty.className = 'inv-item-desc inventory-wide'
+      empty.textContent = '尚未雇用隊員。前往人資中心（HR Center）雇用隊員後，可在此管理小隊裝備。'
+      container.append(empty)
+    }
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
       const card = document.createElement('article'); card.className = 'inventory-card inventory-wide'; card.dataset.memberId = member.id
       const title = document.createElement('strong'); title.textContent = `${PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name} #${index + 1}`; card.append(title)

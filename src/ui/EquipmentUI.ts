@@ -38,6 +38,9 @@ export class EquipmentUI {
   private mountLvlEl: HTMLElement
   private mountFillEl: HTMLElement
   private inventoryListEl: HTMLElement
+  private squadListEl: HTMLElement
+  private tabs: HTMLButtonElement[]
+  private panels: HTMLElement[]
 
   private isOpen = false
 
@@ -54,6 +57,35 @@ export class EquipmentUI {
     this.mountLvlEl      = document.getElementById('skill-mount-lvl')!
     this.mountFillEl     = document.getElementById('skill-mount-fill')!
     this.inventoryListEl = document.getElementById('inventory-list')!
+    this.squadListEl     = document.getElementById('squad-list')!
+    this.tabs = Array.from(this.modal.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    this.panels = this.tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')!)!)
+    this.tabs.forEach((tab, index) => {
+      tab.onclick = () => this.selectTab(index)
+      tab.onkeydown = event => {
+        let next: number
+        switch (event.key) {
+          case 'ArrowRight': next = (index + 1) % this.tabs.length; break
+          case 'ArrowLeft': next = (index + this.tabs.length - 1) % this.tabs.length; break
+          case 'Home': next = 0; break
+          case 'End': next = this.tabs.length - 1; break
+          default: return
+        }
+        event.preventDefault()
+        this.selectTab(next)
+        this.tabs[next].focus()
+      }
+    })
+    this.selectTab(1)
+  }
+
+  private selectTab(index: number): void {
+    this.tabs.forEach((tab, i) => {
+      const selected = i === index
+      tab.setAttribute('aria-selected', String(selected))
+      tab.tabIndex = selected ? 0 : -1
+      this.panels[i].hidden = !selected
+    })
   }
 
   toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
@@ -67,11 +99,14 @@ export class EquipmentUI {
   open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
     this.isOpen = true
     this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
+    this.modal.inert = false
     this.modal.classList.add('visible')
+    this.tabs.find(tab => tab.getAttribute('aria-selected') === 'true')?.focus({ preventScroll: true })
   }
 
   close(): void {
     this.isOpen = false
+    this.modal.inert = true
     this.modal.classList.remove('visible')
   }
 
@@ -182,6 +217,14 @@ export class EquipmentUI {
         this.inventoryListEl.appendChild(status)
       }
     }
-    squad?.render(this.inventoryListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad))
+    this.squadListEl.innerHTML = ''
+    if (squad) {
+      squad.render(this.squadListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad))
+    } else {
+      const notice = document.createElement('p')
+      notice.className = 'inv-item-desc inventory-wide'
+      notice.textContent = '可在生涯模式的城鎮管理小隊。升任隊長（Captain）後，可到人資中心（HR Center）雇用隊員。'
+      this.squadListEl.append(notice)
+    }
   }
 }
