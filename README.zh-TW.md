@@ -12,7 +12,7 @@ SagaBurst 適合使用 **鍵盤與滑鼠的桌上型電腦**。
 
 ### 線上遊玩 Play Online
 
-[直接在瀏覽器玩 SagaBurst](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/)，不需要安裝。正式網站會在第一次 `prod` 部署後開放。
+[直接在瀏覽器玩 SagaBurst](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/)，不需要安裝。正式網站會在第一次 `main` 部署後開放。
 
 ### 下載 Download
 
