@@ -1,3 +1,4 @@
+import type { TownPersonalSquadController } from './TownPersonalSquadController'
 import * as THREE from 'three'
 import type { BanditMissionController, VeteranMissionEnemySquad } from '../career/BanditMissionController'
 import type { CareerDuelController } from '../career/CareerDuelController'
@@ -54,6 +55,7 @@ interface TownCombatScene {
   hp: HpBar
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
   outskirts?(): TownOutskirtsCombatRuntime | undefined
+  personalSquad?(): TownPersonalSquadController | undefined
   patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
   ownsPeacefulTravel?(npc: NPC): boolean
@@ -122,13 +124,14 @@ export class TownMissionCombat {
   /** TownScene owns the hostile residents and the single navigation frame reset. */
   updateOutskirtsHostile(dt: number, elapsed: number): void {
     const outskirts = this.prepareOutskirtsFrame(dt)
-    if (!outskirts?.actors.length) return
+    if (!outskirts?.actors.length && !this.town.personalSquad?.()?.actors.length) return
     const ambientActors = [...new Set(this.missions.field.ambientBandits)]
-    for (const actor of ambientActors) if (!outskirts.owns(actor)) this.updateRuntimeActor(actor, dt)
-    for (const actor of outskirts.actors) this.updateOutskirtsActor(actor, outskirts, dt)
-    this.updateRuntimeMountImpacts([...new Set([...ambientActors, ...outskirts.actors])], elapsed)
+    for (const actor of ambientActors) if (!outskirts?.owns(actor)) this.updateRuntimeActor(actor, dt)
+    for (const actor of outskirts?.actors ?? []) this.updateOutskirtsActor(actor, outskirts!, dt)
+    for (const actor of this.town.personalSquad?.()?.actors ?? []) this.updatePersonalActor(actor, dt)
+    this.updateRuntimeMountImpacts([...new Set([...ambientActors, ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? [])])], elapsed)
     const playerMount = this.town.player().currentMount
-    if (playerMount && !playerMount.dead) for (const target of outskirts.actors) {
+    if (playerMount && !playerMount.dead) for (const target of outskirts?.actors ?? []) {
       if (target.dead || target.faction === Faction.TOWN || target.faction === Faction.PLAYER
         || !checkMountImpact(playerMount, target.combatPosition, .5)) continue
       applyMountImpactDamage(playerMount, target, target.combatPosition, elapsed,
@@ -174,10 +177,10 @@ export class TownMissionCombat {
     const { field, duel, defense } = this.missions
     const outskirts = this.town.outskirts?.()
     const actors = new Set([...this.town.residents.map(r => r.npc), ...field.fieldNpcs,
-      ...field.departingNpcs, ...duel.fieldNpcs, ...defense.fieldNpcs, ...defense.waitingEnemies, ...(outskirts?.actors ?? [])])
+      ...field.departingNpcs, ...duel.fieldNpcs, ...defense.fieldNpcs, ...defense.waitingEnemies, ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? [])])
     for (const actor of actors) if (actor.dead) this.updateCorpse(actor, dt)
     const mounts = new Set([...(this.town.mounts ?? []), ...this.town.residents.flatMap(r => r.homeMount ? [r.homeMount] : []),
-      ...field.cavalryMounts, ...duel.allMounts, ...defense.enemyMounts, ...(outskirts?.mounts ?? [])])
+      ...field.cavalryMounts, ...duel.allMounts, ...defense.enemyMounts, ...(outskirts?.mounts ?? []), ...(this.town.personalSquad?.()?.mounts ?? [])])
     for (const mount of mounts) if (mount.dead && !mount.disposed) mount.update(dt, this.town.obstacles)
   }
 
@@ -216,7 +219,7 @@ export class TownMissionCombat {
     field.prepareTravelEncounter(dt, this.outskirtsGrid, outskirts ?? { owns: () => false })
     field.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
-    const warfareActive = Boolean(outskirts?.actors.length)
+    const warfareActive = Boolean(outskirts?.actors.length || this.town.personalSquad?.()?.actors.length)
     const currentVeteran = veteranField ? field.active : undefined
     const veteranSurvival = currentVeteran?.templateId === 'veteran-tragedy-of-the-scouts'
     const player = this.town.player()
@@ -244,7 +247,7 @@ export class TownMissionCombat {
       ? [...new Set([...field.missionBandits, ...field.friendlies, ...this.enemyTownHostileActors])]
       : [...new Set([...field.fieldNpcs, ...this.externalThreatActors])]
     const actors = [...new Set([...missionCombatActors,
-      ...(warfareActive ? field.ambientBandits : []), ...(outskirts?.actors ?? []), ...this.externalThreatActors, ...patrolActors])]
+      ...(warfareActive ? field.ambientBandits : []), ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors])]
     this.grid.clear()
     if (veteranField) { this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear() }
     for (const actor of actors) {
@@ -289,6 +292,7 @@ export class TownMissionCombat {
     if (veteranField) for (const enemy of this.engagedVeteranEnemies) this.veteranEngagedEnemyGrid.insert(enemy)
     const veteranSquadCombatActive = veteranCombatActive || this.engagedVeteranEnemies.size > 0
     for (const actor of actors) {
+      if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)
         continue
@@ -420,9 +424,9 @@ export class TownMissionCombat {
     const previousOutskirts = new Set(outskirts?.actors ?? [])
     const participants = [...new Set([
       ...this.town.residents.map(resident => resident.npc),
-      ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
+      ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.town.personalSquad?.()?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
       ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
-      ...(outskirts?.actors ?? []),
+      ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []),
     ])]
     outskirts?.prepareFrame(dt, participants, this.town.player())
     // A wiped squad may have been replaced during prepareFrame; never retain its old generation.
@@ -467,6 +471,14 @@ export class TownMissionCombat {
       return
     }
     this.updateRuntimeActor(actor, dt)
+  }
+
+  private updatePersonalActor(actor: NPC, dt: number): void {
+    const personal = this.town.personalSquad?.()
+    if (!actor.dead && personal?.state === 'RETURNING') {
+      actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
+        this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.navigation)
+    } else this.updateRuntimeActor(actor, dt)
   }
 
   private updateRuntimeActor(actor: NPC, dt: number): void {

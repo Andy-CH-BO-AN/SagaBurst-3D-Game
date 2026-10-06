@@ -1,5 +1,6 @@
+import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, townSceneryExcluded } from './TownLayout'
+import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -13,6 +14,9 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
 export class TownWorld {
   readonly root = new THREE.Group()
+  readonly roads: TownRoad[] = []
+  readonly hr: TownHRLayout
+  readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
@@ -50,7 +54,7 @@ export class TownWorld {
       const c = new THREE.Color(faction === 'roman' ? (n > -.4 ? 0x6d7650 : 0x858061) : (n > -.8 ? 0xd4dee2 : 0x9ba19b)); colors.push(c.r, c.g, c.b)
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.computeVertexNormals()
-    const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land)
+    const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land); this.terrainMesh = land
     this.road(-57, 0, 85, 0, 8); this.road(0, -23, 0, 36, 12); this.road(25, -50, 25, 30, 7)
     this.road(-35, -18, -27, 32, 6); this.road(0, 10, 0, 30, 12); this.road(-25, 20, 10, 20, 8); this.road(-22, -10, 0, -10, 7)
     for (let z = -10; z <= 10; z += 2) this.road(-17, z, 18, z, 2.1)
@@ -116,6 +120,10 @@ export class TownWorld {
       copy.position.set(x, getTerrainHeight(x, z), z); copy.scale.setScalar(scale); copy.rotation.y = angle
       this.root.add(copy); this.solid(x, z, .6, 5, .6)
     }
+    this.hr = resolveTownHRLayout(faction, this.obstacles, this.roads)
+    this.building('hr-center', '人力資源中心', this.hr.site.x, this.hr.site.z, this.hr.width, this.hr.depth, 5.5, 'hall', this.hr.site.yaw)
+    const hrRoot = this.buildings.find(building => building.id === 'hr-center')!.hp.root as THREE.Group
+    this.sign(hrRoot, 'HR CENTER', 0, 6.5, this.hr.depth / 2 + .5, 9)
     this.batch(this.root)
   }
 
@@ -237,6 +245,7 @@ export class TownWorld {
     const mesh = new THREE.Mesh(this.box, material); mesh.position.set(x, y, z); mesh.scale.set(w, h, d); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh
   }
   private road(ax: number, az: number, bx: number, bz: number, width: number): void {
+    this.roads.push({ ax, az, bx, bz, width })
     const vertices: number[] = [], length = Math.hypot(bx - ax, bz - az), count = Math.ceil(length / .5), across = Math.ceil(width / .5)
     const nx = -(bz - az) / length, nz = (bx - ax) / length
     for (let i = 0; i < count; i++) for (let j = 0; j < across; j++) {

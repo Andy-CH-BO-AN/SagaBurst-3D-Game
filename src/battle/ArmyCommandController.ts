@@ -113,6 +113,7 @@ export class ArmyCommandController {
     private readonly inventory: InventoryManager | null = null,
     groupingMode: CommandGroupingMode = 'preset',
     private readonly commandsEnabled = true,
+    private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -143,7 +144,15 @@ export class ArmyCommandController {
   get wheelMode(): WheelInputMode { return this.wheelInputMode }
   get grouping(): CommandGroupingMode { return this.groupingMode }
 
+  close(): void { this.formation?.cancelPlacement(); this._closeSubmenu() }
+
   update(): void {
+    if (this.personalCommands && !this.personalCommands.enabled()) {
+      this.ui.setEnabled(false)
+      this.close()
+      return
+    }
+    if (this.personalCommands) this.ui.setEnabled(this.commandsEnabled)
     if (!this.commandsEnabled) {
       let step: -1 | 0 | 1
       while ((step = this.input.consumeWheelStep()) !== 0) this._cycleWeapon(step)
@@ -220,12 +229,17 @@ export class ArmyCommandController {
       let commandKey: string | null = null
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
         if (!this._consumeDigit(key)) continue
-        if (commandKey === null && Number(key) <= 4) commandKey = key
+        if (commandKey === null && Number(key) <= (this.personalCommands ? 6 : 4)) commandKey = key
       }
       if (commandKey !== null) {
         this.highlightedCommandIndex = Number(commandKey) - 1
+        if (this.personalCommands && (commandKey === '5' || commandKey === '6')) {
+          this._issue(commandKey === '5' ? 'follow' : 'dismiss')
+          return
+        }
         const command = getCommandFromSubmenuKey(commandKey)
         if (command === 'formation') {
+          if (this.personalCommands && this.canIssueOrder && !this.canIssueOrder('formation')) return
           if (!this.formation || !this.selectedTarget) return
           this.formation.beginPlacement(this.selectedTarget)
           this.ui.renderPlacement(this.selectedTarget)
@@ -274,9 +288,11 @@ export class ArmyCommandController {
   }
 
   private _selectHighlightedCommand(): void {
-    const command = WHEEL_COMMANDS[this.highlightedCommandIndex]
+    const commands: readonly (TacticalOrder | 'dismiss')[] = this.personalCommands ? [...WHEEL_COMMANDS, 'follow', 'dismiss'] : WHEEL_COMMANDS
+    const command = commands[this.highlightedCommandIndex]
     if (!command) return
     if (command === 'formation') {
+      if (this.personalCommands && this.canIssueOrder && !this.canIssueOrder('formation')) return
       if (!this.formation || !this.selectedTarget) return
       this.formation.beginPlacement(this.selectedTarget)
       this.ui.renderPlacement(this.selectedTarget)
@@ -296,7 +312,7 @@ export class ArmyCommandController {
   private _moveCommandHighlight(direction: -1 | 1): void {
     this.highlightedCommandIndex = Math.max(
       0,
-      Math.min(WHEEL_COMMANDS.length - 1, this.highlightedCommandIndex + direction),
+      Math.min((this.personalCommands ? 6 : WHEEL_COMMANDS.length) - 1, this.highlightedCommandIndex + direction),
     )
   }
 
@@ -317,16 +333,28 @@ export class ArmyCommandController {
     return digitPressed || numpadPressed
   }
 
-  private _issue(order: TacticalOrder): void {
+  private _issue(order: TacticalOrder | 'dismiss'): void {
     const target = this.selectedTarget
     if (!target) return
 
-    if (this.canIssueOrder && !this.canIssueOrder(order)) {
-      this.ui.showFeedback('部署階段：敵軍尚未進場')
+    if (order !== 'dismiss' && this.canIssueOrder && !this.canIssueOrder(order)) {
+      this.ui.showFeedback(this.personalCommands ? '請先下令 Follow me，讓私人隊伍跟隨你。' : '部署階段：敵軍尚未進場')
       this._closeSubmenu()
       return
     }
 
+    if (this.personalCommands && (order === 'follow' || order === 'dismiss')) {
+      if (!this.personalCommands.issue(order)) {
+        this._closeSubmenu()
+        return
+      }
+      this._clearFormationDesiredOrders('all')
+      if (order === 'follow') this._setDesiredOrder('all', order)
+      this.ui.showFeedback(order === 'follow' ? 'Personal Squad → Follow me' : 'Personal Squad → Dismiss · 收隊')
+      this._closeSubmenu()
+      return
+    }
+    if (order === 'dismiss') return
     this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
 
@@ -462,6 +490,7 @@ export class ArmyCommandController {
       this.wheelInputMode,
       selectedWeapon?.name ?? '',
       this.groupingMode,
+      Boolean(this.personalCommands),
     )
   }
 

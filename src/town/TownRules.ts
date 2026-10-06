@@ -12,7 +12,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
-export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian'
+export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer'
 export type TownDuty = 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
 export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -46,13 +46,13 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
     melee_infantry: 'melee', spearman_infantry: 'spearman', ranged_infantry: 'ranged', archer_infantry: 'archer',
     captain: 'sword_cavalry', deployment: 'melee',
   }
-  const unitKind = typeof actor === 'string' ? kinds[role] : actor.unitKind
+  const unitKind = role === 'hr-officer' ? 'sword_cavalry' : typeof actor === 'string' ? kinds[role] : actor.unitKind
   const kind = unitKind === 'melee' || !unitKind ? faction === 'roman' ? 'heavy_infantry' : 'berserker'
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
   const presetId = `${faction}_${kind}` as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
-  const tier = role === 'captain' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
-  const level: 1 | 2 | 3 | 4 = role === 'captain' || patrolCaptain ? 4 : tier
+  const tier = role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
+  const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || patrolCaptain ? 4 : tier
   return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
 }
 export const TOWN_SITES = {
@@ -292,7 +292,7 @@ export function sellTownProduct(current: CareerProfile, productId: string) {
 
 /** Service and Patrol Captains share the faction's canonical T4 mounted profile. */
 export function townActorCaptainProfile(faction: CharacterFaction, spec: TownActorSpec) {
-  if (spec.role === 'captain') return townCaptainProfile(faction)
+  if (spec.role === 'captain' || spec.role === 'hr-officer') return townCaptainProfile(faction)
   if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
   return undefined
 }

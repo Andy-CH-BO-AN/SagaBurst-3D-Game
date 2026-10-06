@@ -1,3 +1,4 @@
+import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
@@ -71,6 +72,7 @@ export interface CareerProfile {
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
   starterWeaponId?: string
   townDialogueSeen?: string[]
+  personalSquad?: { members: CareerPersonalSquadMember[] }
   /** Legacy purchases; any owned tier grants the single military horse. */
   ownedHorseTiers?: (1 | 2 | 3)[]
   selectedMountId?: CareerMountId
@@ -398,6 +400,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
     skills: normalizeSkillState(profile.skills),
+    ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member })) } } : {}),
     ...(profile.activeOutpostMission ? { activeOutpostMission: { ...profile.activeOutpostMission } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
     ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit } })) } : {}),

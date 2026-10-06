@@ -1,3 +1,4 @@
+import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
@@ -332,6 +333,8 @@ function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
+  let personalSquad: CareerProfile['personalSquad']
+  try { personalSquad = parsePersonalSquad(raw.personalSquad) } catch { return null }
 
   if (raw.version !== 1) return null
   if (raw.faction !== 'roman' && raw.faction !== 'viking') return null
@@ -371,6 +374,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
+    ...(personalSquad ? { personalSquad } : {}),
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
     ...(equipment ? { equipment: {
@@ -381,7 +385,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
       ? { starterWeaponId: raw.starterWeaponId } : {}),
     ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
-    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|cat|captain|deployment|soldier-outpost)$/.test(key)) } : {}),
+    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(activeMission ? { activeMission } : {}),
