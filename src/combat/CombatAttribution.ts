@@ -18,6 +18,8 @@ export interface CombatActorRef {
   presetId?: UnitPresetId
   squadId?: SquadIdentity
   ownership?: 'player-personal'
+  /** Riding state when this source reference was captured, including melee hit time. */
+  isMounted?: boolean
 }
 
 export interface CombatTargetRef {
@@ -106,6 +108,7 @@ export function createPlayerCombatActorRef(player: Player): CombatActorRef {
     actorType: 'player',
     allegiance: 'PLAYER' as Faction,
     characterFaction: player.characterFaction,
+    isMounted: player.isMounted,
   }
 }
 
@@ -118,6 +121,7 @@ export function createNpcCombatActorRef(npc: NPC): CombatActorRef {
     presetId: npc.presetId,
     squadId: npc.squadId,
     ...(npc.combatOwnership ? { ownership: npc.combatOwnership } : {}),
+    isMounted: npc.isMounted,
   }
 }
 

@@ -272,7 +272,7 @@ export function resolveUnitLoadout(presetId: UnitPresetId, tier: BaseUnitTier): 
  * Returns dynamic UI description for a trait, pulling authoritative gameplay values from CombatBalance.
  * Never hardcodes multipliers or distances.
  */
-export function getTraitDescription(trait: UnitPresetTrait): string {
+export function getTraitDescription(trait: UnitPresetTrait, faction: CharacterFaction): string {
   switch (trait) {
     case 'berserker':
       return `諾德狂戰士（移速 ×${COMBAT_BALANCE.berserker.moveSpeedMultiplier}、傷害 ×${COMBAT_BALANCE.berserker.meleeDamageMultiplier}、攻擊頻率 ×${COMBAT_BALANCE.berserker.meleeAttackRateMultiplier}）`
@@ -284,7 +284,9 @@ export function getTraitDescription(trait: UnitPresetTrait): string {
       return `弓箭射擊（傷害 ×${COMBAT_BALANCE.bow.damageMultiplier}、射速 ×${COMBAT_BALANCE.bow.attackRateMultiplier}、徒步射程 ${COMBAT_BALANCE.bow.footAttackRange}m / 騎乘 ${COMBAT_BALANCE.bow.mountedAttackRange}m）`
     case 'javelin_throw':
       return `標槍投擲（傷害 ×${COMBAT_BALANCE.javelin.damageMultiplier}、射速 ×${COMBAT_BALANCE.javelin.attackRateMultiplier}、徒步射程 ${COMBAT_BALANCE.javelin.footAttackRange}m / 騎乘 ${COMBAT_BALANCE.javelin.mountedAttackRange}m）`
-    case 'shield_defense':
-      return `盾面格擋（衝擊耐久：T1 ${ARMORS.round_shield_t1.shieldImpactMax}、T2 ${ARMORS.round_shield_t2.shieldImpactMax}、T3 ${ARMORS.round_shield_t3.shieldImpactMax}；無全身減傷）`
+    case 'shield_defense': {
+      const shield = faction === 'roman' ? 'scutum' : 'round_shield'
+      return `盾面格擋（衝擊耐久：T1 ${ARMORS[`${shield}_t1`].shieldImpactMax}、T2 ${ARMORS[`${shield}_t2`].shieldImpactMax}、T3 ${ARMORS[`${shield}_t3`].shieldImpactMax}；無全身減傷）`
+    }
   }
 }
