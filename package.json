@@ -52,8 +52,12 @@
           ]
         }
       ],
-      "identity": null,
-      "artifactName": "SagaBurst-v${version}-macOS-${arch}.${ext}"
+      "identity": "-",
+      "artifactName": "SagaBurst-v${version}-macOS-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "extraDistFiles": [
+        "MACOS-FIRST-LAUNCH.txt"
+      ]
     },
     "win": {
       "target": [
