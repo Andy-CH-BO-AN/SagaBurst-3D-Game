@@ -142,6 +142,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
     const captain = rescue.find(npc => npc.name === 'Captain')!
     expect(captain.combatPosition.distanceTo(breach)).toBeGreaterThan(50)
     const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
       careerStore: store, careerProfile: profile, defenseCampaignConfig: config, _showNotify: vi.fn(),
       careerVeteranActorMounts: new Map(),
     }) as { _persistCareerReliefCharge: () => void; careerProfile: CareerProfile }
@@ -253,6 +254,7 @@ describe('Relief result and Game integration', () => {
     const config = createCareerOutpostLaunch(profile)
     let enemies = 60, allies = 49
     const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
       reliefMarch: { update: vi.fn() }, careerStore: store, careerProfile: profile, careerMeritAwarded: 0,

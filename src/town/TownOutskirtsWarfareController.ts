@@ -1,3 +1,4 @@
+import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
 import { followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FollowTrail } from '../battle/FollowTrail'
@@ -17,7 +18,7 @@ import {
   outskirtsEnabled, outskirtsSquadSpecs, type OutskirtsSquadSpec,
 } from './TownOutskirtsRules'
 
-export type OutskirtsSquadState = 'PATROLLING' | 'ENGAGING' | 'REGROUPING' | 'ENTERING' | 'RESPAWN_COOLDOWN' | 'SIEGE_OWNED'
+export type OutskirtsSquadState = 'SPAWNING' | 'PATROLLING' | 'ENGAGING' | 'REGROUPING' | 'ENTERING' | 'RESPAWN_COOLDOWN' | 'SIEGE_OWNED'
 export interface OutskirtsSquad {
   readonly id: string
   readonly spec: OutskirtsSquadSpec
@@ -53,6 +54,9 @@ export class TownOutskirtsWarfareController {
   private readonly nearby: NPC[] = []
   private readonly anchor = { position: new THREE.Vector3(), yaw: 0 }
   private enabled = false
+  private spawnFailure?: NpcSpawnBatch
+  private readonly spawnBatches = new Map<string, NpcSpawnBatch>()
+  get batches(): readonly NpcSpawnBatch[] { return [...this.spawnBatches.values(), ...(this.spawnFailure ? [this.spawnFailure] : [])] }
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -62,6 +66,7 @@ export class TownOutskirtsWarfareController {
     private readonly navigation: NavigationWorld,
     private readonly factories?: OutskirtsFactories,
     private readonly siegeClaimedSquads: readonly string[] = [],
+    private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
   ) {
     this.synchronizeRank()
   }
@@ -79,7 +84,9 @@ export class TownOutskirtsWarfareController {
     return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
   }
 
+  private disposed = false
   synchronizeRank(): void {
+    if (this.disposed || this.spawnFailure) return
     const enabled = outskirtsEnabled(this.readProfile())
     if (enabled === this.enabled) return
     this.enabled = enabled
@@ -99,14 +106,14 @@ export class TownOutskirtsWarfareController {
   prepareFrame(dt: number, participants: readonly NPC[], player: Player): void {
     if (!this.enabled) return
     for (const squad of this.squads) {
-      if (squad.state === 'SIEGE_OWNED') continue
+      if (squad.state === 'SIEGE_OWNED' || this.spawnBatches.get(squad.id)?.status === 'pending' || this.spawnBatches.get(squad.id)?.status === 'failed') continue
       if (squad.state === 'RESPAWN_COOLDOWN') {
         squad.respawnRemaining = Math.max(0, (squad.respawnRemaining ?? 60) - Math.max(0, dt))
         if (squad.respawnRemaining > 0) continue
         squad.generation++
         this.spawnSquad(squad, true)
       }
-      if (squad.members.every(member => member.dead)) {
+      if (squad.members.length > 0 && squad.members.every(member => member.dead)) {
         if (squad.spec.kind === 'bandit') {
           squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
           continue
@@ -127,7 +134,7 @@ export class TownOutskirtsWarfareController {
     // Include newly reinforced members even if the caller built its participant list before this frame.
     for (const actor of this.allActors) if (!actor.dead) this.grid.insert(actor)
     for (const squad of this.squads) {
-      if (squad.state === 'SIEGE_OWNED' || squad.state === 'RESPAWN_COOLDOWN') continue
+      if (squad.state === 'SPAWNING' || squad.state === 'SIEGE_OWNED' || squad.state === 'RESPAWN_COOLDOWN') continue
       squad.sensorRemaining -= Math.max(0, dt)
       const sense = squad.sensorRemaining <= 0
       if (sense) squad.sensorRemaining = OUTSKIRTS_SENSOR_INTERVAL
@@ -142,14 +149,14 @@ export class TownOutskirtsWarfareController {
   /** Effective hit callbacks wake the whole squad; allied cavalry keeps mission-friendly Player protection. */
   noteHit(target: NPC, playerSource: boolean): void {
     const squad = this.squadForActor.get(target)
-    if (!squad || !squad.members.includes(target)) return
+    if (!squad || this.spawnBatches.get(squad.id)?.status === 'pending' || !squad.members.includes(target)) return
     if (playerSource && target.faction === Faction.TOWN) return
     this.alertSquad(squad, playerSource)
   }
 
   updateTravel(npc: NPC, dt: number, cameraPosition: THREE.Vector3): void {
     const squad = this.squadForActor.get(npc), leader = squad?.leader
-    if (!squad || !leader || npc.dead || squad.state === 'ENGAGING') return
+    if (!squad || squad.state === 'SPAWNING' || !leader || npc.dead || squad.state === 'ENGAGING') return
     const speed = leader.isMounted ? OUTSKIRTS_CAVALRY_SPEED : OUTSKIRTS_FOOT_SPEED
     const isLeader = npc === leader
     if (isLeader) {
@@ -171,7 +178,7 @@ export class TownOutskirtsWarfareController {
     if (isLeader) squad.trail.record(npc.combatPosition)
   }
 
-  dispose(): void { this.enabled = false; this.clearEntities() }
+  dispose(): void { this.disposed = true; this.enabled = false; this.clearEntities() }
 
   /** Transfer both command and lifetime ownership, including the original rider/mount objects. */
   claimCavalryForSiege(attackingFaction: CharacterFaction): { actors: NPC[]; mounts: Mount[]; squadIds: string[] } {
@@ -179,6 +186,7 @@ export class TownOutskirtsWarfareController {
     if (outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).characterFaction !== attackingFaction) return result
     for (const squad of this.squads) {
       if (squad.spec.kind !== 'cavalry' || squad.state === 'SIEGE_OWNED') continue
+      this.spawnBatches.get(squad.id)?.cancel()
       squad.state = 'SIEGE_OWNED'; squad.commandedWaypoint = null; squad.leader = null
       result.squadIds.push(squad.id)
       for (const npc of squad.members) {
@@ -201,6 +209,7 @@ export class TownOutskirtsWarfareController {
   }
 
   releaseSiegeOwnership(): void {
+    if (this.disposed || this.spawnFailure) return
     for (const squad of this.squads) if (squad.state === 'SIEGE_OWNED') {
       squad.generation++
       this.spawnSquad(squad, true)
@@ -283,6 +292,10 @@ export class TownOutskirtsWarfareController {
     const next = edge ? goal : squad.route[(squad.waypoint + 1) % squad.route.length]
     const yaw = Math.atan2(next.x - origin.x, next.z - origin.z)
     const occupied: THREE.Vector3[] = []
+    this.spawnBatches.get(squad.id)?.cancel()
+    const batch = this.scheduler.batch(() => { this.clearEntities(); this.enabled = false; this.spawnFailure = batch })
+    this.spawnBatches.set(squad.id, batch)
+    squad.state = 'SPAWNING'; squad.leader = null
     squad.members = []
     for (let index = 0; index < squad.spec.size; index++) {
       const nominal = edge ? this.edgeSlot(squad.spec.edge, index, cavalry)
@@ -296,28 +309,34 @@ export class TownOutskirtsWarfareController {
         aiType: AIType.MELEE, name: cavalry ? army.characterFaction === 'roman' ? 'Sword Cavalry' : 'Axe Cavalry' : 'Bandit',
         tier: cavalry ? 2 : 1, cavalry, respawnEnabled: false,
         loadout: cavalry ? army.loadout : BANDIT_LOADOUT, presetId: cavalry ? army.presetId : undefined }
-      const npc = this.factories?.createNpc(spec) ?? new NPC(this.scene, point.x, point.z, spec.faction,
-        spec.characterFaction, spec.aiType, spec.name, spec.tier, cavalry, spec.loadout, spec.presetId,
-        undefined, actorId)
-      npc.respawnEnabled = false
-      npc.group.rotation.y = yaw
-      if (cavalry) {
-        const mount = this.factories?.createMount(point.x, point.z) ?? new Mount(this.scene, MountType.HORSE, point.x, point.z)
-        mount.group.rotation.y = yaw
-        npc.mountVehicle(mount)
-        this.allMounts.push(mount)
-        squad.mounts.push(mount)
-      }
-      npc.configureBanditEncounter(npc.combatPosition, [npc.combatPosition], OUTSKIRTS_ENCOUNTER_LEASH)
-      this.allActors.push(npc)
-      this.squadForActor.set(npc, squad)
-      squad.members.push(npc)
+      batch.enqueue(actorId, () => {
+        const npc = this.factories?.createNpc(spec) ?? new NPC(this.scene, point.x, point.z, spec.faction,
+          spec.characterFaction, spec.aiType, spec.name, spec.tier, cavalry, spec.loadout, spec.presetId,
+          undefined, actorId)
+        trackNpcSpawn(npc)
+        npc.respawnEnabled = false
+        npc.group.rotation.y = yaw
+        if (cavalry) {
+          const mount = this.factories?.createMount(point.x, point.z) ?? new Mount(this.scene, MountType.HORSE, point.x, point.z)
+          trackNpcSpawn(mount)
+          mount.group.rotation.y = yaw
+          npc.mountVehicle(mount)
+          this.allMounts.push(mount)
+          squad.mounts.push(mount)
+        }
+        npc.configureBanditEncounter(npc.combatPosition, [npc.combatPosition], OUTSKIRTS_ENCOUNTER_LEASH)
+        this.allActors.push(npc)
+        this.squadForActor.set(npc, squad)
+        squad.members.push(npc)
+      })
     }
-    squad.leader = squad.members[0]
-    squad.state = edge ? 'ENTERING' : 'PATROLLING'
-    squad.engagementOrigin = null
-    squad.commandedWaypoint = null
-    squad.trail.reset(squad.leader.combatPosition, yaw)
+    batch.seal(() => {
+      squad.leader = squad.members[0]
+      squad.state = edge ? 'ENTERING' : 'PATROLLING'
+      squad.engagementOrigin = null
+      squad.commandedWaypoint = null
+      squad.trail.reset(squad.leader.combatPosition, yaw)
+    })
   }
 
   private nearestWaypoint(squad: OutskirtsSquad, position: THREE.Vector3): number {
@@ -374,6 +393,8 @@ export class TownOutskirtsWarfareController {
   }
 
   private clearEntities(): void {
+    for (const batch of this.spawnBatches.values()) batch.cancel()
+    this.spawnBatches.clear()
     for (const npc of this.allActors) npc.dispose()
     for (const mount of this.allMounts) mount.dispose()
     this.allActors.length = 0; this.allMounts.length = 0; this.squads.length = 0

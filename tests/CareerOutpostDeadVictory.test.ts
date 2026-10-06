@@ -35,6 +35,7 @@ describe('Outpost defense victory after player death', () => {
     }
     let enemies = 40
     const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
       defenseCampaignConfig: config,
       defenseCampaignRuntime: new DefenseCampaignRuntime({ ...capabilities, deploymentSeconds: config.deploymentSeconds }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn() },

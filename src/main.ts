@@ -61,7 +61,7 @@ async function launchGame(
   try {
     // Let the overlay paint before cached assets lead into synchronous scene creation.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    ;(window as any).game = await Game.create(container!, battleConfig, campaignConfig)
+    ;(window as any).game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text })
     loading.remove()
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))

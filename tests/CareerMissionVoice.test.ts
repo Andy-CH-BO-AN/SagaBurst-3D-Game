@@ -161,12 +161,15 @@ describe('Career mission voice events', () => {
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
   })
 
-  it.each(['MARCHING', 'PREPARING'])('restores %s without replaying opening speech or alarm', phase => {
+  it.each(['MARCHING', 'PREPARING'])('restores %s without replaying opening speech or alarm', async phase => {
     const town = townHarness()
     town.profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     town.profile.activeMission.phase = phase
     town.profile.activeMission.kind = phase === 'PREPARING' ? 'town-defense' : 'bandit'
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     expect((phase === 'PREPARING' ? town.defense : town.mission).startActiveMission).toHaveBeenCalledOnce()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()

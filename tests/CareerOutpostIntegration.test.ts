@@ -18,6 +18,7 @@ function harness(career = true) {
   if (!career) { delete config.capabilities; delete config.careerMissionId }
   const snapshot = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }, squads: [] }
   const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
     defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
     careerStore: store, careerProfile: profile, careerMeritAwarded: 0,

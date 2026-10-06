@@ -1,3 +1,4 @@
+import { completeNpcDeployment } from './helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
@@ -260,7 +261,7 @@ describe('Mission identity, attribution and claim', () => {
     const template = RECRUIT_MISSION_CATALOG.find(mission => mission.id === 'recruit-patrol-01') as any
     const objectives = controller.patrolWaypoints(template, controller.camps[0].center)
 
-    expect(controller.startActiveMission()).toBe(true)
+    expect(completeNpcDeployment(() => controller.startActiveMission())).toBe(true)
     expect(buildRoute).toHaveBeenCalledOnce()
     expect(buildRoute.mock.calls[0][0]).toEqual(objectives[0])
     expect(buildRoute.mock.calls[0][1]).toEqual(objectives[1])

@@ -1,13 +1,16 @@
+import { advanceNpcFrame } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Game } from '../src/Game'
 import { createCampaignOutpost } from '../src/campaign/CampaignOutpost'
 
+const cleanup: (() => void)[] = []
 function setup(faction: 'roman' | 'viking' = 'roman') {
   const outpost = createCampaignOutpost(new THREE.Scene(), faction)
   const away = new THREE.Vector3(0, 0, 140 * (faction === 'roman' ? -1 : 1))
   // Exercise the real keyboard/spawn methods without constructing a WebGL game.
   const game = Object.assign(Object.create(Game.prototype), {
+    spawnBatches: [], initializing: false, spawningStopped: false,
     previewCampaignGate: outpost.gateController,
     defenseCampaignConfig: { defenderFaction: faction },
     campaignAttackersStarted: false,
@@ -18,7 +21,7 @@ function setup(faction: 'roman' | 'viking' = 'roman') {
     player: { dead: false, combatPosition: away.clone() },
     equipmentUI: { visible: false },
     npcs: [],
-    mounts: [],
+    mounts: [], careerVeteranActorMounts: new Map(),
     _showNotify: vi.fn(),
   })
   game._spawnNpc = vi.fn(() => {
@@ -26,16 +29,18 @@ function setup(faction: 'roman' | 'viking' = 'roman') {
     game.npcs.push(npc)
     return npc
   })
+  game._enqueueDefenseCampaignRemainder()
   let keydown: (event: unknown) => void = () => {}
   vi.stubGlobal('window', {
     addEventListener: (_type: string, listener: typeof keydown) => { keydown = listener },
   })
   game._setupShortcuts()
+  cleanup.push(() => game.spawnBatches.forEach((batch: any) => batch.cancel()))
   const pressG = (repeat = false) => keydown({ code: 'KeyG', repeat, preventDefault: vi.fn() })
   return { game, outpost, pressG }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { cleanup.splice(0).forEach(dispose => dispose()); vi.unstubAllGlobals() })
 
 describe('campaign defender gate input', () => {
   it.each(['roman', 'viking'] as const)('unlocks %s G input on the first actual attacker spawn', faction => {
@@ -44,7 +49,7 @@ describe('campaign defender gate input', () => {
     pressG()
     expect(gate.state).toBe('closed')
     expect(outpost.breachController.breached).toBe(false)
-    game._spawnNextDefenseCampaignNpc()
+    advanceNpcFrame()
     expect(game.campaignSpawnQueueIndex).toBe(1)
     expect(game.campaignSpawnWave).toBe('attackers')
     pressG()
@@ -62,14 +67,17 @@ describe('campaign defender gate input', () => {
   it('does not unlock when spawn throws before creating an attacker', () => {
     const { game, pressG, outpost } = setup()
     game._spawnNpc.mockImplementation(() => { throw new Error('spawn failed') })
-    expect(() => game._spawnNextDefenseCampaignNpc()).toThrow('spawn failed')
+    advanceNpcFrame()
+    expect(game.campaignSpawnBatch.status).toBe('failed')
+    expect(game.campaignSpawnBatch.error).toEqual(new Error('spawn failed'))
+    expect(game.campaignSpawnQueueIndex).toBe(0)
     pressG()
     expect(outpost.gateController.state).toBe('closed')
   })
 
   it.each(['player', 'npc', 'mount'])('cannot close the gate through a living %s', actor => {
     const { game, outpost, pressG } = setup()
-    game._spawnNextDefenseCampaignNpc()
+    advanceNpcFrame()
     pressG()
     const position = outpost.gateController.collisionBox.getCenter(new THREE.Vector3())
     if (actor === 'player') game.player.combatPosition.copy(position)
@@ -82,7 +90,7 @@ describe('campaign defender gate input', () => {
 
   it('ignores held keys, equipment menus, dead players and spectators', () => {
     const { game, outpost, pressG } = setup()
-    game._spawnNextDefenseCampaignNpc()
+    advanceNpcFrame()
     pressG(true)
     expect(outpost.gateController.state).toBe('closed')
     game.equipmentUI.visible = true
@@ -100,7 +108,7 @@ describe('campaign defender gate input', () => {
 
   it('never restores a destroyed gate with G', () => {
     const { game, outpost, pressG } = setup()
-    game._spawnNextDefenseCampaignNpc()
+    advanceNpcFrame()
     outpost.gate.destroy()
     pressG()
     expect(outpost.gateController.state).toBe('destroyed')

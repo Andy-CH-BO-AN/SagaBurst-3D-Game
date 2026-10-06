@@ -1,3 +1,4 @@
+import { advanceNpcFrame, completeNpcDeployment } from './helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -19,6 +20,13 @@ import { TownScene } from '../src/town/TownScene'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { installBlackCatTestAsset } from './helpers/blackCatAsset'
 
+const npcConstruction = vi.hoisted(() => ({ count: 0 }))
+vi.mock('../src/world/NPC', async original => {
+  const actual = await original<typeof import('../src/world/NPC')>()
+  return { ...actual, NPC: class extends actual.NPC {
+    constructor(...args: ConstructorParameters<typeof actual.NPC>) { super(...args); npcConstruction.count++ }
+  } }
+})
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: { ready: true, createInstance: () => {
   const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
   return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null, setLocomotion: vi.fn(), setAppearanceVariant: vi.fn(), playOnce: vi.fn(), playDeath: vi.fn(), update: vi.fn(), dispose: vi.fn() }
@@ -32,7 +40,7 @@ beforeAll(async () => { await installBlackCatTestAsset(); await installCorgiTest
 afterEach(() => vi.unstubAllGlobals())
 
 function ready() { return { ...createCareerProfile('roman'), ownedHorseTiers: [1] as (1 | 2 | 3)[] } }
-function fixture(garrisonCount = 0, joinAssembly = true) {
+function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
   const scene = new THREE.Scene(), roster = createSweepRoster('roman')
   const townSpecs = townRoster(), cavalrySpecs = townSpecs.filter(spec => spec.role.includes('cavalry'))
   const residents = Array.from({ length: garrisonCount }, (_, index) => {
@@ -58,7 +66,7 @@ function fixture(garrisonCount = 0, joinAssembly = true) {
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null, veteranFieldFactories: {},
   })
-  controller.startActiveMission()
+  if (!deferStart) completeNpcDeployment(() => controller.startActiveMission())
   const assemble = (joinPlayer = true) => {
     for (let stage = 0; stage < 2 && profile.activeMission?.phase === 'ASSEMBLING'; stage++) {
       for (const npc of controller.friendlies) {
@@ -71,7 +79,7 @@ function fixture(garrisonCount = 0, joinAssembly = true) {
     }
   }
   if (joinAssembly) assemble()
-  return { controller, player, residents, assemble, profile: () => profile, reload: () => { profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; controller.startActiveMission() } }
+  return { controller, player, residents, assemble, profile: () => profile, reload: () => { controller.dispose(); profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; completeNpcDeployment(() => controller.startActiveMission()) } }
 }
 
 describe('Cavalry Sweep eligibility', () => {
@@ -140,7 +148,8 @@ describe('Sweep runtime and checkpoint', () => {
     expect(ids[29]).toBe(maki.npc.combatantId)
     expect(ids.filter(Boolean)).toHaveLength(21)
     expect(new Set(ids.filter(Boolean)).size).toBe(21)
-    f.controller.startActiveMission()
+    f.controller.disposeMissionEntities()
+    completeNpcDeployment(() => f.controller.startActiveMission())
     expect(maki.npc.mount).toBe(maki.homeMount)
     expect(f.controller.friendlies[29]).toBe(maki.npc)
     expect(f.controller.temporaryCavalry.some(({ npc }: { npc: NPC }) => npc.name === 'Captain' || npc.name === 'Maki')).toBe(false)
@@ -154,7 +163,7 @@ describe('Sweep runtime and checkpoint', () => {
     const original = { weapon: rider.meleeWeaponId, ranged: rider.rangedWeaponId, shield: rider.shieldId, tier: rider.tier, squad: rider.squadId }
     const equip = vi.spyOn(rider, 'applyTemporaryCombatLoadout')
     rider.respawnEnabled = true
-    c.startActiveMission()
+    completeNpcDeployment(() => c.startActiveMission())
     expect(equip).toHaveBeenCalledWith(expect.objectContaining({ meleeWeaponId: expect.any(String) }), undefined, 1)
     expect(rider.meleeWeaponId).not.toBe(original.weapon)
     expect(rider.tier).toBe(original.tier)
@@ -295,7 +304,7 @@ describe('Sweep runtime and checkpoint', () => {
     const borrowed = f.residents.map(resident => resident.npc)
     const temporary = [...c.temporaryCavalry]
     c.commit(clearCareerMission(f.profile(), 'sweep'))
-    c.cleanupMission(0, true)
+    completeNpcDeployment(() => c.cleanupMission(0, true))
     expect(c.missionBandits).toHaveLength(0); expect(c.ambientBandits).toHaveLength(2)
     expect(c.friendlies).toHaveLength(0); expect(c.departingNpcs).toHaveLength(38)
     expect(temporary.every(rider => rider.npc.group.parent === c.scene && rider.npc.tacticalOrder === 'formation')).toBe(true)
@@ -461,5 +470,28 @@ describe('Sweep runtime and checkpoint', () => {
     march.update(); march.update()
     expect(march.hasCharged).toBe(true); expect(voice).toHaveBeenCalledOnce()
     expect(roster.every(n => n.setTacticalOrder.mock.calls.length === 1)).toBe(true)
+  })
+})
+
+
+describe('Sweep actual constructor frame budget', () => {
+  it('queues forty enemies and fifty-six missing riders, reuses three Town actors and delays departure readiness', () => {
+    const h = fixture(3, false, true), before = npcConstruction.count
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(npcConstruction.count).toBe(before)
+    for (let i = 1; i <= 96; i++) {
+      advanceNpcFrame(); expect(npcConstruction.count - before).toBe(i)
+      if (i < 96) {
+        expect(h.controller.ready).toBe(false); h.controller.updateFlow(100, 0)
+        expect(h.profile().activeMission!.phase).toBe('ASSEMBLING')
+        expect(h.controller.evaluate(true)).toBeNull()
+      }
+    }
+    expect(h.controller.ready).toBe(true); expect(h.controller.friendlies).toHaveLength(59)
+    expect(h.controller.missionBandits).toHaveLength(40)
+    h.residents.forEach(r => expect(h.controller.friendlies).toContain(r.npc))
+    expect(h.controller.friendlies.every((npc: NPC) => npc.mount?.riderNpc === npc)).toBe(true)
+    h.controller.dispose(); h.residents.forEach(r => { r.npc.dispose(); r.homeMount.dispose() })
   })
 })

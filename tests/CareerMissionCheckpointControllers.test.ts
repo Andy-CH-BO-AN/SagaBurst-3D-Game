@@ -1,3 +1,4 @@
+import { completeNpcDeployment } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../src/career/BanditMissionController'
@@ -48,7 +49,7 @@ function banditFixture(path: { x: number; z: number }[] = [], phase: 'RETURNING'
   const controller = new BanditMissionController(new THREE.Scene(), world, navigation, captain,
     [{ spec: { id: 'captain', role: 'captain' } as TownActorSpec, npc: captain }], () => player, owner.read, owner.commit)
   controller.camps.push({ id: 0, center: new THREE.Vector3(200, 0, -200), ambient: [], mission: [] })
-  expect(controller.startActiveMission()).toBe(true)
+  expect(completeNpcDeployment(() => controller.startActiveMission())).toBe(true)
   if (phase === 'RETURNING') captain.group.position.set(500, 0, 500)
   const damage = (amount: number) => controller.events.emit({ type: 'damage_applied',
     source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
@@ -87,7 +88,7 @@ describe('constructed controller checkpoint wiring', () => {
     h.read().activeMission = { ...mission, phase: 'RETURNING', routeStage: 0, playerStats: zeroStats(),
       deadTargetActorIds: [...mission.targetActorIds],
     }
-    expect(h.controller.startActiveMission()).toBe(true)
+    expect(completeNpcDeployment(() => h.controller.startActiveMission())).toBe(true)
     h.captain.group.position.set(500, 0, 500)
     h.damage(100)
     h.controller.updateFlow(.01, 0)

@@ -1,3 +1,4 @@
+import { completeNpcDeployment } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController, VETERAN_FIELD_LAYOUT } from '../src/career/BanditMissionController'
@@ -102,7 +103,7 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
     resident.npc.takeDamage(999999)
   }
   if (options.reserveCaptainA) patrol.relinquish('town-patrol:a:captain')
-  const accept = () => town.acceptVeteranCareerMission('veteran-scout-hunters')
+  const accept = () => completeNpcDeployment(() => town.acceptVeteranCareerMission('veteran-scout-hunters'))
   return { scene, world, navigation, residents, patrol, mission, player, town, borrow, commit, stepPatrol, accept,
     profile: () => profile }
 }
@@ -165,7 +166,7 @@ describe('Town cavalry mission and Patrol integration', () => {
     }
     expect(f.residents).toHaveLength(224)
     f.player.group.position.set(-220, 0, 200)
-    f.town.acceptMission(CAVALRY_SWEEP_ID)
+    completeNpcDeployment(() => f.town.acceptMission(CAVALRY_SWEEP_ID))
     expect(f.town.openPanel).not.toHaveBeenCalled()
     expect(f.mission.friendlies).toHaveLength(59)
     expect(f.profile().activeMission!.borrowedActorIds).toHaveLength(59)
@@ -271,7 +272,7 @@ describe('Town cavalry mission and Patrol integration', () => {
     const positions = saved.activeMission!.actorPositions!
     const restored = fixture({ initial: saved })
     expect(restored.residents.filter(r => r.spec.duty === 'training' && !r.npc.dead)).toHaveLength(60)
-    expect(restored.mission.startActiveMission()).toBe(true)
+    expect(completeNpcDeployment(() => restored.mission.startActiveMission())).toBe(true)
     expect(restored.profile().activeMission!.friendlyActorIds).toEqual(ids)
     expect(restored.profile().activeMission!.borrowedActorIds).toEqual(borrowedIds)
     expect(restored.mission.friendlies).toHaveLength(99)

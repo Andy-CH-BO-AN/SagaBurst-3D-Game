@@ -79,12 +79,15 @@ describe('Town Duel acceptance and voices', () => {
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
     expect(town.duel.startActiveMission).not.toHaveBeenCalled()
   })
-  it('reload restores the duel controller without replaying Mission Accepted or Follow Me', () => {
+  it('reload restores the duel controller without replaying Mission Accepted or Follow Me', async () => {
     const town = harness()
     town.profile.activeMission = createCareerDuelMission(town.profile, 'roman_archer', 1, 'melee_0', 'captain')
     town.profile.activeMission.phase = 'PREPARING'; town.profile.activeMission.duelCountdownElapsed = 3.2
     town.careerMounts = { restoreActiveMount: vi.fn() }
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     expect(town.duel.startActiveMission).toHaveBeenCalledOnce()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
     expect(town.profile.activeMission.duelCountdownElapsed).toBe(3.2)

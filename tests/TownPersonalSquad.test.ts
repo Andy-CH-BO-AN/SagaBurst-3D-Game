@@ -1,3 +1,4 @@
+import { completeNpcDeployment } from './helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { initialPersonalEquipment } from '../src/career/CareerInventory'
 import * as THREE from 'three'
@@ -83,7 +84,7 @@ describe('HR Center and personal runtime', () => {
   it.each(['roman', 'viking'] as const)('spawns actual %s T2/T4 NPCs at HR and walks to a distant Player', faction => {
     const { controller, world, player, step } = harness(faction)
     expect(controller.actors).toHaveLength(0); expect(controller.state).toBe('RESERVE')
-    controller.follow(); expect(controller.state).toBe('DEPLOYING')
+    completeNpcDeployment(() => controller.follow()); expect(controller.state).toBe('DEPLOYING')
     const original = [...controller.actors]
     for (const [index, npc] of original.entries()) {
       expect(npc.combatantId).toBe(`personal:${index}`); expect(npc.combatOwnership).toBe('player-personal')
@@ -94,14 +95,14 @@ describe('HR Center and personal runtime', () => {
       expect(npc.mount?.type ?? null).toBe(index === 0 ? null : MountType.HORSE)
     }
     expect(original[2]).toMatchObject({ aiType: AIType.RANGED, specialCombatProfile: 'maki-ranger', combatProfileId: 'ranger', visualAssetId: 'maki-archer-t4' })
-    controller.follow(); expect(controller.actors).toEqual(original)
+    completeNpcDeployment(() => controller.follow()); expect(controller.actors).toEqual(original)
     step(1000)
     expect(controller.state).toBe('ACTIVE')
     for (const actor of controller.actors) expect(actor.combatPosition.distanceTo(player.combatPosition)).toBeLessThan(23)
     expect(controller.dismiss()).toBe(true); expect(controller.state).toBe('RETURNING')
     const commandIds = controller.actors.map(actor => actor.formationCommandId)
     expect(controller.dismiss()).toBe(false); expect(controller.actors.map(actor => actor.formationCommandId)).toEqual(commandIds)
-    step(30); controller.follow(); expect(controller.state).toBe('ACTIVE'); expect(controller.actors).toEqual(original)
+    step(30); completeNpcDeployment(() => controller.follow()); expect(controller.state).toBe('ACTIVE'); expect(controller.actors).toEqual(original)
     expect(controller.actors.every(actor => actor.activeFollowTarget === player)).toBe(true)
     controller.dismiss(); step(1200)
     expect(controller.state).toBe('RESERVE'); expect(controller.actors).toHaveLength(0)
@@ -109,27 +110,27 @@ describe('HR Center and personal runtime', () => {
   })
   it('preserves dead members until a full new deployment and refills HP, shield, arrows and horse', () => {
     const { controller, profile, step } = harness()
-    controller.follow()
+    completeNpcDeployment(() => controller.follow())
     const dead = controller.actors[0], captain = controller.actors[1], ranger = controller.actors[2]
     const shieldCapacity = captain.shield.shieldImpactRemaining
     dead.takeDamage(99999); captain.takeDamage(20); captain.mount!.takeDamage(20)
     captain.shield.absorb(100, 4); ranger.restoreCombatAmmo(0)
-    controller.follow(); step(10)
+    completeNpcDeployment(() => controller.follow()); step(10)
     expect(dead.dead).toBe(true); expect(controller.actors[0]).toBe(dead)
     expect(profile.personalSquad.members).toHaveLength(3)
     controller.dismiss(); step(1200); expect(controller.state).toBe('RESERVE')
-    controller.follow()
+    completeNpcDeployment(() => controller.follow())
     for (const actor of controller.actors) { expect(actor.dead).toBe(false); expect(actor.hpRatio).toBe(1); if (actor.mount) expect(actor.mount.currentHp).toBe(actor.mount.maxHp) }
     expect(controller.actors[1].shield.shieldImpactRemaining).toBe(shieldCapacity)
     expect(controller.actors[2].combatAmmo).toBe(30)
     controller.actors.forEach(actor => actor.takeDamage(99999)); controller.updateLifecycle()
     expect(controller.state).toBe('RESERVE'); expect(controller.actors).toHaveLength(0)
     expect(profile.personalSquad.members).toHaveLength(3)
-    controller.follow(); expect(controller.actors).toHaveLength(3)
+    completeNpcDeployment(() => controller.follow()); expect(controller.actors).toHaveLength(3)
   })
   it.each(['roman', 'viking'] as const)('holds %s personal Attack away from HR until Dismiss, including a targetless chase', faction => {
     const { controller, world, player, navigation, step } = harness(faction)
-    controller.follow(); step(1000)
+    completeNpcDeployment(() => controller.follow()); step(1000)
     const held = controller.actors.map(actor => actor.combatPosition.clone())
     for (const [index, actor] of controller.actors.entries()) {
       expect(held[index].distanceTo(new THREE.Vector3(world.hr.muster[index].x, held[index].y, world.hr.muster[index].z))).toBeGreaterThan(50)
@@ -161,7 +162,7 @@ describe('HR Center and personal runtime', () => {
     expect(switched.personalSquad).toEqual(profile.personalSquad)
     const rebuilt = new TownPersonalSquadController(scene, world.hr, () => switched, () => player)
     cleanups.push(() => rebuilt.cleanup())
-    controller.cleanup(); rebuilt.follow()
+    controller.cleanup(); completeNpcDeployment(() => rebuilt.follow())
     expect(rebuilt.actors.map(actor => actor.combatantId)).toEqual(profile.personalSquad.members.map(member => member.id))
     expect(rebuilt.actors.every(actor => actor.characterFaction === opposite && actor.faction === Faction.PLAYER)).toBe(true)
     expect(rebuilt.actors[0].presetId).toBe(`${opposite}_${opposite === 'roman' ? 'heavy_infantry' : 'berserker'}`)
@@ -175,25 +176,25 @@ describe('HR Center and personal runtime', () => {
     parsed.personalSquad!.members[1].equipment!.mount = null
     const snapshot = JSON.stringify(parsed.inventory)
     const runtime = new TownPersonalSquadController(scene, world.hr, () => parsed, () => player)
-    cleanups.push(() => runtime.cleanup()); runtime.follow()
+    cleanups.push(() => runtime.cleanup()); completeNpcDeployment(() => runtime.follow())
     expect(runtime.actors[0]).toMatchObject({ tier: 2, meleeWeaponId: 'heavy_lance', isUsingLance: true })
     expect(runtime.actors[1]).toMatchObject({ tier: 4, combatProfileId: 'praetorian', isMounted: false })
     runtime.actors.forEach(actor => actor.takeDamage(99999)); runtime.updateLifecycle(); expect(runtime.state).toBe('RESERVE')
     expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
-    runtime.follow(); runtime.dismiss(); runtime.cleanup(); expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
+    completeNpcDeployment(() => runtime.follow()); runtime.dismiss(); runtime.cleanup(); expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
     const loaded = parseCareerProfile(parsed)!; loaded.faction = 'viking'
     const reloaded = new TownPersonalSquadController(scene, world.hr, () => loaded, () => player)
-    cleanups.push(() => reloaded.cleanup()); reloaded.follow()
+    cleanups.push(() => reloaded.cleanup()); completeNpcDeployment(() => reloaded.follow())
     expect(reloaded.actors[0].meleeWeaponId).toBe('heavy_lance'); expect(reloaded.actors[0].tier).toBe(2)
     expect(JSON.stringify(loaded.inventory)).toBe(snapshot)
-    reloaded.cleanup(); loaded.personalSquad!.members = []; expect(reloaded.follow()).toBe(false)
+    reloaded.cleanup(); loaded.personalSquad!.members = []; expect(completeNpcDeployment(() => reloaded.follow())).toBe(false)
   })
   it('uses a real melee backup with a bow and stops ranged-only attacks close up or out of ammo', () => {
     const { scene, world, player } = harness()
     const make = (melee: string | null) => new TownPersonalSquadController(scene, world.hr, () => ({ ...createCareerProfile('roman'),
       personalSquad: { members: [{ id: 'personal:bow', type: 'soldier', equipment: { ...initialPersonalEquipment('soldier', 'roman'), melee, ranged: 'recurve_longbow', shield: null } }] } }), () => player)
     const backup = make('gladius_standard'), onlyBow = make(null); cleanups.push(() => backup.cleanup(), () => onlyBow.cleanup())
-    backup.follow(); onlyBow.follow()
+    completeNpcDeployment(() => backup.follow()); completeNpcDeployment(() => onlyBow.follow())
     const enemy = new NPC(scene, 0, 3, Faction.BANDIT, 'viking', AIType.MELEE, 'enemy', 2); cleanups.push(() => enemy.dispose())
     for (const actor of [backup.actors[0], onlyBow.actors[0]]) {
       actor.group.position.set(0, getTerrainHeight(0, 0), 0); actor.setTacticalOrder('attack'); actor.state = AIState.CHASE
@@ -210,7 +211,7 @@ describe('HR Center and personal runtime', () => {
     expect(onlyBow.dismiss()).toBe(true); expect(actor.tacticalOrder).toBe('formation')
   })
   it('keeps constructor patrol behavior for ordinary NPC Attack and still acquires hostiles for personal Attack', () => {
-    const { controller, scene, player } = harness(); controller.follow()
+    const { controller, scene, player } = harness(); completeNpcDeployment(() => controller.follow())
     const ordinary = new NPC(scene, 0, 0, Faction.PLAYER, 'roman', AIType.MELEE, 'ordinary', 2)
     const enemy = new NPC(scene, 0, 3, Faction.BANDIT, 'viking', AIType.MELEE, 'enemy', 2)
     cleanups.push(() => ordinary.dispose(), () => enemy.dispose())
@@ -224,19 +225,19 @@ describe('HR Center and personal runtime', () => {
   })
   it('reload resets thirty owned identities to reserve and mission start excludes deployment', () => {
     const { controller, world, scene, player, profile } = harness('roman', 30)
-    controller.follow(); expect(controller.actors).toHaveLength(30)
+    completeNpcDeployment(() => controller.follow()); expect(controller.actors).toHaveLength(30)
     const originalIds = controller.actors.map(actor => actor.combatantId)
     controller.cleanup()
     const reloaded = new TownPersonalSquadController(scene, world.hr, () => profile, () => player)
     cleanups.push(() => reloaded.cleanup())
     expect(reloaded.state).toBe('RESERVE'); expect(reloaded.actors).toHaveLength(0)
-    reloaded.follow(); expect(reloaded.actors.map(actor => actor.combatantId)).toEqual(originalIds)
+    completeNpcDeployment(() => reloaded.follow()); expect(reloaded.actors.map(actor => actor.combatantId)).toEqual(originalIds)
     reloaded.cleanup(); Object.assign(profile, { activeMission: { id: 'formal' } })
-    expect(reloaded.follow()).toBe(false); expect(reloaded.actors).toHaveLength(0)
+    expect(completeNpcDeployment(() => reloaded.follow())).toBe(false); expect(reloaded.actors).toHaveLength(0)
   })
   it('uses actual NPC target selection for Town peace and Player-side hostility', () => {
     const { scene, controller, player } = harness()
-    controller.follow()
+    completeNpcDeployment(() => controller.follow())
     const personal = controller.actors[1], resident = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'resident', 2)
     resident.setTownPeaceful(); cleanups.push(() => resident.dispose())
     expect(townWartimeHostile(personal, resident)).toBe(false); expect(townWartimeHostile(resident, personal)).toBe(false)
@@ -248,7 +249,7 @@ describe('HR Center and personal runtime', () => {
     expect(personal.hostileToPlayer).toBe(false)
   })
   it('integrates personal NPCs once into free-play combat and actual return travel, not mission roster', () => {
-    const { controller } = harness(); controller.follow()
+    const { controller } = harness(); completeNpcDeployment(() => controller.follow())
     for (const npc of controller.actors) { vi.spyOn(npc, 'update').mockImplementation(() => {}); vi.spyOn(npc, 'updateTownTravel').mockImplementation(() => {}) }
     const enemy = combatActor('bandit', Faction.BANDIT)
     const fixture = combatFixture({ simulation: { personalSquad: () => controller } })
@@ -261,7 +262,7 @@ describe('HR Center and personal runtime', () => {
     for (const npc of controller.actors) expect(npc.updateTownTravel).toHaveBeenCalledTimes(1)
   })
   it('updates private actors exactly once in formal Defense without applying official civilian orders', () => {
-    const { controller } = harness(); controller.follow()
+    const { controller } = harness(); completeNpcDeployment(() => controller.follow())
     for (const npc of controller.actors) vi.spyOn(npc, 'update').mockImplementation(() => {})
     const f = combatFixture({ simulation: { personalSquad: () => controller } })
     f.defense.active = { kind: 'town-defense', phase: 'ATTACKING' } as any; f.defense.phase = 'ATTACKING'
@@ -271,7 +272,7 @@ describe('HR Center and personal runtime', () => {
     for (const call of f.defense.updateCivilianOrder.mock.calls) expect(controller.actors).not.toContain(call[0])
   })
   it('binds an existing wounded party only after successfully saving a formal mission, preserving instances', () => {
-    const { controller, profile, player } = harness(); controller.follow()
+    const { controller, profile, player } = harness(); completeNpcDeployment(() => controller.follow())
     const town = Object.assign(createTownCombatFixture(), {
       profile, player, personalSquad: controller, personalCommands: { close: vi.fn() },
       personalCommandUI: { setEnabled: vi.fn() }, skills: { skillState: profile.skills },
@@ -292,7 +293,7 @@ describe('HR Center and personal runtime', () => {
     expect(town.personalCommands.close).toHaveBeenCalledOnce()
   })
   it.each(['melee', 'projectile', 'mount-impact'] as const)('does not award Player XP for personal %s damage or kills', method => {
-    const { controller, profile, player, scene } = harness(); controller.follow()
+    const { controller, profile, player, scene } = harness(); completeNpcDeployment(() => controller.follow())
     const enemy = new NPC(scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'bandit', 2)
     cleanups.push(() => enemy.dispose())
     const town = Object.assign(createTownCombatFixture(), {
@@ -308,7 +309,7 @@ describe('HR Center and personal runtime', () => {
     expect(town.mission.events.emit).toHaveBeenCalledWith(expect.objectContaining({ source: expect.objectContaining({ actorType: 'npc', actorId: 'personal:1' }) }))
   })
   it('retains actual private projectile attribution after the shooter dies and its runtime is disposed', () => {
-    const { controller, profile, player, scene } = harness(); controller.follow()
+    const { controller, profile, player, scene } = harness(); completeNpcDeployment(() => controller.follow())
     const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     mission.phase = 'ENGAGING'; mission.personalSquad = controller.captureForMission(snapshotPersonalMission(profile)!)
     const events = new CombatEventStream(), observed: unknown[] = []

@@ -25,6 +25,7 @@ export interface PersonalSquadMission {
   state: PersonalSquadState
   members: Record<string, PersonalActorCheckpoint>
   contribution: PersonalCombatContribution
+  pendingMemberIds?: string[]
   playerLastPosition?: PersonalActorPosition
 }
 
@@ -36,7 +37,7 @@ export function snapshotPersonalMission(profile: CareerProfile, sceneKey = 'town
 }
 
 export function clonePersonalMission(value: PersonalSquadMission): PersonalSquadMission {
-  return { ...value, memberIds: [...value.memberIds], contribution: { ...value.contribution },
+  return { ...value, ...(value.pendingMemberIds ? { pendingMemberIds: [...value.pendingMemberIds] } : {}), memberIds: [...value.memberIds], contribution: { ...value.contribution },
     ...(value.playerLastPosition ? { playerLastPosition: { ...value.playerLastPosition } } : {}),
     members: Object.fromEntries(Object.entries(value.members).map(([id, actor]) => [id, {
       ...actor, ...(actor.position ? { position: { ...actor.position } } : {}),
@@ -94,6 +95,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)
   return { squadId: PERSONAL_SQUAD_ID, memberIds: [...raw.memberIds], members, contribution,
+    ...(Array.isArray(raw.pendingMemberIds) ? { pendingMemberIds: raw.pendingMemberIds.filter(id => raw.memberIds!.includes(id) && members[id].status === 'reserve') } : {}),
     ...(position(raw.playerLastPosition) ? { playerLastPosition: position(raw.playerLastPosition) } : {}),
     sceneKey: typeof raw.sceneKey === 'string' ? raw.sceneKey : 'town-home',
     state: raw.state && ['RESERVE', 'DEPLOYING', 'ACTIVE', 'RETURNING'].includes(raw.state) ? raw.state : 'RESERVE' }

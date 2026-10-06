@@ -212,20 +212,23 @@ describe('Veteran field scene checkpoint presentation', () => {
     expect(town.mission.startActiveMission).not.toHaveBeenCalled()
   })
 
-  it('restores the scout Player beside the squad even at the initial assembling checkpoint', () => {
+  it('restores the scout Player beside the squad even at the initial assembling checkpoint', async () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = { id: 'scout-start', templateId: 'veteran-tragedy-of-the-scouts', kind: 'veteran-field', targetCampId: 0,
       phase: 'ASSEMBLING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 0 }
     const town = createTownCombatFixture() as any
     const player = { group: new THREE.Group(), faceDirection: vi.fn(), currentMount: null }
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn() }, inventory: { prepareForCombat: vi.fn() } })
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     const spawn = veteranPlayerSpawn('veteran-tragedy-of-the-scouts')
     expect(player.group.position.x).toBeCloseTo(spawn.x)
     expect(player.group.position.z).toBeCloseTo(spawn.z)
   })
 
-  it('restores Player and owned mount facing the shared field approach rather than the old Sweep heading', () => {
+  it('restores Player and owned mount facing the shared field approach rather than the old Sweep heading', async () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = { id: 'field-facing', templateId: 'veteran-scout-hunters', kind: 'veteran-field',
       targetCampId: 0, phase: 'MARCHING', targetActorIds: ['enemy'], friendlyActorIds: ['captain'], acceptedAt: 1 }
@@ -234,13 +237,16 @@ describe('Veteran field scene checkpoint presentation', () => {
     const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() },
       careerMounts: { restoreActiveMount: vi.fn(() => { player.currentMount = mount }) }, inventory: { prepareForCombat: vi.fn() } })
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     const yaw = veteranPlayerYaw('veteran-scout-hunters')
     expect(player.faceDirection).toHaveBeenCalledExactlyOnceWith(Math.sin(yaw), Math.cos(yaw))
     expect(mount.group.rotation.y).toBe(yaw)
   })
 
-  it('restores wounded player HP and stamina before continuing the saved battle', () => {
+  it('restores wounded player HP and stamina before continuing the saved battle', async () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = {
       id: 'wounded-veteran', templateId: 'veteran-scout-hunters', kind: 'veteran-field', targetCampId: 0, phase: 'ENGAGING',
@@ -249,7 +255,10 @@ describe('Veteran field scene checkpoint presentation', () => {
     const player = { group: new THREE.Group(), faceDirection: vi.fn(), setHp: vi.fn(), setStamina: vi.fn(), currentMount: null }
     const town = createTownCombatFixture() as any
     Object.assign(town, { profile, player, mission: { startActiveMission: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn() }, inventory: { prepareForCombat: vi.fn() } })
-    town.restoreActiveCareerMission()
+    town.mission.spawnBatches = []
+    town.defense ??= { spawnBatches: [] }
+    town.defense.spawnBatches = []
+    await town.restoreActiveCareerMission()
     expect(player.setHp).toHaveBeenCalledExactlyOnceWith(42)
     expect(player.setStamina).toHaveBeenCalledExactlyOnceWith(18)
   })
