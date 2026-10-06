@@ -28,14 +28,14 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
       container.append(empty)
     }
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
-      const card = document.createElement('article'); card.className = 'inventory-card inventory-wide'; card.dataset.memberId = member.id
+      const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
       const title = document.createElement('strong'); title.textContent = `${PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name} #${index + 1}`; card.append(title)
       const equipment = member.equipment ?? initialPersonalEquipment(member.type, profile.faction)
       if (member.type === 'ranger') {
         const fixed = document.createElement('p'); fixed.className = 'inv-item-desc'; fixed.textContent = 'Weapon: Ranger Bow · 固定\nShield: None · 固定'; fixed.style.whiteSpace = 'pre-line'; card.append(fixed)
       }
       for (const slot of (member.type === 'ranger' ? ['mount'] : ['melee', 'ranged', 'shield', 'mount']) as PersonalEquipmentSlot[]) {
-        const label = document.createElement('label'); label.className = 'inv-item-desc'; label.style.display = 'block'
+        const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
         label.textContent = ({ melee: '近戰 Melee', ranged: '遠程 Ranged', shield: '盾牌 Shield', mount: '坐騎 Mount' })[slot] + ': '
         const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`)
         const canRemove = slot !== 'melee' && slot !== 'ranged' || Boolean(equipment[slot === 'melee' ? 'ranged' : 'melee'])
