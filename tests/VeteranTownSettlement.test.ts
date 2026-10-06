@@ -34,6 +34,23 @@ function fixture(result = true, liveSkills?: CareerProfile['skills']) {
 }
 
 describe('Veteran field return through existing Career settlement', () => {
+  it('moves a dead player home on direct return during RETURNING while preserving the completed battle', () => {
+    const f = fixture()
+    f.profile().activeMission!.phase = 'RETURNING'
+    f.profile().activeMission!.playerDead = true
+    f.profile().activeMission!.result!.stats.survived = true
+    f.town.player.group.position.set(400, 1, 400)
+    const before = f.profile()
+
+    expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })
+    expect(f.profile().activeMission).toBeUndefined()
+    expect(f.profile().totalMerit).toBe(before.totalMerit)
+    expect(f.profile().lifetimeStats).toEqual(before.lifetimeStats)
+    expect(f.town.restPlayer).toHaveBeenCalledOnce()
+    expect(f.town.player.group.position.x).toBe(0)
+    expect(f.town.player.group.position.z).toBe(9)
+  })
+
   it.each(['failure', 'victory'] as const)('restores nonborrowed Town casualties and services after %s is cleared', outcome => {
     const f = fixture()
     f.profile().activeMission!.result!.outcome = outcome

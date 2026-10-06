@@ -2,6 +2,7 @@ import { MissionTravelEncounter } from '../src/career/MissionTravelEncounter'
 import { createTownCombatFixture } from './townCombatFixture'
 import { checkMountImpact } from '../src/combat/MountImpact'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
+import { createCareerDuelMission } from '../src/career/CareerDuelState'
 import { createCavalrySweepMission } from '../src/career/CavalrySweep'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -197,6 +198,55 @@ function townFixture() {
 }
 
 describe('Town mission death observer orchestration', () => {
+  it.each(['bandit', 'patrol', 'cavalry-sweep', 'veteran-field', 'duel'] as const)('directly returns after death during a completed %s return, including after reload', kind => {
+    const { town, player } = townFixture()
+    player.takeDamage(99999, town.hp)
+    if (kind === 'cavalry-sweep') town.profile.activeMission = createCavalrySweepMission('observer')
+    else if (kind === 'duel') town.profile.activeMission = createCareerDuelMission({ ...town.profile, activeMission: undefined }, 'roman_archer', 1, 'infantry', 'captain', 'observer')!
+    else if (kind === 'patrol') town.profile.activeMission = createActiveCareerMission('recruit-patrol-01', 0, 4, 0, 'observer', 'patrol', 'captain')
+    else if (kind === 'veteran-field') Object.assign(town.profile.activeMission, { kind, templateId: 'veteran-scout-hunters' })
+    town.profile = claimCareerMission(town.profile, 'observer', 'victory', {
+      damageDealt: 200, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true,
+    }).profile
+    town.profile.activeMission.phase = 'RETURNING'
+    town.profile.activeMission.playerDead = true
+    town.profile = parseCareerProfile(JSON.parse(JSON.stringify(town.profile)))!
+    const merit = town.profile.totalMerit
+    town.world = { obstacles: [] }
+    town.careerMounts = { activeMount: null }
+    town.resolveBodies = vi.fn()
+    town.interaction = vi.fn()
+    town.returnToTown = vi.fn(() => { town.disposed = true })
+
+    town.frame(16)
+
+    expect(town.returnToTown).toHaveBeenCalledExactlyOnceWith('direct')
+    expect(town.finishMission).not.toHaveBeenCalled()
+    expect(town.profile.totalMerit).toBe(merit)
+    expect(town.profile.activeMission.result.stats.survived).toBe(true)
+    expect(town.missionCombat.update).not.toHaveBeenCalled()
+    expect(town.renderer.render).not.toHaveBeenCalled()
+    player.dispose()
+  })
+
+  it('retries a failed direct return with the same intent so it still moves the player to town', () => {
+    const { town, player } = townFixture()
+    town.missionSettlement = { returnToTown: vi.fn()
+      .mockReturnValueOnce({ status: 'save-failed', destination: 'party' })
+      .mockReturnValueOnce({ status: 'returned', kind: 'sweep' }) }
+    town.openPanel = vi.fn(() => ({}))
+    town.button = vi.fn()
+    town.closePanel = vi.fn()
+
+    town.returnToTown('direct')
+    const retry = town.button.mock.calls[0][2]
+    retry()
+
+    expect(town.missionSettlement.returnToTown.mock.calls).toEqual([['direct'], ['direct']])
+    expect(town.missionResultOpen).toBe(false)
+    player.dispose()
+  })
+
   it.each([true, false])('preserves the death clip when opening observer=%s or a result panel and keeps it advancing', observer => {
     const { town, player } = townFixture()
     const animation = { play: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(), has: vi.fn(() => true), stop: vi.fn() }

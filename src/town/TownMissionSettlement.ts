@@ -140,7 +140,7 @@ export class TownMissionSettlement {
       this.town.navigation.sync(this.town.world.obstacles)
     }
     this.town.restPlayer()
-    if ((active.kind === 'cavalry-sweep' || veteranField) && active.phase !== 'RETURNING') this.town.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
+    if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) this.town.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
     return { status: 'returned', kind: defense ? 'defense' : active.kind === 'cavalry-sweep' ? 'sweep' : 'party' }
   }
 
