@@ -105,7 +105,7 @@ export class BattleReferenceUI {
                   <em>查看介紹 →</em>
                 </button>
                 <div class="reference-preset-traits">
-                  ${p.traits.map(t => `<div class="reference-trait-badge">${getTraitDescription(t)}</div>`).join('')}
+                  ${p.traits.map(t => `<div class="reference-trait-badge">${getTraitDescription(t, p.faction)}</div>`).join('')}
                 </div>
                 <div class="reference-tiers">
                   ${([1, 2, 3] as UnitTier[]).map(t => {

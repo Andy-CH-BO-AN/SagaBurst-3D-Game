@@ -53,7 +53,7 @@ function shieldDamage(target: NPC | Player, damage: number, context?: CombatDama
   if (target.dead || context?.contact?.kind !== 'shield'
     || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return { damage, blockedImpact: 0 }
   const player = 'blockingLevel' in target ? target : null
-  const result = target.shield.absorb(damage, context.method === 'projectile' ? 1 : weaponShieldImpact(context.weaponId), player?.blockingLevel ?? 0)
+  const result = target.shield.absorb(damage, context.method === 'projectile' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0)
   target.shieldCollider?.refreshVisibility()
   const hostile = context.hostileToTarget ?? context.source.allegiance === 'ENEMY'
   if (player && !player.spectatorOnly && hostile && context.source.actorType !== 'player' && result.blockedImpact > 0) {

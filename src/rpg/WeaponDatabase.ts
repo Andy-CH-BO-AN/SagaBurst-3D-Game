@@ -110,7 +110,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     animationKind: 'lance',
     range: 3.9,
     isLance: true,
-    description: '輕型長木桿鋼頭長矛，擁有長攻擊距離。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。',
+    description: '輕型長木桿鋼頭長矛，擁有長攻擊距離。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。騎乘命中盾面扣 10 衝擊耐久；耐久不足時按比例穿透。',
   },
   steel_lance: {
     id: 'steel_lance',
@@ -124,7 +124,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     animationKind: 'lance',
     range: 3.9,
     isLance: true,
-    description: '專為騎兵設計的長木桿鋼頭長槍，擁有極長攻擊距離。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。',
+    description: '專為騎兵設計的長木桿鋼頭長槍，擁有極長攻擊距離。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。騎乘命中盾面扣 20 衝擊耐久；耐久不足時按比例穿透。',
   },
   heavy_lance: {
     id: 'heavy_lance',
@@ -138,7 +138,7 @@ export const WEAPONS: Record<string, WeaponData> = {
     animationKind: 'lance',
     range: 3.9,
     isLance: true,
-    description: '重型加固騎兵長槍，擁有極長攻擊距離與強大穿透力。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。',
+    description: '重型加固騎兵長槍，擁有極長攻擊距離與強大穿透力。徒步對騎兵造成2倍傷害，高速衝刺時能造成3倍貫穿傷害。騎乘命中盾面扣 40 衝擊耐久；耐久不足時按比例穿透。',
   },
 
   // ── Ranged Bows ──

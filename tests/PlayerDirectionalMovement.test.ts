@@ -242,7 +242,7 @@ describe('Player Directional Movement & Stamina', () => {
       const expected = Math.min(hp, calculateMountImpactDamage(mount.movementSpeed, true))
       expect(target.hp).toBeCloseTo(hp - expected)
       expect(target.shield.shieldImpactRemaining).toBe(impact)
-      expect(player.shield.shieldImpactRemaining).toBe(5)
+      expect(player.shield.shieldImpactRemaining).toBe(7.5)
       const hit = events.find(event => event.type === 'damage_applied')
       expect(hit).toBeDefined()
       expect(resolveSkillProgressionAward(hit!, inventory.equippedMelee, true)).toEqual({ skill: 'mountedImpact', xp: expected })

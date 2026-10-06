@@ -4,13 +4,16 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
-  impactByTier: { 1: 5, 2: 10, 3: 20 },
   axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
+  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40 },
   xpPerBlockedImpact: 20,
 } as const
-export function weaponShieldImpact(id?: string): number {
+export function weaponShieldImpact(id?: string, isMounted = false): number {
   const weapon = WEAPONS[id ?? '']
-  return weapon?.animationKind === 'axe' ? SHIELD_CONFIG.axeImpactByTier[weapon.tier as 1 | 2 | 3] ?? 1 : 1
+  if (!weapon || weapon.tier === 4) return 1
+  if (weapon.animationKind === 'axe') return SHIELD_CONFIG.axeImpactByTier[weapon.tier]
+  if (isMounted && weapon.combatKind === 'lance') return SHIELD_CONFIG.mountedLanceImpactByTier[weapon.tier]
+  return 1
 }
 export function blockingReduction(level: number): number {
   return Math.min(.5, Math.max(0, Number.isFinite(level) ? Math.floor(level) : 0) * .01)
@@ -28,7 +31,7 @@ export class ShieldState {
     if (id === this.id) return
     if (this.id) this.used.set(this.id, this.shieldImpactRemaining)
     this.id = id
-    this.shieldImpactMax = id && ARMORS[id] ? SHIELD_CONFIG.impactByTier[ARMORS[id].tier] : 0
+    this.shieldImpactMax = id && ARMORS[id] ? ARMORS[id].shieldImpactMax : 0
     this.shieldImpactRemaining = id ? this.used.get(id) ?? this.shieldImpactMax : 0
     this.shieldRaised = false
   }

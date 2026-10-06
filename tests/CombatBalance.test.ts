@@ -238,14 +238,14 @@ describe('CombatBalance SSOT & Pure Functions', () => {
   })
 
   describe('H. Shield Damage Reduction for Rider and Horse', () => {
-    it('defines authoritative impact capacities 5/10/20', () => {
+    it('defines Roman impact capacities 7.5/15/30 and Viking capacities 5/10/20', () => {
       expect(ARMORS.round_shield_t1.shieldImpactMax).toBe(5)
       expect(ARMORS.round_shield_t2.shieldImpactMax).toBe(10)
       expect(ARMORS.round_shield_t3.shieldImpactMax).toBe(20)
 
-      expect(ARMORS.scutum_t1.shieldImpactMax).toBe(5)
-      expect(ARMORS.scutum_t2.shieldImpactMax).toBe(10)
-      expect(ARMORS.scutum_t3.shieldImpactMax).toBe(20)
+      expect(ARMORS.scutum_t1.shieldImpactMax).toBe(7.5)
+      expect(ARMORS.scutum_t2.shieldImpactMax).toBe(15)
+      expect(ARMORS.scutum_t3.shieldImpactMax).toBe(30)
     })
 
     it('DamageRouter never grants passive shield reduction to horse or rider', () => {

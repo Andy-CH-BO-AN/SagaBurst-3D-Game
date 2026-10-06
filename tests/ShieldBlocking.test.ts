@@ -10,7 +10,7 @@ import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
 
-const shield = (tier = 1) => { const s = new ShieldState(); s.equip(`scutum_t${tier}`); return s }
+const shield = (tier = 1, kind = 'round_shield') => { const s = new ShieldState(); s.equip(`${kind}_t${tier}`); return s }
 const context = (kind: 'shield' | 'body' = 'shield') => ({ source: { actorId: 'enemy', actorType: 'npc' as const, allegiance: Faction.ENEMY, characterFaction: 'viking' as const }, method: 'melee' as const, weaponId: 'viking_axe_t3', contact: { kind, time: .2 } })
 
 describe('Shield impact and overflow', () => {
@@ -36,13 +36,13 @@ describe('Shield impact and overflow', () => {
     expect(s.absorb(80, 8, level).damage).toBe(expected); expect(s.shieldBroken).toBe(true)
   })
   it('does not repair on equipment toggle, only explicit battle/respawn reset', () => {
-    const s = shield(); s.absorb(10, 3); s.equip(null); s.equip('scutum_t1')
+    const s = shield(); s.absorb(10, 3); s.equip(null); s.equip('round_shield_t1')
     expect(s.shieldImpactRemaining).toBe(2); s.reset(); expect(s.shieldImpactRemaining).toBe(5)
   })
 })
 
 function geometry() {
-  const state = shield(), group = new THREE.Group(), pivot = new THREE.Group()
+  const state = shield(1, 'scutum'), group = new THREE.Group(), pivot = new THREE.Group()
   group.add(pivot); pivot.position.set(0, 1.3, .65)
   const collider = new ShieldCollider(pivot, state); collider.setModel('scutum_t1')
   return { group, pivot, shield: state, shieldCollider: collider, isMounted: false, combatPosition: group.position }
@@ -55,7 +55,7 @@ describe('Physical first contact', () => {
     traceCombatSegment(target, new THREE.Vector3(0, 1.3, -2), new THREE.Vector3(0, 1.3, 2), out); expect(out.kind).toBe('body')
     traceCombatSegment(target, new THREE.Vector3(0, .2, 2), new THREE.Vector3(0, .2, -2), out); expect(out.kind).toBe('body')
     traceCombatSegment(target, new THREE.Vector3(2, 1, 0), new THREE.Vector3(-2, 1, 0), out); expect(out.kind).toBe('body')
-    target.shield.absorb(80, 5)
+    target.shield.absorb(80, target.shield.shieldImpactMax)
     traceCombatSegment(target, new THREE.Vector3(0, 1.3, 2), new THREE.Vector3(0, 1.3, -2), out); expect(out.kind).toBe('body')
   })
   it('follows actual parent transform, including lowered shields', () => {
@@ -146,6 +146,6 @@ describe('Routing, progression and controls', () => {
     const arrow = new ArrowProjectile(scene, new THREE.Vector3(0, 50, 2), new THREE.Vector3(0, 0, -1), 100, 80, Faction.ENEMY, false, kind)
     const before = p.hp
     arrow.update(.04, p, [], [], () => {}, (damage, c) => damagePlayer(p, damage, { setFill() {} } as any, 'scutum_t3', c))
-    expect(arrow.isAlive).toBe(false); expect(p.hp).toBe(before); expect(p.shield.shieldImpactRemaining).toBe(19)
+    expect(arrow.isAlive).toBe(false); expect(p.hp).toBe(before); expect(p.shield.shieldImpactRemaining).toBe(29)
   })
 })
