@@ -35,7 +35,10 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, config.careerMissionId)
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         void launchCampaign(config)
-      }, p => { void start(p) }, message => { loading.textContent = message })
+      }, p => { void start(p) }, () => {
+        sessionStorage.removeItem(TOWN_ENTRY_KEY)
+        home()
+      }, message => { loading.textContent = message })
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
       town.start()

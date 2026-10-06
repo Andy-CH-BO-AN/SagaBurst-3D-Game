@@ -8,18 +8,37 @@ The README focuses on what players need to know: **how to start, available game 
 
 ## 🚀 Quick Start
 
-SagaBurst currently targets **desktop browsers with keyboard + mouse**.
+SagaBurst is designed for **desktop computers with keyboard + mouse**.
+
+### Play Online
+
+[Play SagaBurst in your browser](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/) — no installation required. The production site becomes available after the first `main` deployment.
+
+### Download
+
+[Download SagaBurst from GitHub Releases](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases).
+
+- **Windows x64:** extract the ZIP and double-click `SagaBurst.exe`. Keep the extracted files together.
+- **macOS Apple Silicon:** extract the ZIP, move `SagaBurst.app` to Applications, and open it.
+
+The first v1.0.0 downloads appear after release publication. These builds are unsigned. macOS may require right-click → Open, or **System Settings → Privacy & Security → Open Anyway** after the first attempt. Windows may show Microsoft Defender SmartScreen; choose **More info → Run anyway** if you trust the download.
+
+Career and Campaign use local saves. Browser and desktop saves are separate; v1 does not sync them. Clearing browser site data or the desktop app's user data removes those saves.
+
+When a battle starts, click the game view to capture the mouse. Press `Esc` to release it, then click again to resume camera control.
+
+### Development
+
+Use Node.js 22 or later. Open feature PRs against `dev`.
 
 ```bash
-git clone https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game.git
+git clone --branch dev https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game.git
 cd SagaBurst-3D-Game
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite.
-
-When a battle starts, click the game view to capture the mouse. Press `Esc` to release the cursor, then click the game again to resume camera control.
+Open the local URL printed by Vite. Use `npm test` and `npm run build` to validate changes, or `npm run desktop` to open the desktop build locally. Maintainers: see the [release guide](./docs/RELEASING.md).
 
 ## 🎮 Game Modes
 

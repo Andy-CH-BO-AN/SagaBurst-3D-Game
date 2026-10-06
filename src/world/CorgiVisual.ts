@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { CorgiSeatContact } from './CorgiSeatContact'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -15,7 +16,7 @@ import {
 export const CORGI_DIMENSIONS = { shoulder: 1.30, bodyLength: 3.245, saddleHeight: 1.313627550125122 } as const
 export const CORGI_RIDER_PELVIS_CLEARANCE = .17
 
-const BASE = '/models/mounts/v2/corgi'
+const BASE = publicAssetUrl('models/mounts/v2/corgi')
 const GAIT_SPEEDS = { walk: 2, run: 12 } as const
 
 /** Original GLB geometry and PBR maps, with a fitted canine skin and independent playback. */

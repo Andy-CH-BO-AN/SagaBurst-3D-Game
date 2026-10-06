@@ -8,18 +8,37 @@
 
 ## 🚀 開始遊玩
 
-SagaBurst 目前以 **桌面瀏覽器 + 鍵盤滑鼠** 為主。
+SagaBurst 適合使用 **鍵盤與滑鼠的桌上型電腦**。
+
+### 線上遊玩 Play Online
+
+[直接在瀏覽器玩 SagaBurst](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/)，不需要安裝。正式網站會在第一次 `main` 部署後開放。
+
+### 下載 Download
+
+[到 GitHub Releases 下載 SagaBurst](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases)。
+
+- **Windows x64：**解壓 ZIP 後雙擊 `SagaBurst.exe`，請保留解壓後整個資料夾。
+- **macOS Apple Silicon：**解壓 ZIP，把 `SagaBurst.app` 移到「應用程式」後開啟。
+
+第一版 v1.0.0 的下載會在正式發布後出現。目前未做程式簽署；macOS 首次可能需要右鍵 → 開啟，或在嘗試開啟後，到「系統設定 → 隱私權與安全性 → 強制打開」。Windows 可能顯示 Microsoft Defender SmartScreen；確認信任來源後，可選「其他資訊 → 仍要執行」。
+
+Career 與 Campaign 使用本機存檔。瀏覽器和桌面版各自保存，v1 不同步；清除瀏覽器網站資料或桌面版使用者資料會移除存檔。
+
+進入戰鬥後，點擊遊戲畫面鎖定滑鼠；按 `Esc` 釋放游標，再點擊畫面恢復鏡頭操作。
+
+### 開發 Development
+
+使用 Node.js 22 或更新版本。新功能 PR 請以 `dev` 為目標。
 
 ```bash
-git clone https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game.git
+git clone --branch dev https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game.git
 cd SagaBurst-3D-Game
 npm ci
 npm run dev
 ```
 
-接著開啟 Vite 顯示的本機網址。
-
-進入戰鬥後點擊遊戲畫面即可鎖定滑鼠控制鏡頭；按 `Esc` 可釋放游標，再點擊遊戲畫面即可繼續操作。
+開啟 Vite 顯示的本機網址。以 `npm test` 和 `npm run build` 驗證修改；`npm run desktop` 可在本機開啟桌面版。維護者請參閱[發版指南](./docs/RELEASING.md)。
 
 ## 🎮 遊戲模式
 

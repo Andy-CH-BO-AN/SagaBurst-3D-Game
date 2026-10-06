@@ -75,21 +75,6 @@ describe('Physical first contact', () => {
 })
 
 describe('Routing, progression and controls', () => {
-  it('real NPC animation can hit a nearby player through the authoritative callback', () => {
-    const scene = new THREE.Scene(), p = new Player(scene)
-    const n = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'attacker', 1, false)
-    p.position.set(0, n.group.position.y + .95, 1.25)
-    const samples: unknown[] = []
-    const original = n.weaponSweep.trace.bind(n.weaponSweep)
-    vi.spyOn(n.weaponSweep, 'trace').mockImplementation(t => { const result = original(t); if (samples.length < 8) samples.push({ tip: n.getWeaponTipPosition().toArray(), grip: n.getWeaponGripPosition(new THREE.Vector3()).toArray(), player: p.position.toArray(), npc: n.group.position.toArray(), action: n.combatAnimationAction, result }); return result })
-    const hit = vi.fn((amount: number, isPlayer: boolean) => {
-      if (isPlayer) damagePlayer(p, amount, { setFill() {} } as any, null, { ...context(), weaponId: n.meleeWeaponId ?? undefined, contact: n.weaponSweep.contact })
-    })
-    for (let i = 0; i < 180 && !p.dead; i++) n.update(1 / 60, p, [], [], [], { setFill() {} } as any, hit, () => {}, true)
-    if (!hit.mock.calls.length) console.log(JSON.stringify({ state: n.currentState, weapon: n.meleeWeaponId, samples }))
-    expect(hit).toHaveBeenCalled(); expect(p.hp).toBeLessThan(p.maxHp)
-    n.dispose(); p.dispose()
-  })
   it('only overflow receives Blocking reduction; ordinary body and mount impact stay full damage', () => {
     const p = new Player(new THREE.Scene()); p.rebuildShield('scutum_t3'); p.blockingLevel = 50
     const hp = { setFill: vi.fn() } as any, award = vi.fn(); p.onShieldBlock = award

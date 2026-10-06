@@ -174,22 +174,24 @@ export class TownScene {
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private get sceneContext() { return resolveCareerTownSceneContext(this.profile) }
+  private pointerWasLocked = false
+  private careerSaveFailures = 0
   private spawnErrorShown = false
   private residentSpawnBatch?: NpcSpawnBatch
   private get deploymentReady(): boolean { return (this.mission?.ready ?? true) && (this.defense?.ready ?? true) }
 
-  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: DefenseCampaignLaunchConfig) => void, onRestart: (p: CareerProfile) => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
+  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: DefenseCampaignLaunchConfig) => void, onRestart: (p: CareerProfile) => void, onHome: () => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     try {
       progress('載入人物、坐騎與動畫…')
       await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor)])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-      const town = new TownScene(container, renderer, profile, onCampaign, onRestart)
+      const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
       try { await town.initialize(progress); return town } catch (error) { town.dispose(); throw error }
     } catch (error) { renderer.dispose(); throw error }
   }
-  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: DefenseCampaignLaunchConfig) => void, private readonly onRestart: (p: CareerProfile) => void) {
+  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: DefenseCampaignLaunchConfig) => void, private readonly onRestart: (p: CareerProfile) => void, private readonly onHome: () => void) {
     installTownStyles()
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
@@ -374,7 +376,7 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q / Esc 關閉面板'
+    if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
@@ -491,7 +493,7 @@ export class TownScene {
     }
     if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
     if (newMission || newOutpost) next.personalSquadRuntime = undefined
-    if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     if (newMission || newOutpost) {
       this.personalCommands?.close()
       if (next.activeMission?.kind === 'duel') this.personalSquad?.cleanup()
@@ -599,6 +601,11 @@ export class TownScene {
       if (['KeyQ', 'Escape', 'Tab'].includes(e.code)) { e.preventDefault(); if (!this.result && !this.missionResultOpen) this.closePanel() }
       return
     }
+    if (e.code === 'Escape') {
+      e.preventDefault(); e.stopImmediatePropagation()
+      if (!e.repeat) this.openPauseMenu()
+      return
+    }
     if (this.player.dead) {
       if (['Tab', 'KeyE', 'KeyQ', 'KeyG'].includes(e.code)) { e.preventDefault(); e.stopImmediatePropagation() }
       return
@@ -616,6 +623,32 @@ export class TownScene {
       else if (this.target) this.talk(this.target)
     }
   }
+  private openPauseMenu(message = '返回主選單後，可再次進入 Career 繼續生涯。'): void {
+    if (this.disposed || this.panel || this.equipment.visible || this.result || this.missionResultOpen) return
+    const panel = this.openPanel('生涯模式 · 暫停', message)
+    const resume = panel.querySelector('button')
+    if (resume) resume.textContent = '繼續遊戲'
+    this.button(panel, '上一頁', () => this.returnHome())
+  }
+
+  private returnHome(): void {
+    if (this.disposed || this.result || this.missionResultOpen) return
+    const failures = this.careerSaveFailures
+    const skillsSaved = this.flushCareerSkillProgression()
+    this.persistPersonalSquad(0, true)
+    if (this.duel?.active) this.duel.persistRuntimeProgress(true)
+    else if (this.defense?.active) this.defense.persistRuntimeProgress(true)
+    else if (this.profile.activeMission) this.mission.persistRuntimeProgress(true)
+    const saved = this.commit(this.profile)
+    if (!skillsSaved || !saved || this.careerSaveFailures !== failures) {
+      this.panel?.remove(); this.panel = null
+      this.openPauseMenu('進度保存失敗，尚未返回主選單。請確認儲存空間後，再按「上一頁」重試。')
+      return
+    }
+    this.dispose()
+    this.onHome()
+  }
+
   private closePanel(): void {
     this.panel?.remove(); this.panel = null; this.equipment.close(); this.input.clear(); this.player.clearTownAction(); if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
   }
@@ -1273,7 +1306,7 @@ export class TownScene {
     this.player.restoreForTown()
     if (this.spectator) {
       this.spectator = null
-      document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q / Esc 關閉面板'
+      document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
       this.orbit.update(this.input)
     }
     this.hp.setFill(1)
@@ -2063,7 +2096,12 @@ export class TownScene {
   }
 
   private updatePointerPrompt(): void {
-    const unlocked = !this.input.isLocked && !location.search.includes('nolock')
+    const locked = Boolean(document.pointerLockElement)
+    const released = this.pointerWasLocked && !locked
+    this.pointerWasLocked = locked
+    // Browsers may consume Escape while releasing pointer lock, without a keydown.
+    if (released) this.openPauseMenu()
+    const unlocked = !locked && !location.search.includes('nolock')
     this.pointerPrompt.style.display = unlocked && !this.panel && !this.equipment.visible ? '' : 'none'
   }
 }

@@ -2,6 +2,10 @@
 
 本檔只記錄跨模組職責與不易從單一檔案看出的契約。數值、模型清單及操作鍵位以程式／manifest／工作室 UI 為準；驗收流程見 [AGENTS.md](AGENTS.md) 的 skill 索引。
 
+## 發布與資產網址
+
+開發使用 `dev`，正式部署與 tag 來源使用預設分支 `main`；功能 PR 先進 `dev`，驗證後再以 PR 推進 `main`。Web 與 Electron 共用 `src/`，`vite.config.ts` 分別輸出 Pages 的 `dist/`（`/SagaBurst-3D-Game/`）與桌面版的 `dist-desktop/`（`/`）。Public runtime 資產透過 `src/assets/publicAssetUrl.ts` 使用 Vite base，音效／語音維持 `SoundManager` 的 Vite URL。Electron 僅以 `sagaburst://game/` 提供打包內容與安全視窗，沿用原本 Web storage 與存檔格式。發版與 GitHub 一次性設定見 [RELEASING.md](../docs/RELEASING.md)。
+
 ## 程式入口
 
 | 區域 | 入口與職責 |

@@ -37,6 +37,24 @@ describe('Town load failure recovery', () => {
     await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
   })
 
+  it('clears the resume flag and returns home without deleting the Career save', async () => {
+    const local = storage(), session = storage(), body = element(), home = vi.fn(), start = vi.fn()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    new CareerProfileStore(local).save(profile)
+    const saved = local.getItem('sagaburst_career_v1')
+    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
+    vi.mocked(TownScene.create).mock.calls[0][4]()
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+    expect(home).toHaveBeenCalledOnce()
+    expect(local.getItem('sagaburst_career_v1')).toBe(saved)
+  })
+
   it('requests pointer lock on the persistent container before loading a Career relief battlefield', async () => {
     const local = storage(), session = storage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
