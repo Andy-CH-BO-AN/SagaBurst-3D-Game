@@ -66,8 +66,12 @@ function townResidentCharacterFaction(spec: TownActorSpec, faction: CharacterFac
  */
 export function careerTownSceneRoster(
   profile: Pick<CareerProfile, 'faction' | 'activeMission'>,
+  residents: readonly TownActorSpec[] = townRoster(),
 ): CareerTownSceneRosterEntry[] {
-  const nativeSpecs = townRoster().filter(spec => spec.role !== 'cat')
+  // Foreign mission populations keep their own roster; free Town scenes receive
+  // the complete conquest roster assembled from the built TownWorld.
+  const nativeSpecs = (isCareerEnemyTerritoryFieldMission(profile.activeMission) ? townRoster() : residents)
+    .filter(spec => spec.role !== 'cat')
   const activeMission = profile.activeMission
   if (isCareerEnemyTerritoryFieldMission(activeMission)) {
     const nativeById = new Map(nativeSpecs.map(spec => [spec.id, spec]))
@@ -98,7 +102,7 @@ export function careerTownSceneRoster(
   return nativeSpecs.map(spec => ({
     spec: { ...spec },
     characterFaction: townResidentCharacterFaction(spec, context.residentFaction),
-    allegiance,
+    allegiance: spec.role === 'hr-officer' ? context.worldOwnerAllegiance : allegiance,
     borrowed: false,
   }))
 }

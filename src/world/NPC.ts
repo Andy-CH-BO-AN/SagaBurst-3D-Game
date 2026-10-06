@@ -762,9 +762,13 @@ export class NPC {
   }
   beginTownHostility(): void {
     this.townHostile = true
+    this.respawnEnabled = false
     if (this.dead) return
+    this.clearEncounter()
+    this.setMissionCombatTarget(undefined)
+    this.missionMovement = false
     this.animator.cancel()
-    this.tacticalOrder = 'charge'
+    this.setTacticalOrder('charge')
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
     if (this.townCategory === 'civilian' && !this.townArmed) {

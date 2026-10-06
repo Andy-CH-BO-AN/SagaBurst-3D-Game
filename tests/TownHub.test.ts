@@ -73,10 +73,10 @@ describe('Town population and civilian combat', () => {
     expect((roman.getObjectByName('Tunic_1') as THREE.Mesh).material).toBe(cloth)
     expect(cloth.color.getHex()).toBe(0xff2222)
   })
-  it('registers the 85 explicit principals independently of 140 additional military residents', () => {
+  it('registers every formal resident rather than selecting settlement principals', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
     expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
-    const e = new TownEvent(); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(85)
+    const e = new TownEvent(townRoster()); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(roster.length)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
     expect(TOWN_PRODUCTS.some(p => p.id.includes('civilian'))).toBe(false)
@@ -139,7 +139,7 @@ describe('Ranger and unique cat relationship', () => {
 })
 describe('Town settlement, persistence and appointments', () => {
   it('waits for registration, requires hostility, and prioritizes simultaneous player death', () => {
-    const e = new TownEvent(); expect(e.evaluate(false)).toBeNull(); e.hostile = true; expect(e.evaluate(false)).toBeNull()
+    const e = new TownEvent(townRoster()); expect(e.evaluate(false)).toBeNull(); e.hostile = true; expect(e.evaluate(false)).toBeNull()
     townRoster().forEach(r => e.register(r.id, { dead: true })); expect(e.evaluate(false)).toBeNull(); e.complete(); expect(e.evaluate(false)).toBe('town_defeated'); expect(e.evaluate(true)).toBe('player_defeated')
   })
   it.each([0, 20, 180])('deducts once from available merit %s, preserving history and rank', available => {
@@ -644,7 +644,7 @@ describe('Town orchestration transitions', () => {
     town.previousTip = new THREE.Vector3(); town.hasPreviousTip = false
     town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.persistCasualties = vi.fn()
     town.damageNumbers = { spawn: vi.fn() }
-    town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null; town.residents = []
+    town.event = new TownEvent(townRoster()); town.equipment = { visible: false }; town.panel = null; town.residents = []
     installNoProgressTownSkillFixture(town)
     town.melee()
     expect(hp.hpRatio).toBeCloseTo(.88); expect(town.event.hostile).toBe(true)
@@ -653,7 +653,7 @@ describe('Town orchestration transitions', () => {
   })
   it.each([false, true])('hostility is broadcast once; captain dead=%s selects another soldier', captainDead => {
     const town = createTownCombatFixture() as any
-    town.event = new TownEvent(); town.closePanel = vi.fn(); town.equipment = { visible: true }
+    town.event = new TownEvent(townRoster()); town.closePanel = vi.fn(); town.equipment = { visible: true }
     const captain = { dead: captainDead, beginTownHostility: vi.fn() }, infantry = { dead: false, beginTownHostility: vi.fn() }
     town.residents = [{ spec: { id: 'captain', role: 'captain' }, npc: captain }, { spec: { id: 'infantry', role: 'melee_infantry' }, npc: infantry }]
     town.activateHostility(false); town.activateHostility(false)
@@ -667,7 +667,7 @@ describe('Town orchestration transitions', () => {
   })
   it('hostility preserves an active swing and held movement when no dialog is open', () => {
     const town = createTownCombatFixture() as any
-    town.event = new TownEvent(); town.equipment = { visible: false }; town.panel = null
+    town.event = new TownEvent(townRoster()); town.equipment = { visible: false }; town.panel = null
     town.closePanel = vi.fn(); town.residents = []
     town.activateHostility(false)
     expect(town.event.hostile).toBe(true); expect(town.closePanel).not.toHaveBeenCalled()
@@ -696,7 +696,7 @@ describe('Town orchestration transitions', () => {
   })
   it('persists casualties only on a death/destruction, preserving them across reload', () => {
     const town = createTownCombatFixture() as any, npc = { dead: false }, p = enlist()
-    town.event = new TownEvent(); town.event.register('civilian-0', npc); town.profile = p; town.world = { buildings: [] }
+    town.event = new TownEvent(townRoster()); town.event.register('civilian-0', npc); town.profile = p; town.world = { buildings: [] }
     const store = new CareerProfileStore(memory()); town.commit = vi.fn((next: typeof p) => { town.profile = next; return store.save(next) })
     town.persistCasualties(); expect(town.commit).not.toHaveBeenCalled()
     npc.dead = true; town.persistCasualties(); town.persistCasualties(); expect(town.commit).toHaveBeenCalledTimes(1); expect(store.load()?.townEvent?.deadActorIds).toEqual(['civilian-0'])

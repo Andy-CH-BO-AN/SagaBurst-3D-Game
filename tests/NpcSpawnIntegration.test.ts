@@ -17,6 +17,8 @@ import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { AIType, Faction, NPC } from '../src/world/NPC'
 import type { Player } from '../src/player/Player'
 import { gameplayNpcSpawns } from '../src/world/NpcSpawnScheduler'
+import { TownEvent } from '../src/town/TownRules'
+import { resolveTownHRLayout, townConquestRoster } from '../src/town/TownHRLayout'
 import { advanceNpcFrame } from './helpers/npcSpawnFrames'
 
 const observed = vi.hoisted(() => ({ constructors: [] as string[] }))
@@ -105,10 +107,14 @@ describe('actual NPC constructor paths share the frame budget', () => {
   })
 
   it('creates actual Town resident constructors one per frame before completing its resident initialization stage', async () => {
-    const step = loadingFrames(), profile = createCareerProfile('roman'), roster = careerTownSceneRoster(profile)
+    const step = loadingFrames(), profile = createCareerProfile('roman')
+    const population = townConquestRoster(resolveTownHRLayout(profile.faction, [], []))
+    const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
+    event.hostile = true
+    event.register('cat', { dead: true })
     const town = Object.assign(Object.create(TownScene.prototype), {
       scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
-      event: { register: vi.fn() }, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
+      event, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
     }) as any
     dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach((r: any) => r.npc.dispose()); town.mounts.forEach((mount: any) => mount.dispose()) })
     const progress = vi.fn(); let ready = false
@@ -116,12 +122,41 @@ describe('actual NPC constructor paths share the frame budget', () => {
     expect(observed.constructors).toHaveLength(0)
     for (let frame = 1; frame <= roster.length; frame++) {
       await step(); expect(observed.constructors).toHaveLength(frame)
+      town.residents.forEach((resident: any) => { resident.npc.dead = true })
+      expect(event.evaluate(false)).toBeNull()
       if (frame < roster.length) expect(ready).toBe(false)
     }
     await loading
     expect(town.residents).toHaveLength(roster.length)
     expect(progress).toHaveBeenLastCalledWith(`建立駐軍與居民 ${roster.length} / ${roster.length}…`)
-    expect(town.event.register).toHaveBeenCalledTimes(roster.length)
+    expect(event.actors.size).toBe(population.length)
+    expect(event.actors.get('hr-officer')).toBe(town.residents.find((resident: any) => resident.spec.id === 'hr-officer').npc)
+    event.complete(); expect(event.evaluate(false)).toBe('town_defeated')
+  })
+
+  it('rejects an actual HR registration failure without opening conquest settlement', async () => {
+    const step = loadingFrames(), profile = createCareerProfile('roman')
+    const population = townConquestRoster(resolveTownHRLayout(profile.faction, [], []))
+    const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
+    event.hostile = true; event.register('cat', { dead: true })
+    const register = event.register.bind(event)
+    vi.spyOn(event, 'register').mockImplementation((id, actor) => {
+      if (id === 'hr-officer') throw new Error('HR registration failed')
+      register(id, actor)
+    })
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
+      event, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
+    }) as any
+    dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach((r: any) => r.npc.dispose()); town.mounts.forEach((mount: any) => mount.dispose()) })
+    const loading = town.initializeResidents(roster, resolveCareerTownSceneContext(profile), () => {})
+    const rejected = expect(loading).rejects.toThrow('HR registration failed')
+    for (let i = 0; i < roster.length; i++) await step()
+    await rejected
+    town.residents.forEach((resident: any) => { resident.npc.dead = true })
+    expect(town.residentSpawnBatch.status).toBe('failed')
+    expect(event.registrationComplete).toBe(false); expect(event.evaluate(false)).toBeNull()
+    expect(() => event.complete()).toThrow('hr-officer')
   })
 
   it('cancels an in-flight loading owner before another owner can materialize and rolls back failed registrations', async () => {

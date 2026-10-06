@@ -425,7 +425,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
 
   it('only opponent targets Player; Captain remains referee without TownEvent hostility', () => {
     const h = harness()
-    const townEvent = new TownEvent()
+    const townEvent = new TownEvent(townRoster())
     h.start('roman_lancer', 1, 'ENGAGING')
     const opponent = h.controller.opponent!, captain = h.controller.captain!
     expect(opponent.setDuelHostility).toHaveBeenLastCalledWith(true)

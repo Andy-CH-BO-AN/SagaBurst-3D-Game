@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { TOWN_SITES, townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster, townPatrolRefitPoint } from '../src/town/TownRules'
+import { TOWN_SITES, townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster, townPatrolRefitPoint } from '../src/town/TownRules'
 import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolController'
+import { townConquestRoster, resolveTownHRLayout } from '../src/town/TownHRLayout'
 import { townPatrolRoute, townPatrolDeparture } from '../src/town/TownPatrolRoute'
 import { TOWN_CITY, TOWN_GATES } from '../src/town/TownLayout'
 import { installCorgiTestAsset } from './helpers/corgiAsset'
@@ -78,7 +79,7 @@ describe('Town patrol roster and route contracts', () => {
       expect(members).toHaveLength(20); expect(members.filter(s => s.patrolLeader)).toHaveLength(1)
       expect(members.filter(s => !s.patrolLeader)).toHaveLength(19)
       for (const s of members) {
-        expect(s).toMatchObject({ mounted: true, training: false, settlementObjective: false, assaultObjective: false, tier: s.patrolLeader ? 4 : 2 })
+        expect(s).toMatchObject({ mounted: true, training: false, assaultObjective: false, tier: s.patrolLeader ? 4 : 2 })
         expect(s.defenseGroup).toBeUndefined(); expect(s.role).not.toBe('captain')
         const equipment = townMilitaryEquipment(faction, s)
         expect(equipment.presetId).toBe(`${faction}_sword_cavalry`); expect(equipment.loadout.mountId).toBe('horse')
@@ -87,7 +88,7 @@ describe('Town patrol roster and route contracts', () => {
         if (faction === 'viking' && !s.patrolLeader) expect(equipment.loadout.meleeWeaponId).toBe('viking_axe_t2')
       }
     }
-    expect(townSettlementRoster()).toHaveLength(85); expect(townAssaultObjectiveRoster()).toHaveLength(203)
+    expect(townConquestRoster(resolveTownHRLayout(faction, [], []))).toHaveLength(roster.length + 1); expect(townAssaultObjectiveRoster()).toHaveLength(203)
     expect(siegeDefensePlans(roster).flatMap(g => g.cavalry)).toHaveLength(102)
     expect(roster.filter(s => s.mounted && s.duty === 'training')).toHaveLength(60)
     expect(roster.filter(s => s.duty === 'gate_guard')).toHaveLength(40)
@@ -191,6 +192,17 @@ describe('Patrol runtime movement and individual ownership', () => {
       expect(r.npc.hostileToPlayer).toBe(true); expect(r.npc.activeFollowTarget).toBeNull()
       expect(travels[i]).not.toHaveBeenCalled()
     })
+  })
+
+  it('cancels a pending barracks refit and preserves defeated Patrol identities during hostility', () => {
+    const h = harness(), resident = h.residents[0]
+    h.controller.beginMissionReturn(resident.spec.id)
+    resident.npc.takeDamage(999999)
+    h.controller.stopForHostility(); h.residents.forEach(r => r.npc.beginTownHostility())
+    h.step(100)
+    expect(resident.npc.dead).toBe(true); expect(resident.npc.respawnEnabled).toBe(false)
+    expect(h.controller.returnStateFor(resident.spec.id)).toBeNull()
+    expect(h.controller.beginMissionReturn(resident.spec.id)).toBe(false)
   })
 
   it.each(['roman', 'viking'] as const)('moves all %s riders through real gates and loops without combat search, teleportation or per-frame follower A*', faction => {

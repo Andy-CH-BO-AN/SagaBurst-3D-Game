@@ -27,8 +27,6 @@ export interface TownActorSpec {
   mounted: boolean
   training: boolean
   defenseGroup?: TownDefenseGroupId
-  /** Settlement principals are independent of the expanded ambient city population. */
-  settlementObjective: boolean
   assaultObjective: boolean
   patrolId?: TownPatrolId
   /** Permanent Captain identity, independent of the runtime acting leader. */
@@ -84,12 +82,12 @@ export function townRoster(): TownActorSpec[] {
   for (const [idPrefix, role, unitKind, count, x, z, group] of infantry) for (let i = 0; i < count; i++) result.push({
     id: `${idPrefix}-${i}`, role, unitKind, index: i, x: x + i % 5 * 4, z: z + Math.floor(i / 5) * 7,
     duty: 'training', mounted: false, training: true, tier: 2,
-    defenseGroup: group === 'C' && i >= 10 ? 'D' : group, settlementObjective: true, assaultObjective: true,
+    defenseGroup: group === 'C' && i >= 10 ? 'D' : group, assaultObjective: true,
   })
   for (const [role, unitKind, x] of [['melee_cavalry', 'sword_cavalry', 35], ['lancer_cavalry', 'lancer', 70], ['ranged_cavalry', 'horse_archer', 105]] as const) {
     for (let i = 0; i < 20; i++) result.push({
       id: `cavalry-training:${role}:${i}`, role, unitKind, index: i, x: x + i % 5 * 6, z: -90 + Math.floor(i / 5) * 8,
-      duty: 'training', mounted: true, training: true, tier: 2, settlementObjective: false, assaultObjective: false,
+      duty: 'training', mounted: true, training: true, tier: 2, assaultObjective: false,
     })
   }
   for (const gate of TOWN_GATES) for (let i = 0; i < 10; i++) {
@@ -97,19 +95,19 @@ export function townRoster(): TownActorSpec[] {
     result.push({
       id: `gate:${gate.id}:${i}`, role, unitKind: i < 4 ? 'melee' : i < 7 ? 'spearman' : 'archer', index: i,
       ...townGatePoint(gate, (i % 2 ? 1 : -1) * (11 + Math.floor(i / 2) % 3 * 3), 5 + Math.floor(i / 6) * 4),
-      duty: 'gate_guard', gateId: gate.id, mounted: false, training: false, tier: 2, settlementObjective: false, assaultObjective: false,
+      duty: 'gate_guard', gateId: gate.id, mounted: false, training: false, tier: 2, assaultObjective: false,
     })
   }
   for (let i = 0; i < 20; i++) {
     const angle = i * Math.PI * 2 / 20
     result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: Math.sin(angle) * (15 + i % 3 * 3) - 5, z: Math.cos(angle) * 16 + 7,
-      duty: 'civilian', mounted: false, training: false, tier: 2, settlementObjective: true, assaultObjective: false })
+      duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false })
   }
   for (const [role, site, side, forward] of [['captain', 'barracks', -5, 8], ['deployment', 'barracks', 4, 8], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
     id: role, role, index: 0, ...townSitePoint(site, side, forward), duty: 'service', mounted: role === 'captain', training: false,
     ...(role === 'captain' ? { unitKind: 'sword_cavalry' as const } : role === 'deployment' ? { unitKind: 'melee' as const } : {}),
     tier: role === 'captain' || role === 'ranger' ? 4 : role === 'deployment' ? 3 : 2,
-    settlementObjective: true, assaultObjective: role === 'captain' || role === 'deployment' || role === 'ranger',
+    assaultObjective: role === 'captain' || role === 'deployment' || role === 'ranger',
   })
   for (const patrolId of ['A', 'B'] as const) {
     const muster = townSitePoint('barracks', patrolId === 'A' ? 46 : 66, patrolId === 'A' ? -43 : 35)
@@ -120,7 +118,7 @@ export function townRoster(): TownActorSpec[] {
         id: `town-patrol:${patrolId.toLowerCase()}:${i < 0 ? 'captain' : i}`,
         role: 'melee_cavalry', unitKind: 'sword_cavalry', duty: 'patrol', patrolId, patrolLeader: i < 0,
         mounted: true, training: false, tier: i < 0 ? 4 : 2, index: i + 1,
-        settlementObjective: false, assaultObjective: false,
+        assaultObjective: false,
         x: muster.x + Math.cos(yaw) * offset.x + Math.sin(yaw) * offset.z,
         z: muster.z - Math.sin(yaw) * offset.x + Math.cos(yaw) * offset.z, yaw,
       })
@@ -128,19 +126,18 @@ export function townRoster(): TownActorSpec[] {
   }
   return result
 }
-export function townSettlementRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => actor.settlementObjective) }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger') }
 export function isCivilian(role: TownRole): boolean { return role === 'civilian' || role === 'merchant' }
 export function isTownMilitary(actor: TownActorSpec): boolean { return Boolean(actor.unitKind) }
 export type TownResult = 'player_defeated' | 'town_defeated'
 export class TownEvent {
-  /** All residents retain casualty identity; only explicit principals drive settlement. */
+  /** Stable resident identities only; mounts and temporary combatants are not objectives. */
   readonly allActors = new Map<string, { dead: boolean }>()
   readonly actors = new Map<string, { dead: boolean }>()
   private readonly expectedIds: Set<string>
   hostile = false
   registrationComplete = false
-  constructor(objectiveRoster: readonly Pick<TownActorSpec, 'id'>[] = townSettlementRoster()) {
+  constructor(objectiveRoster: readonly Pick<TownActorSpec, 'id'>[]) {
     this.expectedIds = new Set(objectiveRoster.map(actor => actor.id))
     if (!this.expectedIds.size || this.expectedIds.size !== objectiveRoster.length) throw new Error('Invalid town objective roster')
   }
@@ -150,13 +147,14 @@ export class TownEvent {
     if (this.expectedIds.has(id)) this.actors.set(id, actor)
   }
   complete(): void {
-    if ([...this.expectedIds].some(id => !this.actors.has(id))) throw new Error('Town objective roster incomplete')
+    const missing = [...this.expectedIds].filter(id => !this.actors.has(id))
+    if (missing.length) throw new Error('Town objective roster incomplete: ' + missing.join(', '))
     this.registrationComplete = true
   }
   evaluate(playerDead: boolean): TownResult | null {
     if (!this.hostile) return null
     if (playerDead) return 'player_defeated'
-    return this.registrationComplete && [...this.actors.values()].every(a => a.dead) ? 'town_defeated' : null
+    return this.registrationComplete && [...this.expectedIds].every(id => this.actors.get(id)?.dead === true) ? 'town_defeated' : null
   }
 }
 export function settleTown(current: CareerProfile, id: string, result: TownResult): CareerProfile {
