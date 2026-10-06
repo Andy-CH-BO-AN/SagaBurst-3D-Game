@@ -1,3 +1,4 @@
+import { addCareerItem, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
@@ -90,6 +91,7 @@ export interface CareerProfile {
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, UnitTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
+  inventory?: CareerInventory
   ownedWeapons: string[]
   ownedArmors: string[]
   ownedMounts: PlayerMountId[]
@@ -335,7 +337,7 @@ export function purchaseCareerContent(
   request: CareerPurchaseRequest,
 ): CareerPurchaseResult {
   const id = request.id.trim()
-  if (!id) {
+  if (!id || request.kind !== 'hero' && !isTradableCareerItem(id)) {
     return {
       profile: cloneCareerProfile(current),
       purchased: false,
@@ -369,7 +371,7 @@ export function purchaseCareerContent(
         ? profile.ownedMounts as string[]
         : profile.ownedHeroes as string[]
 
-  if (target.includes(id)) {
+  if (request.kind === 'hero' && target.includes(id)) {
     return {
       profile,
       purchased: false,
@@ -387,7 +389,8 @@ export function purchaseCareerContent(
   }
 
   profile.availableMerit -= request.cost
-  target.push(id)
+  if (request.kind === 'hero') target.push(id)
+  else { normalizeCareerInventory(profile); addCareerItem(profile, id, 1) }
 
   return {
     profile,
@@ -399,8 +402,9 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),
-    ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member })) } } : {}),
+    ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member, ...(member.equipment ? { equipment: { ...member.equipment } } : {}) })) } } : {}),
     ...(profile.activeOutpostMission ? { activeOutpostMission: { ...profile.activeOutpostMission } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
     ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit } })) } : {}),

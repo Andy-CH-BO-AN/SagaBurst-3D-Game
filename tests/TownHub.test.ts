@@ -1,4 +1,5 @@
 import { createTownCombatFixture } from './townCombatFixture'
+import { addCareerItem } from '../src/career/CareerInventory'
 import * as THREE from 'three'
 import { applyCivilianAppearance } from '../src/world/CivilianAppearance'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -173,7 +174,7 @@ describe('Town settlement, persistence and appointments', () => {
     expect(productStatus(p, item)).toBe('已解鎖・餘額不足'); expect(JSON.stringify(p)).toBe(unchanged)
     p.availableMerit = 4000; expect(productStatus(p, item)).toBe('已解鎖・餘額足夠')
     p.rank = 'recruit'; expect(productStatus(p, item)).toBe('軍階未解鎖')
-    p.ownedMounts.push('corgi'); expect(productStatus(p, item)).toBe('已擁有')
+    p.ownedMounts.push('corgi'); expect(productStatus(p, item)).toBe('軍階未解鎖')
     expect(townCampaignTarget('roman')).toEqual({ defenderFaction: 'roman', stageId: 1 }); expect(townCampaignTarget('viking')).toEqual({ defenderFaction: 'viking', stageId: 1 })
   })
   it('removes collision and invalidates navigation only once when a building is destroyed', () => {
@@ -195,10 +196,11 @@ describe('Town temporary sheathing and equipment eligibility', () => {
     const another = new TownEquipment(() => p, () => true); expect(another.meleeEnabled).toBe(false); expect(p.equipment.melee).toBe('gladius_rusty')
   })
   it('retained higher-tier equipment cannot be drawn after changing faction, even through stale UI', () => {
-    let p = enlist(); p.ownedWeapons.push('steel_lance'); const inv = new TownEquipment(() => p, next => { p = next; return true }); p = settleTown(p, 'event-1', 'town_defeated')
+    let p = enlist(); addCareerItem(p, 'steel_lance', 1); expect(canUseCareerEquipment(p, 'steel_lance')).toBe(true)
+    const inv = new TownEquipment(() => p, next => { p = next; return true }); p = settleTown(p, 'event-1', 'town_defeated')
     expect(canUseCareerEquipment(p, 'steel_lance')).toBe(false); expect(inv.equipWeapon('steel_lance')).toBe(false); expect(inv.meleeEnabled).toBe(false)
   })
-  it('failed equipment preference save does not draw or alter ownership', () => { const p = enlist(), inv = new TownEquipment(() => p, () => false); expect(inv.equipWeapon('gladius_rusty')).toBe(false); expect(inv.meleeEnabled).toBe(false); expect(p.equipment).toBeUndefined() })
+  it('failed equipment preference save does not draw or alter ownership', () => { const p = enlist(), inv = new TownEquipment(() => p, () => false); expect(inv.equipWeapon('gladius_rusty')).toBe(false); expect(inv.meleeEnabled).toBe(false); expect(p.equipment).toEqual({ melee: 'gladius_rusty' }) })
 })
 
 

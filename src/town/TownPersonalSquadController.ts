@@ -1,11 +1,13 @@
+import { initialPersonalEquipment } from '../career/CareerInventory'
+import { careerMountType } from '../career/CareerMountController'
 import * as THREE from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
 import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { NPC, AIType, Faction } from '../world/NPC'
-import { Mount, MountType } from '../world/Mount'
+import { Mount } from '../world/Mount'
 import { getTerrainHeight } from '../world/Terrain'
 import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import type { Player } from '../player/Player'
@@ -13,20 +15,21 @@ import type { TownHRLayout } from './TownHRLayout'
 
 export type PersonalSquadState = 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING'
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
-  // Permanent ownership/IDs survive Town faction switches; native gear and visuals
-  // adopt the Player's current faction on the next deployment (no recruited-faction lock).
+  // Identity and allocated gear survive faction switches; visuals/profile adopt
+  // the current faction. Only legacy fixtures without saved equipment use defaults.
   const presetId = `${faction}_${member.type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : member.type === 'ranger' ? 'horse_archer' : 'sword_cavalry'}` as UnitPresetId
   const hero = member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
+  const equipment = member.equipment ?? initialPersonalEquipment(member.type, faction)
   return { presetId, hero, tier: member.type === 'soldier' ? 2 as const : 4 as const,
-    mounted: member.type !== 'soldier',
+    mounted: Boolean(equipment.mount),
     loadout: member.type === 'ranger'
-      ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: 'horse' as const }
-      : { ...UNIT_PRESETS[presetId].tierLoadouts[member.type === 'soldier' ? 2 : 3], mountId: member.type === 'soldier' ? null : 'horse' as const } }
+      ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: equipment.mount }
+      : { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount } }
 }
 export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPersonalSquadMember,
   faction: CareerProfile['faction'], slot: TownHRLayout['muster'][number]): { npc: NPC; mount?: Mount } {
   const spec = personalMemberLoadout(member, faction)
-  const npc = new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, member.type === 'ranger' ? AIType.RANGED : AIType.MELEE,
+  const npc = new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
     member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : 'Personal Maki',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, 1, member.id, undefined,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile)
@@ -34,7 +37,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
   if (!spec.mounted) return { npc }
-  const mount = new Mount(scene, MountType.HORSE, slot.x, slot.z)
+  const mount = new Mount(scene, careerMountType(spec.loadout.mountId!), slot.x, slot.z)
   mount.group.rotation.y = slot.yaw; mount.reservedForTown = true
   npc.mountVehicle(mount)
   return { npc, mount }

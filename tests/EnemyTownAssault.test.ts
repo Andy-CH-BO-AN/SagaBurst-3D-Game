@@ -419,7 +419,7 @@ describe('Siege retained combat and settlement contracts', () => {
     const key = (code: string) => ({ code, repeat: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() })
     const tab = key('Tab'); town.key(tab)
     expect(tab.preventDefault).toHaveBeenCalledOnce()
-    expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts)
+    expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts, expect.objectContaining({ render: expect.any(Function) }))
     town.equipment.visible = true; town.closePanel = vi.fn()
     town.key(key('Tab')); expect(town.closePanel).toHaveBeenCalledOnce()
     town.equipment.visible = false; town.equipment.open.mockClear()

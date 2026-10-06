@@ -1950,7 +1950,9 @@ export class NPC {
     if (!this.animator.busy && this.isUsingLance) this.animator.poseLanceReady(this.isMounted)
 
     if (this.tacticalOrder === 'follow') {
-      const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64)
+      const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64
+        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
+      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId && !contact) this.followCombatActive = false
       if (contact) {
         this.followCombatActive = true
         this._targetAcquisitionInitialized = false
@@ -1983,7 +1985,9 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
-      if (this.hasSiegeObstacle) {
+      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId
+        && (!this.hasActiveRangedWeapon || targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2)) targetInfo = null
+      if (this.hasSiegeObstacle && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
@@ -2150,6 +2154,7 @@ export class NPC {
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
           this._switchToMelee()
         }
 
@@ -2381,6 +2386,7 @@ export class NPC {
 
         // Human target got too close: ranged units draw melee as before.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
+          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
           this._switchToMelee()
           this.state = AIState.CHASE
           break
@@ -2960,11 +2966,13 @@ export class NPC {
 
   private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
     if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
+      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
       this._switchToMelee()
     }
     if (this.hasActiveRangedWeapon) {
       return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
     }
+    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)
   }
 
@@ -2997,6 +3005,7 @@ export class NPC {
   }
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
+    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) {
       if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
       const top = this.bowVisual.getTopTipPosition(new THREE.Vector3())

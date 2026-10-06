@@ -179,6 +179,10 @@ export class InventoryManager {
     return false
   }
 
+  unequipWeapon(_id: string): boolean { return false }
+  itemAvailability(_id: string): string { return '' }
+  isAllocated(id: string): boolean { return this.isEquipped(id) }
+  get supportsWeaponRelease(): boolean { return false }
   unequipShield(): void { this.equippedShieldId = null }
 
   isEquipped(id: string): boolean {

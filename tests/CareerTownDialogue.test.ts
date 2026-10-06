@@ -1,3 +1,4 @@
+import { careerItemTotal } from '../src/career/CareerInventory'
 import { describe, expect, it } from 'vitest'
 import { CAREER_TOWN_DIALOGUE, selectTownDialogue, formatTownDialogue, TownAmbientDialogue, type DialogueRole } from '../src/career/CareerTownDialogue'
 import { CAREER_RANKS, cloneCareerProfile, createCareerProfile } from '../src/career/CareerProfile'
@@ -58,16 +59,16 @@ describe('Starter and military horse ownership', () => {
     expect(inventory.equipWeapon(id)).toBe(true)
     if (['wooden_shortbow', 'pilum_basic'].includes(id)) { expect(inventory.meleeEnabled).toBe(false); expect(inventory.rangedEnabled).toBe(true) }
   })
-  it('charges one horse purchase, rejects duplicates and preserves lifetime merit', () => {
+  it('charges repeated horse purchases and preserves lifetime merit', () => {
     const p = createCareerProfile('roman'); p.totalMerit = 3000; p.availableMerit = 2000
     expect(purchaseTownHorse(p, 'horse-t2')).toBeNull()
     const horse = purchaseTownHorse(p, 'horse')!
     expect(horse.availableMerit).toBe(1800); expect(p.ownedMounts).toEqual([])
     expect(horse.ownedMounts).toEqual(['horse']); expect(horse.selectedMountId).toBe('horse')
     expect(horse.totalMerit).toBe(3000)
-    expect(purchaseTownHorse(horse, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(horse, 'horse')!, 'horse')).toBe(2)
     horse.rank = 'veteran'
-    expect(purchaseTownHorse(horse, 'horse')).toBeNull()
+    expect(careerItemTotal(purchaseTownHorse(horse, 'horse')!, 'horse')).toBe(2)
     expect(parseCareerProfile(horse)?.ownedMounts).toEqual(['horse'])
     expect(purchaseTownHorse(horse, 'black-cat')).toBeNull()
   })
@@ -76,9 +77,9 @@ describe('Starter and military horse ownership', () => {
     expect(purchaseTownHorse(p, 'horse')).toBeNull()
     p.totalMerit = p.availableMerit = 5000; p.rank = 'captain'; p.ownedHorseTiers = [1]; p.ownedMounts = ['horse']; p.townEvent = { id: 'v', state: 'hostile' }
     const next = settleTown(p, 'v', 'town_defeated')
-    expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'horse')!)).toBe('已擁有')
+    expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'horse')!)).toBe('已解鎖・餘額足夠')
     expect(productStatus(next, TOWN_PRODUCTS.find(p => p.id === 'corgi')!)).toBe('軍階未解鎖')
-    expect(purchaseTownHorse(next, 'horse')).toBeNull(); expect(next.ownedHorseTiers).toEqual([1])
+    expect(careerItemTotal(purchaseTownHorse(next, 'horse')!, 'horse')).toBe(2); expect(next.ownedHorseTiers).toEqual([1])
   })
 })
 

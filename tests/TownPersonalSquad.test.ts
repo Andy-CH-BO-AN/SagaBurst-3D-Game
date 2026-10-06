@@ -1,3 +1,5 @@
+import { parseCareerProfile } from '../src/career/CareerProfileStore'
+import { initialPersonalEquipment } from '../src/career/CareerInventory'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile } from '../src/career/CareerProfile'
@@ -161,6 +163,48 @@ describe('HR Center and personal runtime', () => {
     expect(rebuilt.actors.every(actor => actor.characterFaction === opposite && actor.faction === Faction.PLAYER)).toBe(true)
     expect(rebuilt.actors[0].presetId).toBe(`${opposite}_${opposite === 'roman' ? 'heavy_infantry' : 'berserker'}`)
     expect(rebuilt.actors.slice(1).every(actor => actor.mount?.type === MountType.HORSE)).toBe(true)
+  })
+  it('redeploys real configured weapons after death, dismissal, reload and faction change without changing totals', () => {
+    const { controller, profile, scene, world, player } = harness()
+    const parsed = parseCareerProfile({ ...profile, totalMerit: 6000 })!
+    parsed.inventory!.quantities.heavy_lance = 1
+    parsed.personalSquad!.members[0].equipment!.melee = 'heavy_lance'
+    parsed.personalSquad!.members[1].equipment!.mount = null
+    const snapshot = JSON.stringify(parsed.inventory)
+    const runtime = new TownPersonalSquadController(scene, world.hr, () => parsed, () => player)
+    cleanups.push(() => runtime.cleanup()); runtime.follow()
+    expect(runtime.actors[0]).toMatchObject({ tier: 2, meleeWeaponId: 'heavy_lance', isUsingLance: true })
+    expect(runtime.actors[1]).toMatchObject({ tier: 4, combatProfileId: 'praetorian', isMounted: false })
+    runtime.actors.forEach(actor => actor.takeDamage(99999)); runtime.updateLifecycle(); expect(runtime.state).toBe('RESERVE')
+    expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
+    runtime.follow(); runtime.dismiss(); runtime.cleanup(); expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
+    const loaded = parseCareerProfile(parsed)!; loaded.faction = 'viking'
+    const reloaded = new TownPersonalSquadController(scene, world.hr, () => loaded, () => player)
+    cleanups.push(() => reloaded.cleanup()); reloaded.follow()
+    expect(reloaded.actors[0].meleeWeaponId).toBe('heavy_lance'); expect(reloaded.actors[0].tier).toBe(2)
+    expect(JSON.stringify(loaded.inventory)).toBe(snapshot)
+    reloaded.cleanup(); loaded.personalSquad!.members = []; expect(reloaded.follow()).toBe(false)
+  })
+  it('uses a real melee backup with a bow and stops ranged-only attacks close up or out of ammo', () => {
+    const { scene, world, player } = harness()
+    const make = (melee: string | null) => new TownPersonalSquadController(scene, world.hr, () => ({ ...createCareerProfile('roman'),
+      personalSquad: { members: [{ id: 'personal:bow', type: 'soldier', equipment: { ...initialPersonalEquipment('soldier', 'roman'), melee, ranged: 'recurve_longbow', shield: null } }] } }), () => player)
+    const backup = make('gladius_standard'), onlyBow = make(null); cleanups.push(() => backup.cleanup(), () => onlyBow.cleanup())
+    backup.follow(); onlyBow.follow()
+    const enemy = new NPC(scene, 0, 3, Faction.BANDIT, 'viking', AIType.MELEE, 'enemy', 2); cleanups.push(() => enemy.dispose())
+    for (const actor of [backup.actors[0], onlyBow.actors[0]]) {
+      actor.group.position.set(0, getTerrainHeight(0, 0), 0); actor.setTacticalOrder('attack'); actor.state = AIState.CHASE
+      const hit = vi.fn(), fire = vi.fn()
+      for (let i = 0; i < 20; i++) actor.update(.05, player, [enemy], [enemy], [], {} as any, hit, fire, true, 30)
+      expect(fire).not.toHaveBeenCalled()
+      if (actor === onlyBow.actors[0]) { expect(hit).not.toHaveBeenCalled(); expect(actor.meleeWeaponId).toBeNull(); expect(actor.combatAmmo).toBe(30) }
+      else expect(actor.hasActiveRangedWeapon).toBe(false)
+    }
+    const actor = onlyBow.actors[0]; actor.restoreCombatAmmo(0); actor.state = AIState.CHASE; enemy.group.position.z = 12
+    const hit = vi.fn(), fire = vi.fn()
+    for (let i = 0; i < 20; i++) actor.update(.05, player, [enemy], [enemy], [], {} as any, hit, fire, true, 30)
+    expect(hit).not.toHaveBeenCalled(); expect(fire).not.toHaveBeenCalled()
+    expect(onlyBow.dismiss()).toBe(true); expect(actor.tacticalOrder).toBe('formation')
   })
   it('keeps constructor patrol behavior for ordinary NPC Attack and still acquires hostiles for personal Attack', () => {
     const { controller, scene, player } = harness(); controller.follow()
