@@ -48,6 +48,10 @@ function horizontalDistance(a: THREE.Vector3, b: THREE.Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z)
 }
 
+function angleDelta(a: number, b: number): number {
+  return Math.atan2(Math.sin(a - b), Math.cos(a - b))
+}
+
 describe('Player Directional Movement & Stamina', () => {
   let scene: THREE.Scene
   let player: Player
@@ -140,6 +144,34 @@ describe('Player Directional Movement & Stamina', () => {
       updatePlayer(player, 0.1, input)
       const displacement = horizontalDistance(player.position, startPos)
       expect(displacement).toBeCloseTo(0.8, 5)
+    })
+  })
+
+  describe('On-foot facing', () => {
+    it.each([
+      ['S', { KeyS: true }],
+      ['A', { KeyA: true }],
+      ['D', { KeyD: true }],
+      ['S+A', { KeyS: true, KeyA: true }],
+      ['S+D', { KeyS: true, KeyD: true }],
+    ])('keeps the camera/combat heading while moving %s', (_label, keys) => {
+      const p = new Player(scene)
+      const cameraYaw = 0.67
+      updatePlayer(p, 0.1, createMockInput(keys), cameraYaw)
+
+      expect(Math.abs(angleDelta(p.facingYaw, cameraYaw + Math.PI))).toBeLessThan(1e-6)
+    })
+
+    it('preserves the existing mounted steering toward movement direction', () => {
+      const p = new Player(scene)
+      const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      p.mountVehicle(mount, 0)
+
+      updatePlayer(p, 0.1, createMockInput({ KeyA: true }), 0)
+
+      expect(Math.abs(angleDelta(mount.group.rotation.y, -Math.PI / 2))).toBeLessThan(1e-6)
+      p.dispose()
+      mount.dispose()
     })
   })
 
