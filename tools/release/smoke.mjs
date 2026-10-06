@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { readdir, readFile, stat, mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -9,6 +9,14 @@ const desktop = process.argv.includes('--desktop')
 const packagedIndex = process.argv.indexOf('--packaged')
 const packaged = packagedIndex >= 0 ? process.argv[packagedIndex + 1] : undefined
 if (packagedIndex >= 0 && !packaged) throw new Error('--packaged requires an executable path')
+// Launching a local unsigned bundle misses the damaged-app error seen after download.
+if (desktop && packaged && process.platform === 'darwin') {
+  const app = path.resolve(packaged, '../../..')
+  execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', app], {
+    stdio: 'inherit', timeout: 60000,
+  })
+  console.log('Packaged macOS signature verified')
+}
 const base = desktop ? '/' : '/SagaBurst-3D-Game/'
 const outDir = desktop ? 'dist-desktop' : 'dist'
 async function files(dir) {

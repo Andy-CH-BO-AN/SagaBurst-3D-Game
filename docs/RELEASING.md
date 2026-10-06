@@ -37,6 +37,8 @@ Use Node.js 22 or later, and run `npm ci`.
 
 For local web smoke testing, install the browser with `npx playwright install chromium`, or set `SMOKE_BROWSER_PATH` to an installed Chrome executable. Desktop smoke uses the app's bundled Electron. CI installs Chromium automatically. Generated `dist/`, `dist-desktop/`, `release/` and diagnostic `output/` stay out of Git.
 
+macOS packages use explicit ad-hoc signing (`identity: "-"`, `hardenedRuntime: false`) until Developer ID credentials are configured. PR CI enables `CSC_FOR_PULL_REQUEST` for these explicit ad-hoc signatures; certificate/signing secrets must stay out of PR jobs. The packaged macOS smoke check first runs strict deep signature verification, so broken residual Electron signatures cannot pass CI. Each macOS ZIP includes `MACOS-FIRST-LAUNCH.txt`; downloaded apps still require manual approval because these builds are not Apple-notarized. With Developer ID signing later, enable hardened runtime, configure the required entitlements and notarization, and replace the first-launch instructions.
+
 Electron uses the stable secure standard origin `sagaburst://game/` to serve packaged files without a local server or file:// module loading. Its window disables Node integration, enables context isolation and sandboxing, denies popups/external navigation and grants only pointer lock. There is no preload or renderer Node API. Career (`sagaburst_career_v1`), Campaign (`sagaburst_defense_campaign_progress_v1`) and existing save formats are unchanged. Browser and desktop storage are separate; desktop user data persists between app versions.
 
 ## Publishing v1.0.0
