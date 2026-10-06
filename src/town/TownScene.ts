@@ -702,7 +702,7 @@ export class TownScene {
       sell.onclick = () => {
         const fresh = this.profile.personalSquad?.members.find(item => item.id === member.id)
         if (!fresh || this.personalSquad?.state !== 'RESERVE' || !canRecruitPersonalSquad(this.profile)) { this.openRecruitmentPanel('目前不能賣回隊員。'); return }
-        const confirm = this.openPanel('賣回 ' + name + '？', `退款：${personalMemberRefund(this.profile, fresh)} 軍功\n身上的可交易裝備將留在小隊背包。\n這會永久解除僱用。`)
+        const confirm = this.openPanel('賣回 ' + name + '？', `退款：${personalMemberRefund(this.profile, fresh)} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；普通兵與 Captain 至少要帶一把武器離開。\n這會永久解除僱用。`)
         this.button(confirm, '確認', () => {
           const result = sellPersonalSquadMember(() => this.profile, this.personalSquad!, member.id, next => this.commit(next))
           this.openRecruitmentPanel(result.sold ? `已解除僱用，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')

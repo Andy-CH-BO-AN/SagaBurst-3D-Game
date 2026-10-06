@@ -119,10 +119,13 @@ export function sellPersonalSquadMember(read: () => CareerProfile, authority: Pe
   if (authority.state !== 'RESERVE' || current.activeMission || current.activeOutpostMission) return fail('not-reserve')
   const member = current.personalSquad?.members.find(member => member.id === memberId)
   if (!member) return fail('missing-member')
+  if (member.type !== 'ranger' && member.equipment && !member.equipment.melee && !member.equipment.ranged) return fail('last-weapon')
   const next = cloneCareerProfile(current)
   normalizeCareerInventory(next)
   const refund = personalMemberRefund(current, member)
+  const equipment = next.personalSquad!.members.find(member => member.id === memberId)!.equipment!
   next.personalSquad!.members = next.personalSquad!.members.filter(member => member.id !== memberId)
+  for (const id of Object.values(equipment)) if (id) addCareerItem(next, id, -1)
   next.availableMerit += refund
   try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }
   return { sold: true, profile: next, refund, reason: undefined }
