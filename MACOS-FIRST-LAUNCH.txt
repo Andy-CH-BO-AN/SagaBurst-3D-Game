@@ -1,0 +1,23 @@
+SagaBurst — macOS Apple Silicon 首次開啟 / First launch
+
+本版已補齊 App、Framework 與 Helper 的 ad-hoc 簽章，但尚未經 Apple 公證。
+This build has valid ad-hoc signatures, but is not Apple-notarized.
+
+1. 將 SagaBurst.app 拖到「應用程式」資料夾。
+   Move SagaBurst.app into Applications.
+2. 先開啟一次，再到「系統設定 → 隱私權與安全性 → 強制打開」。
+   Open once, then use System Settings → Privacy & Security → Open Anyway.
+3. 若 macOS 仍顯示「已損毀」，針對此 App 在「終端機」執行以下兩行：
+   If macOS still says “damaged”, run these two lines in Terminal for this app:
+
+   xattr -dr com.apple.quarantine "/Applications/SagaBurst.app"
+   open "/Applications/SagaBurst.app"
+
+此操作僅解除這個 App 的下載隔離標記；其他 App 的 Gatekeeper 保護不變。
+This removes the download quarantine attribute from this app only.
+
+官方下載 / Official release:
+https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases/tag/v1.0.0
+
+遊戲存檔不會因替換 App 而刪除。
+Replacing the app preserves existing game saves.

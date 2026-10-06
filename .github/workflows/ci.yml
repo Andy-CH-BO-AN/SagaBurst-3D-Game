@@ -46,6 +46,8 @@ jobs:
     timeout-minutes: 25
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # Explicit ad-hoc signing uses no certificate or signing secrets in PRs.
+      CSC_FOR_PULL_REQUEST: 'true'
     steps:
       - name: Enable long Windows asset paths
         if: runner.os == 'Windows'

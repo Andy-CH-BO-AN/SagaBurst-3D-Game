@@ -26,7 +26,7 @@ Use Node.js 22 or later, and run `npm ci`.
 | --- | --- |
 | `npm run dev` | Local development at `/` |
 | `npm test` | Full existing Vitest suite |
-| `npm run test:release` | Tag guard and desktop path confinement checks |
+| `npm run test:release` | Release retry, tag guard and desktop path confinement checks |
 | `npm run build` / `npm run build:web` | TypeScript + Pages build in `dist/`, base `/SagaBurst-3D-Game/` |
 | `npm run smoke:web` | Production preview, main menu, runtime assets and storage reload |
 | `npm run build:desktop` | Same source in `dist-desktop/`, base `/` |
@@ -36,6 +36,8 @@ Use Node.js 22 or later, and run `npm ci`.
 | `npm run smoke:desktop -- --packaged "path/to/executable"` | Verify the packaged app, secure preferences, assets and storage |
 
 For local web smoke testing, install the browser with `npx playwright install chromium`, or set `SMOKE_BROWSER_PATH` to an installed Chrome executable. Desktop smoke uses the app's bundled Electron. CI installs Chromium automatically. Generated `dist/`, `dist-desktop/`, `release/` and diagnostic `output/` stay out of Git.
+
+macOS packages use explicit ad-hoc signing (`identity: "-"`, `hardenedRuntime: false`) until Developer ID credentials are configured. PR CI enables `CSC_FOR_PULL_REQUEST` for these explicit ad-hoc signatures; certificate/signing secrets must stay out of PR jobs. The packaged macOS smoke check first runs strict deep signature verification, so broken residual Electron signatures cannot pass CI. Each macOS ZIP includes `MACOS-FIRST-LAUNCH.txt`; downloaded apps still require manual approval because these builds are not Apple-notarized. With Developer ID signing later, enable hardened runtime, configure the required entitlements and notarization, and replace the first-launch instructions.
 
 Electron uses the stable secure standard origin `sagaburst://game/` to serve packaged files without a local server or file:// module loading. Its window disables Node integration, enables context isolation and sandboxing, denies popups/external navigation and grants only pointer lock. There is no preload or renderer Node API. Career (`sagaburst_career_v1`), Campaign (`sagaburst_defense_campaign_progress_v1`) and existing save formats are unchanged. Browser and desktop storage are separate; desktop user data persists between app versions.
 
@@ -60,7 +62,11 @@ Expected downloads:
 - `SagaBurst-v1.0.0-Windows-x64.zip`
 - `SagaBurst-v1.0.0-macOS-arm64.zip`
 
-Keep main at that commit until the Release workflow finishes; if main advances, publishing fails safely. For a failed workflow, rerun the same tag workflow after resolving the cause. A rerun validates the same main/tag boundary and uploads to that release without creating another release.
+Keep main at that commit until the Release workflow publishes; an unpublished release still validates current main HEAD before building and publishing. A retry creates or resumes a draft, retains complete uploads, uploads only missing files without replacement, and publishes only after both expected ZIPs have nonzero size and SHA-256 digests. Authentication, API errors, duplicate assets and incomplete uploads fail safely.
+
+For an already published version, reruns verify both expected downloads and skip validation/build/upload jobs, even if main has since advanced. Missing or incomplete published assets cause an error; reruns never repair, delete or replace them. Publish fixes as a new version. This is compatible with Release immutability (recommended for future releases).
+
+GitHub reruns use the workflow/source from the original tag. Tags created before this change, including v1.0.0, still use their old workflow; do not rerun those old publish jobs. Merging this fix does not alter existing version tags or downloads.
 
 For later versions, update package.json and package-lock.json together on dev (e.g. `npm version patch --no-git-tag-version`), add player notes at `docs/releases/vX.Y.Z.md`, and repeat the promotion/deployment/tag process. A notes file is required for a new release.
 
