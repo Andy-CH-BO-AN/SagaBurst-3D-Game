@@ -9,6 +9,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    permissions:
+      contents: read
+      pages: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -24,7 +27,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
   deploy:
