@@ -12,7 +12,7 @@ SagaBurst is designed for **desktop computers with keyboard + mouse**.
 
 ### Play Online
 
-[Play SagaBurst in your browser](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/) — no installation required. The production site becomes available after the first `prod` deployment.
+[Play SagaBurst in your browser](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/) — no installation required. The production site becomes available after the first `main` deployment.
 
 ### Download
 

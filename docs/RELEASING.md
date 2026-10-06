@@ -2,20 +2,20 @@
 
 ## Branches
 
-`feature → dev → prod → vX.Y.Z`
+`feature → dev → main → vX.Y.Z`
 
 - Open all feature and bugfix PRs against **dev**. Pushes and PRs run `npm ci`, `npm test`, and `npm run build` plus release and Pages smoke checks. PRs also package and smoke-test both desktop targets; preview artifacts are Actions downloads, never official releases.
-- Promote a tested **dev** with a Release PR into **prod**. Only prod pushes deploy the production website. Do not develop features directly on prod.
-- Keep **main** as the legacy/default branch during this transition. Always select dev as the feature PR base; changing the default can be handled separately.
+- Promote a tested **dev** with a Release PR into **main**. Only main pushes deploy the production website. Do not develop features directly on main.
+- **main** is the default and production branch. Always select dev as the feature PR base.
 
-The initial dev and prod branches were created from stable main commit `273ddee45c4e1e9a28d5d04a73157c439e7762bd` after confirming no open PRs. This preparation PR targets dev. Reviewing and merging it does not deploy the website or publish v1.0.0; a separate dev → prod PR is required.
+The release pipeline preparation (#213) is merged into dev. The redundant prod branch has been deleted; main now serves as production. Feature PRs into dev do not deploy the website or publish v1.0.0; a reviewed dev → main promotion PR is required.
 
 ## One-time GitHub setup
 
 1. **Settings → Actions → General:** allow the official GitHub actions and workflow execution. The release workflow requests `contents: write`; ensure repository/organization policy permits that. No publishing token or signing secret is needed; jobs use `GITHUB_TOKEN`.
-2. **Settings → Pages → Build and deployment → Source:** choose **GitHub Actions**. Do this before the first prod deployment.
-3. **Settings → Environments → github-pages:** allow deployment from **prod only**. If required reviewers are enabled, approve the Pages deployment in Actions. The tag release jobs do not use this environment.
-4. **Settings → Rules → Rulesets / branch protection:** protect dev and prod with PR review and required **CI / web** checks. Prevent force pushes and deletion. Keep prod for promotion PRs from dev. GitHub branch protection cannot restrict a PR's source branch by itself; reviewers must check it is dev.
+2. **Settings → Pages → Build and deployment → Source:** choose **GitHub Actions**. Do this before the first main deployment.
+3. **Settings → Environments → github-pages:** allow deployment from **main only**. If required reviewers are enabled, approve the Pages deployment in Actions. The tag release jobs do not use this environment.
+4. **Settings → Rules → Rulesets / branch protection:** protect dev and main with PR review and required **CI / web** checks. Prevent force pushes and deletion. Keep main for promotion PRs from dev. GitHub branch protection cannot restrict a PR's source branch by itself; reviewers must check it is dev.
 5. Recommended: restrict creation/update/deletion of `v*` tags to release maintainers. Do not create v1.0.0 until production verification and all checks pass.
 
 ## Build and validation
@@ -42,25 +42,25 @@ Electron uses the stable secure standard origin `sagaburst://game/` to serve pac
 ## Publishing v1.0.0
 
 1. Review this preparation PR into dev and require its checks to pass before promotion.
-2. Open and review **dev → prod**. Merge after its checks pass.
+2. Open and review **dev → main**. Merge after its checks pass.
 3. Wait for **Deploy production Pages**, then play-check [the production site](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/). Confirm models, mounts, audio and saves load.
-4. Fetch prod, check out its exact HEAD, and only then create and push the release tag:
+4. Fetch main, check out its exact HEAD, and only then create and push the release tag:
 
    ```bash
    git fetch origin
-   git switch --detach origin/prod
+   git switch --detach origin/main
    git tag -a v1.0.0 -m "SagaBurst v1.0.0"
    git push origin v1.0.0
    ```
 
-5. The Release workflow rejects mismatched package/lock versions or a tag outside current prod HEAD, runs tests and Pages smoke, builds each desktop ZIP on its native OS, smoke-tests the packaged executables, then rechecks prod HEAD before publishing **SagaBurst v1.0.0** with both downloads.
+5. The Release workflow rejects mismatched package/lock versions or a tag outside current main HEAD, runs tests and Pages smoke, builds each desktop ZIP on its native OS, smoke-tests the packaged executables, then rechecks main HEAD before publishing **SagaBurst v1.0.0** with both downloads.
 
 Expected downloads:
 
 - `SagaBurst-v1.0.0-Windows-x64.zip`
 - `SagaBurst-v1.0.0-macOS-arm64.zip`
 
-Keep prod at that commit until the Release workflow finishes; if prod advances, publishing fails safely. For a failed workflow, rerun the same tag workflow after resolving the cause. A rerun validates the same prod/tag boundary and uploads to that release without creating another release.
+Keep main at that commit until the Release workflow finishes; if main advances, publishing fails safely. For a failed workflow, rerun the same tag workflow after resolving the cause. A rerun validates the same main/tag boundary and uploads to that release without creating another release.
 
 For later versions, update package.json and package-lock.json together on dev (e.g. `npm version patch --no-git-tag-version`), add player notes at `docs/releases/vX.Y.Z.md`, and repeat the promotion/deployment/tag process. A notes file is required for a new release.
 
