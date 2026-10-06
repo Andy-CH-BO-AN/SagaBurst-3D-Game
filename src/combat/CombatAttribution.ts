@@ -1,5 +1,5 @@
 import type { Player } from '../player/Player'
-import type { SquadId } from '../battle/CommandTarget'
+import type { SquadIdentity } from '../battle/CommandTarget'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { DamageableObstacle, DamageableObstacleKind } from '../world/DamageableObstacle'
 import type { Mount } from '../world/Mount'
@@ -16,7 +16,8 @@ export interface CombatActorRef {
   allegiance: Faction
   characterFaction: CharacterFaction
   presetId?: UnitPresetId
-  squadId?: SquadId
+  squadId?: SquadIdentity
+  ownership?: 'player-personal'
 }
 
 export interface CombatTargetRef {
@@ -27,7 +28,7 @@ export interface CombatTargetRef {
   allegiance?: Faction
   characterFaction?: CharacterFaction
   presetId?: UnitPresetId
-  squadId?: SquadId
+  squadId?: SquadIdentity
   structureKind?: DamageableObstacleKind
 }
 
@@ -116,6 +117,7 @@ export function createNpcCombatActorRef(npc: NPC): CombatActorRef {
     characterFaction: npc.characterFaction,
     presetId: npc.presetId,
     squadId: npc.squadId,
+    ...(npc.combatOwnership ? { ownership: npc.combatOwnership } : {}),
   }
 }
 

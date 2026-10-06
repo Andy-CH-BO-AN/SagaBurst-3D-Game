@@ -373,6 +373,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
       next => store.save(next),
     )
     game.battleStats = {
+      freeze: vi.fn(),
       checkpoint: () => ({ damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }),
       snapshot: (_npcs: unknown, currentPlayer: typeof player) => ({
         player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !currentPlayer.dead },

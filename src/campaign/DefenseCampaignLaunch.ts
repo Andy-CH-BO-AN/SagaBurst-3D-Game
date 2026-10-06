@@ -47,6 +47,7 @@ import {
 } from './CampaignConfig'
 import type { VeteranOutpostBattleState } from '../career/CareerMissionState'
 import { createVeteranRoster } from '../career/VeteranMission'
+import { parsePersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 
 export interface DefenseCampaignCapabilities {
   reinforcementsEnabled: boolean
@@ -84,6 +85,7 @@ export interface DefenseCampaignLaunchConfig {
   careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
   careerReliefPhase?: 'march' | 'charge'
   careerVeteranOutpost?: CareerVeteranOutpostLaunchData
+  careerPersonalSquad?: PersonalSquadMission
   defenderFaction: CampaignFaction
   stageId: CampaignStageId
   defenderArmy: Record<string, UnitTierCounts>
@@ -168,6 +170,9 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   const veteranOutpost = config.careerVeteranOutpost
+  if (config.careerPersonalSquad && (!config.careerMissionId || !parsePersonalMission(config.careerPersonalSquad))) {
+    errors.push('Personal squad requires a valid Career mission roster')
+  }
   if (config.type !== 'defense') errors.push('Campaign type must be defense')
   if (config.deploymentSeconds !== undefined && (
     !Number.isFinite(config.deploymentSeconds)

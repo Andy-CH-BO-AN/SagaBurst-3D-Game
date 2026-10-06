@@ -12,6 +12,7 @@ import { townSitePoint, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
+import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 
 interface MissionProfiles {
   read(): CareerProfile
@@ -45,6 +46,7 @@ interface TownReturnScene {
   readonly player: Pick<Player, 'group'>
   clearCombatShots(): void
   restPlayer(): void
+  returnPersonalSquad?(direct: boolean): void
   restart(profile: CareerProfile): void
 }
 
@@ -63,6 +65,7 @@ export type MissionReturn =
  * Claim/clear remain the Career rules authority; this module owns when their changes may take effect.
  */
 export class TownMissionSettlement {
+  private personalResult?: { missionId: string; outcome: CareerMissionOutcome; stats: BattleStatsSnapshot; defense?: CareerMissionResult['defense'] }
   constructor(
     private readonly profiles: MissionProfiles,
     private readonly missions: MissionControllers,
@@ -74,9 +77,17 @@ export class TownMissionSettlement {
     const active = profile.activeMission
     if (!active || active.result) return { status: 'ignored' }
     const source = active.kind === 'duel' ? this.missions.duel : this.missions.defense.active ? this.missions.defense : this.missions.field
-    const claim = claimCareerMission(profile, active.id, outcome, source.snapshot().player)
+    let stats: BattleStatsSnapshot
+    if (active.personalSquad && this.personalResult?.missionId === active.id) {
+      stats = this.personalResult.stats; outcome = this.personalResult.outcome
+    } else {
+      stats = source.snapshot()
+      if (active.personalSquad) this.personalResult = { missionId: active.id, outcome, stats: structuredClone(stats),
+        ...(active.kind === 'town-defense' ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
+    }
+    const claim = claimCareerMission(profile, active.id, outcome, stats.player, stats.meritPlayer)
     if (active.kind === 'town-defense' && claim.profile.activeMission?.result) {
-      claim.profile.activeMission.result.defense = {
+      claim.profile.activeMission.result.defense = this.personalResult?.missionId === active.id ? this.personalResult.defense : {
         civilianSurvived: this.missions.defense.civilianSurvived,
         civilianDeaths: this.missions.defense.civilianDeaths,
       }
@@ -100,7 +111,9 @@ export class TownMissionSettlement {
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : this.missions.field.friendlies) : null
     const next = clearCareerMission(profile, active.id)
+    next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
     if (!this.profiles.commit(next)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
+    this.town.returnPersonalSquad?.(intent === 'direct')
 
     if (!inPlace) {
       if (active.kind === 'enemy-town-assault') this.missions.defense.cleanupMission()

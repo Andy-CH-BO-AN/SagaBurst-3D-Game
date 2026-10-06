@@ -24,6 +24,8 @@ export interface DefenseCampaignCombatState {
   originalDefendersAlive: number
   /** All living defender NPCs, including reinforcements. Player is counted separately. */
   defendersAlive: number
+  /** Separate deployed personal combatants; never changes official defender totals. */
+  personalDefendersAlive?: number
   attackersAlive: number
   /** True only after the reinforcement wave has actually been spawned into the scene. */
   reinforcementSpawned: boolean
@@ -99,6 +101,7 @@ export class DefenseCampaignRuntime {
   ): DefenseCampaignRuntimeEvent[] {
     if (this.battleFinished) return []
     const events: DefenseCampaignRuntimeEvent[] = []
+    const personalAlive = Math.max(0, state.personalDefendersAlive ?? 0)
     const reinforcementActive = state.reinforcementActive ?? state.reinforcementSpawned
     if (this.options.eliminationObjective) {
       this.assaultElapsed += Math.max(0, dt)
@@ -108,7 +111,7 @@ export class DefenseCampaignRuntime {
         this.result = 'victory'
         return ['battle_victory']
       }
-      if (state.playerDead && state.defendersAlive === 0 && state.attackersAlive > 0) {
+      if (state.playerDead && state.defendersAlive + personalAlive === 0 && state.attackersAlive > 0) {
         this.battleFinished = true
         this.result = 'defeat'
         return ['battle_defeat']
@@ -116,7 +119,7 @@ export class DefenseCampaignRuntime {
       return []
     }
 
-    if (this.options.reinforcementsEnabled === false && state.playerDead && state.defendersAlive <= 0) {
+    if (this.options.reinforcementsEnabled === false && state.playerDead && state.defendersAlive + personalAlive <= 0) {
       this.battleFinished = true
       this.result = 'defeat'
       return ['battle_defeat']
@@ -129,6 +132,7 @@ export class DefenseCampaignRuntime {
       && !reinforcementActive
       && state.playerDead
       && state.originalDefendersAlive <= 0
+      && personalAlive === 0
     ) {
       // Defeat is locked, but the battlefield timeline intentionally continues.
       // Assault and scheduled relief cavalry still occur for spectator simulation.
@@ -147,7 +151,7 @@ export class DefenseCampaignRuntime {
     }
 
     this.assaultElapsed += Math.max(0, dt)
-    const defenderSideAlive = state.defendersAlive + (state.playerDead ? 0 : 1)
+    const defenderSideAlive = state.defendersAlive + personalAlive + (state.playerDead ? 0 : 1)
 
     // Destroying the entire attacking army is an immediate terminal result.
     // Do this before reinforcement scheduling so a clean win never queues relief.

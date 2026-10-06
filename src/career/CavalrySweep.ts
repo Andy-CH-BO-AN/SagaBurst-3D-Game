@@ -12,6 +12,7 @@ import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const CAVALRY_SWEEP_ID = 'career-cavalry-sweep'
 export const SWEEP_CHARGE_DISTANCE = 60
@@ -34,6 +35,7 @@ export function acceptCavalrySweep(current: CareerProfile, id = createCareerMiss
   const profile = cloneCareerProfile(current)
   profile.selectedMountId = mount
   profile.activeMission = createCavalrySweepMission(id, garrisonActorIds)
+  profile.activeMission.personalSquad = snapshotPersonalMission(profile)
   profile.activeMission.mountState = { activeMountId: mount, hp: {}, unavailable: [] }
   return profile
 }

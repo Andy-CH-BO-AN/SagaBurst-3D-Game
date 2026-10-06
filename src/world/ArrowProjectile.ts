@@ -307,8 +307,8 @@ export class ArrowProjectile {
         const canDamageObstacle = damageable
           && !damageable.destroyed
           && (
-            !this.isPlayerFired
-            || damageable.isDamageableBy(player.characterFaction)
+            !this.isPlayerFired && this.attribution?.source.ownership !== 'player-personal'
+            || damageable.isDamageableBy(this.attribution?.source.characterFaction ?? player.characterFaction)
           )
         if (canDamageObstacle) {
           const result = damageObstacle(damageable, this.damage, this._damageContext())

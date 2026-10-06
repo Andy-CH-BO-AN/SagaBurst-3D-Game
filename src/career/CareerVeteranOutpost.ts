@@ -13,6 +13,7 @@ import { createVeteranRoster, createVeteranSpawnSpec, type VeteranMissionRoster,
 import type { CareerProfile } from './CareerProfile'
 import type { ActiveCareerMission, VeteranOutpostBattleState } from './CareerMissionState'
 import type { CampaignFaction } from '../campaign/CampaignConfig'
+import { clonePersonalMission } from './CareerPersonalSquadMission'
 
 export type CareerVeteranOutpostSpawnWave = 'initial' | 'reinforcement'
 
@@ -91,6 +92,7 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
     careerMissionId: mission.id,
     careerMissionKind: missionKind,
+    ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     capabilities: {
       reinforcementsEnabled: mission.templateId === 'veteran-dread-outpost',
       playerCommandsEnabled: false,

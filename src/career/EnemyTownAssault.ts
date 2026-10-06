@@ -9,6 +9,7 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { canUseCareerEquipment } from '../town/TownEquipment'
 import { canUseCareerMount, careerMountTier, ownedCareerMountIds } from './CareerMountController'
 import { resolveCareerTownSceneContext } from './CareerFieldSceneContext'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const ENEMY_TOWN_ASSAULT_ID = 'career-enemy-town-assault'
 /** Deploy owned, rank-legal shields and mounts at their highest tier. */
@@ -34,6 +35,7 @@ export function acceptEnemyTownAssault(current: CareerProfile, id?: string): Car
     || !availableRecruitMissions(current).some(template => template.id === ENEMY_TOWN_ASSAULT_ID)) return null
   const profile = prepareEnemyTownAssaultEquipment(current)
   profile.activeMission = createEnemyTownAssaultMission(id)
+  profile.activeMission.personalSquad = snapshotPersonalMission(profile)
   return profile
 }
 export function enemyTownFaction(faction: CharacterFaction): CharacterFaction { return faction === 'roman' ? 'viking' : 'roman' }

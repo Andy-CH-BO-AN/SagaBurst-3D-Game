@@ -8,6 +8,7 @@ import { canUseCareerMount, careerMountAppearanceVariant } from './CareerMountCo
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import type { CareerProfile } from './CareerProfile'
 import { isCareerOutpostUnlocked, isCareerOutpostReliefUnlocked, resolveCareerReliefMount } from './CareerOutpostMission'
+import { clonePersonalMission } from './CareerPersonalSquadMission'
 
 /** Build a trusted Career launch; relief counts Player inside its separate rescue roster. */
 export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampaignLaunchConfig {
@@ -48,6 +49,7 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
       [resolveCampaignRolePreset(profile.faction, 'ranged')]: { 1: 0, 2: 4, 3: 0 },
     } : defenderArmy, careerMissionKind: mission.kind, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
     ...(relief ? { careerReliefPhase: mission.reliefPhase ?? 'march' } : {}),
+    ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
     capabilities: { reinforcementsEnabled: !relief, playerCommandsEnabled: false, gateControlEnabled: false, attackerHeroesEnabled: false },
     playerLoadout: {

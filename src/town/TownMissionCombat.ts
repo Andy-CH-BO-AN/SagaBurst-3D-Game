@@ -223,7 +223,7 @@ export class TownMissionCombat {
     const currentVeteran = veteranField ? field.active : undefined
     const veteranSurvival = currentVeteran?.templateId === 'veteran-tragedy-of-the-scouts'
     const player = this.town.player()
-    if (veteranField && veteranSurvival) this.updateExternalThreatAssignments({ enemyTownScouts: field.friendlies, player })
+    if (veteranField && veteranSurvival) this.updateExternalThreatAssignments({ enemyTownScouts: [...field.friendlies, ...(this.town.personalSquad?.()?.actors ?? [])], player })
     else this.updateExternalThreatAssignments()
     const veteranMarching = veteranField && !veteranSurvival && currentVeteran?.phase === 'MARCHING'
     let veteranCombatActive = veteranField && (veteranSurvival || currentVeteran?.phase === 'ENGAGING')
@@ -254,7 +254,7 @@ export class TownMissionCombat {
       if (actor.dead) continue
       this.grid.insert(actor)
       if (veteranHostileActors?.has(actor)) this.defenseEnemyGrid.insert(actor)
-      else if (veteranFriendlies?.has(actor) || this.externalThreatActors.has(actor)) this.defenseTownGrid.insert(actor)
+      else if (veteranFriendlies?.has(actor) || this.externalThreatActors.has(actor) || actor.combatOwnership === 'player-personal') this.defenseTownGrid.insert(actor)
     }
     if (veteranField) this.veteranEngagedEnemyGrid.clear()
     if (veteranField && !veteranSurvival) {
@@ -263,7 +263,7 @@ export class TownMissionCombat {
         const sensor = !squad.leader.dead ? squad.leader : squad.members.find(member => !member.dead)
         if (!engaged && sensor) {
           const nearbyFriendly = this.defenseTownGrid.getNearbyInto(sensor.combatPosition, 50, this.neighbors)
-            .some(actor => !actor.dead && veteranFriendlies!.has(actor))
+            .some(actor => !actor.dead && (veteranFriendlies!.has(actor) || actor.combatOwnership === 'player-personal'))
           const playerNearby = !player.dead && sensor.combatPosition.distanceToSquared(player.combatPosition) <= 50 * 50
           const nearbyRoaming = warfareActive && squad.members.some(member => !member.dead
             && this.outskirtsGrid.getNearbyInto(member.combatPosition, 50, this.neighbors)
@@ -475,7 +475,7 @@ export class TownMissionCombat {
 
   private updatePersonalActor(actor: NPC, dt: number): void {
     const personal = this.town.personalSquad?.()
-    if (!actor.dead && personal?.state === 'RETURNING') {
+    if (!actor.dead && (personal?.state === 'RETURNING' || this.missions.defense.phase === 'PREPARING')) {
       actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
         this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.navigation)
     } else this.updateRuntimeActor(actor, dt)
@@ -496,7 +496,7 @@ export class TownMissionCombat {
     const player = this.town.player()
     for (const actor of actors) {
       const mount = actor.mount
-      if (!mount || mount.dead || actor.dead || outskirts?.owns(actor) && !outskirts.combatEnabled(actor)) continue
+      if (!mount || mount.dead || actor.dead || actor.combatOwnership === 'player-personal' && this.missions.defense.phase === 'PREPARING' || outskirts?.owns(actor) && !outskirts.combatEnabled(actor)) continue
       for (const target of this.warfareGrid.getNearbyInto(mount.group.position, 2.5, this.neighbors)) {
         if (target.dead || !townWartimeHostile(actor, target) || !checkMountImpact(mount, target.combatPosition, .5)) continue
         applyMountImpactDamage(mount, target, target.combatPosition, elapsed,
@@ -673,7 +673,7 @@ export class TownMissionCombat {
     const patrolActors = new Set(patrol?.combatActors ?? [])
     const actors = warfareActive ? [...new Set([
       ...defense.fieldNpcs, ...this.missions.field.ambientBandits,
-      ...(outskirts?.actors ?? []), ...this.externalThreatActors, ...patrolActors,
+      ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors,
     ])] : [...new Set([...defense.fieldNpcs, ...patrolActors])]
     const missionActors = new Set(actors)
     for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
@@ -685,6 +685,7 @@ export class TownMissionCombat {
       else this.defenseTownGrid.insert(actor)
     }
     for (const actor of actors) {
+      if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)
         continue

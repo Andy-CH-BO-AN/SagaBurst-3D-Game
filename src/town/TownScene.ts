@@ -8,6 +8,8 @@ import { FormationController } from '../battle/FormationController'
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
 import { hrOfficerSpec } from './TownHRLayout'
 import { TownPersonalSquadController } from './TownPersonalSquadController'
+import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
+import { personalTownDeployment } from '../career/PersonalSquadDeployment'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -32,7 +34,7 @@ import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProj
 import { warmTownRenderResources } from './TownRenderWarmup'
 import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
-import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod } from '../combat/CombatAttribution'
+import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import { NavigationWorld } from '../navigation/NavigationWorld'
@@ -87,7 +89,7 @@ import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController
 import { TOWN_RULES, townActorCaptainProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, TOWN_PRODUCTS, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
-interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; age: number }
+interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer' }
 export class TownScene {
   private readonly weaponWheel = new WeaponWheel()
@@ -159,6 +161,8 @@ export class TownScene {
   private missionCombat!: TownMissionCombat
   private personalSquad?: TownPersonalSquadController
   private personalCommands?: ArmyCommandController
+  private personalSaveElapsed = 0
+  private personalCriticalState = ''
   private personalCommandUI?: ArmyCommandUI
   private personalFormation?: FormationController
   private outskirts?: TownOutskirtsWarfareController
@@ -250,13 +254,18 @@ export class TownScene {
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds)
     this.outskirts.synchronizeRank()
-    this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player)
+    this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player, undefined, {
+      sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
+      hasHR: context.worldFaction === profile.faction,
+      emit: event => (this.defense?.active ? this.defense.events : this.mission.events).emit(event),
+      onSpawn: npc => (this.defense?.active ? this.defense : this.mission)?.registerPersonalActor(npc),
+    })
     this.personalCommandUI = new ArmyCommandUI(profile.faction, this.hud)
     this.personalFormation = new FormationController(this.scene, this.camera, this.personalSquad.actors, this.world.terrainMesh,
       this.world.obstacles, this.navigation, TOWN_NAVIGATION_BOUNDS)
     this.personalCommands = new ArmyCommandController(this.personalSquad.actors, profile.faction, this.input, this.personalCommandUI,
-      this.personalFormation, order => { if (order === 'attack' || order === 'charge' || order === 'defend') sound.playCommanderCommand(this.profile.faction, order) },
-      'follow', order => this.personalCommandsEnabled() && (order === 'follow' || this.personalSquad?.state === 'ACTIVE' || this.personalSquad?.state === 'DEPLOYING'), this.inventory, 'squad', true, {
+      this.personalFormation, order => { this.personalSquad?.resumeCommand(); if (order === 'attack' || order === 'charge' || order === 'defend') sound.playCommanderCommand(this.profile.faction, order) },
+      'follow', order => this.personalCommandsEnabled() && (order === 'follow' || this.personalSquad?.state !== 'RESERVE'), this.inventory, 'squad', true, {
         enabled: () => this.personalCommandsEnabled(),
         issue: order => {
           if (order === 'follow') {
@@ -275,6 +284,7 @@ export class TownScene {
       ?? this.residents.find(resident => resident.npc.faction === Faction.TOWN)
       ?? this.residents[0]).npc
     this.mission = new BanditMissionController(this.scene, this.world, this.navigation, missionCaptain, this.residents, () => this.player, () => this.profile, p => this.commit(p))
+    this.mission.personalActors = () => this.personalSquad?.actors ?? []
     this.mission.onBorrowMountedActor = actorId => { this.patrol.relinquish(actorId) }
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
@@ -286,6 +296,7 @@ export class TownScene {
       closureBodies: () => this.siegeClosureBodies(),
       ambientEnemies: () => this.mission.ambientBandits,
     })
+    this.defense.personalActors = () => this.personalSquad?.actors ?? []
     this.careerMounts = new CareerMountController(
       this.scene,
       () => this.player,
@@ -330,6 +341,7 @@ export class TownScene {
         get player() { return town.player },
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: () => this.restPlayerInTown(),
+        returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
         restart: p => { this.missionResultOpen = false; this.dispose(); this.onRestart(p) },
       },
     )
@@ -375,6 +387,7 @@ export class TownScene {
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
       this.flushCareerSkillProgression()
+      this.persistPersonalSquad(0, true)
       if (this.defense?.active && !this.defense.active.result) this.defense.persistRuntimeProgress(true)
       if (this.profile.activeMission?.kind === 'veteran-field'
         && (!this.profile.activeMission.result || this.profile.activeMission.phase === 'RETURNING')) this.mission.persistRuntimeProgress(true)
@@ -397,12 +410,13 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => {
       if (this.disposed) return
       this.frame(t)
-      if (this.siegeOpeningPending && !this.profile.activeMission?.result) {
-        this.siegeOpeningPending = false
-        // Give the ready battlefield one paint before sounding its alarm.
-        requestAnimationFrame(() => { if (!this.disposed) void (this.defense.assault ? this.playAssaultAlert() : this.playTownDefenseAlert()) })
-      }
+      this.scheduleSiegeOpening()
     })
+  }
+  private scheduleSiegeOpening(): void {
+    if (!this.siegeOpeningPending || this.profile.activeMission?.result) return
+    this.siegeOpeningPending = false
+    requestAnimationFrame(() => { if (!this.disposed) void (this.defense.assault ? this.playAssaultAlert() : this.playTownDefenseAlert()) })
   }
   private async playAssaultAlert(): Promise<void> {
     const missionId = this.profile.activeMission?.id
@@ -442,12 +456,25 @@ export class TownScene {
     this.clearCareerSkillSaveTimer()
     const next = cloneCareerProfile(profile)
     next.skills = this.skills.skillState
+    const newMission = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
+    const newOutpost = Boolean(next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
+    const active = next.activeMission ?? next.activeOutpostMission
+    if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
+      const roster = snapshotPersonalMission(next)
+      if (roster) active!.personalSquad = this.personalSquad?.captureForMission(roster) ?? roster
+    } else if (active?.personalSquad) {
+      const saved = this.personalSquad?.checkpoint()
+      if (saved) {
+        saved.contribution = (this.defense?.active ? this.defense.personalContribution : this.mission?.personalContribution) ?? saved.contribution
+        active.personalSquad = saved
+      }
+    }
+    if (newMission || newOutpost) next.personalSquadRuntime = undefined
     if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
-    if ((next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
-      || (next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)) {
+    if (newMission || newOutpost) {
       this.personalCommands?.close()
-      this.personalCommandUI?.setEnabled(false)
-      this.personalSquad?.cleanup()
+      if (next.activeMission?.kind === 'duel') this.personalSquad?.cleanup()
+      else this.personalSquad?.bindMission(active?.personalSquad)
     }
     if (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id) {
       this.player?.shield?.reset()
@@ -458,6 +485,22 @@ export class TownScene {
     this.profile = next
     this.careerSkillsDirty = false
     return true
+  }
+
+  private persistPersonalSquad(dt: number, force = false): void {
+    const saved = this.personalSquad?.checkpoint()
+    if (!saved && !this.profile.personalSquadRuntime) return
+    this.personalSaveElapsed += dt
+    const critical = saved ? JSON.stringify([saved.state, saved.memberIds.map(id => {
+      const member = saved.members[id]
+      return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
+    })]) : ''
+    if (!force && this.personalSaveElapsed < 5 && critical === this.personalCriticalState) return
+    const next = cloneCareerProfile(this.profile)
+    const active = next.activeMission ?? next.activeOutpostMission
+    if (active?.personalSquad && saved) active.personalSquad = saved
+    else if (!active) next.personalSquadRuntime = saved
+    if (this.commit(next)) { this.personalSaveElapsed = 0; this.personalCriticalState = critical }
   }
 
   private bindBlockingProgression(): void {
@@ -676,8 +719,9 @@ export class TownScene {
     }
   }
   private personalCommandsEnabled(): boolean {
-    return Boolean(!this.player?.dead && !this.profile.activeMission && !this.profile.activeOutpostMission
-      && this.profile.personalSquad?.members.length)
+    const active = this.profile.activeMission ?? this.profile.activeOutpostMission
+    return Boolean(!this.player?.dead && this.profile.activeMission?.kind !== 'duel'
+      && (!active || active.personalSquad) && this.profile.personalSquad?.members.length)
   }
   private openRecruitmentPanel(response?: string): void {
     const greeting = response ?? personalSquadGreeting(this.profile)
@@ -887,7 +931,7 @@ export class TownScene {
     if (!next) { this.openPanel('無法接受任務', getVeteranMissionAvailability(fresh, definition.id).reason ?? '目前已有任務或小鎮處於敵對狀態。'); return }
     if (!this.commit(next)) return
     if (definition.kind !== 'veteran-field') {
-      const launch = createCareerVeteranOutpostLaunch(next)
+      const launch = createCareerVeteranOutpostLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch)
       return
     }
@@ -950,8 +994,8 @@ export class TownScene {
     const fresh = this.store.loadChecked().profile
     const next = fresh && acceptCareerOutpostRelief(fresh)
     if (!next) { this.openPanel('無法接受任務', '需完成 Outpost I–III、擁有合法坐騎且沒有進行中的任務。'); return }
-    const launch = createCareerOutpostLaunch(next)
     if (!this.commit(next)) return
+    const launch = createCareerOutpostLaunch(this.profile)
     this.dispose(true)
     this.onCampaign(launch)
   }
@@ -961,8 +1005,8 @@ export class TownScene {
     if (!fresh) { this.openPanel('無法接受任務', '無法讀取 Career profile。'); return }
     const next = acceptCareerOutpost(fresh, stageId)
     if (!next) { this.openPanel('無法接受任務', '任務尚未解鎖或已有任務進行中。'); return }
-    const launch = createCareerOutpostLaunch(next)
     if (!this.commit(next)) return
+    const launch = createCareerOutpostLaunch(this.profile)
     this.dispose(true)
     this.onCampaign(launch)
   }
@@ -990,7 +1034,7 @@ export class TownScene {
       if (npc.mount) addMount(npc.mount)
       else bodies.push({ position: npc.combatPosition, radius: .5, moveTo: point => npc.group.position.copy(point) })
     }
-    for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? [])]) addMount(mount)
+    for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) addMount(mount)
     return bodies
   }
 
@@ -1040,7 +1084,23 @@ export class TownScene {
         this.player.dismountFromMount()
         this.player.takeDamage(this.player.maxHp * 100, this.hp)
       }
+      this.restorePersonalSquad(active.personalSquad)
+    } else {
+      this.restorePersonalSquad(profile.personalSquadRuntime)
     }
+  }
+
+  private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
+    if (!saved || !this.personalSquad) return
+    if (saved.sceneKey !== this.personalSquad.sceneKey) {
+      const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.group.rotation.y }
+      const official = (this.defense.active ? this.defense.fieldNpcs : this.mission.friendlies)
+        .filter(npc => !npc.dead && npc.faction !== Faction.ENEMY && npc.combatPosition.distanceToSquared(this.player.combatPosition) < 80 * 80)
+        .map(npc => npc.combatPosition)
+      this.personalSquad.setMuster(personalTownDeployment(anchor, official, saved.memberIds.length,
+        TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation))
+    }
+    this.personalSquad.restoreMission(saved)
   }
   private playMissionVoice(cue: CareerMissionVoiceCue): void {
     sound ??= new SoundManager()
@@ -1071,7 +1131,7 @@ export class TownScene {
       const next = acceptEnemyTownAssault(fresh)
       if (!next) { this.openPanel('無法接受任務', '需先完成 Outpost Relief · 騎兵救援 Victory，且沒有其他任務或小鎮敵對事件。'); return }
       if (!this.commit(next)) return
-      this.dispose(); this.onRestart(next)
+      this.dispose(); this.onRestart(this.profile)
       return
     }
     if (template.kind === 'town-defense') {
@@ -1080,7 +1140,11 @@ export class TownScene {
       const mission = createTownDefenseMission(defenders, civilians, undefined, template.id, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-      this.dispose(); this.onRestart(next)
+      if (!this.profile.activeMission?.personalSquad) { this.dispose(); this.onRestart(this.profile); return }
+      this.siegeOpeningPending = true
+      if (!this.defense.startActiveMission()) { this.openPanel('任務部署失敗', '任務已保存，重新載入後可恢復。'); return }
+      this.inventory.prepareForCombat()
+      this.closePanel()
       return
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
@@ -1132,6 +1196,8 @@ export class TownScene {
     this.hp.setFill(this.player.hpRatio)
   }
   private finishMission(outcome: CareerMissionOutcome): void {
+    if (this.defense?.active) this.defense.freezeStats()
+    else if (!this.duel?.active) this.mission?.freezeStats()
     const finished = this.missionSettlement.finish(outcome)
     if (finished.status === 'ignored') return
     if (finished.status === 'save-failed') {
@@ -1148,10 +1214,11 @@ export class TownScene {
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
-    const zeroMeritReason = merit.total !== 0 ? '' : result.stats.damageDealt > 0
+    const combined = result.meritStats ? `\n\n玩家與私兵軍功貢獻\nDamage ${Math.round(result.meritStats.damageDealt)}\nKills ${result.meritStats.kills}\nStructure damage ${Math.round(result.meritStats.structureDamage)}\nGate breaches ${result.meritStats.gateBreaches}` : ''
+    const zeroMeritReason = merit.total !== 0 ? '' : (result.meritStats ?? result.stats).damageDealt > 0
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
-    const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
+    const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
     this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'duel') {
       if (complete && result.stats.survived) this.button(panel, '跟隊長走回去', () => {
@@ -1279,7 +1346,8 @@ export class TownScene {
       npc.combatMountGrid = this.combatMountGrid
     }
   }
-  private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact): void {
+  private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || this.personalSquad?.mounts.includes(mount))) return
     if (mount.dead || mount.disposed || amount <= 0) return
     if (!this.profile.activeMission && !this.event?.hostile && this.mounts.includes(mount) && !source) {
       this.hitResident(mount, amount, method, contact)
@@ -1289,7 +1357,7 @@ export class TownScene {
     const rider = mount.riderNpc
     const playerMountHit = mount === this.player.currentMount
     const result = damageMount(mount, amount, {
-      contact, source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), method,
+      contact, source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
@@ -1387,8 +1455,9 @@ export class TownScene {
     this.activateHostility(); this.persistCasualties()
   }
   private get ranger(): NPC { return this.residents.find(r => r.spec.role === 'ranger')!.npc }
-  private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3): void {
+  private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3, source?: NPC, sourceRef?: CombatActorRef, method: CombatDamageMethod = 'melee'): void {
     if (this.duel?.active) return
+    if (source && (this.defense?.phase === 'PREPARING' || !this.defense?.assault)) return
     const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
     const townOwned = b.ownerFaction === Faction.TOWN
     if (townOwned && this.profile?.activeMission?.kind === 'town-defense') return
@@ -1396,7 +1465,7 @@ export class TownScene {
     const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
     const { appliedDamage } = b.hp.takeDamage(amount)
     if (appliedDamage <= 0) return
-    if (this.defense?.assault && townOwned) emitStructureDamage({ source: createPlayerCombatActorRef(this.player), method: 'melee', weaponId: this.inventory.equippedMelee?.id, emit: this.defense.events.emit }, { targetId: b.id, targetType: 'structure', name: b.id, allegiance: Faction.ENEMY, structureKind: b.hp.kind }, amount, appliedDamage, b.hp.hpRatio, b.hp.destroyed)
+    if (this.defense?.assault && townOwned) emitStructureDamage({ source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method, weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : this.inventory.equippedMelee?.id, emit: this.defense.events.emit }, { targetId: b.id, targetType: 'structure', name: b.id, allegiance: Faction.ENEMY, structureKind: b.hp.kind }, amount, appliedDamage, b.hp.hpRatio, b.hp.destroyed)
     this.damageNumbers.spawn(appliedDamage, position)
     this.world.refreshDamage(); this.navigation.sync(this.world.obstacles)
     if (townOwned && !this.defense?.assault) this.activateHostility()
@@ -1417,10 +1486,11 @@ export class TownScene {
       this.button(panel, '重試保存事件', () => { if (this.commit(next)) this.closePanel() })
     }
   }
-  private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact): void {
+  private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
     if (contact?.kind === 'mount' && contact.mount) {
-      this.hitBattlefieldMount(contact.mount, amount, method, source, contact)
+      this.hitBattlefieldMount(contact.mount, amount, method, source, contact, sourceRef)
       return
     }
     if (!source && this.duel?.active && target === this.duel.opponent && !this.duel.canDamageOpponent(target)) return
@@ -1433,7 +1503,7 @@ export class TownScene {
       : amount
     const result = damageNpc(target, playerAmount, {
       contact: contact ?? (method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined),
-      source: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player),
+      source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)),
       method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
       emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
@@ -1463,13 +1533,13 @@ export class TownScene {
       this.showCombatTarget(result.targetName, result.hpRatio)
     }
   }
-  private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact): void {
+  private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     if (!source.hostileToPlayer && !this.duel?.canDamagePlayer(source)) return
     if (this.defense?.active && !source.hostileToPlayer) return
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
       contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined),
       hostileToTarget: source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source)),
-      source: createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
+      source: sourceRef ?? createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: this.duel?.active ? this.duel.events.emit : this.defense.active ? this.defense.events.emit : this.mission.events.emit,
     })
     if (result.hitSuccess && (result.appliedDamage > 0 || result.blockedImpact > 0)) this.missionCombat?.noteExternalPlayerHit(source)
     if (result.appliedDamage <= 0) return
@@ -1482,7 +1552,7 @@ export class TownScene {
     if (player && this.player.dead) return
     if (this.shots.length >= 100 || training && this.shots.filter(s => s.training).length >= 60) return
     const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
-    this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind), training, player, source, age: 0 })
+    this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind), training, player, source, sourceRef: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), age: 0 })
     if (!training && kind === 'arrow') sound?.playBowRelease(player ? 0 : source?.currentLod ?? 0, player, player ? 0 : origin.distanceTo(this.player.combatPosition))
   }
   /** Physical participants never become mission objective, checkpoint or contribution rosters. */
@@ -1509,7 +1579,7 @@ export class TownScene {
           if (distance < nearest) {
             nearest = distance
             const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
-            hit = () => { if (s.player && buildingIndex >= 0) this.damageBuilding(buildingIndex, s.arrow.damage, p!) }
+            hit = () => { if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault)) this.damageBuilding(buildingIndex, s.arrow.damage, p!, s.source, s.sourceRef, 'projectile') }
           }
         }
       }
@@ -1552,9 +1622,9 @@ export class TownScene {
         const contact: CombatContact = { kind: 'body', time: Infinity }
         const distance = traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
         if (distance < nearest) { nearest = distance; hit = () => {
-          if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact)
-          else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact)
-          else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact)
+          if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
+          else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
+          else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
             this.cat.takeDamage(s.arrow.damage)
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
@@ -1849,6 +1919,7 @@ export class TownScene {
       }
       if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
       this.resolveBodies(); this.updateShots(dt)
+      this.persistPersonalSquad(dt)
       if (this.duel?.active) this.duel.persistRuntimeProgress()
       if (this.player.dead) this.enterMissionObserver()
       if ((this.player.dead || this.profile.activeMission?.kind === 'cavalry-sweep' || this.profile.activeMission?.kind === 'veteran-field') && this.profile.activeMission && !this.profile.activeMission.result) {
@@ -1862,7 +1933,8 @@ export class TownScene {
       const townOutcome = this.event.evaluate(this.player.dead)
       if (townOutcome && !this.panel) this.finish(townOutcome)
       else if (!this.event.hostile) {
-        const missionOutcome = this.duel?.active ? this.duel.evaluate(this.player.dead) : this.defense.active ? this.defense.evaluate(this.player.dead) : this.mission.evaluate(this.player.dead)
+        const personalAlive = this.personalSquad?.aliveCombatants ?? 0
+        const missionOutcome = this.duel?.active ? this.duel.evaluate(this.player.dead) : this.defense.active ? this.defense.evaluate(this.player.dead, personalAlive) : this.mission.evaluate(this.player.dead, personalAlive)
         if (missionOutcome && !this.panel) this.finishMission(missionOutcome)
         else if (!this.profile.activeMission && this.player.dead && !this.panel) this.showAmbientDefeat()
         else if ((this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.returnToTown('arrived')
@@ -1906,7 +1978,9 @@ export class TownScene {
     this.updateAmbient()
     this.quiver.setArrowCount(this.player.arrowCount)
     document.getElementById('quiver-hud')!.style.display = this.inventory.rangedEnabled ? '' : 'none'
-    this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera); this.raf = requestAnimationFrame(t => this.frame(t))
+    this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
+    this.scheduleSiegeOpening()
+    this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
     this.flushCareerSkillProgression()

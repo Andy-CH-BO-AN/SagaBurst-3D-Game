@@ -150,6 +150,8 @@ async function bootstrap(): Promise<void> {
         && !parsed.careerMissionId
         && !parsed.careerMissionKind
         && !parsed.careerReliefPhase
+        && !parsed.careerVeteranOutpost
+        && !parsed.careerPersonalSquad
         && parsed.capabilities === undefined
         && parsed.deploymentSeconds === undefined
         && isDefenseCampaignStageUnlocked(parsed.defenderFaction, parsed.stageId)

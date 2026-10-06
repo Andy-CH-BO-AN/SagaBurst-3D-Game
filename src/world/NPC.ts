@@ -58,7 +58,7 @@ import {
   calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
 import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
-import type { SquadId } from '../battle/CommandTarget'
+import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { FORMATION_ARRIVAL_DISTANCE } from '../battle/FormationMath'
@@ -428,6 +428,13 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
+  get combatFormationCheckpoint(): { commandId: number; position: { x: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+    const target = this.formationTarget
+    if (!target || this.tacticalOrder === 'follow') return undefined
+    return { commandId: target.commandId,
+      position: { x: target.position.x, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
+      reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
+  }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
   get encounterAggroState(): BanditAggroState { return this.encounterAggro }
 
@@ -1111,7 +1118,7 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
 
-  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder): void {
+  assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -1126,7 +1133,7 @@ export class NPC {
       commandId,
       position: target.clone(),
       facing: facing.clone().setY(0).normalize(),
-      reached: false,
+      reached,
       speedLimit,
       arrivalOrder,
     }

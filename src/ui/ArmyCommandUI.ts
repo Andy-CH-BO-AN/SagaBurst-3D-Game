@@ -5,6 +5,7 @@ import type { WheelInputMode } from '../battle/ArmyCommandController'
 import {
   isSquadCommandTarget,
   squadIdFromCommandTarget,
+  squadLabel,
   type ArmyCommandTarget,
   type CommandGroupingMode,
 } from '../battle/CommandTarget'
@@ -30,7 +31,7 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
 export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string {
   if (target === 'all') return '全軍命令'
   if (target === null) return '命令'
-  if (isSquadCommandTarget(target)) return `第 ${squadIdFromCommandTarget(target)} 隊`
+  if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
   return getUnitPreset(target).nameZh
 }
 

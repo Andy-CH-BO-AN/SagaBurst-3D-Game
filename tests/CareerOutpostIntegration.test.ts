@@ -21,7 +21,7 @@ function harness(career = true) {
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
     defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
     careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-    battleStats: { snapshot: () => snapshot }, npcs: [], mounts: [], player: { dead: false }, controlMode: 'player',
+    battleStats: { snapshot: () => snapshot, freeze: vi.fn() }, npcs: [], mounts: [], player: { dead: false }, controlMode: 'player',
     campaignOriginalDefenders: Array.from({ length: 80 }, () => ({ dead: false })),
     campaignSpawnWave: null, campaignSpawnQueue: [], campaignReinforcementSpawned: false,
     careerVeteranActorMounts: new Map(),
@@ -37,6 +37,7 @@ describe('Game routes Campaign and Career separately', () => {
   it('settles a Career win without Campaign mutation or Next Stage flow', () => {
     const { game, store, storage } = harness()
     game._updateDefenseCampaign(1)
+    expect(game.battleStats.freeze).toHaveBeenCalledOnce()
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(1)
     expect(store.load()!.completedOutpostStages).toEqual([1])
     expect(game.defenseCampaignHud.showResult.mock.calls[0][4]).toBeUndefined()
