@@ -256,7 +256,7 @@ describe('Relief result and Game integration', () => {
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
       reliefMarch: { update: vi.fn() }, careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-      battleStats: { snapshot: () => stats }, npcs: [], mounts: [], player: { dead: true }, controlMode: 'spectator',
+      battleStats: { snapshot: () => stats, freeze: vi.fn() }, npcs: [], mounts: [], player: { dead: true }, controlMode: 'spectator',
       careerVeteranActorMounts: new Map(),
       campaignOriginalDefenders: [], campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(),

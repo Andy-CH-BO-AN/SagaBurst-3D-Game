@@ -39,7 +39,7 @@ describe('Outpost defense victory after player death', () => {
       defenseCampaignRuntime: new DefenseCampaignRuntime({ ...capabilities, deploymentSeconds: config.deploymentSeconds }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn() },
       careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-      battleStats: { snapshot: () => stats }, npcs: [], player: { dead: true }, controlMode: 'spectator',
+      battleStats: { snapshot: () => stats, freeze: vi.fn() }, npcs: [], player: { dead: true }, controlMode: 'spectator',
       campaignOriginalDefenders: [{ dead: false }], campaignSpawnWave: null,
       campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(() => 40), _showNotify: vi.fn(),

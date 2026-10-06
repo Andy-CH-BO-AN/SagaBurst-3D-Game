@@ -17,7 +17,7 @@ import { Faction, NPC } from '../world/NPC'
 import { townAssaultObjectiveRoster, type TownActorSpec } from '../town/TownRules'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
-import { acceptsCareerMissionStat, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import {
@@ -43,6 +43,10 @@ interface RuntimeAttackGroup { id: TownGateId; members: NPC[]; released: boolean
  * In assault, the spawned army is friendly; objectives still count resident military only.
  */
 export class TownDefenseController {
+  personalActors: () => readonly NPC[] = () => []
+  registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
+  get personalContribution() { return this.tracker?.commandCheckpoint() }
+  freezeStats(): void { this.tracker?.freeze() }
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
   readonly enemies: NPC[] = []
@@ -145,7 +149,8 @@ export class TownDefenseController {
     }
     if (active.playerHp !== undefined && !active.playerDead) this.player().setHp(active.playerHp)
     if (active.playerStamina !== undefined && !active.playerDead) this.player().setStamina(active.playerStamina)
-    this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats)
+    this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats,
+      careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     // Both roles enter a fully deployed battlefield during loading.
     // Checkpoints keep their actual positions, countdown and breaches.
     if (freshSiege) {
@@ -181,12 +186,12 @@ export class TownDefenseController {
     if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
   }
 
-  evaluate(playerDead: boolean): CareerMissionOutcome | null {
+  evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
     const active = this.active
     if (!active || active.result || active.phase === 'RESULT') return null
     if (this.assault) {
       if (this.military.length !== active.targetActorIds.length || new Set([...this.enemies.map(npc => npc.combatantId), ...(active.deadFriendlyActorIds ?? [])]).size !== 119) return null
-      return resolveAssaultOutcome(playerDead, this.military.filter(npc => !npc.dead).length, this.enemies.filter(npc => !npc.dead).length)
+      return resolveAssaultOutcome(playerDead, this.military.filter(npc => !npc.dead).length, this.enemies.filter(npc => !npc.dead).length + personalAlive)
     }
     const expectedIds = new Set(active.targetActorIds)
     const accountedIds = new Set([
@@ -197,11 +202,12 @@ export class TownDefenseController {
     const friendlyIds = new Set(active.friendlyActorIds)
     const combatDefendersAlive = [...this.defenders, this.captain, this.ranger, this.sergeant]
       .filter(npc => npc && friendlyIds.has(npc.combatantId) && !npc.dead).length
-    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, registrationComplete, this.remainingEnemies, combatDefendersAlive)
+    return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, registrationComplete, this.remainingEnemies, combatDefendersAlive + personalAlive)
   }
 
   snapshot(): BattleStatsSnapshot {
-    return this.tracker?.snapshot(this.fieldNpcs, this.player()) ?? {
+    for (const actor of this.personalActors()) this.tracker?.registerNpc(actor, true)
+    return this.tracker?.snapshot([...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
       player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !this.player().dead },
       squads: [],
     }

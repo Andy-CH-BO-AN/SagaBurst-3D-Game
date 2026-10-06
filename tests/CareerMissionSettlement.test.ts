@@ -9,6 +9,7 @@ import { CareerProfileStore, CAREER_STORAGE_KEY } from '../src/career/CareerProf
 import { TownMissionSettlement } from '../src/town/TownMissionSettlement'
 import { townRoster, townSitePoint, type TownActorSpec } from '../src/town/TownRules'
 import { getTerrainHeight } from '../src/world/Terrain'
+import { snapshotPersonalMission } from '../src/career/CareerPersonalSquadMission'
 import type { Mount } from '../src/world/Mount'
 import type { NPC } from '../src/world/NPC'
 
@@ -116,6 +117,52 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
 }
 
 afterEach(() => vi.restoreAllMocks())
+
+describe('Personal squad return checkpoint boundary', () => {
+  it('locks the first result stats and outcome across a failed-save retry, without appending later world contribution', () => {
+    const f = fixture('bandit', { survived: true })
+    f.profile().personalSquad = { members: [{ id: 'personal:credited', type: 'soldier' }] }
+    f.profile().activeMission!.personalSquad = snapshotPersonalMission(f.profile())!
+    const initial = { player: { ...f.playerStats }, squads: [], meritPlayer: { ...f.playerStats, damageDealt: 500, kills: 5 } }
+    f.field.snapshot.mockReturnValue(initial)
+    f.storage.writable = false
+    expect(f.settlement.finish('victory').status).toBe('save-failed')
+    initial.player.survived = false; initial.meritPlayer.damageDealt = 99999
+    f.storage.writable = true
+    const finish = f.settlement.finish('failure')
+    expect(finish.status).toBe('saved')
+    expect(f.field.snapshot).toHaveBeenCalledOnce()
+    expect(f.profile().activeMission!.result).toMatchObject({ outcome: 'victory',
+      stats: { damageDealt: 200, kills: 2, survived: true }, meritStats: { damageDealt: 500, kills: 5, survived: true } })
+    expect(f.profile().lifetimeStats).toMatchObject({ damage: 200, kills: 2 })
+  })
+
+  it.each(['direct', 'arrived'] as const)('preserves battle-worn deployment only for %s return without changing owned equipment', intent => {
+    const f = fixture('bandit', { savedResult: true, phase: 'RETURNING' })
+    const profile = f.profile()
+    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }] }
+    const personal = snapshotPersonalMission(profile)!
+    personal.state = 'ACTIVE'; personal.members['personal:wounded'] = { status: 'deployed', hp: 9, ammo: 0, shieldImpact: 1, order: 'follow' }
+    profile.activeMission!.personalSquad = personal
+    const returned = vi.fn()
+    Object.assign(f.town, { returnPersonalSquad: returned })
+    const owned = structuredClone(profile.personalSquad)
+    expect(f.settlement.returnToTown(intent).status).not.toBe('save-failed')
+    expect(returned).toHaveBeenCalledExactlyOnceWith(intent === 'direct')
+    expect(f.profile().personalSquad?.members.map(member => ({ id: member.id, type: member.type }))).toEqual(owned.members)
+    expect(f.profile().activeMission).toBeUndefined()
+    if (intent === 'direct') expect(f.profile().personalSquadRuntime).toBeUndefined()
+    else expect(f.profile().personalSquadRuntime?.members['personal:wounded']).toMatchObject({ hp: 9, ammo: 0, shieldImpact: 1 })
+  })
+  it('does not carry already returned or never deployed private members into a post-mission runtime', () => {
+    const f = fixture('bandit', { savedResult: true, phase: 'RETURNING' })
+    f.profile().personalSquad = { members: [{ id: 'personal:returned', type: 'soldier' }] }
+    f.profile().activeMission!.personalSquad = snapshotPersonalMission(f.profile())!
+    f.profile().activeMission!.personalSquad!.members['personal:returned'] = { status: 'exited' }
+    expect(f.settlement.returnToTown('arrived').status).toBe('returned')
+    expect(f.profile().personalSquadRuntime).toBeUndefined()
+  })
+})
 
 function expectSceneUntouched(f: ReturnType<typeof fixture>) {
   expect(f.field.cleanupMission).not.toHaveBeenCalled()

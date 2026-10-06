@@ -1,5 +1,6 @@
 import { addCareerItem, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
+import { clonePersonalMission } from './CareerPersonalSquadMission'
 import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
@@ -74,6 +75,8 @@ export interface CareerProfile {
   starterWeaponId?: string
   townDialogueSeen?: string[]
   personalSquad?: { members: CareerPersonalSquadMember[] }
+  /** Wounded deployed members after a slow mission return, until actual HR arrival. */
+  personalSquadRuntime?: import('./CareerPersonalSquadMission').PersonalSquadMission
   /** Legacy purchases; any owned tier grants the single military horse. */
   ownedHorseTiers?: (1 | 2 | 3)[]
   selectedMountId?: CareerMountId
@@ -199,7 +202,9 @@ export function claimCareerBattle(
   if (!battleId) throw new Error('Career battleId must not be empty')
 
   const previousRank = current.rank
-  const meritBreakdown = calculateMerit(result.stats, result.outcome, result.role, damagePolicy)
+  const meritBreakdown = calculateMerit(result.stats.meritPlayer
+    ? { ...result.stats, player: { ...result.stats.meritPlayer, survived: result.stats.player.survived } }
+    : result.stats, result.outcome, result.role, damagePolicy)
 
   if (current.claimedBattleIds.includes(battleId)) {
     return {
@@ -251,6 +256,7 @@ export function claimCareerMission(
   missionId: string,
   outcome: CareerMissionOutcome,
   stats: BattleStatsSnapshot['player'],
+  meritStats: BattleStatsSnapshot['player'] = stats,
 ): CareerMissionClaim {
   const active = current.activeMission
   if (!active || active.id !== missionId) {
@@ -260,9 +266,10 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
+  const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault'
-    ? calculateMerit({ player: stats, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
-  const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(stats, outcome)
+    ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
+  const merit = offense ? { damage: offense.characterDamage + offense.structureDamage, kills: offense.kills, contribution: offense.victory + offense.survival + offense.gateBreaches, total: offense.total } : calculateRecruitMissionMerit(contribution, outcome)
   const profile = cloneCareerProfile(current)
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
@@ -295,7 +302,8 @@ export function claimCareerMission(
     phase: 'RESULT',
     targetActorIds: [...active.targetActorIds],
     friendlyActorIds: [...active.friendlyActorIds],
-    result: { outcome, stats: { ...stats }, merit, claimed: true },
+    result: { outcome, stats: { ...stats }, merit, claimed: true,
+      ...(active.personalSquad ? { meritStats: contribution } : {}) },
   }
   return { profile, meritAwarded: merit.total, alreadyClaimed: false }
 }
@@ -405,9 +413,14 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),
     ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member, ...(member.equipment ? { equipment: { ...member.equipment } } : {}) })) } } : {}),
-    ...(profile.activeOutpostMission ? { activeOutpostMission: { ...profile.activeOutpostMission } } : {}),
+    ...(profile.personalSquadRuntime ? { personalSquadRuntime: clonePersonalMission(profile.personalSquadRuntime) } : {}),
+    ...(profile.activeOutpostMission ? { activeOutpostMission: {
+      ...profile.activeOutpostMission,
+      ...(profile.activeOutpostMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeOutpostMission.personalSquad) } : {}),
+      ...(profile.activeOutpostMission.battle ? { battle: structuredClone(profile.activeOutpostMission.battle) } : {}),
+    } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
-    ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit } })) } : {}),
+    ...(profile.outpostBattleRecords ? { outpostBattleRecords: profile.outpostBattleRecords.map(record => ({ ...record, stats: { ...record.stats }, merit: { ...record.merit }, ...(record.meritStats ? { meritStats: { ...record.meritStats } } : {}) })) } : {}),
     ...(profile.equipment ? { equipment: { ...profile.equipment } } : {}),
     ...(profile.townEvent ? { townEvent: { ...profile.townEvent, ...(profile.townEvent.deadActorIds ? { deadActorIds: [...profile.townEvent.deadActorIds] } : {}), ...(profile.townEvent.destroyedBuildingIds ? { destroyedBuildingIds: [...profile.townEvent.destroyedBuildingIds] } : {}) } } : {}),
     ...(profile.townDialogueSeen ? { townDialogueSeen: [...profile.townDialogueSeen] } : {}),
@@ -416,6 +429,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
       ...(profile.activeMission.siege ? { siege: {
         ...profile.activeMission.siege,
         attackerIds: [...profile.activeMission.siege.attackerIds],
@@ -443,6 +457,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
         ...profile.activeMission.result,
         stats: { ...profile.activeMission.result.stats },
         merit: { ...profile.activeMission.result.merit },
+        ...(profile.activeMission.result.meritStats ? { meritStats: { ...profile.activeMission.result.meritStats } } : {}),
         ...(profile.activeMission.result.defense ? { defense: { ...profile.activeMission.result.defense } } : {}),
       } } : {}),
       ...(profile.activeMission.civilianActorIds ? { civilianActorIds: [...profile.activeMission.civilianActorIds] } : {}),

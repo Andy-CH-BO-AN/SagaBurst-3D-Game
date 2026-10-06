@@ -17,7 +17,10 @@ import { townWartimeHostile } from '../src/town/TownWartime'
 import type { Player } from '../src/player/Player'
 import { combatActor, combatFixture } from './helpers/townMissionCombat'
 import { createTownCombatFixture } from './townCombatFixture'
-import { createActiveCareerMission } from '../src/career/CareerMissionState'
+import { careerMissionCommandMeritPolicy, createActiveCareerMission } from '../src/career/CareerMissionState'
+import { snapshotPersonalMission } from '../src/career/CareerPersonalSquadMission'
+import { BattleStatsTracker } from '../src/combat/BattleStatsTracker'
+import { CombatEventStream } from '../src/combat/CombatAttribution'
 
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
   ready: true, createInstance: () => {
@@ -257,7 +260,17 @@ describe('HR Center and personal runtime', () => {
     controller.dismiss(); fixture.combat.update(.1, 0, .1)
     for (const npc of controller.actors) expect(npc.updateTownTravel).toHaveBeenCalledTimes(1)
   })
-  it('cleans an active party only after successfully saving a formal mission, preserving ownership', () => {
+  it('updates private actors exactly once in formal Defense without applying official civilian orders', () => {
+    const { controller } = harness(); controller.follow()
+    for (const npc of controller.actors) vi.spyOn(npc, 'update').mockImplementation(() => {})
+    const f = combatFixture({ simulation: { personalSquad: () => controller } })
+    f.defense.active = { kind: 'town-defense', phase: 'ATTACKING' } as any; f.defense.phase = 'ATTACKING'
+    f.combat.update(.1, 0, 0)
+    expect(f.defense.fieldNpcs).toHaveLength(0)
+    for (const npc of controller.actors) expect(npc.update).toHaveBeenCalledTimes(1)
+    for (const call of f.defense.updateCivilianOrder.mock.calls) expect(controller.actors).not.toContain(call[0])
+  })
+  it('binds an existing wounded party only after successfully saving a formal mission, preserving instances', () => {
     const { controller, profile, player } = harness(); controller.follow()
     const town = Object.assign(createTownCombatFixture(), {
       profile, player, personalSquad: controller, personalCommands: { close: vi.fn() },
@@ -265,10 +278,17 @@ describe('HR Center and personal runtime', () => {
       store: { save: vi.fn(() => false) }, clearCareerSkillSaveTimer: vi.fn(),
     })
     const next = { ...profile, activeMission: createActiveCareerMission('recruit-bandits-01', 0, 3, 0) }
+    const original = [...controller.actors]
+    original[0].takeDamage(20); original[2].restoreCombatAmmo(3)
+    const position = original[0].combatPosition.clone(), hp = original[0].hp
     expect(town.commit(next)).toBe(false); expect(controller.actors).toHaveLength(3)
     town.store.save.mockReturnValue(true)
-    expect(town.commit(next)).toBe(true); expect(controller.state).toBe('RESERVE')
-    expect(controller.actors).toHaveLength(0); expect(town.profile.personalSquad).toEqual(profile.personalSquad)
+    expect(town.commit(next)).toBe(true); expect(controller.state).toBe('DEPLOYING')
+    expect(controller.actors).toEqual(original); expect(original[0].combatPosition).toEqual(position)
+    expect(original[0].hp).toBe(hp); expect(original[2].combatAmmo).toBe(3)
+    expect(original.every(actor => actor.squadId === 'personal' && actor.activeFollowTarget === player)).toBe(true)
+    expect(town.profile.activeMission.personalSquad.memberIds).toEqual(original.map(actor => actor.combatantId))
+    expect(town.profile.personalSquad).toEqual(profile.personalSquad)
     expect(town.personalCommands.close).toHaveBeenCalledOnce()
   })
   it.each(['melee', 'projectile', 'mount-impact'] as const)('does not award Player XP for personal %s damage or kills', method => {
@@ -286,5 +306,35 @@ describe('HR Center and personal runtime', () => {
     town.hitFieldNpc(enemy, 99999, method, controller.actors[1], { kind: 'body', time: .5 })
     expect(enemy.dead).toBe(true); expect(town.awardCareerSkillXp).not.toHaveBeenCalled()
     expect(town.mission.events.emit).toHaveBeenCalledWith(expect.objectContaining({ source: expect.objectContaining({ actorType: 'npc', actorId: 'personal:1' }) }))
+  })
+  it('retains actual private projectile attribution after the shooter dies and its runtime is disposed', () => {
+    const { controller, profile, player, scene } = harness(); controller.follow()
+    const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
+    mission.phase = 'ENGAGING'; mission.personalSquad = controller.captureForMission(snapshotPersonalMission(profile)!)
+    const events = new CombatEventStream(), observed: unknown[] = []
+    events.subscribe(event => observed.push(event))
+    const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
+    cleanups.push(() => tracker.dispose())
+    const enemy = new NPC(scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'bandit', 2,
+      false, { meleeWeaponId: 'viking_axe_t1', shieldId: null }, 'viking_berserker', undefined, mission.targetActorIds[0])
+    enemy.restoreCombatHealth(17); cleanups.push(() => enemy.dispose())
+    const town = Object.assign(createTownCombatFixture(), {
+      scene, profile, player, personalSquad: controller, event: { hostile: false }, residents: [], shots: [],
+      world: { obstacles: [], targets: [], buildings: [] }, defense: { active: false },
+      mission: { events, friendlies: [], ambientBandits: [], missionBandits: [enemy], combatPeersFor: () => [enemy], alertGroupFor: vi.fn() },
+      awardCareerSkillXp: vi.fn(), inventory: {},
+    })
+    const shooter = controller.actors[2], origin = enemy.combatPosition.clone().add(new THREE.Vector3(-2, 1, 0))
+    town.fire(origin, new THREE.Vector3(1, 0, 0), 40, 100, false, false, 'arrow', shooter)
+    expect(town.shots[0].sourceRef).toMatchObject({ actorType: 'npc', actorId: 'personal:2', squadId: 'personal', ownership: 'player-personal' })
+    shooter.takeDamage(99999); controller.cleanup()
+    shooter.combatOwnership = undefined
+    town.updateShots(.1)
+    expect(enemy.dead).toBe(true); expect(town.shots).toHaveLength(0)
+    expect(observed).toHaveLength(2)
+    expect(observed[0]).toMatchObject({ source: { actorType: 'npc', actorId: 'personal:2', squadId: 'personal', ownership: 'player-personal' }, appliedDamage: 17 })
+    expect(tracker.commandCheckpoint()).toMatchObject({ damageDealt: 17, kills: 1 })
+    expect(tracker.checkpoint()).toMatchObject({ damageDealt: 0, kills: 0 })
+    expect(town.awardCareerSkillXp).not.toHaveBeenCalled()
   })
 })

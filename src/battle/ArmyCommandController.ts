@@ -15,9 +15,11 @@ import {
   matchesArmyCommandTarget,
   squadCommandTarget,
   squadIdFromCommandTarget,
+  squadDisplayOrder,
+  squadLabel,
   type ArmyCommandTarget,
   type CommandGroupingMode,
-  type SquadId,
+  type SquadIdentity as SquadId,
 } from './CommandTarget'
 
 export type WheelInputMode = 'weapon' | 'command'
@@ -165,7 +167,7 @@ export class ArmyCommandController {
 
     if (this.formation?.isPlacementMode) {
       this.formation.updatePlacement()
-      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
         this._consumeDigit(key)
       }
       while (this.input.consumeWheelStep() !== 0) {
@@ -204,7 +206,7 @@ export class ArmyCommandController {
         while (this.input.consumeWheelStep() !== 0) {
           // Returning from a submenu discards wheel movement from that page.
         }
-        for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+        for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
           this._consumeDigit(key)
         }
         this.input.consumeMiddleClick()
@@ -227,7 +229,7 @@ export class ArmyCommandController {
       }
 
       let commandKey: string | null = null
-      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
         if (!this._consumeDigit(key)) continue
         if (commandKey === null && Number(key) <= (this.personalCommands ? 6 : 4)) commandKey = key
       }
@@ -498,8 +500,8 @@ export class ArmyCommandController {
     if (this.groupingMode === 'squad') {
       return [
         ...[...this.seenSquadIds]
-          .sort((a, b) => a - b)
-          .map(squadId => ({ key: String(squadId), target: squadCommandTarget(squadId) })),
+          .sort((a, b) => squadDisplayOrder(a) - squadDisplayOrder(b))
+          .map(squadId => ({ key: String(squadDisplayOrder(squadId)), target: squadCommandTarget(squadId) })),
         { key: '`', target: 'all' as const },
       ]
     }
@@ -517,6 +519,7 @@ export class ArmyCommandController {
   }
 
   private _syncRosterSelection(): boolean {
+    const previousPersonalOrder = this.orders.get('squad:personal')
     for (const npc of this.npcs) {
       if (npc.faction !== Faction.PLAYER) continue
       if (npc.presetId) {
@@ -526,9 +529,11 @@ export class ArmyCommandController {
       if (npc.squadId) {
         this.seenSquadIds.add(npc.squadId)
         const target = squadCommandTarget(npc.squadId)
-        if (!this.orders.has(target)) this.orders.set(target, this.initialOrder)
+        if (!this.orders.has(target)) this.orders.set(target, npc.squadId === 'personal' ? npc.tacticalOrder : this.initialOrder)
       }
     }
+    const personal = this.npcs.filter(npc => npc.squadId === 'personal' && !npc.dead)
+    if (personal.length) this.orders.set('squad:personal', personal.every(npc => npc.tacticalOrder === personal[0].tacticalOrder) ? personal[0].tacticalOrder : 'mixed')
 
     const available = this._availableShortcuts()
     const signature = `${this.groupingMode}:${available
@@ -536,7 +541,7 @@ export class ArmyCommandController {
       .map(shortcut => shortcut.target)
       .join('|')}`
     const targets = this._wheelTargets()
-    let changed = signature !== this.rosterSignature
+    let changed = signature !== this.rosterSignature || previousPersonalOrder !== this.orders.get('squad:personal')
     this.rosterSignature = signature
 
     if (!this.highlightedTarget || !targets.includes(this.highlightedTarget)) {
@@ -568,7 +573,7 @@ export class ArmyCommandController {
   private _targetLabel(target: ArmyCommandTarget | null): string {
     if (target === null) return '命令'
     if (target === 'all') return '全軍'
-    if (isSquadCommandTarget(target)) return `第 ${squadIdFromCommandTarget(target)} 隊`
+    if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
     return getUnitPreset(target).nameZh
   }
 

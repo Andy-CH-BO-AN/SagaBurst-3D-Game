@@ -11,6 +11,7 @@ import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../world/Terrain'
 import { AIType, Faction, NPC } from '../world/NPC'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import type { TownWorld } from '../town/TownWorld'
 import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
 import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
@@ -23,7 +24,7 @@ import {
   type RecruitBanditMissionTemplate,
   type RecruitPatrolMissionTemplate,
 } from './CareerMissionCatalog'
-import { acceptsCareerMissionStat, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { MissionGuide } from './MissionGuide'
 import { followLocalOffset, returnFollowLocalOffset } from '../battle/FollowOrder'
 import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition, restoreVeteranTownCavalryReserveRoster, type VeteranMissionTemplateId, type VeteranRosterUnit } from './VeteranMission'
@@ -157,6 +158,10 @@ export function shouldPersistMissionRoute(savedStage: number, currentStage: numb
 }
 
 export class BanditMissionController {
+  personalActors: () => readonly NPC[] = () => []
+  registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
+  get personalContribution() { return this.tracker?.commandCheckpoint() }
+  freezeStats(): void { this.tracker?.freeze() }
   onMarchStarted: (() => void) | null = null
   onSweepCharge: (() => void) | null = null
   onBorrowMountedActor: ((actorId: string) => void) | null = null
@@ -308,6 +313,7 @@ export class BanditMissionController {
     const available = selectMissionInfantryActorIds(this.residents, friendlySoldiers)
     const mission = createActiveCareerMission(template.id, campId, enemyCount, 0, undefined, template.kind, this.missionCaptain.combatantId)
     mission.friendlyActorIds = [this.missionCaptain.combatantId, ...available]
+    mission.personalSquad = snapshotPersonalMission(this.readProfile())
     return mission
   }
 
@@ -334,7 +340,8 @@ export class BanditMissionController {
       if (!deadTargets.has(actorId)) camp.mission.push(this.spawnBandit(camp, actorId, index, encounterCenter))
     })
     this.spawnFriendlyParty(active)
-    this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptMissionEvent(active, event), active.playerStats)
+    this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptMissionEvent(active, event), active.playerStats,
+      careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
     const routeStage = active.routeStage ?? 0
     if (active.phase === 'RETURNING') {
@@ -434,7 +441,7 @@ export class BanditMissionController {
     this.updateGuide(current.phase, this.player().combatPosition, cameraYaw, target, this.remainingEnemies, false, current.kind === 'patrol')
   }
 
-  evaluate(playerDead: boolean): CareerMissionOutcome | null {
+  evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
     const active = this.active
     if (!active || active.phase === 'RESULT' || active.result) return null
     if (active.kind === 'veteran-field') {
@@ -445,7 +452,7 @@ export class BanditMissionController {
       const accounted = new Set([...this.missionBandits.map(npc => npc.combatantId), ...(current.deadTargetActorIds ?? [])])
       const registrationComplete = current.targetActorIds.every(id => accounted.has(id))
       const friendlyAlive = this.friendlies.reduce((alive, npc) => alive + Number(!npc.dead), 0)
-      return resolveVeteranFieldMissionOutcome(current.templateId, playerDead || Boolean(current.playerDead), registrationComplete, this.remainingEnemies, friendlyAlive, this.survivalElapsedSeconds)
+      return resolveVeteranFieldMissionOutcome(current.templateId, playerDead || Boolean(current.playerDead), registrationComplete, this.remainingEnemies, friendlyAlive + personalAlive, this.survivalElapsedSeconds)
     }
     const template = getRecruitMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
@@ -457,11 +464,12 @@ export class BanditMissionController {
     const registrationComplete = active.targetActorIds.length > 0 && active.targetActorIds.every(id => accountedIds.has(id))
     const friendlyIds = new Set(active.friendlyActorIds)
     const friendlyAlive = this.friendlies.filter(npc => friendlyIds.has(npc.combatantId) && !npc.dead).length
-    return resolveCareerMissionOutcome(playerDead, registrationComplete, this.remainingEnemies, friendlyAlive, patrolComplete)
+    return resolveCareerMissionOutcome(playerDead, registrationComplete, this.remainingEnemies, friendlyAlive + personalAlive, patrolComplete)
   }
 
   snapshot(): BattleStatsSnapshot {
-    return this.tracker?.snapshot(this.fieldNpcs, this.player()) ?? {
+    for (const actor of this.personalActors()) this.tracker?.registerNpc(actor, true)
+    return this.tracker?.snapshot([...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
       player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !this.player().dead },
       squads: [],
     }
@@ -581,7 +589,7 @@ export class BanditMissionController {
   }
 
   private acceptMissionEvent(active: ActiveCareerMission, event: CombatEvent): boolean {
-    return acceptsCareerMissionStat(active, event)
+    return acceptsCareerMissionStat(this.active?.id === active.id ? this.active : active, event)
   }
 
   private detectCampProximity(): void {
@@ -969,6 +977,7 @@ export class BanditMissionController {
 
     const friendliesBySquad = new Map<number, NPC[]>()
     for (const npc of this.friendlies) {
+      if (typeof npc.squadId !== 'number') continue
       const members = friendliesBySquad.get(npc.squadId ?? 0) ?? []
       members.push(npc)
       friendliesBySquad.set(npc.squadId ?? 0, members)
@@ -984,6 +993,7 @@ export class BanditMissionController {
     })
     const enemiesBySquad = new Map<number, NPC[]>()
     for (const npc of this.veteranEnemies) {
+      if (typeof npc.squadId !== 'number') continue
       const members = enemiesBySquad.get(npc.squadId ?? 0) ?? []
       members.push(npc)
       enemiesBySquad.set(npc.squadId ?? 0, members)
@@ -1005,7 +1015,7 @@ export class BanditMissionController {
       const targetTownGuard = this.veteranEnemyTownActorIds.has(event.target.targetId)
         || Boolean(event.target.ownerActorId && this.veteranEnemyTownActorIds.has(event.target.ownerActorId))
       return sourceFriendly || targetFriendly || sourceTownGuard || targetTownGuard
-    }, active.playerStats)
+    }, active.playerStats, careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     for (const friendly of this.friendlies) this.tracker.registerNpc(friendly, true)
     this.veteranDamageActivationUnsubscribe?.()
     this.veteranDamageActivationUnsubscribe = this.events.subscribe(event => {
@@ -1293,7 +1303,8 @@ export class BanditMissionController {
     const secondSquad = this.friendlies.filter(npc => active.friendlyActorIds.indexOf(npc.combatantId) >= 29)
     this.leader = this.friendlies.find(npc => npc.combatantId === active.friendlyActorIds[0] && !npc.dead) ?? null
     if (returning || active.result) this.leader ??= this.friendlies.find(npc => !npc.dead) ?? null
-    this.tracker = new BattleStatsTracker(this.events, true, event => this.acceptMissionEvent(active, event), active.playerStats)
+    this.tracker = new BattleStatsTracker(this.events, true, event => this.acceptMissionEvent(active, event), active.playerStats,
+      careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
     if (returning) {
       this.assignLeader(this.assemblyPoint()); this.assignFollowers()

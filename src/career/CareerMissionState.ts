@@ -1,9 +1,10 @@
 import { newTownSiegeState, type TownSiegeState } from './TownSiege'
-import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
+import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint, PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
+import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -36,6 +37,7 @@ export interface CareerMissionResult {
   stats: BattleStatsSnapshot['player']
   merit: CareerMissionMeritBreakdown
   claimed: boolean
+  meritStats?: BattleStatsSnapshot['player']
   defense?: { civilianSurvived: number; civilianDeaths: number }
 }
 
@@ -46,6 +48,7 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  personalSquad?: PersonalSquadMission
   siege?: TownSiegeState
   id: string
   templateId: string
@@ -154,6 +157,7 @@ export function createTownDefenseMission(
 }
 
 export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  if (mission.result || mission.personalSquad && (mission.phase === 'RESULT' || mission.phase === 'RETURNING')) return false
   if (mission.kind === 'duel') {
     if (mission.phase !== 'ENGAGING' || !mission.duelOpponentActorId) return false
     if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') return false
@@ -163,18 +167,36 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
   }
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') {
     if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault')
-      || event.source.actorType !== 'player') return false
+      || !isCareerMissionMeritSource(mission, event.source)) return false
     // World structures carry their owner's faction rather than player-relative allegiance.
     return event.target.characterFaction !== undefined
       ? event.target.characterFaction !== event.source.characterFaction
       : event.target.allegiance === 'ENEMY'
   }
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
-  if (event.source.actorType !== 'player') return false
+  if (!isCareerMissionMeritSource(mission, event.source)) return false
   if (mission.targetActorIds.includes(event.target.targetId)) return true
   if (mission.kind === 'enemy-town-assault' && mission.civilianActorIds?.includes(event.target.targetId)) return true
   return event.type === 'damage_applied'
     && Boolean(event.target.ownerActorId && mission.targetActorIds.includes(event.target.ownerActorId))
+}
+
+const personalSourcePolicies = new WeakMap<PersonalSquadMission, ReturnType<typeof personalMissionSourcePolicy>>()
+function isCareerMissionMeritSource(mission: ActiveCareerMission, source: CombatEvent['source']): boolean {
+  if (source.actorType === 'player') return true
+  if (!mission.personalSquad) return false
+  let policy = personalSourcePolicies.get(mission.personalSquad)
+  if (!policy) { policy = personalMissionSourcePolicy(mission); personalSourcePolicies.set(mission.personalSquad, policy) }
+  return policy(source)
+}
+
+export function careerMissionCommandMeritPolicy(mission: ActiveCareerMission,
+  read: () => ActiveCareerMission = () => mission): PlayerCommandMeritPolicy | undefined {
+  if (!mission.personalSquad || mission.kind === 'duel') return undefined
+  return { acceptsSource: personalMissionSourcePolicy(mission), initialContribution: mission.personalSquad.contribution,
+    initialMemberIds: mission.personalSquad.memberIds.filter(id => mission.personalSquad!.members[id]?.status !== 'reserve'),
+    departedSurvivors: () => read().personalSquad?.memberIds.filter(id => read().personalSquad!.members[id]?.status === 'exited') ?? [],
+    acceptsEvent: event => acceptsCareerMissionStat(read(), event) }
 }
 
 export function resolveCareerMissionOutcome(

@@ -68,7 +68,7 @@ export function applyCampaignBreachOrders(
   let defenderAttackCount = 0
 
   for (const npc of npcs) {
-    if (npc.dead) continue
+    if (npc.dead || npc.combatOwnership === 'player-personal') continue
 
     if (npc.characterFaction === attackerFaction) {
       if (npc.aiType === AIType.RANGED) {

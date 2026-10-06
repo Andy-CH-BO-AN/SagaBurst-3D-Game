@@ -1,6 +1,7 @@
 import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { parsePersonalSquad } from './CareerPersonalSquad'
-import { isCareerOutpostStageId, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
+import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
+import { parsePersonalMission } from './CareerPersonalSquadMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -297,6 +298,12 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
       }
     }
   }
+  const personalSquad = parsePersonalMission(raw.personalSquad)
+  if (personalSquad && mission.kind !== 'duel') mission.personalSquad = personalSquad
+  if (mission.result && raw.result && typeof raw.result === 'object') {
+    const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)
+    if (meritStats) mission.result.meritStats = { ...meritStats, survived: mission.result.stats.survived }
+  }
   return mission
 }
 
@@ -305,7 +312,10 @@ function parseOutpostMission(value: unknown): CareerOutpostMission | undefined {
   const raw = value as Record<string, unknown>
   if (typeof raw.id !== 'string' || !raw.id.trim() || (raw.kind !== 'outpost-defense' && raw.kind !== 'outpost-relief') || !isCareerOutpostStageId(raw.stageId)) return undefined
   if (raw.kind === 'outpost-relief' && raw.stageId !== 3) return undefined
+  const personalSquad = parsePersonalMission(raw.personalSquad), battle = parseCareerOutpostCheckpoint(raw.battle)
   return { id: raw.id.trim(), kind: raw.kind, stageId: raw.stageId, acceptedAt: nonNegativeInteger(raw.acceptedAt),
+    ...(personalSquad ? { personalSquad } : {}),
+    ...(battle ? { battle } : {}),
     ...(raw.kind === 'outpost-relief' && (raw.reliefPhase === 'march' || raw.reliefPhase === 'charge') ? { reliefPhase: raw.reliefPhase } : {}),
   }
 }
@@ -317,8 +327,10 @@ function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
   if (raw.outcome !== 'victory' && raw.outcome !== 'defeat') return undefined
   if (!raw.stats || typeof raw.stats !== 'object' || !raw.merit || typeof raw.merit !== 'object') return undefined
   const stats = raw.stats as Record<string, unknown>, merit = raw.merit as Record<string, unknown>
+  const meritStats = parseMissionPlayerStats(raw.meritStats)
   return {
     ...mission, outcome: raw.outcome, completed: raw.outcome === 'victory',
+    ...(meritStats ? { meritStats: { ...meritStats, survived: stats.survived === true } } : {}),
     stats: {
       damageDealt: nonNegativeNumber(stats.damageDealt), damageTaken: nonNegativeNumber(stats.damageTaken),
       kills: nonNegativeInteger(stats.kills), survived: stats.survived === true,
@@ -368,6 +380,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const townEvent = raw.townEvent as CareerProfile['townEvent']
   const activeMission = parseActiveMission(raw.activeMission, raw.faction)
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission)
+  const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
@@ -380,6 +393,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     availableMerit,
     rank,
     ...(personalSquad ? { personalSquad } : {}),
+    ...(personalSquadRuntime ? { personalSquadRuntime } : {}),
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
     ...(equipment ? { equipment: {

@@ -12,13 +12,15 @@ import { claimCareerMission, createCareerProfile } from './CareerProfile'
 import { CareerProfileStore } from './CareerProfileStore'
 import { acceptVeteranMission } from './VeteranMission'
 import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan, shouldResumeCareerVeteranOutpost } from './CareerVeteranOutpost'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
+import { PersonalSquadRuntime } from './PersonalSquadRuntime'
 
-function veteranProfile(templateId: 'veteran-dread-outpost' | 'veteran-outpost-assault', missionId = `game-${templateId}`) {
+function veteranProfile(templateId: 'veteran-dread-outpost' | 'veteran-outpost-assault', missionId = `game-${templateId}`, faction: 'roman' | 'viking' = 'roman') {
   const prior = templateId === 'veteran-outpost-assault'
     ? ['veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept']
     : []
   const base = {
-    ...createCareerProfile('roman'),
+    ...createCareerProfile(faction),
     rank: 'veteran' as const,
     totalMerit: 900,
     availableMerit: 900,
@@ -69,7 +71,64 @@ function createGameFixture(launch: ReturnType<typeof createCareerVeteranOutpostL
   return game
 }
 
+function personalAssaultFixture(faction: 'roman' | 'viking', state: 'ACTIVE' | 'RETURNING') {
+  const profile = veteranProfile('veteran-outpost-assault', `personal-assault-${faction}`, faction)
+  profile.personalSquad = { members: [{ id: 'personal:assault', type: 'captain' }] }
+  profile.activeMission!.personalSquad = snapshotPersonalMission(profile)
+  const launch = createCareerVeteranOutpostLaunch(profile)
+  const game = createGameFixture(launch, profile)
+  const enemies = Array.from({ length: 10 }, (_, i) => ({
+    combatantId: `enemy-${i}`, characterFaction: launch.careerVeteranOutpost!.outpostFaction, dead: false,
+  }))
+  const personal = { combatantId: 'personal:assault', characterFaction: faction,
+    combatOwnership: 'player-personal', squadId: 'personal', dead: false }
+  game.npcs = [...enemies, personal]
+  game.campaignOriginalDefenders = enemies
+  game.personalSquad = Object.assign(Object.create(PersonalSquadRuntime.prototype), { actors: [personal], state })
+  game.player = { dead: true, hp: 0, staminaValue: 0 }
+  game.defenseCampaignRuntime = new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false })
+  const update = vi.spyOn(game.defenseCampaignRuntime, 'update')
+  game.defenseCampaignHud = { updateGate: vi.fn(), update: vi.fn() }
+  game._showDefenseCampaignResult = vi.fn()
+  return { game, enemies, personal, update }
+}
+
 describe('Veteran Campaign Outpost Game integration', () => {
+  describe.each(['roman', 'viking'] as const)('%s Veteran IV player-side survival', faction => {
+    it.each(['ACTIVE', 'RETURNING'] as const)('continues with no living Player or official attackers and one %s private member', state => {
+      const { game, personal, update } = personalAssaultFixture(faction, state)
+      expect(game.defenseCampaignConfig.defenderFaction).not.toBe(faction)
+      expect(game._campaignFactionAlive(faction)).toBe(0)
+      game._updateDefenseCampaign(.1)
+
+      expect(update).toHaveBeenLastCalledWith(.1, expect.objectContaining({
+        playerDead: true, defendersAlive: 0, personalPlayerSideAlive: 1, attackersAlive: 10,
+      }))
+      expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false })
+      expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+
+      personal.dead = true
+      game._updateDefenseCampaign(.1)
+      expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'defeat', battleFinished: true })
+      expect(game._showDefenseCampaignResult).toHaveBeenCalledExactlyOnceWith('defeat')
+    })
+
+    it.each(['ACTIVE', 'RETURNING'] as const)('wins when enemy Outpost defenders are eliminated while a %s private member remains', state => {
+      const { game, enemies, personal, update } = personalAssaultFixture(faction, state)
+      enemies.forEach(enemy => { enemy.dead = true })
+      game._updateDefenseCampaign(.1)
+
+      expect(personal.dead).toBe(false)
+      expect(update).toHaveBeenLastCalledWith(.1, expect.objectContaining({
+        playerDead: true, defendersAlive: 0, personalPlayerSideAlive: 1, attackersAlive: 0,
+      }))
+      expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'victory', battleFinished: true })
+      expect(game._showDefenseCampaignResult).toHaveBeenCalledExactlyOnceWith('victory')
+      game._updateDefenseCampaign(.1)
+      expect(game._showDefenseCampaignResult).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('materializes the 50-person rescue wave one NPC per frame with stable actor IDs', () => {
     const launch = createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost'))
     const game = createGameFixture(launch)
@@ -373,6 +432,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
       next => store.save(next),
     )
     game.battleStats = {
+      freeze: vi.fn(),
       checkpoint: () => ({ damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }),
       snapshot: (_npcs: unknown, currentPlayer: typeof player) => ({
         player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !currentPlayer.dead },

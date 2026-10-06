@@ -268,13 +268,14 @@ describe('Career temporary battlefield mounts', () => {
     town.profile = createCareerProfile('roman'); town.profile.ownedMounts = ['black-cat']; town.profile.selectedMountId = 'black-cat'
     town.profile.activeMission = createActiveCareerMission('recruit-bandits-02', 1, 12, 0, 'temporary-test')
     town.player = player; town.mounts = [service]; town.residents = []
-    town.mission = { battlefieldMounts: [mount, service, owned], fieldNpcs: [rider] }
+    town.mission = { battlefieldMounts: [mount, service, owned], fieldNpcs: [rider], freezeStats: vi.fn() }
     town.careerMounts = { activeMount: owned }; town.event = { hostile: false }; town.stableHorses = [service]
     town.refreshCombatMounts()
     expect([...town.temporaryMounts.all]).toEqual([mount])
     damageNpc(rider, 9999, ctx(player, 'body')); player.mountVehicle(mount)
     town.missionSettlement = { finish: () => ({ status: 'saved', result: {} }) }; town.openMissionResult = vi.fn()
     town.finishMission('victory')
+    expect(town.mission.freezeStats).toHaveBeenCalledOnce()
     expect(mount.disposed).toBe(true); expect(player.isMounted).toBe(false)
     expect(service.disposed).toBe(false); expect(owned.disposed).toBe(false)
     expect(town.profile.selectedMountId).toBe('black-cat'); expect(town.profile.ownedMounts).toEqual(['black-cat'])

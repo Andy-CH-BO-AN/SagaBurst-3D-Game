@@ -8,6 +8,7 @@ import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { townRoster } from '../town/TownRules'
 import type { TownCavalryMissionSlot } from '../town/TownCavalryReserve'
+import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const VETERAN_MISSION_IDS = [
   'veteran-dread-outpost',
@@ -535,5 +536,6 @@ export function acceptVeteranMission(current: CareerProfile, templateId: string,
     } } : {}),
   }
   profile.activeMission = mission
+  mission.personalSquad = snapshotPersonalMission(profile)
   return profile
 }

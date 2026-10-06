@@ -1,4 +1,5 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { squadLabel } from '../battle/CommandTarget'
 
 function whole(value: number): string {
   return Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -16,7 +17,7 @@ export function renderBattleStats(
       .filter(squad => squad.startingMembers > 0)
       .map(squad => `
         <div class="battle-stats-squad-row">
-          <b>第 ${squad.squadId} 隊</b>
+          <b>${squadLabel(squad.squadId)}</b>
           <span>傷害 ${whole(squad.damageDealt)}</span>
           <span>擊殺 ${squad.kills}</span>
           <span>建物 ${whole(squad.structureDamage)}</span>
@@ -39,6 +40,7 @@ export function renderBattleStats(
         <div><small>破門</small><b>${player.gateBreaches}</b></div>
         <div><small>存活</small><b>${player.survived ? '✓' : '✕'}</b></div>
       </div>
+      ${snapshot.meritPlayer ? `<div class="battle-stats-player-title">玩家與私兵軍功貢獻 · 傷害 ${whole(snapshot.meritPlayer.damageDealt)} · 擊殺 ${snapshot.meritPlayer.kills} · 建物 ${whole(snapshot.meritPlayer.structureDamage)} · 破門 ${snapshot.meritPlayer.gateBreaches}</div>` : ''}
       ${squadRows ? `
         <div class="battle-stats-squad-list">
           <div class="battle-stats-squad-title">小隊統計 <small>SQUADS</small></div>

@@ -1,4 +1,6 @@
-import type { SquadId } from '../battle/CommandTarget'
+import { squadDisplayOrder, type SquadIdentity as SquadId } from '../battle/CommandTarget'
+import { emptyPersonalContribution, mergePersonalMerit, type PersonalCombatContribution } from './CommandMerit'
+import type { CombatActorRef } from './CombatAttribution'
 import type { Player } from '../player/Player'
 import { Faction, type NPC } from '../world/NPC'
 import type {
@@ -34,6 +36,15 @@ export interface SquadBattleStats {
 export interface BattleStatsSnapshot {
   player: PlayerBattleStats
   squads: SquadBattleStats[]
+  meritPlayer?: PlayerBattleStats
+}
+
+export interface PlayerCommandMeritPolicy {
+  acceptsSource(source: CombatActorRef): boolean
+  acceptsEvent?(event: CombatEvent): boolean
+  initialContribution?: PersonalCombatContribution
+  initialMemberIds?: readonly string[]
+  departedSurvivors?(): readonly string[]
 }
 
 interface MutableCombatTotals {
@@ -71,7 +82,7 @@ function emptySquadTotals(): MutableSquadTotals {
  * Streaming battle aggregate.
  *
  * Combat events are consumed and discarded immediately. The tracker never keeps
- * an event log, so runtime memory depends on the player + <= 8 squad counters,
+ * an event log, so runtime memory depends on the player + official/private squad counters,
  * not battle duration or hit count.
  */
 export class BattleStatsTracker {
@@ -79,12 +90,15 @@ export class BattleStatsTracker {
   private readonly squads = new Map<SquadId, MutableSquadTotals>()
   private readonly registeredSquadActors = new Set<string>()
   private readonly unsubscribe: () => void
+  private readonly commandContribution: PersonalCombatContribution
+  private frozen = false
 
   constructor(
     events: CombatEventStream,
     private readonly trackStructureStats = true,
     private readonly acceptEvent: (event: CombatEvent) => boolean = () => true,
     initialPlayerTotals: Partial<PlayerBattleStatsCheckpoint> = {},
+    private readonly commandMerit?: PlayerCommandMeritPolicy,
   ) {
     const value = (input: number | undefined): number => Number.isFinite(input) && (input ?? 0) > 0 ? input! : 0
     this.playerTotals = {
@@ -95,12 +109,22 @@ export class BattleStatsTracker {
       structuresDestroyed: Math.floor(value(initialPlayerTotals.structuresDestroyed)),
       gateBreaches: Math.floor(value(initialPlayerTotals.gateBreaches)),
     }
+    this.commandContribution = { ...emptyPersonalContribution(), ...commandMerit?.initialContribution }
+    if (commandMerit) {
+      const personal = this._squad('personal')
+      Object.assign(personal, this.commandContribution)
+      for (const id of commandMerit.initialMemberIds ?? []) this.registeredSquadActors.add(id)
+      personal.startingMembers = commandMerit.initialMemberIds?.length ?? 0
+    }
     this.unsubscribe = events.subscribe(event => this._onEvent(event))
   }
 
   checkpoint(): PlayerBattleStatsCheckpoint {
     return { ...this.playerTotals }
   }
+
+  commandCheckpoint(): PersonalCombatContribution { return { ...this.commandContribution } }
+  freeze(): void { this.frozen = true }
 
   registerNpc(npc: NPC, friendly = npc.faction === Faction.PLAYER): void {
     if (
@@ -126,9 +150,11 @@ export class BattleStatsTracker {
         (survivorsBySquad.get(npc.squadId) ?? 0) + 1,
       )
     }
+    const departed = this.commandMerit?.departedSurvivors?.().filter(id => this.registeredSquadActors.has(id)) ?? []
+    if (departed.length) survivorsBySquad.set('personal', (survivorsBySquad.get('personal') ?? 0) + new Set(departed).size)
 
     const squads = [...this.squads.entries()]
-      .sort(([a], [b]) => a - b)
+      .sort(([a], [b]) => squadDisplayOrder(a) - squadDisplayOrder(b))
       .map(([squadId, totals]) => {
         const survivors = Math.min(
           totals.startingMembers,
@@ -154,6 +180,7 @@ export class BattleStatsTracker {
         survived: !player.dead,
       },
       squads,
+      ...(this.commandMerit ? { meritPlayer: mergePersonalMerit({ ...this.playerTotals, survived: !player.dead }, this.commandContribution) } : {}),
     }
   }
 
@@ -162,8 +189,11 @@ export class BattleStatsTracker {
   }
 
   private _onEvent(event: CombatEvent): void {
-    if (!this.acceptEvent(event)) return
+    if (this.frozen || !this.acceptEvent(event)) return
+    const commandSource = this.commandMerit?.acceptsSource(event.source)
+      && (this.commandMerit.acceptsEvent?.(event) ?? true)
     if (event.type === 'damage_applied') {
+      if (commandSource) this.commandContribution.damageDealt += event.appliedDamage
       if (event.source.actorType === 'player') {
         this.playerTotals.damageDealt += event.appliedDamage
       }
@@ -181,6 +211,7 @@ export class BattleStatsTracker {
     }
 
     if (event.type === 'actor_killed') {
+      if (commandSource) this.commandContribution.kills++
       if (event.source.actorType === 'player') this.playerTotals.kills++
       if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) this._squad(event.source.squadId).kills++
       return
@@ -189,6 +220,7 @@ export class BattleStatsTracker {
     if (!this.trackStructureStats) return
 
     if (event.type === 'structure_damaged') {
+      if (commandSource) this.commandContribution.structureDamage += event.appliedDamage
       if (event.source.actorType === 'player') {
         this.playerTotals.structureDamage += event.appliedDamage
       }
@@ -200,6 +232,10 @@ export class BattleStatsTracker {
 
     if (event.type === 'structure_destroyed') {
       const gate = event.target.structureKind === 'gate'
+      if (commandSource) {
+        this.commandContribution.structuresDestroyed++
+        if (gate) this.commandContribution.gateBreaches++
+      }
       if (event.source.actorType === 'player') {
         this.playerTotals.structuresDestroyed++
         if (gate) this.playerTotals.gateBreaches++
