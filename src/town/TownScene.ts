@@ -1196,7 +1196,7 @@ export class TownScene {
         : returned.destination === 'party' ? '隊伍已返抵小鎮，但任務結算尚未寫入。請重試，軍功不會重複發放。'
         : '任務結算仍安全保留。請重試保存後返回小鎮。'
       const panel = this.openPanel('返回狀態尚未保存', message)
-      this.button(panel, returned.destination === 'restart' ? '重試返回小鎮' : '重試原地結算', () => this.returnToTown(returned.destination === 'party' ? 'arrived' : 'direct'))
+      this.button(panel, returned.destination === 'restart' ? '重試返回小鎮' : '重試原地結算', () => this.returnToTown(intent))
       return
     }
     this.missionResultOpen = false
@@ -1812,6 +1812,13 @@ export class TownScene {
   }
   private frame(time: number): void {
     if (this.disposed) return
+    // A settled mission cannot resolve again, and a corpse cannot finish the walk home.
+    // Use the result panel's direct return, including when restoring a saved return.
+    const active = this.profile.activeMission
+    if (this.player.dead && active?.result && active.phase === 'RETURNING' && !this.event.hostile && !this.panel) {
+      this.returnToTown('direct')
+      if (this.disposed) return
+    }
     this.updatePointerPrompt()
     const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
     // Keep the collapse playing even when death immediately opens a result panel.

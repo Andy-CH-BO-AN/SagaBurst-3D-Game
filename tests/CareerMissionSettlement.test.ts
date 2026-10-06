@@ -195,6 +195,22 @@ describe('Town mission result saving through the settlement interface', () => {
 })
 
 describe('Town mission return saving and recovery through the settlement interface', () => {
+  it.each(['bandit', 'patrol', 'cavalry-sweep', 'duel'] as const)('directly returns a completed %s after death on the way home without changing the saved result', kind => {
+    const f = fixture(kind, { savedResult: true, survived: true, phase: 'RETURNING' })
+    const before = f.profile()
+    before.activeMission!.playerDead = true
+    f.town.player.group.position.set(400, 1, 400)
+
+    expect(f.settlement.returnToTown('direct').status).toBe(kind === 'cavalry-sweep' ? 'returned' : 'restarted')
+    expect(f.profile().activeMission).toBeUndefined()
+    expect(f.profile()).toMatchObject({ totalMerit: before.totalMerit, availableMerit: before.availableMerit,
+      lifetimeStats: before.lifetimeStats, claimedBattleIds: ['settlement'] })
+    if (kind === 'cavalry-sweep') {
+      expect(f.town.restPlayer).toHaveBeenCalledOnce()
+      expect(f.town.player.group.position).toEqual(new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9))
+    } else expect(f.town.restart).toHaveBeenCalledOnce()
+  })
+
   const returns = [
     ...kinds.map(kind => [kind, 'direct'] as const),
     ...(['bandit', 'patrol', 'cavalry-sweep', 'duel'] as const).map(kind => [kind, 'arrived'] as const),
