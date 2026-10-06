@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -483,7 +484,7 @@ export class HorseAssetRegistry {
   }
 
   private static async load(renderer: THREE.WebGLRenderer): Promise<void> {
-    const base = '/models/mounts/v1/horse'
+    const base = publicAssetUrl('models/mounts/v1/horse')
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load horse manifest (${response.status})`)
     const manifest = await response.json() as HorseAssetManifest

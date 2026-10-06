@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
@@ -11,7 +12,7 @@ import {
   type QuadrupedOneShotState,
 } from './QuadrupedMountAnimation'
 
-const BASE = '/models/mounts/v2/black-cat'
+const BASE = publicAssetUrl('models/mounts/v2/black-cat')
 const GAIT_SPEEDS = { walk: 2, run: 13.2 } as const
 
 /** Original GLB geometry and PBR maps, with a fitted feline skin and independent playback. */

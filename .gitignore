@@ -70,3 +70,7 @@ public/models/characters/v2/*/lod0.g*.glb
 /artifacts/character_sources/*
 !/artifacts/character_sources/roman-helmet/
 !/artifacts/character_sources/roman-centurion/
+
+# Desktop production output
+/dist-desktop/
+/release/

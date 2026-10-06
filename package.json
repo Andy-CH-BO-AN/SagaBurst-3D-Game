@@ -1,12 +1,20 @@
 {
-  "name": "warriors-dedicate-your-heart",
-  "version": "0.0.1",
+  "name": "sagaburst",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:web": "npm run build",
+    "build:desktop": "tsc && vite build --mode desktop",
+    "desktop": "npm run build:desktop && electron .",
+    "package:desktop": "npm run build:desktop && electron-builder --publish never",
+    "smoke:web": "node tools/release/smoke.mjs",
+    "smoke:desktop": "node tools/release/smoke.mjs --desktop",
+    "test:release": "node --test tools/release/*.test.cjs",
+    "validate:release": "node tools/release/validate-tag.cjs"
   },
   "dependencies": {
     "playwright": "^1.61.1",
@@ -17,6 +25,47 @@
     "meshoptimizer": "^0.18.1",
     "typescript": "^5.5.3",
     "vite": "^5.3.4",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "description": "SagaBurst \u2014 Viking and Roman 3D battles",
+  "author": "Andy-CH-BO-AN",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.sagaburst.game",
+    "productName": "SagaBurst",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**",
+      "dist-desktop/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null,
+      "artifactName": "SagaBurst-v${version}-macOS-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "artifactName": "SagaBurst-v${version}-Windows-${arch}.${ext}"
+    }
   }
 }

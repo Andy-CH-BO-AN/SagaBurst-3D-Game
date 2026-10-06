@@ -1,0 +1,97 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git fetch origin refs/heads/prod:refs/remotes/origin/prod --no-tags
+      - run: node tools/release/validate-tag.cjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:release
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke:web
+  desktop:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: Windows
+            arch: x64
+            flags: --win --x64
+            executable: release/win-unpacked/SagaBurst.exe
+          - os: macos-latest
+            platform: macOS
+            arch: arm64
+            flags: --mac --arm64
+            executable: release/mac-arm64/SagaBurst.app/Contents/MacOS/SagaBurst
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Enable long Windows asset paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:desktop -- ${{ matrix.flags }}
+      - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/SagaBurst-v*-*.zip
+          if-no-files-found: error
+  publish:
+    needs: [validate, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Recheck prod before publishing
+        run: |
+          git fetch origin refs/heads/prod:refs/remotes/origin/prod --no-tags
+          node tools/release/validate-tag.cjs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release
+      - name: Publish player downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          windows="release/SagaBurst-v${version}-Windows-x64.zip"
+          mac="release/SagaBurst-v${version}-macOS-arm64.zip"
+          test -s "$windows" && test -s "$mac"
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "SagaBurst $GITHUB_REF_NAME" --notes-file "docs/releases/v${version}.md" "$windows" "$mac"
+          else
+            gh release upload "$GITHUB_REF_NAME" "$windows" "$mac" --clobber
+          fi
