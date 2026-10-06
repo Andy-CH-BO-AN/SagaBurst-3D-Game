@@ -6,10 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { TownWorld } from '../src/town/TownWorld'
-import { resolveTownHRLayout, hrOfficerSpec } from '../src/town/TownHRLayout'
+import { resolveTownHRLayout, hrOfficerSpec, townConquestRoster } from '../src/town/TownHRLayout'
 import { TownPersonalSquadController } from '../src/town/TownPersonalSquadController'
 import { TOWN_CITY } from '../src/town/TownLayout'
-import { TOWN_SITES, isTownMilitary, townActorCaptainProfile, townAssaultObjectiveRoster, townSettlementRoster, settleTown } from '../src/town/TownRules'
+import { TOWN_SITES, TownEvent, townMilitaryEquipment, isTownMilitary, townActorCaptainProfile, townAssaultObjectiveRoster, settleTown } from '../src/town/TownRules'
 import { NPC, AIState, AIType, Faction } from '../src/world/NPC'
 import { MountType, mountTypeFromId } from '../src/world/Mount'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
@@ -71,8 +71,9 @@ describe('HR Center and personal runtime', () => {
       expect(obstacle.box.intersectsBox(hr.obstacles[0].box), building.id).toBe(false)
     }
     const actor = hrOfficerSpec(world.hr)
-    expect(actor).toMatchObject({ id: 'hr-officer', duty: 'service', tier: 4, mounted: true, settlementObjective: false, assaultObjective: false })
-    expect(isTownMilitary(actor)).toBe(false); expect(townAssaultObjectiveRoster([actor])).toHaveLength(0); expect(townSettlementRoster([actor])).toHaveLength(0)
+    expect(actor).toMatchObject({ id: 'hr-officer', duty: 'service', tier: 4, mounted: true, assaultObjective: false })
+    expect(isTownMilitary(actor)).toBe(false); expect(townAssaultObjectiveRoster([actor])).toHaveLength(0)
+    expect(townConquestRoster(world.hr).find(spec => spec.id === actor.id)).toEqual(actor)
     expect(mountTypeFromId(townActorCaptainProfile(faction, actor)!.mountOverride)).toBe(faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
     for (const slot of [world.hr.officer, ...world.hr.muster]) {
       const box = new THREE.Box3(new THREE.Vector3(slot.x - 1.8, -50, slot.z - 1.8), new THREE.Vector3(slot.x + 1.8, 50, slot.z + 1.8))
@@ -247,6 +248,7 @@ describe('HR Center and personal runtime', () => {
     resident.beginTownHostility()
     expect(townWartimeHostile(personal, resident)).toBe(true); expect(townWartimeHostile(resident, personal)).toBe(true)
     expect((personal as any)._findTarget(player, [resident])?.npc).toBe(resident)
+    expect((resident as any)._findTarget({ ...player, dead: true }, [personal])?.npc).toBe(personal)
     expect(personal.hostileToPlayer).toBe(false)
   })
   it('integrates personal NPCs once into free-play combat and actual return travel, not mission roster', () => {
@@ -261,6 +263,40 @@ describe('HR Center and personal runtime', () => {
     for (const npc of controller.actors) expect(npc.update).toHaveBeenCalledTimes(1)
     controller.dismiss(); fixture.combat.update(.1, 0, .1)
     for (const npc of controller.actors) expect(npc.updateTownTravel).toHaveBeenCalledTimes(1)
+  })
+  it('routes real HR and personal actor damage in both directions, and a personal kill completes conquest', () => {
+    const { scene, controller, player, world, profile } = harness('roman', 1)
+    completeNpcDeployment(() => controller.follow())
+    const spec = hrOfficerSpec(world.hr), equipment = townMilitaryEquipment('roman', spec)
+    const officer = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'HR Officer', equipment.level,
+      false, equipment.loadout, equipment.presetId, undefined, spec.id)
+    officer.setTownPeaceful(); cleanups.push(() => officer.dispose())
+    const personal = controller.actors[0], population = townConquestRoster(world.hr), event = new TownEvent(population)
+    population.forEach(actor => event.register(actor.id, actor.id === spec.id ? officer : { dead: true }))
+    event.complete(); event.hostile = true
+    const stream = new CombatEventStream()
+    const town = Object.assign(createTownCombatFixture(), {
+      profile: { ...profile, townEvent: { id: 'hr-conquest', state: 'hostile' } }, player, residents: [{ spec, npc: officer }],
+      event, personalSquad: controller, defense: { active: false }, mission: { events: stream },
+      persistCasualties: vi.fn(),
+    })
+    const hp = officer.hp, personalHp = personal.hp
+    town.hitFieldNpc(officer, 10, 'projectile', personal)
+    town.hitFieldNpc(personal, 10, 'projectile', officer)
+    expect(officer.hp).toBe(hp); expect(personal.hp).toBe(personalHp)
+    officer.assignFollowTarget(player, 0)
+    officer.setMissionCombatTarget(null); officer.missionMovement = true
+    officer.beginTownHostility()
+    expect(officer.activeFollowTarget).toBeNull(); expect(officer.missionMovement).toBe(false)
+    expect((officer as any)._findTarget({ ...player, dead: true }, [personal])?.npc).toBe(personal)
+    town.hitFieldNpc(personal, 10, 'projectile', officer)
+    expect(personal.hp).toBeLessThan(personalHp)
+    expect(event.evaluate(false)).toBeNull()
+    town.hitFieldNpc(officer, 999999, 'projectile', personal)
+    expect(officer.dead).toBe(true); expect(personal.dead).toBe(false)
+    expect(personal.faction).toBe(Faction.PLAYER); expect(personal.hostileToPlayer).toBe(false)
+    expect(event.evaluate(false)).toBe('town_defeated')
+    expect(town.persistCasualties).toHaveBeenCalledOnce()
   })
   it.each(['victory', 'failure'] as const)('regroups after saved %s, preserving casualties, reserves and later player commands', outcome => {
     const { controller, profile, player, scene, world } = harness()

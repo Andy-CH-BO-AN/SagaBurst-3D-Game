@@ -7,7 +7,7 @@ import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController } from '../battle/FormationController'
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
-import { hrOfficerSpec } from './TownHRLayout'
+import { townConquestRoster } from './TownHRLayout'
 import { TownPersonalSquadController } from './TownPersonalSquadController'
 import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { personalTownDeployment } from '../career/PersonalSquadDeployment'
@@ -98,7 +98,8 @@ export class TownScene {
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .1, 400)
   readonly renderer: THREE.WebGLRenderer
-  readonly event = new TownEvent()
+  readonly event: TownEvent
+  private readonly residentRoster: ReturnType<typeof careerTownSceneRoster>
   readonly world: TownWorld
   player!: Player
   readonly residents: Resident[] = []
@@ -195,14 +196,16 @@ export class TownScene {
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     const context = this.sceneContext
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance)
+    const population = townConquestRoster(this.world.hr)
+    this.residentRoster = careerTownSceneRoster(profile, population)
+    this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
     this.skills.setSkillState(profile.skills ?? {})
   }
   private async initialize(progress: (text: string) => void): Promise<void> {
     const { profile, renderer } = this
     const context = this.sceneContext
-    const roster = careerTownSceneRoster(profile)
-    if (!context.missionOnlyResidents) roster.push({ spec: hrOfficerSpec(this.world.hr), characterFaction: context.residentFaction, allegiance: context.worldOwnerAllegiance, borrowed: false })
+    const roster = this.residentRoster
     const yieldFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     const catSpot = townSitePoint('stable', -3, 8)
     this.cat = new Mount(this.scene, MountType.BLACK_CAT, catSpot.x, catSpot.z); this.cat.group.rotation.y = catSpot.yaw; this.cat.reservedForTown = true; this.cat.catVisual?.setEquipmentVisible(false); this.mounts.push(this.cat)
@@ -365,13 +368,7 @@ export class TownScene {
     renderer.render(this.scene, this.camera); await yieldFrame()
     this.input.clear()
     if (!context.missionOnlyResidents) this.event.complete()
-    if (profile.townEvent?.state === 'hostile') {
-      for (const id of profile.townEvent.deadActorIds ?? []) {
-        const actor = id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc
-        actor?.takeDamage(999999)
-      }
-      for (const id of profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
-    }
+    this.restoreTownCasualties()
     this.hud.id = 'town-hud'; this.hud.style.cssText = 'position:fixed;top:20px;left:20px;z-index:90;background:#201d19de;color:#efe1c3;padding:16px 22px;border:1px solid #aa9270;line-height:1.7;font:15px system-ui;max-width:520px;pointer-events:none'
     this.hint.id = 'town-hint'; this.hint.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:90;color:#fff;background:#211e19dd;padding:10px 20px;font:18px system-ui;pointer-events:none'
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
@@ -1410,6 +1407,7 @@ export class TownScene {
       if (method === 'projectile') sound?.playProjectileImpact(mount.currentLod, !source)
       else sound?.playSwordHit(mount.currentLod, !source)
     }
+    if (mount === this.cat && mount.dead && this.event.hostile) this.persistCasualties()
   }
   private showCombatTarget(name: string, ratio: number): void {
     if (typeof document === 'undefined') return
@@ -1510,7 +1508,8 @@ export class TownScene {
   private persistCasualties(): void {
     const current = this.profile.townEvent
     if (!current || current.state !== 'hostile') return
-    const deadActorIds = [...this.event.allActors].filter(([, actor]) => actor.dead).map(([id]) => id)
+    const deadActorIds = [...new Set([...(current.deadActorIds ?? []),
+      ...[...this.event.allActors].filter(([, actor]) => actor.dead).map(([id]) => id)])]
     const destroyedBuildingIds = this.world.buildings.filter(b => b.ownerFaction !== Faction.BANDIT && b.hp.destroyed).map(b => b.id)
     if (deadActorIds.length === (current.deadActorIds?.length ?? 0) && destroyedBuildingIds.length === (current.destroyedBuildingIds?.length ?? 0)) return
     const next = cloneCareerProfile(this.profile)
@@ -1519,6 +1518,14 @@ export class TownScene {
       const panel = this.openPanel('事件保存失敗', '本次死亡／破壞尚未保存。重試成功後繼續；重新載入可能丟失這次變化，但追擊不會解除。')
       this.button(panel, '重試保存事件', () => { if (this.commit(next)) this.closePanel() })
     }
+  }
+  private restoreTownCasualties(): void {
+    if (this.profile.townEvent?.state !== 'hostile') return
+    for (const id of this.profile.townEvent.deadActorIds ?? []) {
+      const actor = id === 'cat' ? this.cat : this.residents.find(r => r.spec.id === id)?.npc
+      actor?.takeDamage(999999)
+    }
+    for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
@@ -1885,6 +1892,7 @@ export class TownScene {
     this.hint.style.display = this.hint.textContent ? '' : 'none'
   }
   private finish(result: TownResult): void {
+    if (this.profile.townEvent?.state !== 'hostile') return
     this.result = result
     const next = settleTown(this.profile, this.profile.townEvent!.id, result)
     if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }

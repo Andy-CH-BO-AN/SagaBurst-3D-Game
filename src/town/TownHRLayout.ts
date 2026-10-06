@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { TOWN_CITY, TOWN_CAVALRY_FIELD, type TownRoad } from './TownLayout'
-import { TOWN_SITES, type TownActorSpec } from './TownRules'
+import { TOWN_SITES, townRoster, type TownActorSpec } from './TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ObstacleData } from '../world/Terrain'
 
@@ -56,5 +56,15 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
 }
 export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
   return { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
-    settlementObjective: false, assaultObjective: false, index: 0, ...layout.officer }
+    assaultObjective: false, index: 0, ...layout.officer }
+}
+
+/** The actual Town population is also the free-hostility conquest roster. The cat
+ * is a resident identity even though TownScene materializes it as a separate Mount.
+ * HR's position comes from the built world's layout, regardless of recruitment unlocks.
+ */
+export function townConquestRoster(layout: TownHRLayout, residents: readonly TownActorSpec[] = townRoster()): TownActorSpec[] {
+  const roster = [...residents, hrOfficerSpec(layout)]
+  if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate town conquest actor ID')
+  return roster
 }

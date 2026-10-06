@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createTownFortifications } from '../src/town/TownFortifications'
 import { TOWN_CITY, TOWN_GATES, TOWN_CITY_ROADS, townGatePoint, townSceneryExcluded } from '../src/town/TownLayout'
-import { TownEvent, townRoster, townMilitaryEquipment, townSettlementRoster, townAssaultObjectiveRoster } from '../src/town/TownRules'
+import { TownEvent, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../src/town/TownRules'
 import { TownWorld } from '../src/town/TownWorld'
 import { siegeDefensePlans } from '../src/career/TownSiege'
 import { createEnemyTownAssaultMission } from '../src/career/EnemyTownAssault'
@@ -48,7 +48,7 @@ describe('Fortified city explicit rosters', () => {
     }
     for (const actor of roster) {
       const equipment = townMilitaryEquipment(faction, actor)
-      expect(actor).toMatchObject({ tier: 2, duty: 'training', settlementObjective: false, assaultObjective: false })
+      expect(actor).toMatchObject({ tier: 2, duty: 'training', assaultObjective: false })
       expect(actor.defenseGroup).toBeUndefined()
       expect(equipment.tier).toBe(2); expect(equipment.loadout).toEqual(UNIT_PRESETS[equipment.presetId].tierLoadouts[2]); expect(equipment.loadout.mountId).toBe('horse')
       if (faction === 'viking' && actor.unitKind === 'sword_cavalry') expect(equipment.loadout.meleeWeaponId).toBe('viking_axe_t2')
@@ -78,13 +78,13 @@ describe('Fortified city explicit rosters', () => {
     }
   })
 
-  it('settles using explicit principals while living ambient troops do not block completion', () => {
-    const roster = townRoster(), event = new TownEvent(townSettlementRoster(roster))
+  it('requires living gate, cavalry and patrol residents to be defeated before settlement', () => {
+    const roster = townRoster(), event = new TownEvent(roster)
     event.hostile = true
-    roster.forEach(actor => event.register(actor.id, { dead: actor.settlementObjective }))
-    event.complete(); expect(event.actors.size).toBe(85); expect(event.evaluate(false)).toBe('town_defeated')
+    roster.forEach(actor => event.register(actor.id, { dead: actor.duty !== 'gate_guard' && actor.duty !== 'patrol' && !(actor.training && actor.mounted) }))
+    event.complete(); expect(event.actors.size).toBe(roster.length); expect(event.evaluate(false)).toBeNull()
     expect(event.evaluate(true)).toBe('player_defeated')
-    const missing = new TownEvent(); townSettlementRoster().slice(1).forEach(actor => missing.register(actor.id, { dead: true }))
+    const missing = new TownEvent(roster); roster.slice(1).forEach(actor => missing.register(actor.id, { dead: true }))
     expect(() => missing.complete()).toThrow('objective roster incomplete')
   })
 
