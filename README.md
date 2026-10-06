@@ -48,28 +48,22 @@ Choose **Roman Defense** or **Viking Defense** and defend the faction outpost.
 
 ### 🏘️ Career
 
-Start a persistent career as a Roman or Viking.
+Start a persistent career as a Roman or Viking and progress from a new recruit into an officer with your own troops.
 
-- Choose a faction and starter weapon.
-- Explore your faction town.
-- Talk to service NPCs with `E`.
-- Manage owned equipment through the character/inventory UI.
-- **Cavalry Sweep:** Own a usable mount to join 60 riders (including you) against one mob of 40 Bandits, even as a Recruit. Follow Captain and Maki, then charge together at 60m. Practice riding and mount impacts; death switches to Observer, and clearing the Bandits wins.
-- **Enemy Town Assault:** Unlocks after winning Outpost Relief (following Outpost I–III). Join a 90-person expedition in three squads against the opposing Career Town. Hold for the 10-second countdown; defeat all 63 military defenders to win. Civilians retreat and fight nearby enemies; their deaths are not required for assault victory. You control only yourself, and death switches to Observer while the battle continues.
-- Talk to the Sergeant Major (士官長) for unlocked clearance, patrol, and Town Defense and Enemy Town Assault missions, arrow resupply, and deployment guidance. The Sergeant Major fights on foot as a T3 defender in Town Defense.
-- Soldier and higher ranks can accept Outpost Duty I–III from the Sergeant Major. Defend with the AI garrison using your owned equipment; victory unlocks the next duty. No horse is required. There are no reinforcements or player army/gate commands. Results award Career battle merit and return you to your town; Campaign progress is separate.
-- Promoted ranks retain access to previously unlocked Recruit missions.
-- Assemble with the captain, follow the guide arrow, fight with the patrol, and return to town after victory.
-- Bandits patrol their camps until they notice an approaching threat or are attacked.
-- Contribute damage and kills to earn mission merit.
-- Buy T1–T3 horses in sequence, then press `Tab` and use the Mount section to ride, switch, or dismiss an owned mount.
-- Earn promotion eligibility through missions and ask the captain to appoint the next rank. An appointed Captain or Commander uses the faction's T4 hero.
+- Choose a faction and starter weapon, then explore your faction's **fortified Career Town** with walls, four gates, training grounds, shops, barracks, guards, and cavalry patrols.
+- Talk to service NPCs with `E`, buy and manage equipment and mounts, and use the character/inventory UI for your persistent loadout.
+- Take rank-based missions including bandit clearing, patrols, Outpost battles, cavalry operations, Town Defense, Veteran missions, and a **four-gate Enemy Town Assault**. Promotion keeps earlier mission tiers available.
+- The town outskirts remain active outside missions: patrols, Bandits, and hostile forces can encounter and fight each other naturally.
+- Build five persistent combat skills: **One-Handed, Two-Handed, Ranged, Mounted Impact, and Blocking**. Each can reach level 50, and Career keeps the progress between missions and town visits.
+- Once promoted to **Captain** or **Commander**, visit the **HR Center** to build a **Personal Squad** of up to 30 troops. Recruit members, manage their equipment, deploy them with **Follow me**, and send them back with **Dismiss** to return and refit.
+- Your Personal Squad can accompany you into Career missions and contribute to your command merit while remaining your persistent troops.
+- Earn merit through combat and missions, unlock higher ranks and equipment tiers, and keep your faction, rank, merit, inventory, mounts, skills, and Personal Squad across the Career.
 
 ### 🐈 Hero Mount Free Ride
 
 Choose the hero-mount ride option from the main menu to test special mounts such as the **Black Cat** or **Corgi** in an open riding area.
 
-Free ride uses the normal movement, sprint, jump, and mount controls.
+Free ride uses the normal movement, sprint, jump, and mount controls. These special mounts can also be purchased in Career after their unlock requirements are met.
 
 ## 🕹️ Controls
 
@@ -80,8 +74,9 @@ Free ride uses the normal movement, sprint, jump, and mount controls.
 | `Shift` | Sprint |
 | `Space` | Jump |
 | Left Mouse Button | Melee attack when not aiming |
-| Hold Right Mouse + hold/release Left Mouse | Aim / draw / fire Bow |
-| Hold Right Mouse + click Left Mouse | Aim / throw Pilum |
+| Hold Right Mouse | Raise shield, or aim with a ranged weapon |
+| Hold Right Mouse + hold/release Left Mouse | Draw / fire Bow |
+| Hold Right Mouse + click Left Mouse | Throw Pilum |
 | `E` | Interact / pick up equipment / mount / dismount |
 | `Tab` or `I` | Character and inventory |
 | Mouse wheel | Switch owned weapons / shields; in command mode, select targets or orders |
@@ -94,6 +89,13 @@ Free ride uses the normal movement, sprint, jump, and mount controls.
 - **Bow:** hold Right Mouse to aim, hold Left Mouse to draw, then release Left Mouse to fire.
 - **Pilum:** hold Right Mouse to aim, then click Left Mouse to throw.
 - Right Mouse enters first-person ranged aiming. Bow aiming stays active while Right Mouse remains held; Pilum returns to third person after the throw.
+
+### Shield combat
+
+- Hold Right Mouse while a shield is equipped to raise it.
+- A shield only protects you when an attack or projectile physically hits the raised shield; attacks that reach the body from another angle still deal normal damage.
+- Shields have limited impact durability during battle, and stronger axe hits consume more of it.
+- **Blocking** is a persistent combat skill in Career and improves as you successfully block attacks.
 
 ## 📯 Army Commands
 
@@ -131,6 +133,13 @@ After selecting a command target:
 | `4` | **Formation** | Move the selected troops into a formation at a chosen location |
 | `Q` | **Back** | Return to the previous command level |
 
+When commanding your **Personal Squad** in Career, the command menu also provides:
+
+| Key | Order | What it does |
+| --- | --- | --- |
+| `5` | **Follow me** | Regroup deployed Personal Squad members on the player |
+| `6` | **Dismiss** | Send the Personal Squad back to the HR Center to return and refit |
+
 ### Formation placement
 
 After choosing **Formation**:
@@ -149,6 +158,6 @@ Blocked or invalid positions cannot be confirmed.
 - Custom Battle unit presets currently use **T1 / T2 / T3** equipment tiers.
 - Battlefield camps provide equipment, ammunition, and spare horses that the player can use.
 - Defense Campaign progress is saved separately for Roman and Viking.
-- Career keeps its own faction, rank, merit, and owned equipment progress.
+- Career keeps its own faction, rank, merit, equipment, mounts, combat skills, and Personal Squad progress.
 
-Hold RMB to raise a shield or aim a ranged weapon. Bows and javelins cannot be equipped with a shield; wheel selection stows the conflicting item. The same wheel controls work in Career towns and missions, excluding currently equipped items.
+Bows and javelins cannot be equipped together with a shield; wheel selection stows the conflicting item. The same equipment-wheel behavior is used in Career towns and missions.
