@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -64,7 +65,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
       normal.rig.animation!.update(.2)
     }
-    const manifest = await fetch(`/models/characters/v2/${descriptor.assetId}/manifest.json`).then(response => response.json())
+    const manifest = await fetch(publicAssetUrl(`models/characters/v2/${descriptor.assetId}/manifest.json`)).then(response => response.json())
     const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined)
     playback.setEquipmentLoadout(maki ? 'bow' : 'none', false)
     const cat = roman ? new CorgiVisual() : new BlackCatVisual()

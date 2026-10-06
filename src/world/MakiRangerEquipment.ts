@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { BowGripProfile } from './BowAttachmentContract'
@@ -30,7 +31,7 @@ export function createMakiRangerBowInstance(): MakiBowAsset {
 }
 export async function loadMakiRangerBow(): Promise<MakiBowAsset> {
   bowTemplate ??= (async () => {
-    const base = '/models/weapons/maki-ranger-bow'
+    const base = publicAssetUrl('models/weapons/maki-ranger-bow')
     const [gltf, metadata] = await Promise.all([
       new GLTFLoader().loadAsync(`${base}/bow.glb`),
       fetch(`${base}/attachment.json`).then(r => { if (!r.ok) throw new Error('Missing Maki bow calibration'); return r.json() }),

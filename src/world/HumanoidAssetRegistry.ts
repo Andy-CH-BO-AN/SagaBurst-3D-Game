@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { applyCivilianAppearance } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
@@ -751,7 +752,7 @@ export class HumanoidAssetRegistry {
     const loader = new GLTFLoader()
     const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     const expGroup = query?.get('expGroup')?.toLowerCase()
-    const base = `/models/characters/v2/${assetId}`
+    const base = publicAssetUrl(`models/characters/v2/${assetId}`)
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
     const manifest = await response.json() as HumanoidAssetManifest
