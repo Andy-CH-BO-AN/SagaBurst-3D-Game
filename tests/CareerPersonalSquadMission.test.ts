@@ -295,10 +295,10 @@ describe('Side elimination remains distinct from official objectives', () => {
   it.each([true, false])('counts a deployed returning private survivor in Outpost, reinforcements=%s', reinforcementsEnabled => {
     const runtime = new DefenseCampaignRuntime({ reinforcementsEnabled })
     const state = { playerDead: true, originalDefendersAlive: 0, defendersAlive: 0, attackersAlive: 10,
-      personalDefendersAlive: 1, reinforcementSpawned: false }
+      personalPlayerSideAlive: 1, reinforcementSpawned: false }
     expect(runtime.update(1, state)).not.toContain('defeat')
     expect(runtime.getSnapshot().phase).toBe('deployment')
-    expect(runtime.update(0, { ...state, personalDefendersAlive: 0 })).toContain(reinforcementsEnabled ? 'defeat' : 'battle_defeat')
+    expect(runtime.update(0, { ...state, personalPlayerSideAlive: 0 })).toContain(reinforcementsEnabled ? 'defeat' : 'battle_defeat')
   })
 
   it('does not let a personal survivor override the Town civilian failure objective', () => {

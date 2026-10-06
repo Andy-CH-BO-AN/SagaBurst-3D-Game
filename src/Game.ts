@@ -2362,10 +2362,11 @@ export class Game {
 
     const veteranOutpost = campaign.careerVeteranOutpost
     const isVeteranAssault = veteranOutpost?.templateId === 'veteran-outpost-assault'
-    const attackerFaction = isVeteranAssault
+    // The result runtime is Player-relative; Veteran IV reverses the fort's physical roles.
+    const enemySideFaction = isVeteranAssault
       ? veteranOutpost.outpostFaction
       : opposingCampaignFaction(campaign.defenderFaction)
-    const defenderFaction = isVeteranAssault ? veteranOutpost.playerFaction : campaign.defenderFaction
+    const playerSideFaction = isVeteranAssault ? veteranOutpost.playerFaction : campaign.defenderFaction
     const originalDefendersAlive = this.campaignOriginalDefenders.filter(
       npc => !npc.dead,
     ).length
@@ -2378,8 +2379,8 @@ export class Game {
         if (!actorId || (!deadFriendlyActorIds.has(actorId) && (mission?.actorHealth?.[actorId]?.hp ?? 1) > 0)) pendingReinforcements++
       }
     }
-    const defendersAliveBefore = this._campaignFactionAlive(defenderFaction) + pendingReinforcements
-    const attackersAliveBefore = this._campaignFactionAlive(attackerFaction)
+    const playerSideAliveBefore = this._campaignFactionAlive(playerSideFaction) + pendingReinforcements
+    const enemySideAliveBefore = this._campaignFactionAlive(enemySideFaction)
     const pendingAttackers = this.campaignSpawnWave === 'attackers'
       ? Math.max(0, this.campaignSpawnQueue.length - this.campaignSpawnQueueIndex)
       : 0
@@ -2387,11 +2388,11 @@ export class Game {
     const events = runtime.update(dt, {
       playerDead: this.player.dead,
       originalDefendersAlive,
-      defendersAlive: defendersAliveBefore,
-      personalDefendersAlive: this.personalSquad?.aliveCombatants ?? 0,
+      defendersAlive: playerSideAliveBefore,
+      personalPlayerSideAlive: this.personalSquad?.aliveCombatants ?? 0,
       // The assault wave is frame-spawned. Pending attackers still count as
       // remaining enemies so a temporary zero on the field cannot end the battle.
-      attackersAlive: attackersAliveBefore + pendingAttackers,
+      attackersAlive: enemySideAliveBefore + pendingAttackers,
       reinforcementSpawned: veteranOutpost?.templateId === 'veteran-dread-outpost'
         ? this.campaignReinforcementArrived
         : this.campaignReinforcementSpawned,
@@ -2428,8 +2429,8 @@ export class Game {
       }
     }
 
-    const defenderAlive = this._campaignFactionAlive(defenderFaction)
-    const attackersAlive = this._campaignFactionAlive(attackerFaction)
+    const playerSideAlive = this._campaignFactionAlive(playerSideFaction)
+    const enemySideAlive = this._campaignFactionAlive(enemySideFaction)
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',
       this.campaignAttackersStarted,
@@ -2437,9 +2438,9 @@ export class Game {
     )
     hud.update(
       runtime.getSnapshot(),
-      defenderAlive,
-      attackersAlive,
-      defenderFaction,
+      playerSideAlive,
+      enemySideAlive,
+      playerSideFaction,
       veteranOutpost?.templateId === 'veteran-dread-outpost'
         ? this.campaignReinforcementArrived
         : this.campaignReinforcementSpawned,
@@ -2455,7 +2456,7 @@ export class Game {
         const yaw = this.thirdPersonCamera.cameraYaw
         const phase = this.careerProfile?.activeMission?.phase
           ?? (runtime.getSnapshot().activePhase === 'deployment' ? 'PREPARING' : 'ENGAGING')
-        this.careerOutpostDefenseGuide.updateOutpostDefense(phase, this.player.position, yaw, rallyPoint, attackersAlive)
+        this.careerOutpostDefenseGuide.updateOutpostDefense(phase, this.player.position, yaw, rallyPoint, enemySideAlive)
       }
     }
     this.veteranOutpostCheckpoint?.advance(dt)

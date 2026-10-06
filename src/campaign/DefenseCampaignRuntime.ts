@@ -21,11 +21,13 @@ export type DefenseCampaignRuntimeEvent =
 
 export interface DefenseCampaignCombatState {
   playerDead: boolean
+  /** Initial fort defenders; only used by defense timelines, not elimination objectives. */
   originalDefendersAlive: number
-  /** All living defender NPCs, including reinforcements. Player is counted separately. */
+  /** Official Player-side NPCs, including reinforcements. Veteran assault attackers map here. */
   defendersAlive: number
-  /** Separate deployed personal combatants; never changes official defender totals. */
-  personalDefendersAlive?: number
+  /** Deployed private combatants on Player's side, regardless of the fort's physical roles. */
+  personalPlayerSideAlive?: number
+  /** Official enemy-side NPCs. Veteran assault Outpost defenders map here. */
   attackersAlive: number
   /** True only after the reinforcement wave has actually been spawned into the scene. */
   reinforcementSpawned: boolean
@@ -101,7 +103,7 @@ export class DefenseCampaignRuntime {
   ): DefenseCampaignRuntimeEvent[] {
     if (this.battleFinished) return []
     const events: DefenseCampaignRuntimeEvent[] = []
-    const personalAlive = Math.max(0, state.personalDefendersAlive ?? 0)
+    const personalAlive = Math.max(0, state.personalPlayerSideAlive ?? 0)
     const reinforcementActive = state.reinforcementActive ?? state.reinforcementSpawned
     if (this.options.eliminationObjective) {
       this.assaultElapsed += Math.max(0, dt)
