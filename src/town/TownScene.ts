@@ -9,7 +9,7 @@ import { FormationController } from '../battle/FormationController'
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
 import { hrOfficerSpec } from './TownHRLayout'
 import { TownPersonalSquadController } from './TownPersonalSquadController'
-import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
+import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { personalTownDeployment } from '../career/PersonalSquadDeployment'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
@@ -479,6 +479,8 @@ export class TownScene {
     next.skills = this.skills.skillState
     const newMission = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
     const newOutpost = Boolean(next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
+    const missionFinished = Boolean(next.activeMission?.result
+      && next.activeMission.id === this.profile.activeMission?.id && !this.profile.activeMission.result)
     const active = next.activeMission ?? next.activeOutpostMission
     if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
       const roster = snapshotPersonalMission(next)
@@ -490,6 +492,7 @@ export class TownScene {
         active.personalSquad = saved
       }
     }
+    if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
     if (newMission || newOutpost) next.personalSquadRuntime = undefined
     if (!this.store.save(next)) { this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     if (newMission || newOutpost) {
@@ -504,6 +507,7 @@ export class TownScene {
     if (next.activeMission?.id !== this.profile.activeMission?.id || next.faction !== this.profile.faction) sound?.cancelCareerAudio()
     if (next.rank !== this.profile.rank) this.deploymentPage = undefined
     this.profile = next
+    if (missionFinished) this.personalSquad?.regroupAfterMission()
     this.careerSkillsDirty = false
     return true
   }

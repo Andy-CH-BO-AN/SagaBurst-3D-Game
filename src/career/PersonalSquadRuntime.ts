@@ -156,6 +156,15 @@ export class PersonalSquadRuntime {
     return true
   }
 
+  /** Mission settlement must not recruit reserves or restore casualties. */
+  regroupAfterMission(): void {
+    if (!this.spawning && !this.actors.some(actor => !actor.dead)) return
+    this.resumeCommand('follow')
+    const memberIds = this.mission?.memberIds ?? this.read().personalSquad?.members.map(member => member.id) ?? []
+    for (const actor of this.actors) if (!actor.dead) this.applyCommand(actor, memberIds.indexOf(actor.combatantId))
+    this.checkpoint()
+  }
+
   cancelPendingSpawns(): void {
     for (const batch of this.pending.values()) batch.cancel()
     this.pending.clear()

@@ -1,9 +1,10 @@
-import { completeNpcDeployment } from './helpers/npcSpawnFrames'
+import { completeNpcDeployment, drainNpcSpawns } from './helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../src/career/CareerProfileStore'
 import { initialPersonalEquipment } from '../src/career/CareerInventory'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createCareerProfile } from '../src/career/CareerProfile'
+import { claimCareerMission, cloneCareerProfile, createCareerProfile } from '../src/career/CareerProfile'
+import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { TownWorld } from '../src/town/TownWorld'
 import { resolveTownHRLayout, hrOfficerSpec } from '../src/town/TownHRLayout'
 import { TownPersonalSquadController } from '../src/town/TownPersonalSquadController'
@@ -261,6 +262,80 @@ describe('HR Center and personal runtime', () => {
     controller.dismiss(); fixture.combat.update(.1, 0, .1)
     for (const npc of controller.actors) expect(npc.updateTownTravel).toHaveBeenCalledTimes(1)
   })
+  it.each(['victory', 'failure'] as const)('regroups after saved %s, preserving casualties, reserves and later player commands', outcome => {
+    const { controller, profile, player, scene, world } = harness()
+    completeNpcDeployment(() => controller.follow())
+    const [dead, captain, ranger] = controller.actors
+    dead.takeDamage(99999); captain.takeDamage(20); captain.mount!.takeDamage(20); ranger.restoreCombatAmmo(3)
+    captain.setTacticalOrder('charge')
+    ranger.assignFormationTarget(42, new THREE.Vector3(100, 0, 100), new THREE.Vector3(0, 0, 1))
+    controller.resumeCommand('charge')
+    const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
+    mission.phase = 'ENGAGING'
+    mission.personalSquad = controller.captureForMission(snapshotPersonalMission(profile)!)!
+    mission.personalSquad.memberIds.push('personal:reserve')
+    mission.personalSquad.members['personal:reserve'] = { status: 'reserve' }
+    Object.assign(profile, { activeMission: mission })
+    controller.bindMission(mission.personalSquad)
+    const values = new Map<string, string>()
+    const store = new CareerProfileStore({ getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) } } as Storage)
+    const town = Object.assign(createTownCombatFixture(), {
+      profile, player, personalSquad: controller, skills: { skillState: profile.skills }, store: { save: vi.fn(() => false) },
+      clearCareerSkillSaveTimer: vi.fn(),
+    })
+    const original = [...controller.actors], wounded = controller.checkpoint()!.members['personal:1']
+    const stats = { damageDealt: 200, damageTaken: 20, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
+    const claimed = claimCareerMission(profile, mission.id, outcome, stats).profile
+    expect(town.commit(claimed)).toBe(false)
+    expect(town.profile).toBe(profile)
+    expect(captain.tacticalOrder).toBe('charge'); expect(ranger.tacticalOrder).toBe('formation')
+    town.store.save.mockImplementation((next: any) => store.save(next))
+    expect(town.commit(claimed)).toBe(true)
+    expect(controller.actors).toEqual(original); expect(controller.spawning).toBe(false)
+    expect(dead.dead).toBe(true)
+    for (const actor of [captain, ranger]) {
+      expect(actor.tacticalOrder).toBe('follow'); expect(actor.activeFollowTarget).toBe(player)
+      expect(actor.state).toBe(AIState.IDLE)
+    }
+    const saved = store.load()!.activeMission!.personalSquad!
+    expect(saved.members['personal:1']).toMatchObject({ hp: wounded.hp, mount: wounded.mount, order: 'follow' })
+    expect(saved.members['personal:1'].formation).toBeUndefined()
+    expect(saved.members['personal:2']).toMatchObject({ ammo: 3, order: 'follow' })
+    expect(saved.members['personal:2'].formation).toBeUndefined()
+    expect(saved.members['personal:0'].status).toBe('dead')
+    expect(saved.members['personal:reserve']).toEqual({ status: 'reserve' })
+    controller.cleanup()
+    const reloaded = new TownPersonalSquadController(scene, world.hr, () => town.profile, () => player)
+    cleanups.push(() => reloaded.cleanup())
+    completeNpcDeployment(() => reloaded.restoreMission(saved))
+    expect(reloaded.actors).toHaveLength(2)
+    expect(reloaded.actors.every(actor => actor.tacticalOrder === 'follow' && actor.activeFollowTarget === player)).toBe(true)
+    town.personalSquad = reloaded
+    reloaded.actors.forEach(actor => actor.setTacticalOrder('attack'))
+    reloaded.resumeCommand('attack')
+    expect(town.commit(cloneCareerProfile(town.profile))).toBe(true)
+    expect(reloaded.actors.every(actor => actor.tacticalOrder === 'attack')).toBe(true)
+    expect(store.load()!.activeMission!.personalSquad!.members['personal:1'].order).toBe('attack')
+  })
+
+  it('regroups queued mission actors without deploying untouched reserves', () => {
+    const { controller, profile } = harness()
+    const saved = snapshotPersonalMission(profile)!
+    saved.state = 'ACTIVE'; saved.pendingMemberIds = ['personal:0']
+    saved.members['personal:0'] = { status: 'reserve', order: 'charge' }
+    controller.restoreMission(saved)
+    expect(controller.spawning).toBe(true)
+    controller.regroupAfterMission()
+    expect(controller.checkpoint()!.members['personal:0'].order).toBe('follow')
+    drainNpcSpawns()
+    expect(controller.actors).toHaveLength(1)
+    expect(controller.actors[0].tacticalOrder).toBe('follow')
+    expect(controller.checkpoint()!.members['personal:1'].status).toBe('reserve')
+    controller.cleanup(); controller.regroupAfterMission()
+    expect(controller.actors).toHaveLength(0); expect(controller.spawning).toBe(false)
+  })
+
   it('updates private actors exactly once in formal Defense without applying official civilian orders', () => {
     const { controller } = harness(); completeNpcDeployment(() => controller.follow())
     for (const npc of controller.actors) vi.spyOn(npc, 'update').mockImplementation(() => {})

@@ -46,6 +46,22 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
+/** Regroup only deployed or already queued survivors; reserves and casualties stay untouched. */
+export function followDeployedPersonalMission(value: PersonalSquadMission): PersonalSquadMission {
+  const next = clonePersonalMission(value)
+  let regrouped = false
+  for (const id of next.memberIds) {
+    const member = next.members[id]
+    if (!member || member.hp === 0 || !(member.status === 'deployed'
+      || member.status === 'reserve' && next.pendingMemberIds?.includes(id))) continue
+    member.order = 'follow'
+    delete member.formation
+    regrouped = true
+  }
+  if (regrouped && next.state === 'RETURNING') next.state = 'ACTIVE'
+  return next
+}
+
 /** Capture membership once; delayed projectiles do not depend on a living runtime actor. */
 export function personalMissionSourcePolicy(mission: { personalSquad?: PersonalSquadMission }): (source: CombatActorRef) => boolean {
   const ids = new Set(mission.personalSquad?.memberIds ?? [])
