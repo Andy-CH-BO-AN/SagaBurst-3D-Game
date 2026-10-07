@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import { Player } from '../src/player/Player'
 import {
   SpectatorCameraController,
@@ -59,7 +57,10 @@ function createMockInput() {
   }
 }
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('Permanent Player Death & Spectator Camera', () => {
   describe('1. Permanent Player Death', () => {
@@ -150,6 +151,7 @@ describe('Permanent Player Death & Spectator Camera', () => {
       const scene = new THREE.Scene()
       const player = new Player(scene)
       const mount = new Mount(scene, MountType.CORGI, 10, 20)
+      onTestFinished(() => mount.dispose())
       player.mountVehicle(mount, 0)
 
       const seatPosBeforeDeath = player.position.clone()
