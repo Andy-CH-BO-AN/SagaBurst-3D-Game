@@ -15,6 +15,7 @@ import { createCareerProfile, type CareerProfile } from '../src/career/CareerPro
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { NavigationWorld } from '../src/navigation/NavigationWorld'
 import { Faction } from '../src/world/NPC'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -24,8 +25,7 @@ function profile(): CareerProfile {
 }
 
 function fixture(current = profile()) {
-  const values = new Map<string, string>()
-  const store = new CareerProfileStore({ getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) } } as Storage)
+  const store = new CareerProfileStore(new MemoryStorage())
   expect(store.save(current)).toBe(true)
   const personal = clonePersonalMission(current.activeOutpostMission!.personalSquad!)
   personal.sceneKey = `outpost:${current.activeOutpostMission!.id}`; personal.state = 'ACTIVE'

@@ -7,15 +7,7 @@ import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
 import { acceptCareerOutpost, claimCareerOutpost } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
-
-function storage(): Storage {
-  const values = new Map<string, string>()
-  return {
-    getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, value) },
-    removeItem: key => { values.delete(key) },
-  } as Storage
-}
+import { MemoryStorage } from './helpers/memoryStorage'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -23,7 +15,7 @@ describe('Outpost defense victory after player death', () => {
   it.each(['roman', 'viking'] as const)('settles a %s victory once through Game and preserves the reward after reload', faction => {
     const current = { ...createCareerProfile(faction), rank: 'soldier' as const, totalMerit: 300, availableMerit: 300 }
     const profile = acceptCareerOutpost(current, 1, 'outpost-dead-victory')!
-    const persistence = storage(), store = new CareerProfileStore(persistence)
+    const persistence = new MemoryStorage(), store = new CareerProfileStore(persistence)
     expect(store.save(profile)).toBe(true)
     vi.stubGlobal('window', { localStorage: persistence, location: { pathname: '/game/', reload: vi.fn() } })
 
