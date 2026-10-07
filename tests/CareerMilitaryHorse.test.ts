@@ -17,6 +17,7 @@ import {
 } from '../src/career/CareerMountController'
 import { productStatus, purchaseTownHorse, sellTownProduct, TOWN_PRODUCTS } from '../src/town/TownRules'
 import type { Player } from '../src/player/Player'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 function profileFor(rank: CareerRank = 'recruit'): CareerProfile {
   return {
@@ -24,18 +25,6 @@ function profileFor(rank: CareerRank = 'recruit'): CareerProfile {
     rank,
     totalMerit: CAREER_RANK_THRESHOLDS[rank] + 1000,
     availableMerit: 1000,
-  }
-}
-
-function memoryStorage(): Storage {
-  const values = new Map<string, string>()
-  return {
-    get length() { return values.size },
-    clear: () => values.clear(),
-    getItem: key => values.get(key) ?? null,
-    key: index => [...values.keys()][index] ?? null,
-    removeItem: key => { values.delete(key) },
-    setItem: (key, value) => { values.set(key, value) },
   }
 }
 
@@ -123,7 +112,7 @@ describe('Military warhorse quantity purchases', () => {
   })
 
   it('preserves captain T4 ownership and selection through a saved profile', () => {
-    const store = new CareerProfileStore(memoryStorage())
+    const store = new CareerProfileStore(new MemoryStorage())
     const purchased = purchaseTownHorse(profileFor('captain'), 'horse')!
     expect(store.save(purchased)).toBe(true)
     const loaded = store.load()!
@@ -201,7 +190,7 @@ describe('Legacy warhorse ownership and outing migration', () => {
       hp: { 'horse-t1': 100, 'horse-t2': 0, 'horse-t3': 100 },
       unavailable: ['horse-t2'],
     }
-    const store = new CareerProfileStore(memoryStorage())
+    const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
     const loaded = store.load()!
     loaded.rank = 'captain'

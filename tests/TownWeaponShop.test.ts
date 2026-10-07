@@ -11,15 +11,12 @@ import { TownEquipment } from '../src/town/TownEquipment'
 import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../src/town/TownRules'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 function profile(rank: CareerRank = 'soldier'): CareerProfile {
   const legacy = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
   delete legacy.inventory // Fixture exercises migration from the original ownership arrays.
   return { ...legacy, rank, totalMerit: 800, availableMerit: 500 }
-}
-function storage(): Storage {
-  const values = new Map<string, string>()
-  return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) } } as Storage
 }
 
 describe('Career weapon shop canonical purchases', () => {
@@ -98,7 +95,7 @@ describe('Career purchased inventory and persistence', () => {
     expect(current.equipment).toEqual({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: null })
   })
   it('saves ownership and merit, supports duplicates after reload and passes equipment into Outpost', () => {
-    const store = new CareerProfileStore(storage())
+    const store = new CareerProfileStore(new MemoryStorage())
     let current = profile(); current.totalMerit = 2000; current.availableMerit = 2000
     const inventory = new TownEquipment(() => current, next => { if (!store.save(next)) return false; current = next; return true })
     for (const id of ['steel_sword', 'recurve_longbow', 'scutum_t2']) {
@@ -146,7 +143,7 @@ class PanelElement {
 function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
   const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat']
-  const store = new CareerProfileStore(storage()); store.save(current)
+  const store = new CareerProfileStore(new MemoryStorage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
     skills: { skillState: current.skills }, careerSkillSaveTimer: null,
@@ -189,7 +186,7 @@ describe('Career shop resale', () => {
     expect(purchaseTownHorse(current, 'horse')).not.toBeNull()
   })
   it('keeps resale proceeds above lifetime merit after reload', () => {
-    const store = new CareerProfileStore(storage())
+    const store = new CareerProfileStore(new MemoryStorage())
     const current = { ...profile('recruit'), totalMerit: 0, availableMerit: 0, ownedWeapons: ['gladius_rusty', 'wooden_shortbow'], equipment: { ranged: 'wooden_shortbow' } }
     expect(store.save(sellTownProduct(current, 'gladius_rusty').profile)).toBe(true)
     expect(store.load()).toMatchObject({ availableMerit: 50, totalMerit: 0, rank: 'recruit', ownedWeapons: ['wooden_shortbow'] })
@@ -266,7 +263,7 @@ describe('Career hero mount purchases', () => {
         totalMerit: 5000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
       } })
       expect(current).toEqual(before)
-      const store = new CareerProfileStore(storage())
+      const store = new CareerProfileStore(new MemoryStorage())
       expect(store.save(result.profile)).toBe(true)
       const reloaded = store.load()!
       expect(reloaded.ownedMounts).toEqual([id])
