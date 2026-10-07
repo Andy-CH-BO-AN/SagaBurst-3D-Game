@@ -29,7 +29,9 @@
 
 ## 已實作批次
 
-P1 第一批為 [Navigation core](migrations/navigation-core.md)：四個低相依 suite、26 個案例已完成機械搬檔與完整驗證；其餘 src/release 遷移、fixture 整理及語意去重仍按下列依賴分批進行。PR 合併前仍須 review。
+- [Navigation core](migrations/navigation-core.md)：4 個 suite、26 個案例完成機械搬檔；#226 已合入整合分支，web、Windows/macOS desktop CI 全數通過。
+- [Collision core](migrations/collision-core.md)：從合併後整合 head `6da4b787…` 建立；3 個 suite、11 個案例完成機械搬檔、collection 對照與完整本機驗證，另開 PR review。
+- #225 已補上 integration-base CI filter；其餘 src/release 遷移、fixture 整理與語意去重仍按下列依賴分批進行。
 
 ## 依賴關係與review策略
 

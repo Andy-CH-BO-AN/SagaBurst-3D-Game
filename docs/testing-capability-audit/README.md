@@ -9,7 +9,9 @@
 ## 實作進度與目前路徑
 
 - [Navigation core 遷移](migrations/navigation-core.md)：4 個 suite、26 個 cases 已移到 `tests/movement/`；全部 assertions 保留，full suite/typecheck/build/release 驗證通過。
-- 原始 inventory 保持上述 SHA 的快照；搬移後位置以 [逐 case 遷移對照](inventory/migrations/navigation-core.csv) 為準。本批後仍有 26 個 src test 檔待遷移。
+- [Collision core 遷移](migrations/collision-core.md)：3 個 suite、11 個 cases 已移到 `tests/movement/`；保留碰撞候選順序、幾何與世界邊界 assertions，Town 真實接線維持原處。
+- 原始 inventory 保持上述 SHA 的快照；搬移後位置以 [Navigation mapping](inventory/migrations/navigation-core.csv) 與 [Collision mapping](inventory/migrations/collision-core.csv) 為準。兩批共搬 7 個 suite、37 個 cases，目前仍有 23 個 src test 檔待遷移。
+- #225 的整合分支 CI 觸發修正與 #226 的 Navigation core 已合入 #224；兩支的 web、Windows/macOS desktop CI 均通過。Collision core 另開 PR review。
 
 ## 交付文件
 

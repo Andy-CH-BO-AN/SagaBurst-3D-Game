@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
   EntityCollisionBroadPhase,
-} from './EntityCollisionBroadPhase'
+} from '../../src/world/EntityCollisionBroadPhase'
 import {
   resolveEntityCollision,
   type EntityCollisionBody,
   type ObstacleData,
-} from './Terrain'
+} from '../../src/world/Terrain'
 
 function body(
   x: number,
