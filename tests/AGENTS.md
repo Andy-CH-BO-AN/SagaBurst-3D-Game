@@ -1,118 +1,101 @@
 # 測試工作規範
 
-適用於 `tests/`；沿用 [專案規則](../ai_share/AGENTS.md) 與使用者指示。
-能力責任與搬遷依據見 [測試盤點](../docs/testing-capability-audit/README.md)。
+適用於自動化測試的新增與維護；沿用 [專案規則](../ai_share/AGENTS.md) 與使用者指示。
 
-## 放置與命名
+## 新增測試的順序
 
-1. 新自動化測試只放 `tests/`，不得新增 `src/**/*.test.*` 或 `src/**/*.spec.*`。
-2. 新增 case 前，先搜尋既有 capability suite、相同 production 入口與 assertion。
-3. 依 observable behavior 和責任分類，不依任務代號、歷史 PR 或作者分類。
-4. 使用 combat、commands、equipment、actors、movement、camera 等能力目錄。
-5. missions 放任務定義與 outcome/travel policy；不要把所有 Career tests 堆進同一目錄。
-6. persistence、progression、town、assets、integration、release 各有自己的責任。
-7. 需要時可新增 audio、ui、observability 子目錄；先說明現有目錄不能表達的責任。
-8. 測試名稱寫 scenario + expected behavior，參數展開後必須能辨認輸入。
-9. 混合 suite 按 case 判斷責任，不把整份檔案都視為同一能力。
-10. 拆出合理大小的 suite；不得建立新的巨大 `SharedSystems.test.ts`。
+- 新自動化測試一律放在 `tests/`，不得新增 `src/**/*.test.*` 或 `src/**/*.spec.*`。
+- 先搜尋相同 production 入口、行為與 assertions，閱讀既有 case body 及實際 call path。
+- 說清楚新增案例保護的行為、輸入條件與 failure mode，確認現有測試尚未涵蓋。
+- 優先擴充既有能力 suite；新增 suite 時明確界定它負責的規則。
+- 選擇能抓到該錯誤的最小測試層；純規則不需要建立完整場景、NPC 群或載入資產。
+- 每個案例圍繞一個行為；Arrange、Act、Assert 要能直接看懂。
+- 名稱描述 scenario + expected behavior；參數化名稱必須能辨認失敗的輸入或實作。
+- Regression case 要能在錯誤行為下失敗，不能只驗證函式有呼叫或沒有 throw。
 
-## Core、policy、integration
+## 目錄與依賴
 
-11. Core suite 擁有共用演算法、狀態機與錯誤處理的完整輸入矩陣。
-12. Policy suite 驗證模式特有的人數、tier、權限、unlock 與勝敗規則。
-13. Integration suite 驗證 caller 提供的參數、phase gate、訂閱、ownership 與副作用順序。
-14. 不因新增 mission ID，就複製整套傷害、導航、換武器或 scheduler 測試。
-15. 不因 core 已測過，就刪除不同 caller 的接線、集合選擇或 readiness 案例。
-16. 相同名稱或欄位不足以證明同一規則；先追 production module 與 call path。
-17. Player、NPC、Mount 的不同 HP/死亡實作都需要對應 coverage。
-18. Damage routing、event emission、XP consumer、HUD 是不同測試責任。
-19. 保留從真實傷害到 consumer 的代表接線，避免未 emit/未 subscribe 仍全綠。
-20. 開場 spectator、死亡 observer、各 mission outcome 分別保留初始化與切換保障。
-21. Patrol 回營、Personal Dismiss 回 HR、任務回城不得共用錯誤的完成/整補政策。
-22. 不同 save schema 各保留 serialization、parser、migration 與特殊欄位案例。
-23. Controller 間傳遞 in-memory profile 不能標成 storage round-trip。
-24. Definition tests 保留獨立 expected；不要全部從 production constants 抄出答案。
+- 依共用能力與責任分類，跨模式使用同一主責 suite；不依任務 ID、作者或 PR 編號分類。
+- `combat/`、`commands/`、`equipment/`、`actors/`、`movement/`、`camera/` 放各能力核心規則。
+- `persistence/`、`progression/` 放儲存契約與成長規則；`missions/`、`town/` 放任務／城鎮特有政策。
+- `integration/` 依接線能力命名，驗證不同 caller、mode、phase 如何使用共用模組。
+- `assets/`、`audio/`、`ui/`、`observability/`、`release/` 各自負責資產、介面與工具契約。
+- `helpers/` 放具體 consumer 使用的 typed fixtures；`contracts/` 放多實作契約；`fixtures/` 放必要固定資料。
+- 單一 suite 保持可理解的責任範圍；不得堆成巨大的 `SharedSystems.test.ts` 或通用模式檔。
+- Production 不得反向 import `tests/`；測試可以透過公開入口使用 production 模組。
 
-## Fixture、adapter、contract
+## Core、policy、integration 的責任
 
-25. 先重用小型 typed fixture，再考慮新增 helper；名稱必須表達提供的能力。
-26. Fixture 只準備依賴與資源，不暗中完成受測的狀態轉移。
-27. 不 mock 正在驗證的 domain behavior；在 storage、render、audio 等接縫替換依賴。
-28. Movement double 接受位置輸入時，明確標示它沒有驗證真實 locomotion。
-29. Prototype fixture 只提供該入口需要的欄位，不擴大成萬用 Game/TownScene。
-30. 不在 fixture import 時自動註冊 hooks、改 globals 或啟動 scheduler。
-31. Fixture 返回明確 dispose；setup 中途失敗時也必須釋放已建立的資源。
-32. Adapter 表達各實作的輸入/觀察介面，不複製 production 演算法。
-33. 共用 contract suite 必須對每個獨立 implementation 執行。
-34. 不可只跑一個 implementation，就刪其他實作的 coverage。
-35. 共用 assertion 要有清楚名稱、輸入與含 actor/phase/parameter 的失敗訊息。
-36. 不為 DRY 把 Arrange、Act、Assert 隱藏成不透明的一次呼叫。
-37. 通用 GLB loader 不可吞掉材質/紋理檢查所需的資料。
-38. 共用資產 contract 仍保留各模型的骨架、seat、socket、animation、LOD regression。
-39. 優先使用 public seam；既有 private spy 改寫前先確定等價的 observable assertion。
-40. 避免 `mock.calls[index]` 依賴偶然順序；順序本身是規格時應明確斷言。
+- Core suite 擁有共用演算法、狀態機、邊界輸入與錯誤處理的完整矩陣。
+- Policy suite 驗證模式特有的人數、tier、權限、unlock、勝敗與返回條件。
+- Integration suite 驗證真實 caller 提供的參數、phase gate、訂閱、ownership 與副作用順序。
+- 新模式優先補自己的 policy 與接線，不複製整套傷害、導航、換武器或 scheduler 核心測試。
+- 不同 caller 的敵我集合、可指揮對象、readiness 與 cleanup 都是獨立接線風險。
+- 多份獨立實作必須各有 coverage；不能只測其中一份就假定其他實作正確。
+- Player、NPC、Mount 若有不同 HP、死亡或裝備邏輯，分別驗證對應實作。
+- Damage routing、event emission、XP/HUD consumer 分層驗證，保留真實 producer 到 consumer 的代表接線。
+- 同名 Follow、return、spectator 等行為可能有不同政策；以輸入、輸出與不變條件界定責任。
+- 儲存測試要涵蓋 serialization、parser、舊版相容與特殊欄位；不同 schema 各有保障。
+- Controller 間傳遞 in-memory object 不能當作 storage round-trip；持久化接線需經過真實序列化邊界。
 
-## 時間、simulation 與成本
+## 避免重複與共用契約
 
-41. 新增高成本 simulation 前，寫明純規則/小型 integration 未保護的 failure mode。
-42. 只有受測行為需要時，才建立完整場景、NPC 群或讀取真實資產。
-43. 狀態完成等待用 bounded deterministic driver，指定 maxFrames 或 maxSimulationSeconds。
-44. 為未達成條件提供 phase、actor 與目標的錯誤訊息。
-45. 禁用 arbitrary sleeps、無限迴圈與以放寬 timeout 掩蓋失敗。
-46. 區分 simulated time 與 wall-clock test timeout，報告時分欄記錄。
-47. 時間/逐 frame 本身是規格時，保留臨界前後的精確檢查。
-48. NPC scheduler 預算是每 render frame 最多一個；不得改成每秒一個。
-49. 相同 RAF timestamp、background pause、cancel、rollback 的 core 契約要保留。
-50. Caller suite 保留各 enqueue/materialization 路徑與 full-roster readiness。
-51. 不用 drain 一次跑完來宣稱已驗證逐 frame 預算。
-52. `advanceUntil` 不保證加速或消除 flaky；修改前後須在相同條件量測。
-53. 不把單次全綠或 coverage 百分比當作替代案例的等價證明。
+- 判斷重複前，先核對 production 模組、輸入、可觀察結果及 failure mode；名稱相似不足以判定。
+- 同一實作只有輸入不同時，優先擴充 `it.each` 等參數矩陣，保留每組獨立 expected。
+- 同一契約有多個獨立實作時，提供薄 adapter，對每個實作執行同一 contract suite。
+- Adapter 只轉接輸入與觀察介面，不複製 production 演算法，也不代替實作完成行為。
+- Setup 相同但 assertions 不同時共用 fixture，保留各案例的獨立責任與失敗訊息。
+- 現有案例已完整保護的規則，不再新增同義案例；補測應指向具體未保護的差異。
+- 共用 assertion 要有清楚名稱、輸入及 actor/phase/parameter 訊息，不隱藏 Act 或整個測試流程。
+- 必要 integration 不能因 core 已測過而省略；同樣也不在每個 integration 重跑完整 core 矩陣。
+- 若調整既有重複案例，說明每個 assertion、特殊輸入與接線由哪個測試承接；證據不足就保留。
+- 成功指標是行為責任清楚、能抓到錯誤且容易維護，不是 test count 更多或更少。
+
+## Fixture、mock 與 assertions
+
+- Fixture 只準備明確依賴與資源，不暗中完成受測的狀態轉移。
+- 不 mock 正在驗證的 domain behavior；可在 storage、network、render、audio 等外部邊界替換依賴。
+- Prototype fixture 只提供該入口需要的欄位；避免萬用 Game/TownScene fixture。
+- Movement double 若只接受位置輸入，明確標示它沒有驗證真實 locomotion。
+- Helper import 不自動註冊 hooks、修改 globals、建立 singleton 或啟動 scheduler。
+- Expected 來自獨立規格、明確輸入與已知結果，不直接讀受測 production constants 或重算同一演算法當答案。
+- 優先斷言公開輸出與狀態；避免 private spy 或 `mock.calls[index]` 綁住偶然的實作順序。
+- 順序本身是契約時，明確驗證事件或副作用順序及其意義。
+- 共用資產 loader 保留材質、紋理與模型特性；各模型的骨架、seat、socket、animation、LOD regression 分別保護。
+
+## 非同步、時間與 simulation
+
+- 狀態等待使用 bounded deterministic driver，指定 maxFrames 或 maxSimulationSeconds。
+- 未達成條件時回報 phase、actor、目標與已前進的時間／frame，讓失敗可定位。
+- 禁用 arbitrary sleeps、無限迴圈與任意放寬 timeout；非同步工作需 await 並驗證拒絕／失敗路徑。
+- 區分 simulated time 與 runner 的 wall-clock timeout；不能用 timeout 大小代表遊戲時間。
+- 時間或逐 frame 本身是規格時，保留臨界前後檢查，不能以一次 drain 取代 frame budget 驗證。
+- Scheduler core 驗證預算、cancel、rollback；caller 驗證 enqueue、materialization 與 readiness。
+- Simulation 的動作要驅動真實受測 runtime；不要直接寫入結果狀態讓流程通過。
+- 新增高成本 simulation 前，說明純規則或小型 integration 無法保護的缺口。
+- Driver 或 fixture 共用不代表更快或不會 flaky；效能與穩定性主張需要實際量測。
 
 ## 隔離、cleanup 與型別
 
-54. 優先使用 instance scheduler；只有跨 caller 預算測試使用 production singleton。
-55. 每個 fixture 明確擁有 globals、mocks、timers、事件訂閱及排程工作。
-56. 清除 pending jobs、取消 loading、移除 listeners 並還原 globals 的原 descriptor。
-57. 以 afterEach/onTestFinished 或 try/finally 保證 assertion 失敗時仍 cleanup。
-58. 不把 cleanup 只寫在最後一個 expect 後面。
-59. 部分 spawn 或 failed-save 必須驗證沒有提前 side effects，且資源可重試/釋放。
-60. 借用的 resident/player/mount 由原 owner dispose，不由 reload fixture 重複銷毀。
-61. 不 dispose 共用 immutable geometry、material 或 texture。
-62. 使用 typed builder、Pick 或已命名 adapter，不新增大量 `as any`。
-63. 必要 unsafe cast 限縮在單一接縫並說明缺失介面；不得關 strict。
-64. 不新增 @ts-ignore 或放寬 typecheck 豁免來使測試通過。
+- 每個 fixture 明確擁有 globals、mocks、timers、listeners、資源與排程工作。
+- 優先使用 instance scheduler；只有跨 caller 的共享契約使用 production singleton。
+- Setup 中途失敗也要釋放已建立資源；成功建立的 fixture 提供明確 dispose。
+- 以 afterEach/onTestFinished 或 try/finally 保證 assertion 失敗時仍 cleanup，不只放在最後一個 expect 後。
+- 清除 pending jobs、取消 loading、移除 listeners，還原 globals 的原 descriptor 與 mock/timer 狀態。
+- 借用資源由原 owner dispose；不可重複銷毀共享 geometry、material、texture 或 borrowed actor。
+- Partial spawn、failed-save 等失敗案例要驗證副作用順序、資源釋放及重試能力。
+- 使用 typed builder、Pick 或命名 adapter；必要 unsafe cast 限縮在單一接縫並說明缺失介面。
+- 不新增大量 `as any`、`@ts-ignore` 或關 strict；新增型別錯誤要修正，不擴大 typecheck baseline 豁免。
+- 修掉的診斷同步移除 baseline 項目；保留原有 ratchet，不以全量重建或變更 fingerprint 演算法掩蓋錯誤。
 
-## 搬檔、合併與 runner
+## Runner 與驗證
 
-65. 機械搬檔、fixture 整理、語意去重分開 review；避免同一 PR 大量混改。
-66. 搬檔核對 relative imports、mock paths、asset URLs 與工作目錄假設。
-67. 同步規劃 discovery/include/exclude、scripts、CI、typecheck、coverage/filter/docs 路徑。
-68. Node release tests 不交給 Vitest；相同 case 不得漏跑或跑兩次。
-69. Production 不得反向 import `tests/helpers` 或任何測試檔。
-70. 搬檔前後比較 collection 的 case 名称/參數/runner，不能只比較總數。
-71. 每個候選標示 KEEP、MOVE、SHARE FIXTURE、PARAMETERIZE、MERGE、REMOVE 或 NEEDS RUNTIME REFACTOR。
-72. MERGE/REMOVE 必須附原 case → replacement case → retained assertions 的 mapping。
-73. Mapping 逐項保留各 mode 的接線、失敗、cleanup、順序與特殊輸入。
-74. 尚未有可執行 replacement 與等價證據時，保留原 case。
-75. Contract parameterization 可以減少程式碼而不減少 expanded cases。
-76. Production 尚未共用時，保留多實作 coverage；runtime consolidation 另開 PR。
-77. 純測試重構不得順手改 gameplay、cadence、資產或 release 行為。
-78. 不以改 expected、skip/todo、刪 assertion、任意增 timeout 讓 CI 過。
-
-## 型別 ratchet 與驗證交付
-
-79. 搬到新路徑前先檢查該檔歷史 typecheck diagnostics，優先修掉。
-80. 修不完時附一對一 old/new fingerprint 表與數量，不整份 regenerate baseline。
-81. 不改 fingerprint 演算法、baseline version 或放寬 ratchet。
-82. 修掉的診斷從 baseline 刪除；新增/不同原因的診斷必須修正。
-83. 測試變更執行 affected suites，再跑 full suite、typecheck、build 與 release tests。
-84. Runner/資產/封裝接線變更額外驗證 web smoke 與所影響平台的 desktop smoke。
-85. 純文件修改只檢查內容、連結及 diff；宣稱 baseline 結果時仍需提供實際執行紀錄。
-86. 記錄 SHA、runner/version、命令、執行環境、結果與 skipped/todo。
-87. 既有 baseline 失敗與本次引入的失敗分開；單檔重跑成功不覆寫全套失敗。
-88. 發布前確認未遺留 focused-only case、global 污染或不可重現的本機依賴。
-89. 完成標準是責任清楚、保留 failure modes、可 review/回退；不是 case 更多或更少。
-90. 僅在使用者授權範圍內改動；不得自行 merge。
-91. 本計畫整合分支是 `codex/test-capability-audit`；其主 PR 指向 `dev`，暫不合併。
-92. 後續能力 PR 從整合分支建立，base 設為該分支並合回該分支，不直接進 `dev`。
-93. 整合 PR 合併到 `dev` 前須有使用者明確指示；不得啟用 auto-merge。
+- 新案例必須由正確 runner 實際收集；核對檔案、完整 case 名稱與參數，不能只看總數。
+- Node release tests 使用 Node runner，並納入 release script、排除 Vitest discovery，避免漏跑或跑兩次。
+- 測試變更先執行 affected suites，再跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build`、`rtk npm run test:release`。
+- Browser、資產或封裝接線變更，加驗 web smoke 與所影響平台的 desktop smoke；畫面行為依專案 skill 驗證。
+- 不以改 expected、刪 assertion、skip 或增 timeout 讓檢查通過；交付前移除 focused-only case 與非必要 skip/todo。
+- 驗證結果寫在 PR：命令、環境、結果與未驗證範圍；不要新增只記錄一次執行結果的常駐測試文件。
+- 既有失敗與本次新增失敗分開記錄；單檔重跑成功不能取代完整執行的失敗紀錄。
+- 純測試修改維持 gameplay、cadence、資產與 release 行為；確有功能變更時明示範圍並測其行為。
+- 純文件修改檢查內容、連結與 diff，不宣稱執行了未跑的測試。
