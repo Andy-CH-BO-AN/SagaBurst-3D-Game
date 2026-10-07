@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../world/Terrain'
-import { DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
+import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset } from '../../src/world/Terrain'
+import { DAMAGEABLE_OBSTACLE_HP } from '../../src/world/DamageableObstacle'
 import {
   CAMPAIGN_PALISADE_HEIGHT,
   CAMPAIGN_STRUCTURE_HP_MULTIPLIER,
   createCampaignOutpost,
   getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
-} from './CampaignOutpost'
+} from '../../src/campaign/CampaignOutpost'
 
 describe('CampaignOutpost', () => {
   it.each(['roman', 'viking'] as const)(

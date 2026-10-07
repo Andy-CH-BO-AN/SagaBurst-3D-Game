@@ -5,10 +5,10 @@ import {
   CampaignBreachController,
   CampaignGateController,
   isCampaignGateOccupied,
-} from './CampaignGate'
-import { DamageableObstacle } from '../world/DamageableObstacle'
-import { AIType, type NPC } from '../world/NPC'
-import type { ObstacleData } from '../world/Terrain'
+} from '../../src/campaign/CampaignGate'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { AIType, type NPC } from '../../src/world/NPC'
+import type { ObstacleData } from '../../src/world/Terrain'
 
 function createGateController() {
   const root = new THREE.Group()

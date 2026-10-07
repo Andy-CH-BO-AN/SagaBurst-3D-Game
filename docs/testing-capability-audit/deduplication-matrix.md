@@ -64,6 +64,7 @@ KEEP 保留 failure mode；MOVE 僅改責任位置；SHARE FIXTURE 只共用 set
 | K6 `tests/HeroMountTrialUI.test.ts:35/50/61/69/78/86`（#223） | HeroMountTrialUI 的 Escape/pointer-lock/keyboard ownership；與 Town pause、equipment UI 是不同 caller policy | MOVE `ui/HeroMountTrialUI`，只考慮分享小型 DOM/input fixture；不把 callbacks mock 的 cases 當 Game integration | 六例全留：nolock、repeat 不重入、焦點輪替/Enter、resume/exit、瀏覽器只發 unlock、unlock+keydown 不重開、equipment 優先。Game query gate、pause frame early-return 與真實 return-home 接線另確認 |
 | R1 `tools/release/{asset-path,publish,validate-tag}.test.cjs` | Node工具純函式與注入client；與Vitest無關 | MOVE到tests/release；保留17個Node cases、fake client與temp檔cleanup | tag main HEAD、invalid lock、path traversal、published無mutation、draft/retry/hash/不可overwrite全留；production scripts留tools/release |
 | R2 `tools/release/smoke.mjs` | Web/desktop共享menu/assets/storage檢查 | MOVE entry到tests/release，保留模式分支；不是12個runner cases | Web base、desktop sandbox/contextIsolation/nodeIntegration、macOS code signing、實際fetch資產/GLB header/storage reload；動態檔數不可猜 |
+| R3 剩餘 src suites（16檔／228案） | 依主要能力將完整 suite 放入 missions/progression/integration/town/combat/equipment/ui | MOVE 16份，只校正相對imports；src清空後同PR將default include patterns加tests/前綴，保留default/output/release排除與timeouts | 全部body/輸入/driver/frame/時間保留，196檔／2,948案逐項mapping、baseline443不變。CampaignProgress實際owner為progression；Gate/Outpost/Launch/Relief/Veteran/Town等混合責任仍待獨立能力批次，不能把搬檔當語意去重。實際位置見src-suite-location ledger |
 
 ## 合併／刪除的後續門檻
 

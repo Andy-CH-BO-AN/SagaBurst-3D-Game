@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import {
   DAMAGEABLE_OBSTACLE_HP,
   DamageableObstacle,
-} from './DamageableObstacle'
+} from '../../src/world/DamageableObstacle'
 
 describe('DamageableObstacle', () => {
   it('applies damage and destroys exactly once at zero HP', () => {

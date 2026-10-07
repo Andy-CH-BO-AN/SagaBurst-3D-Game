@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDefenseCampaignDefeatMessage, getDefenseCampaignHeading, getDefenseCampaignPhaseLabel } from './DefenseCampaignHUD'
+import { getDefenseCampaignDefeatMessage, getDefenseCampaignHeading, getDefenseCampaignPhaseLabel } from '../../src/ui/DefenseCampaignHUD'
 
 describe('DefenseCampaignHUD career outpost wording', () => {
   it('labels defender assault phases as defense and attacker phases as siege assault', () => {

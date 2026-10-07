@@ -9,7 +9,7 @@ import {
   resolveCampaignRolePreset,
   type CampaignRoleCounts,
   type TierCounts,
-} from './CampaignConfig'
+} from '../../src/campaign/CampaignConfig'
 
 function sumTierCounts(counts: TierCounts): number {
   return counts[1] + counts[2] + counts[3]

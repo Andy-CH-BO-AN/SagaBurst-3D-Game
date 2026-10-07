@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DefenseCampaignRuntime } from './DefenseCampaignRuntime'
+import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 
 function state(overrides: Partial<{
   playerDead: boolean

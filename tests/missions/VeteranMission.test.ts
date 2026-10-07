@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import { careerMissionCompletionsForTier, claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from './CareerProfile'
-import { parseCareerProfile } from './CareerProfileStore'
-import { createVeteranRoster, getVeteranMissionAvailability, VETERAN_MISSION_CATALOG, acceptVeteranMission, createVeteranSpawnSpec } from './VeteranMission'
-import { UNIT_PRESETS } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { townRoster } from '../town/TownRules'
+import { getCareerMissionTemplate } from '../../src/career/CareerMissionCatalog'
+import { careerMissionCompletionsForTier, claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { createVeteranRoster, getVeteranMissionAvailability, VETERAN_MISSION_CATALOG, acceptVeteranMission, createVeteranSpawnSpec } from '../../src/career/VeteranMission'
+import { UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
+import { T4_UNIT_PROFILES } from '../../src/battle/T4HeroCatalog'
+import { townRoster } from '../../src/town/TownRules'
 
 const victoryStats = { damageDealt: 50, damageTaken: 0, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 const veteran = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'veteran', totalMerit: 900, availableMerit: 900 })
