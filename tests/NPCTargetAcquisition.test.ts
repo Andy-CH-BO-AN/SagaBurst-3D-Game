@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, vi, afterEach, onTestFinished } from 'vitest'
 import {
   NPC,
   Faction,
@@ -16,7 +14,10 @@ import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
 import { SpatialGrid } from '../src/world/SpatialGrid'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayCorgiVisual')).GameplayCorgiVisualDouble,
+}))
 
 describe('NPC Target Acquisition Caching & Frame-based AI LOD', () => {
   afterEach(() => {
@@ -322,6 +323,7 @@ describe('NPC Target Acquisition Caching & Frame-based AI LOD', () => {
     player.setPosition(0, 0, -200)
 
     const mount = new Mount(scene, MountType.CORGI, 0, 150)
+    onTestFinished(() => mount.dispose())
     const enemyRider = new NPC(scene, 0, 150, Faction.ENEMY, 'roman', AIType.MELEE, 'RiderEnemy', 1, false)
     enemyRider.mount = mount
     mount.setNpcRider(enemyRider, Faction.ENEMY)
