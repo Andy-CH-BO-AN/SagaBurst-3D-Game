@@ -9,6 +9,7 @@ import { SkillManager, createDefaultSkillState, skillHpBonus } from '../src/rpg/
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { ArrowProjectile } from '../src/world/ArrowProjectile'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 const shield = (tier = 1, kind = 'round_shield') => { const s = new ShieldState(); s.equip(`${kind}_t${tier}`); return s }
 const context = (kind: 'shield' | 'body' = 'shield') => ({ source: { actorId: 'enemy', actorType: 'npc' as const, allegiance: Faction.ENEMY, characterFaction: 'viking' as const }, method: 'melee' as const, weaponId: 'viking_axe_t3', contact: { kind, time: .2 } })
@@ -117,8 +118,7 @@ describe('Routing, progression and controls', () => {
   it('reuses XP curve, caps at 50, saves/reloads and adds exactly +50 HP', () => {
     const skills = new SkillManager(); skills.addXp('blocking', 100); expect(skills.skillState.blocking.level).toBe(2)
     skills.addXp('blocking', 1e9); expect(skills.skillState.blocking).toEqual({ level: 50, xp: 0 })
-    const data = new Map<string, string>()
-    const store = new CareerProfileStore({ getItem: k => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v) }, removeItem: k => { data.delete(k) } })
+    const store = new CareerProfileStore(new MemoryStorage())
     const profile = createCareerProfile('roman'); profile.skills = skills.skillState
     expect(store.save(profile)).toBe(true); expect(store.load()!.skills!.blocking.level).toBe(50)
     expect(skillHpBonus(skills.skillState)).toBe(50); expect(createDefaultSkillState().blocking.level).toBe(1)
