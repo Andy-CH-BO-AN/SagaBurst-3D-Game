@@ -1,6 +1,6 @@
 # 後續工作包：依能力與依賴排序
 
-這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。Runtime 等價去重的案例刪除仍為 **0**；依資產 review 已逐案移除 **4 個 art-only cases**（Humanoid 權重、uniform scale／payload size），判定與人工 QA 場景見 matrix J4a–J4d。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴與人工 QA 判定證據。
+這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。Runtime 等價去重的案例刪除仍為 **0**；依資產 review 已逐案移除 **11 個 art-only cases**（Humanoid 權重、uniform scale／payload size 與兩種動物的腳掌／跑姿／膝踝彎曲），runtime 判定與保留 coverage 見 matrix J4a–J4d、J5a–J5d。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴、保留契約與測試結果，不要求人工 QA 場景。
 
 ## PR 整合方式（使用者指定）
 
@@ -24,7 +24,7 @@
 | P8 Checkpoint / restore / migration / settlement | P2 storage adapter、P6 actor snapshot、P7返回語義 | CareerMissionCheckpoint、Controllers、FieldCheckpoint、OutpostGame、CareerPersonalSquadGame/Mission、MissionSettlement、VeteranTownSettlement、兩個store | in-memory≠storage；各schema/version、HP/mount/orders/casualties/pending、claim idempotency與commit順序 | test-only：PARAMETERIZE storage contract每個adapter都跑；補必要serialized bridge後才能去重。獨立Game persistence若需共用runtime另PR；V + `rtk npm test -- Checkpoint Settlement CareerPersonalSquad CareerOutpost CareerSkillProgression` |
 | P9 Town combat ownership / phase integration | P4damage context、P6ownership，P8save side effects | TownMissionCombat、OutskirtsMissionCombat、VeteranTownMissionCombat、TownPersonalSquad、TownHub、CombatAttribution | field/defense/duel/hostility不同分支；each-frame一次、hostile grids、held squads、corpses、riderless、延遲投射物、crime/merit | test-only：小型contract matrix逐adapter執行，SHARE fixture，不能只留shared helper；V + `rtk npm test -- TownMissionCombat TownOutskirts VeteranTownMissionCombat TownPersonalSquad CombatAttribution` |
 | P10 Death / spectator / respawn | P4 HP事件、P7outcome、P8restore | PlayerDeathAndSpectatorCamera、InitialSpectatorMode、CareerDeathObserver、NPCNoRespawn、DuelState、Mount suites | initial spectator與death observer不同、Duel同死failure、任務繼續/返回、camera/input targetability | test-only：core camera集中、policy與transition integration保留；V + `rtk npm test -- Spectator CareerDeathObserver NPCNoRespawn CareerDuelState` |
-| P11 定義/資產/環境/audio/UI/observability | 可依owner獨立進行；不要等全任務整理完 | Campaign/mission definitions、GLB/rig/LOD/socket/shadow、CareerAudioRuntime/MissionVoice、UI/PointerLock、ScenarioE/F/GHI、profiler | 保留model-specific runtime契約；art-only assertion逐案移除／人工QA，gameplay不載無關真GLB；resize fake-only case要有真實replacement | test-only優先；按capability拆多PR，SHARE loader/DOM/audio fixtures，不一包清完所有assets；V，資產路徑或browser input改動加對應smoke/瀏覽器驗證 |
+| P11 定義/資產/環境/audio/UI/observability | 可依owner獨立進行；不要等全任務整理完 | Campaign/mission definitions、GLB/rig/LOD/socket/shadow、CareerAudioRuntime/MissionVoice、UI/PointerLock、ScenarioE/F/GHI、profiler | 保留model-specific runtime契約；art-only assertion逐案依runtime判定移除，gameplay不載無關真GLB；resize fake-only case要有真實replacement | test-only優先；按capability拆多PR，SHARE loader/DOM/audio fixtures，不一包清完所有assets；V，資產路徑或browser input改動加對應smoke/瀏覽器驗證 |
 | P12 Release / standalone QA promotion | Node移動依P1；manual QA先補環境證據 | tests/release3檔、smoke入口；從standalone清單選穩定QA移tests/integration/browser或assets | packaged Mac/Windows不可只驗web；手動腳本有sleep/硬編port/log-only判定；工具build guards仍留tools | 不改發布行為；tests/package/config/docs可明列。17Node cases、web、packaged兩平台smoke與case不重跑；promotion逐script完成，不把unknown當0 |
 
 ## 資產／GLB／animation 追加工作流
@@ -33,8 +33,8 @@
 
 1. 更新 capability map、dedup matrix 與長期 tests/AGENTS，分清 runtime 契約、gameplay visual 邊界與 art-only 候選。此步只有文件，不能算資產 cleanup 已完成。
 2. 盤點 Corgi/BlackCat/Horse/Humanoid 的真 GLB consumer，逐案讀 body 與实际 runtime 依賴；先用 typed 輕量 visual fixture 處理 target acquisition、movement、balance、spectator、mission flow，保留真實 NPC/Player/Mount 的受測行為與必要 integration。Fixture 修改獨立 PR，cleanup 在 setup/assertion 失敗仍生效。
-3. 對資產 suites 每個 assertion 標 KEEP 或 REMOVE/manual QA candidate：parse/preload、必要LOD、runtime lookups、gameplay clip/event、instance/isolation、missing/malformed、package/manifest/path 保留；精確美術內容逐案追 caller 後決定。混合 case 只移除不具 runtime 依賴的 assertion，不能整案丟掉必要契約。
-4. 語意修改獨立 PR，提供原 ID → 保留契約 ID／人工 QA 場景 mapping 與無 runtime 依賴證據；若人工 QA 未實際執行則明示。共用 loader 明示省略的內容，材質/紋理契約保留所需 payload。
+3. 對資產 suites 每個 assertion 標 KEEP 或 REMOVE candidate：parse/preload、必要LOD、runtime lookups、gameplay clip/event、instance/isolation、missing/malformed、package/manifest/path 保留；精確美術內容逐案追 caller 後決定。混合 case 只移除不具 runtime 依賴的 assertion，不能整案丟掉必要契約。
+4. 語意修改獨立 PR，提供原 ID → 保留契約 ID mapping 與無 runtime 依賴證據、實際測試結果。Test-only 整理不附人工 QA 場景，不把人工 QA 列為完成門檻。共用 loader 明示省略的內容，材質/紋理契約保留所需 payload。
 5. 純搬檔另開小批 PR，機械 mapping 與 collection 對照獨立驗證。每個實作批次跑 V，fixture/assets 接線變更加 web 與受影響 desktop smoke；改善成本/穩定性須附量測，不能只因不載 GLB 就宣稱更快。
 
 資產工作流完成條件：所有列入範圍的 consumer 與 assertion 有個案判定；必要真 GLB 契約有明確 owner；非資產 gameplay 的重載入已替換或列出保留理由；不存在僅共用 loader 卻保留無關資產成本的未處理項。完成後才進最終清理。
@@ -64,7 +64,7 @@ P1、P2可獨立啟動；P3/P4/P6是高重用基礎。P5依input/transaction接�
 
 - **機械PR**：只改位置、imports、mock/asset路径与明确的runner設定；case/參數/assertions完整mapping一致。
 - **Fixture PR**：只改準備/cleanup/typed adapters，列出仍用real implementation的consumer；若失敗訊息或成本改变，附實測。
-- **Dedup PR**：只處理已有body/call-path/equivalence證據的群組；Runtime 整case MERGE/REMOVE 必須有可執行replacement ID；art-only assertion 移除須逐案符合 matrix 的無 runtime 依賴／人工 QA 判定門檻。
+- **Dedup PR**：只處理已有body/call-path/equivalence證據的群組；Runtime 整case MERGE/REMOVE 必須有可執行replacement ID；art-only assertion 移除須逐案符合 matrix 的無 runtime 依賴、保留契約與自動化驗證門檻。
 - **Production consolidation PR**：明示behavior scope、不同實作與adapter保護；不以clean-tests名義偷改Game/Town/Bandit runtime。
 
 ## 完成條件
