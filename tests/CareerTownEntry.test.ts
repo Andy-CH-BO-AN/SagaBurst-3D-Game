@@ -5,14 +5,11 @@ import { enterCareerTown, TOWN_ENTRY_KEY } from '../src/town/CareerTownEntry'
 import { TownScene } from '../src/town/TownScene'
 import { acceptCareerOutpostRelief } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 vi.mock('../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../src/town/TownUI', () => ({ installTownStyles: vi.fn(), starterThumbnails: vi.fn() }))
 
-function storage(): Storage {
-  const values = new Map<string, string>()
-  return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) } as Storage
-}
 function element() {
   return { textContent: '', style: {}, children: [] as ReturnType<typeof element>[], onclick: null as null | (() => void), append(...children: ReturnType<typeof element>[]) { this.children.push(...children) }, remove: vi.fn() }
 }
@@ -21,8 +18,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
   it('starts gameplay only after scene initialization and removal of the loading overlay', async () => {
-    const local = storage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', storage())
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
     const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
@@ -38,7 +35,7 @@ describe('Town load failure recovery', () => {
   })
 
   it('clears the resume flag and returns home without deleting the Career save', async () => {
-    const local = storage(), session = storage(), body = element(), home = vi.fn(), start = vi.fn()
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element(), home = vi.fn(), start = vi.fn()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
@@ -56,7 +53,7 @@ describe('Town load failure recovery', () => {
   })
 
   it('requests pointer lock on the persistent container before loading a Career relief battlefield', async () => {
-    const local = storage(), session = storage(), body = element()
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '' })
@@ -80,7 +77,7 @@ describe('Town load failure recovery', () => {
   })
 
   it.each([false, true])('clears the entry flag on failure and return without changing saved hostility=%s', async hostile => {
-    const local = storage(), session = storage(), body = element()
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' })

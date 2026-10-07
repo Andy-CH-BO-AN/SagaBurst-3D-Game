@@ -4,16 +4,8 @@ import {
   getDefenseCampaignUnlockedStage,
   isDefenseCampaignStageUnlocked,
   parseDefenseCampaignSetupTarget,
-  type CampaignProgressStorage,
 } from './CampaignProgress'
-
-function memoryStorage(): CampaignProgressStorage {
-  const values = new Map<string, string>()
-  return {
-    getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, value) },
-  }
-}
+import { MemoryStorage } from '../../tests/helpers/memoryStorage'
 
 describe('Defense Campaign progress', () => {
   it('parses only valid next-stage setup targets', () => {
@@ -38,13 +30,13 @@ describe('Defense Campaign progress', () => {
   })
 
   it('starts both defender factions at Stage 1', () => {
-    const storage = memoryStorage()
+    const storage = new MemoryStorage()
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(1)
     expect(getDefenseCampaignUnlockedStage('viking', storage)).toBe(1)
   })
 
   it('unlocks only the next stage for the faction that cleared', () => {
-    const storage = memoryStorage()
+    const storage = new MemoryStorage()
 
     expect(completeDefenseCampaignStage('roman', 1, storage)).toBe(2)
     expect(isDefenseCampaignStageUnlocked('roman', 2, storage)).toBe(true)
@@ -53,7 +45,7 @@ describe('Defense Campaign progress', () => {
   })
 
   it('never regresses progress when replaying an earlier stage', () => {
-    const storage = memoryStorage()
+    const storage = new MemoryStorage()
     completeDefenseCampaignStage('roman', 1, storage)
     completeDefenseCampaignStage('roman', 2, storage)
 
@@ -62,7 +54,7 @@ describe('Defense Campaign progress', () => {
   })
 
   it('rejects skipped completion and caps sequential progress at Stage 9', () => {
-    const storage = memoryStorage()
+    const storage = new MemoryStorage()
     expect(completeDefenseCampaignStage('viking', 5, storage)).toBe(1)
 
     for (let stage = 1; stage <= 9; stage++) {
