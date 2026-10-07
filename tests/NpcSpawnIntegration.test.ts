@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Game } from '../src/Game'
 import { TownScene } from '../src/town/TownScene'
 import { TownOutskirtsWarfareController } from '../src/town/TownOutskirtsWarfareController'
 import { BanditMissionController } from '../src/career/BanditMissionController'
@@ -19,7 +18,8 @@ import type { Player } from '../src/player/Player'
 import { gameplayNpcSpawns } from '../src/world/NpcSpawnScheduler'
 import { TownEvent } from '../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../src/town/TownHRLayout'
-import { advanceNpcFrame } from './helpers/npcSpawnFrames'
+import { advanceNpcFrame, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
+import { createGameTestFixture } from './helpers/gameFixture'
 
 const observed = vi.hoisted(() => ({ constructors: [] as string[] }))
 vi.mock('../src/world/NPC', async original => {
@@ -59,14 +59,20 @@ vi.mock('../src/world/Mount', async original => {
 vi.mock('../src/world/WeaponPickup', () => ({ WeaponPickup: class { dispose() {} } }))
 vi.mock('../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} } }))
 const dispose: (() => void)[] = []
-afterEach(() => { dispose.splice(0).reverse().forEach(fn => fn()); vi.unstubAllGlobals(); observed.constructors.length = 0 })
+afterEach(() => {
+  dispose.splice(0).reverse().forEach(fn => fn())
+  expect(gameplayNpcSpawns.pending).toBe(0)
+  vi.unstubAllGlobals()
+  observed.constructors.length = 0
+})
 
 function gameFixture() {
-  const game = Object.assign(Object.create(Game.prototype), {
-    spawnBatches: [], scene: new THREE.Scene(), npcs: [], mounts: [], pickups: [],
-    combatEvents: { emit: vi.fn() }, _showNotify: vi.fn(), battleStats: { registerNpc: vi.fn() }, _aimTargetRegistry: { registerNpc: vi.fn(), registerMount: vi.fn() },
+  const game = createGameTestFixture({
+    spawnBatches: [] as Array<{ status: string }>, scene: new THREE.Scene(), npcs: [] as NPC[], mounts: [] as unknown[], pickups: [] as unknown[],
+    combatEvents: { emit: vi.fn() }, _showNotify: vi.fn(), battleStats: { registerNpc: vi.fn() },
+    _aimTargetRegistry: { registerNpc: vi.fn(), registerMount: vi.fn(), unregisterNpc: vi.fn(), unregisterMount: vi.fn() },
     careerVeteranActorMounts: new Map(), defenseCampaignConfig: null,
-  }) as any
+  })
   dispose.push(() => game._disposeCareerOutpostBattleActors())
   return game
 }
@@ -78,7 +84,7 @@ function loadingFrames() {
   const callbacks: FrameRequestCallback[] = []
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
   return async () => {
-    const before = observed.constructors.length, frame = advanceNpcFrame()
+    const before = observed.constructors.length, frame = advanceNpcFrame(gameplayNpcSpawnDriver)
     for (const callback of callbacks.splice(0)) callback(frame)
     await Promise.resolve(); await Promise.resolve()
     gameplayNpcSpawns.tick(frame)
@@ -98,7 +104,7 @@ describe('actual NPC constructor paths share the frame budget', () => {
     for (let frame = 1; frame <= plan.npcSpecs.length; frame++) {
       await step(); expect(observed.constructors).toHaveLength(frame)
       expect(game.npcs).toHaveLength(frame)
-      for (const npc of game.npcs) if (npc.isMounted) expect(npc.mount.riderNpc).toBe(npc)
+      for (const npc of game.npcs) if (npc.isMounted && npc.mount) expect(npc.mount.riderNpc).toBe(npc)
       if (frame < plan.npcSpecs.length) expect(ready).toBe(false)
     }
     const actors = await loading

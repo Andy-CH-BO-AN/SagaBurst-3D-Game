@@ -1,5 +1,5 @@
 import { NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
-import { drainNpcSpawns } from '../../tests/helpers/npcSpawnFrames'
+import { drainNpcSpawns, gameplayNpcSpawnDriver } from '../../tests/helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -82,12 +82,12 @@ function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'ro
     createNpc(spec) { const npc = new TestNpc(spec); created.push(npc); return npc as unknown as NPC },
     createMount(x, z) { const mount = new TestMount(); mount.group.position.set(x, 0, z); horses.push(mount); return mount as unknown as Mount },
   }, [], scheduler)
-  if (!scheduler) drainNpcSpawns()
+  if (!scheduler) drainNpcSpawns(gameplayNpcSpawnDriver)
   const player = { targetable: true, dead: false, combatPosition: new THREE.Vector3(10000, 0, 10000) } as unknown as Player
-  const frame = (dt = .4, peers: NPC[] = []) => { controller.prepareFrame(dt, [...controller.actors, ...peers], player); drainNpcSpawns() }
+  const frame = (dt = .4, peers: NPC[] = []) => { controller.prepareFrame(dt, [...controller.actors, ...peers], player); drainNpcSpawns(gameplayNpcSpawnDriver) }
   const isolate = () => { created.forEach((npc, index) => npc.move(2000 + index * 100, 2000)) }
   return { controller, created, horses, navigation, player, frame, isolate,
-    rank(next: CareerRank) { profile = { ...profile, rank: next }; controller.synchronizeRank(); drainNpcSpawns() } }
+    rank(next: CareerRank) { profile = { ...profile, rank: next }; controller.synchronizeRank(); drainNpcSpawns(gameplayNpcSpawnDriver) } }
 }
 const asTest = (npc: NPC) => npc as unknown as TestNpc
 
@@ -138,7 +138,7 @@ describe('Town outskirts runtime', () => {
     test.frame(120)
     expect(cavalry.every(s => s.state === 'SIEGE_OWNED' && s.members.length === 0)).toBe(true)
     expect(test.controller.claimCavalryForSiege('viking').actors).toHaveLength(0)
-    test.controller.releaseSiegeOwnership(); drainNpcSpawns()
+    test.controller.releaseSiegeOwnership(); drainNpcSpawns(gameplayNpcSpawnDriver)
     expect(cavalry.every(s => s.members.length === 10)).toBe(true)
     test.controller.dispose()
   })

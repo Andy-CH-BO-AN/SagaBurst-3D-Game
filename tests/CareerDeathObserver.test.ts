@@ -1,5 +1,5 @@
-import { gameplayNpcSpawns, NpcSpawnScheduler } from '../src/world/NpcSpawnScheduler'
-import { advanceNpcFrame } from './helpers/npcSpawnFrames'
+import { gameplayNpcSpawns } from '../src/world/NpcSpawnScheduler'
+import { advanceNpcFrame, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from './helpers/npcSpawnFrames'
 import { MissionTravelEncounter } from '../src/career/MissionTravelEncounter'
 import { createTownCombatFixture } from './townCombatFixture'
 import { checkMountImpact } from '../src/combat/MountImpact'
@@ -223,7 +223,8 @@ describe('Town mission death observer orchestration', () => {
     const batch = gameplayNpcSpawns.batch(), create = vi.fn()
     batch.enqueue('previous-mission-actor', create); batch.seal()
     town.mission.spawnBatches = [batch]
-    town.frame(advanceNpcFrame(new NpcSpawnScheduler()))
+    const frameDriver = new NpcSpawnTestDriver()
+    town.frame(frameDriver.advanceFrame())
 
     expect(batch.status).toBe('cancelled')
     expect(create).not.toHaveBeenCalled()
@@ -249,7 +250,7 @@ describe('Town mission death observer orchestration', () => {
     batch.enqueue('failed-return-actor', create); batch.seal()
     town.mission.spawnBatches = [batch]
     town.returnToTown('direct')
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     expect(batch.status).toBe('cancelled'); expect(create).not.toHaveBeenCalled()
     const retry = town.button.mock.calls[0][2]
     retry()

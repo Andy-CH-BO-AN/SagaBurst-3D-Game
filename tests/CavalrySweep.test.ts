@@ -1,4 +1,4 @@
-import { advanceNpcFrame, completeNpcDeployment } from './helpers/npcSpawnFrames'
+import { advanceNpcFrame, completeNpcDeployment, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from './helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -66,7 +66,7 @@ function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null, veteranFieldFactories: {},
   })
-  if (!deferStart) completeNpcDeployment(() => controller.startActiveMission())
+  if (!deferStart) completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
   const assemble = (joinPlayer = true) => {
     for (let stage = 0; stage < 2 && profile.activeMission?.phase === 'ASSEMBLING'; stage++) {
       for (const npc of controller.friendlies) {
@@ -79,7 +79,7 @@ function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
     }
   }
   if (joinAssembly) assemble()
-  return { controller, player, residents, assemble, profile: () => profile, reload: () => { controller.dispose(); profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; completeNpcDeployment(() => controller.startActiveMission()) } }
+  return { controller, player, residents, assemble, profile: () => profile, reload: () => { controller.dispose(); profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver) } }
 }
 
 describe('Cavalry Sweep eligibility', () => {
@@ -149,7 +149,7 @@ describe('Sweep runtime and checkpoint', () => {
     expect(ids.filter(Boolean)).toHaveLength(21)
     expect(new Set(ids.filter(Boolean)).size).toBe(21)
     f.controller.disposeMissionEntities()
-    completeNpcDeployment(() => f.controller.startActiveMission())
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
     expect(maki.npc.mount).toBe(maki.homeMount)
     expect(f.controller.friendlies[29]).toBe(maki.npc)
     expect(f.controller.temporaryCavalry.some(({ npc }: { npc: NPC }) => npc.name === 'Captain' || npc.name === 'Maki')).toBe(false)
@@ -163,7 +163,7 @@ describe('Sweep runtime and checkpoint', () => {
     const original = { weapon: rider.meleeWeaponId, ranged: rider.rangedWeaponId, shield: rider.shieldId, tier: rider.tier, squad: rider.squadId }
     const equip = vi.spyOn(rider, 'applyTemporaryCombatLoadout')
     rider.respawnEnabled = true
-    completeNpcDeployment(() => c.startActiveMission())
+    completeNpcDeployment(() => c.startActiveMission(), gameplayNpcSpawnDriver)
     expect(equip).toHaveBeenCalledWith(expect.objectContaining({ meleeWeaponId: expect.any(String) }), undefined, 1)
     expect(rider.meleeWeaponId).not.toBe(original.weapon)
     expect(rider.tier).toBe(original.tier)
@@ -304,7 +304,7 @@ describe('Sweep runtime and checkpoint', () => {
     const borrowed = f.residents.map(resident => resident.npc)
     const temporary = [...c.temporaryCavalry]
     c.commit(clearCareerMission(f.profile(), 'sweep'))
-    completeNpcDeployment(() => c.cleanupMission(0, true))
+    completeNpcDeployment(() => c.cleanupMission(0, true), gameplayNpcSpawnDriver)
     expect(c.missionBandits).toHaveLength(0); expect(c.ambientBandits).toHaveLength(2)
     expect(c.friendlies).toHaveLength(0); expect(c.departingNpcs).toHaveLength(38)
     expect(temporary.every(rider => rider.npc.group.parent === c.scene && rider.npc.tacticalOrder === 'formation')).toBe(true)
@@ -481,7 +481,7 @@ describe('Sweep actual constructor frame budget', () => {
     expect(h.controller.startActiveMission()).toBe(true)
     expect(npcConstruction.count).toBe(before)
     for (let i = 1; i <= 96; i++) {
-      advanceNpcFrame(); expect(npcConstruction.count - before).toBe(i)
+      advanceNpcFrame(gameplayNpcSpawnDriver); expect(npcConstruction.count - before).toBe(i)
       if (i < 96) {
         expect(h.controller.ready).toBe(false); h.controller.updateFlow(100, 0)
         expect(h.profile().activeMission!.phase).toBe('ASSEMBLING')

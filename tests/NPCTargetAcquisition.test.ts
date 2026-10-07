@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import {
   NPC,
   Faction,
@@ -13,6 +15,8 @@ import {
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
 import { SpatialGrid } from '../src/world/SpatialGrid'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('NPC Target Acquisition Caching & Frame-based AI LOD', () => {
   afterEach(() => {

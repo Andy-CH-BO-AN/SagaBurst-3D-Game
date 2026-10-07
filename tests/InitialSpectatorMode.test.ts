@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import {
   BattleConfig,
   validateBattleConfig,
@@ -21,6 +23,8 @@ import {
 import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../src/world/Terrain'
 import { handleProjectileHitEffects } from '../src/Game'
 import { Mount, MountType } from '../src/world/Mount'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Initial Spectator Mode', () => {
   describe('A. BattleConfig & BattleSetupUI', () => {

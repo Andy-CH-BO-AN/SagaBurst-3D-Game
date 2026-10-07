@@ -1,7 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
 import { NpcSpawnScheduler, assertNpcSpawnJob, trackNpcSpawn } from './NpcSpawnScheduler'
+import { NpcSpawnTestDriver } from '../../tests/helpers/npcSpawnFrames'
 
 describe('shared render-frame NPC budget', () => {
+  it('keeps fixture clocks and pending queues independent by default', () => {
+    const first = new NpcSpawnTestDriver(), second = new NpcSpawnTestDriver()
+    const firstCalls = vi.fn(), secondCalls = vi.fn()
+    const firstBatch = first.scheduler.batch(), secondBatch = second.scheduler.batch()
+    firstBatch.enqueue('first', firstCalls); firstBatch.seal()
+    secondBatch.enqueue('second', secondCalls); secondBatch.seal()
+
+    expect(first.advanceFrame()).toBe(16)
+    expect(second.advanceFrame()).toBe(16)
+    expect(firstCalls).toHaveBeenCalledOnce()
+    expect(secondCalls).toHaveBeenCalledOnce()
+    expect(first.scheduler.pending).toBe(0)
+    expect(second.scheduler.pending).toBe(0)
+  })
+
   it('enqueues pure jobs, deduplicates actor identity and materializes once for a repeated RAF timestamp', () => {
     const scheduler = new NpcSpawnScheduler(), create = vi.fn(), batch = scheduler.batch()
     expect(batch.enqueue('a', create)).toBe(true)

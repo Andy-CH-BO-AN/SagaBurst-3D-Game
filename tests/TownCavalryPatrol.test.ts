@@ -17,6 +17,7 @@ import { selectMissionCavalryActorIds } from '../src/career/BanditMissionControl
 import { siegeDefensePlans } from '../src/career/TownSiege'
 import { combatActor, combatFixture } from './helpers/townMissionCombat'
 import { SpatialGrid } from '../src/world/SpatialGrid'
+import { advanceUntil } from './helpers/simulation'
 
 // Only rendering is substituted; NPC movement, mount physics/collision and navigation are real.
 vi.mock('../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
@@ -143,7 +144,9 @@ describe('Patrol runtime movement and individual ownership', () => {
     h.controller.reclaim(captain.spec.id); h.step()
     expect(squad.activeLeaderActorId).toBe(second.spec.id)
     expect(captain.npc.combatPosition.distanceTo(before)).toBeLessThan(2)
-    for (let i = 0; i < 2000 && squad.activeLeaderActorId !== captain.spec.id; i++) h.step()
+    advanceUntil(() => squad.activeLeaderActorId === captain.spec.id, () => h.step(), {
+      maxFrames: 2000, failureMessage: 'reclaimed captain must resume as patrol leader',
+    })
     expect(squad.activeLeaderActorId).toBe(captain.spec.id)
     expect(second.npc.activeFollowTarget).toBe(captain.npc)
   }, 20000)

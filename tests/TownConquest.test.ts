@@ -11,6 +11,7 @@ import { resolveTownHRLayout, townConquestRoster } from '../src/town/TownHRLayou
 import { TownWorld } from '../src/town/TownWorld'
 import { Faction } from '../src/combat/CombatFaction'
 import { createTownCombatFixture } from './townCombatFixture'
+import { installFakeCanvasEnvironment } from './helpers/threeTestEnvironment'
 
 const layout = resolveTownHRLayout('roman', [], [])
 const population = townConquestRoster(layout)
@@ -51,8 +52,10 @@ function savedTown() {
 describe('canonical free Town conquest population', () => {
   it.each(['roman', 'viking'] as const)('assembles %s residents and expected IDs from the actual built HR layout, even at Recruit', faction => {
     const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
-    vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
-    vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
+    const cleanupCanvas = installFakeCanvasEnvironment({
+      context,
+      imageData: class { constructor(public data: unknown, public width: number, public height: number) {} },
+    })
     const world = new TownWorld(faction, new THREE.Scene())
     try {
       const profile = createCareerProfile(faction), roster = townConquestRoster(world.hr)
@@ -69,7 +72,7 @@ describe('canonical free Town conquest population', () => {
       event.complete(); event.hostile = true
       expect(event.actors.size).toBe(roster.length); expect(event.evaluate(false)).toBe('town_defeated')
       expect(() => event.register('hr-officer', { dead: true })).toThrow('Duplicate town actor')
-    } finally { world.dispose() }
+    } finally { world.dispose(); cleanupCanvas() }
   })
 
   it('automatically requires a newly added formal resident without an objective flag', () => {

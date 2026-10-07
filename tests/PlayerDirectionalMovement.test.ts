@@ -5,6 +5,8 @@ import { resolveSkillProgressionAward } from '../src/rpg/CombatSkillProgression'
 import { NPC, AIType, Faction } from '../src/world/NPC'
 import * as THREE from 'three'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { InventoryManager } from '../src/rpg/InventoryManager'
 import { Player } from '../src/player/Player'
 import type { PlayerInput } from '../src/player/PlayerInput'
@@ -51,6 +53,8 @@ function horizontalDistance(a: THREE.Vector3, b: THREE.Vector3): number {
 function angleDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(a - b), Math.cos(a - b))
 }
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Player Directional Movement & Stamina', () => {
   let scene: THREE.Scene

@@ -1,4 +1,4 @@
-import { advanceNpcFrame, completeNpcDeployment } from '../../tests/helpers/npcSpawnFrames'
+import { advanceNpcFrame, completeNpcDeployment, gameplayNpcSpawnDriver } from '../../tests/helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -182,7 +182,7 @@ function setupField(
       },
     },
   )
-  const start = deferStart ? false : completeNpcDeployment(() => controller.startActiveMission())
+  const start = deferStart ? false : completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
   return { controller, profile: () => profile, roster, residents, npcFactories, mountFactories, player, start }
 }
 
@@ -213,7 +213,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     'keeps borrowed Town actors at home and orders them to ride or walk to muster in %s', templateId => {
     const setup = setupField(templateId, undefined, undefined, undefined, true)
     const initial = new Map(setup.residents.map(({ npc }) => [npc.combatantId, npc.combatPosition.clone()]))
-    expect(completeNpcDeployment(() => setup.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => setup.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
 
     for (const unit of setup.roster.friendly.filter(unit => unit.source === 'town')) {
       const npc = setup.residents.find(resident => resident.npc.combatantId === unit.actorId)!.npc as unknown as FieldTestNpc
@@ -444,7 +444,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     const reloadSetup = setupField('veteran-scout-hunters', setup.profile(), setup.residents, setup.player, true)
     reloadSetup.controller.onMarchStarted = vi.fn()
     reloadSetup.controller.onSweepCharge = vi.fn()
-    expect(completeNpcDeployment(() => reloadSetup.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => reloadSetup.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
     expect(reloadSetup.profile().activeMission?.phase).toBe('ENGAGING')
     expect(reloadSetup.controller.onMarchStarted).not.toHaveBeenCalled()
     expect(reloadSetup.controller.onSweepCharge).not.toHaveBeenCalled()
@@ -454,7 +454,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     const finalReload = setupField('veteran-scout-hunters', reloadSetup.profile(), reloadSetup.residents, reloadSetup.player, true)
     finalReload.controller.onMarchStarted = vi.fn()
     finalReload.controller.onSweepCharge = vi.fn()
-    expect(completeNpcDeployment(() => finalReload.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => finalReload.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
     expect(finalReload.controller.onMarchStarted).not.toHaveBeenCalled()
     expect(finalReload.controller.onSweepCharge).not.toHaveBeenCalled()
     finalReload.controller.dispose()
@@ -518,7 +518,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     profile.activeMission = {
       ...profile.activeMission!, phase: 'MARCHING', mountedMarchPosition: { x: 110, z: -275 }, actorPositions: undefined,
     }
-    expect(completeNpcDeployment(() => setup.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => setup.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
     for (const actor of setup.controller.friendlies) {
       expect(Math.abs(actor.combatPosition.x)).toBeLessThan(280)
       expect(Math.abs(actor.combatPosition.z)).toBeLessThan(280)
@@ -536,7 +536,7 @@ describe('Veteran field controller staging and lifecycle', () => {
     profile.activeMission = {
       ...profile.activeMission!, phase: 'MARCHING', mountedMarchPosition: { x: 100, z: 100 }, actorPositions: undefined,
     }
-    expect(completeNpcDeployment(() => setup.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => setup.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
     const captain = setup.controller.friendlies.find(npc => npc.combatantId === 'captain')!
     expect(captain.combatPosition.x).toBeCloseTo(100)
     expect(captain.combatPosition.z).toBeCloseTo(100)
@@ -620,7 +620,7 @@ describe('Veteran elimination mission party return', () => {
     const reload = setupField(id, setup.profile(), setup.residents, setup.player, true)
     reload.controller.onMarchStarted = vi.fn()
     reload.controller.onSweepCharge = vi.fn()
-    expect(completeNpcDeployment(() => reload.controller.startActiveMission())).toBe(true)
+    expect(completeNpcDeployment(() => reload.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
     expect(reload.controller.phase).toBe('RETURNING')
     expect(reload.controller.missionBandits).toHaveLength(0)
     expect(reload.controller.friendlies.filter(npc => !npc.dead)).toHaveLength(setup.roster.friendly.length - 1)
@@ -681,7 +681,7 @@ describe('Veteran materialization frame budget', () => {
     expect(h.npcFactories).toHaveLength(0); expect(h.controller.ready).toBe(false)
     const expected = h.roster.enemy.length + h.roster.friendly.filter(unit => unit.source !== 'town').length
     for (let i = 1; i <= expected; i++) {
-      advanceNpcFrame()
+      advanceNpcFrame(gameplayNpcSpawnDriver)
       expect(h.npcFactories).toHaveLength(i)
       if (i < expected) { h.controller.updateFlow(600, 0); expect(h.controller.ready).toBe(false); expect(h.controller.evaluate(true)).toBeNull() }
     }

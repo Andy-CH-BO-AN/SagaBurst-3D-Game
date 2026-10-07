@@ -12,24 +12,11 @@ import { getTerrainHeight } from '../src/world/Terrain'
 import { snapshotPersonalMission } from '../src/career/CareerPersonalSquadMission'
 import type { Mount } from '../src/world/Mount'
 import type { NPC } from '../src/world/NPC'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 const kinds = ['bandit', 'patrol', 'town-defense', 'cavalry-sweep', 'enemy-town-assault', 'duel'] as const
 type MissionKind = typeof kinds[number]
 const stats = { damageDealt: 200, damageTaken: 100, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
-
-class MemoryStorage implements Storage {
-  private values = new Map<string, string>()
-  writable = true
-  get length() { return this.values.size }
-  key(index: number) { return [...this.values.keys()][index] ?? null }
-  getItem(key: string) { return this.values.get(key) ?? null }
-  setItem(key: string, value: string) {
-    if (!this.writable) throw new Error('storage full')
-    this.values.set(key, value)
-  }
-  removeItem(key: string) { this.values.delete(key) }
-  clear() { this.values.clear() }
-}
 
 function createMission(profile: CareerProfile, kind: MissionKind): ActiveCareerMission {
   if (kind === 'town-defense') return createTownDefenseMission(['captain'], ['civilian-0'], 'settlement')
