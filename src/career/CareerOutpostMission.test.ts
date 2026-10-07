@@ -15,6 +15,7 @@ import type { NPC } from '../world/NPC'
 import { calculateMerit } from './MeritCalculator'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
+import { MemoryStorage } from '../../tests/helpers/memoryStorage'
 
 const stats = { player: { damageDealt: 250, damageTaken: 10, kills: 3, structureDamage: 500, structuresDestroyed: 1, gateBreaches: 1, survived: true }, squads: [] }
 function soldier(): CareerProfile {
@@ -23,11 +24,6 @@ function soldier(): CareerProfile {
 function mission(stageId: CareerOutpostStageId = 1): CareerProfile {
   return acceptCareerOutpost({ ...soldier(), completedOutpostStages: stageId === 1 ? [] : stageId === 2 ? [1] : [1, 2] }, stageId, 'outpost-battle')!
 }
-function storage() {
-  const values = new Map<string, string>()
-  return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } } as Storage
-}
-
 describe('Career Outpost unlocks and results', () => {
   it.each([
     ['soldier', 10], ['veteran', 10], ['captain', 60], ['commander', 60],
@@ -71,7 +67,7 @@ describe('Career Outpost unlocks and results', () => {
     }
   })
   it('awards battle-policy merit once, including after persistence and reload', () => {
-    const current = mission(), store = new CareerProfileStore(storage())
+    const current = mission(), store = new CareerProfileStore(new MemoryStorage())
     const claim = claimCareerOutpost(current, 'outpost-battle', 'victory', stats)
     const merit = calculateMerit(stats, 'victory', 'defense', 'mission').total
     expect(claim.meritAwarded).toBe(merit)
@@ -95,7 +91,7 @@ describe('Career Outpost unlocks and results', () => {
     expect(acceptCareerOutpost(clearCareerOutpost(profile), 1, 'retry')).not.toBeNull()
   })
   it('does not change formal Campaign progress in either direction', () => {
-    const persistence = storage(), career = new CareerProfileStore(persistence)
+    const persistence = new MemoryStorage(), career = new CareerProfileStore(persistence)
     vi.stubGlobal('window', { localStorage: persistence })
     const completed = claimCareerOutpost(mission(), 'outpost-battle', 'victory', stats).profile
     career.save(completed)
@@ -153,7 +149,7 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
   })
   it.each([1, 2, 3] as const)('migrates a selected legacy T%i horse to the military horse through reload and launch', tier => {
     const profile: CareerProfile = { ...mission(), rank: tier === 3 ? 'veteran' : 'soldier', totalMerit: 900, availableMerit: 900, ownedHorseTiers: [tier], selectedMountId: `horse-t${tier}` }
-    const store = new CareerProfileStore(storage())
+    const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
     const reloaded = store.load()!
     const launch = createCareerOutpostLaunch(reloaded)

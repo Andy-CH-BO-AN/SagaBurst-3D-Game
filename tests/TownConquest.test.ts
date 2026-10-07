@@ -12,6 +12,7 @@ import { TownWorld } from '../src/town/TownWorld'
 import { Faction } from '../src/combat/CombatFaction'
 import { createTownCombatFixture } from './townCombatFixture'
 import { installFakeCanvasEnvironment } from './helpers/threeTestEnvironment'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 const layout = resolveTownHRLayout('roman', [], [])
 const population = townConquestRoster(layout)
@@ -25,9 +26,7 @@ function eventWithSurvivors(survivors: readonly string[] = []) {
 }
 
 function savedTown() {
-  const storage = new Map<string, string>()
-  const store = new CareerProfileStore({ getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => { storage.set(key, value) } } as Storage)
+  const store = new CareerProfileStore(new MemoryStorage())
   const profile = createCareerProfile('roman')
   profile.totalMerit = 22000; profile.availableMerit = 180; profile.rank = 'commander'
   profile.townEvent = { id: 'conquest', state: 'hostile' }
