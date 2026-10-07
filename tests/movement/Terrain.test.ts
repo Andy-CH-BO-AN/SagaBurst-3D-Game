@@ -7,7 +7,7 @@ import {
   PLAYABLE_WORLD_BOUND,
   TERRAIN_SIZE,
   type ObstacleData,
-} from './Terrain'
+} from '../../src/world/Terrain'
 
 describe('projectile obstacle geometry', () => {
   const obstacle: ObstacleData = {
