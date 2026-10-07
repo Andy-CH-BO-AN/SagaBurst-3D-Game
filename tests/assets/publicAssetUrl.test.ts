@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { publicAssetUrl } from './publicAssetUrl'
+import { publicAssetUrl } from '../../src/assets/publicAssetUrl'
 
 afterEach(() => vi.unstubAllEnvs())
 describe('runtime public asset base', () => {

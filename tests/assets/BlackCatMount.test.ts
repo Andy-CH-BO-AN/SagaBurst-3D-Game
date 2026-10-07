@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { installBlackCatTestAsset } from './helpers/blackCatAsset'
-import { BlackCatVisual } from '../src/world/BlackCatVisual'
-import { Mount, MountState, MountType, mountTypeFromSave } from '../src/world/Mount'
+import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
+import { BlackCatVisual } from '../../src/world/BlackCatVisual'
+import { Mount, MountState, MountType, mountTypeFromSave } from '../../src/world/Mount'
 
 describe('reference black cat mount', () => {
   let restSeat: THREE.Vector3
