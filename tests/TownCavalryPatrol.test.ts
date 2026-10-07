@@ -180,6 +180,33 @@ describe('Patrol runtime movement and individual ownership', () => {
     mission.combat.update(.1, 0, 1); expect(travel).not.toHaveBeenCalled()
   })
 
+  it('restarts the barracks departure after siege instead of reusing an exhausted waypoint index', () => {
+    const h = harness(), squad = h.controller.squads[0]
+
+    // Reach the normal patrol loop first, so departureIndex is exactly one past
+    // the final departure waypoint before the siege takes ownership.
+    for (let frame = 0; frame < 2000 && squad.state !== 'PATROLLING'; frame++) h.step()
+    expect(squad.state).toBe('PATROLLING')
+    expect(squad.departureIndex).toBe(squad.departure.waypoints.length)
+
+    h.controller.recallForSiege()
+    h.controller.releaseSiegeOwnership()
+
+    expect(squad.state).toBe('BARRACKS')
+    expect(squad.departureIndex).toBe(0)
+    expect(squad.waypoint).toBe(squad.departure.phase)
+
+    // Defense settlement sends Patrol identities through beginMissionReturn.
+    // A casualty refits immediately, then the next peaceful frame must have a
+    // valid departure waypoint instead of reading goal.x from undefined.
+    const captain = squad.members.find(member => member.spec.patrolLeader)!
+    captain.npc.takeDamage(999999)
+    expect(h.controller.beginMissionReturn(captain.spec.id)).toBe(true)
+    expect(h.controller.returnStateFor(captain.spec.id)).toBe('REJOIN_PATROL')
+    expect(() => h.step()).not.toThrow()
+    expect(squad.state).toBe('MOVING_TO_ROUTE')
+  }, 20000)
+
   it('hands all forty positions to hostile AI without teleporting or issuing later patrol commands', () => {
     const h = harness(); h.step(20)
     const positions = h.residents.map(r => r.npc.combatPosition.clone())

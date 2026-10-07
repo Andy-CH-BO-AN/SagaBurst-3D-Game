@@ -966,13 +966,10 @@ export class Player {
       const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
       this.group.position.addScaledVector(moveDir, effectiveSpeed * dt)
       
-      if (this.aiming) {
-        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
-      } else if (isMoving) {
-        moveDir.normalize()
-        const targetAngle = Math.atan2(moveDir.x, moveDir.z)
-        this.group.rotation.y = this._characterYaw(targetAngle)
-      } else if (this.isSwinging) {
+      // On foot, movement and facing are independent: S backpedals and A/D strafe
+      // while the player keeps the camera/combat heading. Mounted steering keeps
+      // its existing movement-vector heading in the branch above.
+      if (this.aiming || isMoving || this.isSwinging) {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 

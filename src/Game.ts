@@ -3322,7 +3322,7 @@ export class Game {
     } else if (this.controlMode === 'spectator') {
       this.spectatorController.update(this.input, dt)
     } else {
-      this.thirdPersonCamera.update(this.input, dt)
+      this.thirdPersonCamera.update(this.input, dt, this.obstacles)
     }
 
     const currentYaw = this.controlMode === 'spectator'

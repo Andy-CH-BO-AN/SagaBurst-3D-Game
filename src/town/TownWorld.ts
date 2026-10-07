@@ -184,17 +184,10 @@ export class TownWorld {
   }
   private cavalryTrainingGround(): void {
     const field = TOWN_CAVALRY_FIELD
-    const ground = this.mat(this.faction === 'roman' ? 0x92856a : 0xa5aaa5)
-    // Dirt/snow drill lanes are independent of the public stone road network.
+    // Use the shared terrain directly for the training field. The old visual
+    // lane meshes added no gameplay collision or mission semantics and could
+    // cut through actors on the undulating terrain.
     for (const x of [35, 70, 105]) {
-      for (let row = 0; row < 4; row++) {
-        const z = -90 + row * 8
-        const lane = this.geo(new THREE.PlaneGeometry(29, 6)); lane.rotateX(-Math.PI / 2)
-        const positions = lane.attributes.position
-        for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)) + .025)
-        lane.computeVertexNormals()
-        const mesh = new THREE.Mesh(lane, ground); mesh.position.set(x + 12, 0, z); mesh.receiveShadow = true; this.root.add(mesh)
-      }
       this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
       const sign = new THREE.Group(); sign.position.set(x + 12, getTerrainHeight(x + 12, -101), -101)
       this.root.add(sign)
