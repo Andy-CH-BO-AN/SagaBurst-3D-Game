@@ -25,7 +25,7 @@ interface EquipmentFixture {
   bowVisual?: CharacterBowVisual
   shieldPivot: THREE.Group
   rig: CharacterRig
-  _findTarget(player: Player, npcs: NPC[]): { isPlayer: boolean } | null
+  _findTarget(player: Player, npcs: NPC[]): { isPlayer: boolean; npc?: NPC } | null
   _activateDirectObstacle(obstacle: ObstacleData): boolean
 }
 
