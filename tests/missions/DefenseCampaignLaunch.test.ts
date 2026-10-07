@@ -9,11 +9,11 @@ import {
   validateDefenseCampaignLaunchConfig,
   validateDefenseCampaignSquadAssignments,
   type DefenseCampaignLaunchConfig,
-} from './DefenseCampaignLaunch'
-import { calculateArmyTotal, type UnitTierCounts } from '../battle/BattleConfig'
-import { BattleSpawner } from '../battle/BattleSpawner'
-import { getCampaignOutpostPlacement } from './CampaignOutpost'
-import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+} from '../../src/campaign/DefenseCampaignLaunch'
+import { calculateArmyTotal, type UnitTierCounts } from '../../src/battle/BattleConfig'
+import { BattleSpawner } from '../../src/battle/BattleSpawner'
+import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 
 function launch(
   defenderFaction: 'roman' | 'viking',

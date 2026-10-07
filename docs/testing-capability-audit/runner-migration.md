@@ -2,7 +2,9 @@
 
 本文件保留盤點基準的遷移設計。已實作 [Navigation core](migrations/navigation-core.md) 4 個 suite 與 [Collision core](migrations/collision-core.md) 3 個 suite，均移至 `tests/movement/`。兩批未改 package scripts、Vitest、TypeScript 或 baseline；integration-base CI filter 由獨立 #225 處理並已合入整合分支。
 
-[動物資產契約與 runtime asset path](migrations/animal-asset-contracts.md)：5 suites／48 cases 完成純搬檔至 `tests/assets/`；src 的 `publicAssetUrl` 測試已移入，目前 src 剩16檔，discovery 尚不收斂。其餘 src 表維持原盤點 ID，實際位置由各批 ledger/PR 查詢。
+[動物資產契約與 runtime asset path](migrations/animal-asset-contracts.md)：5 suites／48 cases 完成純搬檔至 `tests/assets/`；src 的 `publicAssetUrl` 測試已移入；該批完成時 src 剩16檔。其餘 src 表維持原盤點 ID，實際位置由各批 ledger/PR 查詢。
+
+[剩餘 src suites](migrations/src-suite-location.md)：16 suites／228 cases 一次純搬入能力目錄，src16→0；同批收斂 Vitest include 到 tests/，保留既有排除、timeout 與 Node 邊界。完整196檔／2,948案逐項 mapping；原表與 inventory 保留歷史提案，以本批 mapping 為實際位置。tests 根目錄150套與混合案例的語意責任整理仍待後續。
 
 ## 目標責任
 

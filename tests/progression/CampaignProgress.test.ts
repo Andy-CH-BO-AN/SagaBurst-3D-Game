@@ -4,8 +4,8 @@ import {
   getDefenseCampaignUnlockedStage,
   isDefenseCampaignStageUnlocked,
   parseDefenseCampaignSetupTarget,
-} from './CampaignProgress'
-import { MemoryStorage } from '../../tests/helpers/memoryStorage'
+} from '../../src/campaign/CampaignProgress'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Defense Campaign progress', () => {
   it('parses only valid next-stage setup targets', () => {

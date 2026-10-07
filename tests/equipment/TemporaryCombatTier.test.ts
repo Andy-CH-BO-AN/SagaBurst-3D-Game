@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { UNIT_PRESETS } from '../battle/UnitPresetCatalog'
-import { AIType, Faction, NPC } from './NPC'
-import { Player } from '../player/Player'
+import { UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
+import { AIType, Faction, NPC } from '../../src/world/NPC'
+import { Player } from '../../src/player/Player'
 
 describe('NPC temporary combat tier', () => {
   it('lets a melee cavalry actor shoot a temporary T3 bow and restores its original weapons', () => {

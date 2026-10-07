@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { getCampaignOutpostPlacement, getCampaignDefenderFacingYaw } from '../campaign/CampaignOutpost'
-import { createCareerProfile } from './CareerProfile'
-import { acceptVeteranMission } from './VeteranMission'
-import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan } from './CareerVeteranOutpost'
+import { getCampaignOutpostPlacement, getCampaignDefenderFacingYaw } from '../../src/campaign/CampaignOutpost'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
+import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan } from '../../src/career/CareerVeteranOutpost'
 
 function veteran(faction: 'roman' | 'viking' = 'roman') {
   return { ...createCareerProfile(faction), rank: 'veteran' as const, totalMerit: 900, availableMerit: 900 }
