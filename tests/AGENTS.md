@@ -61,7 +61,10 @@
 - Expected 來自獨立規格、明確輸入與已知結果，不直接讀受測 production constants 或重算同一演算法當答案。
 - 優先斷言公開輸出與狀態；避免 private spy 或 `mock.calls[index]` 綁住偶然的實作順序。
 - 順序本身是契約時，明確驗證事件或副作用順序及其意義。
-- 共用資產 loader 保留材質、紋理與模型特性；各模型的骨架、seat、socket、animation、LOD regression 分別保護。
+- 自動化資產測試驗證 runtime 契約：parse/preload、必要 LOD、runtime 查找的 bone/socket/seat、gameplay 所需 clip/event、instance 建立與 mutable state 隔離、失敗處理及 manifest/package/path。
+- 純外觀、精確 duration/pose/quaternion、weights、材質數值、未被 runtime 查找的 mesh/name、clearance/silhouette、rotation-only/payload size，逐案確認無 runtime 依賴後列為移除或人工 visual QA 候選；PR 記錄理由與剩餘契約／QA 場景。
+- 非資產 gameplay 測試使用所需欄位最少的 typed visual fixture，保留真實 actor、AI、移動與傷害行為；真實 GLB 留在少量資產契約與必要 integration。
+- 共用 GLB loader 明示是否省略 image/material payload；只有契約不依賴這些內容時可省略，材質與紋理契約使用可保留內容的載入方式。
 
 ## 非同步、時間與 simulation
 
