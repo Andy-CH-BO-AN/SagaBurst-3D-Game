@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveVeteranFieldMissionOutcome } from './BanditMissionController'
+import { resolveVeteranFieldMissionOutcome } from '../../src/career/BanditMissionController'
 
 describe('Veteran field survival objective', () => {
   it('keeps the scout mission running at 119.9 seconds and wins at 120 with one survivor', () => {
