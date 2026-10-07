@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import type { NPC } from '../world/NPC'
-import type { Player } from '../player/Player'
-import { Faction } from '../combat/CombatFaction'
-import { SpatialGrid } from '../world/SpatialGrid'
-import { MissionTravelEncounter } from './MissionTravelEncounter'
+import type { NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { Faction } from '../../src/combat/CombatFaction'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
 
 function npc(id: string, x: number, z = 0, faction = Faction.TOWN): NPC {
   const actor = {
