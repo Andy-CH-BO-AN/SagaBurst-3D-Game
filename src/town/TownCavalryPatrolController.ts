@@ -90,7 +90,7 @@ export class TownCavalryPatrolController {
       squad.departureIndex = 0
       squad.waypoint = squad.departure.phase
       squad.followers = []
-      squad.trail.clear()
+      squad.trail = new FollowTrail()
     }
   }
 
