@@ -6,10 +6,10 @@ import { acceptCareerOutpost } from '../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
 import { DefenseCampaignRuntime } from '../src/campaign/DefenseCampaignRuntime'
 import { getDefenseCampaignUnlockedStage } from '../src/campaign/CampaignProgress'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 function harness(career = true) {
-  const values = new Map<string, string>()
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } } as Storage
+  const storage = new MemoryStorage()
   vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn(), removeEventListener: vi.fn() })
   const store = new CareerProfileStore(storage)
   const profile = acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300, starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }, 1, 'battle')!

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createTownCombatFixture } from './townCombatFixture'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 class Element {
   textContent = ''
@@ -14,8 +15,7 @@ class Element {
   querySelector(tag: string) { return this.children.find(child => child.tag === tag) ?? null }
 }
 function harness() {
-  const values = new Map<string, string>()
-  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) } as Storage
+  const storage = new MemoryStorage()
   const document = { body: new Element('body'), createElement: (tag: string) => new Element(tag), exitPointerLock: vi.fn(), pointerLockElement: null as Element | null }
   vi.stubGlobal('document', document)
   vi.stubGlobal('location', { search: '?nolock' })
