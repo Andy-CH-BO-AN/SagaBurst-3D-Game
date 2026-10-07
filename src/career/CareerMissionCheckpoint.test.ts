@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryStorage } from '../../tests/helpers/memoryStorage'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from './CareerProfile'
 import { createActiveCareerMission } from './CareerMissionState'
@@ -115,12 +116,8 @@ describe('CareerMissionCheckpoint', () => {
   it('retries an actual storage exception through the existing boolean commit contract and save format', () => {
     const h = fixture()
     let profile = h.profile
-    const data = new Map<string, string>()
-    let fail = true
-    const store = new CareerProfileStore({
-      getItem: (key: string) => data.get(key) ?? null,
-      setItem: (key: string, value: string) => { if (fail) throw new Error('quota'); data.set(key, value) },
-    } as Storage)
+    const storage = new MemoryStorage({ failWrites: true })
+    const store = new CareerProfileStore(storage)
     const checkpoint = new CareerMissionCheckpoint(() => profile, next => {
       if (!store.save(next)) return false
       profile = next
@@ -133,12 +130,12 @@ describe('CareerMissionCheckpoint', () => {
     } })
     expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(false)
     expect(profile.activeMission!.playerStats).toBeUndefined()
-    expect(data.size).toBe(0)
+    expect(storage.length).toBe(0)
     damage = 120
-    fail = false
+    storage.failWrites = false
     expect(checkpoint.persist(snapshot, { immediate: false, periodic: true })).toBe(true)
-    expect([...data.keys()]).toEqual([CAREER_STORAGE_KEY])
-    expect(JSON.parse(data.get(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 1, activeMission: { id: 'checkpoint', playerStats: { damageDealt: 120 } } })
+    expect(Array.from({ length: storage.length }, (_, index) => storage.key(index))).toEqual([CAREER_STORAGE_KEY])
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toMatchObject({ version: 1, activeMission: { id: 'checkpoint', playerStats: { damageDealt: 120 } } })
     expect(store.loadChecked().profile!.activeMission!.playerStats!.damageDealt).toBe(120)
   })
 })
