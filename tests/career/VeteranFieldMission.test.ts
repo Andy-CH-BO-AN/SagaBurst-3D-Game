@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createVeteranMissionProfile } from '../../tests/helpers/veteranFieldBuilders'
-import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition } from './VeteranMission'
+import { createVeteranMissionProfile } from '../helpers/veteranFieldBuilders'
+import { createVeteranRoster, createVeteranSpawnSpec, getVeteranMissionDefinition } from '../../src/career/VeteranMission'
 
 describe('Veteran field mission contracts without runtime materialization', () => {
   it.each([

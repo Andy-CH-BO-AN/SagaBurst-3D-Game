@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../../tests/helpers/veteranFieldFixture'
-import { NavigationWorld } from '../navigation/NavigationWorld'
-import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_NAVIGATION_BOUNDS } from '../town/TownBounds'
+import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 
-vi.mock('./MissionGuide', () => ({ MissionGuide: class {
+vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
   hide(): void {}
   dispose(): void {}

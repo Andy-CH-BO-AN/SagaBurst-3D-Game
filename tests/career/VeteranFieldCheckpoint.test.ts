@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../../tests/helpers/veteranFieldFixture'
-import { Faction } from '../world/NPC'
-import { createVeteranSpawnSpec } from './VeteranMission'
-import { claimCareerMission } from './CareerProfile'
-import { VETERAN_FIELD_LAYOUT } from './BanditMissionController'
-import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
+import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
+import { Faction } from '../../src/world/NPC'
+import { createVeteranSpawnSpec } from '../../src/career/VeteranMission'
+import { claimCareerMission } from '../../src/career/CareerProfile'
+import { VETERAN_FIELD_LAYOUT } from '../../src/career/BanditMissionController'
+import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 
-vi.mock('./MissionGuide', () => ({ MissionGuide: class {
+vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
   hide(): void {}
   dispose(): void {}

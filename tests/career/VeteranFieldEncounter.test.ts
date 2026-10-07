@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../../tests/helpers/veteranFieldFixture'
-import { FieldTestNpc } from '../../tests/helpers/veteranFieldActors'
-import { Faction, type NPC } from '../world/NPC'
-import { SpatialGrid } from '../world/SpatialGrid'
-import type { Player } from '../player/Player'
+import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
+import { FieldTestNpc } from '../helpers/veteranFieldActors'
+import { Faction, type NPC } from '../../src/world/NPC'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+import type { Player } from '../../src/player/Player'
 
-vi.mock('./MissionGuide', () => ({ MissionGuide: class {
+vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
   hide(): void {}
   dispose(): void {}
