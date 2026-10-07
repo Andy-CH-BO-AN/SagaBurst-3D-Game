@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import {
   CombatEventStream,
@@ -61,6 +61,7 @@ describe('BattleStatsTracker', () => {
   it('counts explicitly registered Town allies but ignores enemy actors with colliding squad ids', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
+    onTestFinished(() => tracker.dispose())
     const townAlly = { combatantId: 'borrowed-captain', faction: Faction.TOWN, squadId: 2, dead: false }
     const enemyWithSameSquad = { combatantId: 'enemy-captain', faction: Faction.ENEMY, squadId: 2, dead: false }
     tracker.registerNpc(townAlly as any, true)
@@ -83,6 +84,7 @@ describe('BattleStatsTracker', () => {
   it('stream-aggregates player and squad combat stats without retaining an event log', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
+    onTestFinished(() => tracker.dispose())
 
     const squadNpcA = mockSquadNpc('s2-a', 2, false)
     const squadNpcB = mockSquadNpc('s2-b', 2, true)
@@ -224,6 +226,7 @@ describe('BattleStatsTracker', () => {
   it('does not count structure damage or breaches for defense-role stats', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events, false)
+    onTestFinished(() => tracker.dispose())
     const squadNpc = mockSquadNpc('defender-1', 1, false)
     tracker.registerNpc(squadNpc)
 
@@ -294,6 +297,7 @@ describe('BattleStatsTracker', () => {
   it('handles large event volume as counters and returns one compact snapshot', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
+    onTestFinished(() => tracker.dispose())
 
     for (let i = 0; i < 10_000; i++) {
       events.emit({
@@ -315,6 +319,7 @@ describe('BattleStatsTracker', () => {
   it('calculates squad survival only when snapshot is requested', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
+    onTestFinished(() => tracker.dispose())
     const first = mockSquadNpc('first', 1, false)
     const second = mockSquadNpc('second', 1, false)
 
@@ -338,6 +343,7 @@ describe('BattleStatsTracker', () => {
   it('stops aggregating after dispose', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)
+    onTestFinished(() => tracker.dispose())
     tracker.dispose()
 
     events.emit({

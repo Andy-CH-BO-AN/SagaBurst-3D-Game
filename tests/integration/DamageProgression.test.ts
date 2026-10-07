@@ -1,177 +1,41 @@
+import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
-import { CombatEventStream, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { type CombatEvent } from '../../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle } from '../../src/combat/DamageRouter'
 import { calculateMountImpactDamage } from '../../src/combat/CombatBalance'
 import { resolveMountImpacts } from '../../src/combat/MountImpact'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
-import {
-  resolveActivePlayerSkillProgressionAward,
-  resolveCombatSkill,
-  resolveSkillAdjustedMaxHp,
-  resolveSkillProgressionAward,
-  skillStatesEqual,
-} from '../../src/rpg/CombatSkillProgression'
-import {
-  MAX_SKILL_LEVEL,
-  SkillManager,
-  createDefaultSkillState,
-  normalizeSkillState,
-  resolveMeleeSkillId,
-  skillDamageMultiplier,
-  skillHpBonus,
-} from '../../src/rpg/SkillManager'
+import { resolveActivePlayerSkillProgressionAward, resolveSkillProgressionAward } from '../../src/rpg/CombatSkillProgression'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { MountState } from '../../src/world/Mount'
 import { Faction } from '../../src/world/NPC'
-import { DEFAULT_SAVE, SaveManager } from '../../src/save/SaveManager'
-import { MemoryStorage } from '../helpers/memoryStorage'
+import { damageMount } from '../../src/combat/DamageRouter'
+import { MountType } from '../../src/world/Mount'
 
-function damageEvent(
-  method: 'melee' | 'projectile' | 'mount-impact',
-  targetType: 'npc' | 'mount' | 'structure',
-  appliedDamage: number,
-  weaponId?: string,
-): CombatEvent {
-  return {
-    type: 'damage_applied',
-    source: {
-      actorId: 'player',
-      actorType: 'player',
-      allegiance: 'PLAYER' as never,
-      characterFaction: 'roman',
-    },
-    target: {
-      targetId: targetType === 'mount' ? 'mount:test' : targetType === 'structure' ? 'structure:test' : 'npc:test',
-      targetType,
-      name: 'target',
-    },
-    method,
-    weaponId,
-    requestedDamage: appliedDamage,
-    appliedDamage,
-  }
+import { createMountedCombatActors, createMountedDamageContext as ctx } from '../helpers/mountedCombatActors'
+function fixture(type = MountType.HORSE) {
+  return createMountedCombatActors(type, resource => onTestFinished(() => resource.dispose()))
 }
 
-describe('Career skill progression', () => {
-  it('scales each skill from 1x at Lv.1 to exactly 3x at Lv.50', () => {
-    expect(skillDamageMultiplier(1)).toBe(1)
-    expect(skillDamageMultiplier(MAX_SKILL_LEVEL)).toBe(3)
-    expect(skillDamageMultiplier(25)).toBeCloseTo(1 + (24 / 49) * 2)
-  })
+vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()),
+  HorseAssetRegistry: {
+    ready: true,
+    createInstance: (await import('../helpers/gameplayHorseVisual')).createGameplayHorseVisual,
+  },
+}))
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
-  it('grants +246 max HP across five Lv.50 skills', () => {
-    const state = createDefaultSkillState()
-    expect(skillHpBonus(state)).toBe(1)
-
-    for (const skill of Object.values(state)) skill.level = 50
-    expect(skillHpBonus(state)).toBe(246)
-    expect(resolveSkillAdjustedMaxHp(200, state)).toBe(446)
-
-    const profile = createCareerProfile('roman')
-    profile.rank = 'captain'
-    profile.skills = state
-    expect(resolveCareerPlayerMaxHp(profile, 200)).toBe(746)
-  })
-
-  it('migrates legacy Archery progress into Ranged and clamps invalid values', () => {
-    const state = normalizeSkillState({
-      oneHanded: { level: 0, xp: -1 },
-      archery: { level: 12, xp: 250 },
-      twoHanded: { level: 99, xp: 9999 },
-    })
-
-    expect(state.oneHanded).toEqual({ level: 1, xp: 0 })
-    expect(state.ranged).toEqual({ level: 12, xp: 250 })
-    expect(state.twoHanded).toEqual({ level: 50, xp: 0 })
-    expect(state.mountedImpact).toEqual({ level: 1, xp: 0 })
-  })
-
-  it('classifies one-handed and two-handed melee from the actual attack stance', () => {
-    expect(resolveMeleeSkillId(WEAPONS.viking_axe_t2, false)).toBe('twoHanded')
-    expect(resolveMeleeSkillId(WEAPONS.viking_axe_t2, true)).toBe('oneHanded')
-    expect(resolveMeleeSkillId({ animationKind: 'greatsword' }, false)).toBe('twoHanded')
-    expect(resolveMeleeSkillId(WEAPONS.steel_sword, false)).toBe('oneHanded')
-    expect(resolveMeleeSkillId(WEAPONS.steel_lance, false)).toBe('oneHanded')
-  })
-
-  it('routes sword and axe damage into the correct melee skill', () => {
-    expect(resolveSkillProgressionAward(
-      damageEvent('melee', 'npc', 25, WEAPONS.steel_sword.id),
-      WEAPONS.steel_sword,
-      false,
-    )).toEqual({ skill: 'oneHanded', xp: 25 })
-
-    expect(resolveSkillProgressionAward(
-      damageEvent('melee', 'npc', 40, WEAPONS.viking_axe_t2.id),
-      WEAPONS.viking_axe_t2,
-      false,
-    )).toEqual({ skill: 'twoHanded', xp: 40 })
-
-    expect(resolveSkillProgressionAward(
-      damageEvent('melee', 'npc', 40, WEAPONS.viking_axe_t2.id),
-      WEAPONS.viking_axe_t2,
-      true,
-    )).toEqual({ skill: 'oneHanded', xp: 40 })
-  })
-
-  it('grants melee, ranged, and mounted-impact XP when the damaged target is a mount', () => {
-    expect(resolveSkillProgressionAward(
-      damageEvent('melee', 'mount', 80, WEAPONS.viking_axe_t2.id),
-      WEAPONS.viking_axe_t2,
-      false,
-    )).toEqual({ skill: 'twoHanded', xp: 80 })
-
-    expect(resolveSkillProgressionAward(
-      damageEvent('projectile', 'mount', 35, WEAPONS.elven_runebow.id),
-      WEAPONS.steel_sword,
-      false,
-    )).toEqual({ skill: 'ranged', xp: 35 })
-
-    expect(resolveSkillProgressionAward(
-      damageEvent('mount-impact', 'mount', 18),
-      WEAPONS.steel_sword,
-      false,
-    )).toEqual({ skill: 'mountedImpact', xp: 18 })
-  })
-
-  it('never grants skill XP for structure damage', () => {
-    expect(resolveSkillProgressionAward(
-      damageEvent('melee', 'structure', 100, WEAPONS.steel_sword.id),
-      WEAPONS.steel_sword,
-      false,
-    )).toBeNull()
-  })
-
-  it('uses only the damage_applied event so mount death cannot double count progression', () => {
-    const hit = resolveSkillProgressionAward(
-      damageEvent('projectile', 'mount', 100, WEAPONS.elven_runebow.id),
-      WEAPONS.steel_sword,
-      false,
-    )
-    const killEvent = {
-      type: 'actor_killed',
-      source: {
-        actorId: 'player', actorType: 'player', allegiance: 'PLAYER', characterFaction: 'roman',
-      },
-      target: { targetId: 'npc:rider', targetType: 'npc', name: 'rider' },
-      method: 'projectile',
-      contact: { kind: 'mount', time: .1 },
-      weaponId: WEAPONS.elven_runebow.id,
-    } as CombatEvent
-
-    expect(hit).toEqual({ skill: 'ranged', xp: 100 })
-    expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
-  })
-
-
-
+describe('Damage progression wiring', () => {
   it('allows projectile damage after death but blocks Ranged progression at impact time', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const footNpc: any = {
       dead: false,
@@ -284,9 +148,7 @@ describe('Career skill progression', () => {
   })
 
   it('applies Mounted Impact damage multiplier before awarding actual-damage XP', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const playerMount: any = {
       state: MountState.CONTROLLED,
@@ -325,7 +187,7 @@ describe('Career skill progression', () => {
 
     resolveMountImpacts([playerMount], player, [npc], 1, {
       onDamagePlayer: () => ({
-        hitSuccess: false,
+        hitSuccess: false, blockedImpact: 0,
         requestedDamage: 0,
         appliedDamage: 0,
         targetId: 'player',
@@ -348,9 +210,7 @@ describe('Career skill progression', () => {
   })
 
   it('routes player mount collision into an enemy mount and grants only actual Mounted Impact XP', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const playerMount: any = {
       state: MountState.CONTROLLED,
@@ -399,7 +259,7 @@ describe('Career skill progression', () => {
 
     resolveMountImpacts([playerMount], player, [enemyNpc], 1, {
       onDamagePlayer: () => ({
-        hitSuccess: false,
+        hitSuccess: false, blockedImpact: 0,
         requestedDamage: 0,
         appliedDamage: 0,
         targetId: 'player',
@@ -428,22 +288,8 @@ describe('Career skill progression', () => {
     expect(awards).toEqual([{ skill: 'mountedImpact', xp: 50 }])
   })
 
-  it('uses the selected melee skill multiplier for axe and greatsword stances', () => {
-    const manager = new SkillManager()
-    manager.setSkillState({
-      oneHanded: { level: 1, xp: 0 },
-      twoHanded: { level: 50, xp: 0 },
-    })
-
-    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, false)!)).toBe(3)
-    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, true)!)).toBe(1)
-    expect(manager.getMultiplier(resolveCombatSkill('melee', { animationKind: 'greatsword' }, false)!)).toBe(3)
-  })
-
   it('integrates DamageRouter mount routing with melee progression without double counting on mount death', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const mount = {
       currentHp: 80,
@@ -498,9 +344,7 @@ describe('Career skill progression', () => {
   })
 
   it('integrates DamageRouter ranged mount damage with Ranged progression', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const mount = {
       currentHp: 100,
@@ -535,7 +379,7 @@ describe('Career skill progression', () => {
         allegiance: 'PLAYER' as never,
         characterFaction: 'roman',
       },
-      method: 'projectile', contact: { kind: 'mount', time: .1 },
+      method: 'projectile',
       contact: { kind: 'mount', time: .1 },
       weaponId: WEAPONS.elven_runebow.id,
       emit: stream.emit,
@@ -548,9 +392,7 @@ describe('Career skill progression', () => {
   })
 
   it('integrates structure routing and emits no skill progression award', () => {
-    const events: CombatEvent[] = []
-    const stream = new CombatEventStream()
-    stream.subscribe(event => events.push(event))
+    const { events, stream } = createCombatEventRecorder(onTestFinished)
 
     const obstacle: any = {
       root: { uuid: 'gate-1' },
@@ -577,64 +419,15 @@ describe('Career skill progression', () => {
     expect(events.length).toBeGreaterThan(0)
     expect(events.every(event => resolveSkillProgressionAward(event, WEAPONS.steel_sword, false) === null)).toBe(true)
   })
+})
 
-  it('does not gate NPC progression by allegiance, covering hostile-town retaliation', () => {
-    const event = damageEvent('melee', 'npc', 22, WEAPONS.steel_sword.id) as Extract<CombatEvent, { type: 'damage_applied' }>
-    event.target.allegiance = 'TOWN' as never
-    expect(resolveSkillProgressionAward(event, WEAPONS.steel_sword, false)).toEqual({
-      skill: 'oneHanded',
-      xp: 22,
-    })
-  })
-
-  it('keeps Lv.50 hits state-stable so persistence can skip redundant saves', () => {
-    const manager = new SkillManager()
-    manager.setSkillState({ oneHanded: { level: 50, xp: 0 } })
-    const before = manager.skillState
-
-    expect(manager.addXp('oneHanded', 999)).toBe(0)
-    expect(skillStatesEqual(before, manager.skillState)).toBe(true)
-  })
-
-  it('persists all five skills through Career save/reload', () => {
-    const storage = new MemoryStorage()
-    const store = new CareerProfileStore(storage)
-    const profile = createCareerProfile('roman')
-    profile.skills = {
-      blocking: { level: 12, xp: 42 },
-      oneHanded: { level: 7, xp: 12 },
-      twoHanded: { level: 8, xp: 23 },
-      ranged: { level: 9, xp: 34 },
-      mountedImpact: { level: 10, xp: 45 },
-    }
-
-    expect(store.save(profile)).toBe(true)
-    expect(store.load()?.skills).toEqual(profile.skills)
-  })
-
-  it('persists all five skills through regular save/reload', () => {
-    const storage = new MemoryStorage()
-    const store = new SaveManager(storage)
-    const skills = {
-      blocking: { level: 11, xp: 21 },
-      oneHanded: { level: 3, xp: 10 },
-      twoHanded: { level: 4, xp: 20 },
-      ranged: { level: 5, xp: 30 },
-      mountedImpact: { level: 6, xp: 40 },
-    }
-    const save = {
-      ...DEFAULT_SAVE,
-      position: { ...DEFAULT_SAVE.position },
-      inventory: { ...DEFAULT_SAVE.inventory },
-      skills,
-    }
-
-    expect(store.save(save)).toBe(true)
-    expect(store.load().skills).toEqual(skills)
-  })
-
-  it('maps ranged and mounted-impact methods independently of melee equipment', () => {
-    expect(resolveCombatSkill('projectile', WEAPONS.viking_axe_t2, false)).toBe('ranged')
-    expect(resolveCombatSkill('mount-impact', WEAPONS.viking_axe_t2, false)).toBe('mountedImpact')
+describe('Mounted actor damage progression wiring', () => {
+  it.each(['melee', 'projectile'] as const)('%s XP uses actual damage for both mount and NPC targets', method => {
+    const { rider, mount, player } = fixture(), events: CombatEvent[] = []
+    damageNpc(rider, 30, ctx(player, 'body', undefined, method, events))
+    mount.currentHp = 20
+    damageMount(mount, 30, ctx(player, 'mount', mount, method, events))
+    expect(events.map(e => 'target' in e && e.target.targetType)).toEqual(['npc', 'mount'])
+    expect(events.map(e => resolveSkillProgressionAward(e, WEAPONS.steel_sword, false)?.xp)).toEqual([30, 20])
   })
 })
