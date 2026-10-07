@@ -1,13 +1,16 @@
 import * as THREE from 'three'
-import { beforeAll, describe, it, expect } from 'vitest'
-import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from '../../src/world/AimTargetRegistry'
 import { NPC, Faction, AIType, AIState } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { createTerrain, getTerrainHeight } from '../../src/world/Terrain'
 
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 describe('AimTargetRegistry', () => {
-  beforeAll(installBlackCatTestAsset)
   it('registers and unregisters NPC aim proxy cleanly without duplicates', () => {
     const registry = new AimTargetRegistry()
     const scene = new THREE.Scene()
@@ -50,6 +53,7 @@ describe('AimTargetRegistry', () => {
     const registry = new AimTargetRegistry()
     const scene = new THREE.Scene()
     const mount = new Mount(scene, MountType.BLACK_CAT, 0, 0)
+    onTestFinished(() => mount.dispose())
 
     registry.registerMount(mount)
     expect(registry.targets.includes(mount.aimCollider)).toBe(true)

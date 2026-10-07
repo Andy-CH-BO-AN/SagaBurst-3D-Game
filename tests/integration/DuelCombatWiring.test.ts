@@ -1,6 +1,6 @@
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import * as THREE from 'three'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { TownScene } from '../../src/town/TownScene'
 import { NPC, AIType, Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
@@ -10,9 +10,12 @@ import { getTerrainHeight } from '../../src/world/Terrain'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 
 const audio = vi.hoisted(() => ({ playCareerMissionVoice: vi.fn(), playSwordHit: vi.fn(), playProjectileImpact: vi.fn(), playHorseImpact: vi.fn() }))
 vi.mock('../../src/audio/SoundManager', () => ({ SoundManager: class {
@@ -155,6 +158,7 @@ describe('Town Duel combat isolation', () => {
     const scene = new THREE.Scene(), player = new Player(scene, 'roman')
     player.setPosition(60, getTerrainHeight(60, 104) + .95, 104)
     const mount = mounted ? new Mount(scene, MountType.CORGI, 60, 104) : null
+    onTestFinished(() => mount?.dispose())
     if (mount) player.mountVehicle(mount)
     const opponent = new NPC(scene, 60, 120, Faction.TOWN, 'roman', AIType.MELEE, 'Town soldier', 2,
       false, UNIT_PRESETS.roman_heavy_infantry.tierLoadouts[2], 'roman_heavy_infantry')

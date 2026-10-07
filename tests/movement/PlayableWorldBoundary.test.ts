@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { Mount, MountType } from '../../src/world/Mount'
 import {
   PLAYABLE_WORLD_BOUND,
@@ -9,7 +7,11 @@ import {
   clampToPlayableWorld,
 } from '../../src/world/Terrain'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 
 describe('Playable world boundary', () => {
   it('uses most of the 640m terrain while preserving a 20m edge margin', () => {
@@ -41,6 +43,7 @@ describe('Playable world boundary', () => {
   it('applies the same boundary to controlled mounts', () => {
     const scene = new THREE.Scene()
     const mount = new Mount(scene, MountType.CORGI, PLAYABLE_WORLD_BOUND - 0.5, 0)
+    onTestFinished(() => mount.dispose())
 
     mount.beginControlledFrame()
     mount.addControlledMovement(new THREE.Vector3(1, 0, 0), 20, 0.1)

@@ -1,7 +1,7 @@
 import { advanceNpcFrame, completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from '../helpers/missionCheckpoint'
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { acceptCavalrySweep, createCavalrySweepMission, createSweepRoster, CAVALRY_SWEEP_ID, SWEEP_CENTER, SWEEP_CAPTAIN_START, sweepBanditPosition, sweepPlayerSpawn } from '../../src/career/CavalrySweep'
 import { availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
 import { CAREER_RANKS, claimCareerMission, clearCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
@@ -17,8 +17,15 @@ import { TownWorld } from '../../src/town/TownWorld'
 import { townRoster, townMilitaryEquipment } from '../../src/town/TownRules'
 import { Mount, MountType } from '../../src/world/Mount'
 import { TownScene } from '../../src/town/TownScene'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
-import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
+
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 const npcConstruction = vi.hoisted(() => ({ count: 0 }))
 vi.mock('../../src/world/NPC', async original => {
@@ -36,7 +43,6 @@ vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({ ...(aw
   profile: { id: 'maki-ranger-bow', gripRadius: .02, gripLength: .2, visualScale: 1, gripCenterLocal: new THREE.Vector3(), shootingAxis: new THREE.Vector3(0, 0, -1), longitudinalAxis: new THREE.Vector3(0, 1, 0), contactNormal: new THREE.Vector3(1, 0, 0) }
 }) }))
 
-beforeAll(async () => { await installBlackCatTestAsset(); await installCorgiTestAsset() })
 afterEach(() => vi.unstubAllGlobals())
 
 function ready() { return { ...createCareerProfile('roman'), ownedHorseTiers: [1] as (1 | 2 | 3)[] } }
@@ -49,6 +55,7 @@ function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
     const military = spec.role === 'ranger' ? null : townMilitaryEquipment('roman', spec.role)
     const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'roman', spawn.aiType, spec.id, military?.level ?? spawn.tier, true, military?.loadout ?? spawn.loadout, spawn.presetId, undefined, spec.id)
     const mount = new Mount(scene, spec.role === 'ranger' ? MountType.BLACK_CAT : MountType.HORSE, spec.x, spec.z)
+    onTestFinished(() => mount.dispose())
     npc.setTownPeaceful(); npc.mountVehicle(mount)
     return { spec, npc, homeMount: mount }
   })

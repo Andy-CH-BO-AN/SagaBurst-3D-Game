@@ -1,6 +1,6 @@
 import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { BanditMissionController, VETERAN_FIELD_LAYOUT } from '../../src/career/BanditMissionController'
 import { CAVALRY_SWEEP_ID } from '../../src/career/CavalrySweep'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -16,9 +16,16 @@ import { TownWorld } from '../../src/town/TownWorld'
 import { Mount, MountType } from '../../src/world/Mount'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { isObstaclePathClear } from '../../src/world/Terrain'
-import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
 import { combatFixture } from '../helpers/townMissionCombat'
+
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 // Rendering assets are replaced; selection, mission/Patrol ownership, navigation and travel are real.
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
@@ -43,7 +50,6 @@ vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update() {} hide() {} dispose() {}
 } }))
 
-beforeAll(async () => { await installBlackCatTestAsset(); await installCorgiTestAsset() })
 const cleanup: (() => void)[] = []
 afterEach(() => { cleanup.splice(0).reverse().forEach(dispose => dispose()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -65,6 +71,7 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
       ranger ? rangerSpec.visualAssetId : undefined, ranger ? rangerSpec.combatProfileId : undefined,
       ranger ? rangerSpec.specialCombatProfile : undefined)
     const homeMount = new Mount(scene, ranger ? MountType.BLACK_CAT : MountType.HORSE, spec.x, spec.z)
+    onTestFinished(() => homeMount.dispose())
     homeMount.group.rotation.y = spec.yaw ?? 0
     npc.mountVehicle(homeMount); npc.setTownPeaceful()
     cleanup.push(() => { npc.dispose(); homeMount.dispose() })

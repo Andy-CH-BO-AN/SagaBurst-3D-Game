@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import {
   BattleConfig,
   getDefaultBattleConfig,
@@ -23,7 +21,11 @@ import { Player } from '../../src/player/Player'
 import { Mount, MountType } from '../../src/world/Mount'
 import { ThirdPersonCamera } from '../../src/camera/ThirdPersonCamera'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 
 describe('Player Faction Selection (Viking / Roman)', () => {
   describe('A. BattleConfig Domain & Validation', () => {
@@ -539,6 +541,7 @@ describe('Player Faction Selection (Viking / Roman)', () => {
 
       // Mount player onto mount and verify mount faces +Z
       const mount = new Mount(scene, MountType.CORGI, 0, -145)
+      onTestFinished(() => mount.dispose())
       player.mountVehicle(mount)
 
       expect(mount.group.rotation.y).toBeCloseTo(0, 2)
@@ -560,6 +563,7 @@ describe('Player Faction Selection (Viking / Roman)', () => {
 
       // Mount player onto mount and verify mount faces -Z
       const mount = new Mount(scene, MountType.CORGI, 0, 145)
+      onTestFinished(() => mount.dispose())
       player.mountVehicle(mount)
 
       expect(mount.group.rotation.y).toBeCloseTo(Math.PI, 2)
