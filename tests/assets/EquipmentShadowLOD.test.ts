@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { EquipmentVisualLODController } from '../../src/world/EquipmentVisualLODController'
 import { HUMANOID_LOD_DISTANCES } from '../../src/world/HumanoidAssetRegistry'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
@@ -29,6 +29,7 @@ describe('NPC equipment shadow LOD', () => {
       it(`${faction} T${tier} ${aiType}: adheres to shadow policy per LOD level`, () => {
         const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
         const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, aiType, 'shadow-test', tier, false)
+        onTestFinished(() => npc.dispose())
         const equipment: THREE.Mesh[] = []
         npc.equipmentVisualLOD.forEachRoot((_, root) => equipment.push(...meshes(root)))
         const snapshot = () => equipment.map(mesh => [mesh.parent?.uuid, mesh.position.toArray(), mesh.quaternion.toArray(), mesh.scale.toArray(), mesh.receiveShadow, JSON.stringify(mesh.userData)])
@@ -73,11 +74,12 @@ describe('NPC equipment shadow LOD', () => {
   }
 
   // Horse assets are exercised by the production browser matrix; unit coverage uses the real lance builder.
-  for (const faction of [Faction.PLAYER, Faction.ENEMY]) for (const tier of [1, 2, 3]) {
-    it(`${faction} T${tier} lance: keeps pole/head visible and hides tier trim at distance`, () => {
+  // buildNpcMelee's lance branch precedes characterFaction selection. Tier owns
+  // the three distinct weapons; allegiance does not alter their meshes or policy.
+  for (const tier of [1, 2, 3]) {
+    it(`T${tier} lance: keeps pole/head visible and hides tier trim at distance`, () => {
       const root = new THREE.Group(), controller = new EquipmentVisualLODController()
-      const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
-      WeaponMeshFactory.buildNpcMelee(characterFaction, tier, true, root)
+      WeaponMeshFactory.buildNpcMelee('roman', tier, true, root)
       const equipment = meshes(root)
       equipment.forEach(mesh => { mesh.castShadow = true })
       controller.register('lance', root)
@@ -142,6 +144,7 @@ describe('NPC equipment shadow LOD', () => {
 
   it('applies LOD2 to replacement shields immediately and restores policy on return', () => {
     const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'rebuild', 3, false)
+    onTestFinished(() => npc.dispose())
     const root = (npc as any).shieldPivot as THREE.Group
     npc.equipmentVisualLOD.setLOD(2)
     const oldMeshes = meshes(root)
@@ -161,6 +164,7 @@ describe('NPC equipment shadow LOD', () => {
     for (const faction of [Faction.PLAYER, Faction.ENEMY]) {
       const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
       const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, AIType.RANGED, 'lifecycle', 3, false)
+      onTestFinished(() => npc.dispose())
       npc.equipmentVisualLOD.setLOD(2)
       const expectFar = () => {
         const census = collectEquipmentRenderCensus([npc])
@@ -181,10 +185,12 @@ describe('NPC equipment shadow LOD', () => {
 
   it('keeps Player equipment and unattached projectile/pickup meshes untouched', () => {
     const scene = new THREE.Scene(), player = new Player(scene)
+    onTestFinished(() => player.dispose())
     const originals = meshes(player.group).map(mesh => ({ mesh, visible: mesh.visible, cast: mesh.castShadow, receive: mesh.receiveShadow }))
     const other = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); other.castShadow = true
     scene.add(other)
     const npc = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'player-control', 3, false)
+    onTestFinished(() => npc.dispose())
     for (const level of [2, 1, 0, 2] as const) {
       npc.equipmentVisualLOD.setLOD(level)
       for (const { mesh, visible, cast, receive } of originals) {
@@ -282,23 +288,7 @@ describe('NPC equipment shadow LOD', () => {
       }
     })
 
-    it('Lance: pole and head shadow ON at LOD0 & LOD1; LOD2 = 0', () => {
-      const root = new THREE.Group()
-      WeaponMeshFactory.buildMelee('steel_lance', root)
-      root.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true })
 
-      const controller = new EquipmentVisualLODController()
-      controller.register('lance', root)
-
-      controller.setLOD(0)
-      expect(meshes(root).filter(m => m.castShadow)).toHaveLength(2)
-
-      controller.setLOD(1)
-      expect(meshes(root).filter(m => m.castShadow)).toHaveLength(2)
-
-      controller.setLOD(2)
-      expect(meshes(root).filter(m => m.castShadow)).toHaveLength(0)
-    })
 
     it('Sword: blade and grip-metal shadow ON; handle core and fuller shadow OFF; LOD2 = 0', () => {
       for (const weaponId of ['gladius_rusty', 'gladius_standard', 'centurion_blade', 'rusty_dagger', 'steel_sword', 'runic_greatsword']) {

@@ -70,3 +70,7 @@ P1、P2可獨立啟動；P3/P4/P6是高重用基礎。P5依input/transaction接�
 ## 完成條件
 
 每個工作包關閉時交付：更新inventory與replacement mapping、未刪的integration清單、collection前後對照、本機 affected/typecheck 與 actual-head CI full/build/release/smoke 結果、尚未驗證的平台與等價限制。若有歷史type errors，附一對一fingerprint遷移或修復證據。case數變化與速度都不是單獨成功指標。
+
+## 中期 review 的後續順序
+
+依 #224 中期與補充 review，本批已實作共用 Siege runtime 一份化、四門小型真actor矩陣／四種faction-role薄接線、lance無效faction維度與self-proof/report清理；不以pending清單或搬檔當完成。接著優先 Field/Veteran return與spawn重複流程；其餘Command語意規則、equipment上層NPC shadow矩陣、Town/missions ownership/storage/return、RomanHeroAssets與UI/audio/observability各獨立caller仍須實作和去重驗證。runtime必要的frame boundary、敵我集合、特殊schema及failure modes保留；未修改flaky先留紀錄。完成所有範圍後才進最終清理，#224仍不合入dev。

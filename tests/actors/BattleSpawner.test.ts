@@ -52,15 +52,12 @@ function verifyPlanInvariants(plan: BattleSpawnPlan): void {
         const dx = u1.x - u2.x
         const dz = u1.z - u2.z
         const dist = Math.hypot(dx, dz)
-        if (dist < minObservedDist) minObservedDist = dist
         // No two units can spawn at duplicate coordinates or collide (min 2.0m spacing)
         expect(dist).toBeGreaterThanOrEqual(2.0)
       }
     }
   }
 }
-
-let minObservedDist = Infinity
 
 describe('BattleSpawner Deterministic Formation', () => {
   it('places the player and camps behind the outer army staging band', () => {
@@ -213,10 +210,7 @@ describe('BattleSpawner Deterministic Formation', () => {
     }
   })
 
-  it('reports minimum observed friendly spawn distance', () => {
-    console.log(`[SPAWN METRICS] Global minimum friendly spawn distance: ${minObservedDist.toFixed(4)}m`)
-    expect(minObservedDist).toBeGreaterThanOrEqual(2.0)
-  })
+
 
   it('assigns playerSpawn to VIKING_PLAYER_SPAWN in formation mode', () => {
     const plan = BattleSpawner.createSpawnPlan(PRESET_10V10)
