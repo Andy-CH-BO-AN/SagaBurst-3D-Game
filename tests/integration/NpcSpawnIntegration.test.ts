@@ -1,29 +1,29 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TownScene } from '../src/town/TownScene'
-import { TownOutskirtsWarfareController } from '../src/town/TownOutskirtsWarfareController'
-import { BanditMissionController } from '../src/career/BanditMissionController'
-import { PersonalSquadRuntime } from '../src/career/PersonalSquadRuntime'
-import { createCareerProfile } from '../src/career/CareerProfile'
-import { createActiveCareerMission } from '../src/career/CareerMissionState'
-import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../src/career/CareerFieldSceneContext'
-import { PRESET_50V50 } from '../src/battle/BattleConfig'
-import { BattleSpawner } from '../src/battle/BattleSpawner'
-import { createDefenseCampaignWaveConfig } from '../src/campaign/DefenseCampaignLaunch'
-import { createCareerOutpostLaunch } from '../src/career/CareerOutpostLaunch'
-import { acceptCareerOutpost } from '../src/career/CareerOutpostMission'
-import { NavigationWorld } from '../src/navigation/NavigationWorld'
-import { AIType, Faction, NPC } from '../src/world/NPC'
-import type { Player } from '../src/player/Player'
-import { gameplayNpcSpawns } from '../src/world/NpcSpawnScheduler'
-import { TownEvent } from '../src/town/TownRules'
-import { resolveTownHRLayout, townConquestRoster } from '../src/town/TownHRLayout'
-import { advanceNpcFrame, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
-import { createGameTestFixture } from './helpers/gameFixture'
+import { TownScene } from '../../src/town/TownScene'
+import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
+import { BanditMissionController } from '../../src/career/BanditMissionController'
+import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
+import { PRESET_50V50 } from '../../src/battle/BattleConfig'
+import { BattleSpawner } from '../../src/battle/BattleSpawner'
+import { createDefenseCampaignWaveConfig } from '../../src/campaign/DefenseCampaignLaunch'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { AIType, Faction, NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
+import { TownEvent } from '../../src/town/TownRules'
+import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { createGameTestFixture } from '../helpers/gameFixture'
 
 const observed = vi.hoisted(() => ({ constructors: [] as string[] }))
-vi.mock('../src/world/NPC', async original => {
-  const actual = await original<typeof import('../src/world/NPC')>()
+vi.mock('../../src/world/NPC', async original => {
+  const actual = await original<typeof import('../../src/world/NPC')>()
   return { ...actual, NPC: class {
     readonly group = new THREE.Group()
     maxHp = 100; hp = 100; encounterState = 'peaceful'; dead = false; respawnEnabled = false; mount: any = null; tacticalOrder = 'defend'
@@ -48,16 +48,16 @@ vi.mock('../src/world/NPC', async original => {
     dispose() { this.dismountFromMount(); this.group.removeFromParent() }
   } }
 })
-vi.mock('../src/world/Mount', async original => {
-  const actual = await original<typeof import('../src/world/Mount')>()
+vi.mock('../../src/world/Mount', async original => {
+  const actual = await original<typeof import('../../src/world/Mount')>()
   return { ...actual, Mount: class {
     readonly group = new THREE.Group(); riderNpc: unknown; currentHp = 100; maxHp = 100; dead = false
     constructor(scene: THREE.Scene, _type: unknown, x: number, z: number) { this.group.position.set(x, 0, z); scene.add(this.group) }
     dispose() { this.group.removeFromParent() }
   } }
 })
-vi.mock('../src/world/WeaponPickup', () => ({ WeaponPickup: class { dispose() {} } }))
-vi.mock('../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} } }))
+vi.mock('../../src/world/WeaponPickup', () => ({ WeaponPickup: class { dispose() {} } }))
+vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} } }))
 const dispose: (() => void)[] = []
 afterEach(() => {
   dispose.splice(0).reverse().forEach(fn => fn())

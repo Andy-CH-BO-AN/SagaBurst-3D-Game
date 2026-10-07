@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NpcSpawnScheduler, assertNpcSpawnJob, trackNpcSpawn } from './NpcSpawnScheduler'
-import { NpcSpawnTestDriver } from '../../tests/helpers/npcSpawnFrames'
+import { NpcSpawnScheduler, assertNpcSpawnJob, trackNpcSpawn } from '../../src/world/NpcSpawnScheduler'
+import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 
 describe('shared render-frame NPC budget', () => {
   it('keeps fixture clocks and pending queues independent by default', () => {
