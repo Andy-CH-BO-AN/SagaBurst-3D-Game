@@ -4,7 +4,9 @@
 
 [動物資產契約與 runtime asset path](migrations/animal-asset-contracts.md)：5 suites／48 cases 完成純搬檔至 `tests/assets/`；src 的 `publicAssetUrl` 測試已移入；該批完成時 src 剩16檔。其餘 src 表維持原盤點 ID，實際位置由各批 ledger/PR 查詢。
 
-[剩餘 src suites](migrations/src-suite-location.md)：16 suites／228 cases 一次純搬入能力目錄，src16→0；同批收斂 Vitest include 到 tests/，保留既有排除、timeout 與 Node 邊界。完整196檔／2,948案逐項 mapping；原表與 inventory 保留歷史提案，以本批 mapping 為實際位置。tests 根目錄150套與混合案例的語意責任整理仍待後續。
+[剩餘 src suites](migrations/src-suite-location.md)：16 suites／228 cases 一次純搬入能力目錄，src16→0；同批收斂 Vitest include 到 tests/，保留既有排除、timeout 與 Node 邊界。完整196檔／2,948案逐項 mapping；原表與 inventory 保留歷史提案，以本批 mapping 為實際位置。該批尚保留 tests 根目錄150套；混合案例的語意責任整理仍待後續。
+
+[tests 根目錄能力分類](migrations/root-capability-location.md)：150 suites／2,507 cases與root fixture整批機械搬入能力目錄；root runner suites150→0，完整196檔／2,948案保留。Baseline按相同source/schema逐項映射，只修正既有SoundManager type import的TS2307，443→442；runner不再改動。混合suite與既有tests/career的八套仍待能力語意分層。
 
 ## 目標責任
 
