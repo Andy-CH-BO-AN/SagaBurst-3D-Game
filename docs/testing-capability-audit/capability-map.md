@@ -21,7 +21,7 @@
 | H Settlement | `TownMissionSettlement.finish/returnToTown` → claim/clear 存成功後 scene effects | persistence：idempotency、commit-before-cleanup、retry；progression：merit formula | Field/Defense/Duel/敵城 scene restart、Patrol ownership 釋放、Personal physical/direct refit、dead Player restore 分別保留 |
 | I Town orchestration | `TownMissionCombat.update` dispatch 到 field/defense/duel，不同分支組 actor sets 與 grids | integration：ownership × phase × hostility contract matrix | 同一 class 不代表同一更新路徑；每個 caller 的 once-update、corpses、riderless mounts、delayed projectile source、objective/crime attribution 保留 |
 | J 定義/模式 | BattleConfig、CampaignConfig/Launch/Runtime、MissionCatalog、VeteranMission、DuelState | missions：人數/tier/faction、unlock、reinforcement、勝敗與客觀 expected | 實際 Game/Town launch、accept、restore 各留代表案例；不把 expected 全改讀 constants |
-| J 資產/渲染 | Horse/Humanoid/animal registries、rig/mixer/attachment、LOD/shadow；資產邊界與 gameplay actor 分層 | assets：shipped parse/preload、必要 LOD、runtime 查找的 bone/socket/seat、gameplay clip/event、instance 建立、clone mutable state 隔離、missing/malformed 與 manifest/package/path | 各模型實際依賴的契約仍各自執行；gameplay 的真實 NPC/Player/Mount 邏輯保留，無資產責任的案例改用 typed visual fixture；art-only assertion 逐案評估移除／人工 QA |
+| J 資產/渲染 | Horse/Humanoid/animal registries、rig/mixer/attachment、LOD/shadow；資產邊界與 gameplay actor 分層 | assets：shipped parse/preload、必要 LOD、runtime 查找的 bone/socket/seat、gameplay clip/event、instance 建立、clone mutable state 隔離、missing/malformed 與 manifest/package/path | 各模型實際依賴的契約仍各自執行；gameplay 的真實 NPC/Player/Mount 邏輯保留，無資產責任的案例改用 typed visual fixture；art-only assertion 逐案確認無 runtime 依賴後移除 |
 | R Release | Node `assetPath/validateRelease/publishRelease`；Playwright smoke | release：tag/main policy、draft/retry、不 overwrite、protocol path、bundle assets | Web base path；desktop custom protocol/security preferences；packaged macOS codesign；Windows/macOS 包裝各有獨立風險 |
 
 ## 原清單之外的能力
@@ -39,7 +39,7 @@
 
 - Runtime owner：registries、visual instance、rig/attachment、animation event、LOD 與 release paths。每個保留 assertion 要指出 production consumer 或明確失敗契約，不能因模型不同就一律永久保留目前美術數值。
 - Gameplay owner：target acquisition、movement、balance、spectator、mission flow。它們需要 actor/mount/combatPosition 時，以輕量 typed visual fixture 替代無關的 GLB parse、skeleton、animation setup；不 mock 受測 AI、locomotion、傷害或任務狀態機。
-- Art QA owner：精確 duration/pose/quaternion、vertex weights、特定 metallic/roughness、runtime 未查找的 mesh/name、cosmetic clearance/silhouette、rotation-only/payload size、穿模／姿勢／美觀。預設列為 REMOVE / manual QA candidate，逐案讀 body 並追 runtime 後決定；若 production 確有依賴則保留其必要契約。
+- 非自動化 correctness owner：精確 duration/pose/quaternion、vertex weights、特定 metallic/roughness、runtime 未查找的 mesh/name、cosmetic clearance/silhouette、rotation-only/payload size、穿模／姿勢／美觀。預設列為 REMOVE candidate，逐案讀 body 並追 runtime 後決定；若 production 確有依賴則保留其必要契約。Test-only 整理只需 runtime 判定、保留／替代 coverage 與測試結果，不附人工 QA 場景，也不以人工 QA 為完成門檻。
 - Fixture cleanup 同時檢查 Corgi/BlackCat/Horse/Humanoid consumers；共用 loader 不能視為消除 unrelated gameplay 的重資產依賴。必要真 GLB integration 明列理由與保留案例。
 - 本段是追加責任與判定規則，尚未表示所有資產 body/call path 已讀完；個案證據與實作狀態由 matrix／後續 PR 更新。
 

@@ -12,18 +12,6 @@ describe('reference black cat mount', () => {
     restSeat = gltf.scene.getObjectByName('socket_saddle_seat')!.getWorldPosition(new THREE.Vector3())
   })
 
-  it('keeps the source paws on the ground with normalized skin weights', () => {
-    const cat = new BlackCatVisual()
-    cat.root.updateMatrixWorld(true)
-    const mesh = cat.root.getObjectByName('cat_body_lod0') as THREE.SkinnedMesh
-    const bounds = new THREE.Box3().setFromObject(mesh)
-    expect(bounds.min.y).toBeGreaterThan(-0.005)
-    expect(bounds.min.y).toBeLessThan(0.025)
-    const weights = mesh.geometry.getAttribute('skinWeight')
-    for (let i = 0; i < weights.count; i++) {
-      expect(weights.getX(i) + weights.getY(i) + weights.getZ(i) + weights.getW(i)).toBeCloseTo(1, 4)
-    }
-  }, 15000)
 
   it('uses metre scale and transforms its actual saddle socket with heading and position', () => {
     const reference = new BlackCatVisual()
