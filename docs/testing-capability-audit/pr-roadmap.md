@@ -1,0 +1,41 @@
+# 後續工作包：依能力與依賴排序
+
+這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。下列所有刪除目前均為 **0**，除非另補replacement mapping與等價證據。
+
+## PR 整合方式（使用者指定）
+
+- 整合分支為 `codex/test-capability-audit`，本輪主 PR 的 base 為 `dev`，暫不合併。
+- 後續本計畫的能力 PR 從整合分支建立；base 設為 `codex/test-capability-audit`，合併回此分支，不直接進 `dev`。
+- 各能力 PR 仍獨立 review、附驗證及 replacement mapping；合入後更新整合 PR 的範圍與驗證紀錄。
+- 最終整合 PR 合併到 `dev` 須另有使用者明確指示；不得啟用 auto-merge。
+
+共用驗證 `V`：affected suites → `rtk npm test` → `rtk npm run typecheck:test` → `rtk npm run build` → `rtk npm run test:release`。每批仍需collection前後對照；不以綠燈代替語意review。腳本路徑遷移後命令同步更新。
+
+| 次序／工作包 | 目標與前置 | tests / helpers與動作 | 必留接線、風險 | test-only與完成條件／驗證 |
+| --- | --- | --- | --- | --- |
+| P0 本輪文件 | 已完成資料盤點及責任草案 | tests/AGENTS、inventory、capability map、matrix、migration、roadmap | 明列AST-only、舊baseline失敗及最終重跑、unknown展開 | 僅文件/data；無測試/production/CI變更；驗收資料對齊與連結 |
+| P1 Runner收斂與小批機械搬檔 | 依本輪inventory；先挑低相依的Navigation、Checkpoint等src core | 移src tests到movement/persistence/actors；Node3檔到release，先排除新release路徑再搬；每能力可各自PR | include過早收斂會漏跑src；Node/Vitest重跑；relative assets和歷史typecheck指紋 | **不是純test檔**：允許明列config/package/docs，但無gameplay；CI若需改另列。30個src全移完才收斂include；V，runner改動加smoke |
+| P2 Typed fixture與生命週期 | 可先於其他包；只做具體consumer所需 | MemoryStorage/canvas/GLB loaders、npcSpawnFrames、gameFixture、townCombatFixture、小型actor builders；SHARE FIXTURE | 不能把realNPC改成mock而降低保護；no import-time hooks；setup/expect失敗cleanup | test-only；至少兩個現有consumer受益、typed介面、failed-setup/partial-spawn資源正確；V；不承諾advanceUntil加速 |
+| P3 Command / Formation / Follow / input ownership | 可重用P2；機械搬檔可用P1模式 | ArmyCommandSystem、FollowOrder、WeaponWheel中的routing、MountedMissionMarch相鄰order cases；commands helpers | 保留Campaign gate、Career/Personal authority、Town/Patrol政策；geometry與NPC semantics分開 | test-only；拆核心/接線、MOVE誤置leader policy、SHARE setup；所有order與mode adapter仍跑；V + `rtk npm test -- ArmyCommandSystem FollowOrder WeaponWheel` |
+| P4 Combat / Damage / HP / Shield / mount | P2 event recorder與typed actor接縫 | CombatBalance、MountedPhysicalContact、MountedLanceShieldImpact、ShieldBlocking、TargetedCombatStance、CareerSkillProgression/BattleStats | 三種HP實作、overflow、friendly/self、projectile contact、HUD/event/XP；不能只留synthetic event | test-only首輪；MOVE XP到progression/integration、SHARE/必要PARAMETERIZE。先確認Game/Town真實訂閱保護，再談整case合併；V + `rtk npm test -- Combat Shield MountedPhysicalContact CareerSkillProgression` |
+| P5 Equipment / input / inventory | P3 input責任；P4僅影響attack context時需要 | PlayerLoadout、DefaultMountedLoadout、ShieldEquipmentState、NPCTemporaryCombatLoadout、TownHub/WeaponShop、CareerSquadEquipment | Player/NPC/TownEquipment不同實作；rank、共享庫存、bulk原子性、save-fail不套用不可刪 | test-only；contract在每個adapter執行，schema留persistence，商店UI留integration；V + `rtk npm test -- WeaponWheel ShieldEquipmentState Loadout TownWeaponShop CareerSquadEquipment` |
+| P6 Actor sourcing / Spawn / placement | P2獨立scheduler driver；受P1 runner驗收模式約束 | NpcSpawnScheduler、NpcSpawnIntegration、BattleSpawner、Town/VeteranCavalryReserve、FieldBorrowing/Deployment、OutpostGame | 每render-frame一個；global多caller、missing-only、registration rollback、readiness、ownership/清理 | test-only；core完整邊界只一份、各獨立enqueue留代表接線；V + `rtk npm test -- NpcSpawn BattleSpawner CavalryReserve VeteranField` |
+| P7 Assembly / March / encounter / return | P3 order、P6 roster/actor fixture | MountedMissionMarch、Relief、CavalrySweep、CareerMission、FieldFormation/Lifecycle、MissionTravelEncounterFlow、Patrol return | 90%assemble、Player是否需到場、Captain不瞬移、2/4隊、chargeAfterFollow vs distance、save-fail、direct/physical | 首輪test-only，SHARE actor/voice/no-replay assertions、各option/input仍跑。獨立return實作若抽runtime，另開**可選production PR**並保留全部coverage；V + `rtk npm test -- MountedMissionMarch CareerOutpostRelief CavalrySweep MissionTravelEncounter TownPatrol` |
+| P8 Checkpoint / restore / migration / settlement | P2 storage adapter、P6 actor snapshot、P7返回語義 | CareerMissionCheckpoint、Controllers、FieldCheckpoint、OutpostGame、CareerPersonalSquadGame/Mission、MissionSettlement、VeteranTownSettlement、兩個store | in-memory≠storage；各schema/version、HP/mount/orders/casualties/pending、claim idempotency與commit順序 | test-only：PARAMETERIZE storage contract每個adapter都跑；補必要serialized bridge後才能去重。獨立Game persistence若需共用runtime另PR；V + `rtk npm test -- Checkpoint Settlement CareerPersonalSquad CareerOutpost CareerSkillProgression` |
+| P9 Town combat ownership / phase integration | P4damage context、P6ownership，P8save side effects | TownMissionCombat、OutskirtsMissionCombat、VeteranTownMissionCombat、TownPersonalSquad、TownHub、CombatAttribution | field/defense/duel/hostility不同分支；each-frame一次、hostile grids、held squads、corpses、riderless、延遲投射物、crime/merit | test-only：小型contract matrix逐adapter執行，SHARE fixture，不能只留shared helper；V + `rtk npm test -- TownMissionCombat TownOutskirts VeteranTownMissionCombat TownPersonalSquad CombatAttribution` |
+| P10 Death / spectator / respawn | P4 HP事件、P7outcome、P8restore | PlayerDeathAndSpectatorCamera、InitialSpectatorMode、CareerDeathObserver、NPCNoRespawn、DuelState、Mount suites | initial spectator與death observer不同、Duel同死failure、任務繼續/返回、camera/input targetability | test-only：core camera集中、policy與transition integration保留；V + `rtk npm test -- Spectator CareerDeathObserver NPCNoRespawn CareerDuelState` |
+| P11 定義/資產/環境/audio/UI/observability | 可依owner獨立進行；不要等全任務整理完 | Campaign/mission definitions、GLB/rig/LOD/socket/shadow、CareerAudioRuntime/MissionVoice、UI/PointerLock、ScenarioE/F/GHI、profiler | 不丟model-specific regression；素材讀取/影像型驗收與CPU assertion不同；resize fake-only case要有真實replacement | test-only優先；按capability拆多PR，SHARE loader/DOM/audio fixtures，不一包清完所有assets；V，資產路徑或browser input改動加對應smoke/瀏覽器驗證 |
+| P12 Release / standalone QA promotion | Node移動依P1；manual QA先補環境證據 | tests/release3檔、smoke入口；從standalone清單選穩定QA移tests/integration/browser或assets | packaged Mac/Windows不可只驗web；手動腳本有sleep/硬編port/log-only判定；工具build guards仍留tools | 不改發布行為；tests/package/config/docs可明列。17Node cases、web、packaged兩平台smoke與case不重跑；promotion逐script完成，不把unknown當0 |
+
+## 依賴關係與review策略
+
+P1、P2可獨立啟動；P3/P4/P6是高重用基礎。P5依input/transaction接縫，P7依order/sourcing，P8依snapshot/return，P9與P10需跨上述能力核對。P11按較小能力平行排期即可，這不代表本輪啟動平行代理或新工作。
+
+- **機械PR**：只改位置、imports、mock/asset路径与明确的runner設定；case/參數/assertions完整mapping一致。
+- **Fixture PR**：只改準備/cleanup/typed adapters，列出仍用real implementation的consumer；若失敗訊息或成本改变，附實測。
+- **Dedup PR**：只處理已有body/call-path/equivalence證據的群組；整case MERGE/REMOVE 必須有可執行replacement ID。
+- **Production consolidation PR**：明示behavior scope、不同實作與adapter保護；不以clean-tests名義偷改Game/Town/Bandit runtime。
+
+## 完成條件
+
+每個工作包關閉時交付：更新inventory與replacement mapping、未刪的integration清單、collection前後對照、affected/full/typecheck/build/release結果、尚未驗證的平台與等價限制。若有歷史type errors，附一對一fingerprint遷移或修復證據。case數變化與速度都不是單獨成功指標。
