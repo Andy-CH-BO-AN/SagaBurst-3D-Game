@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { beforeEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
@@ -14,7 +12,10 @@ import {
   getDirectionalMovementFromVector,
 } from '../src/movement/DirectionalMovement'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayCorgiVisual')).GameplayCorgiVisualDouble,
+}))
 
 describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
   let scene: THREE.Scene
@@ -230,6 +231,7 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     name: string,
   ): { npc: NPC; mount: Mount } {
     const mount = new Mount(scene, MountType.CORGI, x, z)
+    onTestFinished(() => mount.dispose())
     const npc = new NPC(scene, x, z, faction, faction === Faction.ENEMY ? 'roman' : 'viking', aiType, name, 1, false)
     npc.mount = mount
     mount.setNpcRider(npc, faction)
