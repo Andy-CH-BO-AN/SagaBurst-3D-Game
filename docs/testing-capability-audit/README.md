@@ -80,6 +80,8 @@
 
 本輪主 PR：`codex/test-capability-audit` → `dev`，暫不合併。後續本計畫的能力 PR 一律以 `codex/test-capability-audit` 為 base 並合回該分支；最後整合進 `dev` 須另有使用者明確指示。詳見 [roadmap](pr-roadmap.md)。
 
+整輪結束後另開最後一支清理 PR：撤回 #225 的暫時 CI filter，刪除本目錄及本輪一次性 script/doc/audit，保留長期測試規範與持續使用的工具，清掉失效引用，再驗證 #224 的最終版本。完整範圍見 roadmap 的「最後一支清理 PR」。
+
 ## 先做什麼
 
 先用本 inventory 確認受影響能力的 ownership，挑小批 src core 做機械搬檔，並整理有實際 consumer 的 typed fixture。Command、Combat、Spawn 是高重用起點；March、Checkpoint、Town ownership 再沿依賴展開。

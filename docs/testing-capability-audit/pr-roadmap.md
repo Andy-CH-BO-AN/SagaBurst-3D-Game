@@ -1,6 +1,6 @@
 # 後續工作包：依能力與依賴排序
 
-這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。下列所有刪除目前均為 **0**，除非另補replacement mapping與等價證據。
+這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。下列測試案例刪除目前均為 **0**，除非另補replacement mapping與等價證據。
 
 ## PR 整合方式（使用者指定）
 
@@ -26,6 +26,19 @@
 | P10 Death / spectator / respawn | P4 HP事件、P7outcome、P8restore | PlayerDeathAndSpectatorCamera、InitialSpectatorMode、CareerDeathObserver、NPCNoRespawn、DuelState、Mount suites | initial spectator與death observer不同、Duel同死failure、任務繼續/返回、camera/input targetability | test-only：core camera集中、policy與transition integration保留；V + `rtk npm test -- Spectator CareerDeathObserver NPCNoRespawn CareerDuelState` |
 | P11 定義/資產/環境/audio/UI/observability | 可依owner獨立進行；不要等全任務整理完 | Campaign/mission definitions、GLB/rig/LOD/socket/shadow、CareerAudioRuntime/MissionVoice、UI/PointerLock、ScenarioE/F/GHI、profiler | 不丟model-specific regression；素材讀取/影像型驗收與CPU assertion不同；resize fake-only case要有真實replacement | test-only優先；按capability拆多PR，SHARE loader/DOM/audio fixtures，不一包清完所有assets；V，資產路徑或browser input改動加對應smoke/瀏覽器驗證 |
 | P12 Release / standalone QA promotion | Node移動依P1；manual QA先補環境證據 | tests/release3檔、smoke入口；從standalone清單選穩定QA移tests/integration/browser或assets | packaged Mac/Windows不可只驗web；手動腳本有sleep/硬編port/log-only判定；工具build guards仍留tools | 不改發布行為；tests/package/config/docs可明列。17Node cases、web、packaged兩平台smoke與case不重跑；promotion逐script完成，不把unknown當0 |
+
+## 最後一支清理 PR（使用者指定）
+
+所有本輪能力整理完成、相關 PR review 並合入整合分支後，才從最新 `codex/test-capability-audit` 開出最後一支清理 PR，base 仍為該分支。清理完成並驗證後，#224 才具備最後整合到 dev 的條件；#224 合併仍須使用者明確指示。
+
+1. 撤回 #225 的暫時設定：移除 `.github/workflows/ci.yml` 的 `pull_request.branches` 中 `codex/test-capability-audit`，保留 dev/main 與後續正式 CI 變更。僅撤回此 PR 的作用，不重設整份 workflow。
+2. 刪除本輪一次性 `docs/testing-capability-audit/` 全目錄，包含本 roadmap、能力盤點、CSV/JSON inventory、baseline 快照、遷移 ledger 與驗證報告；歷史決策與證據由 Git／PR 紀錄保存，不另搬到新的暫存文件。
+3. 一併清除僅供本輪測試整理使用的一次性 scripts、doc/audit 與舊拆檔盤點（包含 `tests/veteran-field-test-inventory.md`）。收尾時先列出確切清單並核對現行引用；持續使用的測試 helpers、runner、release/typecheck 工具與必要 fixtures 保留。
+4. 本機屬於本輪的 ignored `output/` 與 `/tmp` 一次性腳本／logs 依清單另外清除；未納管的產物不會出現在 PR diff，也不先提交再刪除。後續臨時腳本持續放 ignored output 或 /tmp。
+5. 保留 `tests/AGENTS.md` 的長期測試規則、`ai_share/AGENTS.md` 的全域入口與既有 wrappers；移除測試規範中的臨時 audit 連結、整合分支收尾後已失效的專案規則，以及其他文件／scripts 對刪除產物的引用。
+6. 驗證刪除清單、剩餘引用／文件連結、runner collection、full tests、typecheck、build 與 release tests。撤回 CI filter 後，清理 PR 可能不再觸發 integration-base CI；以清理合入後 #224 對 dev 的最終 head 跑完整 web 與 Windows/macOS desktop CI（含 smoke），不能沿用清理前的綠燈。
+
+這是整輪的必要完成條件，不在能力搬檔尚未完成時提早刪除 audit 或撤回 #225。最終對 dev 的變更應保留正式測試架構與規範，移除本輪臨時支援內容。
 
 ## 已實作批次
 
