@@ -128,12 +128,17 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
     const positions = [...roster.map(s => new THREE.Vector3(s.x, 0, s.z)), sweepPlayerSpawn()]
     for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) expect(positions[i].distanceTo(positions[j])).toBeGreaterThan(2)
   })
+})
+
+describe('Sweep shared terrain', () => {
   it('uses the existing terrain with a clear full-width charge lane and a single loose mob', () => {
+    const faction = 'roman'
     // Geometry-only validation; no browser or WebGL renderer is involved.
     const ctx = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
     vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => ctx }) })
     const world = new TownWorld(faction, new THREE.Scene())
+    onTestFinished(() => world.dispose())
     const bandits = Array.from({ length: 40 }, (_, i) => sweepBanditPosition(i))
     expect(new Set(bandits.map(p => `${p.x},${p.z}`)).size).toBe(40)
     const lane = new THREE.Box3(new THREE.Vector3(-145, -100, SWEEP_CENTER.z - 14), new THREE.Vector3(145, 100, SWEEP_CENTER.z + 25))
@@ -141,7 +146,6 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
     for (const p of [...bandits, ...createSweepRoster(faction).map(s => new THREE.Vector3(s.x, 0, s.z))]) {
       expect(Math.abs(p.x)).toBeLessThan(350); expect(Math.abs(p.z)).toBeLessThan(350)
     }
-    world.dispose()
   })
 })
 
@@ -481,22 +485,36 @@ describe('Sweep runtime and checkpoint', () => {
 })
 
 
-describe('Sweep actual constructor frame budget', () => {
+describe('Sweep queued deployment readiness', () => {
   it('queues forty enemies and fifty-six missing riders, reuses three Town actors and delays departure readiness', () => {
     const h = fixture(3, false, true), before = npcConstruction.count
+    const active = h.profile().activeMission!, borrowed = new Set(active.borrowedActorIds)
+    const queuedIds = [...active.targetActorIds, ...active.friendlyActorIds.filter(id => !borrowed.has(id))]
     expect(h.controller.startActiveMission()).toBe(true)
     expect(h.controller.startActiveMission()).toBe(true)
     expect(npcConstruction.count).toBe(before)
-    for (let i = 1; i <= 96; i++) {
-      advanceNpcFrame(gameplayNpcSpawnDriver); expect(npcConstruction.count - before).toBe(i)
-      if (i < 96) {
-        expect(h.controller.ready).toBe(false); h.controller.updateFlow(100, 0)
-        expect(h.profile().activeMission!.phase).toBe('ASSEMBLING')
-        expect(h.controller.evaluate(true)).toBeNull()
-      }
-    }
+    expect(h.controller.spawnBatches.flatMap((batch: { actors: Map<string, unknown> }) => [...batch.actors.keys()])).toEqual(queuedIds)
+    expect(queuedIds).toHaveLength(96)
+    expect(h.controller.friendlies).toEqual(expect.arrayContaining(h.residents.map(r => r.npc)))
+    expect(h.controller.ready).toBe(false); expect(h.controller.evaluate(true)).toBeNull()
+    h.controller.updateFlow(100, 0); expect(h.profile().activeMission!.phase).toBe('ASSEMBLING')
+
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(h.controller.missionBandits).toHaveLength(1)
+    expect(h.controller.ready).toBe(false); expect(h.controller.evaluate(true)).toBeNull()
+    // Scheduler cadence is owned centrally; this caller checks its last missing rider readiness gate.
+    for (let remaining = 2; remaining < queuedIds.length; remaining++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(h.controller.friendlies).toHaveLength(58)
+    expect(h.controller.missionBandits).toHaveLength(40)
+    expect(h.controller.ready).toBe(false); expect(h.controller.evaluate(true)).toBeNull()
+    h.controller.updateFlow(100, 0); expect(h.profile().activeMission!.phase).toBe('ASSEMBLING')
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+
+    expect(npcConstruction.count - before).toBe(96)
     expect(h.controller.ready).toBe(true); expect(h.controller.friendlies).toHaveLength(59)
     expect(h.controller.missionBandits).toHaveLength(40)
+    expect(h.controller.friendlies.map((npc: NPC) => npc.combatantId)).toEqual(active.friendlyActorIds)
+    expect(h.controller.missionBandits.map((npc: NPC) => npc.combatantId)).toEqual(active.targetActorIds)
     h.residents.forEach(r => expect(h.controller.friendlies).toContain(r.npc))
     expect(h.controller.friendlies.every((npc: NPC) => npc.mount?.riderNpc === npc)).toBe(true)
     h.controller.dispose(); h.residents.forEach(r => { r.npc.dispose(); r.homeMount.dispose() })

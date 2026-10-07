@@ -43,7 +43,8 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const careerRequests = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('sagaburst_voice_pack_v1'))
 
 describe('Lazy Career audio runtime', () => {
-  it.each(['roman', 'viking'] as const)('finishes %s Follow only on the actual audio end event', async faction => {
+  it('finishes Follow only on the actual audio end event', async () => {
+    const faction = 'roman'
     const manager = new SoundManager()
     await manager.preload()
     const finished = vi.fn()

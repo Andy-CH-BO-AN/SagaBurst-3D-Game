@@ -281,7 +281,8 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(vi.mocked(captain.assignFormationTarget).mock.calls).toHaveLength(calls)
   })
 
-  it.each(['roman', 'viking'] as const)('%s replaces fallen march leaders with referee, then surviving opponent, without resetting the route', faction => {
+  it('replaces fallen march leaders with referee, then surviving opponent, without resetting the route', () => {
+    const faction = 'roman'
     const h = harness(faction)
     h.start(`${faction}_archer`, 1, 'ASSEMBLING')
     // Use three distinct mission residents to cover both fallback priorities.

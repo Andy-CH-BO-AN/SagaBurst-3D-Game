@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
 import { claimCareerMission } from '../../src/career/CareerProfile'
-import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
@@ -75,8 +74,9 @@ describe('VeteranFieldControllerLifecycle', () => {
     expect(leader.assignFormationTarget).not.toHaveBeenCalled()
   })
 
-  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt', 'veteran-tragedy-of-the-scouts'] as const)('creates only missing %s NPCs one per frame and waits for the full official roster', templateId => {
-    const h = field({ templateId, autoStart: false })
+  // Scheduler budget is shared; per-mission borrowing and roster wiring lives in VeteranFieldBorrowing.
+  it('creates only missing Scout Hunters NPCs one per frame and waits for the full official roster', () => {
+    const h = field({ templateId: 'veteran-scout-hunters', autoStart: false })
     const borrowed = h.residents.map(r => ({ npc: r.npc, position: r.npc.combatPosition.clone() }))
     borrowed.forEach(({ npc }) => { npc.hp = 41 })
     expect(h.controller.startActiveMission()).toBe(true)
@@ -93,9 +93,7 @@ describe('VeteranFieldControllerLifecycle', () => {
     expect(h.enemies).toHaveLength(h.roster.enemy.length)
     borrowed.forEach(({ npc, position }) => {
       expect(h.actors).toContain(npc); expect(npc.hp).toBe(41)
-      if (templateId !== 'veteran-tragedy-of-the-scouts') {
-        expect(npc.combatPosition.x).toBe(position.x); expect(npc.combatPosition.z).toBe(position.z)
-      } else expect(npc.combatPosition.z).toBeGreaterThan(TOWN_PLAYABLE_WORLD_BOUND - 60)
+      expect(npc.combatPosition.x).toBe(position.x); expect(npc.combatPosition.z).toBe(position.z)
     })
   })
 

@@ -7,7 +7,9 @@ import type { CharacterFaction } from '../../src/world/CharacterVisuals'
 import type { TownActorSpec } from '../../src/town/TownRules'
 import type { createVeteranRoster } from '../../src/career/VeteranMission'
 
-/** Small render-asset doubles. Movement/health are test inputs, never controller policy. */
+/** Actor doubles replace render assets, health changes and movement with explicit test inputs.
+ * moveToFormationTarget snaps to an assigned goal; it does not exercise real locomotion.
+ */
 export class FieldTestMount {
   readonly group = new THREE.Group()
   readonly baseSpeed = 12

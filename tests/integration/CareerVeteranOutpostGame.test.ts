@@ -101,8 +101,10 @@ function personalAssaultFixture(faction: 'roman' | 'viking', state: 'ACTIVE' | '
 }
 
 describe('Veteran Campaign Outpost Game integration', () => {
-  describe.each(['roman', 'viking'] as const)('%s Veteran IV player-side survival', faction => {
-    it.each(['ACTIVE', 'RETURNING'] as const)('continues with no living Player or official attackers and one %s private member', state => {
+  describe('shared Veteran IV player-side result runtime', () => {
+    const faction = 'roman'
+    it('continues with no living Player or official attackers and one private member', () => {
+      const state = 'ACTIVE'
       const { game, personal, update } = personalAssaultFixture(faction, state)
       expect(game.defenseCampaignConfig.defenderFaction).not.toBe(faction)
       expect(game._campaignFactionAlive(faction)).toBe(0)
@@ -120,7 +122,8 @@ describe('Veteran Campaign Outpost Game integration', () => {
       expect(game._showDefenseCampaignResult).toHaveBeenCalledExactlyOnceWith('defeat')
     })
 
-    it.each(['ACTIVE', 'RETURNING'] as const)('wins when enemy Outpost defenders are eliminated while a %s private member remains', state => {
+    it('wins when enemy Outpost defenders are eliminated while a private member remains', () => {
+      const state = 'ACTIVE'
       const { game, enemies, personal, update } = personalAssaultFixture(faction, state)
       enemies.forEach(enemy => { enemy.dead = true })
       game._updateDefenseCampaign(.1)
@@ -136,22 +139,66 @@ describe('Veteran Campaign Outpost Game integration', () => {
     })
   })
 
-  it('materializes the 50-person rescue wave one NPC per frame with stable actor IDs', () => {
+  it.each([
+    { faction: 'roman', enemyFaction: 'viking', state: 'ACTIVE' },
+    { faction: 'roman', enemyFaction: 'viking', state: 'RETURNING' },
+    { faction: 'viking', enemyFaction: 'roman', state: 'ACTIVE' },
+    { faction: 'viking', enemyFaction: 'roman', state: 'RETURNING' },
+  ] as const)('wires $faction Player side and $enemyFaction Outpost side with $state private participation', ({ faction, enemyFaction, state }) => {
+    const { game, personal, update } = personalAssaultFixture(faction, state)
+    // Exercise the real Game census/caller only; the result state machine runs in the shared cases above.
+    update.mockReturnValue([])
+    const officialFriendly = { combatantId: 'official-friendly', characterFaction: faction, dead: false }
+    game.npcs.push(officialFriendly)
+    expect(game.defenseCampaignConfig.defenderFaction).toBe(enemyFaction)
+    expect(game.defenseCampaignConfig.careerVeteranOutpost).toMatchObject({ playerFaction: faction, outpostFaction: enemyFaction })
+    game._updateDefenseCampaign(.1)
+    expect(update).toHaveBeenLastCalledWith(.1, expect.objectContaining({
+      playerDead: true, originalDefendersAlive: 10, defendersAlive: 1, personalPlayerSideAlive: 1, attackersAlive: 10,
+    }))
+    expect(game.defenseCampaignHud.update).toHaveBeenLastCalledWith(
+      expect.anything(), 1, 10, faction, false,
+    )
+    expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+    personal.dead = true
+    officialFriendly.dead = true
+    game._updateDefenseCampaign(.1)
+    expect(update).toHaveBeenLastCalledWith(.1, expect.objectContaining({
+      defendersAlive: 0, personalPlayerSideAlive: 0, attackersAlive: 10,
+    }))
+  })
+
+  it('queues the rescue wave with stable actor IDs and starts its march only after the final rider exists', () => {
     const launch = createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost'))
+    const plan = createCareerVeteranOutpostSpawnPlan(launch, 'reinforcement')
     const game = createGameFixture(launch)
 
     expect(game._queueDefenseCampaignWave('reinforcement')).toBe(50)
     expect(game._queueDefenseCampaignWave('reinforcement')).toBe(0)
-    for (let frame = 1; frame <= 50; frame++) {
-      advanceNpcFrame(gameplayNpcSpawnDriver)
-      expect(game._spawnNpc).toHaveBeenCalledTimes(frame)
-    }
+    expect([...game.campaignSpawnBatch.actors.keys()]).toEqual(plan.npcSpecs.map(spec => spec.actorId))
+    expect(game._spawnNpc).not.toHaveBeenCalled()
+    expect(game.campaignReinforcementSpawned).toBe(false)
+    expect(game._startCareerVeteranReinforcementMarch).not.toHaveBeenCalled()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(game.npcs).toHaveLength(1); expect(game.campaignSpawnQueueIndex).toBe(1)
+    expect(game.campaignReinforcementSpawned).toBe(false)
+    expect(game._startCareerVeteranReinforcementMarch).not.toHaveBeenCalled()
+    // Shared cadence runs in the scheduler/global owner; rescue completion remains a Game caller boundary.
+    for (let remaining = 2; remaining < 50; remaining++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(game.npcs).toHaveLength(49); expect(game.campaignSpawnQueueIndex).toBe(49)
+    expect(game.campaignReinforcementSpawned).toBe(false)
+    expect(game._startCareerVeteranReinforcementMarch).not.toHaveBeenCalled()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
 
     const calls = game._spawnNpc.mock.calls as unknown as Array<[NpcSpawnSpec]>
     const ids = calls.map(([spec]) => spec.actorId)
     expect(ids).toHaveLength(50)
     expect(ids.every((id: unknown) => typeof id === 'string' && id.startsWith(launch.careerMissionId!))).toBe(true)
     expect(new Set(ids).size).toBe(50)
+    expect(calls.map(([spec]) => spec)).toEqual(plan.npcSpecs)
+    expect(game.npcs.map((npc: NPC) => npc.combatantId)).toEqual(ids)
+    expect(game.campaignSpawnBatch.ready).toBe(true)
+    expect(game.campaignSpawnQueue).toEqual([])
     expect(game.campaignReinforcementSpawned).toBe(true)
     expect(game._startCareerVeteranReinforcementMarch).toHaveBeenCalledTimes(1)
   })

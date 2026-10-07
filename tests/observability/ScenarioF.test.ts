@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
   PRESET_SCENARIO_F,
@@ -10,7 +10,7 @@ import {
   SCATTER_BOUND_MIN,
   SCATTER_BOUND_MAX,
 } from '../../src/battle/BattleSpawner'
-import { shouldCreateStartingHorse } from '../../src/Game'
+import { Game, shouldCreateStartingHorse } from '../../src/Game'
 import { AIType } from '../../src/world/NPC'
 import {
   isPerfNoShadow,
@@ -259,27 +259,36 @@ describe('Scenario F: 100v100 Mixed Cavalry Scattered Battle', () => {
       expect(simpleCutout3).not.toBe(simpleCutout)
     })
 
-    it('preserves half-resolution pixel ratio across resize', () => {
-      const baseRatio = 1.0
-      const halfRatio = baseRatio * 0.5
-      // Simulates WebGLRenderer pixel ratio logic
-      let pixelRatio = halfRatio
-      const setPixelRatio = (r: number) => { pixelRatio = r }
-      const setSize = (w: number, h: number) => ({
-        bufferWidth: Math.floor(w * pixelRatio),
-        bufferHeight: Math.floor(h * pixelRatio),
-      })
-
-      setPixelRatio(halfRatio)
-      const initial = setSize(1280, 720)
-      expect(initial.bufferWidth).toBe(640)
-      expect(initial.bufferHeight).toBe(360)
-
-      // Resize event fires
-      const afterResize = setSize(1920, 1080)
-      expect(pixelRatio).toBe(0.5)
-      expect(afterResize.bufferWidth).toBe(960)
-      expect(afterResize.bufferHeight).toBe(540)
+    it('Game resize updates camera/renderer size without replacing the half-resolution ratio', () => {
+      let resize: (() => void) | undefined
+      const browser = {
+        innerWidth: 1280, innerHeight: 720,
+        addEventListener: vi.fn((type: string, callback: () => void) => {
+          if (type === 'resize') resize = callback
+        }),
+      }
+      vi.stubGlobal('window', browser)
+      onTestFinished(() => { vi.unstubAllGlobals() })
+      const camera = new THREE.PerspectiveCamera(60, 1280 / 720)
+      const projection = vi.spyOn(camera, 'updateProjectionMatrix')
+      onTestFinished(() => { projection.mockRestore() })
+      let pixelRatio = .5
+      const renderer = {
+        setSize: vi.fn(), getPixelRatio: () => pixelRatio,
+        setPixelRatio: vi.fn((ratio: number) => { pixelRatio = ratio }),
+      }
+      type ResizeAdapter = { _setupResize(): void }
+      const game = Object.assign(Object.create(Game.prototype) as ResizeAdapter, { camera, renderer })
+      game._setupResize()
+      expect(browser.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
+      expect(resize).toBeDefined()
+      browser.innerWidth = 1920; browser.innerHeight = 1200
+      resize!()
+      expect(camera.aspect).toBe(1.6)
+      expect(projection).toHaveBeenCalledTimes(1)
+      expect(renderer.setSize).toHaveBeenCalledWith(1920, 1200)
+      expect(renderer.setPixelRatio).not.toHaveBeenCalled()
+      expect(renderer.getPixelRatio()).toBe(.5)
     })
   })
 })

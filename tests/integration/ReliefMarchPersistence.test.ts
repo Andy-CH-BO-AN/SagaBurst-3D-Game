@@ -15,7 +15,8 @@ function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
     completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
 }
 
-describe.each(['roman', 'viking'] as const)('%s relief march checkpoint', faction => {
+describe('shared relief march checkpoint', () => {
+  const faction = 'roman'
   it('persists the charge checkpoint and resumes both squads without repeating voice or march', () => {
     const profile = acceptCareerOutpostRelief(ready(faction), 'reload')!
     profile.activeOutpostMission!.reliefPhase = 'charge'

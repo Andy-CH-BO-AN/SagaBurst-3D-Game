@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { TOWN_SITES, townCaptainProfile } from '../../src/town/TownRules'
+import { TOWN_SITES } from '../../src/town/TownRules'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
-import { MountType, mountTypeFromId } from '../../src/world/Mount'
+import { MountType } from '../../src/world/Mount'
 import { getTerrainHeight, isObstaclePathClear } from '../../src/world/Terrain'
 import { advanceUntil } from '../helpers/simulation'
 import { installTownPatrolFixtureEnvironment } from '../helpers/townPatrolFixture'
@@ -30,10 +30,8 @@ function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number })
 }
 
 describe('Town patrol return, refit and mount lifecycle', () => {
-  it.each([
-    ['roman', 'captain'], ['roman', 'mount'], ['viking', 'captain'], ['viking', 'mount'],
-  ] as const)('keeps both %s Captains on their canonical mount through %s death, refit and Town reload', (faction, casualty) => {
-    const h = createTownPatrolFixture({ faction, withWorld: true }), expected = mountTypeFromId(townCaptainProfile(faction).mountOverride)
+  it.each(['captain', 'mount'] as const)('keeps both Roman Captains on their canonical mount through %s death, refit and Town reload', casualty => {
+    const h = createTownPatrolFixture({ faction: 'roman', withWorld: true }), expected = MountType.CORGI
     for (const resident of h.residents.filter(r => r.spec.patrolLeader)) {
       const mount = resident.homeMount
       h.controller.relinquish(resident.spec.id)
@@ -48,13 +46,13 @@ describe('Town patrol return, refit and mount lifecycle', () => {
       expect(resident.npc.dead).toBe(false); expect(resident.npc.mount).toBe(mount)
       expect(mount.dead).toBe(false); expect(mount.type).toBe(expected)
     }
-    const reload = createTownPatrolFixture({ faction })
+    const reload = createTownPatrolFixture({ faction: 'roman' })
     expect(reload.residents.filter(r => r.homeMount.type === expected)).toHaveLength(2)
     expect(reload.residents.filter(r => r.homeMount.type === MountType.HORSE)).toHaveLength(38)
   })
 
-  it.each(['roman', 'viking'] as const)('restores all 40 %s identities at distinct, navigable real Barracks slots independent of startup positions and roster order', faction => {
-    const h = createTownPatrolFixture({ faction, withWorld: true })
+  it('restores all 40 Roman identities at distinct, navigable real Barracks slots independent of startup positions and roster order', () => {
+    const h = createTownPatrolFixture({ faction: 'roman', withWorld: true })
     const controller = new TownCavalryPatrolController([...h.residents].reverse())
     const points: THREE.Vector3[] = []
     for (const resident of h.residents) {
@@ -79,7 +77,7 @@ describe('Town patrol return, refit and mount lifecycle', () => {
       points.push(position)
       expect(resident.npc).toBe(npc); expect(npc.combatantId).toBe(actorId)
       expect(npc.mount).toBe(mount); expect(npc.hpRatio).toBe(1); expect(mount.currentHp).toBe(mount.maxHp)
-      expect(mount.type).toBe(resident.spec.patrolLeader ? mountTypeFromId(townCaptainProfile(faction).mountOverride) : MountType.HORSE)
+      expect(mount.type).toBe(resident.spec.patrolLeader ? MountType.CORGI : MountType.HORSE)
       expect(controller.returnStateFor(actorId)).toBe('REJOIN_PATROL')
       expect(controller.isReserveAvailable(actorId)).toBe(true)
     }

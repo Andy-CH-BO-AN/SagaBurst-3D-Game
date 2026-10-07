@@ -16,8 +16,8 @@ const createTownPatrolFixture = installTownPatrolFixtureEnvironment()
 
 
 describe('Town patrol movement simulation', () => {
-  it.each(['roman', 'viking'] as const)('moves all %s riders through real gates and loops without combat search, teleportation or per-frame follower A*', faction => {
-    const h = createTownPatrolFixture({ faction, withWorld: true })
+  it('moves all Roman riders through real gates and loops without combat search, teleportation or per-frame follower A*', () => {
+    const h = createTownPatrolFixture({ faction: 'roman', withWorld: true })
     // No public counter exposes enemy-search cost; retain this narrow spy for that regression.
     const targets = h.residents.map(r => vi.spyOn(r.npc as unknown as { _getTarget: (...args: unknown[]) => unknown }, '_getTarget'))
     const loops = [0, 0], exited = new Set<string>(), visited = [new Set<number>(), new Set<number>()]

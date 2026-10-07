@@ -5,7 +5,7 @@ import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
-import { AIType } from '../../src/world/NPC'
+import { AIType, Faction } from '../../src/world/NPC'
 import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -46,9 +46,12 @@ describe.each(['roman', 'viking'] as const)('%s relief spawn policy', faction =>
     const config = launch(faction), plan = createCareerReliefSpawnPlan(config)
     const rescue = plan.npcSpecs.filter(spec => spec.squadId)
     const enemy = plan.npcSpecs.filter(spec => spec.characterFaction !== faction)
+    const opposingFaction = faction === 'roman' ? 'viking' : 'roman'
+    expect(enemy.every(spec => spec.characterFaction === opposingFaction && spec.faction === Faction.ENEMY)).toBe(true)
     const garrison = plan.npcSpecs.filter(spec => spec.characterFaction === faction && !spec.squadId)
     expect(plan.npcSpecs).toHaveLength(129)
     expect(garrison).toHaveLength(20)
+    expect([...garrison, ...rescue].every(spec => spec.characterFaction === faction && spec.faction === Faction.PLAYER)).toBe(true)
     expect(garrison.every(spec => spec.tier === 2)).toBe(true)
     expect(garrison.filter(spec => spec.aiType === AIType.MELEE)).toHaveLength(16)
     expect(garrison.filter(spec => spec.aiType === AIType.RANGED)).toHaveLength(4)

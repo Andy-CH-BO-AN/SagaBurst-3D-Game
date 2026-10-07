@@ -71,55 +71,6 @@ describe('NpcSubphaseProfiler', () => {
     })
   })
 
-  describe('cohort sampling condition', () => {
-    it('each NPC index appears exactly once per SUBPHASE_COHORT frames', () => {
-      const totalNPCs = 200
-      const sampledPerFrame: Set<number>[] = []
-
-      for (let frameIdx = 0; frameIdx < SUBPHASE_COHORT; frameIdx++) {
-        const sampled = new Set<number>()
-        for (let npcIdx = 0; npcIdx < totalNPCs; npcIdx++) {
-          if (npcIdx % SUBPHASE_COHORT === frameIdx % SUBPHASE_COHORT) {
-            sampled.add(npcIdx)
-          }
-        }
-        sampledPerFrame.push(sampled)
-      }
-
-      // No duplicates between frames
-      const allSampled = new Set<number>()
-      let totalSampled = 0
-      for (const frameSet of sampledPerFrame) {
-        for (const idx of frameSet) {
-          expect(allSampled.has(idx)).toBe(false)
-          allSampled.add(idx)
-          totalSampled++
-        }
-      }
-
-      // Every NPC covered exactly once
-      expect(totalSampled).toBe(totalNPCs)
-      expect(allSampled.size).toBe(totalNPCs)
-    })
-
-    it('does not use Math.random (sampling is deterministic)', () => {
-      // Run the cohort condition twice; results must be identical
-      const results1: boolean[] = []
-      const results2: boolean[] = []
-      for (let frame = 0; frame < SUBPHASE_COHORT; frame++) {
-        for (let npc = 0; npc < 16; npc++) {
-          results1.push(npc % SUBPHASE_COHORT === frame % SUBPHASE_COHORT)
-        }
-      }
-      for (let frame = 0; frame < SUBPHASE_COHORT; frame++) {
-        for (let npc = 0; npc < 16; npc++) {
-          results2.push(npc % SUBPHASE_COHORT === frame % SUBPHASE_COHORT)
-        }
-      }
-      expect(results1).toEqual(results2)
-    })
-  })
-
   describe('NpcSubphaseAggregator', () => {
     it('flush returns a full-population per-frame estimate from one cohort', () => {
       const agg = new NpcSubphaseAggregator()

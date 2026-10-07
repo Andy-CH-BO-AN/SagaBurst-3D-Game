@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
+import { createVeteranMissionProfile } from '../helpers/veteranFieldBuilders'
 import { Faction } from '../../src/world/NPC'
 import { createVeteranSpawnSpec } from '../../src/career/VeteranMission'
 import { claimCareerMission } from '../../src/career/CareerProfile'
@@ -29,8 +30,6 @@ function finishField(setup: VeteranFieldFixture) {
   const result = claimCareerMission(setup.profile(), setup.profile().activeMission!.id, 'victory', stats)
   Object.assign(setup.profile(), result.profile)
 }
-
-const RETURN_MISSIONS = ['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt'] as const
 
 describe('VeteranFieldCheckpoint', () => {
   it.each(['veteran-village-intercept', 'veteran-spear-line-hunt'] as const)(
@@ -130,8 +129,8 @@ describe('VeteranFieldCheckpoint', () => {
     expect(captain.combatPosition.z).toBeCloseTo(100)
   })
 
-  it.each(RETURN_MISSIONS)('returns the surviving party from its current position and resumes after reload: %s', id => {
-    const setup = field({ templateId: id })
+  it('returns the surviving Scout Hunters party from its current position and resumes its in-memory checkpoint', () => {
+    const setup = field({ templateId: 'veteran-scout-hunters' })
     setup.actors[1].takeDamage(999999)
     const leader = setup.leader!
     leader.combatPosition.set(170, 0, 20)
@@ -148,7 +147,7 @@ describe('VeteranFieldCheckpoint', () => {
     setup.controller.updateFlow(5, 0)
     setup.controller.persistRuntimeProgress(true)
     setup.controller.cleanupMission()
-    const reload = field({ templateId: id, profile: setup.profile(), residents: setup.residents, player: setup.player, autoStart: false })
+    const reload = field({ templateId: 'veteran-scout-hunters', profile: setup.profile(), residents: setup.residents, player: setup.player, autoStart: false })
     reload.controller.onMarchStarted = vi.fn()
     reload.controller.onSweepCharge = vi.fn()
     expect(reload.deploy()).toBe(true)
@@ -170,6 +169,51 @@ describe('VeteranFieldCheckpoint', () => {
     reload.player.group.position.copy(home)
     reload.advanceUntil(() => reload.controller.returnComplete, { failureMessage: 'Player and party must arrive home' })
     expect(reload.controller.returnComplete).toBe(true)
+  })
+
+  it.each([
+    ['veteran-village-intercept', 'captain', 49, 0],
+    ['veteran-spear-line-hunt', 'ranger', 48, 1],
+  ] as const)('wires %s RETURNING checkpoint to its own leader, resident sources and support', (templateId, leaderId, borrowedCount, supportCount) => {
+    // The full victory -> return -> save -> cleanup -> restore -> arrival flow is owned by Scout Hunters above.
+    // Other roster/source variants enter at the saved RETURNING boundary; this is an in-memory checkpoint.
+    const accepted = createVeteranMissionProfile(templateId)
+    const stats = { damageDealt: 40, damageTaken: 0, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
+    const profile = claimCareerMission(accepted, accepted.activeMission!.id, 'victory', stats).profile
+    const active = profile.activeMission!
+    const fallenId = active.friendlyActorIds[1]
+    active.phase = 'RETURNING'
+    active.deadFriendlyActorIds = [fallenId]
+    active.actorPositions = { [leaderId]: { x: 80, z: 20, yaw: .3 } }
+    active.actorHealth = { [leaderId]: { hp: 37 } }
+    const merit = profile.totalMerit
+    const setup = field({ templateId, profile, autoStart: false })
+    setup.controller.onMarchStarted = vi.fn()
+    setup.controller.onSweepCharge = vi.fn()
+
+    expect(setup.deploy()).toBe(true)
+
+    expect(setup.controller.phase).toBe('RETURNING')
+    expect(setup.enemies).toHaveLength(0)
+    expect(setup.actors.filter(npc => !npc.dead)).toHaveLength(48)
+    expect(setup.actors.find(npc => npc.combatantId === fallenId)!.dead).toBe(true)
+    expect(setup.residents).toHaveLength(borrowedCount)
+    expect(setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)).toHaveLength(supportCount)
+    for (const resident of setup.residents) {
+      expect(setup.actors.find(npc => npc.combatantId === resident.npc.combatantId)).toBe(resident.npc)
+    }
+    const leader = setup.leader!
+    expect(leader.combatantId).toBe(leaderId)
+    expect(leader.combatPosition.x).toBe(80)
+    expect(leader.combatPosition.z).toBe(20)
+    expect(leader.hp).toBe(37)
+    expect(leader.formationTarget!.position.x).toBeCloseTo(18)
+    expect(leader.formationTarget!.position.z).toBeCloseTo(16)
+    expect(setup.actors.filter(npc => !npc.dead && npc !== leader).every(npc => npc.followTarget === leader)).toBe(true)
+    setup.stepFrame()
+    expect(setup.controller.onMarchStarted).not.toHaveBeenCalled()
+    expect(setup.controller.onSweepCharge).not.toHaveBeenCalled()
+    expect(setup.profile().totalMerit).toBe(merit)
   })
 
   it('restores wounded actors and mounts while preserving casualty IDs and the dead Player checkpoint', () => {

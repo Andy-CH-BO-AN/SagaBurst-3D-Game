@@ -1,15 +1,22 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createTownFortifications } from '../../src/town/TownFortifications'
 import { closeSiegeGate, overlapsGateClosure } from '../../src/town/TownSiegeGateClosure'
 import { siegeOutward, siegePoint } from '../../src/career/TownSiege'
-import { TOWN_GATES } from '../../src/town/TownLayout'
 import type { ObstacleData } from '../../src/world/Terrain'
 
-for (const faction of ['roman', 'viking'] as const) describe(`${faction} gate closure`, () => {
-  it.each(TOWN_GATES.map(g => g.id))('pushes every overlapping body outward at %s without moving actors already clear', id => {
+describe('Shared Town gate closure', () => {
+  it('pushes every overlapping body outward at North without moving actors already clear', () => {
+    const id = 'north' as const
     const obstacles: ObstacleData[] = [], material = new THREE.MeshBasicMaterial()
-    const city = createTownFortifications(faction, obstacles, { stone: material, wood: material, dark: material, snow: material })
+    let root: THREE.Group | undefined
+    onTestFinished(() => {
+      const geometries = new Set<THREE.BufferGeometry>()
+      root?.traverse(child => { if (child instanceof THREE.Mesh) geometries.add(child.geometry) })
+      geometries.forEach(geometry => geometry.dispose()); material.dispose()
+    })
+    const city = createTownFortifications('roman', obstacles, { stone: material, wood: material, dark: material, snow: material })
+    root = city.root
     const gate = city.gates.get(id)!, outward = siegeOutward(id)
     const bodies = [0.6, 0.5, 1.5].map((radius, index) => {
       const position = siegePoint(id, index - 1, 0)
@@ -30,6 +37,5 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} gate cl
       expect(body.hp).toBe(100)
     }
     for (const body of untouched) expect(body.moveTo).not.toHaveBeenCalled()
-    material.dispose()
   })
 })

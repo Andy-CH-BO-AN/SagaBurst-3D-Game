@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createTownFortifications } from '../../src/town/TownFortifications'
 import { TOWN_CITY, TOWN_GATES, TOWN_CITY_ROADS, townGatePoint, townSceneryExcluded } from '../../src/town/TownLayout'
 import { TownEvent, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../../src/town/TownRules'
@@ -8,7 +8,6 @@ import { siegeDefensePlans } from '../../src/career/TownSiege'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
-import { UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
 import { CampaignBreachController } from '../../src/campaign/CampaignGate'
 import { ObstacleCollisionSpatialIndex } from '../../src/world/ObstacleCollisionSpatialIndex'
 
@@ -18,11 +17,15 @@ function fortifications(faction: 'roman' | 'viking') {
   const obstacles: ObstacleData[] = []
   const material = new THREE.MeshStandardMaterial()
   const result = createTownFortifications(faction, obstacles, { stone: material, wood: material, dark: material, snow: material })
+  let disposed = false
   const dispose = () => {
+    if (disposed) return
+    disposed = true
     const geometries = new Set<THREE.BufferGeometry>()
     result.root.traverse(child => { if (child instanceof THREE.Mesh) { geometries.add(child.geometry); if (child instanceof THREE.InstancedMesh) child.dispose() } })
     geometries.forEach(geometry => geometry.dispose()); material.dispose()
   }
+  onTestFinished(dispose)
   return { ...result, obstacles, dispose }
 }
 
@@ -40,25 +43,40 @@ describe('Fortified city explicit rosters', () => {
     }
   })
 
-  it.each(['roman', 'viking'] as const)('equips sixty %s T2 riders, twenty per actual preset, separately from infantry', faction => {
+  it('assigns sixty T2 training riders to three distinct twenty-rider formations, separately from infantry', () => {
     const roster = townRoster().filter(actor => actor.training && actor.mounted)
     expect(roster).toHaveLength(60)
-    for (const kind of ['sword_cavalry', 'lancer', 'horse_archer']) {
-      expect(roster.filter(actor => townMilitaryEquipment(faction, actor).presetId === `${faction}_${kind}`)).toHaveLength(20)
-    }
+    for (const kind of ['sword_cavalry', 'lancer', 'horse_archer']) expect(roster.filter(actor => actor.unitKind === kind)).toHaveLength(20)
     for (const actor of roster) {
-      const equipment = townMilitaryEquipment(faction, actor)
       expect(actor).toMatchObject({ tier: 2, duty: 'training', assaultObjective: false })
       expect(actor.defenseGroup).toBeUndefined()
-      expect(equipment.tier).toBe(2); expect(equipment.loadout).toEqual(UNIT_PRESETS[equipment.presetId].tierLoadouts[2]); expect(equipment.loadout.mountId).toBe('horse')
-      if (faction === 'viking' && actor.unitKind === 'sword_cavalry') expect(equipment.loadout.meleeWeaponId).toBe('viking_axe_t2')
     }
     for (let i = 0; i < roster.length; i++) for (let j = i + 1; j < roster.length; j++) {
       expect(Math.hypot(roster[i].x - roster[j].x, roster[i].z - roster[j].z)).toBeGreaterThanOrEqual(6)
     }
   })
 
-  it.each(['roman', 'viking'] as const)('assigns forty %s T2 guards, four swords/axes, three spears and three real archers at each gate', faction => {
+  // Pure policy: every rider's faction preset and equipment, without rebuilding a Town or actors.
+  it.each([
+    { faction: 'roman', sword: 'gladius_standard', shield: 'scutum_t2', bowBackup: 'gladius_rusty' },
+    { faction: 'viking', sword: 'viking_axe_t2', shield: 'round_shield_t2', bowBackup: 'rusty_dagger' },
+  ] as const)('equips every $faction T2 training rider with its native preset and fixed loadout', ({ faction, sword, shield, bowBackup }) => {
+    const roster = townRoster().filter(actor => actor.training && actor.mounted)
+    for (const kind of ['sword_cavalry', 'lancer', 'horse_archer'] as const) {
+      const group = roster.filter(actor => actor.unitKind === kind)
+      expect(group.filter(actor => townMilitaryEquipment(faction, actor).presetId === `${faction}_${kind}`)).toHaveLength(20)
+      for (const actor of group) {
+        const expected = kind === 'sword_cavalry'
+          ? { meleeWeaponId: sword, rangedWeaponId: null, shieldId: shield, mountId: 'horse' }
+          : kind === 'lancer' ? { meleeWeaponId: 'steel_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' }
+          : { meleeWeaponId: bowBackup, rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: 'horse' }
+        expect(townMilitaryEquipment(faction, actor)).toMatchObject({ tier: 2, level: 2 })
+        expect(townMilitaryEquipment(faction, actor).loadout).toEqual(expected)
+      }
+    }
+  })
+
+  it('assigns forty T2 guards, four melee, three spears and three archers at each gate', () => {
     const guards = townRoster().filter(actor => actor.duty === 'gate_guard')
     expect(guards).toHaveLength(40)
     for (const gate of TOWN_GATES) {
@@ -66,8 +84,7 @@ describe('Fortified city explicit rosters', () => {
       expect(group).toHaveLength(10)
       expect(group.filter(actor => actor.unitKind === 'melee')).toHaveLength(4)
       expect(group.filter(actor => actor.unitKind === 'spearman')).toHaveLength(3)
-      const archers = group.filter(actor => actor.unitKind === 'archer'); expect(archers).toHaveLength(3)
-      archers.forEach(actor => expect(townMilitaryEquipment(faction, actor).presetId).toBe(`${faction}_archer`))
+      expect(group.filter(actor => actor.unitKind === 'archer')).toHaveLength(3)
       for (const actor of group) {
         expect(actor).toMatchObject({ tier: 2, mounted: false, training: false, yaw: gate.yaw })
         expect(actor.defenseGroup).toBeUndefined()
@@ -75,6 +92,18 @@ describe('Fortified city explicit rosters', () => {
         const inward = -(actor.x - gate.x) * Math.sin(gate.yaw) - (actor.z - gate.z) * Math.cos(gate.yaw)
         expect(Math.abs(side)).toBeGreaterThan(TOWN_CITY.gateWidth / 2 + 2); expect(inward).toBeGreaterThan(0)
       }
+    }
+  })
+
+  it.each([
+    { faction: 'roman', archerPreset: 'roman_archer', backup: 'gladius_rusty' },
+    { faction: 'viking', archerPreset: 'viking_archer', backup: 'rusty_dagger' },
+  ] as const)('assigns every $faction gate archer its real bow preset and native backup', ({ faction, archerPreset, backup }) => {
+    for (const actor of townRoster().filter(actor => actor.duty === 'gate_guard' && actor.unitKind === 'archer')) {
+      expect(townMilitaryEquipment(faction, actor)).toMatchObject({
+        presetId: archerPreset, tier: 2, level: 2,
+        loadout: { meleeWeaponId: backup, rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null },
+      })
     }
   })
 
@@ -108,6 +137,16 @@ describe.each(['roman', 'viking'] as const)('%s fortified city physical perimete
       const leaves = gate.damageable.root.children
       expect(leaves[0].rotation.y).toBeCloseTo(Math.PI / 2); expect(leaves[1].rotation.y).toBeCloseTo(-Math.PI / 2)
       gate.open(); expect(gate.state).toBe('open')
+    }
+    // Builder contract is independent of the closure displacement algorithm.
+    // Both physical builders must expose the same four world X/Z door rectangles.
+    for (const [id, expected] of [
+      ['north', [-7, -115.5, 7, -114.5]], ['south', [-7, 99.5, 7, 100.5]],
+      ['east', [149.5, 38, 150.5, 52]], ['west', [-110.5, -7, -109.5, 7]],
+    ] as const) {
+      const box = city.gates.get(id)!.collisionBox
+      const actual = [box.min.x, box.min.z, box.max.x, box.max.z]
+      actual.forEach((value, index) => expect(value, `${faction} ${id} X/Z[${index}]`).toBeCloseTo(expected[index], 8))
     }
     expect(breach.breached).toBe(false); expect(callback).not.toHaveBeenCalled()
     if (faction === 'roman') expect(TOWN_GATES.every(gate => city.root.getObjectByName(`town-${gate.id}-gate`)?.getObjectByName('roman-stone-arch'))).toBe(true)
@@ -184,6 +223,7 @@ describe.each(['roman', 'viking'] as const)('%s fortified city physical perimete
     vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
     const world = new TownWorld(faction, new THREE.Scene())
+    onTestFinished(() => world.dispose())
     const navigation = new NavigationWorld(); navigation.sync(world.obstacles)
     for (const actor of townRoster().filter(actor => actor.duty === 'training' || actor.duty === 'gate_guard')) {
       const groundY = getTerrainHeight(actor.x, actor.z)
@@ -198,6 +238,5 @@ describe.each(['roman', 'viking'] as const)('%s fortified city physical perimete
     expect(world.camps).toHaveLength(5)
     const staticWalls = world.fortifications.wallRoot.children.filter(child => child instanceof THREE.Mesh)
     expect(staticWalls.length).toBeLessThanOrEqual(faction === 'roman' ? 1 : 3)
-    world.dispose()
   })
 })

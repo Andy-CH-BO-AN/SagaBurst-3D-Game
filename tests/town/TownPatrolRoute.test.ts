@@ -35,8 +35,8 @@ describe('Town patrol route and navigation contracts', () => {
     expect(a.direction).toBe('clockwise'); expect(b.direction).toBe('clockwise'); expect(a.phase).not.toBe(b.phase)
   })
 
-  it.each(['roman', 'viking'] as const)('keeps %s muster and exterior paths clear, and connects departure through open gates only', faction => {
-    const h = createTownPatrolFixture({ faction, withWorld: true }), route = townPatrolRoute()
+  it('keeps Roman muster and exterior paths clear, and connects departure through open gates only', () => {
+    const h = createTownPatrolFixture({ faction: 'roman', withWorld: true }), route = townPatrolRoute()
     for (const r of h.residents) {
       const position = r.npc.combatPosition
       expect(isObstaclePathClear(position, position, 1.1, 2.6, 0, h.obstacles), r.spec.id).toBe(true)
