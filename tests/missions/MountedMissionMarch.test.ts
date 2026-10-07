@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { MountedMissionMarchController } from './MountedMissionMarch'
-import type { NPC } from '../world/NPC'
+import { MountedMissionMarchController } from '../../src/career/MountedMissionMarch'
+import type { NPC } from '../../src/world/NPC'
 
 function rider(name: string, x = 0): {
   name: string
