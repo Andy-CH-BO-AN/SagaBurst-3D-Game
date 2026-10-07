@@ -19,14 +19,24 @@ for (const diagnostic of diagnostics) {
   const file = diagnostic.file
     ? path.relative(root, diagnostic.file.fileName).split(path.sep).join('/')
     : '<config>'
-  const key = `${file}|TS${diagnostic.code}`
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n').replace(/\s+/g, ' ').trim()
+  const position = diagnostic.file && diagnostic.start !== undefined
+    ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+    : undefined
+  const key = JSON.stringify({
+    file,
+    code: `TS${diagnostic.code}`,
+    message,
+    line: position ? position.line + 1 : null,
+    column: position ? position.character + 1 : null,
+  })
   counts.set(key, (counts.get(key) ?? 0) + 1)
 }
 
 if (process.argv.includes('--update-baseline')) {
   const baseline = Object.fromEntries([...counts].sort(([a], [b]) => a.localeCompare(b)))
   fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`)
-  console.log(`Recorded ${diagnostics.length} existing diagnostics across ${counts.size} file/code groups.`)
+  console.log(`Recorded ${diagnostics.length} existing diagnostics across ${counts.size} diagnostic identities.`)
   process.exit(0)
 }
 
@@ -39,7 +49,8 @@ const newDiagnostics = [...counts].filter(([key, count]) => count > (baseline[ke
 if (newDiagnostics.length > 0) {
   console.error('Test type-check found new diagnostics:')
   for (const [key, count] of newDiagnostics) {
-    console.error(`  ${key}: ${count} (baseline ${baseline[key] ?? 0})`)
+    const diagnostic = JSON.parse(key)
+    console.error(`  ${diagnostic.file}:${diagnostic.line ?? '?'}:${diagnostic.column ?? '?'} ${diagnostic.code}: ${diagnostic.message} (${count}, baseline ${baseline[key] ?? 0})`)
   }
   process.exit(1)
 }

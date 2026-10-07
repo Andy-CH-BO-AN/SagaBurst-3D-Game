@@ -1,4 +1,4 @@
-import { completeNpcDeployment } from './helpers/npcSpawnFrames'
+import { completeNpcDeployment, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { TownWorld } from '../src/town/TownWorld'
@@ -121,7 +121,7 @@ describe('Career Town outskirts', () => {
       mission.deadTargetActorIds = [mission.targetActorIds[0]]
       profile.activeMission = mission
       profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-      expect(completeNpcDeployment(() => controller.startActiveMission())).toBe(true)
+      expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
       expect(profile.activeMission).toMatchObject({ id: mission.id, targetCampId: campId, phase: 'MARCHING', deadTargetActorIds: mission.deadTargetActorIds })
       expect(controller.missionBandits.map(n => n.combatantId)).toEqual(mission.targetActorIds.slice(1))
       const moveLeader = (point: THREE.Vector3) => { captain.group.position.copy(point); player.group.position.copy(point); controller.updateFlow(.1, 0) }
@@ -146,7 +146,7 @@ describe('Career Town outskirts', () => {
       expect(controller.startReturning()).toBe(true)
       // Reload RETURNING on the new route without reopening the encounter.
       profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-      expect(completeNpcDeployment(() => controller.startActiveMission())).toBe(true)
+      expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
       expect(controller.phase).toBe('RETURNING'); expect(controller.remainingEnemies).toBe(0)
       moveLeader((controller as any).assemblyPoint())
       expect(controller.returnComplete).toBe(true)

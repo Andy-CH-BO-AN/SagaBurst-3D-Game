@@ -18,7 +18,7 @@ import type { Player } from '../src/player/Player'
 import { gameplayNpcSpawns } from '../src/world/NpcSpawnScheduler'
 import { TownEvent } from '../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../src/town/TownHRLayout'
-import { advanceNpcFrame } from './helpers/npcSpawnFrames'
+import { advanceNpcFrame, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
 import { createGameTestFixture } from './helpers/gameFixture'
 
 const observed = vi.hoisted(() => ({ constructors: [] as string[] }))
@@ -59,7 +59,12 @@ vi.mock('../src/world/Mount', async original => {
 vi.mock('../src/world/WeaponPickup', () => ({ WeaponPickup: class { dispose() {} } }))
 vi.mock('../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} } }))
 const dispose: (() => void)[] = []
-afterEach(() => { dispose.splice(0).reverse().forEach(fn => fn()); vi.unstubAllGlobals(); observed.constructors.length = 0 })
+afterEach(() => {
+  dispose.splice(0).reverse().forEach(fn => fn())
+  expect(gameplayNpcSpawns.pending).toBe(0)
+  vi.unstubAllGlobals()
+  observed.constructors.length = 0
+})
 
 function gameFixture() {
   const game = createGameTestFixture({
@@ -79,7 +84,7 @@ function loadingFrames() {
   const callbacks: FrameRequestCallback[] = []
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
   return async () => {
-    const before = observed.constructors.length, frame = advanceNpcFrame()
+    const before = observed.constructors.length, frame = advanceNpcFrame(gameplayNpcSpawnDriver)
     for (const callback of callbacks.splice(0)) callback(frame)
     await Promise.resolve(); await Promise.resolve()
     gameplayNpcSpawns.tick(frame)

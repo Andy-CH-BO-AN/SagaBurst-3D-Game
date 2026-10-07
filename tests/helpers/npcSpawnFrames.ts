@@ -27,29 +27,23 @@ export class NpcSpawnTestDriver {
   }
 }
 
-const drivers = new WeakMap<NpcSpawnScheduler, NpcSpawnTestDriver>()
-function driverFor(scheduler: NpcSpawnScheduler): NpcSpawnTestDriver {
-  let driver = drivers.get(scheduler)
-  if (!driver) { driver = new NpcSpawnTestDriver(scheduler); drivers.set(scheduler, driver) }
-  return driver
-}
+/** Explicit integration driver for suites that exercise controllers using the production singleton. */
+export const gameplayNpcSpawnDriver = new NpcSpawnTestDriver(gameplayNpcSpawns)
 
-/** Legacy convenience defaults to the integration singleton; isolated tests should pass a driver. */
-export function advanceNpcFrame(scheduler: NpcSpawnScheduler = gameplayNpcSpawns): number {
-  return driverFor(scheduler).advanceFrame()
+export function advanceNpcFrame(driver: NpcSpawnTestDriver): number {
+  return driver.advanceFrame()
 }
 
 /** Existing gameplay regressions operate after loading; simulate actual distinct render frames first. */
-export function completeNpcDeployment<T>(operation: () => T, scheduler: NpcSpawnScheduler = gameplayNpcSpawns): T {
-  return driverFor(scheduler).complete(operation)
+export function completeNpcDeployment<T>(operation: () => T, driver: NpcSpawnTestDriver): T {
+  return driver.complete(operation)
 }
 
-export function drainNpcSpawns(scheduler: NpcSpawnScheduler = gameplayNpcSpawns): void {
-  driverFor(scheduler).drain()
+export function drainNpcSpawns(driver: NpcSpawnTestDriver): void {
+  driver.drain()
 }
 
-export function installNpcLoadingFrames(scheduler: NpcSpawnScheduler = gameplayNpcSpawns): void {
-  const driver = driverFor(scheduler)
+export function installNpcLoadingFrames(driver: NpcSpawnTestDriver): void {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     const timestamp = driver.advanceFrame()
     callback(timestamp)

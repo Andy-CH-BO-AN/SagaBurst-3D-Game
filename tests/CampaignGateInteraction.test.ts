@@ -1,4 +1,4 @@
-import { advanceNpcFrame } from './helpers/npcSpawnFrames'
+import { advanceNpcFrame, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Game } from '../src/Game'
@@ -49,7 +49,7 @@ describe('campaign defender gate input', () => {
     pressG()
     expect(gate.state).toBe('closed')
     expect(outpost.breachController.breached).toBe(false)
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     expect(game.campaignSpawnQueueIndex).toBe(1)
     expect(game.campaignSpawnWave).toBe('attackers')
     pressG()
@@ -67,7 +67,7 @@ describe('campaign defender gate input', () => {
   it('does not unlock when spawn throws before creating an attacker', () => {
     const { game, pressG, outpost } = setup()
     game._spawnNpc.mockImplementation(() => { throw new Error('spawn failed') })
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     expect(game.campaignSpawnBatch.status).toBe('failed')
     expect(game.campaignSpawnBatch.error).toEqual(new Error('spawn failed'))
     expect(game.campaignSpawnQueueIndex).toBe(0)
@@ -77,7 +77,7 @@ describe('campaign defender gate input', () => {
 
   it.each(['player', 'npc', 'mount'])('cannot close the gate through a living %s', actor => {
     const { game, outpost, pressG } = setup()
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     pressG()
     const position = outpost.gateController.collisionBox.getCenter(new THREE.Vector3())
     if (actor === 'player') game.player.combatPosition.copy(position)
@@ -90,7 +90,7 @@ describe('campaign defender gate input', () => {
 
   it('ignores held keys, equipment menus, dead players and spectators', () => {
     const { game, outpost, pressG } = setup()
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     pressG(true)
     expect(outpost.gateController.state).toBe('closed')
     game.equipmentUI.visible = true
@@ -108,7 +108,7 @@ describe('campaign defender gate input', () => {
 
   it('never restores a destroyed gate with G', () => {
     const { game, outpost, pressG } = setup()
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     outpost.gate.destroy()
     pressG()
     expect(outpost.gateController.state).toBe('destroyed')

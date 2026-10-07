@@ -1,6 +1,6 @@
 import { followLocalOffset } from '../src/battle/FollowOrder'
 import { NpcSpawnScheduler } from '../src/world/NpcSpawnScheduler'
-import { completeNpcDeployment } from './helpers/npcSpawnFrames'
+import { completeNpcDeployment, gameplayNpcSpawnDriver } from './helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { PERSONAL_SQUAD_ID, squadCommandTarget } from '../src/battle/CommandTarget'
@@ -85,7 +85,7 @@ describe('Career personal mission membership and authority', () => {
     const legacy = owned(); legacy.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     expect(parseCareerProfile(legacy)?.activeMission?.personalSquad).toBeUndefined()
     const h = runtimeHarness(); h.profile.activeMission = legacy.activeMission
-    expect(completeNpcDeployment(() => h.runtime.follow())).toBe(false); expect(h.spawn).not.toHaveBeenCalled()
+    expect(completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)).toBe(false); expect(h.spawn).not.toHaveBeenCalled()
   })
 
   it.each([1, 2, 3] as const)('keeps Outpost %s official/enemy/reinforcement counts identical with zero or thirty private members', stage => {
@@ -144,27 +144,27 @@ describe('Career personal mission membership and authority', () => {
 
 describe('Private deployment, wounds and refit lifecycle', () => {
   it('keeps the same wounded instances, command and position when accepting in Town', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow())
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)
     const [actor] = h.runtime.actors; actor.restoreCombatHealth(17); actor.restoreCombatAmmo(2)
     actor.shield.shieldImpactRemaining = 7; actor.setTacticalOrder('attack')
     const position = actor.combatPosition.clone(), mission = h.accept()
     expect(h.runtime.actors[0]).toBe(actor); expect(actor.combatPosition).toEqual(position)
     expect(mission.personalSquad!.members[actor.combatantId]).toMatchObject({ hp: 17, ammo: 2, shieldImpact: 7, order: 'attack' })
-    completeNpcDeployment(() => h.runtime.follow()); expect(h.spawn).toHaveBeenCalledTimes(3)
+    completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); expect(h.spawn).toHaveBeenCalledTimes(3)
   })
 
   it('resets old-map context to Defend, while same-map reload restores command, position and lost mounts', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); h.accept()
     const [soldier, captain, ranger] = h.runtime.actors
     soldier.restoreCombatHealth(11); captain.restoreCombatHealth(22); ranger.restoreCombatAmmo(1)
     captain.mount!.takeDamage(999); captain.dismountFromMount()
     soldier.assignFormationTarget(-55, new THREE.Vector3(3, 0, 9), new THREE.Vector3(1, 0, 0))
     const saved = h.runtime.checkpoint()!, copy = clonePersonalMission(saved)
-    const reload = h.restore(); completeNpcDeployment(() => reload.restoreMission(saved))
+    const reload = h.restore(); completeNpcDeployment(() => reload.restoreMission(saved), gameplayNpcSpawnDriver)
     expect(reload.actors[0]).toMatchObject({ hp: 11, tacticalOrder: 'formation', formationCommandId: -55 })
     expect(reload.actors[0].combatPosition).toEqual(soldier.combatPosition)
     expect(reload.actors[1].mount).toBeNull(); expect(reload.mounts[0].dead).toBe(true)
-    const outpost = h.restore('outpost:new', false); completeNpcDeployment(() => outpost.restoreMission(copy))
+    const outpost = h.restore('outpost:new', false); completeNpcDeployment(() => outpost.restoreMission(copy), gameplayNpcSpawnDriver)
     expect(outpost.actors.every(actor => actor.tacticalOrder === 'defend' && actor.formationCommandId === null)).toBe(true)
     expect(outpost.actors.map(actor => actor.hp)).toEqual([11, 22, 100])
     expect(outpost.actors[2].combatAmmo).toBe(1); expect(outpost.actors[1].mount).toBeNull()
@@ -177,7 +177,7 @@ describe('Private deployment, wounds and refit lifecycle', () => {
   })
 
   it('never revives dead or exited members by Follow, Dismiss, reload or a later hire', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); h.accept()
     h.runtime.actors[0].restoreCombatHealth(0)
     expect(h.runtime.aliveCombatants).toBe(2)
     h.runtime.dismiss(); expect(h.runtime.aliveCombatants).toBe(2)
@@ -186,35 +186,35 @@ describe('Private deployment, wounds and refit lifecycle', () => {
     const saved = h.runtime.checkpoint()!
     expect(saved.members['personal:test-0'].status).toBe('dead')
     expect(saved.members['personal:test-1'].status).toBe('exited')
-    expect(completeNpcDeployment(() => h.runtime.follow())).toBe(false)
+    expect(completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)).toBe(false)
     h.profile.personalSquad!.members.push({ id: 'personal:later', type: 'soldier' })
-    const reloaded = h.restore(); completeNpcDeployment(() => reloaded.restoreMission(saved))
-    expect(reloaded.actors).toHaveLength(0); expect(completeNpcDeployment(() => reloaded.follow())).toBe(false)
+    const reloaded = h.restore(); completeNpcDeployment(() => reloaded.restoreMission(saved), gameplayNpcSpawnDriver)
+    expect(reloaded.actors).toHaveLength(0); expect(completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver)).toBe(false)
     expect(h.spawn).toHaveBeenCalledTimes(3)
   })
 
   it('preserves slow-return wounds until explicit Dismiss reaches HR; direct return refits immediately', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); h.accept()
     const actors = [...h.runtime.actors]
     actors[0].restoreCombatHealth(0); actors[1].restoreCombatHealth(9); actors[2].restoreCombatAmmo(2)
     actors[1].shield.shieldImpactRemaining = 4; actors[1].mount!.takeDamage(999); actors[1].dismountFromMount()
     h.profile.activeMission = undefined; h.runtime.endMission(false); h.runtime.updateLifecycle()
     expect(h.runtime.actors).toEqual(actors)
-    completeNpcDeployment(() => h.runtime.follow()); expect(h.spawn).toHaveBeenCalledTimes(3)
+    completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); expect(h.spawn).toHaveBeenCalledTimes(3)
     expect(actors[1].hp).toBe(9); expect(actors[2].combatAmmo).toBe(2)
     const saved = h.runtime.checkpoint()!; h.profile.personalSquadRuntime = saved
     expect(parseCareerProfile(h.profile)!.personalSquadRuntime!.members['personal:test-1']).toMatchObject({ hp: 9, mount: { hp: 0 } })
     h.runtime.dismiss()
     for (const actor of actors.slice(1)) (actor as any).formation.reached = true
     h.runtime.updateLifecycle(); expect(h.runtime.state).toBe('RESERVE')
-    completeNpcDeployment(() => h.runtime.follow()); expect(h.runtime.actors.every(actor => !actor.dead && actor.hp === 100 && actor.combatAmmo === 30)).toBe(true)
+    completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); expect(h.runtime.actors.every(actor => !actor.dead && actor.hp === 100 && actor.combatAmmo === 30)).toBe(true)
     expect(h.runtime.actors[1].mount!.currentHp).toBe(100)
     h.runtime.endMission(true); expect(h.runtime.actors).toHaveLength(0); expect(h.runtime.state).toBe('RESERVE')
     expect(h.profile.personalSquad!.members).toHaveLength(3)
   })
 
   it('holds Follow at the dead Player last position without acquiring an official Captain', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); h.accept()
     h.player.group.position.set(100, 0, 120); h.runtime.updateLifecycle(); h.player.dead = true
     h.runtime.updateLifecycle()
     for (const actor of h.runtime.actors) {
@@ -224,15 +224,15 @@ describe('Private deployment, wounds and refit lifecycle', () => {
     }
   })
   it('allows the next deployment after mission end when Dismiss already completed HR return during the mission', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); h.accept()
     h.runtime.actors[0].restoreCombatHealth(0)
     h.runtime.dismiss()
     for (const actor of h.runtime.actors.slice(1)) (actor as any).formation.reached = true
     h.runtime.updateLifecycle()
-    expect(h.runtime.state).toBe('RESERVE'); expect(completeNpcDeployment(() => h.runtime.follow())).toBe(false)
+    expect(h.runtime.state).toBe('RESERVE'); expect(completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)).toBe(false)
     h.profile.activeMission = undefined; h.runtime.endMission(false)
     expect(h.runtime.checkpoint()).toBeUndefined()
-    expect(completeNpcDeployment(() => h.runtime.follow())).toBe(true)
+    expect(completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)).toBe(true)
     expect(h.runtime.actors).toHaveLength(3)
     expect(h.runtime.actors.every(actor => !actor.dead && actor.hp === 100)).toBe(true)
   })
@@ -243,7 +243,7 @@ describe('Command merit without personal-stat or skill pollution', () => {
     const h = runtimeHarness(), mission = h.accept(), events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
     const field = Object.assign(Object.create(TownDefenseController.prototype), { tracker }) as TownDefenseController
-    completeNpcDeployment(() => h.runtime.follow())
+    completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver)
     for (const actor of h.runtime.actors) field.registerPersonalActor(actor)
     h.runtime.actors[0].restoreCombatHealth(0)
     h.runtime.dismiss()
@@ -254,7 +254,7 @@ describe('Command merit without personal-stat or skill pollution', () => {
   })
 
   it.each(['melee', 'projectile', 'mount-impact', 'siege'] as const)('credits true private %s damage exactly once, rejects official/roaming sources and survives reload', method => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); const mission = h.accept(); mission.phase = 'ENGAGING'
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); const mission = h.accept(); mission.phase = 'ENGAGING'
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
     const source = createNpcCombatActorRef(h.runtime.actors[1]), target = { targetId: mission.targetActorIds[0], targetType: 'npc' as const, name: 'Enemy' }
@@ -280,7 +280,7 @@ describe('Command merit without personal-stat or skill pollution', () => {
   })
 
   it('credits a gate destruction once and rejects owned structures, without adding lifetime breaches', () => {
-    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow()); const mission = h.accept()
+    const h = runtimeHarness(); completeNpcDeployment(() => h.runtime.follow(), gameplayNpcSpawnDriver); const mission = h.accept()
     mission.kind = 'enemy-town-assault'; mission.phase = 'ATTACKING'
     const events = new CombatEventStream(), tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
     const source = createNpcCombatActorRef(h.runtime.actors[1])

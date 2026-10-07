@@ -1,4 +1,4 @@
-import { advanceNpcFrame } from '../../tests/helpers/npcSpawnFrames'
+import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../../tests/helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
@@ -143,7 +143,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game._queueDefenseCampaignWave('reinforcement')).toBe(50)
     expect(game._queueDefenseCampaignWave('reinforcement')).toBe(0)
     for (let frame = 1; frame <= 50; frame++) {
-      advanceNpcFrame()
+      advanceNpcFrame(gameplayNpcSpawnDriver)
       expect(game._spawnNpc).toHaveBeenCalledTimes(frame)
     }
 
@@ -173,7 +173,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     const game = createGameFixture(launch, profile)
 
     expect(game._queueDefenseCampaignWave('reinforcement')).toBe(50)
-    for (let frame = 0; frame < 50; frame++) advanceNpcFrame()
+    for (let frame = 0; frame < 50; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
 
     const calls = game._spawnNpc.mock.calls as unknown as Array<[NpcSpawnSpec]>
     expect(calls.map(([spec]) => spec.actorId)).toEqual(plan.npcSpecs.map(spec => spec.actorId))
@@ -214,7 +214,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
 
     game._resumeCareerVeteranReinforcementIfNeeded()
     expect(game.campaignSpawnQueue).toHaveLength(50)
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     game._updateDefenseCampaign(0.1)
 
     expect(game.npcs.at(-1)).toMatchObject({ combatantId: deadActorId, dead: true })
@@ -223,7 +223,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', battleFinished: false })
     expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
 
-    while (game.campaignSpawnWave === 'reinforcement') advanceNpcFrame()
+    while (game.campaignSpawnWave === 'reinforcement') advanceNpcFrame(gameplayNpcSpawnDriver)
     const rehydrated = game.npcs.filter((npc: any) => npc.characterFaction === 'roman' && npc.combatantId?.startsWith('arrived-rescue'))
     expect(rehydrated.filter((npc: any) => !npc.dead)).toHaveLength(49)
     rehydrated.forEach((npc: any) => { npc.dead = true })
@@ -267,11 +267,11 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.campaignSpawnQueue).toHaveLength(50)
     expect(game.defenseCampaignRuntime.getSnapshot()).toMatchObject({ phase: 'assault', reinforcementTriggered: true })
 
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     game._updateDefenseCampaign(0.1)
     expect(game.campaignSpawnQueueIndex).toBe(1)
     defenders.forEach((npc: any) => { npc.dead = true })
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     game._updateDefenseCampaign(0.1)
 
     expect(game.campaignSpawnQueueIndex).toBe(2)
@@ -306,7 +306,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     game._showDefenseCampaignResult = vi.fn()
 
     game._enqueueDefenseCampaignRemainder()
-    advanceNpcFrame()
+    advanceNpcFrame(gameplayNpcSpawnDriver)
     game._updateDefenseCampaign(0.1)
 
     expect(game.campaignSpawnQueueIndex).toBe(1)
