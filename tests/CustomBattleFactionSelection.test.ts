@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import {
   BattleConfig,
   getDefaultBattleConfig,
@@ -20,6 +22,8 @@ import { BattleSetupUI } from '../src/ui/BattleSetupUI'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
 import { ThirdPersonCamera } from '../src/camera/ThirdPersonCamera'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Player Faction Selection (Viking / Roman)', () => {
   describe('A. BattleConfig Domain & Validation', () => {

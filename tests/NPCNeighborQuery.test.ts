@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { describe, it, expect, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { SpatialGrid, type SpatialEntity } from '../src/world/SpatialGrid'
 import { NPC, Faction, AIType, AIState, NPC_SEPARATION_RADIUS, NPC_NEIGHBOR_QUERY_RADIUS } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
@@ -17,6 +19,8 @@ class TestEntity implements SpatialEntity {
     return this.pos
   }
 }
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('SpatialGrid getNearbyInto & Reusable Buffer', () => {
   it('only returns entities within radius and getNearby delegates correctly', () => {

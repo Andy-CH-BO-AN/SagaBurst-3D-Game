@@ -1,11 +1,15 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { Mount, MountType } from '../src/world/Mount'
 import {
   PLAYABLE_WORLD_BOUND,
   TERRAIN_SIZE,
   clampToPlayableWorld,
 } from '../src/world/Terrain'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Playable world boundary', () => {
   it('uses most of the 640m terrain while preserving a 20m edge margin', () => {

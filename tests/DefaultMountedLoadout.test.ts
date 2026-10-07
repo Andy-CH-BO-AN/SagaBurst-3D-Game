@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import * as THREE from 'three'
 import { InventoryManager } from '../src/rpg/InventoryManager'
 import { DEFAULT_SAVE, PlayerSaveData, SaveManager } from '../src/save/SaveManager'
@@ -8,6 +10,8 @@ import { Mount, MountState, MountType } from '../src/world/Mount'
 import { VIKING_PLAYER_SPAWN } from '../src/battle/BattleSpawner'
 import { reconcileLoadedMounts, resolveMountSpawnPosition, resolveMountSpawnY } from '../src/Game'
 import { Player } from '../src/player/Player'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Default Mounted Loadout & Inventory', () => {
   let inventory: InventoryManager

@@ -1,8 +1,12 @@
 import * as THREE from 'three'
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { NPC, Faction, AIType, AIState } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('NPC Optimization & Semantics Preservation', () => {
   afterEach(() => {

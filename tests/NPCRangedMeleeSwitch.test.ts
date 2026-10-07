@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { AIState, AIType, Faction, NPC } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
@@ -11,6 +13,8 @@ import {
   LATERAL_SPEED_MULTIPLIER,
   getDirectionalMovementFromVector,
 } from '../src/movement/DirectionalMovement'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
   let scene: THREE.Scene

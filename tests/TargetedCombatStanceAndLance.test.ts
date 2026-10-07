@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import { InventoryManager } from '../src/rpg/InventoryManager'
 import { Player } from '../src/player/Player'
 import { NPC, Faction, AIType } from '../src/world/NPC'
@@ -47,6 +49,8 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
 
   return { scene, player, inventory, camera, tpCamera, ui, sounds, update }
 }
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
   it('Selecting Bow stows Shield; RMB enters aim and camera zooms', () => {

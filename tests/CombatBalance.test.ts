@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import {
   COMBAT_BALANCE,
   getRangedCombatKind,
@@ -23,6 +25,8 @@ import { resolveMountImpacts, checkMountImpact } from '../src/combat/MountImpact
 import { WEAPONS } from '../src/rpg/WeaponDatabase'
 import { getUnitCombatProfile } from '../src/battle/BattleConfig'
 import { Game } from '../src/Game'
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('CombatBalance SSOT & Pure Functions', () => {
   describe('A. Balance Constants', () => {

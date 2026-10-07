@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { beforeAll } from 'vitest'
+import { installCorgiTestAsset } from './helpers/corgiAsset'
 import * as THREE from 'three'
 import { Player } from '../src/player/Player'
 import { Mount, MountType, MountState } from '../src/world/Mount'
@@ -28,6 +30,8 @@ function updatePlayer(player: Player, dt: number, input: PlayerInput, cameraYaw 
   const soundManager = { playSwing: () => {}, playBowRelease: () => {}, playHit: () => {} } as any
   player.update(dt, input, cameraYaw, cameraAimPoint, obstacles, staminaBar, quiverUI, soundManager)
 }
+
+beforeAll(() => installCorgiTestAsset())
 
 describe('Mounted Initial Heading & Movement Regression Tests', () => {
   let scene: THREE.Scene
