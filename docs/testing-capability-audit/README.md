@@ -4,7 +4,7 @@
 
 盤點階段已建立全 repo runner case inventory、能力責任草案、去重矩陣、目錄與 runner 遷移計畫、PR 工作包，以及 `tests/AGENTS.md`。該階段只新增文件與盤點資料；後續實作進度另見下方遷移紀錄。
 
-**完整收集不等於完成所有語意等價審查。** 1,857 個宣告都保留了 body、assertions、參數展開及依賴證據；其中 162 個已有人工 body 審閱，89 個另追過相關 production 接線。其餘 1,695 個的能力標籤與去向是待覆核提案。沒有整 case 的等價刪除證明，因此目前沒有 MERGE/REMOVE 提案。後續依共用能力處理，不依 mission 或歷史 PR 逐檔清理。
+**完整收集不等於完成所有語意等價審查。** 1,857 個宣告都保留了 body、assertions、參數展開及依賴證據；其中 162 個已有人工 body 審閱，89 個另追過相關 production 接線。其餘 1,695 個的能力標籤與去向是待覆核提案。盤點階段沒有整 case 的等價刪除證明，當時未提出 runtime MERGE/REMOVE。原 inventory 與下方基準計數仍是該 SHA 快照；後續 #224 資產 review 的逐案決定（含 art-only 移除）以 [matrix](deduplication-matrix.md) 為準，不回寫原始 body／baseline 證據。後續依共用能力處理，不依 mission 或歷史 PR 逐檔清理。
 
 ## 實作進度與目前路徑
 

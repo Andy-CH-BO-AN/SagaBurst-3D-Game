@@ -1,6 +1,6 @@
 # 後續工作包：依能力與依賴排序
 
-這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。已實作的案例／assertion 刪除目前均為 **0**。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴與人工 QA 判定證據。
+這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。Runtime 等價去重的案例刪除仍為 **0**；依資產 review 已逐案移除 **4 個 art-only cases**（Humanoid 權重、uniform scale／payload size），判定與人工 QA 場景見 matrix J4a–J4d。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴與人工 QA 判定證據。
 
 ## PR 整合方式（使用者指定）
 
