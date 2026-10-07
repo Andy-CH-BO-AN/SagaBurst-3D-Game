@@ -1,12 +1,15 @@
 import * as THREE from 'three'
 import type { CorgiVisual } from '../../src/world/CorgiVisual'
+import type { BlackCatVisual } from '../../src/world/BlackCatVisual'
 
-type GameplayCorgiVisual = Pick<CorgiVisual,
+type GameplayQuadrupedVisual = Pick<CorgiVisual,
   'root' | 'saddleSeat' | 'riderPelvisSeat' | 'lod' | 'fitRider' |
-  'setLocomotion' | 'playOnce' | 'playStudioClip' | 'update' | 'dispose'>
+  'setLocomotion' | 'playOnce' | 'playStudioClip' | 'update' | 'dispose'> &
+  Pick<BlackCatVisual, 'root' | 'saddleSeat' | 'lod' |
+    'setLocomotion' | 'playOnce' | 'playStudioClip' | 'update' | 'dispose'>
 
 /** Render boundary for gameplay cases; does not validate assets, skinning or animation. */
-export class GameplayCorgiVisualDouble implements GameplayCorgiVisual {
+export class GameplayQuadrupedVisualDouble implements GameplayQuadrupedVisual {
   readonly root = new THREE.Group()
   readonly saddleSeat = new THREE.Object3D()
   readonly riderPelvisSeat = new THREE.Object3D()

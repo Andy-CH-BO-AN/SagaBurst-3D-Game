@@ -1,8 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { townPatrolRoute, townPatrolDeparture } from '../src/town/TownPatrolRoute'
 import { TOWN_CITY } from '../src/town/TownLayout'
 import { PLAYABLE_WORLD_BOUND, getTerrainHeight, isObstaclePathClear } from '../src/world/Terrain'
-import { createTownPatrolFixture } from './helpers/townPatrolFixture'
+import { installTownPatrolFixtureEnvironment } from './helpers/townPatrolFixture'
+
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
+const createTownPatrolFixture = installTownPatrolFixtureEnvironment()
+
 
 describe('Town patrol route and navigation contracts', () => {
   it('closes an exterior loop inside playable bounds, ten to fifteen metres outside the city', () => {
