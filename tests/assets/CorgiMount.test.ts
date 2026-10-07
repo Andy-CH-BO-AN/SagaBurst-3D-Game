@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
-import { CorgiVisual, CORGI_DIMENSIONS, CORGI_RIDER_PELVIS_CLEARANCE } from '../src/world/CorgiVisual'
-import { Mount, MountState, MountType, mountTypeFromSave } from '../src/world/Mount'
+import { installCorgiTestAsset } from '../helpers/corgiAsset'
+import { CorgiVisual, CORGI_DIMENSIONS, CORGI_RIDER_PELVIS_CLEARANCE } from '../../src/world/CorgiVisual'
+import { Mount, MountState, MountType, mountTypeFromSave } from '../../src/world/Mount'
 
 describe('reference source corgi mount', () => {
   let restSeat: THREE.Vector3

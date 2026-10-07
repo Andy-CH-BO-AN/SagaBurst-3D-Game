@@ -16,7 +16,7 @@
 | `src/debug/HumanoidStudioPlayback.ts` | 實際 mountKind、武器模型與正式動畫路徑；預覽切換不能替代 Player／NPC 的共享修正 |
 | `src/debug/MountStudioSeatContact.ts`、`src/world/CorgiSeatContact.ts` | 前者是黑貓 DEV 校準；後者是柯基共用座面貼合。依各自呼叫端與已校準騎士判斷適用範圍 |
 | `src/Game.ts`、`src/main.ts`、`src/ui/MainMenuUI.ts` | 模型 studio、URL 解析、試騎入口與騎士同步；只改新增種類需要的入口 |
-| `tests/BlackCatMount.test.ts`、`tests/CorgiMount.test.ts`、`tests/EquipmentPose.test.ts` | 接點世界座標、地面、實例互不影響、studio 播放、倒地重播與跳躍狀態 |
+| `tests/assets/BlackCatMount.test.ts`、`tests/assets/CorgiMount.test.ts`、`tests/EquipmentPose.test.ts` | 接點世界座標、地面、實例互不影響、studio 播放、倒地重播與跳躍狀態 |
 
 新增物種時，追蹤完整的種類流程：輸入／選單 → MountType → 具體 visual → rider pose → studio／實際遊戲。檢查存檔與 fallback 的顯式映射。不要只加入 enum 就讓未辨識種類落入柯基或馬的預設分支，也不要為此無關地改速度、HP、戰鬥或物理。
 

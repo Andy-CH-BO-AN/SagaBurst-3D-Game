@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { Mount, MountState, MountType } from '../src/world/Mount'
-import { installBlackCatTestAsset } from './helpers/blackCatAsset'
+import { Mount, MountState, MountType } from '../../src/world/Mount'
+import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
 
 describe('black cat animation during terrain movement', () => {
   beforeAll(installBlackCatTestAsset)

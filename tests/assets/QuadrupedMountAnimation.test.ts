@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { BlackCatVisual } from '../src/world/BlackCatVisual'
-import { CorgiVisual } from '../src/world/CorgiVisual'
-import { Mount, MountState, MountType } from '../src/world/Mount'
-import { QUADRUPED_STUDIO_CLIPS, type QuadrupedAnimationState } from '../src/world/QuadrupedMountAnimation'
-import { installBlackCatTestAsset } from './helpers/blackCatAsset'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { BlackCatVisual } from '../../src/world/BlackCatVisual'
+import { CorgiVisual } from '../../src/world/CorgiVisual'
+import { Mount, MountState, MountType } from '../../src/world/Mount'
+import { QUADRUPED_STUDIO_CLIPS, type QuadrupedAnimationState } from '../../src/world/QuadrupedMountAnimation'
+import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
+import { installCorgiTestAsset } from '../helpers/corgiAsset'
 
 const species = [
   { name: 'black cat', prefix: 'cat', type: MountType.BLACK_CAT, runSpeed: 13.2, Visual: BlackCatVisual, load: installBlackCatTestAsset },
