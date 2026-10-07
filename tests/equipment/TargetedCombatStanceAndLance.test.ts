@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { Player } from '../../src/player/Player'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
@@ -50,7 +48,6 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
   return { scene, player, inventory, camera, tpCamera, ui, sounds, update }
 }
 
-beforeAll(() => installCorgiTestAsset())
 
 describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
   it('Selecting Bow stows Shield; RMB enters aim and camera zooms', () => {
@@ -414,6 +411,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
   it('uses the same aim direction on a mounted Player while moving the camera to and from eye level', () => {
     const h = createPlayerHarness({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null })
     const mount = new Mount(h.scene, MountType.CORGI, 0, 0, 0)
+    onTestFinished(() => mount.dispose())
     h.player.mountVehicle(mount)
     h.update(input())
     const beforeDirection = h.tpCamera.getAimDirection(new THREE.Vector3())
@@ -588,6 +586,11 @@ import { CharacterEquipmentPose } from '../../src/world/CharacterEquipmentPose'
 import { applyEquipmentAttachment, calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../../src/world/EquipmentAttachmentContract'
 import { createEquipmentSocketProxies } from '../../src/world/HumanoidEquipmentSockets'
 import type { HandGripFrame } from '../../src/world/BowAttachmentContract'
+
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 async function createHumanoidFixture(faction: 'roman' | 'viking') {
   const base = `public/models/characters/v2/${faction}`
