@@ -16,16 +16,13 @@ import type { PlayerInput } from '../player/PlayerInput'
 import { InventoryManager } from '../rpg/InventoryManager'
 import { Game } from '../Game'
 import { calculateMerit } from './MeritCalculator'
+import { MemoryStorage } from '../../tests/helpers/memoryStorage'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,
     completedOutpostStages: [1, 2, 3], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }
 }
 function launch(faction: 'roman' | 'viking' = 'roman') { return createCareerOutpostLaunch(acceptCareerOutpostRelief(ready(faction), 'relief')!) }
-function storage() {
-  const values = new Map<string, string>()
-  return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } } as Storage
-}
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Career relief unlock and owned mounts', () => {
@@ -109,7 +106,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
   it('persists the charge checkpoint and resumes both squads without repeating voice or march', () => {
     const profile = acceptCareerOutpostRelief(ready(faction), 'reload')!
     profile.activeOutpostMission!.reliefPhase = 'charge'
-    const store = new CareerProfileStore(storage()); expect(store.save(profile)).toBe(true)
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true)
     const config = createCareerOutpostLaunch(store.load()!)
     const plan = createCareerReliefSpawnPlan(config)
     const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,
@@ -131,7 +128,7 @@ describe.each(['roman', 'viking'] as const)('%s relief battlefield and march', f
   })
   it.each(['Captain', 'Maki'])('saves Charge when %s dies beyond 50m and reloads without replaying march or voice', leader => {
     const profile = acceptCareerOutpostRelief(ready(faction), 'leader-death')!
-    const store = new CareerProfileStore(storage()); expect(store.save(profile)).toBe(true)
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true)
     const config = createCareerOutpostLaunch(profile)
     const makeRescue = (currentConfig: typeof config) => createCareerReliefSpawnPlan(currentConfig).npcSpecs.filter(spec => spec.squadId).map(spec => ({
       ...spec, dead: false, combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
@@ -246,10 +243,10 @@ describe('Relief result and Game integration', () => {
     expect(failure.update(1, combat)).toEqual([])
   })
   it.each(['victory', 'defeat'] as const)('settles %s only once, persists dead-player stats, and clears active relief on return', outcome => {
-    const persistence = storage(), store = new CareerProfileStore(persistence), profile = acceptCareerOutpostRelief(ready(), 'relief')!
+    const persistence = new MemoryStorage(), store = new CareerProfileStore(persistence), profile = acceptCareerOutpostRelief(ready(), 'relief')!
     store.save(profile)
     vi.stubGlobal('window', { localStorage: persistence, location: { pathname: '/game/', href: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    const session = storage(); vi.stubGlobal('sessionStorage', session)
+    const session = new MemoryStorage(); vi.stubGlobal('sessionStorage', session)
     const stats = { player: { damageDealt: 500, damageTaken: 100, kills: 5, survived: false, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }, squads: [] }
     const config = createCareerOutpostLaunch(profile)
     let enemies = 60, allies = 49

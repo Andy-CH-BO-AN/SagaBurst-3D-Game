@@ -6,6 +6,7 @@ import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProf
 import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../src/career/CareerOutpostMission'
 import { availableRecruitMissions, isEnemyTownAssaultUnlocked } from '../src/career/CareerMissionCatalog'
 import { acceptEnemyTownAssault, ENEMY_TOWN_ASSAULT_ID } from '../src/career/EnemyTownAssault'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 const stats = { player: { damageDealt: 200, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }, squads: [] }
 function readyForRelief(faction: 'roman' | 'viking' = 'roman') {
@@ -50,9 +51,7 @@ describe('Enemy Town Assault canonical Relief prerequisite', () => {
     })
   }
   it('preserves the unlock through save/load and subsequent Relief defeat', () => {
-    const values = new Map<string, string>()
-    const store = new CareerProfileStore({ getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => { values.set(key, value) } } as Storage)
+    const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(settleRelief('victory'))).toBe(true)
     const loaded = store.load()!
     expect(listed(loaded)).toBe(true)
