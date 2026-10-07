@@ -184,27 +184,10 @@ export class TownWorld {
   }
   private cavalryTrainingGround(): void {
     const field = TOWN_CAVALRY_FIELD
-    const ground = this.mat(this.faction === 'roman' ? 0x92856a : 0xa5aaa5)
-    // Keep the visible drill lanes on the exact same terrain surface used by
-    // actor physics. Polygon offset prevents z-fighting without raising the
-    // visual floor into boots or horse hooves.
-    ground.polygonOffset = true
-    ground.polygonOffsetFactor = -1
-    ground.polygonOffsetUnits = -1
-    // Dirt/snow drill lanes are independent of the public stone road network.
+    // Use the shared terrain directly for the training field. The old visual
+    // lane meshes added no gameplay collision or mission semantics and could
+    // cut through actors on the undulating terrain.
     for (const x of [35, 70, 105]) {
-      for (let row = 0; row < 4; row++) {
-        const z = -90 + row * 8
-        // PlaneGeometry defaults to a single quad. That only samples the four
-        // corners and creates a huge sloped sheet across the undulating terrain.
-        // Match the road mesh's ~0.5m sampling density so every drill lane
-        // follows the actual terrain surface instead of cutting through actors.
-        const lane = this.geo(new THREE.PlaneGeometry(29, 6, 58, 12)); lane.rotateX(-Math.PI / 2)
-        const positions = lane.attributes.position
-        for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)))
-        lane.computeVertexNormals()
-        const mesh = new THREE.Mesh(lane, ground); mesh.position.set(x + 12, 0, z); mesh.receiveShadow = true; this.root.add(mesh)
-      }
       this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
       const sign = new THREE.Group(); sign.position.set(x + 12, getTerrainHeight(x + 12, -101), -101)
       this.root.add(sign)
