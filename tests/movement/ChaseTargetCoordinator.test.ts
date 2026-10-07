@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { ChaseTargetCoordinator } from './ChaseTargetCoordinator'
-import { Faction, type NPC } from '../world/NPC'
-import { SpatialGrid } from '../world/SpatialGrid'
+import { ChaseTargetCoordinator } from '../../src/navigation/ChaseTargetCoordinator'
+import { Faction, type NPC } from '../../src/world/NPC'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 function npc(
   x: number,

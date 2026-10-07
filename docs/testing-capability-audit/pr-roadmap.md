@@ -27,6 +27,10 @@
 | P11 定義/資產/環境/audio/UI/observability | 可依owner獨立進行；不要等全任務整理完 | Campaign/mission definitions、GLB/rig/LOD/socket/shadow、CareerAudioRuntime/MissionVoice、UI/PointerLock、ScenarioE/F/GHI、profiler | 不丟model-specific regression；素材讀取/影像型驗收與CPU assertion不同；resize fake-only case要有真實replacement | test-only優先；按capability拆多PR，SHARE loader/DOM/audio fixtures，不一包清完所有assets；V，資產路徑或browser input改動加對應smoke/瀏覽器驗證 |
 | P12 Release / standalone QA promotion | Node移動依P1；manual QA先補環境證據 | tests/release3檔、smoke入口；從standalone清單選穩定QA移tests/integration/browser或assets | packaged Mac/Windows不可只驗web；手動腳本有sleep/硬編port/log-only判定；工具build guards仍留tools | 不改發布行為；tests/package/config/docs可明列。17Node cases、web、packaged兩平台smoke與case不重跑；promotion逐script完成，不把unknown當0 |
 
+## 已實作批次
+
+P1 第一批為 [Navigation core](migrations/navigation-core.md)：四個低相依 suite、26 個案例已完成機械搬檔與完整驗證；其餘 src/release 遷移、fixture 整理及語意去重仍按下列依賴分批進行。PR 合併前仍須 review。
+
 ## 依賴關係與review策略
 
 P1、P2可獨立啟動；P3/P4/P6是高重用基礎。P5依input/transaction接縫，P7依order/sourcing，P8依snapshot/return，P9與P10需跨上述能力核對。P11按較小能力平行排期即可，這不代表本輪啟動平行代理或新工作。

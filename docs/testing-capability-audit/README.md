@@ -1,10 +1,15 @@
 # SagaBurst 測試能力盤點與集中計畫
 
-最終基準是 `Andy-CH-BO-AN/SagaBurst-3D-Game` 的 dev commit **`3cc5a2f36e7d5ffcb46856819975372f16712b15`**，盤點日期 2026-10-07（Asia/Taipei）。
+盤點階段的最終基準是 `Andy-CH-BO-AN/SagaBurst-3D-Game` 的 dev commit **`3cc5a2f36e7d5ffcb46856819975372f16712b15`**，盤點日期 2026-10-07（Asia/Taipei）。
 
-本輪已建立全 repo runner case inventory、能力責任草案、去重矩陣、目錄與 runner 遷移計畫、PR 工作包，以及 `tests/AGENTS.md`。只新增文件與盤點資料；未搬動、刪除或改寫任何測試，未改 production、CI、runner 或 typecheck baseline，未 merge。
+盤點階段已建立全 repo runner case inventory、能力責任草案、去重矩陣、目錄與 runner 遷移計畫、PR 工作包，以及 `tests/AGENTS.md`。該階段只新增文件與盤點資料；後續實作進度另見下方遷移紀錄。
 
 **完整收集不等於完成所有語意等價審查。** 1,857 個宣告都保留了 body、assertions、參數展開及依賴證據；其中 162 個已有人工 body 審閱，89 個另追過相關 production 接線。其餘 1,695 個的能力標籤與去向是待覆核提案。沒有整 case 的等價刪除證明，因此目前沒有 MERGE/REMOVE 提案。後續依共用能力處理，不依 mission 或歷史 PR 逐檔清理。
+
+## 實作進度與目前路徑
+
+- [Navigation core 遷移](migrations/navigation-core.md)：4 個 suite、26 個 cases 已移到 `tests/movement/`；全部 assertions 保留，full suite/typecheck/build/release 驗證通過。
+- 原始 inventory 保持上述 SHA 的快照；搬移後位置以 [逐 case 遷移對照](inventory/migrations/navigation-core.csv) 為準。本批後仍有 26 個 src test 檔待遷移。
 
 ## 交付文件
 

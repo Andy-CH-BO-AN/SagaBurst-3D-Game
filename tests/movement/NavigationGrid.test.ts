@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import {
   DEFAULT_NAV_CELL_SIZE,
   NavigationGrid,
-} from './NavigationGrid'
+} from '../../src/navigation/NavigationGrid'
 
 function createGrid(): NavigationGrid {
   return new NavigationGrid({
