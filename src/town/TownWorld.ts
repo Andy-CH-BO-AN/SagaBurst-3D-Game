@@ -195,7 +195,11 @@ export class TownWorld {
     for (const x of [35, 70, 105]) {
       for (let row = 0; row < 4; row++) {
         const z = -90 + row * 8
-        const lane = this.geo(new THREE.PlaneGeometry(29, 6)); lane.rotateX(-Math.PI / 2)
+        // PlaneGeometry defaults to a single quad. That only samples the four
+        // corners and creates a huge sloped sheet across the undulating terrain.
+        // Match the road mesh's ~0.5m sampling density so every drill lane
+        // follows the actual terrain surface instead of cutting through actors.
+        const lane = this.geo(new THREE.PlaneGeometry(29, 6, 58, 12)); lane.rotateX(-Math.PI / 2)
         const positions = lane.attributes.position
         for (let i = 0; i < positions.count; i++) positions.setY(i, getTerrainHeight(x + 12 + positions.getX(i), z + positions.getZ(i)))
         lane.computeVertexNormals()
