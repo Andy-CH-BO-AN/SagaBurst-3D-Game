@@ -238,36 +238,32 @@ describe('shared four-gate Siege runtime', () => {
     }
   })
 
-  it.each(['north', 'south', 'east', 'west'] as const)('keeps %s relief focused on its own breach and returns when that threat leaves', gateId => {
-    const f = fixture(faction, true, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran', false, 'checkpoint-sample')
-    f.controller.updateFlow(10, 0)
-    const group = f.controller.groups.find(g => g.id === gateId)!
-    const otherGate = gateId === 'west' ? 'north' : 'west'
-    const [enemy, distraction] = f.controller.enemies.slice(2, 4)
-    const place = (npc: NPC, point: THREE.Vector3) => { npc.group.position.copy(point); npc.mount?.group.position.copy(point) }
-    place(enemy, siegePoint(gateId, 0, 5))
-    place(distraction, siegePoint(otherGate, 0, 5))
-    f.player.group.position.copy(siegePoint(otherGate, 0, 5))
-    f.gates.get(gateId)!.destroy()
-    for (const npc of [...group.members, ...group.cavalry]) {
-      expect(npc.missionMovement).toBe(false)
-      expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
-      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
+  it('keeps the Ranger on an explicitly assigned NPC target and blocks ranged target switching', () => {
+    const scene = new THREE.Scene()
+    const ranger = new NPC(scene, 0, 0, Faction.ENEMY, 'viking', AIType.RANGED, 'Ranger', 4,
+      false, { meleeWeaponId: 'maki-ranger-bow' }, undefined, undefined, 'ranger', undefined,
+      'maki-archer-t4', 'ranger', 'maki-ranger')
+    onTestFinished(() => ranger.dispose())
+    ranger.setTownPeaceful()
+    const enemy = new NPC(scene, 0, 20, Faction.TOWN, 'roman', AIType.MELEE, 'Assigned target', 3)
+    onTestFinished(() => enemy.dispose())
+    const distraction = new NPC(scene, 0, 10, Faction.TOWN, 'roman', AIType.MELEE, 'Visible distraction', 3)
+    onTestFinished(() => distraction.dispose())
+    const player = new Player(scene, 'roman')
+    onTestFinished(() => player.dispose())
+    player.group.position.set(300, 0, 300)
+    // This observes the NPC forced-target interface without running another gate relief flow.
+    const observer = ranger as unknown as {
+      _getTarget(dt: number, player: Player, peers: NPC[]): { npc?: NPC; isPlayer: boolean } | null
+      _trySwitchToVisibleRangedTarget(player: Player, peers: NPC[], grid: null, obstacles: ObstacleData[]): boolean
     }
-    const guard = group.cavalry[0]
-    const start = guard.combatPosition.clone()
-    guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
-    expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
-    place(enemy, siegePoint(otherGate, 0, 5))
-    f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
-    expect(guard.missionMovement).toBe(true)
-    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
-    f.player.group.position.copy(siegePoint(gateId, 0, 5))
-    f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
-    f.controller.cleanupMission()
-    expect((guard as any).missionCombatTarget).toBeUndefined()
+    ranger.setMissionCombatTarget(enemy)
+    expect(observer._getTarget(.05, player, [enemy, distraction])?.npc).toBe(enemy)
+    expect(observer._trySwitchToVisibleRangedTarget(player, [distraction], null, [])).toBe(false)
+    ranger.setMissionCombatTarget(null)
+    expect(observer._getTarget(.05, player, [enemy, distraction])).toBeNull()
+    ranger.setMissionCombatTarget(undefined)
+    expect(observer._getTarget(.05, player, [])?.isPlayer).toBe(true)
   })
 
   it('still defends its own breach against nearby ambient Bandits', () => {

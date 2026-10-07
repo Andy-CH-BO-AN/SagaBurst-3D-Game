@@ -1,7 +1,39 @@
+import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { siegeRoster, siegeDefensePlans } from '../../src/career/TownSiege'
+import { siegeRoster, siegeDefensePlans, siegeGate, siegePoint, siegeOutward, siegeReservePoint, siegeMuster, siegeNearestGate } from '../../src/career/TownSiege'
 import { townRoster } from '../../src/town/TownRules'
 import { createEnemyTownAssaultMission, resolveAssaultOutcome } from '../../src/career/EnemyTownAssault'
+
+describe('Siege gate direction data', () => {
+  it.each([
+    { id: 'north', squadId: 1, leaderId: 'captain', yaw: Math.PI, origin: [0, -115], outward: [0, -1], inside: [-2, -110], reserve: [10, -85], muster: [12.5, -305] },
+    { id: 'south', squadId: 2, leaderId: 'ranger', yaw: 0, origin: [0, 100], outward: [0, 1], inside: [2, 95], reserve: [-10, 70], muster: [-12.5, 305] },
+    { id: 'east', squadId: 3, leaderId: 'town-patrol:a:captain', yaw: Math.PI / 2, origin: [150, 45], outward: [1, 0], inside: [145, 43], reserve: [120, 55], muster: [305, 57.5] },
+    { id: 'west', squadId: 4, leaderId: 'town-patrol:b:captain', yaw: -Math.PI / 2, origin: [-110, 0], outward: [-1, 0], inside: [-105, 2], reserve: [-80, -10], muster: [-305, -12.5] },
+  ] as const)('$id maps yaw, local offsets, nearest gate and assignments to its own sector', data => {
+    const gate = siegeGate(data.id)
+    expect([gate.x, gate.z, gate.yaw]).toEqual([...data.origin, data.yaw])
+    const expectXZ = (point: THREE.Vector3, expected: readonly [number, number]) => {
+      expect(point.x).toBeCloseTo(expected[0], 8)
+      expect(point.y).toBe(0)
+      expect(point.z).toBeCloseTo(expected[1], 8)
+    }
+    expectXZ(siegeOutward(data.id), data.outward)
+    expectXZ(siegePoint(data.id, 2, 5), data.inside)
+    expectXZ(siegeReservePoint(data.id, 0), data.reserve)
+    expectXZ(siegeMuster(data.id, 0), data.muster)
+    expect(siegeNearestGate(new THREE.Vector3(data.reserve[0], 0, data.reserve[1]))).toBe(data.id)
+    const plan = siegeDefensePlans(townRoster()).find(plan => plan.gateId === data.id)!
+    expect(plan.leaderId).toBe(data.leaderId)
+    expect(plan.cavalry).toContain(data.leaderId)
+    expect(plan.infantry.filter(id => id.startsWith('gate:'))).toEqual(
+      Array.from({ length: 10 }, (_, index) => 'gate:' + data.id + ':' + index))
+    const slots = siegeRoster('roman', false).filter(slot => slot.gateId === data.id)
+    expect(slots).toHaveLength(30)
+    expect(slots.every(slot => slot.spec.squadId === data.squadId)).toBe(true)
+    expectXZ(new THREE.Vector3(slots[0].spec.x, 0, slots[0].spec.z), data.muster)
+  })
+})
 
 // Pure rosters/objectives own every faction/mode input without constructing actors.
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared four-gate Siege`, () => {
