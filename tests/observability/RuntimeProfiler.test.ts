@@ -1,7 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { RuntimeProfiler, ProfilerFrameMetrics } from '../../src/debug/RuntimeProfiler'
+import { RuntimeProfiler, type ProfilerFrameMetrics } from '../../src/debug/RuntimeProfiler'
 
 describe('RuntimeProfiler', () => {
+  it.each([5, 10, 12, 15, 60])('reports %s FPS from wall-clock intervals independently of 50ms CPU work', fps => {
+    const profiler = new RuntimeProfiler(1000)
+    const metrics: ProfilerFrameMetrics = {
+      cpuFrameMs: 50, npcGridMs: 0, npcUpdateMs: 0, mountInteractionMs: 0,
+      collisionMs: 0, arrowMs: 0, impactMs: 0, renderSubmitMs: 0, otherMs: 50,
+    }
+    expect(profiler.recordFrame(metrics, 1000)).toBe(false)
+    for (let frame = 1; frame < fps; frame++) {
+      expect(profiler.recordFrame(metrics, 1000 + frame * 1000 / fps)).toBe(false)
+      expect(profiler.getLatestSnapshot()).toBeNull()
+    }
+    expect(profiler.recordFrame(metrics, 2000)).toBe(true)
+    const snapshot = profiler.getLatestSnapshot()!
+    expect(snapshot.sampleCount).toBe(fps)
+    expect(snapshot.windowDurationMs).toBeCloseTo(1000, 8)
+    expect(snapshot.fps).toBeCloseTo(fps, 8)
+    expect(snapshot.cpuFrame.avg).toBe(50)
+  })
+
   it('aggregates avg and max accurately over frame intervals within a sampling window', () => {
     const profiler = new RuntimeProfiler(1000)
 

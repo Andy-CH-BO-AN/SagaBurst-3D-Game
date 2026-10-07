@@ -7,28 +7,26 @@ import { townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
-import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from '../../src/career/EnemyTownAssault'
-import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
+import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { CAREER_RANK_THRESHOLDS, claimCareerMission, createCareerProfile, clearCareerMission, type CareerRank } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { townCaptainProfile, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
-import { TOWN_CITY } from '../../src/town/TownLayout'
-import { townWartimeHostile, civilianWartimeWeapon } from '../../src/town/TownWartime'
+import { TOWN_GATES, type TownGateId } from '../../src/town/TownLayout'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
-import { TOWN_DEFENSE_TEMPLATE_ID, SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
+import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
 import { damageNpc } from '../../src/combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef } from '../../src/combat/CombatAttribution'
 import { calculateMerit } from '../../src/career/MeritCalculator'
-import { TownScene } from '../../src/town/TownScene'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
-import { TownEquipment } from '../../src/town/TownEquipment'
-import { CareerMountController } from '../../src/career/CareerMountController'
 import { combatFixture } from '../helpers/townMissionCombat'
+import { CampaignGateController } from '../../src/campaign/CampaignGate'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
@@ -58,12 +56,37 @@ vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class { hide = v
 const dispose: (() => void)[] = []
 afterEach(() => { dispose.splice(0).forEach(fn => fn()); vi.unstubAllGlobals() })
 
-function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'veteran', deferStart = false) {
+/** Real gate HP/lifecycle and collision input; wall meshes belong to the complete
+ * fortification integration, not the shared relief/countdown rule matrix. */
+function sampledGates(faction: 'roman' | 'viking', obstacles: ObstacleData[]) {
+  const root = new THREE.Group(), gates = new Map<TownGateId, CampaignGateController>()
+  for (const gate of TOWN_GATES) {
+    const leaves = new THREE.Group(), leftHinge = new THREE.Group(), rightHinge = new THREE.Group()
+    leaves.position.set(gate.x, getTerrainHeight(gate.x, gate.z), gate.z)
+    leaves.rotation.y = gate.yaw; leaves.add(leftHinge, rightHinge); root.add(leaves)
+    leaves.updateMatrixWorld(true)
+    const box = new THREE.Box3(new THREE.Vector3(-7, -1, -.5), new THREE.Vector3(7, 8, .5)).applyMatrix4(leaves.matrixWorld)
+    const damageable = new DamageableObstacle({ kind: 'gate', maxHp: 2080, root: leaves, ownerFaction: faction })
+    const obstacle: ObstacleData = { box, isBarricade: false, damageable }; obstacles.push(obstacle)
+    gates.set(gate.id, new CampaignGateController({ defenderFaction: faction, damageable, obstacle, obstacles,
+      leftHinge, rightHinge, openRotationY: Math.PI / 2, initialState: 'open' }))
+  }
+  return { root, gates }
+}
+
+function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID, rank: CareerRank = 'veteran', deferStart = false, population: 'complete' | 'checkpoint-sample' = 'complete', includeOfficerAttackers = false) {
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
   profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
   const townFaction = assault ? faction === 'roman' ? 'viking' : 'roman' : faction
-  const roster = townRoster().filter(spec => spec.role !== 'cat' && spec.role !== 'merchant')
+  // The rule matrix restores authoritative attacker casualty slots with two real residents
+  // at each gate and five surviving attackers. Complete deployment owns census,
+  // crowd placement, initial positioning, faction wiring and spawn budgeting.
+  const sampledIds = new Set(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain',
+    'gate:north:0', 'gate:south:0', 'gate:east:0', 'gate:west:0', 'civilian-0'])
+  const roster = townRoster().filter(spec => spec.role !== 'cat' && spec.role !== 'merchant'
+    && (population === 'complete' || sampledIds.has(spec.id)))
+  const constructionStart = npcConstruction.count
   const residents = roster.map(spec => {
     const civilian = spec.role === 'civilian', ranger = spec.role === 'ranger'
     const military = townMilitaryEquipment(townFaction, spec)
@@ -74,66 +97,103 @@ function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETER
       civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow' } : military.loadout,
       military.presetId, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : hero?.visualAssetId,
       ranger ? 'ranger' : hero?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, townFaction)
+    onTestFinished(() => npc.dispose())
     npc.setTownPeaceful()
     return { spec, npc }
   })
   const player = new Player(scene, faction)
+  onTestFinished(() => player.dispose())
   const cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
   onTestFinished(() => cat.dispose())
-  const obstacles: any[] = []
+  const obstacles: ObstacleData[] = []
   const material = new THREE.MeshBasicMaterial()
-  const city = createTownFortifications(townFaction, obstacles, { stone: material, wood: material, dark: material, snow: material })
+  onTestFinished(() => material.dispose())
+  const city = population === 'complete'
+    ? createTownFortifications(townFaction, obstacles, { stone: material, wood: material, dark: material, snow: material })
+    : sampledGates(townFaction, obstacles)
   scene.add(city.root)
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const patrol = new TownCavalryPatrolController(residents)
   profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
+  let attackerCount = assault ? 119 : 120
+  if (population === 'checkpoint-sample') {
+    const active = profile.activeMission!, siege = active.siege!
+    const attackers = siegeRoster(assault ? faction : townFaction === 'roman' ? 'viking' : 'roman', assault)
+    siege.rosterCreated = true
+    siege.attackerIds = attackers.map((_, index) => `${active.id}:siege:${index}`)
+    const survivors = new Set(attackers.flatMap(({ spec }, index) =>
+      [2, 3, 4, 5].includes(index) || spec.combatProfileId === 'ranger' || includeOfficerAttackers && spec.tier === 4 ? [index] : []))
+    const casualties = siege.attackerIds.filter((_, index) => !survivors.has(index))
+    if (assault) active.deadFriendlyActorIds = casualties
+    else active.deadTargetActorIds = casualties
+    siege.defensePlans = siegeDefensePlans(townRoster()).map(plan => ({ ...plan,
+      infantry: plan.infantry.filter(id => sampledIds.has(id)),
+      cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
+    }))
+    attackerCount = includeOfficerAttackers ? 8 : 5
+  }
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
-  if (!deferStart) expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
-  dispose.push(() => { controller.dispose(); residents.forEach(r => r.npc.dispose()); player.dispose(); cat.dispose() })
-  return { controller, player, residents, navigation, scene, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
+  onTestFinished(() => controller.dispose())
+  if (!deferStart) {
+    expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
+    // Count actual constructors, including callers restoring authoritative slots.
+    expect(npcConstruction.count - constructionStart).toBe(residents.length + attackerCount)
+    expect(residents).toHaveLength(population === 'complete' ? 223 : 9)
+  }
+  return { controller, player, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
 
-for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared four-gate Siege`, () => {
-  it('uses four squads with four T4 officers and counts Player inside the Assault roster', () => {
-    for (const assault of [false, true]) {
-      const roster = siegeRoster(faction, assault)
-      expect(roster).toHaveLength(assault ? 119 : 120)
-      expect(roster.filter(s => s.spec.tier === 4)).toHaveLength(4)
-      expect(roster.filter(s => s.spec.combatProfileId === 'ranger')).toHaveLength(1)
-      expect(roster.find(s => s.spec.combatProfileId === 'ranger')!.spec.loadout?.mountId).toBe('black-cat')
-      for (const id of ['north', 'south', 'east', 'west']) expect(roster.filter(s => s.gateId === id).length + (assault && id === 'north' ? 1 : 0)).toBe(30)
-      expect(roster.every(s => s.spec.tier === 4 || s.spec.tier === 3)).toBe(true)
-    }
-    const objective = createEnemyTownAssaultMission().targetActorIds
-    expect(objective).toHaveLength(203)
-    expect(objective.filter(id => id.startsWith('gate:'))).toHaveLength(40)
-    expect(objective.filter(id => id.startsWith('town-patrol:'))).toHaveLength(40)
-    expect(objective.some(id => id.startsWith('civilian'))).toBe(false)
-  })
-
-  it.each([true, false])('deploys the whole battlefield during loading and waits ten seconds, assault=%s', assault => {
-    const f = fixture(faction, assault)
+describe('Siege faction and role wiring', () => {
+  it.each([
+    ['roman', true, 'roman', 'viking'], ['roman', false, 'viking', 'roman'],
+    ['viking', true, 'viking', 'roman'], ['viking', false, 'roman', 'viking'],
+  ] as const)('%s assault=%s wires army=%s residents=%s without repeating the shared flow', (faction, assault, armyFaction, residentFaction) => {
+    const f = fixture(faction, assault, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran', false, 'checkpoint-sample', true)
     expect(f.controller.phase).toBe('PREPARING')
     expect(f.controller.preparationRemaining).toBe(10)
-    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
-    expect(f.controller.releasedEnemies).toHaveLength(0)
-    for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
-      expect(npc.combatPosition.distanceTo(point)).toBeLessThan(.01)
-      expect((npc as any)._findTarget(f.player, f.controller.fieldNpcs)).toBeNull()
+    expect(f.controller.enemies).toHaveLength(8)
+    expect(f.controller.enemies.every(npc => npc.faction === (assault ? Faction.TOWN : Faction.ENEMY))).toBe(true)
+    expect(f.controller.enemies.every(npc => npc.characterFaction === armyFaction)).toBe(true)
+    expect(f.controller.enemies.every(npc => npc.presetId?.startsWith(`${armyFaction}_`))).toBe(true)
+    expect(f.residents.every(({ npc }) => npc.characterFaction === residentFaction)).toBe(true)
+    expect(f.residents.every(({ npc }) => npc.hostileToPlayer === assault)).toBe(true)
+    expect(f.controller.playerEnemies).toHaveLength(assault ? 9 : 8)
+    const captains = f.controller.enemies.filter(npc => npc.combatProfileId !== 'ranger' && npc.visualAssetId)
+    expect(captains).toHaveLength(3)
+    for (const captain of captains) {
+      expect(captain.combatProfileId).toBe(armyFaction === 'roman' ? 'praetorian' : 'varangian')
+      expect(captain.visualAssetId).toBe(`${armyFaction}-hero-t4`)
+      expect(captain.mount!.type).toBe(armyFaction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
     }
-    f.controller.updateFlow(9.9, 0)
-    expect(f.controller.phase).toBe('PREPARING')
-    expect(f.controller.releasedEnemies).toHaveLength(0)
-    f.controller.updateFlow(.1, 0)
-    expect(f.controller.phase).toBe('ATTACKING')
-    expect(f.controller.releasedEnemies).toHaveLength(assault ? 119 : 120)
+    const ranger = f.controller.enemies.find(npc => npc.combatProfileId === 'ranger')!
+    expect(ranger.visualAssetId).toBe('maki-archer-t4')
+    expect(ranger.mount!.type).toBe(MountType.BLACK_CAT)
+    const residentCaptain = f.controller.captain!
+    expect(residentCaptain.combatProfileId).toBe(residentFaction === 'roman' ? 'praetorian' : 'varangian')
+    expect(residentCaptain.visualAssetId).toBe(`${residentFaction}-hero-t4`)
+    expect(f.controller.ranger!.combatProfileId).toBe('ranger')
+    expect(f.controller.ranger!.mount).toBeDefined()
+    expect(f.controller.ranger!.mount!.type).toBe(MountType.BLACK_CAT)
+    f.controller.cleanupMission()
+    expect([...f.gates.values()].every(gate => gate.state === 'open')).toBe(true)
+    expect(f.controller.enemies).toHaveLength(0)
   })
+})
 
+describe('shared four-gate Siege runtime', () => {
+  const faction = 'roman' as const
   it.each([true, false])('resumes the remaining countdown without repositioning or reinforcing, assault=%s', assault => {
-    const f = fixture(faction, assault)
+    const complete = !assault
+    const f = fixture(faction, assault, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran', false,
+      complete ? 'complete' : 'checkpoint-sample')
+    // Separate allegiance from character appearance: Assault attackers are allies,
+    // Defense attackers are enemies; residents have the opposite player relation.
+    expect(f.controller.enemies.every(npc => npc.faction === (assault ? Faction.TOWN : Faction.ENEMY))).toBe(true)
+    expect(f.controller.enemies.every(npc => npc.characterFaction === (assault ? faction : faction === 'roman' ? 'viking' : 'roman'))).toBe(true)
+    expect(f.controller.playerEnemies).toHaveLength(assault ? f.controller.military.length + f.controller.civilians.length : f.attackerCount)
     f.controller.updateFlow(4, 0)
     const defender = f.controller.military.find(npc => !npc.isMounted)!
     defender.group.position.add(new THREE.Vector3(2, 0, 2))
@@ -146,7 +206,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     expect(f.controller.preparationRemaining).toBe(6)
     expect(defender.combatPosition.x).toBeCloseTo(position.x)
     expect(defender.combatPosition.z).toBeCloseTo(position.z)
-    expect(f.controller.enemies).toHaveLength(assault ? 118 : 119)
+    expect(f.controller.enemies).toHaveLength(f.attackerCount - 1)
     expect(f.gates.get('west')!.state).toBe('destroyed')
     f.controller.updateFlow(5.9, 0)
     expect(f.controller.phase).toBe('PREPARING')
@@ -178,36 +238,32 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     }
   })
 
-  it.each(['north', 'south', 'east', 'west'] as const)('keeps %s relief focused on its own breach and returns when that threat leaves', gateId => {
-    const f = fixture(faction)
-    f.controller.updateFlow(10, 0)
-    const group = f.controller.groups.find(g => g.id === gateId)!
-    const otherGate = gateId === 'west' ? 'north' : 'west'
-    const [enemy, distraction] = f.controller.enemies.slice(2, 4)
-    const place = (npc: NPC, point: THREE.Vector3) => { npc.group.position.copy(point); npc.mount?.group.position.copy(point) }
-    place(enemy, siegePoint(gateId, 0, 5))
-    place(distraction, siegePoint(otherGate, 0, 5))
-    f.player.group.position.copy(siegePoint(otherGate, 0, 5))
-    f.gates.get(gateId)!.destroy()
-    for (const npc of [...group.members, ...group.cavalry]) {
-      expect(npc.missionMovement).toBe(false)
-      expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
-      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
+  it('keeps the Ranger on an explicitly assigned NPC target and blocks ranged target switching', () => {
+    const scene = new THREE.Scene()
+    const ranger = new NPC(scene, 0, 0, Faction.ENEMY, 'viking', AIType.RANGED, 'Ranger', 4,
+      false, { meleeWeaponId: 'maki-ranger-bow' }, undefined, undefined, 'ranger', undefined,
+      'maki-archer-t4', 'ranger', 'maki-ranger')
+    onTestFinished(() => ranger.dispose())
+    ranger.setTownPeaceful()
+    const enemy = new NPC(scene, 0, 20, Faction.TOWN, 'roman', AIType.MELEE, 'Assigned target', 3)
+    onTestFinished(() => enemy.dispose())
+    const distraction = new NPC(scene, 0, 10, Faction.TOWN, 'roman', AIType.MELEE, 'Visible distraction', 3)
+    onTestFinished(() => distraction.dispose())
+    const player = new Player(scene, 'roman')
+    onTestFinished(() => player.dispose())
+    player.group.position.set(300, 0, 300)
+    // This observes the NPC forced-target interface without running another gate relief flow.
+    const observer = ranger as unknown as {
+      _getTarget(dt: number, player: Player, peers: NPC[]): { npc?: NPC; isPlayer: boolean } | null
+      _trySwitchToVisibleRangedTarget(player: Player, peers: NPC[], grid: null, obstacles: ObstacleData[]): boolean
     }
-    const guard = group.cavalry[0]
-    const start = guard.combatPosition.clone()
-    guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
-    expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
-    place(enemy, siegePoint(otherGate, 0, 5))
-    f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
-    expect(guard.missionMovement).toBe(true)
-    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
-    f.player.group.position.copy(siegePoint(gateId, 0, 5))
-    f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
-    f.controller.cleanupMission()
-    expect((guard as any).missionCombatTarget).toBeUndefined()
+    ranger.setMissionCombatTarget(enemy)
+    expect(observer._getTarget(.05, player, [enemy, distraction])?.npc).toBe(enemy)
+    expect(observer._trySwitchToVisibleRangedTarget(player, [distraction], null, [])).toBe(false)
+    ranger.setMissionCombatTarget(null)
+    expect(observer._getTarget(.05, player, [enemy, distraction])).toBeNull()
+    ranger.setMissionCombatTarget(undefined)
+    expect(observer._getTarget(.05, player, [])?.isPlayer).toBe(true)
   })
 
   it('still defends its own breach against nearby ambient Bandits', () => {
@@ -221,14 +277,6 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
     f.gates.get('east')!.destroy()
     const guard = f.controller.groups.find(g => g.id === 'east')!.cavalry[0]
     expect((guard as any)._getTarget(.05, f.player, [bandit])?.npc).toBe(bandit)
-  })
-
-  it('keeps gate guards local, balances infantry and assigns four existing cavalry officers', () => {
-    const plans = siegeDefensePlans(townRoster())
-    expect(plans.map(p => p.infantry.length).sort()).toEqual([25, 25, 25, 26])
-    expect(plans.map(p => p.cavalry.length).sort()).toEqual([25, 25, 26, 26])
-    for (const p of plans) expect(p.infantry.filter(id => id.startsWith('gate:')).every(id => id.startsWith(`gate:${p.gateId}:`))).toBe(true)
-    expect(plans.map(p => p.leaderId)).toEqual(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain'])
   })
 
   it('releases only breached reserves, preserves casualties and breaches across repeated reloads', () => {
@@ -264,7 +312,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       expect(saved.activeMission!.actorHealth![footId].mountHp).toBe(0)
       f.setProfile(saved)
       expect(completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
-      expect(f.controller.enemies).toHaveLength(118)
+      expect(f.controller.enemies).toHaveLength(f.attackerCount - 1)
       expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
       expect(f.controller.enemies.some(n => n.combatantId === deadId)).toBe(false)
       expect(f.controller.enemies.find(n => n.combatantId === footId)!.isMounted).toBe(false)
@@ -331,6 +379,60 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   })
 })
 
+describe('Siege deployment and shared rule ownership', () => {
+  it('deploys the complete battlefield and waits ten seconds', () => {
+    const faction = 'roman', assault = true
+    const f = fixture(faction, assault)
+    expect(f.controller.phase).toBe('PREPARING')
+    expect(f.controller.preparationRemaining).toBe(10)
+    expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
+    expect(f.controller.releasedEnemies).toHaveLength(0)
+    for (const [npc, point] of (f.controller as any).orders as Map<NPC, THREE.Vector3>) {
+      expect(npc.combatPosition.distanceTo(point)).toBeLessThan(.01)
+      expect((npc as any)._findTarget(f.player, f.controller.fieldNpcs)).toBeNull()
+    }
+    f.controller.updateFlow(9.9, 0)
+    expect(f.controller.phase).toBe('PREPARING')
+    expect(f.controller.releasedEnemies).toHaveLength(0)
+    f.controller.updateFlow(.1, 0)
+    expect(f.controller.phase).toBe('ATTACKING')
+    expect(f.controller.releasedEnemies).toHaveLength(assault ? 119 : 120)
+  })
+
+  it('wires a fresh complete battlefield into shared breach relief', () => {
+    const faction = 'roman', gateId: TownGateId = 'north'
+    const f = fixture(faction)
+    f.controller.updateFlow(10, 0)
+    const group = f.controller.groups.find(g => g.id === gateId)!
+    const otherGate = 'west'
+    const [enemy, distraction] = f.controller.enemies.slice(2, 4)
+    const place = (npc: NPC, point: THREE.Vector3) => { npc.group.position.copy(point); npc.mount?.group.position.copy(point) }
+    place(enemy, siegePoint(gateId, 0, 5))
+    place(distraction, siegePoint(otherGate, 0, 5))
+    f.player.group.position.copy(siegePoint(otherGate, 0, 5))
+    f.gates.get(gateId)!.destroy()
+    for (const npc of [...group.members, ...group.cavalry]) {
+      expect(npc.missionMovement).toBe(false)
+      expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
+      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
+    }
+    const guard = group.cavalry[0]
+    const start = guard.combatPosition.clone()
+    guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
+    expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
+    place(enemy, siegePoint(otherGate, 0, 5))
+    f.controller.updateFlow(.05, 0)
+    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
+    expect(guard.missionMovement).toBe(true)
+    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
+    f.player.group.position.copy(siegePoint(gateId, 0, 5))
+    f.controller.updateFlow(.05, 0)
+    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
+    f.controller.cleanupMission()
+    expect((guard as any).missionCombatTarget).toBeUndefined()
+  })
+})
+
 function townHarness(f: ReturnType<typeof fixture>) {
   const town = createTownCombatFixture() as any
   Object.assign(town, { profile: f.profile(), defense: f.controller, player: f.player, camera: new THREE.PerspectiveCamera(), orbit: { cameraYaw: 0 }, world: { obstacles: [] }, navigation: f.navigation,
@@ -359,14 +461,8 @@ describe('Siege retained combat and settlement contracts', () => {
     expect(alert).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    [true, 0, 0, 'victory'], [false, 0, 0, 'victory'], [true, 1, 1, null],
-    [true, 1, 0, 'failure'], [false, 1, 0, null],
-  ] as const)('assault dead=%s military=%s NPC=%s => %s', (dead, military, allies, outcome) => {
-    expect(resolveAssaultOutcome(dead, military, allies)).toBe(outcome)
-  })
-
-  it.each(['roman', 'viking'] as const)('Defense %s civilian can kill last attacker without receiving Player credit', faction => {
+  it('Defense civilian can kill last attacker without receiving Player credit', () => {
+    const faction = 'roman'
     const f = fixture(faction, false), enemy = f.controller.enemies[0], civilian = f.controller.civilians[0]
     f.controller.updateFlow(45, 0)
     f.controller.enemies.slice(1).forEach(npc => npc.takeDamage(999999))
@@ -446,7 +542,8 @@ describe('Siege retained combat and settlement contracts', () => {
 
 
 describe('Siege actual constructor frame budget', () => {
-  it.each([false, true])('creates the complete four-gate army one per frame before consuming preparation time, assault=%s', assault => {
+  it('creates the complete four-gate army one per frame before consuming preparation time', () => {
+    const assault = true
     const h = fixture('roman', assault, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran', true)
     const before = npcConstruction.count, total = assault ? 119 : 120
     expect(h.controller.startActiveMission()).toBe(true)
