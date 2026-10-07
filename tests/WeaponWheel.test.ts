@@ -4,6 +4,7 @@ import { WeaponWheel } from '../src/player/WeaponWheel'
 import { TownEquipment } from '../src/town/TownEquipment'
 import { createCareerProfile } from '../src/career/CareerProfile'
 import { CareerProfileStore } from '../src/career/CareerProfileStore'
+import { MemoryStorage } from './helpers/memoryStorage'
 
 describe('shared immediate weapon wheel', () => {
   it('skips equipped items and switches sword / bow / shield in stable order both ways', () => {
@@ -53,8 +54,7 @@ describe('shared immediate weapon wheel', () => {
     canSave = true
     expect(inv.equipWeapon('pilum_basic')).toBe(true)
     expect(profile.equipment?.shield).toBeNull()
-    const data = new Map<string, string>()
-    const store = new CareerProfileStore({ getItem: k => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v) }, removeItem: k => { data.delete(k) } })
+    const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
     profile = store.load()!
     const returned = new TownEquipment(() => profile, () => true)
