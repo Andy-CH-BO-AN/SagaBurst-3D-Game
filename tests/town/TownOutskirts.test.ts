@@ -1,6 +1,6 @@
 import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { TownWorld } from '../../src/town/TownWorld'
 import { TOWN_BANDIT_CAMP_CENTERS, TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -14,10 +14,13 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { getRecruitMissionTemplate } from '../../src/career/CareerMissionCatalog'
 import { townRoster } from '../../src/town/TownRules'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
+
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} update() {} } }))
-beforeAll(async () => { await installCorgiTestAsset() })
 const cleanup: (() => void)[] = []
 afterEach(() => { cleanup.splice(0).reverse().forEach(f => f()); vi.unstubAllGlobals() })
 
@@ -72,6 +75,7 @@ describe('Career Town outskirts', () => {
     const { scene } = townWorld('roman')
     for (const [actorScene, bound] of [[scene, 350], [new THREE.Scene(), 300]] as const) {
       const player = new Player(actorScene, 'roman'), mount = new Mount(actorScene, MountType.CORGI, 299, 0)
+      onTestFinished(() => mount.dispose())
       const npc = new NPC(actorScene, 299, 0, Faction.TOWN, 'roman', AIType.MELEE, 'walker', 1, false)
       cleanup.push(() => { player.dispose(); mount.dispose(); npc.dispose() })
       const input = { keys: { KeyD: true }, consumeLeftClick: () => false, consumeLeftClickRelease: () => false, consumeRightClick: () => false }

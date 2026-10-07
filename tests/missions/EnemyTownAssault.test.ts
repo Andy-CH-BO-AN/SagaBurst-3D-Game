@@ -6,7 +6,7 @@ import { siegeRoster, siegeDefensePlans, siegePoint, siegeNearestGate, siegeOutw
 import { townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createAssaultRoster, createEnemyTownAssaultMission, careerTownFaction, prepareEnemyTownAssaultEquipment, resolveAssaultOutcome } from '../../src/career/EnemyTownAssault'
 import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
 import { CAREER_RANK_THRESHOLDS, claimCareerMission, createCareerProfile, clearCareerMission, type CareerRank } from '../../src/career/CareerProfile'
@@ -28,10 +28,17 @@ import { TownScene } from '../../src/town/TownScene'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { CareerMountController } from '../../src/career/CareerMountController'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
 import { combatFixture } from '../helpers/townMissionCombat'
 
-import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 const npcConstruction = vi.hoisted(() => ({ count: 0 }))
 vi.mock('../../src/world/NPC', async original => {
   const actual = await original<typeof import('../../src/world/NPC')>()
@@ -48,7 +55,6 @@ vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({ ...(aw
   profile: { id: 'maki-ranger-bow', gripRadius: .02, gripLength: .2, visualScale: 1, gripCenterLocal: new THREE.Vector3(), shootingAxis: new THREE.Vector3(0, 0, -1), longitudinalAxis: new THREE.Vector3(0, 1, 0), contactNormal: new THREE.Vector3(1, 0, 0) }
 }) }))
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class { hide = vi.fn(); dispose = vi.fn(); updateTownDefense = vi.fn() } }))
-beforeAll(async () => { await Promise.all([installCorgiTestAsset(), installBlackCatTestAsset()]) })
 const dispose: (() => void)[] = []
 afterEach(() => { dispose.splice(0).forEach(fn => fn()); vi.unstubAllGlobals() })
 
@@ -73,6 +79,7 @@ function fixture(faction: 'roman' | 'viking', assault = true, templateId = VETER
   })
   const player = new Player(scene, faction)
   const cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
+  onTestFinished(() => cat.dispose())
   const obstacles: any[] = []
   const material = new THREE.MeshBasicMaterial()
   const city = createTownFortifications(townFaction, obstacles, { stone: material, wood: material, dark: material, snow: material })
@@ -329,6 +336,7 @@ function townHarness(f: ReturnType<typeof fixture>) {
   Object.assign(town, { profile: f.profile(), defense: f.controller, player: f.player, camera: new THREE.PerspectiveCamera(), orbit: { cameraYaw: 0 }, world: { obstacles: [] }, navigation: f.navigation,
     grid: new SpatialGrid(4), defenseEnemyGrid: new SpatialGrid(8), defenseTownGrid: new SpatialGrid(8), neighbors: [], hp: { setFill: vi.fn() },
     inventory: { shieldEnabled: false }, careerMounts: { activeMount: null, update: vi.fn() }, cat: new Mount(f.scene, MountType.BLACK_CAT, -34, 20), elapsed: 0, shots: [], updateCareerCommandCue: vi.fn(), damageNumbers: { spawn: vi.fn() } })
+  onTestFinished(() => town.cat.dispose())
   dispose.push(() => town.cat.dispose())
   return town
 }

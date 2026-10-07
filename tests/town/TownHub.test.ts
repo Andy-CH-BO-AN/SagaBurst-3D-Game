@@ -2,7 +2,7 @@ import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import * as THREE from 'three'
 import { applyCivilianAppearance } from '../../src/world/CivilianAppearance'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -17,9 +17,12 @@ import { UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import { TownScene } from '../../src/town/TownScene'
 import { Player } from '../../src/player/Player'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
 import { combatFixture, combatResident } from '../helpers/townMissionCombat'
-beforeAll(() => installCorgiTestAsset())
+
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 function memory() {
   const data = new Map<string, string>()
@@ -133,7 +136,7 @@ describe('Ranger and unique cat relationship', () => {
     ranger.mount = cat; updateRangerMount(ranger, cat, 0); expect(ranger.mount).toBeNull()
   })
   it('ordinary mount death dismounts but does not kill the rider', () => {
-    const npc = civilian(), mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0); mount.reservedForTown = true; npc.mountVehicle(mount)
+    const npc = civilian(), mount = new Mount(new THREE.Scene(), MountType.CORGI, 0, 0); onTestFinished(() => mount.dispose()); mount.reservedForTown = true; npc.mountVehicle(mount)
     expect(mount.availableForPlayer).toBe(false); mount.takeDamage(9999); expect(npc.dead).toBe(false); expect(npc.mount).toBeNull(); expect(mount.dead).toBe(true)
   })
 })
