@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryStorage } from '../../tests/helpers/memoryStorage'
-import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
-import { cloneCareerProfile, createCareerProfile, type CareerProfile } from './CareerProfile'
-import { createActiveCareerMission } from './CareerMissionState'
-import { CAREER_STORAGE_KEY, CareerProfileStore } from './CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
+import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 
 function fixture() {
   let profile = createCareerProfile('roman')
