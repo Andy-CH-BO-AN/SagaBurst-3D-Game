@@ -1,12 +1,13 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, vi, afterEach, onTestFinished } from 'vitest'
 import { NPC, Faction, AIType, AIState } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
 import { Mount, MountType } from '../src/world/Mount'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('NPC Optimization & Semantics Preservation', () => {
   afterEach(() => {
@@ -109,6 +110,7 @@ describe('NPC Optimization & Semantics Preservation', () => {
 
     const horseNpc = new NPC(scene, 0, 80, Faction.PLAYER, 'viking', AIType.MELEE, 'MountedViking', 1, false)
     const mount = new Mount(scene, MountType.CORGI, 0, 80)
+    onTestFinished(() => mount.dispose())
     horseNpc.mount = mount
     mount.setNpcRider(horseNpc, horseNpc.faction)
     expect(horseNpc.mount).not.toBeNull()

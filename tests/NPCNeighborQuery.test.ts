@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import { SpatialGrid, type SpatialEntity } from '../src/world/SpatialGrid'
 import { NPC, Faction, AIType, AIState, NPC_SEPARATION_RADIUS, NPC_NEIGHBOR_QUERY_RADIUS } from '../src/world/NPC'
 import { Player } from '../src/player/Player'
@@ -20,7 +18,10 @@ class TestEntity implements SpatialEntity {
   }
 }
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('SpatialGrid getNearbyInto & Reusable Buffer', () => {
   it('only returns entities within radius and getNearby delegates correctly', () => {
@@ -173,11 +174,13 @@ describe('NPC Separation & Query Range Contracts', () => {
 
     // Create two mounted NPCs side by side (Corgi mount has zero horizontal saddle offset)
     const mountA = new Mount(scene, MountType.CORGI, 0, 0)
+    onTestFinished(() => mountA.dispose())
     const horseNpcA = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'HorseA', 1, false)
     horseNpcA.mount = mountA
     mountA.setNpcRider(horseNpcA, horseNpcA.faction)
 
     const mountB = new Mount(scene, MountType.CORGI, 0.9, 0)
+    onTestFinished(() => mountB.dispose())
     const horseNpcB = new NPC(scene, 0.9, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'HorseB', 1, false)
     horseNpcB.mount = mountB
     mountB.setNpcRider(horseNpcB, horseNpcB.faction)
@@ -416,6 +419,7 @@ describe('NPC Separation & Query Range Contracts', () => {
 
     // Mounted NPC
     const mount = new Mount(scene, MountType.CORGI, 5, 0)
+    onTestFinished(() => mount.dispose())
     const mountedNpc = new NPC(scene, 5, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'MountedNpc', 1, false)
     mountedNpc.mount = mount
     mount.setNpcRider(mountedNpc, mountedNpc.faction)
