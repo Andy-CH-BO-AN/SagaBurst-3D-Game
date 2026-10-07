@@ -14,7 +14,7 @@
 ## 測試規範入口
 
 - 所有新自動化測試一律放在 `tests/`。
-- 新增、修改、搬移、重構或去重測試前，Agent 必須先閱讀 [tests/AGENTS.md](../tests/AGENTS.md)。
+- 新增或修改自動化測試前，Agent 必須先閱讀 [tests/AGENTS.md](../tests/AGENTS.md)。
 
 ## 專案約束
 
