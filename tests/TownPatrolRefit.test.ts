@@ -5,7 +5,19 @@ import { TownCavalryPatrolController } from '../src/town/TownCavalryPatrolContro
 import { MountType, mountTypeFromId } from '../src/world/Mount'
 import { getTerrainHeight, isObstaclePathClear } from '../src/world/Terrain'
 import { advanceUntil } from './helpers/simulation'
-import { createTownPatrolFixture } from './helpers/townPatrolFixture'
+import { installTownPatrolFixtureEnvironment } from './helpers/townPatrolFixture'
+
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
+const createTownPatrolFixture = installTownPatrolFixtureEnvironment()
+
 
 function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number }) {
   const barracks = TOWN_SITES.barracks, dx = point.x - barracks.x, dz = point.z - barracks.z

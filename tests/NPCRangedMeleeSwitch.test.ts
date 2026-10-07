@@ -14,7 +14,7 @@ import {
 
 vi.mock('../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
-  CorgiVisual: (await import('./helpers/gameplayCorgiVisual')).GameplayCorgiVisualDouble,
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
 }))
 
 describe('NPC Ranged Melee Switch & Distance Boundaries', () => {

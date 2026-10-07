@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { TOWN_CITY, TOWN_GATES } from '../src/town/TownLayout'
 import { advanceUntil } from './helpers/simulation'
-import { createTownPatrolFixture } from './helpers/townPatrolFixture'
+import { installTownPatrolFixtureEnvironment } from './helpers/townPatrolFixture'
+
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
+const createTownPatrolFixture = installTownPatrolFixtureEnvironment()
+
 
 describe('Town patrol movement simulation', () => {
   it.each(['roman', 'viking'] as const)('moves all %s riders through real gates and loops without combat search, teleportation or per-frame follower A*', faction => {
