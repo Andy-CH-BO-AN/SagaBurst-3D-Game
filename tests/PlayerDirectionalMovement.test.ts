@@ -4,9 +4,7 @@ import type { CombatEvent } from '../src/combat/CombatAttribution'
 import { resolveSkillProgressionAward } from '../src/rpg/CombatSkillProgression'
 import { NPC, AIType, Faction } from '../src/world/NPC'
 import * as THREE from 'three'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { beforeEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { InventoryManager } from '../src/rpg/InventoryManager'
 import { Player } from '../src/player/Player'
 import type { PlayerInput } from '../src/player/PlayerInput'
@@ -54,7 +52,10 @@ function angleDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(a - b), Math.cos(a - b))
 }
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('Player Directional Movement & Stamina', () => {
   let scene: THREE.Scene
@@ -169,6 +170,7 @@ describe('Player Directional Movement & Stamina', () => {
     it('preserves the existing mounted steering toward movement direction', () => {
       const p = new Player(scene)
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       p.mountVehicle(mount, 0)
 
       updatePlayer(p, 0.1, createMockInput({ KeyA: true }), 0)
@@ -252,6 +254,7 @@ describe('Player Directional Movement & Stamina', () => {
     it.each([false, true])('mounted sprint with shieldRaised=%s still deals impact damage and awards Mounted Impact XP', raised => {
       const inventory = new InventoryManager({ meleeWeaponId: 'steel_sword', rangedWeaponId: '', shieldId: 'scutum_t1' })
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       player.mountVehicle(mount)
       player.setStamina(100)
       const controls = createMockInput({ KeyW: true, ShiftLeft: true })
@@ -294,6 +297,7 @@ describe('Player Directional Movement & Stamina', () => {
 
     it('applies 100% speed forward and 30% speed backward to Mount', () => {
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       player.isMounted = true
       player.currentMount = mount
 
@@ -316,6 +320,7 @@ describe('Player Directional Movement & Stamina', () => {
 
     it('mount sprint applies on W and does not apply on S', () => {
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       player.isMounted = true
       player.currentMount = mount
       player.setStamina(100)
@@ -333,6 +338,7 @@ describe('Player Directional Movement & Stamina', () => {
 
     it('applies 50% speed for mounted lateral movement (A/D) while foot lateral remains 100%', () => {
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       player.isMounted = true
       player.currentMount = mount
 

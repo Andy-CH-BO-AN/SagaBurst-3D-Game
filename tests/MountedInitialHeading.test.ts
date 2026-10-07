@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, beforeEach, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { Player } from '../src/player/Player'
 import { Mount, MountType, MountState } from '../src/world/Mount'
@@ -31,7 +29,10 @@ function updatePlayer(player: Player, dt: number, input: PlayerInput, cameraYaw 
   player.update(dt, input, cameraYaw, cameraAimPoint, obstacles, staminaBar, quiverUI, soundManager)
 }
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('Mounted Initial Heading & Movement Regression Tests', () => {
   let scene: THREE.Scene
@@ -46,6 +47,7 @@ describe('Mounted Initial Heading & Movement Regression Tests', () => {
 
   it('initializes mount heading to match player facing yaw upon mounting without input', () => {
     const mount = new Mount(scene, MountType.CORGI, 0, 145)
+    onTestFinished(() => mount.dispose())
     // Mount is constructed with default rotation.y = 0
     expect(mount.group.rotation.y).toBe(0)
 
@@ -64,6 +66,7 @@ describe('Mounted Initial Heading & Movement Regression Tests', () => {
 
   it('preserves mounted heading without drift across multiple idle frames', () => {
     const mount = new Mount(scene, MountType.CORGI, 0, 145)
+    onTestFinished(() => mount.dispose())
     player.mountVehicle(mount)
 
     const initialMountHeading = mount.group.rotation.y
@@ -81,6 +84,7 @@ describe('Mounted Initial Heading & Movement Regression Tests', () => {
 
   it('produces zero orientation snap on the first W press frame', () => {
     const mount = new Mount(scene, MountType.CORGI, 0, 145)
+    onTestFinished(() => mount.dispose())
     player.mountVehicle(mount)
 
     // Let 3 idle frames run first
@@ -107,6 +111,7 @@ describe('Mounted Initial Heading & Movement Regression Tests', () => {
 
   it('moves the mount towards negative Z (intended battlefield forward) when pressing W', () => {
     const mount = new Mount(scene, MountType.CORGI, 0, 145)
+    onTestFinished(() => mount.dispose())
     player.mountVehicle(mount)
 
     const initialZ = mount.group.position.z
