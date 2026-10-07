@@ -19,7 +19,11 @@ for (const diagnostic of diagnostics) {
   const file = diagnostic.file
     ? path.relative(root, diagnostic.file.fileName).split(path.sep).join('/')
     : '<config>'
-  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n').replace(/\s+/g, ' ').trim()
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+    .replaceAll(root, '<root>')
+    .replaceAll(root.replace(/\\/g, '/'), '<root>')
+    .replace(/\s+/g, ' ')
+    .trim()
   const position = diagnostic.file && diagnostic.start !== undefined
     ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
     : undefined
