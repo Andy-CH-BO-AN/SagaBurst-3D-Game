@@ -1,12 +1,9 @@
-import * as THREE from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
+import * as THREE from 'three'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { Player } from '../../src/player/Player'
-import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { ThirdPersonCamera } from '../../src/camera/ThirdPersonCamera'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
-import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
+import { PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { getRangedCooldown } from '../../src/combat/CombatBalance'
 import { Mount, MountType } from '../../src/world/Mount'
 
@@ -23,6 +20,7 @@ const input = (values = {}) => ({
 function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWeaponId: string; shieldId: string | null }) {
   const scene = new THREE.Scene()
   const player = new Player(scene)
+  onTestFinished(() => player.dispose())
   const inventory = new InventoryManager(initialLoadout)
   if (!initialLoadout) inventory.equipWeapon('elven_runebow')
   const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 500)
@@ -48,6 +46,10 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
   return { scene, player, inventory, camera, tpCamera, ui, sounds, update }
 }
 
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
   it('Selecting Bow stows Shield; RMB enters aim and camera zooms', () => {
@@ -176,7 +178,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     ;(h.player as any).rig.animation = {
       has: (state: string) => state === 'pilumThrow',
       getDuration: () => 1.5,
-      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(),
+      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(), stop: vi.fn(),
     }
     const projectiles = vi.fn()
     h.player.onFireArrow = projectiles
@@ -221,7 +223,7 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     h.update(input())
     ;(h.player as any).rig.animation = {
       has: (state: string) => state === 'pilumThrow', getDuration: () => 1.5,
-      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(),
+      play: vi.fn(), seek: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn(), stop: vi.fn(),
     }
     const projectiles = vi.fn()
     h.player.onFireArrow = projectiles
@@ -517,290 +519,6 @@ describe('Targeted Verification: Bow / Shield & Camera Zoom', () => {
     expect(h.player.swinging).toBe(true)
     expect(h.player.combatAnimationAction).toBe('lanceThrust')
     expect(h.sounds.playSwing).not.toHaveBeenCalled()
-  })
-})
-
-describe('Targeted Verification: Lance Reach, Attack Speed & Hit Mechanics', () => {
-  it('Lance mesh length in WeaponMeshFactory remains 2.6m (mesh length unchanged)', () => {
-    const parent = new THREE.Group()
-    const { tipLocal } = WeaponMeshFactory.buildMelee('steel_lance', parent)
-    expect(tipLocal.y).toBeCloseTo(2.6, 2)
-  })
-
-  it('Attack cadence: unmounted lance is 0.42s (faster than sword 0.48s), mounted lance is 0.28s', () => {
-    const mounted = COMBAT_ANIMATION_PROFILES['mountedLance']
-    const mountedTotal = mounted.windup + mounted.active + mounted.recovery
-    expect(mountedTotal).toBeCloseTo(0.28, 2)
-
-    const unmounted = COMBAT_ANIMATION_PROFILES['lanceThrust']
-    const unmountedTotal = unmounted.windup + unmounted.active + unmounted.recovery
-    expect(unmountedTotal).toBeCloseTo(0.42, 2)
-
-    // Swords remain 0.48s
-    const sword = COMBAT_ANIMATION_PROFILES['swordSlash']
-    const swordTotal = sword.windup + sword.active + sword.recovery
-    expect(swordTotal).toBeCloseTo(0.48, 2)
-
-    // Unmounted lance (0.42s) is faster than sword (0.48s)
-    expect(unmountedTotal).toBeLessThan(swordTotal)
-    // Mounted lance (0.28s) has rapid thrust cadence
-    expect(mountedTotal).toBeLessThan(unmountedTotal)
-
-    // UI text display
-    expect(WEAPONS['steel_lance'].speedOrCharge).toBe(0.42)
-    expect(WEAPONS['steel_lance'].range).toBe(3.9)
-  })
-
-  it('Swords retain unchanged range and animation profile (no regression)', () => {
-    const sword = COMBAT_ANIMATION_PROFILES['swordSlash']
-    expect(sword.windup + sword.active + sword.recovery).toBeCloseTo(0.48, 2)
-    expect(WEAPONS['steel_sword'].range).toBe(1.8)
-  })
-
-  it('NPC Lance: forward reach within 3.9m corridor hits, behind does not hit', () => {
-    const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'LanceFighter', 2, false)
-    npc.isUsingLance = true
-    npc.meleeAttackRadius = 3.9
-
-    // NPC facing yaw = 0 means forward is (0, 0, 1) (+Z)
-    // Target 2.5m in front of NPC (forwardDist = 2.5, lateralDist = 0.2)
-    const inFrontTarget = new THREE.Vector3(0.2, 0, 2.5)
-    expect((npc as any)._isTargetInMeleeRange(inFrontTarget)).toBe(true)
-
-    // Target behind NPC (forwardDist = -1.5)
-    const behindTarget = new THREE.Vector3(0, 0, -1.5)
-    expect((npc as any)._isTargetInMeleeRange(behindTarget)).toBe(false)
-
-    // Target far to the side (forwardDist = 1.0, lateralDist = 2.5 > 1.4)
-    const sideTarget = new THREE.Vector3(2.5, 0, 1.0)
-    expect((npc as any)._isTargetInMeleeRange(sideTarget)).toBe(false)
-  })
-})
-
-// ── Imported Humanoid Setup for Visual & Gameplay Reach Verification ──
-import { readFileSync } from 'node:fs'
-import { readGlb, loadRig } from '../../tools/lib/humanoid-glb.mjs'
-import { createHumanoidRigAdapter, createMountedIdleClip, MixerController } from '../../src/world/HumanoidAssetRegistry'
-import { CharacterEquipmentPose } from '../../src/world/CharacterEquipmentPose'
-import { applyEquipmentAttachment, calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../../src/world/EquipmentAttachmentContract'
-import { createEquipmentSocketProxies } from '../../src/world/HumanoidEquipmentSockets'
-import type { HandGripFrame } from '../../src/world/BowAttachmentContract'
-
-vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
-  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
-  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
-}))
-
-async function createHumanoidFixture(faction: 'roman' | 'viking') {
-  const base = `public/models/characters/v2/${faction}`
-  const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8'))
-  const levels = await Promise.all([0, 1, 2].map(i => loadRig(readGlb(`${base}/lod${i}.glb`))))
-  const a = manifest.handGripFrames.left
-  const left: HandGripFrame = { ...a }
-  for (const k of ['palmContactCenter', 'palmNormal', 'thumbDirection', 'fingerDirection', 'wristCenter', 'thumbBaseCenter'] as const) left[k] = new THREE.Vector3(...a[k])
-  const root = new THREE.Group()
-  levels.forEach(l => root.add(l.scene))
-  root.updateMatrixWorld(true)
-
-  const frames = levels.map((l, i) => calibrateEquipmentFrames(manifest.swordGripFrames[`lod${i}`], left, levels[0].scene.getObjectByName('hand_l'), l.scene.getObjectByName('hand_l')))
-  levels.forEach((l, i) => calibrateLanceIdleAttachment(l.scene, l.animations.find(c => c.name === 'idle')!, frames[i].lanceRight))
-
-  const controller = new MixerController(
-    levels.map(l => new THREE.AnimationMixer(l.scene)),
-    levels.map(l => [...l.animations, createMountedIdleClip(l.animations.find(c => c.name === 'idle')!)])
-  )
-  const rigs = levels.map((l, i) => {
-    l.scene.userData.equipmentGripFrames = frames[i]
-    l.scene.userData.equipmentFaction = faction
-    return createHumanoidRigAdapter(l.scene, controller)
-  })
-  controller.equipmentLayers = rigs.map((r, i) => new CharacterEquipmentPose(levels[i].scene, r, frames[i]))
-  controller.onPoseEvaluated = createEquipmentSocketProxies(root, rigs[0])
-  controller.onPoseEvaluated()
-
-  const lance = new THREE.Group(), model = new THREE.Group()
-  lance.add(model)
-  WeaponMeshFactory.buildMelee('steel_lance', model)
-  rigs[0].right.handSocket.add(lance)
-  applyEquipmentAttachment(rigs[0].right.handSocket, lance, model, frames[0].lanceRight, 'lance')
-
-  const animator = new CharacterCombatAnimator(rigs[0], lance, new THREE.Group())
-
-  const reset = (mounted = false) => {
-    controller.stop()
-    animator.cancel()
-    animator.setEquipment(true, false)
-    animator.setLocomotion(0, mounted)
-    animator.update(0.2)
-  }
-
-  const measure = () => {
-    root.updateMatrixWorld(true)
-    const grip = model.localToWorld(new THREE.Vector3(0, 0.15, 0))
-    const tip = model.localToWorld(new THREE.Vector3(0, 2.6, 0))
-    return { grip, tip }
-  }
-
-  return { root, animator, reset, measure }
-}
-
-function distToSegmentSq(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
-  const ab = new THREE.Vector3().subVectors(b, a)
-  const ap = new THREE.Vector3().subVectors(p, a)
-  const abLenSq = ab.lengthSq()
-  if (abLenSq < 1e-6) return ap.lengthSq()
-  const t = Math.max(0, Math.min(1, ap.dot(ab) / abLenSq))
-  const proj = new THREE.Vector3().copy(a).addScaledVector(ab, t)
-  return p.distanceToSquared(proj)
-}
-
-function checkLanceHit(
-  playerPos: THREE.Vector3,
-  playerForward: THREE.Vector3,
-  currTipPos: THREE.Vector3,
-  prevTipPos: THREE.Vector3,
-  currGripPos: THREE.Vector3,
-  npcCombatPos: THREE.Vector3,
-  npcIsMounted: boolean,
-  lanceReach = 3.9
-): boolean {
-  const aiCenter = npcCombatPos.clone()
-  aiCenter.y += 1.0
-
-  const toTarget = npcCombatPos.clone().sub(playerPos)
-  toTarget.y = 0
-  const forwardDist = toTarget.dot(playerForward)
-  const hitTolerance = npcIsMounted ? 0.85 : 0.60
-
-  if (forwardDist <= 0 || forwardDist > lanceReach + hitTolerance) return false
-
-  const d1Sq = distToSegmentSq(aiCenter, prevTipPos, currTipPos)
-  const d2Sq = distToSegmentSq(aiCenter, currGripPos, currTipPos)
-  const minDSq = Math.min(d1Sq, d2Sq)
-
-  return minDSq <= hitTolerance * hitTolerance
-}
-
-describe('Targeted Verification: Lance Visual Reach in CharacterEquipmentPose', () => {
-  for (const faction of ['roman', 'viking'] as const) {
-    for (const mounted of [false, true]) {
-      const mode = mounted ? 'mounted' : 'unmounted'
-      it(`${faction} ${mode}: idle, 50% thrust, full thrust satisfy +20-30% forward reach increase`, async () => {
-        const fixture = await createHumanoidFixture(faction)
-        fixture.reset(mounted)
-
-        // 1. Idle / ready pose
-        const idle = fixture.measure()
-        const idleTipForward = idle.tip.z
-        const idleGripForward = idle.grip.z
-
-        // Action profile
-        const action = mounted ? 'mountedLance' : 'lanceThrust'
-        const profile = COMBAT_ANIMATION_PROFILES[action]
-        const hitTime = profile.windup + profile.active * 0.9
-        const halfThrustTime = profile.windup + (hitTime - profile.windup) * 0.5
-
-        fixture.animator.start(action)
-
-        // 2. Windup pullback check
-        fixture.animator.update(profile.windup * 0.8)
-        const windupState = fixture.measure()
-        expect(windupState.tip.z).toBeLessThanOrEqual(idleTipForward + 0.01) // Noticeable pullback or ready hold
-
-        // 3. 50% thrust
-        fixture.reset(mounted)
-        fixture.animator.start(action)
-        fixture.animator.update(halfThrustTime)
-        const halfThrust = fixture.measure()
-        const halfTipForward = halfThrust.tip.z
-        expect(halfTipForward).toBeGreaterThan(idleTipForward + 0.15)
-
-        // 4. Full thrust (at hit time / peak)
-        fixture.reset(mounted)
-        fixture.animator.start(action)
-        fixture.animator.update(hitTime)
-        const fullThrust = fixture.measure()
-        const fullTipForward = fullThrust.tip.z
-        const fullGripForward = fullThrust.grip.z
-
-        const forwardDelta = fullTipForward - idleTipForward
-        const percentIncrease = (forwardDelta / idleTipForward) * 100
-        const gripDelta = fullGripForward - idleGripForward
-
-        // Verify arm noticeably drives forward
-        expect(gripDelta).toBeGreaterThan(0.45)
-        // Verify forward reach increase is between 20% and 30%
-        expect(percentIncrease).toBeGreaterThanOrEqual(20.0)
-        expect(percentIncrease).toBeLessThanOrEqual(30.0)
-
-        // Verify lance tip points forward
-        const lanceDir = fullThrust.tip.clone().sub(fullThrust.grip).normalize()
-        expect(lanceDir.z).toBeGreaterThan(0.96)
-
-        // 5. Recovery smoothly returns toward idle
-        fixture.animator.update(profile.recovery)
-        const recoveryState = fixture.measure()
-        expect(Math.abs(recoveryState.tip.z - idleTipForward)).toBeLessThan(0.08)
-      })
-    }
-  }
-})
-
-describe('Targeted Verification: Lance Gameplay Reach & Swept Hit Mechanics', () => {
-  it('Gameplay Hit: verifies close hits, extended reach hits, beyond reach misses, and side/behind misses', async () => {
-    const fixture = await createHumanoidFixture('roman')
-    fixture.reset(false)
-
-    const playerPos = new THREE.Vector3(0, 0, 0)
-    const playerForward = new THREE.Vector3(0, 0, 1)
-
-    // At full thrust:
-    const thrustProfile = COMBAT_ANIMATION_PROFILES['lanceThrust']
-    fixture.animator.start('lanceThrust')
-    fixture.animator.update(thrustProfile.windup + thrustProfile.active * 0.9)
-    const fullThrust = fixture.measure()
-    const currTipPos = fullThrust.tip
-    const currGripPos = fullThrust.grip
-    const prevTipPos = currTipPos.clone()
-
-    // 1. Within original distance (e.g. 2.2m) -> HITS
-    const closeEnemy = new THREE.Vector3(currTipPos.x, 0, 2.2)
-    expect(checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, closeEnemy, false)).toBe(true)
-
-    // 2. Newly extended reach (e.g. 3.3m) -> HITS!
-    // (At tip.z ≈ 2.88m, distance to 3.3m is ~0.42m <= 0.60m hit tolerance)
-    const extendedEnemy = new THREE.Vector3(currTipPos.x, 0, 3.3)
-    expect(checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, extendedEnemy, false)).toBe(true)
-
-    // 3. Beyond maximum effective reach (e.g. 3.6m for unmounted) -> MISSES
-    const farEnemy = new THREE.Vector3(currTipPos.x, 0, 3.6)
-    expect(checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, farEnemy, false)).toBe(false)
-
-    // 4. Behind player (z = -1.5m) -> MISSES
-    const behindEnemy = new THREE.Vector3(currTipPos.x, 0, -1.5)
-    expect(checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, behindEnemy, false)).toBe(false)
-
-    // 5. Far to the side (x = 2.5m, z = 2.5m) -> MISSES
-    const sideEnemy = new THREE.Vector3(2.5, 0, 2.5)
-    expect(checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, sideEnemy, false)).toBe(false)
-  })
-
-  it('Mounted High-Speed Swept Segment: catches fast-moving targets without tunneling/skipping', () => {
-    const playerPos = new THREE.Vector3(0, 0, 0)
-    const playerForward = new THREE.Vector3(0, 0, 1)
-
-    // Simulating high-speed horse charge where tip moves from z = 1.5 to z = 3.5 in one frame
-    const prevTipPos = new THREE.Vector3(0.2, 1.2, 1.5)
-    const currTipPos = new THREE.Vector3(0.2, 1.2, 3.5)
-    const currGripPos = new THREE.Vector3(0.2, 1.2, 1.0)
-
-    // Enemy positioned right in the swept path at z = 2.5 (where neither prevTip nor currTip is directly touching)
-    const sweptEnemy = new THREE.Vector3(0.2, 0.2, 2.5) // aiCenter.y = 0.2 + 1.0 = 1.2
-
-    // d1Sq is 0 because aiCenter is exactly on the swept line segment [prevTipPos, currTipPos]
-    const hitResult = checkLanceHit(playerPos, playerForward, currTipPos, prevTipPos, currGripPos, sweptEnemy, false)
-    expect(hitResult).toBe(true)
   })
 })
 

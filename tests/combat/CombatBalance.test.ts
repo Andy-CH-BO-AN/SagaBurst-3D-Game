@@ -1,3 +1,4 @@
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { describe, it, expect } from 'vitest'
 import { COMBAT_BALANCE, getRangedCombatKind, getNpcRangedAttackRange, getRangedDamageMultiplier, getRangedCooldown, getAntiCavalryMultiplier, getBerserkerModifiers, calculateLanceChargeDamage, calculateMountImpactDamage } from '../../src/combat/CombatBalance'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
@@ -189,5 +190,34 @@ describe('Combat balance rules', () => {
       expect(getRangedCooldown(null, 2.5)).toBe(2.5)
       expect(getRangedCooldown('bow', 2.6)).toBeCloseTo(2.6 / COMBAT_BALANCE.bow.attackRateMultiplier)
     })
+  })
+})
+
+describe('Lance Charge Bonus Production Behavior', () => {
+  it('triggers 3x damage multiplier and sets skipImpact when charging at speed > 10 with steel_lance', () => {
+    const lance = WEAPONS['steel_lance']
+    expect(lance.isLance).toBe(true)
+
+    const result = calculateLanceChargeDamage(lance.isLance === true, 12.0, lance.damageMax)
+    expect(result.damage).toBe(135.0) // 45 * 3
+    expect(result.skipImpact).toBe(true)
+  })
+
+  it('does not trigger charge bonus when moving at or below speed threshold 10', () => {
+    const lance = WEAPONS['steel_lance']
+    const trotResult = calculateLanceChargeDamage(lance.isLance === true, 10.0, lance.damageMax)
+    expect(trotResult.damage).toBe(45.0)
+    expect(trotResult.skipImpact).toBe(false)
+
+    const walkResult = calculateLanceChargeDamage(lance.isLance === true, 5.0, lance.damageMax)
+    expect(walkResult.damage).toBe(45.0)
+    expect(walkResult.skipImpact).toBe(false)
+  })
+
+  it('does not trigger charge bonus for non-lance weapons even at high speed', () => {
+    const sword = WEAPONS['steel_sword']
+    const result = calculateLanceChargeDamage(sword.isLance === true, 12.0, sword.damageMax)
+    expect(result.damage).toBe(25.0)
+    expect(result.skipImpact).toBe(false)
   })
 })

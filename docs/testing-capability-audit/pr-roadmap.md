@@ -1,6 +1,6 @@
 # 後續工作包：依能力與依賴排序
 
-這是可拆分的工作包，不預先鎖定PR數量。每包可以拆成機械搬檔、fixture整理、語意去重三類PR；不把數千行移動與刪case混在一起。Runtime 等價去重的案例刪除仍為 **0**；依資產 review 已逐案移除 **11 個 art-only cases**（Humanoid 權重、uniform scale／payload size 與兩種動物的腳掌／跑姿／膝踝彎曲），runtime 判定與保留 coverage 見 matrix J4a–J4d、J5a–J5d。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴、保留契約與測試結果，不要求人工 QA 場景。
+這是可拆分的工作包，不預先鎖定PR數量。依 owner 最新指示，每個 scope 可涵蓋同能力的較大範圍，搬檔、fixture與語意判定可同 PR，仍分別提供精確來源／replacement證據。Runtime 等價去重已刪除 **2** 案；依資產 review 已逐案移除 **15 個 art-only cases**（Humanoid 權重、uniform scale／payload size 、兩種動物的腳掌／跑姿／膝踝彎曲與 lance authored reach），runtime 判定與保留 coverage 見 matrix C3、J4a–J4g、J5a–J5d；另兩個 copied-algorithm 案已換成14個真實命中接線案。Runtime 行為刪除需 replacement mapping 與等價證據；資產 art-only assertion 依 #224 追加 review 逐案提供無 runtime 依賴、保留契約與測試結果，不要求人工 QA 場景。
 
 ## PR 整合方式（使用者指定）
 
@@ -9,7 +9,7 @@
 - 各能力 PR 仍獨立 review、附驗證及 replacement mapping；合入後更新整合 PR 的範圍與驗證紀錄。
 - 最終整合 PR 合併到 `dev` 須另有使用者明確指示；不得啟用 auto-merge。
 
-共用驗證 `V`：affected suites → `rtk npm test` → `rtk npm run typecheck:test` → `rtk npm run build` → `rtk npm run test:release`。每批仍需collection前後對照；不以綠燈代替語意review。腳本路徑遷移後命令同步更新。
+共用驗證 `V`（依 owner 最新指示）：本機只跑 affected suites、collection/source/replacement 前後對照與 `rtk npm run typecheck:test`；完整 Vitest、build、release 和 web／Windows／macOS smoke 由該 PR actual-head CI 保護，全部通過才手動合回整合分支。原有 flaky 留存紀錄，等去重時處理，不以無關本機重跑阻擋當前批次；新增回歸仍需修正。不以綠燈代替語意 review。
 
 | 次序／工作包 | 目標與前置 | tests / helpers與動作 | 必留接線、風險 | test-only與完成條件／驗證 |
 | --- | --- | --- | --- | --- |
@@ -32,10 +32,10 @@
 依 [#224 review](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/224#issuecomment-6035596884)，此區與 P2/P11 一起納入本輪，現在開始處理，不留到整理完 mission 後才盤點。原則：**Automated asset tests verify runtime contracts, not artistic appearance.**
 
 1. 更新 capability map、dedup matrix 與長期 tests/AGENTS，分清 runtime 契約、gameplay visual 邊界與 art-only 候選。此步只有文件，不能算資產 cleanup 已完成。
-2. 盤點 Corgi/BlackCat/Horse/Humanoid 的真 GLB consumer，逐案讀 body 與实际 runtime 依賴；先用 typed 輕量 visual fixture 處理 target acquisition、movement、balance、spectator、mission flow，保留真實 NPC/Player/Mount 的受測行為與必要 integration。Fixture 修改獨立 PR，cleanup 在 setup/assertion 失敗仍生效。
+2. 盤點 Corgi/BlackCat/Horse/Humanoid 的真 GLB consumer，逐案讀 body 與实际 runtime 依賴；先用 typed 輕量 visual fixture 處理 target acquisition、movement、balance、spectator、mission flow，保留真實 NPC/Player/Mount 的受測行為與必要 integration。Fixture 修改提供獨立來源證據，可納入同能力較大 PR；cleanup 在 setup/assertion 失敗仍生效。
 3. 對資產 suites 每個 assertion 標 KEEP 或 REMOVE candidate：parse/preload、必要LOD、runtime lookups、gameplay clip/event、instance/isolation、missing/malformed、package/manifest/path 保留；精確美術內容逐案追 caller 後決定。混合 case 只移除不具 runtime 依賴的 assertion，不能整案丟掉必要契約。
-4. 語意修改獨立 PR，提供原 ID → 保留契約 ID mapping 與無 runtime 依賴證據、實際測試結果。Test-only 整理不附人工 QA 場景，不把人工 QA 列為完成門檻。共用 loader 明示省略的內容，材質/紋理契約保留所需 payload。
-5. 純搬檔另開小批 PR，機械 mapping 與 collection 對照獨立驗證。每個實作批次跑 V，fixture/assets 接線變更加 web 與受影響 desktop smoke；改善成本/穩定性須附量測，不能只因不載 GLB 就宣稱更快。
+4. 語意修改提供原 ID → 保留契約 ID mapping 與無 runtime 依賴證據、實際測試結果。Test-only 整理不附人工 QA 場景，不把人工 QA 列為完成門檻。共用 loader 明示省略的內容，材質/紋理契約保留所需 payload。
+5. 依能力合併較大 scope，機械 mapping 與 collection 對照仍獨立驗證。每個實作批次跑 V，fixture/assets 接線變更由 actual-head CI 驗 web 與 desktop smoke；改善成本/穩定性須附量測，不能只因不載 GLB 就宣稱更快。
 
 資產工作流完成條件：所有列入範圍的 consumer 與 assertion 有個案判定；必要真 GLB 契約有明確 owner；非資產 gameplay 的重載入已替換或列出保留理由；不存在僅共用 loader 卻保留無關資產成本的未處理項。完成後才進最終清理。
 
@@ -69,4 +69,4 @@ P1、P2可獨立啟動；P3/P4/P6是高重用基礎。P5依input/transaction接�
 
 ## 完成條件
 
-每個工作包關閉時交付：更新inventory與replacement mapping、未刪的integration清單、collection前後對照、affected/full/typecheck/build/release結果、尚未驗證的平台與等價限制。若有歷史type errors，附一對一fingerprint遷移或修復證據。case數變化與速度都不是單獨成功指標。
+每個工作包關閉時交付：更新inventory與replacement mapping、未刪的integration清單、collection前後對照、本機 affected/typecheck 與 actual-head CI full/build/release/smoke 結果、尚未驗證的平台與等價限制。若有歷史type errors，附一對一fingerprint遷移或修復證據。case數變化與速度都不是單獨成功指標。
