@@ -1,8 +1,5 @@
-import { installHorseTestAsset } from '../helpers/horseAsset'
-import { installCorgiTestAsset } from '../helpers/corgiAsset'
-import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { ShieldCollider, WeaponSweep, traceCombatSegment, type CombatContact } from '../../src/combat/ShieldBlocking'
 import { damageMount, damageNpc, damagePlayer } from '../../src/combat/DamageRouter'
 import { createPlayerCombatActorRef, type CombatDamageContext, type CombatEvent } from '../../src/combat/CombatAttribution'
@@ -20,7 +17,22 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownScene } from '../../src/town/TownScene'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 
-beforeAll(async () => { await Promise.all([installHorseTestAsset(), installCorgiTestAsset(), installBlackCatTestAsset()]) })
+vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()),
+  HorseAssetRegistry: {
+    ready: true,
+    createInstance: (await import('../helpers/gameplayHorseVisual')).createGameplayHorseVisual,
+  },
+}))
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
+  BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
+
 
 const hp = { setFill: vi.fn() } as any
 const disposables: Array<{ dispose(): void }> = []
@@ -29,6 +41,7 @@ function fixture(type = MountType.HORSE) {
   const scene = new THREE.Scene(), player = new Player(scene)
   const rider = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Rider', 1, false)
   const mount = new Mount(scene, type, 0, 0, 50)
+  onTestFinished(() => mount.dispose())
   rider.mountVehicle(mount)
   disposables.push(rider, player, mount)
   return { scene, player, rider, mount }
@@ -219,7 +232,7 @@ describe('Career temporary battlefield mounts', () => {
     disposables.push(controller)
     if (purchased) expect(controller.activate('black-cat')).toBe(true)
     const owned = controller.activeMount
-    const service = new Mount(scene, MountType.HORSE, 10, 10, 50); service.reservedForTown = true; disposables.push(service)
+    const service = new Mount(scene, MountType.HORSE, 10, 10, 50); onTestFinished(() => service.dispose()); service.reservedForTown = true; disposables.push(service)
     const temporary = new TemporaryBattlefieldMounts(); temporary.track(mount, profile.activeMission!.id)
     rider.restoreCombatHealth(20); damageNpc(rider, 30, ctx(player, 'body'))
     player.mountVehicle(mount)
@@ -263,6 +276,8 @@ describe('Career temporary battlefield mounts', () => {
   it('Town combat cleanup removes released battlefield horses without touching services or owned mounts', () => {
     const { scene, rider, mount, player } = fixture()
     const service = new Mount(scene, MountType.HORSE, 10, 10, 50), owned = new Mount(scene, MountType.BLACK_CAT, 20, 10, 50)
+    onTestFinished(() => service.dispose())
+    onTestFinished(() => owned.dispose())
     disposables.push(service, owned); service.reservedForTown = true
     const town = createTownCombatFixture()
     town.profile = createCareerProfile('roman'); town.profile.ownedMounts = ['black-cat']; town.profile.selectedMountId = 'black-cat'

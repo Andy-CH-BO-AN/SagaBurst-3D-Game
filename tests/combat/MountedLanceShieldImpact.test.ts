@@ -1,6 +1,5 @@
 import * as THREE from 'three'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { installHorseTestAsset } from '../helpers/horseAsset'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, type CombatDamageContext } from '../../src/combat/CombatAttribution'
 import { damageNpc, damagePlayer } from '../../src/combat/DamageRouter'
 import { ShieldState, weaponShieldImpact } from '../../src/combat/ShieldBlocking'
@@ -9,7 +8,14 @@ import { Player } from '../../src/player/Player'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 
-beforeAll(installHorseTestAsset)
+vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()),
+  HorseAssetRegistry: {
+    ready: true,
+    createInstance: (await import('../helpers/gameplayHorseVisual')).createGameplayHorseVisual,
+  },
+}))
+
 const disposables: Array<{ dispose(): void }> = []
 afterEach(() => disposables.splice(0).forEach(object => object.dispose()))
 const lances = ['hunting_spear', 'steel_lance', 'heavy_lance'] as const
@@ -19,6 +25,7 @@ function fixture(side: 'player' | 'npc', shieldId: string) {
   const scene = new THREE.Scene(), player = new Player(scene)
   const npc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Guard', 1, false)
   const mount = new Mount(scene, MountType.HORSE, 0, 0, 50)
+  onTestFinished(() => mount.dispose())
   disposables.push(player, npc, mount)
   player.blockingLevel = 0
   const attacker = side === 'player' ? player : npc
