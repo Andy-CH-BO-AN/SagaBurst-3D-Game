@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { validateRelease } = require('./validate-tag.cjs')
+const { validateRelease } = require('../../tools/release/validate-tag.cjs')
 const version = '1.2.3'
 const lock = { version, packages: { '': { version } } }
 const git = ref => ({ 'v1.2.3^{commit}': 'release-commit', HEAD: 'release-commit', 'origin/main': 'release-commit' })[ref]
