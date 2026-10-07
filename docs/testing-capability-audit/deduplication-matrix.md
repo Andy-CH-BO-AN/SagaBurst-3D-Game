@@ -2,7 +2,7 @@
 
 所有來源 ID 都是基準 SHA 的 `file:declaration-start-line`；完整名稱、參數展開、body 與 assertions 可由 [case inventory](inventory/case-inventory.jsonl) 查到。表中目標路徑是規劃，不是本輪新增的 suite。
 
-KEEP 保留 failure mode；MOVE 僅改責任位置；SHARE FIXTURE 只共用 setup；PARAMETERIZE 共用邏輯但對每個輸入/實作執行。MERGE/REMOVE 必須有等價 replacement；NEEDS RUNTIME REFACTOR 表示先維持多實作 coverage。本輪 **0 MERGE、0 REMOVE 授權，0 replacement mutation 驗證**。
+KEEP 保留 failure mode；MOVE 僅改責任位置；SHARE FIXTURE 只共用 setup；PARAMETERIZE 共用邏輯但對每個輸入/實作執行。Runtime 行為的 MERGE/REMOVE 必須有等價 replacement；NEEDS RUNTIME REFACTOR 表示先維持多實作 coverage。依 [#224 資產 review](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/224#issuecomment-6035596884)，無 runtime 依賴的 art-only assertions 可逐案移除或交人工 QA，須記錄下述資產判定證據。目前已實作 **0 MERGE、0 REMOVE、0 art-only 移除，0 replacement mutation 驗證**；候選不是批量刪除授權。
 
 ## 已讀 body／追接線的決策
 
@@ -31,7 +31,9 @@ KEEP 保留 failure mode；MOVE 僅改責任位置；SHARE FIXTURE 只共用 set
 | H3 `tests/career/VeteranFieldCheckpoint.test.ts:36/65/104/121/133/175/207` | Bandit snapshot/restore、identity、legacy position | KEEP/MOVE 至 `integration/VeteranFieldRestore`；sharing memory profile 不能替代 parser | 全留 borrowed47、temporary shortage、dead mount、charge不重播、world edge、HP37/mount43、casualty IDs、Player dead、claim idempotency；另加 serialized bridge 是後續缺口確認工作 |
 | H4 `VeteranTownSettlement:77/138`；`MountedPhysicalContact:283` | 保存成功前不得 scene cleanup/ownership release | 共用 fail-on-write fixture；不同 side effects仍各自觀察 | persistence/integration 留 casualty不revive、Patrol不release、controller不cleanup、temporary ridden mount不dispose；成功retry才生效 |
 | I2 `TownMissionCombat:52`；`TownPersonalSquad:254/375`；Outskirts/Defense/Duel 分支 | TownMissionCombat actor集合／每frame一次 | PARAMETERIZE narrow once-update contract，對每個 branch adapter 執行；SHARE FIXTURE，不以field覆蓋其他branch | integration 保留 actor順序、corpse排除neighbors、reuse buffer、free-play private、Defense非civilian、dismiss travel；Outskirts、Duel尚未逐body比較的 rows保持原case |
-| J1 `HorseAssetRegistry:137`；`HorseRuntimePackage:165/263/334`；`HumanoidAnimationAssets:402/417` | GLB讀取可共用；不同 package/runtime contract不等價 | SHARE FIXTURE loader（按geometry/material需求選）；只共用明確命名的assertions | assets 留 shared geometry/獨立skeleton/mixer、30MB、seat/stirrups landmarks、18/18/6 meshes、GLB hash、Roman anatomical weights；本組body已讀但runtime深追未全完成 |
+| J1 `HorseAssetRegistry:137`；`HorseRuntimePackage:165/263/334`；`HumanoidAnimationAssets:402/417` | GLB讀取可共用；不同 package/runtime contract不等價 | SHARE FIXTURE loader（明示geometry/material需求）；逐 assertion 查 production consumer，不整案預設KEEP | KEEP runtime-required seat/socket/bone/LOD/clip/event、instance 建立、shared-resource ownership 與獨立skeleton/mixer。30MB、landmarks、18/18/6 meshes、anatomical weights 等 art-only 值列 REMOVE/manual QA candidate；hash 僅在 manifest/promotion immutable bytes 契約需要時KEEP。本組 runtime 深追未全完成，未實作刪除 |
+| J3 Corgi/BlackCat/Horse/Humanoid gameplay consumers | actor/mount/combatPosition 所需資料與真 GLB parsing 是不同責任 | SHARE FIXTURE：typed visual double；target acquisition/movement/balance/spectator/mission flow 保留真實 domain behavior、時間、輸入與 assertions | 逐 suite 列 loader → 輕量接縫 mapping；必要真 GLB integration 與 assets 的parse/instance/isolation/failure/path契約KEEP。尚未逐case確認的consumer保留原案，不宣稱已清除所有重資產載入 |
+| J4 純資產外觀 assertions | duration、瞬間pose/quaternion、weights、material數值、非runtime mesh/name、clearance/silhouette、rotation-only/payload size | REMOVE/manual QA candidate；追實際 lookup/event/manifest caller，runtime依賴存在則KEEP必要條件 | 每個處理項記錄原ID/assertion、無runtime依賴證據、保留的自動契約ID、browser/Blender/screenshot人工QA場景與決定。尚未review不得自動刪除 |
 | J2 `ScenarioE:16`；`ScenarioF:164/262`；所有 Mission/Campaign definitions | scenario名稱不是共同責任 | MOVE scenario定義→missions、spawn→actors、render→observability；不將objective expected改讀production constants | :16保留100v100與30/40/30；:164保留alpha/side/cache。:262僅自寫算術，KEEP暫存並標coverage缺口，先有真正resize replacement才考慮REMOVE |
 | K1 `CareerAudioRuntime:46/59/89`；`CareerMissionVoice:66/79/265` | audio completion與caller時序是相鄰責任 | SHARE FIXTURE audio event adapter；不以mocked voice替代SoundManager ended | audio 留 ended/cancel/cache；integration 留 save→start→voice、失敗無聲。聲音與march的端到端橋接另核對 |
 | K2/K3 Profiler、census、UI、pointer lock、dialogue | 共用 reporting/DOM/input準備可整理 | AST已抽取，尚未逐case等價判定；MOVE規劃為保守分類 | observability/ui/audio新增能力目錄；保留原case所有assertions；不要把performance test count當GPU性能證据 |
@@ -43,11 +45,13 @@ KEEP 保留 failure mode；MOVE 僅改責任位置；SHARE FIXTURE 只共用 set
 
 ## 合併／刪除的後續門檻
 
-目前「可重用」證據主要落在 setup、assertion、parameter matrix 的表達方式，沒有證明整個 integration flow 等價。未來每項 MERGE/REMOVE 必須在同一個 review mapping 寫出：
+目前「可重用」證據主要落在 setup、assertion、parameter matrix 的表達方式，沒有證明整個 integration flow 等價。未來每項 runtime 行為的 MERGE/REMOVE 必須在同一個 review mapping 寫出：
 
 1. 原 case 的每個 observable assertion、特殊輸入、真實／mock實作與caller。
 2. **已實作且可執行**的 replacement ID，對照哪些assertions仍保留。
 3. 未刪的模式接線 ID；不同實作須各自執行contract。
 4. 適合時以有界負向實驗驗證，例如移除emit、斷subscription、save=false仍發order、重複tick同timestamp。不能只引用coverage/全綠。
+
+Art-only 移除另依資產 review 逐 assertion 審查：列出原 ID 與內容、已搜尋／閱讀的 runtime lookup 或 caller、為何該數值不是 runtime 契約、保留的相關自動化 ID，以及轉交的人工 QA 場景或不再保護的外觀限制。不存在 runtime 契約時，不為了保持 test count 而新增等價的外觀 change detector；也不得把混合 case 中必要的 runtime assertion 一併刪除。尚未執行人工 QA 要明示，不能把場景規劃當驗證結果。
 
 矩陣內沒有詳列的1,857份宣告仍在逐case inventory，每列有候選群組、責任位置與保守MOVE/KEEP理由；AST-only列不得據此宣稱已完成語意等價審查。
