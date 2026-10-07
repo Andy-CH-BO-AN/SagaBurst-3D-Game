@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const { mkdtempSync, writeFileSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join, basename } = require('node:path')
-const { downloadNames, inspectRelease, publishRelease, createGhClient } = require('./publish.cjs')
+const { downloadNames, inspectRelease, publishRelease, createGhClient } = require('../../tools/release/publish.cjs')
 
 const tag = 'v1.2.3'
 const names = downloadNames('1.2.3')

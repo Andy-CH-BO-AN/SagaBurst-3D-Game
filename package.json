@@ -11,9 +11,9 @@
     "build:desktop": "tsc && vite build --mode desktop",
     "desktop": "npm run build:desktop && electron .",
     "package:desktop": "npm run build:desktop && electron-builder --publish never",
-    "smoke:web": "node tools/release/smoke.mjs",
-    "smoke:desktop": "node tools/release/smoke.mjs --desktop",
-    "test:release": "node --test tools/release/*.test.cjs",
+    "smoke:web": "node tests/release/smoke.mjs",
+    "smoke:desktop": "node tests/release/smoke.mjs --desktop",
+    "test:release": "node --test tests/release/*.test.cjs",
     "validate:release": "node tools/release/validate-tag.cjs",
     "typecheck:test": "node tools/typecheck-tests.cjs"
   },
