@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import { describe, it, expect } from "vitest"
-import { NPC, Faction, AIType, AIState } from "../src/world/NPC"
-import { Player } from "../src/player/Player"
+import { NPC, Faction, AIType, AIState } from "../../src/world/NPC"
+import { Player } from "../../src/player/Player"
 
 describe("NPC Deterministic Respawn Rules", () => {
   it.each(['peace', 'travel'] as const)('hides a Town corpse after three seconds during %s without reviving it', mode => {
