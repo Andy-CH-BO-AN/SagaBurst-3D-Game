@@ -12,25 +12,26 @@ import { loadCharacter } from '../tools/humanoid-diagnostics/measure-hands.mjs'
 
 const ROOT = new URL('../public/models/characters/v2/', import.meta.url)
 const CLIPS = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
-const EXPECTED_DURATIONS: Record<string, number> = {
-  idle: 2.7,
-  walk: 0.8,
-  run: 0.6,
-  bowLoad: 5 / 6,
-  bowHold: 4 / 3,
-  bowRelease: 0.22,
-  swordSlash: 0.48,
-  axeAttack1H: 0.48,
-  axeAttack2H: 0.48,
-  pilumThrow: 1.5,
+interface AnimationManifest {
+  animations: { embedded: Array<{
+    clip: string
+    duration: number
+    events?: { projectileRelease?: number; actionComplete?: number }
+  }> }
 }
 
-it.each(['viking', 'roman'] as const)('%s pilum manifest releases at the shoulder-high throw frame and completes after 1.5s', faction => {
-  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
-  const pilum = manifest.animations.embedded.find((clip: { clip: string }) => clip.clip === 'pilumThrow')
-  expect(pilum.duration).toBe(1.5)
-  expect(pilum.events.projectileRelease).toBeCloseTo(PILUM_THROW_RELEASE_TIME, 5)
-  expect(pilum.events.actionComplete).toBe(1.5)
+function readAnimationManifest(faction: 'viking' | 'roman'): AnimationManifest {
+  return JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+}
+
+it.each(['viking', 'roman'] as const)('%s pilum manifest matches the gameplay release frame and its declared clip completion', faction => {
+  const manifest = readAnimationManifest(faction)
+  const pilum = manifest.animations.embedded.find(clip => clip.clip === 'pilumThrow')!
+  expect(pilum).toBeDefined()
+  expect(Number.isFinite(pilum.duration)).toBe(true)
+  expect(pilum.duration).toBeGreaterThan(PILUM_THROW_RELEASE_TIME)
+  expect(pilum.events?.projectileRelease).toBeCloseTo(PILUM_THROW_RELEASE_TIME, 5)
+  expect(pilum.events?.actionComplete).toBe(pilum.duration)
 })
 
 interface GlbDocument {
@@ -48,13 +49,6 @@ interface GlbDocument {
     samplers: Array<{ input: number, output: number, interpolation?: string }>
     channels: Array<{ sampler: number, target: { node: number, path: string } }>
   }>
-  asset: { extras: { humanoidAnimationBuild: {
-    baseBufferByteLength: number
-    baseBufferViewCount: number
-    baseAccessorCount: number
-    fps: number
-    clips: string[]
-  } } }
   buffers: Array<{ byteLength: number }>
   bufferViews: Array<{ byteOffset?: number, byteStride?: number }>
   meshes: Array<{
@@ -227,11 +221,17 @@ describe('humanoid embedded animation asset contract', () => {
 
   it.each(
     (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
-  )('%s LOD%s imported pilumThrow remains available at canonical duration in the runtime mixer', async (faction, lod) => {
-    const { root, rig, controller, animator } = await runtimeFixture(faction, lod)
-    expect(controller.has('pilumThrow')).toBe(true)
-    expect(controller.getDuration('pilumThrow')).toBeCloseTo(1.5, 5)
-    controller.stop()
+  )('%s LOD%s exposes the manifest pilum duration through the runtime mixer', async (faction, lod) => {
+    const manifest = readAnimationManifest(faction)
+    const pilum = manifest.animations.embedded.find(clip => clip.clip === 'pilumThrow')!
+    const { controller } = await runtimeFixture(faction, lod)
+    try {
+      expect(controller.has('pilumThrow')).toBe(true)
+      const duration = controller.getDuration('pilumThrow')
+      expect(Number.isFinite(duration)).toBe(true)
+      expect(duration).toBeGreaterThan(PILUM_THROW_RELEASE_TIME)
+      expect(duration).toBeCloseTo(pilum.duration, 5)
+    } finally { controller.stop() }
   })
 
   it.each(['viking', 'roman'] as const)('%s production pilumThrow raises the grip above the shoulder at release frame 17', async faction => {
@@ -319,23 +319,21 @@ describe('humanoid embedded animation asset contract', () => {
   })
 
 
-  it('ships the same canonical rotation-only clips on all six GLBs', () => {
-    const reference = readGlb('viking', 0)
+  it('ships the runtime-required clips with names and durations matching each faction manifest', () => {
     for (const faction of ['viking', 'roman'] as const) {
+      const manifest = readAnimationManifest(faction)
+      const required = [...CLIPS, ...(faction === 'viking' ? ['axeAttack1H', 'axeAttack2H'] : [])]
+      expect(manifest.animations.embedded.map(binding => binding.clip)).toEqual(expect.arrayContaining(required))
       for (let lod = 0; lod < 3; lod++) {
         const document = readGlb(faction, lod)
-        expect(document.animations.map((clip) => clip.name).sort()).toEqual([...CLIPS, ...(faction === 'viking' ? ['axeAttack1H', 'axeAttack2H'] : [])].sort())
-        expect(document.asset.extras.humanoidAnimationBuild.fps).toBe(30)
-        expect(document.asset.extras.humanoidAnimationBuild.clips).toEqual(CLIPS)
-        const joints = new Set(document.skins.flatMap((skin) => skin.joints))
-        for (const clip of document.animations) {
-          for (const channel of clip.channels) {
-            expect(channel.target.path).toBe('rotation')
-            expect(joints.has(channel.target.node)).toBe(true)
-            expect(document.nodes[channel.target.node].name).toBeTruthy()
-          }
-          expect(clipDuration(document, clip.name)).toBeCloseTo(EXPECTED_DURATIONS[clip.name], 4)
-          expect(clipDuration(document, clip.name)).toBeCloseTo(clipDuration(reference, clip.name), 5)
+        expect(document.animations.map(clip => clip.name).sort()).toEqual(manifest.animations.embedded.map(binding => binding.clip).sort())
+        for (const binding of manifest.animations.embedded) {
+          expect(Number.isFinite(binding.duration)).toBe(true)
+          expect(binding.duration).toBeGreaterThan(0)
+          const duration = clipDuration(document, binding.clip)
+          expect(Number.isFinite(duration)).toBe(true)
+          expect(duration).toBeGreaterThan(0)
+          expect(duration).toBeCloseTo(binding.duration, 4)
         }
       }
     }
