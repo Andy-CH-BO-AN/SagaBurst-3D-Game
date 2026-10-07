@@ -32,14 +32,14 @@ describe("NPC Deterministic Respawn Rules", () => {
     // Explicitly configure rules: respawn disabled
     npc.respawnEnabled = false
     expect(npc.dead).toBe(false)
-    expect(npc.currentHp).toBeGreaterThan(0)
+    expect(npc.hp).toBeGreaterThan(0)
 
     // Apply lethal damage
     const killed = npc.takeDamage(9999)
     expect(killed).toBe(true)
-    expect(npc.state).toBe(AIState.DEAD)
+    expect(npc.currentState).toBe(AIState.DEAD)
     expect(npc.dead).toBe(true)
-    expect(npc.currentHp).toBe(0)
+    expect(npc.hp).toBe(0)
 
     // Advance delta time in increments totaling > 10.0s (12 seconds)
     // RESPAWN_TIME is 10.0s
@@ -58,9 +58,9 @@ describe("NPC Deterministic Respawn Rules", () => {
     }
 
     // Must strictly remain DEAD with 0 HP
-    expect(npc.state).toBe(AIState.DEAD)
+    expect(npc.currentState).toBe(AIState.DEAD)
     expect(npc.dead).toBe(true)
-    expect(npc.currentHp).toBe(0)
+    expect(npc.hp).toBe(0)
   })
 
   it("respawns when respawnEnabled is true after the 10.0s window", () => {
@@ -74,7 +74,7 @@ describe("NPC Deterministic Respawn Rules", () => {
 
     // Apply lethal damage
     npc.takeDamage(9999)
-    expect(npc.state).toBe(AIState.DEAD)
+    expect(npc.currentState).toBe(AIState.DEAD)
     expect(npc.dead).toBe(true)
 
     // Advance 5 seconds (less than 10.0s RESPAWN_TIME) -> should still be dead
@@ -91,7 +91,7 @@ describe("NPC Deterministic Respawn Rules", () => {
         true
       )
     }
-    expect(npc.state).toBe(AIState.DEAD)
+    expect(npc.currentState).toBe(AIState.DEAD)
     expect(npc.dead).toBe(true)
 
     // Advance another 6 seconds (total 11s > 10.0s RESPAWN_TIME) -> should respawn
@@ -108,8 +108,8 @@ describe("NPC Deterministic Respawn Rules", () => {
         true
       )
     }
-    expect(npc.state).not.toBe(AIState.DEAD)
+    expect(npc.currentState).not.toBe(AIState.DEAD)
     expect(npc.dead).toBe(false)
-    expect(npc.currentHp).toBe(npc.maxHp)
+    expect(npc.hp).toBe(npc.maxHp)
   })
 })
