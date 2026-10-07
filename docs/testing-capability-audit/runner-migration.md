@@ -1,6 +1,6 @@
 # tests/ 目錄與 runner 遷移計畫
 
-本文件保留盤點基準的遷移設計。已實作的第一批為 [Navigation core](migrations/navigation-core.md)：四個 suite 移至 `tests/movement/`，其餘仍是後續規劃；package scripts、Vitest、TypeScript 與 CI 未在本批修改。
+本文件保留盤點基準的遷移設計。已實作 [Navigation core](migrations/navigation-core.md) 4 個 suite 與 [Collision core](migrations/collision-core.md) 3 個 suite，均移至 `tests/movement/`。兩批未改 package scripts、Vitest、TypeScript 或 baseline；integration-base CI filter 由獨立 #225 處理並已合入整合分支。
 
 ## 目標責任
 
@@ -33,9 +33,9 @@ tests/
 
 ## 現況 → 後續變更
 
-| 設定／入口 | dev 現況 | 遷移要求 |
+| 設定／入口 | 盤點基準 | 遷移要求 |
 | --- | --- | --- |
-| `package.json:test` | `vitest run` | script名稱保留；以collection查194檔/2930cases的原名稱與參數mapping |
+| `package.json:test` | `vitest run` | script名稱保留；以collection查194檔/2936cases的原名稱與參數mapping |
 | `vitest.config.ts` | Vite merge；預設 discovery，exclude 加 `output/**`、`tools/release/**`；local5s/CI20s | 遷移期間保留src discovery；全部30檔移完才收斂include到tests。先加入 `tests/release/**` exclude，再移Node檔，不准跨runner重複收集 |
 | Vitest include | 未自訂；包含符合預設命名的src/tests檔 | 最終可用 `tests/**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}`，保留configDefaults.exclude、output、兩個release路徑exclude直到舊路徑清空；依實際extension再精簡 |
 | `test:release` | `node --test tools/release/*.test.cjs`，3檔17cases | 改 `node --test tests/release/*.test.cjs`；production `publish.cjs`、`validate-tag.cjs` 留tools/release |
@@ -79,7 +79,7 @@ tests/
 
 ## 全部 src 與 Node release 檔的去向
 
-下表以盤點基準的原檔為索引；同檔混合責任以逐 case map 分拆。四個 navigation 目標已建立，其餘目標仍待後續批次；目前位置以對應遷移紀錄為準。
+下表以盤點基準的原檔為索引；同檔混合責任以逐 case map 分拆。4 個 navigation 與 3 個 collision/geometry 目標已建立，其餘目標仍待後續批次；目前位置以對應遷移紀錄為準。
 
 | 原檔 | 宣告 / 展開 | 規劃責任位置（依 case 分拆） |
 | --- | ---: | --- |
@@ -120,7 +120,7 @@ tests/
 
 ## Typecheck fingerprint 一對一遷移
 
-目前30個src測試沒有歷史baseline項目；465筆分布於70個tests/helper檔、349個fingerprints。之後整理現有tests路徑仍會遇到ratchet問題。
+盤點時30個src測試沒有歷史baseline項目；465筆分布於70個tests/helper檔、349個fingerprints。之後整理現有tests路徑仍會遇到ratchet問題。
 
 1. 搬檔前保存 affected file 的diagnostics：`old file/code/message/snippet/count`。只列本PR會搬的項目，不整份重建baseline。
 2. 優先修該diagnostic；baseline刪除相應key/count，證明新位置不再有該錯。

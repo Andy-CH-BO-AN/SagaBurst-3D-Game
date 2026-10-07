@@ -9,7 +9,9 @@
 ## 實作進度與目前路徑
 
 - [Navigation core 遷移](migrations/navigation-core.md)：4 個 suite、26 個 cases 已移到 `tests/movement/`；全部 assertions 保留，full suite/typecheck/build/release 驗證通過。
-- 原始 inventory 保持上述 SHA 的快照；搬移後位置以 [逐 case 遷移對照](inventory/migrations/navigation-core.csv) 為準。本批後仍有 26 個 src test 檔待遷移。
+- [Collision core 遷移](migrations/collision-core.md)：3 個 suite、11 個 cases 已移到 `tests/movement/`；保留碰撞候選順序、幾何與世界邊界 assertions，Town 真實接線維持原處。
+- 原始 inventory 保持上述 SHA 的快照；搬移後位置以 [Navigation mapping](inventory/migrations/navigation-core.csv) 與 [Collision mapping](inventory/migrations/collision-core.csv) 為準。兩批共搬 7 個 suite、37 個 cases，目前仍有 23 個 src test 檔待遷移。
+- #225 的整合分支 CI 觸發修正與 #226 的 Navigation core 已合入 #224；兩支的 web、Windows/macOS desktop CI 均通過。Collision core 另開 PR review。
 
 ## 交付文件
 
@@ -77,6 +79,8 @@
 ## PR 整合分支
 
 本輪主 PR：`codex/test-capability-audit` → `dev`，暫不合併。後續本計畫的能力 PR 一律以 `codex/test-capability-audit` 為 base 並合回該分支；最後整合進 `dev` 須另有使用者明確指示。詳見 [roadmap](pr-roadmap.md)。
+
+整輪結束後另開最後一支清理 PR：撤回 #225 的暫時 CI filter，刪除本目錄及本輪一次性 script/doc/audit，保留長期測試規範與持續使用的工具，清掉失效引用，再驗證 #224 的最終版本。完整範圍見 roadmap 的「最後一支清理 PR」。
 
 ## 先做什麼
 

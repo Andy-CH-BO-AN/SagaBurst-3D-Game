@@ -3,8 +3,8 @@ import * as THREE from 'three'
 import {
   OBSTACLE_COLLISION_GRID_CELL_SIZE,
   ObstacleCollisionSpatialIndex,
-} from './ObstacleCollisionSpatialIndex'
-import type { ObstacleData } from './Terrain'
+} from '../../src/world/ObstacleCollisionSpatialIndex'
+import type { ObstacleData } from '../../src/world/Terrain'
 
 function obstacle(
   minX: number,
