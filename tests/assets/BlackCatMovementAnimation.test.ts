@@ -1,10 +1,12 @@
 import * as THREE from 'three'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Mount, MountState, MountType } from '../../src/world/Mount'
 import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
 
 describe('black cat animation during terrain movement', () => {
-  beforeAll(installBlackCatTestAsset)
+  let gltf: GLTF
+  beforeAll(async () => { gltf = await installBlackCatTestAsset() })
 
   it.each([
     { speed: 13.2, fps: 60 },
@@ -13,27 +15,32 @@ describe('black cat animation during terrain movement', () => {
     { speed: 26.4, fps: 144 },
   ])('keeps the legs running down the spawn slope at $speed m/s and $fps FPS', ({ speed, fps }) => {
     const mount = new Mount(new THREE.Scene(), MountType.BLACK_CAT, 0, 145)
+    onTestFinished(() => mount.dispose())
     mount.state = MountState.CONTROLLED
     const visual = mount.catVisual!
     const land = vi.spyOn(visual, 'playOnce')
+    onTestFinished(() => land.mockRestore())
     const direction = new THREE.Vector3(0, 0, -1)
     const dt = 1 / fps
-    const leg = visual.skeleton.getBoneByName('cat_front_upper_l')!
-    const poses = new Set<string>()
+    const runClip = gltf.animations.find(clip => clip.name === 'run')
+    expect(runClip).toBeDefined()
+    const run = visual.mixer.existingAction(runClip!)
+    expect(run).not.toBeNull()
     let groundContacts = 0
     mount.beginControlledFrame()
     mount.finishControlledFrame(dt, [])
     for (let frame = 0; frame < fps * 4; frame++) {
       const wasGrounded = mount.onGround
+      const previousPhase = run!.time
       mount.beginControlledFrame()
       mount.addControlledMovement(direction, speed, dt)
       mount.finishControlledFrame(dt, [])
       if (!wasGrounded && mount.onGround) groundContacts++
       expect(visual.debugState().clip).toBe('run')
-      poses.add(leg.quaternion.toArray().map(value => value.toFixed(4)).join(','))
+      const expectedPhase = (previousPhase + dt * visual.debugState().playbackRate) % runClip!.duration
+      expect(run!.time).toBeCloseTo(expectedPhase, 6)
     }
     expect(groundContacts, 'the real terrain path exercises intermittent ground contact').toBeGreaterThan(5)
-    expect(poses.size, 'the running leg keeps changing pose during travel').toBeGreaterThan(10)
     const landRequests = land.mock.calls.filter(([clip]) => clip === 'land')
     expect(landRequests, 'ordinary hillside travel must not restart the landing one-shot').toHaveLength(0)
     expect(visual.debugState().clip).toBe('run')

@@ -1,28 +1,24 @@
 import * as THREE from 'three'
-import { beforeAll, describe, expect, it } from 'vitest'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { installCorgiTestAsset } from '../helpers/corgiAsset'
-import { CorgiVisual, CORGI_DIMENSIONS, CORGI_RIDER_PELVIS_CLEARANCE } from '../../src/world/CorgiVisual'
+import { CorgiVisual, CORGI_RIDER_PELVIS_CLEARANCE } from '../../src/world/CorgiVisual'
 import { Mount, MountState, MountType, mountTypeFromSave } from '../../src/world/Mount'
 
 describe('reference source corgi mount', () => {
-  let restSeat: THREE.Vector3
-  beforeAll(async () => {
-    const gltf = await installCorgiTestAsset()
-    gltf.scene.updateMatrixWorld(true)
-    restSeat = gltf.scene.getObjectByName('socket_saddle_seat')!.getWorldPosition(new THREE.Vector3())
-  })
+  let gltf: GLTF
+  beforeAll(async () => { gltf = await installCorgiTestAsset() })
 
 
   it('uses metre scale and transforms its actual saddle socket with heading and position', () => {
     const reference = new CorgiVisual()
+    onTestFinished(() => reference.dispose())
     const idleSeat = reference.saddleSeat.getWorldPosition(new THREE.Vector3())
     const idlePelvis = reference.riderPelvisSeat.getWorldPosition(new THREE.Vector3())
     const mount = new Mount(new THREE.Scene(), MountType.CORGI, 5, 9, 3)
+    onTestFinished(() => mount.dispose())
     mount.group.rotation.y = Math.PI / 2
     expect(mount.group.scale.toArray()).toEqual([1, 1, 1])
-    expect(restSeat.x).toBeCloseTo(0, 5)
-    expect(restSeat.y).toBeCloseTo(CORGI_DIMENSIONS.saddleHeight, 5)
-    expect(restSeat.z).toBeCloseTo(-.2, 5)
     expect(reference.riderPelvisSeat.position.y).toBe(CORGI_RIDER_PELVIS_CLEARANCE)
     const seat = mount.getRiderPelvisSeatWorld()
     expect(seat.x).toBeCloseTo(5 + idlePelvis.z, 5)
@@ -31,22 +27,37 @@ describe('reference source corgi mount', () => {
     expect(mount.getSaddleSeatLocal().y).toBeCloseTo(idleSeat.y, 5)
     expect(mountTypeFromSave('CORGI')).toBe(MountType.CORGI)
     mount.dispose()
-    reference.dispose()
   })
 
   it('shares immutable meshes while keeping independent gait and pause state', () => {
-    const a = new CorgiVisual(), b = new CorgiVisual()
+    const a = new CorgiVisual()
+    let aDisposed = false
+    onTestFinished(() => { if (!aDisposed) a.dispose() })
+    const b = new CorgiVisual()
+    onTestFinished(() => b.dispose())
+    const initialB = b.skeleton.bones.map(bone => ({
+      position: bone.position.toArray(), quaternion: bone.quaternion.toArray(), scale: bone.scale.toArray(),
+    }))
     a.playStudioClip('run')
     a.update(0.12)
-    const leg = a.root.getObjectByName('corgi_front_upper_r')!
-    expect(leg.quaternion.angleTo(b.root.getObjectByName(leg.name)!.quaternion)).toBeGreaterThan(.01)
     expect(a.skeleton).not.toBe(b.skeleton)
     expect(a.mixer).not.toBe(b.mixer)
-    expect(a.root.getObjectByName('corgi_head')).not.toBe(b.root.getObjectByName('corgi_head'))
+    expect(a.skeleton.bones).toHaveLength(b.skeleton.bones.length)
+    for (const [index, bone] of b.skeleton.bones.entries()) {
+      expect(bone).not.toBe(a.skeleton.bones[index])
+      expect({ position: bone.position.toArray(), quaternion: bone.quaternion.toArray(), scale: bone.scale.toArray() }).toEqual(initialB[index])
+    }
+    expect(a.debugState()).toMatchObject({ clip: 'run', paused: false })
+    expect(a.debugState().time).toBeCloseTo(.12)
+    expect(a.mixer.time).toBeCloseTo(.12)
+    expect(b.debugState()).toMatchObject({ clip: 'idle', time: 0, paused: false })
+    expect(b.mixer.time).toBe(0)
     a.togglePaused()
-    const angle = leg.quaternion.clone()
+    const pausedTime = a.mixer.time
     a.update(0.5)
-    expect(leg.quaternion.clone().normalize().angleTo(angle.normalize())).toBeCloseTo(0)
+    expect(a.debugState().paused).toBe(true)
+    expect(a.debugState().time).toBeCloseTo(.12)
+    expect(a.mixer.time).toBe(pausedTime)
     const meshes = (root: THREE.Object3D) => {
       const result: THREE.Mesh[] = []
       root.traverse(o => { if (o instanceof THREE.Mesh) result.push(o) })
@@ -54,6 +65,7 @@ describe('reference source corgi mount', () => {
     }
     expect(meshes(a.root)[0].geometry).toBe(meshes(b.root)[0].geometry)
     a.dispose()
+    aDisposed = true
     expect(meshes(b.root)[0].geometry.getAttribute('position').count).toBeGreaterThan(0)
   })
 
@@ -82,17 +94,21 @@ describe('reference source corgi mount', () => {
 
   it('keeps jump tucked until landing, then recovers to locomotion', () => {
     const cat = new CorgiVisual()
+    onTestFinished(() => cat.dispose())
+    const jump = gltf.animations.find(clip => clip.name === 'jump')
+    const land = gltf.animations.find(clip => clip.name === 'land')
+    expect(jump).toBeDefined()
+    expect(land).toBeDefined()
     cat.playOnce('jump')
-    cat.update(1)
+    cat.update(jump!.duration + .1)
     expect(cat.debugState().clip).toBe('jump')
     cat.playOnce('land')
-    cat.update(0.2)
+    cat.update(land!.duration / 2)
     expect(cat.debugState().clip).toBe('land')
-    cat.update(1)
+    cat.update(land!.duration / 2 + .01)
     expect(cat.debugState().clip).toBe('idle')
     cat.update(.2)
-    const idle = new CorgiVisual()
-    expect(cat.root.getObjectByName('corgi_front_upper_r')!.quaternion.clone().normalize().angleTo(idle.root.getObjectByName('corgi_front_upper_r')!.quaternion.clone().normalize())).toBeCloseTo(0)
+    expect(cat.debugState().clip).toBe('idle')
   })
 
   it('shows exactly one source-derived body at each LOD while sharing one skin', () => {

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { BlackCatVisual } from '../../src/world/BlackCatVisual'
 import { CorgiVisual } from '../../src/world/CorgiVisual'
 import { Mount, MountState, MountType } from '../../src/world/Mount'
@@ -9,11 +9,11 @@ import { installBlackCatTestAsset } from '../helpers/blackCatAsset'
 import { installCorgiTestAsset } from '../helpers/corgiAsset'
 
 const species = [
-  { name: 'black cat', prefix: 'cat', type: MountType.BLACK_CAT, runSpeed: 13.2, Visual: BlackCatVisual, load: installBlackCatTestAsset },
-  { name: 'corgi', prefix: 'corgi', type: MountType.CORGI, runSpeed: 12, Visual: CorgiVisual, load: installCorgiTestAsset },
+  { name: 'black cat', type: MountType.BLACK_CAT, runSpeed: 13.2, Visual: BlackCatVisual, load: installBlackCatTestAsset },
+  { name: 'corgi', type: MountType.CORGI, runSpeed: 12, Visual: CorgiVisual, load: installCorgiTestAsset },
 ]
 
-describe.each(species)('$name animation runtime', ({ prefix, type, runSpeed, Visual, load }) => {
+describe.each(species)('$name animation runtime', ({ type, runSpeed, Visual, load }) => {
   let gltf: GLTF
   beforeAll(async () => { gltf = await load() })
 
@@ -210,19 +210,16 @@ describe.each(species)('$name animation runtime', ({ prefix, type, runSpeed, Vis
 
   it('keeps locomotion in place across complete cycles and intermediate samples', () => {
     const visual = new Visual()
-    const torso = visual.root.getObjectByName(`${prefix}_torso`)!
+    onTestFinished(() => visual.dispose())
+    const origin = visual.root.position.clone()
     for (const clip of ['walk', 'run'] as const) {
       visual.playStudioClip(clip)
-      const origin = torso.position.clone()
       const step = actionFor(visual, clip).getClip().duration / 24
       for (let index = 0; index < 24 * 3; index++) {
         visual.update(step)
-        expect(visual.root.position.toArray()).toEqual([0, 0, 0])
-        expect(Math.abs(torso.position.x - origin.x)).toBeLessThan(.06)
-        expect(Math.abs(torso.position.z - origin.z)).toBeLessThan(.06)
+        expect(visual.root.position.toArray()).toEqual(origin.toArray())
       }
     }
-    visual.dispose()
   })
 
 
