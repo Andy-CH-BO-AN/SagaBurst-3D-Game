@@ -38,41 +38,29 @@ describe('VeteranFieldFormation', () => {
       }
     })
 
-  it('spawns temporary support at an in-bounds approach and orders it toward the Town muster', () => {
-    const setup = field({ templateId: 'veteran-scout-hunters' })
-    expect(setup.start).toBe(true)
-    const temporary = setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)
-    expect(temporary.length).toBe(77)
-    expect(temporary.every(({ npc }) => npc.combatPosition.x < -270
-      && Math.abs(npc.combatPosition.x) <= PLAYABLE_WORLD_BOUND - 4
-      && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
-    expect(temporary.every(({ npc }) => npc.combatPosition.distanceTo(VETERAN_FIELD_LAYOUT.rally) > 80)).toBe(true)
-    expect(temporary.every(({ npc }) => npc.formationTarget !== null)).toBe(true)
-    const support = temporary.map(({ npc }) => npc)
-    const averageTravel = support.reduce((sum, npc) => sum + npc.moveToFormationTarget(), 0) / support.length
-    expect(averageTravel).toBeGreaterThan(80)
-    expect(support.every(npc => npc.formationTarget!.reached)).toBe(true)
-    setup.advanceUntil(() => support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20), {
-      failureMessage: 'Temporary support must leave the entry waypoint for muster',
-    })
-    expect(support.every(npc => !npc.formationTarget!.reached)).toBe(true)
-  })
-
   it('routes temporary support through the Town entry before assigning its final muster slot', () => {
     const setup = field({ templateId: 'veteran-scout-hunters' })
+    expect(setup.start).toBe(true)
     const support = setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)
       .map(({ npc }) => npc)
     expect(support).toHaveLength(77)
+    expect(support.every(npc => npc.combatPosition.x < -270
+      && Math.abs(npc.combatPosition.x) <= PLAYABLE_WORLD_BOUND - 4
+      && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
+    expect(support.every(npc => npc.combatPosition.distanceTo(VETERAN_FIELD_LAYOUT.rally) > 80)).toBe(true)
+    expect(support.every(npc => npc.formationTarget !== null)).toBe(true)
     expect(support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.townEntry.x) < 20
       && Math.abs(npc.formationTarget!.position.z - VETERAN_FIELD_LAYOUT.townEntry.z) < 45)).toBe(true)
     const entryTravel = support.reduce((sum, npc) => sum + npc.moveToFormationTarget(), 0) / support.length
     expect(entryTravel).toBeGreaterThan(80)
+    expect(support.every(npc => npc.formationTarget!.reached)).toBe(true)
 
     setup.advanceUntil(() => support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20), {
       failureMessage: 'Support must pass the Town entry before receiving muster slots',
     })
     expect(support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20
       && Math.abs(npc.formationTarget!.position.z - VETERAN_FIELD_LAYOUT.rally.z) < 45)).toBe(true)
+    expect(support.every(npc => !npc.formationTarget!.reached)).toBe(true)
     for (const npc of support) npc.moveToFormationTarget()
     setup.stepFrame()
     expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')

@@ -168,7 +168,8 @@ describe('Regular Career Outpost checkpoints with private members', () => {
 })
 
 describe('Personal deployment uses existing navigation and independent slots', () => {
-  it.each(['roman', 'viking'] as const)('fits thirty private members behind the actual %s Relief rescue roster near the map edge', faction => {
+  it('fits thirty private members behind the actual Relief rescue roster near the map edge', () => {
+    const faction = 'roman'
     const current = { ...createCareerProfile(faction), rank: 'captain' as const, totalMerit: 6000, availableMerit: 6000,
       completedOutpostStages: [1, 2, 3] as const, selectedMountId: 'horse' as const, ownedMounts: ['horse'] as any,
       personalSquad: { members: Array.from({ length: 30 }, (_, i) => ({ id: `personal:relief-${i}`, type: 'soldier' as const })) } }

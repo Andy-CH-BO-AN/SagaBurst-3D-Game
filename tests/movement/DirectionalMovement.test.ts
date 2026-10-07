@@ -99,27 +99,6 @@ describe('DirectionalMovement Policy', () => {
   })
 
   describe('Diagonal Speed Normalization', () => {
-    it('ensures normalized diagonal magnitude matches cardinal magnitude', () => {
-      const vW = new THREE.Vector3(0, 0, 1)
-      const vWA = new THREE.Vector3(-1, 0, 1).normalize()
-      const vWD = new THREE.Vector3(1, 0, 1).normalize()
-
-      expect(vW.length()).toBeCloseTo(1.0, 5)
-      expect(vWA.length()).toBeCloseTo(1.0, 5)
-      expect(vWD.length()).toBeCloseTo(1.0, 5)
-      expect(vW.length()).toBeCloseTo(vWA.length(), 5)
-      expect(vW.length()).toBeCloseTo(vWD.length(), 5)
-
-      const vS = new THREE.Vector3(0, 0, -1)
-      const vSA = new THREE.Vector3(-1, 0, -1).normalize()
-      const vSD = new THREE.Vector3(1, 0, -1).normalize()
-
-      expect(vS.length()).toBeCloseTo(1.0, 5)
-      expect(vSA.length()).toBeCloseTo(1.0, 5)
-      expect(vSD.length()).toBeCloseTo(1.0, 5)
-      expect(vS.length()).toBeCloseTo(vSA.length(), 5)
-      expect(vS.length()).toBeCloseTo(vSD.length(), 5)
-    })
 
     it('eliminates sqrt(2) diagonal speed boost with velocity multipliers applied', () => {
       const baseWalkSpeed = 8.0

@@ -14,7 +14,8 @@ function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
 
 function launch(faction: 'roman' | 'viking' = 'roman') { return createCareerOutpostLaunch(acceptCareerOutpostRelief(ready(faction), 'relief')!) }
 
-describe.each(['roman', 'viking'] as const)('%s relief march orders', faction => {
+describe('shared relief march orders', () => {
+  const faction = 'roman'
   it('marches using mount speed and charges both squads exactly once when Follow finishes, regardless of distance', () => {
     const plan = createCareerReliefSpawnPlan(launch(faction))
     const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,

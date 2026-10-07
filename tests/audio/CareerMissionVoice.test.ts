@@ -104,6 +104,9 @@ describe('Career mission voice events', () => {
     expect(audio.playTownAlarm).toHaveBeenCalledWith(true)
     await vi.advanceTimersByTimeAsync(8000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+    // Preserve the longer lazy-load boundary before the real alarm completion as well.
+    await vi.advanceTimersByTimeAsync(12000) // 20 seconds elapsed in total.
+    expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
     finishAlarm(true)
     await Promise.resolve()
     expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith(faction, 'townDefense')
@@ -124,19 +127,6 @@ describe('Career mission voice events', () => {
     await vi.runAllTimersAsync()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
-  })
-
-  it('waits for alarm completion rather than a guessed timer, including slow lazy loading', async () => {
-    let finishAlarm!: (played: boolean) => void
-    audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
-    const town = townHarness()
-    town.acceptMission('veteran-town-defense-01')
-    void town.playTownDefenseAlert()
-    await vi.advanceTimersByTimeAsync(20000)
-    expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
-    finishAlarm(true)
-    await Promise.resolve()
-    expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('roman', 'townDefense')
   })
 
   it.each(['disposed', 'settled'])('discards a delayed warning after the scene is %s', async state => {

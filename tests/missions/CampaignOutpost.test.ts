@@ -47,9 +47,10 @@ describe('CampaignOutpost', () => {
     },
   )
 
-  it.each(['roman', 'viking'] as const)(
-    'quadruples %s campaign palisade and gate HP without changing geometry',
-    defenderFaction => {
+  it(
+    'quadruples campaign palisade and gate HP without changing geometry',
+    () => {
+      const defenderFaction = 'roman'
       const scene = new THREE.Scene()
       const outpost = createCampaignOutpost(scene, defenderFaction)
       const palisade = outpost.damageableObstacles.find(

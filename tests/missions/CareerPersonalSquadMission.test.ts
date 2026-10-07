@@ -318,14 +318,28 @@ describe('Side elimination remains distinct from official objectives', () => {
 describe('Private frame-driven deployment operations', () => {
   it.each([0, 30])('accepts %s members without constructing any on Follow, and deduplicates repeated intent', count => {
     const scheduler = new NpcSpawnScheduler(), h = runtimeHarness('town-home', true, scheduler, count)
+    const expectedIds = h.profile.personalSquad!.members.map(member => member.id)
     expect(h.runtime.follow()).toBe(count > 0); expect(h.spawn).not.toHaveBeenCalled()
     expect(h.runtime.follow()).toBe(count > 0)
-    for (let frame = 1; frame <= count; frame++) {
-      scheduler.tick(frame * 16); scheduler.tick(frame * 16)
-      expect(h.spawn).toHaveBeenCalledTimes(frame)
-      if (frame < count) { h.runtime.updateLifecycle(); expect(h.runtime.state).toBe('DEPLOYING') }
-    }
+    expect(scheduler.pending).toBe(count)
+    if (count > 0) {
+      expect(h.runtime.checkpoint()!.pendingMemberIds).toEqual(expectedIds)
+      expect(h.runtime.ready).toBe(false); expect(h.runtime.state).toBe('DEPLOYING')
+      scheduler.tick(16)
+      expect(h.runtime.actors).toHaveLength(1)
+      h.runtime.updateLifecycle(); expect(h.runtime.ready).toBe(false); expect(h.runtime.state).toBe('DEPLOYING')
+      // Repeated timestamps/per-frame budget belong to NpcSpawnScheduler; Follow owns identities and readiness.
+      for (let remaining = 2; remaining < count; remaining++) scheduler.tick(remaining * 16)
+      expect(h.runtime.actors).toHaveLength(count - 1)
+      expect(h.runtime.checkpoint()!.pendingMemberIds).toEqual(expectedIds.slice(-1))
+      h.runtime.updateLifecycle(); expect(h.runtime.ready).toBe(false); expect(h.runtime.state).toBe('DEPLOYING')
+      scheduler.tick(count * 16)
+    } else expect(h.runtime.state).toBe('RESERVE')
+    expect(h.runtime.actors.map(actor => actor.combatantId)).toEqual(expectedIds)
+    expect(vi.mocked(h.spawn).mock.calls.map(([, member]) => member.id)).toEqual(expectedIds)
     expect(h.runtime.actors).toHaveLength(count); expect(h.runtime.ready).toBe(true)
+    expect(scheduler.pending).toBe(0)
+    expect(h.runtime.actors.filter(actor => actor.mount).every(actor => h.runtime.mounts.includes(actor.mount!))).toBe(true)
     h.runtime.cleanup()
   })
 

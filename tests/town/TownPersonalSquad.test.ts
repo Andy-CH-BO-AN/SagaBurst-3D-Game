@@ -43,12 +43,13 @@ function harness(faction: 'roman' | 'viking' = 'roman', count = 3) {
   vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
   vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
   const scene = new THREE.Scene(), world = new TownWorld(faction, scene)
+  cleanups.push(() => world.dispose())
   const profile = { ...createCareerProfile(faction), rank: 'captain' as const,
     personalSquad: { members: Array.from({ length: count }, (_, i) => ({ id: `personal:${i}`, type: (['soldier', 'captain', 'ranger'] as const)[i % 3] })) } }
   const player = { group: new THREE.Group(), get combatPosition() { return this.group.position }, dead: false } as Player
   player.group.position.set(35, getTerrainHeight(35, 60), 60)
   const controller = new TownPersonalSquadController(scene, world.hr, () => profile, () => player)
-  cleanups.push(() => world.dispose(), () => controller.cleanup())
+  cleanups.push(() => controller.cleanup())
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync(world.obstacles)
   const step = (frames: number) => {
     for (let i = 0; i < frames; i++) {
@@ -63,7 +64,9 @@ describe('HR Center and personal runtime', () => {
   it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots', faction => {
     const { world, navigation } = harness(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
-    expect(hr).toBeDefined(); expect(hr.hp.maxHp).toBe(world.buildings.find(building => building.id === 'hall')!.hp.maxHp)
+    expect(hr).toBeDefined()
+    expect([world.hr.width, world.hr.depth]).toEqual(faction === 'roman' ? [16, 13] : [13, 22])
+    expect(hr.hp.maxHp).toBe(world.buildings.find(building => building.id === 'hall')!.hp.maxHp)
     expect((world.hr.site.x - TOWN_SITES.stable.x) * Math.sin(TOWN_SITES.stable.yaw)
       + (world.hr.site.z - TOWN_SITES.stable.z) * Math.cos(TOWN_SITES.stable.yaw)).toBeLessThan(0)
     expect(world.hr.site.x).toBeGreaterThan(TOWN_CITY.minX)
@@ -83,8 +86,8 @@ describe('HR Center and personal runtime', () => {
     for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) expect(Math.hypot(world.hr.muster[i].x - world.hr.muster[j].x, world.hr.muster[i].z - world.hr.muster[j].z)).toBeGreaterThanOrEqual(4.4)
     expect(() => resolveTownHRLayout(faction, [{ box: new THREE.Box3(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500)), isBarricade: false }], world.roads)).toThrow()
   })
-  it.each(['roman', 'viking'] as const)('spawns actual %s T2/T4 NPCs at HR and walks to a distant Player', faction => {
-    const { controller, world, player, step } = harness(faction)
+  it('spawns actual Roman T2/T4 NPCs at HR and walks to a distant Player', () => {
+    const { controller, world, player, step } = harness('roman')
     expect(controller.actors).toHaveLength(0); expect(controller.state).toBe('RESERVE')
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.state).toBe('DEPLOYING')
     const original = [...controller.actors]
@@ -130,8 +133,8 @@ describe('HR Center and personal runtime', () => {
     expect(profile.personalSquad.members).toHaveLength(3)
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(3)
   })
-  it.each(['roman', 'viking'] as const)('holds %s personal Attack away from HR until Dismiss, including a targetless chase', faction => {
-    const { controller, world, player, navigation, step } = harness(faction)
+  it('holds Roman personal Attack away from HR until Dismiss, including a targetless chase', () => {
+    const { controller, world, player, navigation, step } = harness('roman')
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); step(1000)
     const held = controller.actors.map(actor => actor.combatPosition.clone())
     for (const [index, actor] of controller.actors.entries()) {

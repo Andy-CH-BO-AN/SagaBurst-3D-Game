@@ -21,6 +21,8 @@ import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLa
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { createGameTestFixture } from '../helpers/gameFixture'
 
+// Constructor doubles record the NPC/mount boundary; these are not real actors or locomotion.
+// Game/TownScene/mission enqueue, readiness, registration and rollback methods remain production code.
 const observed = vi.hoisted(() => ({ constructors: [] as string[] }))
 vi.mock('../../src/world/NPC', async original => {
   const actual = await original<typeof import('../../src/world/NPC')>()
@@ -80,7 +82,12 @@ function playerFixture() {
   const group = new THREE.Group()
   return { group, dead: false, get combatPosition() { return group.position } } as Player
 }
-function loadingFrames() {
+function missionWorld(spawnPoints: THREE.Vector3[]): ConstructorParameters<typeof BanditMissionController>[1] {
+  // Enqueue-only world boundary: these callers consume camp spawn points and obstacles, not Town geometry.
+  return { camps: spawnPoints.map(point => ({ spawnPoints: [point] })), obstacles: [] } as unknown as
+    ConstructorParameters<typeof BanditMissionController>[1]
+}
+function loadingFrames(verifySharedBudget = false) {
   const callbacks: FrameRequestCallback[] = []
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
   return async () => {
@@ -88,16 +95,15 @@ function loadingFrames() {
     for (const callback of callbacks.splice(0)) callback(frame)
     await Promise.resolve(); await Promise.resolve()
     gameplayNpcSpawns.tick(frame)
-    expect(observed.constructors.length - before).toBeLessThanOrEqual(1)
+    if (verifySharedBudget) expect(observed.constructors.length - before).toBeLessThanOrEqual(1)
     return frame
   }
 }
 
-describe('actual NPC constructor paths share the frame budget', () => {
-  it.each(['custom', 'campaign'] as const)('materializes the %s initial army and full rider/mount pairs before its loading promise completes', async mode => {
-    const game = gameFixture(), step = loadingFrames()
-    const launch = createCareerOutpostLaunch(acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 1, `initial-${mode}`)!)
-    const plan = BattleSpawner.createSpawnPlan(mode === 'custom' ? PRESET_50V50 : createDefenseCampaignWaveConfig(launch, 'defenders'))
+describe('production spawn callers with recorded constructor boundaries', () => {
+  it('materializes the initial custom army one NPC per frame before its loading promise completes', async () => {
+    const game = gameFixture(), step = loadingFrames(true)
+    const plan = BattleSpawner.createSpawnPlan(PRESET_50V50)
     let ready = false
     const loading = game._executeBattleSpawnPlan(plan).then((actors: NPC[]) => { ready = true; return actors })
     expect(observed.constructors).toHaveLength(0); expect(ready).toBe(false)
@@ -112,7 +118,41 @@ describe('actual NPC constructor paths share the frame budget', () => {
     expect(game.npcs).toEqual(actors); expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(actors.length)
   })
 
-  it('creates actual Town resident constructors one per frame before completing its resident initialization stage', async () => {
+  it('wires a Campaign initial plan to its army, rider/mount registration and loading readiness', async () => {
+    const game = gameFixture(), step = loadingFrames()
+    const launch = createCareerOutpostLaunch(acceptCareerOutpost({ ...createCareerProfile('roman'), rank: 'soldier', totalMerit: 300, availableMerit: 300 }, 1, 'initial-campaign')!)
+    const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
+    let ready = false
+    const loading = game._executeBattleSpawnPlan(plan).then((actors: NPC[]) => { ready = true; return actors })
+    expect(observed.constructors).toHaveLength(0)
+    expect(ready).toBe(false)
+    await step()
+    expect(game.npcs).toHaveLength(1)
+    expect(ready).toBe(false)
+    // Same _executeBattleSpawnPlan protocol as custom; retain this plan's first/final readiness boundaries.
+    for (let frame = 1; frame < plan.npcSpecs.length - 1; frame++) await step()
+    expect(game.npcs).toHaveLength(plan.npcSpecs.length - 1)
+    expect(ready).toBe(false)
+    await step()
+    const actors = await loading
+    expect(ready).toBe(true)
+    expect(observed.constructors).toHaveLength(plan.npcSpecs.length)
+    expect(actors).toBeDefined()
+    expect(actors).toHaveLength(plan.npcSpecs.length)
+    expect(game.npcs).toEqual(actors)
+    expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(actors.length)
+    actors.forEach((npc, index) => {
+      const spec = plan.npcSpecs[index]
+      expect(npc.faction).toBe(Faction.PLAYER)
+      expect(npc.characterFaction).toBe('roman')
+      expect(npc.name).toBe(spec.name)
+      expect(npc.tier).toBe(spec.tier)
+      expect(npc.isMounted).toBe(spec.cavalry)
+      if (npc.isMounted && npc.mount) expect(npc.mount.riderNpc).toBe(npc)
+    })
+  })
+
+  it('queues Town resident identities and completes registration before its loading promise resolves', async () => {
     const step = loadingFrames(), profile = createCareerProfile('roman')
     const population = townConquestRoster(resolveTownHRLayout(profile.faction, [], []))
     const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
@@ -126,13 +166,20 @@ describe('actual NPC constructor paths share the frame budget', () => {
     const progress = vi.fn(); let ready = false
     const loading = town.initializeResidents(roster, resolveCareerTownSceneContext(profile), progress).then(() => { ready = true })
     expect(observed.constructors).toHaveLength(0)
-    for (let frame = 1; frame <= roster.length; frame++) {
-      await step(); expect(observed.constructors).toHaveLength(frame)
-      town.residents.forEach((resident: any) => { resident.npc.dead = true })
-      expect(event.evaluate(false)).toBeNull()
-      if (frame < roster.length) expect(ready).toBe(false)
-    }
+    await step()
+    expect(observed.constructors).toHaveLength(1)
+    expect(town.residents).toHaveLength(1)
+    expect(ready).toBe(false)
+    for (let frame = 1; frame < roster.length - 1; frame++) await step()
+    expect(town.residents).toHaveLength(roster.length - 1)
+    town.residents.forEach((resident: any) => { resident.npc.dead = true })
+    expect(event.evaluate(false)).toBeNull()
+    expect(ready).toBe(false)
+    await step()
     await loading
+    expect(ready).toBe(true)
+    expect(observed.constructors).toHaveLength(roster.length)
+    town.residents.forEach((resident: any) => { resident.npc.dead = true })
     expect(town.residents).toHaveLength(roster.length)
     expect(progress).toHaveBeenLastCalledWith(`建立駐軍與居民 ${roster.length} / ${roster.length}…`)
     expect(event.actors.size).toBe(population.length)
@@ -140,7 +187,7 @@ describe('actual NPC constructor paths share the frame budget', () => {
     event.complete(); expect(event.evaluate(false)).toBe('town_defeated')
   })
 
-  it('rejects an actual HR registration failure without opening conquest settlement', async () => {
+  it('rejects an HR registration failure without opening conquest settlement', async () => {
     const step = loadingFrames(), profile = createCareerProfile('roman')
     const population = townConquestRoster(resolveTownHRLayout(profile.faction, [], []))
     const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
@@ -186,14 +233,15 @@ describe('actual NPC constructor paths share the frame budget', () => {
     const before = observed.constructors.length; await step(); expect(observed.constructors).toHaveLength(before)
   })
 
-  it.each([['recruit-bandits-01', 3], ['recruit-patrol-01', 4]] as const)('limits concurrent %s enemies, thirty private members, outskirts replacements and a loading driver to one constructor globally', async (templateId, enemyCount) => {
-    const scene = new THREE.Scene(), navigation = new NavigationWorld(), player = playerFixture(), step = loadingFrames()
+  it('limits concurrent Bandit enemies, thirty private members, outskirts replacements and a loading driver to one constructor globally', async () => {
+    const templateId = 'recruit-bandits-01', enemyCount = 3
+    const scene = new THREE.Scene(), navigation = new NavigationWorld(), player = playerFixture(), step = loadingFrames(true)
     const profile = { ...createCareerProfile('roman'), rank: 'captain' as const,
       personalSquad: { members: Array.from({ length: 30 }, (_, i) => ({ id: `personal:shared-${i}`, type: 'soldier' as const })) } }
     const personal = new PersonalSquadRuntime(scene, Array.from({ length: 30 }, (_, i) => ({ x: i * 5, z: -30, yaw: 0 })), () => profile, () => player)
     personal.follow()
     const missionProfile = { ...createCareerProfile('roman'), activeMission: createActiveCareerMission(templateId, 0, enemyCount, 0, 'shared-mission') }
-    const world = { camps: Array.from({ length: 5 }, (_, i) => ({ spawnPoints: [new THREE.Vector3(120 + i * 10, 0, 120)] })), obstacles: [] } as any
+    const world = missionWorld(Array.from({ length: 5 }, (_, i) => new THREE.Vector3(120 + i * 10, 0, 120)))
     const mission = new BanditMissionController(scene, world, navigation, {} as NPC, [], () => player, () => missionProfile, () => true)
     expect(mission.startActiveMission()).toBe(true)
     const outskirts = new TownOutskirtsWarfareController(scene, 'roman', () => profile, [], navigation)
@@ -215,5 +263,44 @@ describe('actual NPC constructor paths share the frame budget', () => {
     for (let frame = 0; frame < 45 && gameplayNpcSpawns.pending; frame++) await step()
     expect(cavalry.members).toHaveLength(10); expect(mission.ambientBandits.filter(npc => npc.combatantId.startsWith('ambient:0:'))).toHaveLength(2)
     expect(personal.actors).toHaveLength(30)
+  })
+
+  it('queues Patrol target identities at its route encounter and waits for the final target before readiness', async () => {
+    const scene = new THREE.Scene(), navigation = new NavigationWorld(), player = playerFixture(), step = loadingFrames()
+    const active = createActiveCareerMission('recruit-patrol-01', 0, 4, 0, 'shared-mission')
+    const profile = { ...createCareerProfile('roman'), activeMission: active }
+    // Only the active camp is needed for this caller's different patrolEncounterPoint input.
+    const world = missionWorld([new THREE.Vector3(120, 0, 120)])
+    const mission = new BanditMissionController(scene, world, navigation, {} as NPC, [], () => player, () => profile, () => true)
+    dispose.push(() => mission.dispose())
+    expect(mission.startActiveMission()).toBe(true)
+    const batch = mission.spawnBatches.find(candidate => candidate.actors.has('shared-mission:bandit:0'))!
+    expect([...batch.actors.keys()]).toEqual([
+      'shared-mission:bandit:0', 'shared-mission:bandit:1',
+      'shared-mission:bandit:2', 'shared-mission:bandit:3',
+    ])
+    expect(observed.constructors).toHaveLength(0)
+    expect(mission.ready).toBe(false)
+    expect(mission.evaluate(true)).toBeNull()
+    await step()
+    expect(mission.missionBandits).toHaveLength(1)
+    expect(mission.ready).toBe(false)
+    for (let frame = 1; frame < 3; frame++) await step()
+    expect(mission.missionBandits).toHaveLength(3)
+    expect(mission.ready).toBe(false)
+    expect(mission.evaluate(true)).toBeNull()
+    await step()
+    expect(mission.ready).toBe(true)
+    expect(mission.missionBandits.map(npc => npc.combatantId)).toEqual(active.targetActorIds)
+    expect(observed.constructors).toEqual(active.targetActorIds)
+    expect(new Set(observed.constructors).size).toBe(4)
+    // 'shared-mission' chooses the first South road encounter (15, -75), rather than the camp (120, 120).
+    expect(mission.missionBandits[0].combatPosition.x).toBe(15)
+    expect(mission.missionBandits[0].combatPosition.z).toBe(-71)
+    for (const npc of mission.missionBandits) {
+      expect(npc.faction).toBe(Faction.BANDIT)
+      expect(npc.characterFaction).toBe('viking')
+      expect(Math.hypot(npc.combatPosition.x - 15, npc.combatPosition.z + 75)).toBeLessThanOrEqual(7.4)
+    }
   })
 })

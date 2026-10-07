@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import * as THREE from 'three'
+import { Game } from '../../src/Game'
 import {
   findSceneShadowCameras,
   broadShadowCategory,
@@ -121,59 +122,35 @@ describe('Fixed-Scene Shadow Diagnostic Contracts', () => {
     expect(renderer.renderBufferDirect).toBe(originalRenderBufferDirect)
   })
 
-  it('drains clock delta on unfreeze to prevent time jump', () => {
-    const clock = new THREE.Clock()
-    clock.start()
-
-    // Simulate clock progression
-    const t0 = clock.getDelta()
-    expect(typeof t0).toBe('number')
-
-    // Freeze simulation
-    let isFrozen = true
-    const setSimulationFrozen = (frozen: boolean) => {
-      if (isFrozen && !frozen) {
-        clock.getDelta() // Drain delta on unfreeze
-      }
-      isFrozen = frozen
-      return isFrozen
-    }
-
-    // Advance time during freeze
-    clock.oldTime = performance.now() - 5000 // simulate 5 seconds passed during freeze
-    setSimulationFrozen(false)
-
-    // Next getDelta should be virtually 0, not 5000ms
-    const postUnfreezeDelta = clock.getDelta()
-    expect(postUnfreezeDelta).toBeLessThan(0.05)
+  it('drains the production clock only when Game unfreezes', () => {
+    const getDelta = vi.fn(() => 5)
+    // Clock is an external time boundary; all transition logic belongs to Game.
+    const game = Object.assign(Object.create(Game.prototype) as Pick<Game, 'setSimulationFrozen' | 'isSimulationFrozen'>, {
+      _isSimulationFrozen: false, clock: { getDelta },
+    })
+    expect(game.setSimulationFrozen(true)).toBe(true)
+    expect(game.isSimulationFrozen).toBe(true)
+    expect(getDelta).not.toHaveBeenCalled()
+    expect(game.setSimulationFrozen(false)).toBe(false)
+    expect(game.isSimulationFrozen).toBe(false)
+    expect(getDelta).toHaveBeenCalledTimes(1)
+    game.setSimulationFrozen(false)
+    expect(getDelta).toHaveBeenCalledTimes(1)
   })
 
-  it('shadow toggle preserves scene entity hierarchy and counts', () => {
-    const scene = new THREE.Scene()
-    const npcGroup = new THREE.Group()
-    npcGroup.name = 'npc_0'
-    scene.add(npcGroup)
-
-    const initialChildCount = scene.children.length
-    const renderer = {
-      shadowMap: { enabled: true },
-    }
-
-    const setShadowsEnabled = (enabled: boolean) => {
-      renderer.shadowMap.enabled = enabled
-      return renderer.shadowMap.enabled
-    }
-
-    // Toggle shadow OFF and back ON
-    setShadowsEnabled(false)
+  it('Game shadow toggle preserves scene entity hierarchy and counts', () => {
+    const scene = new THREE.Scene(), npcGroup = new THREE.Group()
+    npcGroup.name = 'npc_0'; scene.add(npcGroup)
+    const renderer = { shadowMap: { enabled: true } }
+    // Prototype adapter supplies only fields consumed by this DEV entry point.
+    const game = Object.assign(Object.create(Game.prototype) as Pick<Game, 'setShadowsEnabled'>, { scene, renderer })
+    expect(game.setShadowsEnabled(false)).toBe(false)
     expect(renderer.shadowMap.enabled).toBe(false)
-    expect(scene.children.length).toBe(initialChildCount)
+    expect(scene.children).toEqual([npcGroup])
     expect(scene.getObjectByName('npc_0')).toBe(npcGroup)
-
-    setShadowsEnabled(true)
+    expect(game.setShadowsEnabled(true)).toBe(true)
     expect(renderer.shadowMap.enabled).toBe(true)
-    expect(scene.children.length).toBe(initialChildCount)
-    expect(scene.getObjectByName('npc_0')).toBe(npcGroup)
+    expect(scene.children).toEqual([npcGroup])
   })
 
   it('clears latestSnapshot on reset and increments snapshotGeneration on new windows', async () => {

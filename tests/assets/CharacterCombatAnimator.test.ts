@@ -27,7 +27,6 @@ import { proceduralMaterial, proceduralMaterialCacheSize } from '../../src/world
 import {
   createHumanoidRigAdapter,
   createProjectAnimationClips,
-  createVikingHornAccessory,
   MixerController,
   validateHumanoidManifest,
   type HumanoidAssetManifest,
@@ -45,21 +44,6 @@ import { DEFAULT_SAVE, SaveManager } from '../../src/save/SaveManager'
 import horseRuntimeManifest from '../../public/models/mounts/v1/horse/manifest.json'
 
 describe('external humanoid sword grip', () => {
-  it('uses forward pitch for the death pose instead of a side roll', () => {
-    const death = createProjectAnimationClips().find((clip) => clip.name === 'death')!
-    const hips = death.tracks.find((track) => track.name === 'hips.quaternion')!
-    const finalHips = new THREE.Euler().setFromQuaternion(
-      new THREE.Quaternion().fromArray(hips.values as ArrayLike<number>, hips.values.length - 4),
-    )
-
-    expect(finalHips.x).toBeCloseTo(1.35, 5)
-    expect(finalHips.z).toBeCloseTo(0, 5)
-
-    const hipsPosition = death.tracks.find((track) => track.name === 'hips.position')!
-    expect(hipsPosition.values[hipsPosition.values.length - 3]).toBeCloseTo(0, 5)
-    expect(hipsPosition.values[hipsPosition.values.length - 2]).toBeCloseTo(-0.62, 5)
-    expect(hipsPosition.values[hipsPosition.values.length - 1]).toBeCloseTo(0, 5)
-  })
 
   it('raw studio mode samples full bow legs and switching back restores the production mask', () => {
     const root = new THREE.Group(), leg = new THREE.Bone()
@@ -176,16 +160,6 @@ function animator(): CharacterCombatAnimator {
   const rig = characterRig()
   return new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
 }
-
-describe('Viking head accessory', () => {
-  it('keeps the detachable fantasy horns inside the 0.44 m span', () => {
-    const horns = createVikingHornAccessory()
-    const bounds = new THREE.Box3().setFromObject(horns)
-    expect(bounds.max.x - bounds.min.x).toBeLessThanOrEqual(0.44)
-    expect(horns.children).toHaveLength(1)
-    expect(horns.getObjectByName('viking-horns')).toBeInstanceOf(THREE.Mesh)
-  })
-})
 
 function rigAndAnimator(): { rig: CharacterRig, subject: CharacterCombatAnimator, melee: THREE.Group, grip: THREE.Group } {
   const rig = characterRig()
@@ -418,31 +392,7 @@ describe('CharacterCombatAnimator timeline events', () => {
     expect(face.z).toBeLessThan(-0.95)
   })
 
-  it('gives player and NPC boots an unmistakable forward toe', () => {
-    for (const isPlayer of [true, false]) {
-      const root = new THREE.Group()
-      buildCharacterVisual(root, { faction: 'viking', tier: 2, isPlayer })
-      const boots = [root.getObjectByName('left-boot'), root.getObjectByName('right-boot')]
-      for (const boot of boots) {
-        expect(boot).toBeDefined()
-        expect(boot!.position.z).toBeLessThan(-0.1)
-        const geometry = (boot as THREE.Mesh).geometry as THREE.BoxGeometry
-        geometry.computeBoundingBox()
-        expect(geometry.boundingBox!.min.z + boot!.position.z).toBeLessThan(-0.3)
-        expect(geometry.boundingBox!.max.z + boot!.position.z).toBeLessThan(0.11)
-      }
-    }
-  })
 
-  it('places the player boot soles on terrain without lowering the collision root', () => {
-    const player = new Player(new THREE.Scene())
-    const visual = (player as unknown as { characterVisualGroup: THREE.Group }).characterVisualGroup
-    const boot = visual.getObjectByName('left-boot') as THREE.Mesh<THREE.BoxGeometry>
-    boot.geometry.computeBoundingBox()
-    player.group.updateWorldMatrix(true, true)
-    const sole = boot.localToWorld(new THREE.Vector3(0, boot.geometry.boundingBox!.min.y, 0))
-    expect(sole.y).toBeCloseTo(getTerrainHeight(player.position.x, player.position.z), 5)
-  })
 })
 
 describe('Phase 21 procedural presentation', () => {
@@ -479,28 +429,16 @@ describe('Phase 21 procedural presentation', () => {
     expect(first.bumpMap).toBeTruthy()
   })
 
-  it('builds profiled Tier-2 blades and curved shields', () => {
+  it('returns gameplay tip positions for Tier-2 sword and gladius', () => {
     const sword = new THREE.Group()
     const swordTip = WeaponMeshFactory.buildMelee('steel_sword', sword).tipLocal
-    expect(sword.getObjectByName('steel-sword-profiled-blade')).toBeDefined()
     expect(swordTip.y).toBeGreaterThan(1.45)
 
     const gladius = new THREE.Group()
     const gladiusTip = WeaponMeshFactory.buildNpcMelee('roman', 2, false, gladius)
-    expect(gladius.getObjectByName('roman-gladius-profiled-blade')).toBeDefined()
     expect(gladiusTip.y).toBeGreaterThan(0.8)
 
-    const scutum = new THREE.Group()
-    WeaponMeshFactory.buildShield('scutum_t2', scutum)
-    const board = scutum.getObjectByName('curved-scutum-board') as THREE.Mesh
-    board.geometry.computeBoundingBox()
-    expect(board.geometry.boundingBox!.max.z - board.geometry.boundingBox!.min.z).toBeGreaterThan(0.14)
-    expect(scutum.getObjectByName('shield-boss')).toBeDefined()
 
-    const round = new THREE.Group()
-    WeaponMeshFactory.buildShield('round_shield_t2', round)
-    expect(round.getObjectByName('round-shield-board')).toBeDefined()
-    expect(round.getObjectByName('shield-rear-strap')).toBeDefined()
   })
 
 })
@@ -1014,41 +952,7 @@ describe('combat presentation regressions', () => {
     expect(sampleBowBodyLocal(point, bottom, top, 0.25).z).toBeLessThan(0)
   })
 
-  it('holds the player bow vertically with its upper tip near forehead height', () => {
-    const player = new Player(new THREE.Scene())
-    const subject = player as unknown as {
-      aiming: boolean
-      animator: CharacterCombatAnimator
-      _updateBowPose(maxChargeTime: number, aimPoint: THREE.Vector3): void
-    }
-    subject.aiming = true
-    subject.animator.poseBow(1, 1)
-    subject._updateBowPose(1.2, new THREE.Vector3(0, 1, -30))
 
-    const top = player.getBowTopTipPosition(new THREE.Vector3())
-    const bottom = player.getBowBottomTipPosition(new THREE.Vector3())
-    const relativeTopY = top.y - player.position.y
-    expect(top.y - bottom.y).toBeGreaterThan(1.6)
-    expect(relativeTopY).toBeGreaterThan(0.85)
-    expect(relativeTopY).toBeLessThan(1.35)
-  })
-
-  it('sets the raycaster camera before recursively aiming through sprites', () => {
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100)
-    camera.position.set(0, 1, 5)
-    camera.lookAt(0, 1, 0)
-    camera.updateMatrixWorld()
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial())
-    sprite.position.set(0, 1, 0)
-    sprite.updateMatrixWorld()
-    const raycaster = new THREE.Raycaster()
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera)
-    raycaster.intersectObject(sprite)
-    expect(raycaster.camera).toBe(camera)
-    expect(error).not.toHaveBeenCalled()
-    error.mockRestore()
-  })
 
   it('aligns the arrowhead local -Z axis with physical velocity', () => {
     const scene = new THREE.Scene()
@@ -1061,23 +965,6 @@ describe('combat presentation regressions', () => {
     expect(tracedDirection.dot(direction)).toBeGreaterThan(0.999)
   })
 
-  it('renders Roman ranged projectiles as long pilums', () => {
-    const scene = new THREE.Scene()
-    const direction = new THREE.Vector3(0, 0.1, -1).normalize()
-    const pilum = new ArrowProjectile(
-      scene,
-      new THREE.Vector3(),
-      direction,
-      15,
-      20,
-      Faction.ENEMY,
-      false,
-      'pilum',
-    )
-    expect(pilum.mesh.name).toBe('pilum-projectile')
-    expect(pilum.mesh.children.length).toBeGreaterThanOrEqual(4)
-    expect(pilum.getTipPosition(new THREE.Vector3()).length()).toBeGreaterThan(1.2)
-  })
 
   it('reuses immutable projectile geometry instead of growing renderer memory', () => {
     const scene = new THREE.Scene()

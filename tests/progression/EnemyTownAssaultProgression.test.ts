@@ -23,7 +23,8 @@ function listed(profile: ReturnType<typeof createCareerProfile>) {
 }
 
 describe('Enemy Town Assault canonical Relief prerequisite', () => {
-  for (const faction of ['roman', 'viking'] as const) {
+  {
+    const faction = 'roman'
     for (const rank of CAREER_RANKS) {
       it(`${faction} ${rank}: rank, Merit and generic completions cannot unlock assault`, () => {
         const profile = { ...createCareerProfile(faction), rank, totalMerit: 100000, careerMissionCompletions: 100 }
@@ -50,6 +51,15 @@ describe('Enemy Town Assault canonical Relief prerequisite', () => {
       expect(acceptEnemyTownAssault(finished, 'replay')!.activeMission!.id).toBe('replay')
     })
   }
+  it('accepts Viking Relief victory as the same assault prerequisite without repeating the rank and settlement matrix', () => {
+    const won = settleRelief('victory', 'viking')
+    expect(won.faction).toBe('viking')
+    expect(won.completedOutpostRelief).toBe(true)
+    expect(listed(won)).toBe(true)
+    const accepted = acceptEnemyTownAssault(won, 'viking-assault')!
+    expect(accepted.faction).toBe('viking')
+    expect(accepted.activeMission).toMatchObject({ id: 'viking-assault', kind: 'enemy-town-assault' })
+  })
   it('preserves the unlock through save/load and subsequent Relief defeat', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(settleRelief('victory'))).toBe(true)

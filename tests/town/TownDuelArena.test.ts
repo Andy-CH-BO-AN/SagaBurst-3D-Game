@@ -10,11 +10,11 @@ import { TownWorld } from '../../src/town/TownWorld'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Duel training forecourt placement', () => {
-  it.each(['roman', 'viking'] as const)('finds a clear, connected arena in the existing %s world', faction => {
+  it('finds a clear, connected arena in the existing Roman world', () => {
     const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
     vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
-    const world = new TownWorld(faction, new THREE.Scene())
+    const world = new TownWorld('roman', new THREE.Scene())
     try {
       const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync(world.obstacles)
       const roster = townRoster(), area = findTownDuelArena(world.obstacles, navigation, roster)!

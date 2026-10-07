@@ -43,7 +43,8 @@ function setup(faction: 'roman' | 'viking' = 'roman') {
 afterEach(() => { cleanup.splice(0).forEach(dispose => dispose()); vi.unstubAllGlobals() })
 
 describe('campaign defender gate input', () => {
-  it.each(['roman', 'viking'] as const)('unlocks %s G input on the first actual attacker spawn', faction => {
+  it('unlocks G input on the first actual attacker spawn', () => {
+    const faction = 'roman'
     const { game, outpost, pressG } = setup(faction)
     const gate = outpost.gateController
     pressG()

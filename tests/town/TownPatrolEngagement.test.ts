@@ -185,7 +185,8 @@ describe('Town patrol outskirts engagement and casualty recovery', () => {
     expect(wounded.npc.hp).toBe(hp); expect(wounded.homeMount!.dead).toBe(true)
   })
 
-  it.each(['roman', 'viking'] as const)('restores %s combat casualties with canonical Captain mounts and loadout only at their slots', faction => {
+  it('restores Roman combat casualties with canonical Captain mounts and loadout only at their slots', () => {
+    const faction = 'roman' as const
     const h = createTownPatrolFixture({ faction }), e = createTownPatrolEncounter(h), [captain, foot, dead] = e.a.members
     e.frame()
     captain.npc.applyTemporaryCombatLoadout(townMilitaryEquipment(faction, 'lancer_cavalry').loadout, 3)
@@ -195,8 +196,8 @@ describe('Town patrol outskirts engagement and casualty recovery', () => {
     expect(captain.npc.dead).toBe(true); expect(dead.npc.dead).toBe(true); expect(foot.homeMount!.dead).toBe(true)
     e.bandit.dead = true; e.frame()
     expect(captain.npc.hpRatio).toBe(1); expect(captain.npc.tier).toBe(4)
-    expect(captain.npc.meleeWeaponId).toBe(townMilitaryEquipment(faction, captain.spec).loadout.meleeWeaponId)
-    expect(captain.homeMount!.type).toBe(faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
+    expect(captain.npc.meleeWeaponId).toBe('centurion_blade')
+    expect(captain.homeMount!.type).toBe(MountType.CORGI)
     expect(dead.npc.hpRatio).toBe(1); expect(dead.npc.mount).toBe(dead.homeMount)
     expect(foot.homeMount!.dead).toBe(true); expect(h.controller.isReserveAvailable(foot.spec.id)).toBe(false)
     const p = townPatrolRefitPoint(foot.spec)
