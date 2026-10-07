@@ -427,3 +427,10 @@ describe('BattleSpawner Deterministic Scattered Battle', () => {
   })
 
 })
+
+describe('Player spawn policy', () => {
+  it('spawn position constant matches Viking baseline', () => {
+    expect(VIKING_PLAYER_SPAWN.x).toBe(0)
+    expect(VIKING_PLAYER_SPAWN.z).toBe(145)
+  })
+})
