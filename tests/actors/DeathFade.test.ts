@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DeathFadeController,
   DEATH_DESPAWN_DELAY_SECONDS,
-} from './DeathFade'
+} from '../../src/world/DeathFade'
 
 describe('DeathFadeController', () => {
   it('keeps the actor visible for 3 seconds, then hides the whole root without changing materials', () => {
