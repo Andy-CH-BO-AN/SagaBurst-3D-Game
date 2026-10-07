@@ -47,7 +47,7 @@ mesh, skin, texture and skeleton data are preserved.
 ## Verify
 
 ```sh
-rtk npm test -- --run tests/AxeAttack.test.ts tests/HumanoidAnimationAssets.test.ts tests/CharacterCombatAnimator.test.ts tests/EquipmentPose.test.ts tests/MeleeTierParity.test.ts tests/ShieldEquipmentState.test.ts tests/PlayerLoadout.test.ts tests/VikingInfantryLoadout.test.ts tests/VikingPlayerAxeSelection.test.ts --maxWorkers=2
+rtk npm test -- --run tests/assets/AxeAttack.test.ts tests/assets/HumanoidAnimationAssets.test.ts tests/assets/CharacterCombatAnimator.test.ts tests/assets/EquipmentPose.test.ts tests/combat/MeleeTierParity.test.ts tests/equipment/ShieldEquipmentState.test.ts tests/equipment/PlayerLoadout.test.ts tests/equipment/VikingInfantryLoadout.test.ts tests/equipment/VikingPlayerAxeSelection.test.ts --maxWorkers=2
 ```
 
 Use the production humanoid and mount studios with the normal Vite server
