@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { beforeAll } from 'vitest'
-import { installCorgiTestAsset } from './helpers/corgiAsset'
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import {
   BattleConfig,
   validateBattleConfig,
@@ -24,7 +22,10 @@ import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../src/world/Terrain'
 import { handleProjectileHitEffects } from '../src/Game'
 import { Mount, MountType } from '../src/world/Mount'
 
-beforeAll(() => installCorgiTestAsset())
+vi.mock('../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('./helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 describe('Initial Spectator Mode', () => {
   describe('A. BattleConfig & BattleSetupUI', () => {
@@ -423,6 +424,7 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       player.spectatorOnly = true
 
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       player.mountVehicle(mount, 0)
 
       expect(player.isMounted).toBe(false)
@@ -553,6 +555,7 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       expect(player.targetable).toBe(false)
 
       const mount = new Mount(scene, MountType.CORGI, 0, 0)
+      onTestFinished(() => mount.dispose())
       mount.riderFaction = Faction.ENEMY
       mount.movementSpeed = 10
 
