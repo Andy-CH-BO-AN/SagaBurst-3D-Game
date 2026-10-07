@@ -1,6 +1,6 @@
 # 證據狀態與待確認項目
 
-此文件與 [baseline.json](baseline.json) 分開保存「收集到什麼」「執行是否通過」「理解到哪裡」及「可否等價替代」。未執行的工作不列成已完成。
+此文件與 [baseline.json](baseline.json) 分開保存「收集到什麼」「執行是否通過」「理解到哪裡」及「可否等價替代」。未執行的工作不列成已完成。以下原盤點證據維持 3cc5a2f… 的快照；後續實作／追加資產 review 決定以 matrix、roadmap 與各 PR 為準，不能將初始未執行狀態視為後續批次結果。
 
 ## 本輪已完成的證據
 
@@ -53,7 +53,7 @@ keeps both roman Captains on their canonical mount through mount death, refit an
 | K：resize | ScenarioF:262 的 setPixelRatio/setSize 是測試內自寫算術，未呼叫 production resize | 找真實 resize 入口與現有保護；先有可執行 replacement 並驗證錯誤可被抓到，再決定這個 case。現在保留，不當 production resize coverage |
 | K/F：測試內模擬與跨 case 狀態 | DevCombatFpsSampling:4/30、FixedSceneShadowDiagnostic:124/151 自寫公式或 setter；CharacterCombatAnimator:1036、DirectionalMovement:102 只測 Three.js primitive。BattleSpawner:216 只讀其他案例累積的 minObservedDist，初值 Infinity 也满足 >=2 | 各自確認 production caller 是否另有接線 coverage；spawn report 改為獨立 Arrange 的方案另列 fixture 工作，保留原 plan invariants。本輪只由 body 指出限制，未執行 filter/隨機順序或 mutation 實驗 |
 | K：#223 Hero mount trial | 最終 dev 新增六個 UI cases；真實 UI class、stub DOM/window、mock callbacks；已讀 body、UI 實作與 Game 新接線 | 保留 nolock/locked/equipment 與鍵盤焦點政策；這六例沒有建立 Game，不能證明 query gate、pause loop 或 return-home。瀏覽器原生 pointer lock/keyboard 須另驗，本輪未執行 browser smoke |
-| J：assets | GLB geometry loader 可重用；部分 loader strip images/materials；各 model/rig regression 不同 | 每模型核對 seat/socket/animation/LOD/material 的獨立 expected；GPU畫面、動畫形變、效能與瀏覽器實景本輪未驗證 |
+| J：assets | #224 追加 review 要求 runtime 契約與 art-only 分開；39 個 gameplay consumer 已使用輕量 Corgi visual fixture | 逐案追 bone/socket/seat/clip/event/LOD/instance/isolation/failure/path；Humanoid 四個 art-only 判定見 matrix J4a–J4d，其他仍 pending。GPU畫面、動畫形變與固定環境效能沒有因自動化通過而視為已驗證 |
 | Infrastructure | 清單識別 MemoryStorage、canvas/GLB、Game/TownScene prototype、hidden hooks、scheduler globals 與 private spies | 選具體 consumers 改 typed seam，驗 failed setup/expect cleanup；不能只把大 fixture 包成一個更大 factory。任何加速／flaky改善需實測 |
 | AST-only rows | 原body/assertions/展開均可查，標籤與 target 是保守提案 | 後續每包先讀 body、辨認 mock domain、追實際入口，再提升 review.level；1,695 個宣告未因已執行而自動視為語意已審閱 |
 

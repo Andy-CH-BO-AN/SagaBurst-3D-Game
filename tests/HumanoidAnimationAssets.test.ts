@@ -319,47 +319,6 @@ describe('humanoid embedded animation asset contract', () => {
   })
 
 
-  it('keeps the Roman lower skirt on the same thigh frame as the covered leg', () => {
-    for (let lod = 0; lod < 3; lod++) {
-      const asset = readGlbAsset('roman', lod)
-      const names = asset.document.skins[0].joints.map((node) => asset.document.nodes[node].name)
-      let samples = 0
-      for (const mesh of asset.document.meshes.filter((m) => m.name === 'Tunic_1')) {
-        for (const primitive of mesh.primitives) {
-          const positions = readAccessor(asset, primitive.attributes.POSITION)
-          const joints = readAccessor(asset, primitive.attributes.JOINTS_0)
-          const weights = readAccessor(asset, primitive.attributes.WEIGHTS_0)
-          positions.forEach((p, i) => {
-            if (p[1] >= 0.88) return
-            expect(names[joints[i][0]]).toBe(p[0] >= 0 ? 'upper_leg_l' : 'upper_leg_r')
-            expect(weights[i][0]).toBeCloseTo(1)
-            samples++
-          })
-        }
-      }
-      expect(samples).toBeGreaterThan(0)
-    }
-  })
-  it('anchors Roman inner shoulder seams and rigid armour to the torso on every LOD', () => {
-    for (let lod = 0; lod < 3; lod++) {
-      const asset = readGlbAsset('roman', lod)
-      const names = asset.document.skins[0].joints.map((node) => asset.document.nodes[node].name)
-      let seamSamples = 0
-      for (const mesh of asset.document.meshes.filter((m) => m.name === 'New_arms' || m.name === 'Armour_top')) {
-        for (const primitive of mesh.primitives) {
-          const positions = readAccessor(asset, primitive.attributes.POSITION)
-          const joints = readAccessor(asset, primitive.attributes.JOINTS_0)
-          positions.forEach((p, index) => {
-            if (mesh.name === 'Armour_top' || Math.abs(p[0]) < 0.20) {
-              expect(names[joints[index][0]]).toBe('chest')
-              seamSamples++
-            }
-          })
-        }
-      }
-      expect(seamSamples).toBeGreaterThan(0)
-    }
-  })
   it('ships the same canonical rotation-only clips on all six GLBs', () => {
     const reference = readGlb('viking', 0)
     for (const faction of ['viking', 'roman'] as const) {
@@ -382,22 +341,6 @@ describe('humanoid embedded animation asset contract', () => {
     }
   })
 
-  it('keeps animated node transforms uniform and the animation payload under 3 MB', () => {
-    let animationBytes = 0
-    for (const faction of ['viking', 'roman'] as const) {
-      for (let lod = 0; lod < 3; lod++) {
-        const document = readGlb(faction, lod)
-        const build = document.asset.extras.humanoidAnimationBuild
-        animationBytes += document.buffers[0].byteLength - build.baseBufferByteLength
-        for (const node of document.nodes) {
-          if (!node.scale) continue
-          expect(node.scale[0]).toBeCloseTo(node.scale[1], 4)
-          expect(node.scale[1]).toBeCloseTo(node.scale[2], 4)
-        }
-      }
-    }
-    expect(animationBytes).toBeLessThanOrEqual(3 * 1024 * 1024)
-  })
 
   it('matches every runtime GLB to the SHA-256 recorded in its manifest', () => {
     for (const faction of ['viking', 'roman'] as const) {
@@ -414,34 +357,4 @@ describe('humanoid embedded animation asset contract', () => {
     }
   })
 
-  it('keeps Roman thigh, shin, and foot vertices on their anatomical bones', () => {
-    for (let lod = 0; lod < 3; lod++) {
-      const asset = readGlbAsset('roman', lod)
-      const mesh = asset.document.meshes.find((candidate) => candidate.name === 'New_legs')
-      expect(mesh).toBeTruthy()
-      const skin = asset.document.skins[0]
-      const jointNames = skin.joints.map((node) => asset.document.nodes[node].name)
-      const samples = { thigh: 0, shin: 0, foot: 0 }
-      for (const primitive of mesh!.primitives) {
-        const positions = readAccessor(asset, primitive.attributes.POSITION)
-        const joints = readAccessor(asset, primitive.attributes.JOINTS_0)
-        positions.forEach((position, index) => {
-          const dominant = jointNames[joints[index][0]]
-          if (position[1] > 0.62) {
-            expect(dominant).toMatch(/^upper_leg_[lr]$/)
-            samples.thigh++
-          } else if (position[1] > 0.2 && position[1] < 0.42) {
-            expect(dominant).toMatch(/^lower_leg_[lr]$/)
-            samples.shin++
-          } else if (position[1] < 0.04) {
-            expect(dominant).toMatch(/^foot_[lr]$/)
-            samples.foot++
-          }
-        })
-      }
-      expect(samples.thigh).toBeGreaterThan(0)
-      expect(samples.shin).toBeGreaterThan(0)
-      expect(samples.foot).toBeGreaterThan(0)
-    }
-  })
 })
