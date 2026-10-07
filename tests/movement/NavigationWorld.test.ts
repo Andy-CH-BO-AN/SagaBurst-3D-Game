@@ -3,11 +3,11 @@ import * as THREE from 'three'
 import {
   NAV_PATH_REQUESTS_PER_FRAME,
   NavigationWorld,
-} from './NavigationWorld'
+} from '../../src/navigation/NavigationWorld'
 import {
   PLAYABLE_WORLD_BOUND,
   type ObstacleData,
-} from '../world/Terrain'
+} from '../../src/world/Terrain'
 
 function obstacle(
   minX: number,

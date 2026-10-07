@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { NavigationPathFollower } from './NavigationPathFollower'
-import { NavigationWorld } from './NavigationWorld'
-import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../world/Terrain'
+import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../../src/world/Terrain'
 
 function obstacle(
   minX: number,

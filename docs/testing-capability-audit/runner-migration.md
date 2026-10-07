@@ -1,6 +1,6 @@
 # tests/ 目錄與 runner 遷移計畫
 
-本文件只規劃；本輪未搬測試、修改 package scripts、Vitest、TypeScript 或 CI。
+本文件保留盤點基準的遷移設計。已實作的第一批為 [Navigation core](migrations/navigation-core.md)：四個 suite 移至 `tests/movement/`，其餘仍是後續規劃；package scripts、Vitest、TypeScript 與 CI 未在本批修改。
 
 ## 目標責任
 
@@ -79,7 +79,7 @@ tests/
 
 ## 全部 src 與 Node release 檔的去向
 
-下表不是只移進 `tests/career`；同檔混合責任以逐case map分拆。新路徑尚未建立。
+下表以盤點基準的原檔為索引；同檔混合責任以逐 case map 分拆。四個 navigation 目標已建立，其餘目標仍待後續批次；目前位置以對應遷移紀錄為準。
 
 | 原檔 | 宣告 / 展開 | 規劃責任位置（依 case 分拆） |
 | --- | ---: | --- |
