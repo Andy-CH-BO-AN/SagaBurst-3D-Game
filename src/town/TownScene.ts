@@ -357,7 +357,7 @@ export class TownScene {
     }
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
     this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
-    if (!this.spectator) this.orbit.update(this.input, 0.016, this.world.obstacles)
+    if (!this.spectator) this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     progress('預熱近、中、遠景與訓練投射物…')
     const projectiles = createProjectileWarmupGroup()
     this.scene.add(projectiles)
@@ -394,7 +394,7 @@ export class TownScene {
     if (profile.townEvent?.state === 'hostile') { this.inventory.restoreForHostile(); this.activateHostility(false); this.notice = '未結束的小鎮事件已恢復：全鎮仍在追擊。' }
     this.hp.setFill(this.player.hpRatio)
     this.updatePointerPrompt()
-    if (!this.spectator) this.orbit.update(this.input, 0.016, this.world.obstacles)
+    if (!this.spectator) this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
   }
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
@@ -1307,7 +1307,7 @@ export class TownScene {
     if (this.spectator) {
       this.spectator = null
       document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
-      this.orbit.update(this.input, 0.016, this.world.obstacles)
+      this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     }
     this.hp.setFill(1)
     this.stamina.setFill(1)
@@ -2018,7 +2018,7 @@ export class TownScene {
         else this.mission.persistRuntimeProgress(this.player.dead)
       }
       if (this.spectator) this.spectator.update(this.input, dt)
-      else this.orbit.update(this.input, dt, this.world.obstacles)
+      else this.orbit.update(this.input, dt, this.world?.obstacles ?? [])
       this.interaction()
       const townOutcome = this.event.evaluate(this.player.dead)
       if (townOutcome && !this.panel) this.finish(townOutcome)
