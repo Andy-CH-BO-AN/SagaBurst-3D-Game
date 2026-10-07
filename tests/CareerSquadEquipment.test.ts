@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MemoryStorage } from './helpers/memoryStorage'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile, type CareerRank } from '../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../src/career/CareerProfileStore'
 import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../src/career/CareerPersonalSquad'
@@ -11,13 +12,12 @@ import { prepareEnemyTownAssaultEquipment } from '../src/career/EnemyTownAssault
 
 function harness(rank: CareerRank = 'captain') {
   let profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit: 60000, availableMerit: 60000 }
-  let raw = ''
-  let failSave = false
-  const store = new CareerProfileStore({ getItem: () => raw || null, setItem: (_: string, value: string) => { if (failSave) throw Error('quota'); raw = value } } as Storage)
+  const storage = new MemoryStorage()
+  const store = new CareerProfileStore(storage)
   const authority: PersonalSquadAuthority = { state: 'RESERVE' }
   const read = () => profile
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
-  return { read, save, store, authority, fail: () => { failSave = true }, set: (next: CareerProfile) => { profile = next },
+  return { read, save, store, authority, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
     hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
     buy(id: string) { const result = ['horse', 'corgi', 'black-cat'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
     change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
