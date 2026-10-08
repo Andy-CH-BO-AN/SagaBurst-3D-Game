@@ -44,6 +44,7 @@
 ## 坐騎
 
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`CorgiVisual` 負責資產與動畫。三種均已有外部模型路徑，保留原 save IDs。
+- `QuadrupedAssetPreload` 集中 Black Cat／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，實例建構與動畫仍由各 Visual 負責。
 - 坐騎實例共享 render resources、各自持有 skeleton／mixer。Horse LOD 與遠距動畫節流由 registry 維護；不改變 gameplay timer。
 - Black Cat／Corgi 使用 `idle`、`walk`、`run`、`death`，保留遊戲會呼叫的 `jump`／`land`／`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯，Horse 保留原步態。各實例的全部 LOD 共用一套 skeleton／mixer，死亡單次播放後停在末幀；一次性受擊／落地結束後恢復最新請求的步態與播放速度。
 - 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。

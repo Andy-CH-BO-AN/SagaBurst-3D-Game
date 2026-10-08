@@ -45,6 +45,7 @@ export type HumanoidAnimationState =
   | 'lanceThrust'
   | 'mountedLance'
   | 'mounted'
+  | 'axeMountedIdle'
   | 'death'
   | 'hit'
 

@@ -21,7 +21,7 @@ import type { HpBar } from '../ui/HpBar'
 import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
+import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
@@ -345,7 +345,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[this.currentMeleeId]?.animationKind === 'sword' || WEAPONS[this.currentMeleeId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     this.rig.right.handSocket.add(this.swordPivot)
@@ -405,7 +405,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[weaponId]?.animationKind === 'sword' || WEAPONS[weaponId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[weaponId]?.animationKind === 'lance') {
       applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
@@ -430,10 +430,7 @@ export class Player {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
-      if (this.heroAssetId === 'maki-archer-t4' || weaponId === T4_RANGER_BOW_RANGED_ID) {
-        const bow = createMakiRangerBowInstance()
-        this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
-      } else this.bowVisual.rebuild(weaponId)
+      this.bowVisual.rebuild(this.heroAssetId === 'maki-archer-t4' ? 'maki-ranger-bow' : weaponId)
     }
     polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false
@@ -535,9 +532,9 @@ export class Player {
     this.group.rotation.y = this._characterYaw(this.currentMount.group.rotation.y)
   }
 
-  dismountFromMount(): void {
+  dismountFromMount({ preserveWorldPosition = false }: { preserveWorldPosition?: boolean } = {}): void {
     if (!this.isMounted || !this.currentMount) return
-    const mountPosition = this.currentMount.group.position.clone()
+    const mountPosition = preserveWorldPosition ? null : this.currentMount.group.position.clone()
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
@@ -546,7 +543,10 @@ export class Player {
     this.animator.setLocomotion(0, false)
     this.rig.animation?.update(0)
     this._alignExternalVisualToMount(false)
-    this.group.position.copy(mountPosition)
+    // When a mount dies, start falling from the rider's seat height rather than
+    // placing the player's collision body inside the surface beneath the mount.
+    if (mountPosition) this.group.position.copy(mountPosition)
+    else this.onGround = false
     this.group.rotation.x = 0
     this.velY = 0
   }
@@ -966,13 +966,10 @@ export class Player {
       const previousPlayerPosition = this._tmpPreviousPosition.copy(this.group.position)
       this.group.position.addScaledVector(moveDir, effectiveSpeed * dt)
       
-      if (this.aiming) {
-        this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
-      } else if (isMoving) {
-        moveDir.normalize()
-        const targetAngle = Math.atan2(moveDir.x, moveDir.z)
-        this.group.rotation.y = this._characterYaw(targetAngle)
-      } else if (this.isSwinging) {
+      // On foot, movement and facing are independent: S backpedals and A/D strafe
+      // while the player keeps the camera/combat heading. Mounted steering keeps
+      // its existing movement-vector heading in the branch above.
+      if (this.aiming || isMoving || this.isSwinging) {
         this.group.rotation.y = this._characterYaw(cameraYaw + Math.PI)
       }
 

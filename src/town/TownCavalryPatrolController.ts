@@ -78,7 +78,20 @@ export class TownCavalryPatrolController {
   releaseSiegeOwnership(): void {
     this.siegeOwned = false
     this.relinquished.clear()
-    for (const squad of this.squads) { squad.state = 'BARRACKS'; squad.activeLeaderActorId = null; squad.commandedWaypoint = null }
+    for (const squad of this.squads) {
+      // Siege return sends every Patrol member back through the barracks refit
+      // lifecycle. Restart the departure path as well: a squad that had already
+      // reached PATROLLING before the siege can otherwise retain
+      // departureIndex === waypoints.length, then BARRACKS -> MOVING_TO_ROUTE
+      // reads an undefined waypoint on the first post-defense frame.
+      squad.state = 'BARRACKS'
+      squad.activeLeaderActorId = null
+      squad.commandedWaypoint = null
+      squad.departureIndex = 0
+      squad.waypoint = squad.departure.phase
+      squad.followers = []
+      squad.trail = new FollowTrail()
+    }
   }
 
   constructor(residents: readonly PatrolResident[]) {

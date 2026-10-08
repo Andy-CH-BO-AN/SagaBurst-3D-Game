@@ -48,7 +48,7 @@ any shield. Far/idle NPC shields are not continuously updated for collision.
 
 ## Validation
 
-`tests/ShieldBlocking.test.ts` covers impact tiers, axes, exact break, overflow,
+`tests/combat/ShieldBlocking.test.ts` covers impact tiers, axes, exact break, overflow,
 level-50 reduction, body/side/rear/feet bypass, transformed OBBs, sweep precedence,
 friendly/self XP exclusion, broken shields, Defense, RMB movement/attack,
 Career persistence, HP, and high-speed arrow/pilum interception. Actual v2 GLBs

@@ -1,6 +1,6 @@
 {
   "name": "sagaburst",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -11,16 +11,18 @@
     "build:desktop": "tsc && vite build --mode desktop",
     "desktop": "npm run build:desktop && electron .",
     "package:desktop": "npm run build:desktop && electron-builder --publish never",
-    "smoke:web": "node tools/release/smoke.mjs",
-    "smoke:desktop": "node tools/release/smoke.mjs --desktop",
-    "test:release": "node --test tools/release/*.test.cjs",
-    "validate:release": "node tools/release/validate-tag.cjs"
+    "smoke:web": "node tests/release/smoke.mjs",
+    "smoke:desktop": "node tests/release/smoke.mjs --desktop",
+    "test:release": "node --test tests/release/*.test.cjs",
+    "validate:release": "node tools/release/validate-tag.cjs",
+    "typecheck:test": "node tools/typecheck-tests.cjs"
   },
   "dependencies": {
     "playwright": "^1.61.1",
     "three": "^0.167.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "@types/three": "^0.167.0",
     "meshoptimizer": "^0.18.1",
     "typescript": "^5.5.3",
@@ -29,7 +31,7 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3"
   },
-  "description": "SagaBurst \u2014 Viking and Roman 3D battles",
+  "description": "SagaBurst — Viking and Roman 3D battles",
   "author": "Andy-CH-BO-AN",
   "main": "electron/main.cjs",
   "build": {

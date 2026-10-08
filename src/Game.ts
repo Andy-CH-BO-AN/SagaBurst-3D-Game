@@ -188,6 +188,7 @@ import {
 } from './campaign/CampaignConfig'
 import { DefenseCampaignHUD } from './ui/DefenseCampaignHUD'
 import { EquipmentUI } from './ui/EquipmentUI'
+import { HeroMountTrialUI } from './ui/HeroMountTrialUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
@@ -518,6 +519,7 @@ export class Game {
   private weaponWheelUI = new WeaponWheelUI()
   private armyCommandController!: ArmyCommandController
   private equipmentUI!: EquipmentUI
+  private heroMountTrialUI: HeroMountTrialUI | null = null
   private soundManager!: SoundManager
   private inventoryManager!: InventoryManager
   private combatTrajectoryDebugger: CombatTrajectoryDebugger | null = null
@@ -1162,6 +1164,18 @@ export class Game {
     this._setupPointerLock()
     this._setupResize()
     this._setupShortcuts()
+    if (query.get('freeride') === '1' && ['black-cat', 'corgi'].includes(query.get('mount') ?? '')) {
+      this.controlsHint.textContent += ' ｜ Esc 暫停／退出試騎'
+      this.heroMountTrialUI = new HeroMountTrialUI({
+        onPause: () => this.input.clear(),
+        onResume: () => {
+          this.input.clear()
+          if (!query.has('nolock')) this.input.requestPointerLock(this.renderer.domElement)
+        },
+        onExit: () => this._returnToHome(),
+        equipmentVisible: () => this.equipmentUI.visible,
+      })
+    }
     if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     if (this.personalSquad) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
@@ -3281,6 +3295,12 @@ export class Game {
     let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
+    if (this.heroMountTrialUI?.visible) {
+      this.input.clear()
+      this.renderer.render(this.scene, this.camera)
+      return
+    }
+
     if (import.meta.env.DEV && this._isSimulationFrozen) {
       if (profile) t0 = performance.now()
       this.renderer.render(this.scene, this.camera)
@@ -3322,7 +3342,7 @@ export class Game {
     } else if (this.controlMode === 'spectator') {
       this.spectatorController.update(this.input, dt)
     } else {
-      this.thirdPersonCamera.update(this.input, dt)
+      this.thirdPersonCamera.update(this.input, dt, this.obstacles)
     }
 
     const currentYaw = this.controlMode === 'spectator'

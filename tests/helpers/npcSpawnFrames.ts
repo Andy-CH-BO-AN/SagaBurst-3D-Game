@@ -1,28 +1,52 @@
 import { vi } from 'vitest'
-import { gameplayNpcSpawns, type NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-let frame = 0
-export function advanceNpcFrame(scheduler: NpcSpawnScheduler = gameplayNpcSpawns): number {
-  const timestamp = ++frame * 16
-  scheduler.tick(timestamp)
-  return timestamp
-}
-/** Existing gameplay regressions operate after loading; simulate actual distinct render frames first. */
-export function completeNpcDeployment<T>(operation: () => T): T {
-  const result = operation()
-  drainNpcSpawns()
-  return result
-}
-export function drainNpcSpawns(scheduler: NpcSpawnScheduler = gameplayNpcSpawns): void {
-  for (let count = 0; scheduler.pending; count++) {
-    if (count > 10000) throw new Error('Spawn queue did not finish')
-    advanceNpcFrame(scheduler)
+import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
+
+/** A deterministic frame clock scoped to one scheduler instance. */
+export class NpcSpawnTestDriver {
+  private frame = 0
+
+  constructor(readonly scheduler = new NpcSpawnScheduler()) {}
+
+  advanceFrame(): number {
+    const timestamp = ++this.frame * 16
+    this.scheduler.tick(timestamp)
+    return timestamp
+  }
+
+  drain(): void {
+    for (let count = 0; this.scheduler.pending; count++) {
+      if (count >= 10000) throw new Error('Spawn queue did not finish after 10000 frames')
+      this.advanceFrame()
+    }
+  }
+
+  complete<T>(operation: () => T): T {
+    const result = operation()
+    this.drain()
+    return result
   }
 }
 
-export function installNpcLoadingFrames(): void {
+/** Explicit integration driver for suites that exercise controllers using the production singleton. */
+export const gameplayNpcSpawnDriver = new NpcSpawnTestDriver(gameplayNpcSpawns)
+
+export function advanceNpcFrame(driver: NpcSpawnTestDriver): number {
+  return driver.advanceFrame()
+}
+
+/** Existing gameplay regressions operate after loading; simulate actual distinct render frames first. */
+export function completeNpcDeployment<T>(operation: () => T, driver: NpcSpawnTestDriver): T {
+  return driver.complete(operation)
+}
+
+export function drainNpcSpawns(driver: NpcSpawnTestDriver): void {
+  driver.drain()
+}
+
+export function installNpcLoadingFrames(driver: NpcSpawnTestDriver): void {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-    const timestamp = ++frame * 16
+    const timestamp = driver.advanceFrame()
     callback(timestamp)
-    return frame
+    return timestamp / 16
   })
 }

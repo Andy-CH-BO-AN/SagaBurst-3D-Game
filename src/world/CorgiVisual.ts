@@ -1,13 +1,12 @@
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { CorgiSeatContact } from './CorgiSeatContact'
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { createQuadrupedAssetPreload } from './QuadrupedAssetPreload'
 import {
   isQuadrupedAnimationState,
   quadrupedLocomotionClipForSpeed,
-  QUADRUPED_REQUIRED_CLIPS,
   type QuadrupedAnimationState,
   type QuadrupedLocomotionState,
   type QuadrupedOneShotState,
@@ -22,32 +21,11 @@ const GAIT_SPEEDS = { walk: 2, run: 12 } as const
 /** Original GLB geometry and PBR maps, with a fitted canine skin and independent playback. */
 export class CorgiVisual {
   private static template: GLTF | null = null
-  private static loading: Promise<void> | null = null
+  private static readonly preloadAsset = createQuadrupedAssetPreload({
+    baseUrl: BASE, name: 'Corgi', bodyPrefix: 'corgi',
+  }, template => { CorgiVisual.template = template })
 
-  static preload(): Promise<void> {
-    this.loading ??= this.load().catch(error => { this.loading = null; throw error })
-    return this.loading
-  }
-
-  private static async load(): Promise<void> {
-    const response = await fetch(`${BASE}/manifest.json`, { cache: 'no-cache' })
-    if (!response.ok) throw new Error(`Cannot load corgi manifest (${response.status})`)
-    const manifest = await response.json()
-    if (manifest.status !== 'ready' || manifest.forward !== '+Z' || !manifest.source?.license) {
-      throw new Error('Corgi asset has not passed source and visual validation')
-    }
-    const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${BASE}/${manifest.file}`)
-    for (const clip of QUADRUPED_REQUIRED_CLIPS) {
-      if (!gltf.animations.some(animation => animation.name === clip)) throw new Error(`Corgi is missing ${clip}`)
-    }
-    for (const name of ['corgi_body_lod0', 'corgi_body_lod1', 'corgi_body_lod2', 'socket_saddle_seat']) {
-      if (!gltf.scene.getObjectByName(name)) throw new Error(`Corgi is missing ${name}`)
-    }
-    gltf.scene.traverse(object => {
-      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
-    })
-    this.template = gltf
-  }
+  static preload(): Promise<void> { return this.preloadAsset() }
 
   private readonly contacts = new WeakMap<THREE.Object3D, CorgiSeatContact>()
 

@@ -58,7 +58,7 @@ export class HumanoidStudioPlayback {
     WeaponMeshFactory.buildMelee('viking_axe_t2', this.axeModel)
     this.axeModel.visible = false
     WeaponMeshFactory.buildNpcMelee(faction, 2, false, grip)
-    applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+    applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, instance.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
     WeaponMeshFactory.buildNpcRanged('roman', 2, this.pilum)
     const bowGrip = new THREE.Group()
@@ -154,7 +154,7 @@ export class HumanoidStudioPlayback {
       this.swordModel.visible = weapon === 'sword'
       this.axeModel.visible = weapon === 'axe'
       applySwordAttachment(this.instance.rig.right.handSocket, this.sword, weapon === 'axe' ? this.axeModel : this.swordModel,
-        this.instance.rig.swordGripFrame!, this.instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+        this.instance.rig.swordGripFrame!, this.instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.instance.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     this.equipmentLoadout = weapon
     this.hasShield = shield

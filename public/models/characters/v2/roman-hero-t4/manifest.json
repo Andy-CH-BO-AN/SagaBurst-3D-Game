@@ -258,8 +258,8 @@
     },
     "triangles": {
       "lod0": 61007,
-      "lod1": 20599,
-      "lod2": 6431
+      "lod1": 22013,
+      "lod2": 7995
     },
     "textures": {
       "lod0": 2048,
@@ -273,9 +273,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
-    "lod1": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
-    "lod2": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a"
+    "lod0": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34",
+    "lod1": "b8436e19351889af559f54b89cc6467b515ddf8c1bdbf1aa30352131716ca997",
+    "lod2": "3b78cc1ba4e7057200de391e66ee876af6d18e6d389515d6aeae5ff4608d5441"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -285,7 +285,7 @@
       "palmContactCenter": [
         -0.008863142966362965,
         0.060934107893745384,
-        -0.0864156439220389
+        -0.014402607320339808
       ],
       "palmNormal": [
         0,
@@ -306,13 +306,13 @@
       "wristCenter": [
         0,
         0,
-        -0.0720130366016991
+        0
       ],
       "fingerBase": 0.060934107893745384,
       "thumbBaseCenter": [
         0.038776250477837976,
         0.019942071674316667,
-        -0.0675814651185176
+        0.00443157148318149
       ]
     }
   },
@@ -321,7 +321,7 @@
       "gripCenterLocal": [
         0.008863142966362963,
         0.060934107893745384,
-        -0.11994476051263309
+        -0.04793172391093424
       ],
       "gripAxisLocal": [
         -1,
@@ -339,14 +339,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.3827115091198824e-25,
-        -3.0228239624763827e-25,
-        -0.07201303660169885
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.03877625047783797,
         0.019942071674316667,
-        -0.06758146511851736
+        0.00443157148318149
       ],
       "fingerBase": 0.060934107893745384,
       "gripRadius": 0.03474352042814283
@@ -355,7 +355,7 @@
       "gripCenterLocal": [
         0.008863142966362963,
         0.060934107893745384,
-        -0.11994476051263309
+        -0.04793172391093424
       ],
       "gripAxisLocal": [
         -1,
@@ -373,14 +373,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.3827115091198824e-25,
-        -3.0228239624763827e-25,
-        -0.07201303660169885
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.03877625047783797,
         0.019942071674316667,
-        -0.06758146511851736
+        0.00443157148318149
       ],
       "fingerBase": 0.060934107893745384,
       "gripRadius": 0.03474352042814283
@@ -389,7 +389,7 @@
       "gripCenterLocal": [
         0.008863142966362963,
         0.060934107893745384,
-        -0.11994476051263309
+        -0.04793172391093424
       ],
       "gripAxisLocal": [
         -1,
@@ -407,14 +407,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.3827115091198824e-25,
-        -3.0228239624763827e-25,
-        -0.07201303660169885
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.03877625047783797,
         0.019942071674316667,
-        -0.06758146511851736
+        0.00443157148318149
       ],
       "fingerBase": 0.060934107893745384,
       "gripRadius": 0.03474352042814283
@@ -505,6 +505,35 @@
         "sourceClip": "Existing project death pitch/drop baked to hero rest frame and floor",
         "loop": false,
         "duration": 1
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack1H01_R",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.13090909090909092,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "axeAttack2H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack2H01",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.17,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Viking authored idle",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.700000047683716
       }
     ],
     "runtimeGenerated": [
@@ -548,7 +577,7 @@
       "lod": 0,
       "triangles": 61007,
       "materials": 15,
-      "bytes": 21921520,
+      "bytes": 22076148,
       "textures": [
         {
           "name": "Armour_top_TXTR",
@@ -597,7 +626,7 @@
         }
       ],
       "sourceSha256": "aa10f27f9b29d672cdb5acf757a7e828ab0ae6a9519914b219389a7dedc4bb11",
-      "sha256": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
+      "sha256": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34",
       "anatomicalHeightM": 1.9499999963499655,
       "overallHeightM": 1.991793237351972,
       "helmetTriangles": 11000,
@@ -605,9 +634,9 @@
     },
     {
       "lod": 1,
-      "triangles": 20599,
+      "triangles": 22013,
       "materials": 15,
-      "bytes": 6390792,
+      "bytes": 6728072,
       "textures": [
         {
           "name": "Armour_top_TXTR",
@@ -656,7 +685,7 @@
         }
       ],
       "sourceSha256": "06526947fb43a22338648030a0eab9d84c3cc216e418ff066fc8f48d7e13fc70",
-      "sha256": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
+      "sha256": "b8436e19351889af559f54b89cc6467b515ddf8c1bdbf1aa30352131716ca997",
       "anatomicalHeightM": 1.9498763763167013,
       "overallHeightM": 1.9914512312449113,
       "helmetTriangles": 3800,
@@ -664,9 +693,9 @@
     },
     {
       "lod": 2,
-      "triangles": 6431,
+      "triangles": 7995,
       "materials": 15,
-      "bytes": 2370236,
+      "bytes": 2630876,
       "textures": [
         {
           "name": "Armour_top_TXTR",
@@ -715,7 +744,7 @@
         }
       ],
       "sourceSha256": "0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14",
-      "sha256": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a",
+      "sha256": "3b78cc1ba4e7057200de391e66ee876af6d18e6d389515d6aeae5ff4608d5441",
       "anatomicalHeightM": 1.9498258315779318,
       "overallHeightM": 1.992404816240121,
       "helmetTriangles": 950,
@@ -805,5 +834,43 @@
       "leatherRoughness": 0.7
     },
     "method": "Separate bilateral stance fitting, surface clearance, original UVs and foot-surface skin weights."
+  },
+  "axeAttackBuild": {
+    "inputSha256": {
+      "lod0": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
+      "lod1": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
+      "lod2": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a"
+    },
+    "sourceSha256": "bcd47d323e40419d4dda188d51bd5d91021e6ca42d8dc0c30f1e5053401244f5",
+    "license": "Standard Asset Store EULA",
+    "licenseEvidence": "Human Melee Animations 2.0 FREE.pdf",
+    "sourceUrl": "https://kevdev.itch.io/human-melee-animatons-free",
+    "sourceDistribution": "Retargeted rotation tracks only; source archive, FBX and meshes excluded from public/Git.",
+    "rootMotionRemoved": true,
+    "duration": 0.48,
+    "contactSourceFrames": {
+      "axeAttack1H": 10,
+      "axeAttack2H": 18
+    },
+    "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+  },
+  "armRigRepair": {
+    "bind": {
+      "version": 1,
+      "targetAssetId": "roman-hero-t4",
+      "method": "Arm joints recentered on calibrated wrist; inverse bind matrices and socket/grip coordinates rebased; rest geometry and limb lengths preserved"
+    },
+    "surfaces": {
+      "version": 2,
+      "targetAssetId": "roman-hero-t4",
+      "method": "Unchanged anatomy; sleeve fitted outside source skin, shared shoulder weights, bracer bound below elbow",
+      "meshes": [
+        "New_arms",
+        "Tunic_1",
+        "Armour_top",
+        "Wrist_guard1"
+      ]
+    },
+    "anatomicalVertices": "preserved; only sleeve fit, bracer clearance and shoulder weights changed"
   }
 }
