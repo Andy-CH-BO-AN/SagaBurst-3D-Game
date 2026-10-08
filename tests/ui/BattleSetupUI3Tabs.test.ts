@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
 import { BattleReferenceUI } from '../../src/ui/BattleReferenceUI'
+import { MainMenuUI } from '../../src/ui/MainMenuUI'
 import { COMBAT_BALANCE } from '../../src/combat/CombatBalance'
 import { getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
 
@@ -202,6 +203,21 @@ describe('Battle setup and standalone reference UI', () => {
     expect(domRegistry.get('setup-reference-panel')).toBeUndefined()
     expect(armyTab?.classList.contains('active')).toBe(true)
 
+    ui.destroy()
+  })
+
+  it('launches Training Ground directly and keeps Custom Battle/Career while removing hero trial choices', () => {
+    const ui = new MainMenuUI()
+    let training = 0, custom = 0, career = 0
+    ui.mount(container, { onTrainingGround: () => training++, onCustomBattle: () => custom++, onCareer: () => career++, onCampaign() {}, onReference() {} })
+    const html = (domRegistry.get('main-menu-container') as MockElement & { innerHTML: string }).innerHTML
+    expect(html).toContain('TRAINING GROUND')
+    expect(html).not.toContain('freeride')
+    expect(html).not.toContain('main-menu-hero-mounts')
+    domRegistry.get('main-menu-training')!.click()
+    expect(training).toBe(1)
+    domRegistry.get('main-menu-custom')!.click(); domRegistry.get('main-menu-career')!.click()
+    expect(custom).toBe(1); expect(career).toBe(1)
     ui.destroy()
   })
 

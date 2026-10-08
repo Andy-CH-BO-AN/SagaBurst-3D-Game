@@ -278,9 +278,11 @@ describe('Scenario F: 100v100 Mixed Cavalry Scattered Battle', () => {
         setPixelRatio: vi.fn((ratio: number) => { pixelRatio = ratio }),
       }
       type ResizeAdapter = { _setupResize(): void }
-      const game = Object.assign(Object.create(Game.prototype) as ResizeAdapter, { camera, renderer })
+      const sceneListeners = new AbortController()
+      onTestFinished(() => sceneListeners.abort())
+      const game = Object.assign(Object.create(Game.prototype) as ResizeAdapter, { camera, renderer, sceneListeners })
       game._setupResize()
-      expect(browser.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
+      expect(browser.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function), { signal: sceneListeners.signal })
       expect(resize).toBeDefined()
       browser.innerWidth = 1920; browser.innerHeight = 1200
       resize!()

@@ -7,7 +7,7 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { Faction, NPC } from '../world/NPC'
 
 export type CombatActorType = 'player' | 'npc'
-export type CombatTargetType = CombatActorType | 'mount' | 'structure'
+export type CombatTargetType = CombatActorType | 'mount' | 'structure' | 'training'
 export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege' | 'fall'
 export type CombatAttackSource = 'xongkoro'
 
@@ -46,6 +46,7 @@ export interface CombatDamageContext {
 }
 
 export interface DamageAppliedEvent {
+  contactKind?: import('./ShieldBlocking').CombatContact['kind']
   attackSource?: CombatAttackSource
   type: 'damage_applied'
   source: CombatActorRef
@@ -187,6 +188,7 @@ export function emitDamageApplied(
   if (!context?.emit || appliedDamage <= 0) return
   context.emit({
     type: 'damage_applied',
+    ...(context.contact ? { contactKind: context.contact.kind } : {}),
     ...((context.attackSource ?? context.contact?.attackSource) ? { attackSource: context.attackSource ?? context.contact?.attackSource } : {}),
     source: context.source,
     target,
