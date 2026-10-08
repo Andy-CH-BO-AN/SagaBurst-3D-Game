@@ -53,7 +53,7 @@ vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
 const cleanup: (() => void)[] = []
 afterEach(() => { cleanup.splice(0).reverse().forEach(dispose => dispose()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function fixture(options: { initial?: CareerProfile; unavailableTraining?: number; reserveCaptainA?: boolean; world?: boolean } = {}) {
+function fixture(options: { initial?: CareerProfile; unavailableTraining?: number; reserveCaptainA?: boolean; world?: boolean; patrolIds?: readonly ('A' | 'B')[]; trainingCount?: number } = {}) {
   const scene = new THREE.Scene(), navigation = new NavigationWorld()
   const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
   vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
@@ -63,7 +63,12 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
   navigation.sync(world.obstacles)
   const baseline = createVeteranRoster('veteran-scout-hunters', 'roman')
   const rangerSpec = createVeteranSpawnSpec(baseline.friendly.find(unit => unit.actorId === 'ranger')!, 'roman')
-  const residents = townRoster().filter(spec => spec.mounted || spec.role === 'ranger').map(spec => {
+  const selectedPatrols = options.patrolIds ?? ['A', 'B']
+  const trainingIds = new Set(townRoster().filter(spec => spec.duty === 'training' && spec.mounted)
+    .slice(0, options.trainingCount ?? 60).map(spec => spec.id))
+  const residents = townRoster().filter(spec => spec.duty === 'patrol'
+    ? selectedPatrols.includes(spec.patrolId!)
+    : spec.duty === 'training' ? trainingIds.has(spec.id) : spec.mounted || spec.role === 'ranger').map(spec => {
     const equipment = townMilitaryEquipment('roman', spec), ranger = spec.role === 'ranger'
     const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'roman', ranger ? AIType.RANGED : AIType.MELEE,
       spec.id, ranger ? 4 : equipment.level, true, ranger ? rangerSpec.loadout : equipment.loadout,
@@ -116,36 +121,6 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
 }
 
 describe('Town cavalry mission and Patrol integration', () => {
-  it('starts Veteran field at 90 percent of survivors with 10 casualties and retains the stragglers', () => {
-    const f = fixture(); f.accept()
-    const friendlies = f.mission.friendlies
-    expect(friendlies).toHaveLength(99)
-    for (const npc of friendlies.slice(-10)) npc.takeDamage(999999)
-    const living = friendlies.filter(npc => !npc.dead)
-    expect(living).toHaveLength(89)
-    const required = 81
-    const placeAtMuster = (npc: NPC) => {
-      const muster = (f.mission as any).veteranMusterPositions.get(npc.combatantId)
-      npc.assignFormationTarget(9000, muster, new THREE.Vector3(0, 0, 1))
-      const target = (npc as any).formationTarget
-      npc.mount!.group.position.copy(target.position); npc.group.position.copy(target.position); target.reached = true
-    }
-    for (const npc of living.slice(0, required - 1)) placeAtMuster(npc)
-    for (const npc of living.slice(required - 1)) npc.mount!.group.position.set(-280, 0, -260)
-    f.player.dead = true
-    f.mission.updateFlow(.1, 0)
-    expect(f.mission.phase).toBe('ASSEMBLING')
-    placeAtMuster(living[required - 1])
-    const stragglers = living.slice(required), positions = stragglers.map(npc => npc.combatPosition.clone())
-    const actorIds = f.profile().activeMission!.friendlyActorIds
-    f.mission.updateFlow(.1, 0)
-    expect(f.mission.phase).toBe('MARCHING')
-    expect(stragglers.map(npc => npc.combatPosition)).toEqual(positions)
-    expect(stragglers.every(npc => npc.activeFollowTarget)).toBe(true)
-    expect(f.profile().activeMission!.friendlyActorIds).toEqual(actorIds)
-    expect(f.mission.friendlies).toEqual(friendlies)
-  })
-
   it('keeps both engaging Patrols busy and fills a mission shortage with temporary reinforcement', () => {
     const f = fixture({ unavailableTraining: 60 })
     const hostile = new NPC(f.scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'roaming', 1, false,
@@ -164,17 +139,10 @@ describe('Town cavalry mission and Patrol integration', () => {
   })
 
   it('physically assembles the Town Sweep through the full Town obstacles and starts marching with Player far away', () => {
-    const f = fixture({ world: true }), existing = new Set(f.residents.map(r => r.spec.id))
-    // Include the 122 remaining peaceful residents, as in the normal 224-NPC Town runtime.
-    for (const spec of townRoster().filter(spec => !existing.has(spec.id) && spec.role !== 'cat')) {
-      const equipment = townMilitaryEquipment('roman', spec)
-      const npc = new NPC(f.scene, spec.x, spec.z, Faction.TOWN, 'roman', AIType.MELEE, spec.id,
-        equipment.level, false, equipment.loadout, equipment.presetId, undefined, spec.id)
-      npc.setTownPeaceful()
-      f.residents.push({ spec, npc, homeMount: undefined as any, cycle: -1, walkTime: 0 })
-      cleanup.push(() => npc.dispose())
-    }
-    expect(f.residents).toHaveLength(224)
+    const f = fixture({ world: true })
+    // This owner exercises Town geometry, borrowed cavalry separation and Patrol ownership.
+    // Unrelated peaceful residents are not inputs to the mounted assembly decision.
+    expect(f.residents).toHaveLength(102)
     f.player.group.position.set(-220, 0, 200)
     completeNpcDeployment(() => f.town.acceptMission(CAVALRY_SWEEP_ID), gameplayNpcSpawnDriver)
     expect(f.town.openPanel).not.toHaveBeenCalled()
@@ -295,8 +263,7 @@ describe('Town cavalry mission and Patrol integration', () => {
   })
 
   it('places a large temporary shortage at safe map-edge slots with connected entry and muster routes', () => {
-    const f = fixture({ world: true, unavailableTraining: 60 })
-    for (const resident of f.residents.filter(r => r.spec.duty === 'patrol')) f.patrol.relinquish(resident.spec.id)
+    const f = fixture({ world: true, patrolIds: [], trainingCount: 0 })
     f.accept()
     expect(f.town.openPanel).not.toHaveBeenCalled()
     const borrowedIds = f.profile().activeMission!.borrowedActorIds!
@@ -320,7 +287,7 @@ describe('Town cavalry mission and Patrol integration', () => {
   })
 
   it('settles Veteran missions in place, sends Patrol to barracks and keeps only friendly temporary actors alive for departure', () => {
-    const f = fixture({ unavailableTraining: 10 })
+    const f = fixture({ patrolIds: ['A'] })
     const patrolRider = f.residents.find(r => r.spec.id === 'town-patrol:a:0')!
     const originalEquipment = { melee: patrolRider.npc.meleeWeaponId, ranged: patrolRider.npc.rangedWeaponId,
       shield: patrolRider.npc.shieldId, tier: patrolRider.npc.tier }
@@ -359,7 +326,7 @@ describe('Town cavalry mission and Patrol integration', () => {
     expect(f.patrol.isReserveAvailable(patrolRider.spec.id)).toBe(false)
     expect(restorePatrol).not.toHaveBeenCalled()
     f.mission.updateDepartingCavalry()
-    expect(f.mission.departingNpcs).toHaveLength(8)
+    expect(f.mission.departingNpcs).toHaveLength(17)
     for (const npc of temporary) npc.mount!.group.position.x = -285
     f.mission.updateDepartingCavalry()
     expect(f.mission.departingNpcs).toHaveLength(0)

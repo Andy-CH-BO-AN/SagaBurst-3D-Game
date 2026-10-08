@@ -31,6 +31,26 @@ function balanced(profile: CareerProfile) {
     expect(careerItemAllocated(profile, id)).toBeLessThanOrEqual(count)
   }
 }
+describe('Personal squad native faction loadouts', () => {
+  it.each([
+    { faction: 'roman', soldier: 'roman_heavy_infantry', captain: 'roman_sword_cavalry', ranger: 'roman_horse_archer',
+      soldierWeapon: 'gladius_standard', soldierShield: 'scutum_t2', captainWeapon: 'centurion_blade', captainShield: 'scutum_t3',
+      visual: 'roman-hero-t4', profile: 'praetorian', heroMount: 'corgi' },
+    { faction: 'viking', soldier: 'viking_berserker', captain: 'viking_sword_cavalry', ranger: 'viking_horse_archer',
+      soldierWeapon: 'viking_axe_t2', soldierShield: 'round_shield_t2', captainWeapon: 'viking_axe_t3', captainShield: 'round_shield_t3',
+      visual: 'viking-hero-t4', profile: 'varangian', heroMount: 'black-cat' },
+  ] as const)('maps $faction Soldier, Captain and fixed Maki equipment without spawning actors', expected => {
+    const loadout = (type: PersonalSquadMemberType) => personalMemberLoadout({ id: `personal:${type}`, type }, expected.faction)
+    expect(loadout('soldier')).toEqual({ presetId: expected.soldier, hero: undefined, tier: 2, mounted: false,
+      loadout: { meleeWeaponId: expected.soldierWeapon, rangedWeaponId: null, shieldId: expected.soldierShield, mountId: null } })
+    expect(loadout('captain')).toEqual({ presetId: expected.captain, tier: 4, mounted: true,
+      hero: { visualAssetId: expected.visual, combatProfileId: expected.profile, baseLoadoutTier: 3, mountOverride: expected.heroMount },
+      loadout: { meleeWeaponId: expected.captainWeapon, rangedWeaponId: null, shieldId: expected.captainShield, mountId: 'horse' } })
+    expect(loadout('ranger')).toEqual({ presetId: expected.ranger, tier: 4, mounted: true,
+      hero: { visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', baseLoadoutTier: 3, mountOverride: null },
+      loadout: { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: 'horse' } })
+  })
+})
 describe('Shared Career quantity inventory and personal equipment', () => {
   it.each(['soldier', 'captain', 'ranger'] as const)('grants %s equipment once, allocated immediately; reload never grants again', type => {
     const h = harness(); h.hire(type)

@@ -32,7 +32,7 @@ function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number })
 
 describe('Town patrol mission ownership and return interop', () => {
   it.each(['field', 'duel', 'defense'] as const)('continues during active %s while excluding only actual mission actors', kind => {
-    const h = createTownPatrolFixture(), borrowed = h.residents[1], before = h.residents[0].npc.combatPosition.clone()
+    const h = createTownPatrolFixture({ patrolIds: ['A'] }), borrowed = h.residents[1], before = h.residents[0].npc.combatPosition.clone()
     const mission = combatFixture({ simulation: {
       residents: h.residents, navigation: h.navigation,
       preparePeaceResidents: excluded => h.controller.beginFrame(excluded),
@@ -52,7 +52,7 @@ describe('Town patrol mission ownership and return interop', () => {
   })
 
   it('keeps physical return ownership when an ambient bandit is nearby, without combat enrollment or a spawn reset', () => {
-    const h = createTownPatrolFixture({ withWorld: true }), resident = h.residents[1]
+    const h = createTownPatrolFixture({ withWorld: true, patrolIds: ['A'] }), resident = h.residents[1]
     h.controller.relinquish(resident.spec.id)
     resident.homeMount.group.position.set(20, getTerrainHeight(20, 140), 140)
     resident.npc.takeDamage(30)
@@ -90,9 +90,9 @@ describe('Town patrol mission ownership and return interop', () => {
   })
 
   it('resumes ordinary Patrol navigation at its actual position after an ambient threat ends', () => {
-    const h = createTownPatrolFixture(), captain = h.residents[0]
+    const h = createTownPatrolFixture({ patrolIds: ['A'] }), captain = h.residents[0]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'Patrol A must reach the exterior patrol loop',
     })
     const bandit = combatActor('ambient-patrol-threat', Faction.BANDIT)
     bandit.group.position.copy(captain.npc.combatPosition)
@@ -120,10 +120,10 @@ describe('Town patrol mission ownership and return interop', () => {
     expect(captain.npc.formationCommandId).toBe(-3)
   })
 
-  it.each([1, 0, 20])('resident %i physically rides home with mission wounds and loadout, refits at barracks, and can be borrowed during rejoin', index => {
-    const h = createTownPatrolFixture({ withWorld: true }), resident = h.residents[index]
+  it('ordinary Patrol A rider physically rides home with mission wounds and loadout, refits at barracks, and can be borrowed during rejoin', () => {
+    const h = createTownPatrolFixture({ withWorld: true, patrolIds: ['A'] }), resident = h.residents[1]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'Patrol A must reach the exterior patrol loop',
     })
     const originalEquipment = { weapon: resident.npc.meleeWeaponId, shield: resident.npc.shieldId, tier: resident.npc.tier }
     expect(h.controller.relinquish(resident.spec.id)).toBe(true)

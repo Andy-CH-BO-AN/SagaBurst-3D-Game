@@ -145,6 +145,34 @@ describe('VeteranFieldFormation', () => {
       expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
     })
 
+  it('uses 89 survivors as the assembly denominator after ten casualties, retaining unteleported stragglers', () => {
+    const setup = field({ templateId: 'veteran-scout-hunters' })
+    const friendlies = [...setup.actors]
+    expect(friendlies).toHaveLength(99)
+    for (const npc of friendlies.slice(-10)) npc.takeDamage(999999)
+    const living = friendlies.filter(npc => !npc.dead)
+    expect(living).toHaveLength(89)
+    // Support must first reach the entry; this is movement input, not the assembly decision.
+    const borrowedIds = new Set(setup.residents.map(resident => resident.npc.combatantId))
+    setup.reachAssignedPositions(living.filter(npc => !borrowedIds.has(npc.combatantId)))
+    setup.stepFrame()
+    setup.reachAssignedPositions(living.slice(0, 80))
+    setup.player.group.position.set(-150, 0, -150)
+    setup.controller.onMarchStarted = vi.fn()
+    setup.stepFrame()
+    expect(setup.controller.phase).toBe('ASSEMBLING')
+    setup.reachAssignedPositions([living[80]])
+    const stragglers = living.slice(81), positions = stragglers.map(npc => npc.combatPosition.clone())
+    const actorIds = [...setup.profile().activeMission!.friendlyActorIds]
+    setup.stepFrame()
+    expect(setup.controller.phase).toBe('MARCHING')
+    expect(stragglers.map(npc => npc.combatPosition)).toEqual(positions)
+    expect(stragglers.every(npc => npc.followTarget)).toBe(true)
+    expect(setup.profile().activeMission!.friendlyActorIds).toEqual(actorIds)
+    expect(setup.actors).toEqual(friendlies)
+    expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
+  })
+
   it('departs with a lagging Captain after 90% assemble without snapping him into place', () => {
     const setup = field({ templateId: 'veteran-village-intercept' })
     setup.controller.onMarchStarted = vi.fn()

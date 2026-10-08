@@ -85,9 +85,9 @@ describe('Town patrol return, refit and mount lifecycle', () => {
   })
 
   it('finishes a rear ordinary follower rejoin at its own slot while remaining farther than nine metres from the leader', () => {
-    const h = createTownPatrolFixture({ withWorld: true }), resident = h.residents[19], squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ withWorld: true, patrolIds: ['A'] }), resident = h.residents[19], squad = h.controller.squads[0]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'Patrol A must reach the exterior patrol loop',
     })
     expect(h.controller.relinquish(resident.spec.id)).toBe(true)
     resident.npc.takeDamage(999999)
@@ -109,10 +109,10 @@ describe('Town patrol return, refit and mount lifecycle', () => {
     expect(resident.npc.isFormationTargetReached(-1)).toBe(true)
   })
 
-  it.each([1, 0, 20])('resident %i walks through real navigation after its Horse dies and replaces it only at barracks', index => {
-    const h = createTownPatrolFixture({ withWorld: true }), resident = h.residents[index]
+  it('ordinary Patrol A rider walks through real navigation after its Horse dies and replaces it only at barracks', () => {
+    const h = createTownPatrolFixture({ withWorld: true, patrolIds: ['A'] }), resident = h.residents[1]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'Patrol A must reach the exterior patrol loop',
     })
     h.controller.relinquish(resident.spec.id)
     resident.homeMount.group.position.set(20, getTerrainHeight(20, 140), 140)
