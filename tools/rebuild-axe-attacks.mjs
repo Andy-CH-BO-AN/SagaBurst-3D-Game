@@ -1,4 +1,7 @@
 import fs from 'node:fs'
+import { retargetMountedAxeCarry } from './lib/mounted-axe-carry.mjs'
+import { repairRomanArmBind } from './lib/roman-arm-bind.mjs'
+import { repairRomanArmSurfaces } from './lib/roman-arm-surfaces.mjs'
 import * as T from 'three'
 import { createHash } from 'node:crypto'
 import { readGlb, loadRig, encodeGlb, retargetArms } from './lib/humanoid-glb.mjs'
@@ -35,16 +38,27 @@ function bodyClip(name, sample, target) {
 }
 
 // Select assets explicitly when repairing existing independent hero outputs.
-// Re-run after any upstream humanoid/hero build; no mesh or unrelated clip is rebuilt.
+// Re-run after upstream humanoid/hero builds. Roman arms are fitted/rebound
+// before retargeting; other meshes and unrelated animation samples are retained.
 for (const assetId of (process.argv[3] ?? 'viking,roman,roman-hero-t4').split(',')) {
 const base = `public/models/characters/v2/${assetId}`
 const manifest = JSON.parse(fs.readFileSync(`${base}/manifest.json`, 'utf8'))
 const inputSha256 = {}
-const reference = await loadRig(readGlb(`${base}/lod0.glb`))
+const originals = [0, 1, 2].map(lod => readGlb(`${base}/lod${lod}.glb`))
+if (assetId === 'roman' || assetId === 'roman-hero-t4') {
+  const left = structuredClone(manifest.handGripFrames.left)
+  for (let lod = 0; lod < 3; lod++) {
+    const frame = structuredClone(left)
+    const repaired = await repairRomanArmBind(originals[lod], assetId, manifest.swordGripFrames[`lod${lod}`], frame)
+    await repairRomanArmSurfaces(originals[lod], assetId, lod)
+    if (lod === 0 && repaired) manifest.handGripFrames.left = frame
+  }
+}
+const reference = await loadRig(originals[0])
 reference.scene.updateMatrixWorld(true)
 const referenceLeft = reference.scene.getObjectByName('hand_l').matrixWorld.clone()
 for (let lod = 0; lod < 3; lod++) {
-  const original = readGlb(`${base}/lod${lod}.glb`), replacements = new Map()
+  const original = originals[lod], replacements = new Map()
   const previousHash = createHash('sha256').update(fs.readFileSync(`${base}/lod${lod}.glb`)).digest('hex')
   // A hero build can inherit metadata from its faction source. Its payload
   // has since been rescaled/repacked, so never reuse another asset's checkpoint.
@@ -70,6 +84,20 @@ for (let lod = 0; lod < 3; lod++) {
     for (let i = 0; i < wrist.values.length; i += 4) new T.Quaternion().fromArray(wrist.values, i).multiply(correction).toArray(wrist.values, i)
     replacements.set(name, clip)
     if (!original.document.animations.some(c => c.name === name)) original.document.animations.push({ name, samplers: [], channels: [] })
+  }
+  if (assetId === 'roman' || assetId === 'roman-hero-t4') {
+    const sourceBase = 'public/models/characters/v2/viking'
+    const sourceManifest = JSON.parse(fs.readFileSync(`${sourceBase}/manifest.json`))
+    const target = await loadRig(original)
+    target.scene.updateMatrixWorld(true)
+    const leftFrame = (m, transform = new T.Matrix4()) => ({
+      gripAxisLocal: new T.Vector3(...m.handGripFrames.left.thumbDirection).transformDirection(transform).toArray(),
+      fingerDirection: new T.Vector3(...m.handGripFrames.left.fingerDirection).transformDirection(transform).toArray(),
+    })
+    const transform = target.scene.getObjectByName('hand_l').matrixWorld.clone().invert().multiply(referenceLeft)
+    replacements.set('axeMountedIdle', retargetMountedAxeCarry(await loadRig(readGlb(`${sourceBase}/lod0.glb`)), target,
+      { right: sourceManifest.swordGripFrames.lod0, left: leftFrame(sourceManifest) },
+      { right: manifest.swordGripFrames[`lod${lod}`], left: leftFrame(manifest, transform) }))
   }
   // Heroes may have mesh/texture/accessor additions after humanoidAnimationBuild.
   // Preserve their complete input payload; use our own checkpoint for repeatable rebakes.
@@ -112,25 +140,42 @@ for (let lod = 0; lod < 3; lod++) {
       sourceClip: sample.sourceClip, sourceFileSha256: sample.sourceFileSha256, sourceFrames: sample.sourceFrames,
       sourceFps: sample.sourceFps, duration: sample.duration, timeMapping: 'linear; preserve existing 0.48s attack budget',
     }])) }
+  if (replacements.has('axeMountedIdle')) result.document.asset.extras.axeAttackBuild.mountedCarrySource = {
+    asset: 'viking/lod0.glb', sha256: createHash('sha256').update(fs.readFileSync('public/models/characters/v2/viking/lod0.glb')).digest('hex'),
+    clip: 'idle', method: 'Anatomical arm/palm retarget; target torso and limb lengths retained',
+  }
   const bytes = encodeGlb(result.document, result.binary)
   fs.writeFileSync(`${base}/lod${lod}.glb`, bytes)
   manifest.fileSha256[`lod${lod}`] = createHash('sha256').update(bytes).digest('hex')
   if (assetId === 'roman' && lod === 2) {
-    // Animation-only append preserves the audited geometry byte-for-byte. Advance
-    // the hash guard only when the exact input was already audited; never bless
-    // an unreviewed upstream mesh rebuild.
+    // Owned arm repairs retain primitive/material boundaries and bone palettes.
+    // The consolidation suite verifies the resulting attributes and indices.
+    // Do not advance the guard for an unrelated upstream rebuild.
     const policyPath = 'src/world/HumanoidLod2Consolidation.ts'
     const policy = fs.readFileSync(policyPath, 'utf8')
     const prior = `AUDITED_ROMAN_LOD2_SHA256 = '${previousHash}'`
     if (policy.includes(prior)) fs.writeFileSync(policyPath, policy.replace(prior,
       `AUDITED_ROMAN_LOD2_SHA256 = '${manifest.fileSha256.lod2}'`))
   }
-  if (manifest.lodMeasurements?.[lod]) Object.assign(manifest.lodMeasurements[lod], { sha256: manifest.fileSha256[`lod${lod}`], bytes: bytes.length })
+  const triangles = document.meshes.reduce((sum, mesh) => sum + mesh.primitives.reduce((sum, p) =>
+    sum + document.accessors[p.indices ?? p.attributes.POSITION].count / 3, 0), 0)
+  if (manifest.metrics?.triangles) manifest.metrics.triangles[`lod${lod}`] = triangles
+  if (manifest.lodMeasurements?.[lod]) Object.assign(manifest.lodMeasurements[lod], { sha256: manifest.fileSha256[`lod${lod}`], bytes: bytes.length, triangles })
 }
 for (const [name, sample] of Object.entries(source.clips)) {
   manifest.animations.embedded = manifest.animations.embedded.filter(c => c.clip !== name)
   manifest.animations.embedded.push({ clip: name, source: 'Kevin Iglesias', sourceClip: sample.sourceClip,
     loop: false, duration: .48, events: { hit: name === 'axeAttack1H' ? .48 * 9 / 33 : .17, actionComplete: .48 } })
+}
+if (assetId === 'roman' || assetId === 'roman-hero-t4') {
+  manifest.animations.embedded = manifest.animations.embedded.filter(c => c.clip !== 'axeMountedIdle')
+  manifest.animations.embedded.push({ clip: 'axeMountedIdle', source: 'Viking authored idle',
+    sourceClip: 'idle', loop: true, duration: reference.animations.find(c => c.name === 'idle').duration })
+  manifest.armRigRepair = {
+    bind: originals[0].document.asset.extras.romanArmBind,
+    surfaces: originals[0].document.asset.extras.romanArmSurfaces,
+    anatomicalVertices: 'preserved; only sleeve fit, bracer clearance and shoulder weights changed',
+  }
 }
 manifest.axeAttackBuild = { inputSha256, sourceSha256: source.sourceSha256, license: 'Standard Asset Store EULA',
   licenseEvidence: 'Human Melee Animations 2.0 FREE.pdf',
@@ -140,5 +185,5 @@ manifest.axeAttackBuild = { inputSha256, sourceSha256: source.sourceSha256, lice
   contactSourceFrames: { axeAttack1H: 10, axeAttack2H: 18 },
   contactMeasurement: 'Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0.' }
 fs.writeFileSync(`${base}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n')
-console.log(`Rebuilt ${assetId} axeAttack1H / axeAttack2H in LOD0/1/2; all unrelated clips/mesh buffers preserved.`)
+console.log(`Rebuilt ${assetId} axe animations in LOD0/1/2; unrelated animation samples retained${manifest.armRigRepair ? '; Roman arm bind/surface repair included' : ''}.`)
 }

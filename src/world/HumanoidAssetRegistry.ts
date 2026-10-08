@@ -398,7 +398,13 @@ export class MixerController implements HumanoidAnimationController {
     const alive = this.equipmentState.alive
     this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
-    this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.apply(this.equipmentState) })
+    this.equipmentLayers.forEach((layer, index) => {
+      if (all || this.needsLevel(index)) {
+        const palm = index === 0 ? undefined : this.equipmentLayers[0].axeSupportPalm
+        if (palm) layer.apply(this.equipmentState, palm)
+        else layer.apply(this.equipmentState)
+      }
+    })
     this.equipmentState.alive = alive
     this.onPoseEvaluated?.()
   }
@@ -425,7 +431,9 @@ export class MixerController implements HumanoidAnimationController {
     // Use the authority's last evaluated pose, not newer gameplay state from a
     // skipped distance tick. Do not consume the shared far accumulator here.
     layer?.restore()
-    layer?.apply(this.evaluatedEquipmentState)
+    const palm = index === 0 ? undefined : this.equipmentLayers[0]?.axeSupportPalm
+    if (palm) layer?.apply(this.evaluatedEquipmentState, palm)
+    else layer?.apply(this.evaluatedEquipmentState)
   }
 
   /** Asset-owned socket followers run after the single pose evaluation. */
@@ -805,9 +813,16 @@ export class HumanoidAssetRegistry {
         level.scene.userData.equipmentGripFrames = frames
         level.scene.userData.equipmentFaction = faction
         calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
+        const axeIdle = level.animations.find(clip => clip.name === 'axeMountedIdle')
+        if (axeIdle) {
+          const axeFrame = { ...frames.lanceRight }
+          calibrateLanceIdleAttachment(level.scene, axeIdle, axeFrame)
+          frames.lanceRight.axeMountedRotationLocal = axeFrame.modelRotationLocal
+        }
         if (manifest.handShapeMode !== 'authored') {
           prepareEquipmentHandShape(level.scene, frames.shieldLeft, 'l', 'shieldLeft')
-          if (faction === 'viking') prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
+          // Any unbaked humanoid can use a two-handed axe, including Roman.
+          prepareEquipmentHandShape(level.scene, frames.lanceLeft, 'l', 'lanceLeft')
         }
       })
     }

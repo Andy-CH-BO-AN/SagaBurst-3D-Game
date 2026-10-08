@@ -9,7 +9,7 @@ interface ConsolidationPair {
   secondMaterial: string
 }
 
-export const AUDITED_ROMAN_LOD2_SHA256 = 'cc4c86ced9cf60c9a7ba6b8e578b07dfa813b55811c5d5691fdc7becfc271bbd'
+export const AUDITED_ROMAN_LOD2_SHA256 = 'da0e01209829add4e477699fb34abb6981a178f88e016422c2df5b1db10d9390'
 export const ROMAN_LOD2_CULLED_TINY_DETAIL_NAMES = ['New_eye', 'New_eye_2', 'Dangles'] as const
 
 export function isRomanLod2ConsolidationAssetAudited(actualSha256: string | undefined): boolean {

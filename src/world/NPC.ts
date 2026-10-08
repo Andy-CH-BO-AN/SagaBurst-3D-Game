@@ -942,7 +942,7 @@ export class NPC {
     if (this.rig.equipmentGripFrames && this.isUsingLance) {
       applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     } else if (this.rig.swordGripFrame) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     polishWeaponMaterials(this.swordPivot)
     this.equipmentVisualLOD.register(this.isUsingLance ? 'lance' : 'sword', this.swordGripPivot)

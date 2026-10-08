@@ -41,6 +41,10 @@ class ArmSolver {
   private readonly bend = new THREE.Vector3()
   private readonly x = new THREE.Vector3()
   private readonly y = new THREE.Vector3()
+  private readonly sampledElbow = new THREE.Vector3()
+  private readonly sampledWrist = new THREE.Vector3()
+  private readonly sampledUpper = new THREE.Quaternion()
+  private readonly sampledLower = new THREE.Quaternion()
   private readonly upperLength: number
   private readonly lowerLength: number
 
@@ -55,11 +59,18 @@ class ArmSolver {
     this.lowerLength = arm.wrist.position.length()
   }
 
-  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion): void {
+  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false): void {
     this.root.updateWorldMatrix(true, true)
     this.inverseRoot.copy(this.root.matrixWorld).invert()
     this.root.getWorldQuaternion(this.rootQ)
     this.arm.shoulder.getWorldPosition(this.shoulder).applyMatrix4(this.inverseRoot)
+    if (followSampledPose) {
+      this.arm.elbow.getWorldPosition(this.sampledElbow).applyMatrix4(this.inverseRoot)
+      this.arm.wrist.getWorldPosition(this.sampledWrist).applyMatrix4(this.inverseRoot)
+      this.parentQ.copy(this.rootQ).invert()
+      this.arm.shoulder.getWorldQuaternion(this.sampledUpper).premultiply(this.parentQ)
+      this.arm.elbow.getWorldQuaternion(this.sampledLower).premultiply(this.parentQ)
+    }
     this.wrist.fromArray(frame.gripCenterLocal).applyQuaternion(handRotation).negate().add(gripTarget)
     this.axis.subVectors(this.wrist, this.shoulder)
     const requested = this.axis.length()
@@ -68,25 +79,37 @@ class ArmSolver {
     this.wrist.copy(this.shoulder).addScaledVector(this.axis, distance)
     this.bend.set(this.side < 0 ? -0.15 : 0.65, -1, this.side < 0 ? -0.35 : -0.1)
     if (bodyRotation) this.bend.applyQuaternion(bodyRotation)
+    if (followSampledPose) this.bend.subVectors(this.sampledElbow, this.shoulder)
     this.bend.addScaledVector(this.axis, -this.bend.dot(this.axis)).normalize()
     const along = (this.upperLength ** 2 - this.lowerLength ** 2 + distance ** 2) / (2 * distance)
     this.elbow.copy(this.shoulder).addScaledVector(this.axis, along).addScaledVector(this.bend, Math.sqrt(Math.max(0, this.upperLength ** 2 - along ** 2)))
-    this.q.copy(handRotation).multiply(this.neutralWrist)
-    this.x.copy(this.lowerAxis).applyQuaternion(this.q)
-    this.y.subVectors(this.wrist, this.elbow).normalize()
-    this.swing.setFromUnitVectors(this.x, this.y)
-    this.lowerRotation.copy(this.q).premultiply(this.swing)
-    this.q.copy(this.lowerRotation).multiply(this.neutralElbow)
-    this.x.copy(this.upperAxis).applyQuaternion(this.q)
-    this.y.subVectors(this.elbow, this.shoulder).normalize()
-    this.swing.setFromUnitVectors(this.x, this.y)
-    this.q.premultiply(this.swing)
-    this.upperRotation.copy(this.q)
-    this.q.copy(this.neutralShoulder)
-    if (bodyRotation) this.q.premultiply(bodyRotation)
-    this.x.copy(this.upperAxis).applyQuaternion(this.q)
-    this.swing.setFromUnitVectors(this.x, this.y)
-    this.q.premultiply(this.swing).slerp(this.upperRotation, 0.35)
+    if (followSampledPose) {
+      // Move the sampled elbow plane to the new grasp with shortest swings.
+      // Palm pronation must not be propagated backwards into the shoulder.
+      this.x.subVectors(this.sampledWrist, this.sampledElbow).normalize()
+      this.y.subVectors(this.wrist, this.elbow).normalize()
+      this.lowerRotation.copy(this.sampledLower).premultiply(this.swing.setFromUnitVectors(this.x, this.y))
+      this.x.subVectors(this.sampledElbow, this.shoulder).normalize()
+      this.y.subVectors(this.elbow, this.shoulder).normalize()
+      this.q.copy(this.sampledUpper).premultiply(this.swing.setFromUnitVectors(this.x, this.y))
+    } else {
+      this.q.copy(handRotation).multiply(this.neutralWrist)
+      this.x.copy(this.lowerAxis).applyQuaternion(this.q)
+      this.y.subVectors(this.wrist, this.elbow).normalize()
+      this.swing.setFromUnitVectors(this.x, this.y)
+      this.lowerRotation.copy(this.q).premultiply(this.swing)
+      this.q.copy(this.lowerRotation).multiply(this.neutralElbow)
+      this.x.copy(this.upperAxis).applyQuaternion(this.q)
+      this.y.subVectors(this.elbow, this.shoulder).normalize()
+      this.swing.setFromUnitVectors(this.x, this.y)
+      this.q.premultiply(this.swing)
+      this.upperRotation.copy(this.q)
+      this.q.copy(this.neutralShoulder)
+      if (bodyRotation) this.q.premultiply(bodyRotation)
+      this.x.copy(this.upperAxis).applyQuaternion(this.q)
+      this.swing.setFromUnitVectors(this.x, this.y)
+      this.q.premultiply(this.swing).slerp(this.upperRotation, 0.35)
+    }
     this.arm.shoulder.parent!.getWorldQuaternion(this.parentQ).invert()
     this.arm.shoulder.quaternion.copy(this.parentQ).multiply(this.rootQ).multiply(this.q)
     this.arm.shoulder.updateWorldMatrix(false, true)
@@ -123,7 +146,10 @@ export class CharacterEquipmentPose {
   private readonly handWorld = new THREE.Quaternion()
   private readonly rootWorld = new THREE.Quaternion()
   private readonly axeGripInHand: THREE.Matrix4
-  private readonly axeLeftRotation: THREE.Quaternion
+  private readonly axeLeftPalmFrame: THREE.Quaternion
+  private readonly axeLeftPalmInverse: THREE.Quaternion
+  private readonly supportPalm = new THREE.Quaternion()
+  private hasSupportPalm = false
   private readonly axeMatrix = new THREE.Matrix4()
   private readonly axeInverseRoot = new THREE.Matrix4()
   private readonly axeRightGrip = new THREE.Vector3()
@@ -157,7 +183,8 @@ export class CharacterEquipmentPose {
     // The existing axe visual tilts 0.45 radians about its grip. Attacks use
     // the foot attachment on both foot and horse; never edit the axe model.
     this.axeGripInHand = swordHandMatrix(frames.lanceRight).multiply(new THREE.Matrix4().makeRotationX(.45))
-    this.axeLeftRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI).multiply(hand(frames.lanceLeft))
+    this.axeLeftPalmFrame = new THREE.Quaternion().setFromRotationMatrix(swordHandMatrix(frames.lanceLeft))
+    this.axeLeftPalmInverse = this.axeLeftPalmFrame.clone().invert()
     root.updateMatrixWorld(true)
     this.hipsY = root.worldToLocal((rig.pelvis?.parent ?? rig.rightLeg.hip).getWorldPosition(new THREE.Vector3())).y
     // Carry the guard in the animated chest frame, including torso translation
@@ -199,7 +226,11 @@ export class CharacterEquipmentPose {
     node.updateWorldMatrix(false, true)
   }
 
-  apply(state: EquipmentPoseState): void {
+  /** Borrowed root-space physical palm frame, shared by the authority's LODs. */
+  get axeSupportPalm(): THREE.Quaternion | undefined { return this.hasSupportPalm ? this.supportPalm : undefined }
+
+  apply(state: EquipmentPoseState, authorityPalm?: THREE.Quaternion): void {
+    this.hasSupportPalm = false
     for (const s of this.saved) s.q.copy(s.node.quaternion)
     this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
@@ -366,8 +397,16 @@ export class CharacterEquipmentPose {
       this.axeMatrix.copy(this.axeInverseRoot).multiply(this.rig.right.wrist.matrixWorld).multiply(this.axeGripInHand)
       this.axeRightGrip.setFromMatrixPosition(this.axeMatrix)
       this.axeLeftOffset.set(0, -.1, 0).transformDirection(this.axeMatrix).multiplyScalar(.1)
-      this.handWorld.setFromRotationMatrix(this.axeMatrix).multiply(this.axeLeftRotation)
       this.root.getWorldQuaternion(this.rootWorld).invert()
+      if (authorityPalm) this.handWorld.copy(authorityPalm).multiply(this.axeLeftPalmInverse)
+      else {
+        this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+        this.attackAxis.fromArray(this.frames.lanceLeft.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+        this.target.set(0, 1, 0).transformDirection(this.axeMatrix)
+        this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.target))
+      }
+      this.supportPalm.copy(this.handWorld).multiply(this.axeLeftPalmFrame)
+      this.hasSupportPalm = true
       this.rig.right.wrist.getWorldQuaternion(this.axeRightRotation).premultiply(this.rootWorld)
       // Different shoulder widths can put the retargeted grasp beyond the
       // opposite arm's reach. Project the shared haft into both reach spheres,
@@ -386,9 +425,9 @@ export class CharacterEquipmentPose {
           if (distance > limit) this.axeRightGrip.addScaledVector(this.axeReach, (limit - distance) / distance)
         }
       }
-      this.axeRight.solve(this.axeRightGrip, this.axeRightRotation, this.frames.lanceRight)
+      this.axeRight.solve(this.axeRightGrip, this.axeRightRotation, this.frames.lanceRight, undefined, true)
       this.target.copy(this.axeRightGrip).add(this.axeLeftOffset)
-      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft)
+      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true)
       for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
     }
     for (const morph of this.morphs) {

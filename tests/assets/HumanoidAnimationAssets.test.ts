@@ -363,7 +363,7 @@ describe('humanoid embedded animation asset contract', () => {
 // Asset owner: the existing Viking AxeAttack suite owns the complete gameplay
 // matrix. These independent Roman payloads need real GLB decoding per LOD to
 // catch absent/static clips or tracks that cannot bind to their target skeleton.
-it.each(['roman', 'roman-hero-t4'] as const)('%s ships two playable axe clips on every runtime LOD', async assetId => {
+it.each(['roman', 'roman-hero-t4'] as const)('%s ships playable axe attacks and mounted carry on every runtime LOD', async assetId => {
   const base = `public/models/characters/v2/${assetId}`
   const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
   const descriptor = assetId === 'roman' ? undefined : HERO_ASSETS[assetId].descriptor
@@ -379,13 +379,13 @@ it.each(['roman', 'roman-hero-t4'] as const)('%s ships two playable axe clips on
     const gltf = await loadTestGlbAsset(`${base}/lod${lod}.glb`)
     const controller = new MixerController([new THREE.AnimationMixer(gltf.scene)], [gltf.animations])
     try {
-      for (const action of ['axeAttack1H', 'axeAttack2H'] as const) {
+      for (const action of ['axeAttack1H', 'axeAttack2H', 'axeMountedIdle'] as const) {
         const rig = createHumanoidRigAdapter(gltf.scene, controller)
         expect(controller.play(action, { fadeSeconds: 0, loop: false }), `${assetId} LOD${lod} ${action}`).toBe(true)
         controller.seek(action, .05); controller.update(0)
         const start = rig.right.shoulder.quaternion.clone()
         controller.seek(action, .65); controller.update(0)
-        expect(start.angleTo(rig.right.shoulder.quaternion), `${assetId} LOD${lod} ${action} motion`).toBeGreaterThan(.1)
+        expect(start.angleTo(rig.right.shoulder.quaternion), `${assetId} LOD${lod} ${action} motion`).toBeGreaterThan(action === 'axeMountedIdle' ? .001 : .1)
         const clip = gltf.animations.find(c => c.name === action)!
         expect(clip.tracks.length).toBeGreaterThan(6)
         for (const track of clip.tracks) expect([...track.values].every(Number.isFinite)).toBe(true)

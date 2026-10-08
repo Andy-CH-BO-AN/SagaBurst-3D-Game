@@ -552,6 +552,37 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(subject.currentAction).toBe('idle')
   })
 
+  it('plays mounted axe carry through completion and cancellation, then follows shield, weapon and dismount changes', () => {
+    // One synthetic animated marker observes real mixer selection; no GLBs or
+    // actor graph are needed for this locomotion policy.
+    const rig = characterRig(), root = new THREE.Group(), marker = new THREE.Group(), melee = new THREE.Group()
+    marker.name = 'selection'; root.add(marker)
+    const clips = Object.entries({ idle: 1, mounted: 2, axeMountedIdle: 3, axeAttack2H: 4 }).map(([name, value]) =>
+      new THREE.AnimationClip(name, name === 'axeAttack2H' ? .48 : 1, [
+        new THREE.NumberKeyframeTrack('selection.position[x]', [0, 1], [value, value]),
+      ]))
+    const controller = new MixerController([new THREE.AnimationMixer(root)], [clips])
+    rig.animation = controller
+    melee.userData.axeVisual = new THREE.Group()
+    const subject = new CharacterCombatAnimator(rig, melee, new THREE.Group())
+    const settle = () => { subject.update(.2); expect(subject.currentAction).toBe('idle') }
+    try {
+      subject.setLocomotion(0, true); settle()
+      expect(marker.position.x).toBeCloseTo(3)
+      expect(subject.start('axeAttack2H')).toBe(true)
+      subject.update(.12); expect(marker.position.x).toBeCloseTo(4)
+      subject.update(.5); settle(); expect(marker.position.x).toBeCloseTo(3)
+      subject.start('axeAttack2H'); subject.update(.1); subject.cancel()
+      settle(); expect(marker.position.x).toBeCloseTo(3)
+      subject.setEquipment(false, true); subject.setLocomotion(0, true)
+      settle(); expect(marker.position.x).toBeCloseTo(2)
+      subject.setEquipment(false, false); delete melee.userData.axeVisual
+      subject.setLocomotion(0, true); settle(); expect(marker.position.x).toBeCloseTo(2)
+      melee.userData.axeVisual = new THREE.Group()
+      subject.setLocomotion(0, false); settle(); expect(marker.position.x).toBeCloseTo(1)
+    } finally { controller.stop() }
+  })
+
   it('samples imported bow load, loops hold, and gives imported clips pose ownership', () => {
     const rig = characterRig()
     const play = vi.fn(() => true)

@@ -345,7 +345,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[this.currentMeleeId]?.animationKind === 'sword' || WEAPONS[this.currentMeleeId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     this.rig.right.handSocket.add(this.swordPivot)
@@ -405,7 +405,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[weaponId]?.animationKind === 'sword' || WEAPONS[weaponId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[weaponId]?.animationKind === 'lance') {
       applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')

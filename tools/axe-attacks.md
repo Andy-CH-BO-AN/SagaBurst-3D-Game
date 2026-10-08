@@ -21,7 +21,7 @@ The sampler retains every source frame, maps the complete take to the existing
 0.48-second melee action budget, and records the ZIP and individual FBX hashes.
 The build maps anatomical limb axes and palm frames into each selected asset LOD's bind
 basis. It removes translations/scales, keeps planted legs, and counter-rotates
-the right wrist for the existing axe model's display tilt. Unrelated animation, mesh, skin, texture and skeleton data are preserved.
+the right wrist for the existing axe model's display tilt. Unrelated animation samples and textures are preserved. Roman assets also receive the source-specific arm bind and garment repair described below.
 The builder retains a payload checkpoint so repeated runs produce identical files.
 Run it after upstream humanoid or Roman hero builds; existing independent
 Praetorian outputs can be repaired directly without rebuilding their appearance.
@@ -33,6 +33,12 @@ deformation. Each static bowLoad is completed toward its own bowHold at load.
 It preserves axe and other unrelated clips; rerun it after upstream builds.
 Varangian already inherits the Viking clips through its own retarget pipeline.
 
+## Roman arm repair
+
+The source arm joints were 65 mm above the anatomical wrist centre (scaled for the Praetorian). `roman-arm-bind.mjs` rebases the parallel arm chain, inverse bind matrices, sockets and grip coordinates. It retains vertex positions, limb lengths and rest rotations. `roman-arm-surfaces.mjs` gives overlapping shoulder skin, sleeves and armour compatible weights; it fits sleeves outside the unchanged skin and binds the shortened ordinary bracer below the elbow. Coarse sleeve triangles in LOD1/2 receive local, conforming refinement before fitting. No skin is shrunk or deleted.
+
+Each repair is asset-owned and idempotent. The preservation verifier explicitly permits these arm edits and independently checks unchanged anatomical rest vertices, hand-socket rest positions, materials, texture bytes, unrelated payloads and animation samples. It does not describe these outputs as an animation-only edit.
+
 ## Runtime contract
 
 - Weapon `animationKind: 'axe'` selects the independent axe family. Player and
@@ -43,9 +49,10 @@ Varangian already inherits the Viking clips through its own retarget pipeline.
 - The animator alone emits the one-shot melee event, including coarse steps,
   distance throttling and cancellation. Completion restores current locomotion.
 - 1H keeps the normal shield layer. 2H closes the off hand and constrains both
-  grips to the same haft; reach correction compensates for Viking proportions.
+  grips to the same haft; reach correction compensates for limb proportions. The solver retains the sampled elbow plane and upper-arm roll. It aligns the support thumb along the shaft without forcing a fixed palm roll back through the elbow. LOD0 supplies the physical support-palm frame to other LODs, including delayed LOD catch-up.
   The left grip is below the right grip, as in the source take.
-- Mounted axe carry uses exactly the same wrist and finger pose as the lance.
+- Viking mounted axe carry retains the lance wrist/finger pose. Roman and Praetorian use `axeMountedIdle`, anatomically retargeted from Viking carry with a separate palm calibration; it is selected only for mounted axes without shields. Completion and cancellation restore the same carry.
+- Mounted axe carry keeps its fixed palm contact.
   Only the weapon attachment changes: retain its outward clearance and roll
   the cutting edge downward about the fixed palm contact. The attachment blends
   to the source strike during 0–0.08 s and back during 0.42–0.48 s, outside the

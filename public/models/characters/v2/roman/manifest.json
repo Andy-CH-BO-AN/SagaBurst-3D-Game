@@ -39,8 +39,8 @@
     "kneeHeightRatio": 0.289888,
     "triangles": {
       "lod0": 59983,
-      "lod1": 19985,
-      "lod2": 5922
+      "lod1": 21409,
+      "lod2": 7486
     },
     "textures": {
       "lod0": 2048,
@@ -59,7 +59,7 @@
       "palmContactCenter": [
         -0.008,
         0.055,
-        -0.078
+        -0.012999999999999998
       ],
       "palmNormal": [
         0,
@@ -80,13 +80,13 @@
       "wristCenter": [
         0,
         0,
-        -0.065
+        0
       ],
       "fingerBase": 0.055,
       "thumbBaseCenter": [
         0.035,
         0.018,
-        -0.061
+        0.0040000000000000036
       ]
     }
   },
@@ -96,9 +96,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "80ca404b1b3eee99c15bf7362376755e57adc5103e0900df1e869cebd17d0bbe",
-    "lod1": "544b904a970fe2db702d7777564d9962bb4ca2850da7e3bdef145e2d268448a9",
-    "lod2": "cc4c86ced9cf60c9a7ba6b8e578b07dfa813b55811c5d5691fdc7becfc271bbd"
+    "lod0": "8c835931a697f21a3d99828db2b015bd31344d485eddfea7328b21bc4d870e92",
+    "lod1": "4d52984c6d67137b7de636138cfed77023b0b43242188c2b3bceaf050353ce52",
+    "lod2": "da0e01209829add4e477699fb34abb6981a178f88e016422c2df5b1db10d9390"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -196,6 +196,13 @@
           "hit": 0.17,
           "actionComplete": 0.48
         }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Viking authored idle",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.700000047683716
       }
     ],
     "runtimeGenerated": [
@@ -245,7 +252,7 @@
       "gripCenterLocal": [
         0.007999999999999998,
         0.055,
-        -0.1082638616733071
+        -0.04326386167330731
       ],
       "gripAxisLocal": [
         -1,
@@ -263,14 +270,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.150669592637872e-25,
-        -2.7284442766621095e-25,
-        -0.06499999999999978
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.034999999999999996,
         0.018,
-        -0.06099999999999978
+        0.0040000000000000036
       ],
       "fingerBase": 0.055,
       "gripRadius": 0.031360000000000006
@@ -279,7 +286,7 @@
       "gripCenterLocal": [
         0.007999999999999998,
         0.055,
-        -0.1082638616733071
+        -0.04326386167330731
       ],
       "gripAxisLocal": [
         -1,
@@ -297,14 +304,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.150669592637872e-25,
-        -2.7284442766621095e-25,
-        -0.06499999999999978
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.034999999999999996,
         0.018,
-        -0.06099999999999978
+        0.0040000000000000036
       ],
       "fingerBase": 0.055,
       "gripRadius": 0.031360000000000006
@@ -313,7 +320,7 @@
       "gripCenterLocal": [
         0.007999999999999998,
         0.055,
-        -0.1082638616733071
+        -0.04326386167330731
       ],
       "gripAxisLocal": [
         -1,
@@ -331,14 +338,14 @@
         2.539883426411287e-24
       ],
       "wristCenter": [
-        -2.150669592637872e-25,
-        -2.7284442766621095e-25,
-        -0.06499999999999978
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
         -0.034999999999999996,
         0.018,
-        -0.06099999999999978
+        0.0040000000000000036
       ],
       "fingerBase": 0.055,
       "gripRadius": 0.031360000000000006
@@ -427,5 +434,24 @@
       "axeAttack2H": 18
     },
     "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+  },
+  "armRigRepair": {
+    "bind": {
+      "version": 1,
+      "targetAssetId": "roman",
+      "method": "Arm joints recentered on calibrated wrist; inverse bind matrices and socket/grip coordinates rebased; rest geometry and limb lengths preserved"
+    },
+    "surfaces": {
+      "version": 2,
+      "targetAssetId": "roman",
+      "method": "Unchanged anatomy; sleeve fitted outside source skin, shared shoulder weights, bracer bound below elbow",
+      "meshes": [
+        "New_arms",
+        "Tunic_1",
+        "Armour_top",
+        "Wrist_guard1"
+      ]
+    },
+    "anatomicalVertices": "preserved; only sleeve fit, bracer clearance and shoulder weights changed"
   }
 }
