@@ -532,9 +532,9 @@ export class Player {
     this.group.rotation.y = this._characterYaw(this.currentMount.group.rotation.y)
   }
 
-  dismountFromMount(): void {
+  dismountFromMount({ preserveWorldPosition = false }: { preserveWorldPosition?: boolean } = {}): void {
     if (!this.isMounted || !this.currentMount) return
-    const mountPosition = this.currentMount.group.position.clone()
+    const mountPosition = preserveWorldPosition ? null : this.currentMount.group.position.clone()
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
@@ -543,7 +543,10 @@ export class Player {
     this.animator.setLocomotion(0, false)
     this.rig.animation?.update(0)
     this._alignExternalVisualToMount(false)
-    this.group.position.copy(mountPosition)
+    // When a mount dies, start falling from the rider's seat height rather than
+    // placing the player's collision body inside the surface beneath the mount.
+    if (mountPosition) this.group.position.copy(mountPosition)
+    else this.onGround = false
     this.group.rotation.x = 0
     this.velY = 0
   }
