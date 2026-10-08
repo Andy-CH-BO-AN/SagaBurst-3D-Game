@@ -70,8 +70,8 @@ describe('Career Town outskirts', () => {
         expect(navigation.queryPath(home, spawn).status).toBe('path')
       }
     })
-    // Legacy patrol via points and the return assembly share the real scenery
-    // connectivity owner; the data matrix below needs no second TownWorld.
+    // Basic via-point connectivity complements the complete real-scenery
+    // objective/route matrix below.
     for (const p of [{ x: 15, z: -75 }, { x: 95, z: -105 }, { x: 18, z: 16 }, { x: 335, z: 0 }, { x: -335, z: 0 }, { x: 0, z: 335 }, { x: 0, z: -335 }, { x: 335, z: 335 }, { x: -335, z: -335 }]) {
       expect(navigation.areConnected(home, p)).toBe(true)
     }
@@ -120,40 +120,70 @@ describe('Career Town outskirts', () => {
     expect(PLAYABLE_WORLD_BOUND).toBe(300)
   })
 
-  it.each(['bandit', 'patrol'] as const)('%s legacy data and production routes cover all five relocated camps without actors', kind => {
-    // Zero NPC, Mount and TownWorld; static collision connectivity is checked
-    // by the scenery owner above. This matrix owns persisted data and routes.
-    const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
-    const world = { obstacles: [] }
-    navigation.sync(world.obstacles)
+  it('legacy Bandit and Patrol data and routes reach all five relocated camps through real scenery without actors', () => {
+    // One real TownWorld + NavigationWorld owns all ten kind/camp rows.
+    // Geometry needs its obstacles, but no NPC, Mount or mission startup.
+    const { world, navigation } = townWorld('roman')
     const geometry = Object.assign(Object.create(BanditMissionController.prototype), { world, navigation }) as OutskirtsGeometry
-    const templateId = kind === 'patrol' ? 'recruit-patrol-01' : 'recruit-bandits-01'
-    const template = getRecruitMissionTemplate(templateId)!
-    const centers = [[-260, -230], [260, -240], [-270, 230], [275, 240], [20, 295]]
-    expect(TOWN_BANDIT_CAMP_CENTERS).toEqual(centers)
-    for (const [campId, [x, z]] of centers.entries()) {
-      const mission = createActiveCareerMission(templateId, campId, 3, 0, `legacy-${kind}-${campId}`, kind, 'captain')
-      mission.phase = 'MARCHING'; mission.routeStage = 2
-      mission.deadTargetActorIds = [`legacy-${kind}-${campId}:bandit:0`]
-      const profile = createCareerProfile('roman'); profile.activeMission = mission
-      const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!.activeMission!
-      expect(restored).toMatchObject({ id: `legacy-${kind}-${campId}`, targetCampId: campId, phase: 'MARCHING', routeStage: 2,
-        targetActorIds: [0, 1, 2].map(index => `legacy-${kind}-${campId}:bandit:${index}`),
-        deadTargetActorIds: [`legacy-${kind}-${campId}:bandit:0`], friendlyActorIds: ['captain'] })
-      const [actualX, actualZ] = TOWN_BANDIT_CAMP_CENTERS[campId]
-      const center = new THREE.Vector3(actualX, 0, actualZ)
-      expect(center.x).toBeCloseTo(x); expect(center.z).toBeCloseTo(z)
-      const objectives = template.kind === 'patrol' ? geometry.patrolWaypoints(template, center) : [geometry.marchObjective(center)]
-      if (template.kind === 'patrol') {
-        expect(objectives.map(point => [point.x, point.z])).toEqual([[15, -75], [95, -105], [x, z]])
-      } else expect(objectives[0].distanceTo(center)).toBeLessThan(55)
-      let from = geometry.assemblyPoint()
-      for (const objective of [...objectives, geometry.assemblyPoint()]) {
-        expect(navigation.areConnected(from, objective), `${kind} camp ${campId}`).toBe(true)
-        const route = geometry.buildRoute(from, objective)
-        expect(route.length).toBeGreaterThan(0)
-        expect(route.at(-1)!.distanceTo(objective)).toBeLessThan(5)
-        from = objective
+    const assertWalkablePath = (from: THREE.Vector3, to: THREE.Vector3, label: string) => {
+      navigation.beginFrame()
+      const result = navigation.queryPath(from, to)
+      expect(result.status, label).toBe('path')
+      if (result.status !== 'path') return // assertion above fails; narrow the result type
+      expect(result.path.length, label).toBeGreaterThan(0)
+      expect(result.path.every(cell => !navigation.grid.isBlocked(cell)), `${label} path avoids blocked cells`).toBe(true)
+      const arrival = navigation.grid.cellToWorld(result.path.at(-1)!)
+      expect(Math.hypot(arrival.x - to.x, arrival.z - to.z), `${label} arrival reaches objective`).toBeLessThan(5)
+    }
+    for (const kind of ['bandit', 'patrol'] as const) {
+      const templateId = kind === 'patrol' ? 'recruit-patrol-01' : 'recruit-bandits-01'
+      const template = getRecruitMissionTemplate(templateId)!
+      const centers = [[-260, -230], [260, -240], [-270, 230], [275, 240], [20, 295]]
+      expect(TOWN_BANDIT_CAMP_CENTERS).toEqual(centers)
+      for (const [campId, [x, z]] of centers.entries()) {
+        const mission = createActiveCareerMission(templateId, campId, 3, 0, `legacy-${kind}-${campId}`, kind, 'captain')
+        mission.phase = 'MARCHING'; mission.routeStage = 2
+        mission.deadTargetActorIds = [`legacy-${kind}-${campId}:bandit:0`]
+        const profile = createCareerProfile('roman'); profile.activeMission = mission
+        const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!.activeMission!
+        expect(restored).toMatchObject({ id: `legacy-${kind}-${campId}`, targetCampId: campId, phase: 'MARCHING', routeStage: 2,
+          targetActorIds: [0, 1, 2].map(index => `legacy-${kind}-${campId}:bandit:${index}`),
+          deadTargetActorIds: [`legacy-${kind}-${campId}:bandit:0`], friendlyActorIds: ['captain'] })
+        const [actualX, actualZ] = TOWN_BANDIT_CAMP_CENTERS[campId]
+        const center = new THREE.Vector3(actualX, 0, actualZ)
+        expect(center.x).toBeCloseTo(x); expect(center.z).toBeCloseTo(z)
+        const objectives = template.kind === 'patrol' ? geometry.patrolWaypoints(template, center) : [geometry.marchObjective(center)]
+        if (template.kind === 'patrol') {
+          expect(objectives.map(point => [point.x, point.z])).toEqual([[15, -75], [95, -105], [x, z]])
+        } else {
+          expect(objectives[0].distanceTo(center)).toBeLessThan(55)
+          const cell = navigation.grid.worldToCell(objectives[0])
+          expect(cell, `bandit camp ${campId} snapped objective inside bounds`).not.toBeNull()
+          expect(navigation.grid.isBlocked(cell!), `bandit camp ${campId} snapped objective walkable`).toBe(false)
+        }
+        let from = geometry.assemblyPoint()
+        for (const objective of [...objectives, geometry.assemblyPoint()]) {
+          const label = `${kind} camp ${campId}: ${from.x},${from.z} → ${objective.x},${objective.z}`
+          expect(navigation.areConnected(from, objective), label).toBe(true)
+          assertWalkablePath(from, objective, label)
+          const route = geometry.buildRoute(from, objective)
+          expect(route.length, label).toBeGreaterThan(1)
+          expect(route.at(-1)!.distanceTo(objective), label).toBeLessThan(5)
+          let previous = from
+          for (const [index, waypoint] of route.entries()) {
+            const cell = navigation.grid.worldToCell(waypoint)
+            expect(cell, `${label} waypoint ${index} inside bounds`).not.toBeNull()
+            // buildRoute may append the literal Patrol camp goal; NavigationWorld
+            // projects such coarse blocked goal cells to nearby walkable arrivals.
+            // Every computed intermediate waypoint itself must be walkable.
+            if (index < route.length - 1) expect(navigation.grid.isBlocked(cell!), `${label} waypoint ${index} walkable`).toBe(false)
+            // Controller routes are sparse waypoints; real locomotion navigates
+            // each leg. Require a walkable path, not just connected endpoints.
+            assertWalkablePath(previous, waypoint, `${label} leg ${index}`)
+            previous = waypoint
+          }
+          from = objective
+        }
       }
     }
     expect(geometry.savedMountedActorPosition({ actorPositions: { captain: { x: 325, z: 0, yaw: 1 } } }, 'captain').position.x).toBe(325)
