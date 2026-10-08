@@ -38,6 +38,9 @@ function primitiveForNode(document: GlbDocument, nodeName: string) {
   return primitives[0]
 }
 
+// Build-output contract owned by tools/consolidate-horse-lod2.mjs:
+// Plan B merges tack that uses only JOINTS_0/WEIGHTS_0 and leaves the three
+// excluded meshes independent so their JOINTS_1/WEIGHTS_1 remain intact.
 describe('horse LOD2 Plan B skinning contract', () => {
   it('keeps merged tack on the supported 4-influence contract', () => {
     const document = parseGlb(HORSE_RUNTIME)

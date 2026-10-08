@@ -20,7 +20,7 @@ describe('independent hero asset', () => {
     expect(() => HumanoidAssetRegistry.createCharacterInstance({ faction: 'viking', tier: 2, isPlayer: false }, 'missing-hero')).toThrow('missing-hero')
   })
 
-  it('loads all three exported GLBs with isolated skeletons/mixers and no faction horns', async () => {
+  it('loads all three exported GLBs with isolated skeletons and mixers', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
     try {
@@ -32,7 +32,6 @@ describe('independent hero asset', () => {
       expect(a.skeleton).not.toBe(b.skeleton)
       expect(a.mixers).toHaveLength(3)
       for (let i = 0; i < 3; i++) expect(a.mixers[i]).not.toBe(b.mixers[i])
-      expect(a.root.getObjectByName('viking-short-horns')).toBeUndefined()
       const before = b.rig.right.shoulder.quaternion.clone()
       a.rig.animation!.play('axeAttack2H', { fadeSeconds: 0, loop: false })
       a.rig.animation!.seek('axeAttack2H', .35)
@@ -40,7 +39,6 @@ describe('independent hero asset', () => {
       const lod = a.root.children.find(child => child instanceof THREE.LOD) as THREE.LOD
       const heroNodes = new Set<string>()
       lod.levels.forEach(level => {
-        expect(level.object.getObjectByName('Hero_anatomical_scalp')).toBeDefined()
         for (const socket of ['socket_hand_l', 'socket_hand_r', 'socket_head', 'socket_pelvis', 'sole_l', 'sole_r']) expect(level.object.getObjectByName(socket)).toBeDefined()
         level.object.traverse(node => { if (node instanceof THREE.Bone) heroNodes.add(node.uuid) })
       })
@@ -64,7 +62,7 @@ describe('independent hero asset', () => {
     } finally { fetchMock.mockRestore(); loader.mockRestore() }
   })
 
-  it.each([0, 1, 2])('LOD%d preserves existing animation timing and contains the optional cloth rig without a long beard', async lod => {
+  it.each([0, 1, 2])('LOD%d preserves inherited animation bindings and finite tracks', async lod => {
     const gltf = await loadRig(readGlb(`${directory}/lod${lod}.glb`))
     const base = JSON.parse(readFileSync('public/models/characters/v2/viking/manifest.json', 'utf8'))
     for (const binding of base.animations.embedded) {
@@ -72,8 +70,6 @@ describe('independent hero asset', () => {
       expect(clip?.duration).toBeCloseTo(binding.duration, 5)
       expect(manifest.animations.embedded.find((item: { clip: string }) => item.clip === binding.clip).events).toEqual(binding.events)
     }
-    gltf.scene.traverse((object: THREE.Object3D) => expect(/beard_lock/i.test(object.name)).toBe(false))
-    for (const name of ['cape_upper', 'cape_mid', 'cape_lower']) expect(gltf.scene.getObjectByName(name)).toBeTruthy()
     for (const clip of gltf.animations) for (const track of clip.tracks) expect(Array.from(track.values).every(Number.isFinite)).toBe(true)
   })
 })

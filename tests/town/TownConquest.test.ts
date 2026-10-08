@@ -117,7 +117,9 @@ describe('full population conquest outcomes and registration', () => {
     const oldIds = new Set(oldPrincipals.map(spec => spec.id))
     expect(eventWithSurvivors(population.filter(spec => !oldIds.has(spec.id)).map(spec => spec.id)).evaluate(false)).toBeNull()
   })
-  it.each(population.map(spec => [spec.id]))('requires the last living formal resident %s, wherever it stands', id => {
+  it('requires the last living formal resident before declaring town defeat', () => {
+    // The outcome rule is identity-independent; full roster membership and registration are tested above.
+    const id = 'gate:east:0'
     const event = eventWithSurvivors([id])
     expect(event.evaluate(false)).toBeNull()
     event.actors.get(id)!.dead = true

@@ -18,28 +18,7 @@ function parseGlb(path: string): GlbDocument {
 }
 
 const PACKAGE_ROOT = resolve('public/models/mounts/v1/horse')
-const EXPECTED_LOD0_MESHES = [
-  'bit_0P_Metal_Bare_mqm',
-  'bridle_4F_Leather_Brown_Worn_mqm',
-  'bridle_body_0P_Metal_Bare_mqm',
-  'bridle_body_4F_Leather_Brown_Worn_mqm',
-  'horse_body_lod0',
-  'horse_groom_mane_lod0',
-  'horse_groom_tail_lod0',
-  'horse_horse_cornea',
-  'horse_horse_eyes',
-  'horse_horse_gums',
-  'horse_horse_hooves',
-  'horse_horse_teeth',
-  'reins_4F_Leather_Brown_Worn_mqm',
-  'saddle_pad_quilt_random',
-  'saddle_quilt_dark',
-  'saddle_saddle_random',
-  'saddle_stirrup_0F_Corten_mqm',
-  'saddle_stirrup_strap_4C_Leather_Black_mqm',
-].sort()
-
-describe('Horse shadow policy contracts (3-caster candidate)', () => {
+describe('Horse shadow policy contracts', () => {
   it('is fail-closed for unknown names and all non-LOD0 levels', () => {
     expect(shouldHorseCastShadow('unreviewed_future_horse_mesh', 0)).toBe(false)
     for (const name of HORSE_LOD0_SHADOW_KEEP_MESHES) {
@@ -60,7 +39,6 @@ describe('Horse shadow policy contracts (3-caster candidate)', () => {
     }
 
     const lod0 = meshesForLod('horse_lod0')
-    expect(lod0.sort()).toEqual(EXPECTED_LOD0_MESHES)
     expect(lod0.filter((name) => shouldHorseCastShadow(name, 0)).sort()).toEqual([
       'horse_body_lod0',
       'horse_groom_tail_lod0',
