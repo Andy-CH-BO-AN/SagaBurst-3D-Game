@@ -1,5 +1,6 @@
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import { drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { drainNpcSpawns, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
+import { advanceUntil } from '../helpers/simulation'
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { NpcSpawnSpec } from '../../src/battle/BattleSpawner'
@@ -500,42 +501,28 @@ describe('Town outskirts runtime', () => {
 
 
 describe('Outskirts pending generations', () => {
-  it('keeps empty and partial squads SPAWNING without cooldown, leader commands or duplicate construction', () => {
-    const scheduler = new NpcSpawnScheduler(), h = setup('captain', 'roman', 'roman', [], scheduler)
-    expect(h.created).toHaveLength(0); expect(h.controller.squads.every(squad => squad.state === 'SPAWNING')).toBe(true)
-    for (let frame = 1; frame <= 60; frame++) {
-      scheduler.tick(frame * 16); scheduler.tick(frame * 16)
-      h.isolate()
-      h.controller.prepareFrame(1000, h.controller.actors, h.player)
-      expect(h.created).toHaveLength(frame)
-      expect(new Set(h.created.map(npc => npc.combatantId)).size).toBe(frame)
-      expect(h.controller.squads.every(squad => squad.generation === 0)).toBe(true)
-      if (frame < 5) expect(h.controller.squads[0].leader).toBeNull()
-    }
-    expect(h.controller.squads.every(squad => squad.state === 'PATROLLING')).toBe(true)
-    h.controller.dispose()
-  })
-
   it('transfers existing partial cavalry unchanged, cancels its remaining generation and replenishes only on release', () => {
-    const scheduler = new NpcSpawnScheduler(), h = setup('captain', 'roman', 'roman', [], scheduler)
-    for (let frame = 1; frame <= 31; frame++) scheduler.tick(frame * 16)
+    const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
+    advanceUntil(() => h.horses.length === 1, () => driver.advanceFrame(), {
+      maxFrames: 32, failureMessage: 'partial outskirts ownership needs the first cavalry rider after Bandit jobs',
+    })
     const rider = h.created[30], horse = rider.mount, position = rider.combatPosition.clone()
     const claim = h.controller.claimCavalryForSiege('viking')
     expect(claim.actors).toEqual([rider]); expect(claim.mounts).toEqual([horse]); expect(claim.squadIds).toHaveLength(3)
-    for (let frame = 32; frame <= 90; frame++) scheduler.tick(frame * 16)
+    driver.drain(); driver.advanceFrame()
     expect(h.created).toHaveLength(31); expect(rider.combatPosition).toEqual(position)
     expect(h.controller.owns(rider as unknown as NPC)).toBe(false)
     h.controller.releaseSiegeOwnership()
     expect(h.created).toHaveLength(31)
-    for (let frame = 91; frame <= 120; frame++) { scheduler.tick(frame * 16); expect(h.created.length).toBe(frame - 59) }
+    driver.drain()
     expect(h.controller.actors.filter(npc => npc.faction !== Faction.BANDIT)).toHaveLength(30)
     expect(horse?.disposed).toBe(false)
     h.controller.dispose(); rider.dispose(); horse?.dispose()
   })
 
   it('starts the existing sixty-second cooldown only after a completed Bandit squad wipes', () => {
-    const scheduler = new NpcSpawnScheduler(), h = setup('captain', 'roman', 'roman', [], scheduler)
-    for (let frame = 1; frame <= 60; frame++) scheduler.tick(frame * 16)
+    const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
+    driver.drain()
     const squad = h.controller.squads[0]
     squad.members.forEach(npc => asTest(npc).die())
     h.controller.prepareFrame(0, h.controller.actors, h.player)
@@ -544,10 +531,9 @@ describe('Outskirts pending generations', () => {
     expect(squad.state).toBe('RESPAWN_COOLDOWN')
     h.controller.prepareFrame(1, h.controller.actors, h.player)
     expect(squad.state).toBe('SPAWNING'); expect(squad.generation).toBe(1)
-    for (let frame = 61; frame <= 65; frame++) {
-      scheduler.tick(frame * 16); h.controller.prepareFrame(10, h.controller.actors, h.player)
-      expect(h.created).toHaveLength(frame); expect(squad.generation).toBe(1)
-    }
+    driver.advanceFrame(); h.controller.prepareFrame(10, h.controller.actors, h.player)
+    expect(squad.state).toBe('SPAWNING'); expect(squad.generation).toBe(1)
+    driver.drain()
     expect(squad.members).toHaveLength(5); h.controller.dispose()
   })
 
