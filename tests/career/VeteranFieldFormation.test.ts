@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
 import { Faction } from '../../src/world/NPC'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { VETERAN_FIELD_LAYOUT } from '../../src/career/BanditMissionController'
+import { VETERAN_FIELD_LAYOUT, veteranFieldPosition } from '../../src/career/BanditMissionController'
 import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../../src/world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 
@@ -68,6 +68,18 @@ describe('VeteranFieldFormation', () => {
     setup.player.group.position.copy(captain.combatPosition)
     setup.assemble()
     expect(setup.controller.phase).toBe('MARCHING')
+  })
+
+  it('places the first support slot and the fifth-to-sixth follower row boundary without actors', () => {
+    const unit = { actorId: 'slot', source: 'temporary' as const, presetId: 'roman_sword_cavalry' as const,
+      tier: 3 as const, squadId: 1, leader: false, mounted: true }
+    const anchor = new THREE.Vector3(-288, 0, 0)
+    for (const [slot, x, z] of [[0, -288, 0], [5, -281.6, 3.2], [6, -294.4, 6.4]] as const) {
+      const point = veteranFieldPosition(anchor, unit, slot, 'friendly', 1)
+      expect(point.x, `slot ${slot}`).toBeCloseTo(x)
+      expect(point.z, `slot ${slot}`).toBeCloseTo(z)
+    }
+    expect(anchor).toEqual(new THREE.Vector3(-288, 0, 0))
   })
 
   it('places muster and courtyard goals outside Town building and market obstacle volumes', () => {
