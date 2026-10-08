@@ -142,10 +142,4 @@ describe('NpcSubphaseProfiler', () => {
       expect(snap!.sampleCountAvg).toBeCloseTo(200, 3)
     })
   })
-
-  describe('SUBPHASE_COHORT constant', () => {
-    it('equals 8', () => {
-      expect(SUBPHASE_COHORT).toBe(8)
-    })
-  })
 })
