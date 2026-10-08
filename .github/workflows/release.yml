@@ -1,38 +1,74 @@
 name: Release
 on:
   push:
+    branches: [main]
     tags: ['v*']
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     outputs:
+      tag: ${{ steps.tag.outputs.tag }}
       published: ${{ steps.release.outputs.published }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Resolve and create release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(node -p "require('./package.json').version")"
+            export RELEASE_TAG="$tag"
+            node - <<'NODE'
+          const { validateVersion } = require('./tools/release/validate-tag.cjs')
+          const { version } = require('./package.json')
+          const lock = require('./package-lock.json')
+          validateVersion(version, lock, process.env.RELEASE_TAG)
+          NODE
+            test -f "docs/releases/${tag}.md"
+            git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
+            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+            if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a "$tag" -m "SagaBurst $tag"
+              git push origin "refs/tags/$tag"
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Inspect existing release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: node tools/release/publish.cjs --check
   validate:
     needs: inspect
     if: needs.inspect.outputs.published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: git fetch origin refs/heads/main:refs/remotes/origin/main --no-tags
+      - run: git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
       - run: node tools/release/validate-tag.cjs
       - uses: actions/setup-node@v4
         with:
@@ -90,6 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,7 +135,7 @@ jobs:
       - name: Recheck main before publishing
         if: needs.inspect.outputs.published != 'true'
         run: |
-          git fetch origin refs/heads/main:refs/remotes/origin/main --no-tags
+          git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
           node tools/release/validate-tag.cjs
       - uses: actions/download-artifact@v4
         if: needs.inspect.outputs.published != 'true'
