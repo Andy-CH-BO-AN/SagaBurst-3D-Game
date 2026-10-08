@@ -31,7 +31,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
 }
 
 export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPersonalSquadMember,
-  faction: CareerProfile['faction'], slot: PersonalSquadSpawnSlot, emit?: CombatEventSink): { npc: NPC; mount?: Mount } {
+  faction: CareerProfile['faction'], slot: PersonalSquadSpawnSlot, emit?: CombatEventSink, boardingPad?: PersonalSquadSpawnSlot): { npc: NPC; mount?: Mount } {
   assertNpcSpawnJob()
   const spec = personalMemberLoadout(member, faction)
   const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
@@ -42,9 +42,9 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
   if (!spec.mounted) return { npc }
-  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), slot.x, slot.z))
-  mount.group.rotation.y = slot.yaw; mount.reservedForTown = true
-  npc.mountVehicle(mount)
+  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z))
+  mount.group.rotation.y = boardingPad?.yaw ?? slot.yaw; mount.reservedForTown = true
+  if (!boardingPad) npc.mountVehicle(mount)
   return { npc, mount }
 }
 
@@ -52,6 +52,8 @@ export interface PersonalSquadRuntimeOptions {
   scheduler?: NpcSpawnScheduler
   sceneKey?: string
   hasHR?: boolean
+  /** Validated outdoor pads; flying mounts never materialize in the HR courtyard. */
+  eagleMuster?: readonly PersonalSquadSpawnSlot[]
   emit?: CombatEventSink
   formationSlots?(anchor: PersonalActorPosition, occupied: readonly PersonalActorPosition[], count: number): PersonalActorPosition[]
   onSpawn?(npc: NPC, mount?: Mount): void
@@ -68,6 +70,8 @@ export class PersonalSquadRuntime {
   private readonly actorSet = new Set<NPC>()
   private readonly slots = new Map<NPC, PersonalSquadSpawnSlot>()
   private readonly memberMounts = new Map<string, Mount>()
+  private readonly boarding = new Map<NPC, { pad: PersonalSquadSpawnSlot; index: number }>()
+  private readonly returningOnFoot = new Set<NPC>()
   private lastPlayerPosition?: PersonalActorPosition
   private returnCommand = -1000
   private readonly pending = new Map<string, NpcSpawnBatch>()
@@ -125,7 +129,9 @@ export class PersonalSquadRuntime {
       const saved = value.members[id] ?? { status: 'reserve' as const }
       const member = owned.get(id)
       if (!member || saved.status === 'exited' || saved.status === 'dead' || saved.status === 'reserve' && !changedScene && !value.pendingMemberIds?.includes(id)) continue
-      const slot = changedScene ? this.muster[index] : saved.position ?? this.muster[index]
+      const slot = changedScene && member.equipment?.mount === 'xongkoro'
+        ? this.options.eagleMuster?.[index] ?? this.muster[index]
+        : changedScene ? this.muster[index] : saved.position ?? this.muster[index]
       if (!slot) continue
       this.queueMember(member, slot, index, npc => { this.restoreActor(npc, saved, changedScene, index); if (!changedScene && saved.status === 'reserve' && !saved.order) npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted)) })
     }
@@ -174,11 +180,12 @@ export class PersonalSquadRuntime {
     if (!this.hasHR || this.state === 'RESERVE' || this.state === 'RETURNING') return false
     this.cancelPendingSpawns()
     this.state = 'RETURNING'; this.returnCommand--
+    this.boarding.clear(); this.returningOnFoot.clear()
     for (const actor of this.actors) {
       if (actor.dead) continue
-      const slot = this.slots.get(actor)!
+      const slot = actor.mount?.isFlyingMount ? this.eaglePad(actor) ?? this.slots.get(actor)! : this.slots.get(actor)!
       actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z),
-        new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)))
+        new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
     }
     this.checkpoint()
     return true
@@ -206,6 +213,7 @@ export class PersonalSquadRuntime {
 
   updateLifecycle(): void {
     const player = this.player()
+    this.updateEagleTransfers()
     if (!player.dead) this.lastPlayerPosition = this.position(player.combatPosition, player.group.rotation.y)
     else for (const [index, actor] of this.actors.entries()) {
       if (actor.dead || actor.tacticalOrder !== 'follow') continue
@@ -217,14 +225,14 @@ export class PersonalSquadRuntime {
     if (this.state === 'RESERVE') return
     const live = this.actors.filter(actor => !actor.dead)
     this.checkpoint()
-    if (this.state === 'RETURNING' && live.every(actor => actor.formationCommandId !== null && actor.isFormationTargetReached(actor.formationCommandId))) {
+    if (this.state === 'RETURNING' && live.every(actor => !actor.mount?.isFlyingMount && !actor.mount?.isAirborne && !actor.pendingFall?.active && actor.formationCommandId !== null && actor.isFormationTargetReached(actor.formationCommandId))) {
       if (this.mission) for (const actor of live) this.mission.members[actor.combatantId].status = 'exited'
       this.disposeActors()
       if (!this.read().activeMission && !this.read().activeOutpostMission) { this.mission = undefined; this.battleWorn = false }
       return
     }
     if (!this.spawning && !live.length && !this.read().activeMission && !this.read().activeOutpostMission && !this.battleWorn) { this.cleanup(); return }
-    if (this.ready && this.state === 'DEPLOYING' && live.length > 0 && live.every(actor => {
+    if (this.ready && !this.boarding.size && this.state === 'DEPLOYING' && live.length > 0 && live.every(actor => {
       const slot = this.slots.get(actor)!
       return Math.hypot(actor.combatPosition.x - slot.x, actor.combatPosition.z - slot.z) > 2
     })) this.state = 'ACTIVE'
@@ -241,8 +249,11 @@ export class PersonalSquadRuntime {
       this.mission.members[actor.combatantId] = { status: actor.dead ? 'dead' : 'deployed', hp: actor.hp,
         position: this.position(actor.combatPosition, actor.mount?.group.rotation.y ?? actor.group.rotation.y),
         ammo: actor.combatAmmo, shieldImpact: actor.shield.shieldImpactRemaining, order: actor.tacticalOrder,
+        ...(this.boarding.has(actor) ? { boarding: true } : {}),
+        ...(actor.isFalling ? { fall: actor.fallSnapshot } : {}),
         ...(mount ? { mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: actor.mount === mount,
-          position: this.position(mount.group.position, mount.group.rotation.y) } } : {}),
+          position: this.position(mount.group.position, mount.group.rotation.y),
+          ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}),
         ...(actor.combatFormationCheckpoint ? { formation: actor.combatFormationCheckpoint } : {}),
       }
     }
@@ -266,7 +277,7 @@ export class PersonalSquadRuntime {
     }
     for (const mount of this.mounts) mount.dispose()
     this.actors.length = 0; this.mounts.length = 0
-    this.actorSet.clear(); this.slots.clear(); this.memberMounts.clear(); this.state = 'RESERVE'
+    this.actorSet.clear(); this.slots.clear(); this.memberMounts.clear(); this.boarding.clear(); this.returningOnFoot.clear(); this.state = 'RESERVE'
   }
 
   private queueMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, index: number, restore?: (npc: NPC) => void): void {
@@ -290,7 +301,7 @@ export class PersonalSquadRuntime {
     if (!restore && this.mission) this.mission.members[member.id] = { ...this.mission.members[member.id],
       status: 'reserve', position: { ...slot }, order: 'follow' }
     batch.enqueue(member.id, () => {
-      const npc = this.spawnMember(member, slot)
+      const npc = this.spawnMember(member, slot, !restore && this.hasHR && member.equipment?.mount === 'xongkoro' ? this.options.eagleMuster?.[index] : undefined, index)
       restore?.(npc)
       if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
       this.holdDeadPlayerFollow(npc, index)
@@ -310,6 +321,8 @@ export class PersonalSquadRuntime {
   }
 
   private applyCommand(npc: NPC, index: number): void {
+    const boarding = this.boarding.get(npc)
+    if (boarding) { this.walkTo(npc, boarding.pad); return }
     if (this.command === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
     else if (this.command === 'formation' && this.mission?.members[npc.combatantId]?.formation) {
       const f = this.mission.members[npc.combatantId].formation!, p = f.position
@@ -318,15 +331,54 @@ export class PersonalSquadRuntime {
     } else if (this.command) npc.setTacticalOrder(this.command)
   }
 
-  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot): NPC {
+  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot, memberIndex = 0): NPC {
     assertNpcSpawnJob()
-    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit)
+    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit, boardingPad)
     trackNpcSpawn(npc); if (mount) trackNpcSpawn(mount)
     this.actors.push(npc); this.actorSet.add(npc)
     const index = this.mission?.memberIds.indexOf(member.id) ?? this.read().personalSquad?.members.findIndex(value => value.id === member.id) ?? 0
     this.slots.set(npc, this.muster[Math.max(0, index)] ?? slot)
     if (mount) { this.mounts.push(mount); this.memberMounts.set(member.id, mount) }
+    if (boardingPad && mount) this.boarding.set(npc, { pad: boardingPad, index: memberIndex })
     return npc
+  }
+
+  private eaglePad(actor: NPC): PersonalSquadSpawnSlot | undefined {
+    const index = this.mission?.memberIds.indexOf(actor.combatantId) ?? this.read().personalSquad?.members.findIndex(member => member.id === actor.combatantId) ?? -1
+    return this.options.eagleMuster?.[index]
+  }
+
+  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
+    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z),
+      new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
+  }
+
+  private updateEagleTransfers(): void {
+    for (const [actor, boarding] of this.boarding) {
+      const mount = this.memberMounts.get(actor.combatantId)
+      if (actor.dead || !mount || mount.dead) { this.boarding.delete(actor); continue }
+      if (Math.hypot(actor.combatPosition.x - boarding.pad.x, actor.combatPosition.z - boarding.pad.z) > 2) continue
+      actor.mountVehicle(mount)
+      if (actor.mount !== mount) continue
+      this.boarding.delete(actor)
+      this.applyCommand(actor, boarding.index)
+    }
+    if (this.state !== 'RETURNING') return
+    for (const actor of this.actors) {
+      if (actor.dead || this.returningOnFoot.has(actor)) continue
+      const mount = this.memberMounts.get(actor.combatantId)
+      if (mount?.isFlyingMount && actor.mount !== mount && !actor.isFalling) {
+        this.returningOnFoot.add(actor)
+        this.walkTo(actor, this.slots.get(actor)!)
+        continue
+      }
+      if (!mount?.isFlyingMount || actor.mount !== mount || mount.isAirborne
+        || actor.formationCommandId === null || !actor.isFormationTargetReached(actor.formationCommandId)) continue
+      actor.dismountFromMount()
+      if (actor.mount === mount) continue
+      this.returningOnFoot.add(actor)
+      this.walkTo(actor, this.slots.get(actor)!)
+    }
   }
 
   private restoreActor(npc: NPC, saved: PersonalActorCheckpoint, changedScene: boolean, index: number): void {
@@ -341,11 +393,18 @@ export class PersonalSquadRuntime {
         if (!saved.mount.mounted && npc.mount) npc.dismountFromMount()
         if (!changedScene) {
           const p = saved.mount.position
-          mount.group.position.set(p.x, getTerrainHeight(p.x, p.z), p.z); mount.group.rotation.y = p.yaw
+          mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); mount.group.rotation.y = p.yaw
+          if (saved.mount.flight && mount.flight) { mount.flight.restore(saved.mount.flight); mount.group.rotation.set(-saved.mount.flight.pitch, saved.mount.flight.yaw, saved.mount.flight.bank, 'YXZ') }
         }
       }
     }
     if (changedScene) { npc.setTacticalOrder('defend'); return }
+    if (saved.position) npc.group.position.set(saved.position.x, saved.position.y ?? getTerrainHeight(saved.position.x, saved.position.z), saved.position.z)
+    if (saved.fall) { npc.dismountFromMount(); npc.restorePendingFall(saved.fall) }
+    if (saved.boarding && mount && !mount.dead) {
+      const pad = this.eaglePad(npc)
+      if (pad) { this.boarding.set(npc, { pad, index }); this.walkTo(npc, pad); return }
+    }
     if (saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
     else if (saved.formation) {
       const f = saved.formation, p = f.position
@@ -354,5 +413,5 @@ export class PersonalSquadRuntime {
     } else npc.setTacticalOrder(saved.order ?? 'defend')
   }
 
-  private position(point: THREE.Vector3, yaw: number): PersonalActorPosition { return { x: point.x, z: point.z, yaw } }
+  private position(point: THREE.Vector3, yaw: number): PersonalActorPosition { return { x: point.x, y: point.y, z: point.z, yaw } }
 }

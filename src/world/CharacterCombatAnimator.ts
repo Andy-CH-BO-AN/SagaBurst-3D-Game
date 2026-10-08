@@ -68,6 +68,7 @@ export class CharacterCombatAnimator {
   private shieldRaised = false
   private lanceEquipped = false
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
+  private mountKind: MountedPoseKind = 'HORSE'
   private locomotionTimeScale = 1
   private readonly events: CombatAnimationEvents = {
     hitActiveStarted: false,
@@ -111,6 +112,7 @@ export class CharacterCombatAnimator {
   }
 
   setEquipment(lance: boolean, shield: boolean, mountKind: MountedPoseKind = 'HORSE', alive = true): void {
+    this.mountKind = mountKind
     this.lanceEquipped = lance
     this.setShieldGuard(shield)
     this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive })
@@ -121,6 +123,7 @@ export class CharacterCombatAnimator {
   }
 
   private get locomotionClip(): HumanoidAnimationState {
+    if (this.locomotion === 'mounted' && this.mountKind === 'xongkoro') return 'idle'
     return this.locomotion === 'mounted' && this.usesTwoHandedAxeCarry ? 'axeMountedIdle' : this.locomotion
   }
 
@@ -134,7 +137,7 @@ export class CharacterCombatAnimator {
         : 1
     this.locomotion = state
     this.locomotionTimeScale = timeScale
-    this.rig.animation?.setEquipmentState?.({ mounted, moving: speed > 0.1 })
+    this.rig.animation?.setEquipmentState?.({ mounted, moving: speed > 0.1, flightLean: mounted && this.mountKind === 'xongkoro' && sprinting ? 1 : 0 })
     if (this.busy && this.action !== 'bowRelease' && this.action !== 'lanceThrust' && this.action !== 'mountedLance') return
     if (this.action === 'bowAim' || this.action === 'bowRelease') {
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)

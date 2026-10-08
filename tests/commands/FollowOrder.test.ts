@@ -30,6 +30,7 @@ describe('NPC FOLLOW order movement and transitions', () => {
     const mount = {
       group: new THREE.Group(),
       baseSpeed: 7,
+      releaseRider() {},
       addControlledMovement(direction: THREE.Vector3, speed: number, dt: number) { this.group.position.addScaledVector(direction, speed * dt) },
     }
     rider.mount = mount as unknown as Mount

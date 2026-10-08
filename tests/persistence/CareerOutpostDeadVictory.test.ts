@@ -1,3 +1,4 @@
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Game } from '../../src/Game'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
@@ -32,8 +33,8 @@ describe('Outpost defense victory after player death', () => {
       defenseCampaignRuntime: new DefenseCampaignRuntime({ ...capabilities, deploymentSeconds: config.deploymentSeconds }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn() },
       careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-      battleStats: { snapshot: () => stats, freeze: vi.fn() }, npcs: [], player: { dead: true }, controlMode: 'spectator',
-      campaignOriginalDefenders: [{ dead: false }], campaignSpawnWave: null,
+      battleStats: { snapshot: () => stats, checkpoint: () => stats.player, freeze: vi.fn() }, npcs: [], player: careerCheckpointPlayer(true), controlMode: 'spectator',
+      campaignOriginalDefenders: [{ dead: false }], campaignSpawnQueueIndex: 0, personalCheckpointElapsed: 0, campaignSpawnWave: null,
       campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(() => 40), _showNotify: vi.fn(),
       _campaignFactionAlive: (side: string) => side === faction ? 12 : enemies,

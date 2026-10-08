@@ -148,7 +148,16 @@ export class ArmyCommandController {
 
   close(): void { this.formation?.cancelPlacement(); this._closeSubmenu() }
 
-  update(): void {
+  /** Returns whether commands owned combat input this frame, including a closing click. */
+  update(): boolean {
+    const wasCapturing = this.submenuOpen || this.isFormationPlacementMode
+    this._updateCommands()
+    const captured = wasCapturing || this.submenuOpen || this.isFormationPlacementMode
+    if (captured) this.input.consumeLeftGesture()
+    return captured
+  }
+
+  private _updateCommands(): void {
     if (this.personalCommands && !this.personalCommands.enabled()) {
       this.ui.setEnabled(false)
       this.close()

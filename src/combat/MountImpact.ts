@@ -22,7 +22,7 @@ import {
 
 /** Swept line-segment collision check between mount trajectory and a target sphere. */
 export function checkMountImpact(mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean {
-  if (mount.skipImpactThisFrame) return false
+  if (mount.isFlyingMount || mount.skipImpactThisFrame) return false
   const dx = mount.group.position.x - mount.previousPosition.x
   const dz = mount.group.position.z - mount.previousPosition.z
   const px = targetPos.x - mount.previousPosition.x
@@ -45,6 +45,7 @@ export function applyMountImpactDamage(
   now: number,
   onHit: (damage: number) => void
 ): boolean {
+  if (mount.isFlyingMount) return false
   if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return false
   if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
     const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
@@ -94,7 +95,7 @@ export function resolveMountImpacts(
   const candidateBuffer = options.candidateBuffer ?? []
 
   for (const mount of mounts) {
-    if (mount.state !== MountState.CONTROLLED || mount.dead) continue
+    if (mount.isFlyingMount || mount.state !== MountState.CONTROLLED || mount.dead) continue
     if (mount.skipImpactThisFrame) continue
     if (mount.movementSpeed <= COMBAT_BALANCE.mountImpact.minSpeed) continue
 

@@ -5,6 +5,8 @@
  */
 
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
+import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
 
 const SAVE_KEY = 'wdyh_save_v1'
 
@@ -14,6 +16,7 @@ export interface SkillDetail {
 }
 
 export interface PlayerSaveData {
+  falling?: FallingRiderSnapshot
   position: { x: number; y: number; z: number }
   hp: number
   stamina: number
@@ -39,6 +42,8 @@ export interface PlayerSaveData {
     isMounted: boolean
     type: string
     appearanceVariant?: 0 | 1 | 2
+    hp?: number
+    flight?: EagleFlightSnapshot
     position?: { x: number; y: number; z: number }
   }
 }
@@ -111,12 +116,16 @@ export class SaveManager {
 
       const mountData = parsed.mountData ? {
         ...parsed.mountData,
+        hp: typeof parsed.mountData.hp === 'number' && Number.isFinite(parsed.mountData.hp) && parsed.mountData.hp >= 0
+          ? parsed.mountData.hp : undefined,
+        flight: parseEagleFlightSnapshot(parsed.mountData.flight),
         position: parsed.mountData.position ? { ...parsed.mountData.position } : undefined,
       } : undefined
 
       return {
         ...DEFAULT_SAVE,
         ...parsed,
+        falling: parseFallingRiderSnapshot(parsed.falling),
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {
           oneHanded: { ...DEFAULT_SAVE.skills.oneHanded, ...parsed.skills?.oneHanded },

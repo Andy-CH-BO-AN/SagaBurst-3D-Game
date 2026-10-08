@@ -1,3 +1,4 @@
+import type { CareerAerialState } from './CareerAerialState'
 import { addCareerItem, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
@@ -80,6 +81,7 @@ export interface CareerProfile {
   /** Legacy purchases; any owned tier grants the single military horse. */
   ownedHorseTiers?: (1 | 2 | 3)[]
   selectedMountId?: CareerMountId
+  playerAerialState?: CareerAerialState
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -410,6 +412,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),
     ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member, ...(member.equipment ? { equipment: { ...member.equipment } } : {}) })) } } : {}),

@@ -19,7 +19,7 @@ function harness(rank: CareerRank = 'captain') {
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
   return { read, save, store, authority, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
     hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
-    buy(id: string) { const result = ['horse', 'corgi', 'black-cat'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
+    buy(id: string) { const result = ['horse', 'corgi', 'black-cat', 'xongkoro'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
     change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
     sell(id: string) { return sellPersonalSquadMember(read, authority, id, save) },
     sellMany(ids: string[]) { return sellPersonalSquadMembers(read, authority, ids, save) },
@@ -96,12 +96,22 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(equipment.unequipWeapon('heavy_lance')).toBe(true); expect(h.change(c, 'melee', 'heavy_lance').changed).toBe(true)
     expect(equipment.equipWeapon('heavy_lance')).toBe(false); balanced(h.read())
   })
-  it('shares two Black Cats between Player and a member, rejecting a third allocation', () => {
+  it.each(['black-cat', 'xongkoro'] as const)('shares two %s between Player and a Captain, rejecting a third Maki allocation', mountId => {
     const h = harness(), a = h.hire('captain'), b = h.hire('ranger')
-    h.buy('black-cat'); h.buy('black-cat'); expect(h.change(a, 'mount', 'black-cat').changed).toBe(true)
-    expect(h.change(b, 'mount', 'black-cat').reason).toBe('no-available-item')
-    expect(canUseCareerMount(h.read(), 'black-cat')).toBe(true)
+    h.buy(mountId); h.buy(mountId); expect(h.change(a, 'mount', mountId).changed).toBe(true)
+    expect(h.change(b, 'mount', mountId).reason).toBe('no-available-item')
+    expect(canUseCareerMount(h.read(), mountId)).toBe(true)
     expect(availableCareerItem(h.read(), 'horse')).toBe(1); balanced(h.read())
+  })
+  it('assigns xongkoro to Maki without changing her fixed bow and preserves it through storage', () => {
+    const h = harness(), ranger = h.hire('ranger')
+    h.buy('xongkoro')
+    const released = cloneCareerProfile(h.read()); delete released.selectedMountId; h.save(released)
+    expect(h.change(ranger, 'mount', 'xongkoro').changed).toBe(true)
+    const loaded = h.store.load()!, spec = personalMemberLoadout(loaded.personalSquad!.members[0], loaded.faction)
+    expect(spec).toMatchObject({ tier: 4, mounted: true, loadout: { mountId: 'xongkoro', meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null } })
+    expect(availableCareerItem(loaded, 'xongkoro')).toBe(0)
+    expect(canUseCareerMount(loaded, 'xongkoro')).toBe(false)
   })
   it('respects shared allocations when preparing existing enemy-town equipment, releasing an incompatible bow', () => {
     const h = harness(); h.hire(); h.buy('recurve_longbow')

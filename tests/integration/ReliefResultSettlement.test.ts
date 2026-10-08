@@ -1,3 +1,4 @@
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../../src/career/CareerOutpostMission'
@@ -29,9 +30,9 @@ describe('Relief result settlement wiring', () => {
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
       reliefMarch: { update: vi.fn() }, careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-      battleStats: { snapshot: () => stats, freeze: vi.fn() }, npcs: [], mounts: [], player: { dead: true }, controlMode: 'spectator',
+      battleStats: { snapshot: () => stats, checkpoint: () => stats.player, freeze: vi.fn() }, npcs: [], mounts: [], player: careerCheckpointPlayer(true), controlMode: 'spectator',
       careerVeteranActorMounts: new Map(),
-      campaignOriginalDefenders: [], campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
+      campaignOriginalDefenders: [], campaignSpawnQueueIndex: 0, personalCheckpointElapsed: 0, campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(),
       _campaignFactionAlive: (faction: string) => faction === 'roman' ? allies : enemies,
     }) as any

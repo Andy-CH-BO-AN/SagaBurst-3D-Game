@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import type { NPC } from './NPC'
 import type { Mount } from './Mount'
 
+type MountAimTarget = Pick<Mount, 'aimColliders' | 'dead' | 'onDeathCallbacks'>
+
 /**
  * Dedicated layer for aim raycasting.
  * The gameplay camera has layer 0 enabled and layer 1 disabled, so proxy meshes
@@ -18,8 +20,8 @@ export class AimTargetRegistry {
   private readonly _npcProxies = new Map<NPC, THREE.Object3D>()
   private readonly _npcDeathUnsubs = new Map<NPC, () => void>()
 
-  private readonly _mountProxies = new Map<Mount, THREE.Object3D>()
-  private readonly _mountDeathUnsubs = new Map<Mount, () => void>()
+  private readonly _mountProxies = new Map<MountAimTarget, readonly THREE.Object3D[]>()
+  private readonly _mountDeathUnsubs = new Map<MountAimTarget, () => void>()
 
   /** Returns flat target array for Raycaster.intersectObjects(targets, false) */
   get targets(): THREE.Object3D[] {
@@ -88,21 +90,13 @@ export class AimTargetRegistry {
     this._removeTarget(proxy)
   }
 
-  /** Register a Mount (e.g. horse) and its aim hit proxy */
-  registerMount(mount: Mount): void {
-    const proxy = mount.aimCollider
-    if (!proxy) return
+  /** Register every anatomical proxy; one death subscription owns the entire mount. */
+  registerMount(mount: MountAimTarget): void {
     if (this._mountProxies.has(mount)) return
-
-    this._mountProxies.set(mount, proxy)
-
-    if (!mount.dead) {
-      this._addTarget(proxy)
-    }
-
-    const onDeath = (): void => {
-      this._removeTarget(proxy)
-    }
+    const proxies = mount.aimColliders
+    this._mountProxies.set(mount, proxies)
+    if (!mount.dead) for (const proxy of proxies) this._addTarget(proxy)
+    const onDeath = (): void => { for (const proxy of proxies) this._removeTarget(proxy) }
     mount.onDeathCallbacks.push(onDeath)
     this._mountDeathUnsubs.set(mount, () => {
       const idx = mount.onDeathCallbacks.indexOf(onDeath)
@@ -110,18 +104,14 @@ export class AimTargetRegistry {
     })
   }
 
-  /** Unregister a Mount (e.g. player's mount or despawned mount) */
-  unregisterMount(mount: Mount): void {
-    const proxy = this._mountProxies.get(mount)
-    if (!proxy) return
-
+  /** Unregister all anatomical proxies and the single mount death subscription. */
+  unregisterMount(mount: MountAimTarget): void {
+    const proxies = this._mountProxies.get(mount)
+    if (!proxies) return
     this._mountProxies.delete(mount)
-    const unsub = this._mountDeathUnsubs.get(mount)
-    if (unsub) {
-      unsub()
-      this._mountDeathUnsubs.delete(mount)
-    }
-    this._removeTarget(proxy)
+    this._mountDeathUnsubs.get(mount)?.()
+    this._mountDeathUnsubs.delete(mount)
+    for (const proxy of proxies) this._removeTarget(proxy)
   }
 
   private _addTarget(target: THREE.Object3D): void {

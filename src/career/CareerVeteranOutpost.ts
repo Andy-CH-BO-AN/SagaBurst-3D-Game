@@ -76,7 +76,7 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     rangedWeaponId: legal(profile.equipment?.ranged, 'ranged') ?? defaultLoadout.rangedWeaponId,
     shieldId: legal(profile.equipment?.shield, 'shield') ?? defaultLoadout.shieldId,
     startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
-    mountId: mount === 'black-cat' || mount === 'corgi' ? mount : 'horse',
+    mountId: mount === 'black-cat' || mount === 'corgi' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
   const missionKind = mission.kind
   const runtimeState = mission.outpostBattleState ?? defaultOutpostBattleState()

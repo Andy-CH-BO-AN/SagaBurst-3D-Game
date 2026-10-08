@@ -13,7 +13,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
-export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer'
+export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer' | 'eagle-trainer'
 export type TownDuty = 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
 export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -126,7 +126,7 @@ export function townRoster(): TownActorSpec[] {
   }
   return result
 }
-export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger') }
+export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
 export function isCivilian(role: TownRole): boolean { return role === 'civilian' || role === 'merchant' }
 export function isTownMilitary(actor: TownActorSpec): boolean { return Boolean(actor.unitKind) }
 export type TownResult = 'player_defeated' | 'town_defeated'
@@ -184,13 +184,19 @@ export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount
 export function isTownShopWeapon(id: string): boolean {
   return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow' && id !== T4_RANGER_BOW_RANGED_ID
 }
+export const XONGKORO_PRODUCT: Readonly<TownProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
 export const TOWN_PRODUCTS: TownProduct[] = [
   ...Object.values(WEAPONS).filter(w => isTownShopWeapon(w.id)).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
   ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
   { id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 },
   { id: 'black-cat', category: 'mount', name: '黑貓英雄坐騎', tier: 4, price: 4000 },
   { id: 'corgi', category: 'mount', name: '柯基英雄坐騎', tier: 4, price: 4000 },
+  XONGKORO_PRODUCT,
 ]
+export function townShopProducts(serviceId: string): TownProduct[] {
+  if (serviceId === 'eagle-trainer') return TOWN_PRODUCTS.filter(item => item.id === 'xongkoro')
+  return TOWN_PRODUCTS.filter(item => item.id !== 'xongkoro' && (item.category === 'mount') === (serviceId !== 'merchant'))
+}
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
   if (getCareerPurchaseTier(profile.rank) < item.tier) return '軍階未解鎖'
   return profile.availableMerit < item.price ? '已解鎖・餘額不足' : '已解鎖・餘額足夠'

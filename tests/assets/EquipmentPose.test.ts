@@ -71,6 +71,31 @@ async function createFixture(faction: string, emptyMounted = false, persistent =
 beforeAll(async () => { fixtures.viking = await createFixture('viking', false, true) })
 
 for (const faction of ['viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {
+  it('standing eagle rider keeps its lower-body support fixed while ranged clips advance', async () => {
+    // One rig's three LODs own the new imported standing pose layer; no actor,
+    // mount, flight or projectile matrix is materialized here.
+    const f = await createFixture(faction)
+    f.controller.stop(); f.animator.cancel(); f.animator.setEquipment(false, false, 'xongkoro')
+    f.animator.setLocomotion(26.6667, true, true)
+    f.animator.update(.2)
+    const hips = f.rigs[0].pelvis!.parent!
+    const baseline = hips.position.clone()
+    const solePositions = () => [f.rigs[0].leftFootSocket!, f.rigs[0].rightFootSocket!].map(socket => f.root.worldToLocal(socket.getWorldPosition(new THREE.Vector3())))
+    const soles = solePositions()
+    for (const action of ['pilumThrow', 'bowRelease'] as const) {
+      f.animator.cancel()
+      expect(f.animator.start(action)).toBe(true)
+      for (let frame = 0; frame < 20; frame++) {
+        f.animator.setLocomotion(26.6667, true, true)
+        f.animator.update(1 / 60)
+        expect(hips.position.distanceTo(baseline)).toBeLessThan(1e-5)
+        const measured = solePositions()
+        for (let side = 0; side < 2; side++) expect(measured[side].distanceTo(soles[side])).toBeLessThan(.015)
+      }
+    }
+    f.animator.cancel(); f.animator.setEquipment(false, false, 'HORSE'); f.animator.setLocomotion(0, false)
+  })
+
   it('raised shield physically intercepts a frontal chest ray and leaves feet exposed, without changing legs', async () => {
     const f = await createFixture(faction), state = new ShieldState()
     const id = faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'
