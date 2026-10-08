@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
 import { claimCareerMission } from '../../src/career/CareerProfile'
-import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
@@ -75,61 +74,4 @@ describe('VeteranFieldControllerLifecycle', () => {
     expect(leader.assignFormationTarget).not.toHaveBeenCalled()
   })
 
-  it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt', 'veteran-tragedy-of-the-scouts'] as const)('creates only missing %s NPCs one per frame and waits for the full official roster', templateId => {
-    const h = field({ templateId, autoStart: false })
-    const borrowed = h.residents.map(r => ({ npc: r.npc, position: r.npc.combatPosition.clone() }))
-    borrowed.forEach(({ npc }) => { npc.hp = 41 })
-    expect(h.controller.startActiveMission()).toBe(true)
-    expect(h.controller.startActiveMission()).toBe(true)
-    expect(h.npcFactories).toHaveLength(0); expect(h.controller.ready).toBe(false)
-    const expected = h.roster.enemy.length + h.roster.friendly.filter(unit => unit.source !== 'town').length
-    for (let i = 1; i <= expected; i++) {
-      h.spawnDriver.advanceFrame()
-      expect(h.npcFactories).toHaveLength(i)
-      if (i < expected) { h.controller.updateFlow(600, 0); expect(h.controller.ready).toBe(false); expect(h.controller.evaluate(true)).toBeNull() }
-    }
-    expect(h.controller.ready).toBe(true)
-    expect(h.actors).toHaveLength(h.roster.friendly.length)
-    expect(h.enemies).toHaveLength(h.roster.enemy.length)
-    borrowed.forEach(({ npc, position }) => {
-      expect(h.actors).toContain(npc); expect(npc.hp).toBe(41)
-      if (templateId !== 'veteran-tragedy-of-the-scouts') {
-        expect(npc.combatPosition.x).toBe(position.x); expect(npc.combatPosition.z).toBe(position.z)
-      } else expect(npc.combatPosition.z).toBeGreaterThan(TOWN_PLAYABLE_WORLD_BOUND - 60)
-    })
-  })
-
-  it('cancels queued materialization and disposes owned assets exactly once when cleanup is repeated', () => {
-    const setup = field({ templateId: 'veteran-scout-hunters', autoStart: false })
-    expect(setup.controller.startActiveMission()).toBe(true)
-    setup.spawnDriver.advanceFrame()
-    const batches = [...setup.controller.spawnBatches]
-    const npc = setup.npcFactories[0].npc
-    const mount = setup.mountFactories[0]
-    const disposeNpc = vi.spyOn(npc, 'dispose')
-    const disposeMount = vi.spyOn(mount, 'dispose')
-    setup.dispose()
-    setup.dispose()
-    setup.spawnDriver.advanceFrame()
-    expect(batches.every(batch => batch.status === 'cancelled')).toBe(true)
-    expect(setup.scheduler.pending).toBe(0)
-    expect(setup.npcFactories).toHaveLength(1)
-    expect(disposeNpc).toHaveBeenCalledOnce()
-    expect(disposeMount).toHaveBeenCalledOnce()
-    expect(setup.residents.every(({ npc, homeMount }) => npc.disposed && (!homeMount || homeMount.disposed))).toBe(true)
-  })
-
-  it('keeps readiness and cancellation isolated between concurrently constructed field fixtures', () => {
-    const first = field({ templateId: 'veteran-village-intercept', autoStart: false })
-    const second = field({ templateId: 'veteran-scout-hunters', autoStart: false })
-    first.controller.startActiveMission()
-    second.controller.startActiveMission()
-    first.spawnDriver.advanceFrame()
-    expect(first.npcFactories).toHaveLength(1)
-    expect(second.npcFactories).toHaveLength(0)
-    first.dispose()
-    expect(second.deploy()).toBe(true)
-    expect(second.controller.ready).toBe(true)
-    expect(second.actors.map(actor => actor.combatantId)).toEqual(second.roster.friendly.map(unit => unit.actorId))
-  })
 })

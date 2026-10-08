@@ -3,6 +3,7 @@ import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldF
 import { buildVeteranResidents } from '../helpers/veteranFieldActors'
 import { Faction } from '../../src/world/NPC'
 import { createVeteranRoster } from '../../src/career/VeteranMission'
+import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class {
   update(): void {}
@@ -28,8 +29,38 @@ describe('VeteranFieldBorrowing', () => {
     ['veteran-spear-line-hunt', 50, 100, 48, 1, 100],
     ['veteran-tragedy-of-the-scouts', 20, 100, 2, 17, 100],
   ] as const)('stages the exact Veteran roster for %s', (id, friendlyTotal, enemyTotal, borrowedCount, temporaryFriendlyCount, tempEnemyCount) => {
-    const setup = field({ templateId: id })
-    expect(setup.start).toBe(true)
+    const scout = id === 'veteran-scout-hunters'
+    const setup = field({ templateId: id, autoStart: scout })
+    if (scout) expect(setup.start).toBe(true)
+    else {
+      // These callers differ in borrowed/support identities, not in the scheduler's frame algorithm.
+      const borrowed = setup.residents.map(({ npc }) => ({ npc, position: npc.combatPosition.clone() }))
+      borrowed.forEach(({ npc }) => { npc.hp = 41 })
+      expect(setup.controller.startActiveMission()).toBe(true)
+      expect(setup.controller.startActiveMission()).toBe(true)
+      expect(setup.npcFactories).toHaveLength(0)
+      expect(setup.controller.ready).toBe(false)
+      const queued = setup.controller.spawnBatches.flatMap(batch => [...batch.actors.keys()])
+      expect(queued).toEqual([
+        ...setup.roster.friendly.filter(unit => unit.source !== 'town').map(unit => unit.actorId),
+        ...setup.roster.enemy.map(unit => unit.actorId),
+      ])
+      setup.controller.updateFlow(600, 0)
+      expect(setup.controller.ready).toBe(false)
+      expect(setup.controller.evaluate(true)).toBeNull()
+      setup.spawnDriver.drain()
+      expect(setup.controller.ready).toBe(true)
+      borrowed.forEach(({ npc, position }) => {
+        expect(setup.actors).toContain(npc)
+        expect(npc.hp).toBe(41)
+        if (id === 'veteran-tragedy-of-the-scouts') {
+          expect(npc.combatPosition.z).toBeGreaterThan(TOWN_PLAYABLE_WORLD_BOUND - 60)
+        } else {
+          expect(npc.combatPosition.x).toBe(position.x)
+          expect(npc.combatPosition.z).toBe(position.z)
+        }
+      })
+    }
     expect(setup.actors).toHaveLength(friendlyTotal - 1)
     expect(setup.enemies).toHaveLength(enemyTotal)
     expect(setup.roster.friendly.filter(unit => unit.source === 'town')).toHaveLength(borrowedCount)

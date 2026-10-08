@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVeteranFieldFixture, type VeteranFieldFixture, type VeteranFieldFixtureOptions } from '../helpers/veteranFieldFixture'
 import { Faction } from '../../src/world/NPC'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { VETERAN_FIELD_LAYOUT } from '../../src/career/BanditMissionController'
+import { VETERAN_FIELD_LAYOUT, veteranFieldPosition } from '../../src/career/BanditMissionController'
 import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../../src/world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 
@@ -38,41 +38,29 @@ describe('VeteranFieldFormation', () => {
       }
     })
 
-  it('spawns temporary support at an in-bounds approach and orders it toward the Town muster', () => {
-    const setup = field({ templateId: 'veteran-scout-hunters' })
-    expect(setup.start).toBe(true)
-    const temporary = setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)
-    expect(temporary.length).toBe(77)
-    expect(temporary.every(({ npc }) => npc.combatPosition.x < -270
-      && Math.abs(npc.combatPosition.x) <= PLAYABLE_WORLD_BOUND - 4
-      && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
-    expect(temporary.every(({ npc }) => npc.combatPosition.distanceTo(VETERAN_FIELD_LAYOUT.rally) > 80)).toBe(true)
-    expect(temporary.every(({ npc }) => npc.formationTarget !== null)).toBe(true)
-    const support = temporary.map(({ npc }) => npc)
-    const averageTravel = support.reduce((sum, npc) => sum + npc.moveToFormationTarget(), 0) / support.length
-    expect(averageTravel).toBeGreaterThan(80)
-    expect(support.every(npc => npc.formationTarget!.reached)).toBe(true)
-    setup.advanceUntil(() => support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20), {
-      failureMessage: 'Temporary support must leave the entry waypoint for muster',
-    })
-    expect(support.every(npc => !npc.formationTarget!.reached)).toBe(true)
-  })
-
   it('routes temporary support through the Town entry before assigning its final muster slot', () => {
     const setup = field({ templateId: 'veteran-scout-hunters' })
+    expect(setup.start).toBe(true)
     const support = setup.npcFactories.filter(({ spec }) => spec.faction === Faction.TOWN)
       .map(({ npc }) => npc)
     expect(support).toHaveLength(77)
+    expect(support.every(npc => npc.combatPosition.x < -270
+      && Math.abs(npc.combatPosition.x) <= PLAYABLE_WORLD_BOUND - 4
+      && Math.abs(npc.combatPosition.z) < 280)).toBe(true)
+    expect(support.every(npc => npc.combatPosition.distanceTo(VETERAN_FIELD_LAYOUT.rally) > 80)).toBe(true)
+    expect(support.every(npc => npc.formationTarget !== null)).toBe(true)
     expect(support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.townEntry.x) < 20
       && Math.abs(npc.formationTarget!.position.z - VETERAN_FIELD_LAYOUT.townEntry.z) < 45)).toBe(true)
     const entryTravel = support.reduce((sum, npc) => sum + npc.moveToFormationTarget(), 0) / support.length
     expect(entryTravel).toBeGreaterThan(80)
+    expect(support.every(npc => npc.formationTarget!.reached)).toBe(true)
 
     setup.advanceUntil(() => support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20), {
       failureMessage: 'Support must pass the Town entry before receiving muster slots',
     })
     expect(support.every(npc => Math.abs(npc.formationTarget!.position.x - VETERAN_FIELD_LAYOUT.rally.x) < 20
       && Math.abs(npc.formationTarget!.position.z - VETERAN_FIELD_LAYOUT.rally.z) < 45)).toBe(true)
+    expect(support.every(npc => !npc.formationTarget!.reached)).toBe(true)
     for (const npc of support) npc.moveToFormationTarget()
     setup.stepFrame()
     expect(setup.profile().activeMission?.phase).toBe('ASSEMBLING')
@@ -80,6 +68,18 @@ describe('VeteranFieldFormation', () => {
     setup.player.group.position.copy(captain.combatPosition)
     setup.assemble()
     expect(setup.controller.phase).toBe('MARCHING')
+  })
+
+  it('places the first support slot and the fifth-to-sixth follower row boundary without actors', () => {
+    const unit = { actorId: 'slot', source: 'temporary' as const, presetId: 'roman_sword_cavalry' as const,
+      tier: 3 as const, squadId: 1, leader: false, mounted: true }
+    const anchor = new THREE.Vector3(-288, 0, 0)
+    for (const [slot, x, z] of [[0, -288, 0], [5, -281.6, 3.2], [6, -294.4, 6.4]] as const) {
+      const point = veteranFieldPosition(anchor, unit, slot, 'friendly', 1)
+      expect(point.x, `slot ${slot}`).toBeCloseTo(x)
+      expect(point.z, `slot ${slot}`).toBeCloseTo(z)
+    }
+    expect(anchor).toEqual(new THREE.Vector3(-288, 0, 0))
   })
 
   it('places muster and courtyard goals outside Town building and market obstacle volumes', () => {
@@ -156,6 +156,34 @@ describe('VeteranFieldFormation', () => {
       setup.stepFrame()
       expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
     })
+
+  it('uses 89 survivors as the assembly denominator after ten casualties, retaining unteleported stragglers', () => {
+    const setup = field({ templateId: 'veteran-scout-hunters' })
+    const friendlies = [...setup.actors]
+    expect(friendlies).toHaveLength(99)
+    for (const npc of friendlies.slice(-10)) npc.takeDamage(999999)
+    const living = friendlies.filter(npc => !npc.dead)
+    expect(living).toHaveLength(89)
+    // Support must first reach the entry; this is movement input, not the assembly decision.
+    const borrowedIds = new Set(setup.residents.map(resident => resident.npc.combatantId))
+    setup.reachAssignedPositions(living.filter(npc => !borrowedIds.has(npc.combatantId)))
+    setup.stepFrame()
+    setup.reachAssignedPositions(living.slice(0, 80))
+    setup.player.group.position.set(-150, 0, -150)
+    setup.controller.onMarchStarted = vi.fn()
+    setup.stepFrame()
+    expect(setup.controller.phase).toBe('ASSEMBLING')
+    setup.reachAssignedPositions([living[80]])
+    const stragglers = living.slice(81), positions = stragglers.map(npc => npc.combatPosition.clone())
+    const actorIds = [...setup.profile().activeMission!.friendlyActorIds]
+    setup.stepFrame()
+    expect(setup.controller.phase).toBe('MARCHING')
+    expect(stragglers.map(npc => npc.combatPosition)).toEqual(positions)
+    expect(stragglers.every(npc => npc.followTarget)).toBe(true)
+    expect(setup.profile().activeMission!.friendlyActorIds).toEqual(actorIds)
+    expect(setup.actors).toEqual(friendlies)
+    expect(setup.controller.onMarchStarted).toHaveBeenCalledOnce()
+  })
 
   it('departs with a lagging Captain after 90% assemble without snapping him into place', () => {
     const setup = field({ templateId: 'veteran-village-intercept' })

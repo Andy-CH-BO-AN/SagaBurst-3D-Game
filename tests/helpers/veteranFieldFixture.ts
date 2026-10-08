@@ -32,8 +32,10 @@ export interface VeteranFieldFixtureOptions {
 }
 
 /** No import-time hooks or globals. Each fixture owns its scheduler and temporary assets.
- * NPC/mount doubles are the rendering boundary; controller, navigation, mission rules,
- * travel encounters and checkpoint transformations are real.
+ * NPC/mount doubles replace rendering, health changes and movement; their position setters
+ * do not validate real actor locomotion. Controller, navigation, mission rules, travel
+ * encounters and checkpoint transformations are real. Saving uses an in-memory callback,
+ * not a serialization/storage round-trip.
  */
 export function createVeteranFieldFixture(options: VeteranFieldFixtureOptions) {
   const { templateId } = options

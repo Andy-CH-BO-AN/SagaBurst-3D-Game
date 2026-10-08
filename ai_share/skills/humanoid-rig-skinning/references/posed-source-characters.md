@@ -47,7 +47,7 @@ rtk proxy mkdir -p output/maki-clean
 rtk proxy cp public/models/characters/v2/maki-archer-t4/lod0.glb public/models/characters/v2/maki-archer-t4/lod1.glb public/models/characters/v2/maki-archer-t4/lod2.glb output/maki-clean/
 rtk proxy node tools/retarget-maki-archer.mjs
 rtk proxy node tools/audit-maki-archer.mjs
-rtk npm test -- --run tests/MakiRangerAssets.test.ts --maxWorkers=2
+rtk npm test -- --run tests/assets/MakiRangerAssets.test.ts --maxWorkers=2
 ```
 
 Use the installed Blender executable path when it is not on PATH. Run these stages sequentially and stop on any failure. The clean checkpoint must contain the current skeleton/weights and optimized textures, with no animations. For retarget-only edits, restore those three clean GLBs before running the retargeter; never bake an already animated output. Rebuild the checkpoint after skinning or skeleton changes.
