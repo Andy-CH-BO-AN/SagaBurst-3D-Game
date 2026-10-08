@@ -1,4 +1,4 @@
-import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { completeNpcDeployment, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { TownWorld } from '../../src/town/TownWorld'
@@ -12,7 +12,7 @@ import { BanditMissionController } from '../../src/career/BanditMissionControlle
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { getRecruitMissionTemplate } from '../../src/career/CareerMissionCatalog'
+import { getRecruitMissionTemplate, type RecruitPatrolMissionTemplate } from '../../src/career/CareerMissionCatalog'
 import { townRoster } from '../../src/town/TownRules'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
@@ -33,6 +33,19 @@ function townWorld(faction: 'roman' | 'viking') {
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(world.obstacles)
   return { scene, world, navigation }
+}
+
+// Named adapter to production geometry methods: no mission startup or actors.
+interface OutskirtsGeometry {
+  assemblyPoint(): THREE.Vector3
+  marchObjective(camp: THREE.Vector3): THREE.Vector3
+  patrolWaypoints(template: RecruitPatrolMissionTemplate, camp: THREE.Vector3): THREE.Vector3[]
+  buildRoute(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3[]
+  savedMountedActorPosition(active: { actorPositions: Record<string, { x: number; z: number; yaw: number }> }, id: string): { position: THREE.Vector3 }
+  route: THREE.Vector3[]
+}
+function geometryOf(controller: BanditMissionController): OutskirtsGeometry {
+  return controller as unknown as OutskirtsGeometry
 }
 
 describe('Career Town outskirts', () => {
@@ -57,7 +70,9 @@ describe('Career Town outskirts', () => {
         expect(navigation.queryPath(home, spawn).status).toBe('path')
       }
     })
-    for (const p of [{ x: 335, z: 0 }, { x: -335, z: 0 }, { x: 0, z: 335 }, { x: 0, z: -335 }, { x: 335, z: 335 }, { x: -335, z: -335 }]) {
+    // Basic via-point connectivity complements the complete real-scenery
+    // objective/route matrix below.
+    for (const p of [{ x: 15, z: -75 }, { x: 95, z: -105 }, { x: 18, z: 16 }, { x: 335, z: 0 }, { x: -335, z: 0 }, { x: 0, z: 335 }, { x: 0, z: -335 }, { x: 335, z: 335 }, { x: -335, z: -335 }]) {
       expect(navigation.areConnected(home, p)).toBe(true)
     }
     // Scenery collision footprints survive static render batching.
@@ -105,56 +120,153 @@ describe('Career Town outskirts', () => {
     expect(PLAYABLE_WORLD_BOUND).toBe(300)
   })
 
-  it.each(['bandit', 'patrol'] as const)('preserves old %s identities, casualties and phases and reaches every relocated camp before returning', kind => {
+  it('legacy Bandit and Patrol data and routes reach all five relocated camps through real scenery without actors', () => {
+    // One real TownWorld + NavigationWorld owns all ten kind/camp rows.
+    // Geometry needs its obstacles, but no NPC, Mount or mission startup.
+    const { world, navigation } = townWorld('roman')
+    const geometry = Object.assign(Object.create(BanditMissionController.prototype), { world, navigation }) as OutskirtsGeometry
+    const assertWalkablePath = (from: THREE.Vector3, to: THREE.Vector3, label: string) => {
+      navigation.beginFrame()
+      const result = navigation.queryPath(from, to)
+      expect(result.status, label).toBe('path')
+      if (result.status !== 'path') return // assertion above fails; narrow the result type
+      expect(result.path.length, label).toBeGreaterThan(0)
+      expect(result.path.every(cell => !navigation.grid.isBlocked(cell)), `${label} path avoids blocked cells`).toBe(true)
+      const arrival = navigation.grid.cellToWorld(result.path.at(-1)!)
+      expect(Math.hypot(arrival.x - to.x, arrival.z - to.z), `${label} arrival reaches objective`).toBeLessThan(5)
+    }
+    for (const kind of ['bandit', 'patrol'] as const) {
+      const templateId = kind === 'patrol' ? 'recruit-patrol-01' : 'recruit-bandits-01'
+      const template = getRecruitMissionTemplate(templateId)!
+      const centers = [[-260, -230], [260, -240], [-270, 230], [275, 240], [20, 295]]
+      expect(TOWN_BANDIT_CAMP_CENTERS).toEqual(centers)
+      for (const [campId, [x, z]] of centers.entries()) {
+        const mission = createActiveCareerMission(templateId, campId, 3, 0, `legacy-${kind}-${campId}`, kind, 'captain')
+        mission.phase = 'MARCHING'; mission.routeStage = 2
+        mission.deadTargetActorIds = [`legacy-${kind}-${campId}:bandit:0`]
+        const profile = createCareerProfile('roman'); profile.activeMission = mission
+        const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!.activeMission!
+        expect(restored).toMatchObject({ id: `legacy-${kind}-${campId}`, targetCampId: campId, phase: 'MARCHING', routeStage: 2,
+          targetActorIds: [0, 1, 2].map(index => `legacy-${kind}-${campId}:bandit:${index}`),
+          deadTargetActorIds: [`legacy-${kind}-${campId}:bandit:0`], friendlyActorIds: ['captain'] })
+        const [actualX, actualZ] = TOWN_BANDIT_CAMP_CENTERS[campId]
+        const center = new THREE.Vector3(actualX, 0, actualZ)
+        expect(center.x).toBeCloseTo(x); expect(center.z).toBeCloseTo(z)
+        const objectives = template.kind === 'patrol' ? geometry.patrolWaypoints(template, center) : [geometry.marchObjective(center)]
+        if (template.kind === 'patrol') {
+          expect(objectives.map(point => [point.x, point.z])).toEqual([[15, -75], [95, -105], [x, z]])
+        } else {
+          expect(objectives[0].distanceTo(center)).toBeLessThan(55)
+          const cell = navigation.grid.worldToCell(objectives[0])
+          expect(cell, `bandit camp ${campId} snapped objective inside bounds`).not.toBeNull()
+          expect(navigation.grid.isBlocked(cell!), `bandit camp ${campId} snapped objective walkable`).toBe(false)
+        }
+        let from = geometry.assemblyPoint()
+        for (const objective of [...objectives, geometry.assemblyPoint()]) {
+          const label = `${kind} camp ${campId}: ${from.x},${from.z} → ${objective.x},${objective.z}`
+          expect(navigation.areConnected(from, objective), label).toBe(true)
+          assertWalkablePath(from, objective, label)
+          const route = geometry.buildRoute(from, objective)
+          expect(route.length, label).toBeGreaterThan(1)
+          expect(route.at(-1)!.distanceTo(objective), label).toBeLessThan(5)
+          let previous = from
+          for (const [index, waypoint] of route.entries()) {
+            const cell = navigation.grid.worldToCell(waypoint)
+            expect(cell, `${label} waypoint ${index} inside bounds`).not.toBeNull()
+            // buildRoute may append the literal Patrol camp goal; NavigationWorld
+            // projects such coarse blocked goal cells to nearby walkable arrivals.
+            // Every computed intermediate waypoint itself must be walkable.
+            if (index < route.length - 1) expect(navigation.grid.isBlocked(cell!), `${label} waypoint ${index} walkable`).toBe(false)
+            // Controller routes are sparse waypoints; real locomotion navigates
+            // each leg. Require a walkable path, not just connected endpoints.
+            assertWalkablePath(previous, waypoint, `${label} leg ${index}`)
+            previous = waypoint
+          }
+          from = objective
+        }
+      }
+    }
+    expect(geometry.savedMountedActorPosition({ actorPositions: { captain: { x: 325, z: 0, yaw: 1 } } }, 'captain').position.x).toBe(325)
+  })
+
+  it.each(['bandit', 'patrol'] as const)('restores one legacy %s camp with stable casualties and route position, then completes its return', kind => {
     const { scene, world, navigation } = townWorld('roman')
     const spec = townRoster().find(s => s.role === 'captain')!
     const captain = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'roman', AIType.MELEE, 'Captain', 4, false, undefined, undefined, undefined, spec.id)
     const player = new Player(scene, 'roman')
     cleanup.push(() => { captain.dispose(); player.dispose() })
     let profile = createCareerProfile('roman')
+    const driver = new NpcSpawnTestDriver()
     const controller = new BanditMissionController(scene, world, navigation, captain, [{ spec, npc: captain }], () => player,
-      () => profile, next => { profile = next; return true })
+      () => profile, next => { profile = next; return true }, {}, driver.scheduler)
     cleanup.push(() => controller.dispose())
-    const outerCheckpoint = { actorPositions: { [spec.id]: { x: 325, z: 0, yaw: 1 } } }
-    expect((controller as any).savedMountedActorPosition(outerCheckpoint, spec.id).position.x).toBe(325)
+    // Ambient encounters have their own owners. Cancel their queued jobs before
+    // materialization so this checkpoint owns only a leader and one live target.
+    controller.spawnBatches.forEach(batch => batch.cancel())
+    const geometry = geometryOf(controller)
     const templateId = kind === 'patrol' ? 'recruit-patrol-01' : 'recruit-bandits-01'
-    const template = getRecruitMissionTemplate(templateId) as any
-    for (let campId = 0; campId < 5; campId++) {
-      const mission = createActiveCareerMission(templateId, campId, 3, 0, `legacy-${kind}-${campId}`, kind, spec.id)
-      mission.phase = 'MARCHING'; mission.routeStage = 2
-      mission.deadTargetActorIds = [mission.targetActorIds[0]]
-      profile.activeMission = mission
+    const template = getRecruitMissionTemplate(templateId)!
+    const campId = 4, id = `legacy-${kind}-4`
+    const mission = createActiveCareerMission(templateId, campId, 2, 0, id, kind, spec.id)
+    mission.phase = 'MARCHING'; mission.routeStage = 2
+    mission.deadTargetActorIds = [`${id}:bandit:0`]
+    profile.activeMission = mission
+    const reload = () => {
       profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-      expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
-      expect(profile.activeMission).toMatchObject({ id: mission.id, targetCampId: campId, phase: 'MARCHING', deadTargetActorIds: mission.deadTargetActorIds })
-      expect(controller.missionBandits.map(n => n.combatantId)).toEqual(mission.targetActorIds.slice(1))
-      const moveLeader = (point: THREE.Vector3) => { captain.group.position.copy(point); player.group.position.copy(point); controller.updateFlow(.1, 0) }
-      if (kind === 'patrol') {
-        const objectives: THREE.Vector3[] = (controller as any).patrolWaypoints(template, controller.camps[campId].center)
-        for (const point of objectives) {
-          expect(navigation.areConnected(captain.combatPosition, point)).toBe(true)
-          const stage = profile.activeMission?.patrolStage ?? 0
-          for (let frame = 0; frame < 4 && (profile.activeMission?.patrolStage ?? 0) === stage; frame++) {
-            moveLeader(point)
-            if (controller.phase === 'ENGAGING') controller.missionBandits.forEach(n => n.takeDamage(999999))
-          }
-        }
-        expect(profile.activeMission?.patrolStage).toBe(3)
-      } else {
-        const objective: THREE.Vector3 = (controller as any).marchObjective(controller.camps[campId].center)
-        expect(navigation.areConnected(captain.combatPosition, objective)).toBe(true)
-        moveLeader(objective); expect(controller.phase).toBe('ENGAGING')
-        controller.missionBandits.forEach(n => n.takeDamage(999999)); controller.updateFlow(.1, 0)
-      }
-      expect(controller.evaluate(false)).toBe('victory')
-      expect(controller.startReturning()).toBe(true)
-      // Reload RETURNING on the new route without reopening the encounter.
-      profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-      expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
-      expect(controller.phase).toBe('RETURNING'); expect(controller.remainingEnemies).toBe(0)
-      moveLeader((controller as any).assemblyPoint())
-      expect(controller.returnComplete).toBe(true)
-      controller.cleanupMission(campId)
+      controller.dispose()
+      expect(completeNpcDeployment(() => controller.startActiveMission(), driver)).toBe(true)
     }
+    const assertCheckpoint = (phase: 'MARCHING' | 'RETURNING', dead: string[]) => {
+      expect(controller.phase).toBe(phase)
+      expect(profile.activeMission).toMatchObject({ id, targetCampId: 4, phase, deadTargetActorIds: dead,
+        targetActorIds: [`${id}:bandit:0`, `${id}:bandit:1`], friendlyActorIds: ['captain'] })
+    }
+    reload()
+    assertCheckpoint('MARCHING', [`${id}:bandit:0`])
+    expect(controller.missionBandits.map(n => n.combatantId)).toEqual([`${id}:bandit:1`])
+    expect(controller.missionBandits[0].dead).toBe(false)
+    expect(controller.persistRuntimeProgress(true)).toBe(true)
+    const marchPosition = captain.combatPosition.clone()
+    captain.group.position.set(0, 0, 0)
+    reload()
+    assertCheckpoint('MARCHING', [`${id}:bandit:0`])
+    expect(captain.combatPosition.distanceTo(marchPosition)).toBeLessThan(.01)
+    expect(controller.missionBandits.map(n => n.combatantId)).toEqual([`${id}:bandit:1`])
+    const moveLeader = (point: THREE.Vector3) => { captain.group.position.copy(point); player.group.position.copy(point); controller.updateFlow(.1, 0) }
+    if (template.kind === 'patrol') {
+      for (const point of geometry.patrolWaypoints(template, controller.camps[campId].center)) {
+        const stage = profile.activeMission?.patrolStage ?? 0
+        for (let frame = 0; frame < 4 && (profile.activeMission?.patrolStage ?? 0) === stage; frame++) {
+          moveLeader(point)
+          if (controller.phase === 'ENGAGING') controller.missionBandits.forEach(n => n.takeDamage(999999))
+        }
+      }
+      expect(profile.activeMission?.patrolStage).toBe(3)
+    } else {
+      moveLeader(geometry.marchObjective(controller.camps[campId].center))
+      expect(controller.phase).toBe('ENGAGING')
+      controller.missionBandits[0].takeDamage(999999); controller.updateFlow(.1, 0)
+    }
+    expect(controller.evaluate(false)).toBe('victory')
+    expect(controller.startReturning()).toBe(true)
+    // Production checkpoints every third waypoint. Advance actual flow to that
+    // boundary, rather than assigning a saved route index in the fixture.
+    expect(geometry.route.length).toBeGreaterThan(3)
+    for (const point of geometry.route.slice(0, 3)) moveLeader(point)
+    controller.persistRuntimeProgress(true)
+    const returnStage = profile.activeMission!.routeStage!
+    expect(returnStage).toBeGreaterThan(0)
+    const returnAnchor = geometry.route[returnStage].clone()
+    const patrolStage = profile.activeMission!.patrolStage
+    captain.group.position.set(0, 0, 0)
+    reload()
+    assertCheckpoint('RETURNING', [`${id}:bandit:0`, `${id}:bandit:1`])
+    expect(profile.activeMission!.routeStage).toBe(returnStage)
+    expect(profile.activeMission!.patrolStage).toBe(patrolStage)
+    expect(captain.combatPosition.distanceTo(returnAnchor)).toBeLessThan(.01)
+    expect(controller.missionBandits).toHaveLength(0)
+    expect(controller.returnComplete).toBe(false)
+    moveLeader(geometry.assemblyPoint())
+    expect(controller.returnComplete).toBe(true)
   })
 })

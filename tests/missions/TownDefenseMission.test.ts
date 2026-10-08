@@ -4,10 +4,10 @@ import * as THREE from 'three'
 import { createCareerProfile, claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
 import { acceptsCareerMissionStat, createTownDefenseMission } from '../../src/career/CareerMissionState'
 import {
-  TOWN_DEFENSE_CIVILIAN_LIMIT,
   TOWN_DEFENSE_LAYOUT,
   civilianShelterSlots,
   resolveTownDefenseOutcome,
+  townDefenseFailureLocked,
 } from '../../src/career/TownDefenseState'
 import { Faction } from '../../src/combat/CombatFaction'
 import { townRoster } from '../../src/town/TownRules'
@@ -135,9 +135,9 @@ describe('Town Siege outcomes and rewards', () => {
     expect(parsed?.activeMission?.defenseCatDead).toBe(true)
   })
 
-  it('allows ten civilian deaths but locks failure at eleven', () => {
-    expect(resolveTownDefenseOutcome(false, TOWN_DEFENSE_CIVILIAN_LIMIT, true, 0)).toBe('victory')
-    expect(resolveTownDefenseOutcome(false, TOWN_DEFENSE_CIVILIAN_LIMIT + 1, true, 0)).toBe('failure')
+  it.each([[9, 'victory'], [10, 'victory'], [11, 'failure']] as const)('civilian deaths=%s resolves to %s', (deaths, outcome) => {
+    expect(resolveTownDefenseOutcome(false, deaths, true, 0)).toBe(outcome)
+    expect(townDefenseFailureLocked(deaths)).toBe(deaths === 11)
   })
 
   it('prioritizes defeated enemies over player and captain casualties', () => {

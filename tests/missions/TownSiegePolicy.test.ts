@@ -50,6 +50,28 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
   })
 })
 
+describe('Siege officer profile policy without actor materialization', () => {
+  it.each([
+    ['roman', true, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['roman', false, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['viking', true, 'varangian', 'viking-hero-t4', 'black-cat'],
+    ['viking', false, 'varangian', 'viking-hero-t4', 'black-cat'],
+  ] as const)('%s assault=%s selects the canonical Captain and Ranger profiles', (faction, assault, combatProfileId, visualAssetId, mountId) => {
+    const roster = siegeRoster(faction, assault)
+    const captains = roster.filter(({ spec }) => spec.name === 'Captain')
+    expect(captains.map(slot => slot.gateId)).toEqual(['north', 'south', 'east'])
+    for (const { spec } of captains) expect(spec).toMatchObject({
+      characterFaction: faction, faction: assault ? 'TOWN' : 'ENEMY', tier: 4,
+      combatProfileId, visualAssetId, loadout: { mountId },
+    })
+    expect(roster.filter(({ spec }) => spec.combatProfileId === 'ranger')).toMatchObject([{
+      gateId: 'west', slot: 20, spec: { characterFaction: faction, tier: 4,
+        visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger',
+        loadout: { mountId: 'black-cat' } },
+    }])
+  })
+})
+
 describe('Siege deployment and shared rule ownership', () => {
   it('keeps gate guards local, balances infantry and assigns four existing cavalry officers', () => {
     const plans = siegeDefensePlans(townRoster())
