@@ -9,8 +9,6 @@ import { loadTestGlbAsset } from '../helpers/testGlbAsset'
 import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { CharacterEquipmentPose } from '../../src/world/CharacterEquipmentPose'
 import { calibrateEquipmentFrames } from '../../src/world/EquipmentAttachmentContract'
-// @ts-expect-error diagnostic loader has no declaration; it parses the same embedded GLB via Three's GLTFLoader.
-import { loadCharacter } from '../../tools/humanoid-diagnostics/measure-hands.mjs'
 
 const ROOT = new URL('../../public/models/characters/v2/', import.meta.url)
 const CLIPS = ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
@@ -113,7 +111,7 @@ function clipDuration(document: GlbDocument, name: string): number {
 }
 
 async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = false) {
-  const levels = await Promise.all([0, 1, 2].map(index => loadCharacter(faction, index)))
+  const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/${faction}/lod${index}.glb`)))
   const gltf = levels[lod]
   const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
   const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
@@ -154,7 +152,7 @@ describe('humanoid embedded animation asset contract', () => {
     }
   })
   it('keeps LOD0 bowHold/release source poses and only completes the static bowLoad trajectory', async () => {
-    const levels = await Promise.all([0, 1, 2].map(index => loadCharacter('roman', index)))
+    const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/roman/lod${index}.glb`)))
     const resolved = resolveHumanoidAnimationClips(levels.map(level => level.animations))
     const rawLod0 = new Map(levels[0].animations.map(clip => [clip.name, clip]))
     const lod1 = new Map(levels[1].animations.map(clip => [clip.name, clip]))

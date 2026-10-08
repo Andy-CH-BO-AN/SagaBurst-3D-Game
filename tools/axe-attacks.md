@@ -14,7 +14,6 @@ Run from the project root (substitute the local archive path):
 rtk proxy /Applications/Blender.app/Contents/MacOS/Blender -b --python tools/sample-axe-sources.py -- --archive '/path/Human Melee Animations FREE.zip' --output output/axe/source.json
 rtk proxy node tools/rebuild-axe-attacks.mjs output/axe/source.json viking,roman,roman-hero-t4
 rtk proxy node tools/rebuild-bow-lods.mjs
-rtk proxy node tools/verify-axe-assets.mjs origin/dev
 ```
 
 The sampler retains every source frame, maps the complete take to the existing
@@ -37,7 +36,7 @@ Varangian already inherits the Viking clips through its own retarget pipeline.
 
 The source arm joints were 65 mm above the anatomical wrist centre (scaled for the Praetorian). `roman-arm-bind.mjs` rebases the parallel arm chain, inverse bind matrices, sockets and grip coordinates. It retains vertex positions, limb lengths and rest rotations. `roman-arm-surfaces.mjs` gives overlapping shoulder skin, sleeves and armour compatible weights; it fits sleeves outside the unchanged skin and binds the shortened ordinary bracer below the elbow. Coarse sleeve triangles in LOD1/2 receive local, conforming refinement before fitting. No skin is shrunk or deleted.
 
-Each repair is asset-owned and idempotent. The preservation verifier explicitly permits these arm edits and independently checks unchanged anatomical rest vertices, hand-socket rest positions, materials, texture bytes, unrelated payloads and animation samples. It does not describe these outputs as an animation-only edit.
+Each repair is asset-owned and idempotent. When verifying a rebuild, check unchanged anatomical rest vertices, hand-socket rest positions, materials, texture bytes, unrelated payloads and animation samples outside these explicit arm edits. Keep comparison probes and their reports in ignored `output/`; these outputs are not an animation-only edit.
 
 ## Runtime contract
 

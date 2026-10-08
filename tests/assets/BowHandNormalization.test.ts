@@ -6,12 +6,10 @@ import { normalizeBowHandClips, prepareBowGripShape } from '../../src/world/Cano
 import { resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
 import { loadTestGlbAsset } from '../helpers/testGlbAsset'
 import { DEFAULT_BOW_GRIP_PROFILE } from '../../src/world/BowAttachmentContract'
-// @ts-expect-error diagnostic GLB loader strips textures for CPU-only checks
-import { loadCharacter } from '../../tools/humanoid-diagnostics/measure-hands.mjs'
 
 describe('actual asset bow hand normalization', () => {
   for (const faction of ['viking', 'roman']) for (const lod of [0, 1, 2]) it(`${faction} LOD${lod}: leaves imported bow arm trajectories unchanged`, async () => {
-    const gltf = await loadCharacter(faction, lod)
+    const gltf = await loadTestGlbAsset(`public/models/characters/v2/${faction}/lod${lod}.glb`)
     const sourceRoot = clone(gltf.scene)
     const sourceMixer = new THREE.AnimationMixer(sourceRoot)
     const data = JSON.parse(readFileSync(`public/models/characters/v2/${faction}/manifest.json`, 'utf8')).handGripFrames.left
@@ -24,7 +22,7 @@ describe('actual asset bow hand normalization', () => {
       thumbBaseCenter: new THREE.Vector3(...data.thumbBaseCenter),
       wristCenter: new THREE.Vector3(...data.wristCenter),
     }
-    const reference = lod > 0 ? await loadCharacter(faction, 0) : undefined
+    const reference = lod > 0 ? await loadTestGlbAsset(`public/models/characters/v2/${faction}/lod0.glb`) : undefined
     if (reference) prepareBowGripShape(reference.scene, frame)
     prepareBowGripShape(gltf.scene, frame, reference?.scene)
     const clips = normalizeBowHandClips(gltf.scene, gltf.animations)
