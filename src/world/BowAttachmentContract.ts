@@ -6,6 +6,8 @@ import * as THREE from 'three'
  * completely decoupled from weapon-specific profiles.
  */
 export interface HandGripFrame {
+  /** Asset-authored bow calibration, independent of faction or combat identity. */
+  readonly bowCalibration?: string
   /** Authored contact center on the palm surface in hand local space (meters) */
   readonly palmContactCenter: THREE.Vector3
   /** Unit normal pointing OUT of the palm surface into the weapon grip cavity */
@@ -26,6 +28,11 @@ export interface HandGripFrame {
  * Both Roman and Viking share the exact same BowGripProfile (no faction-specific magic numbers).
  */
 export interface BowGripProfile {
+  /** Optional fitted-source grip bases; physical model coordinates stay unchanged. */
+  readonly handCalibrations?: Readonly<Record<string, {
+    readonly longitudinalAxis: THREE.Vector3
+    readonly contactNormal: THREE.Vector3
+  }>>
   readonly id: string
   /** Physical outer radius of the rendered bow handle cylinder in world/socket scale (meters) */
   readonly gripRadius: number
@@ -143,7 +150,8 @@ export function computeBowSocketAttachment(
 ): { position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 } {
   const frame = resolveHandGripFrame(socket, handGrip)
   const fHand = getBowHandGripFrame(frame, profile)
-  const fWeapon = getBowWeaponGripFrame(profile)
+  const calibration = frame.bowCalibration ? profile.handCalibrations?.[frame.bowCalibration] : undefined
+  const fWeapon = getBowWeaponGripFrame(calibration ? { ...profile, ...calibration } : profile)
 
   const invW = new THREE.Matrix4().copy(fWeapon).invert()
   const attachInHand = new THREE.Matrix4().multiplyMatrices(fHand, invW)

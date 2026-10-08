@@ -52,12 +52,12 @@ describe('Roman T4 independent appearance asset', () => {
     } finally { fetchMock.mockRestore(); loader.mockRestore(); warning.mockRestore() }
   })
 
-  it.each(['head', 'socket_hand_r', 'idle'])('rejects missing %s without a fallback Roman', async missing => {
+  it.each(['head', 'socket_hand_r', 'idle', 'axeAttack1H', 'axeAttack2H'])('rejects missing %s without a fallback Roman', async missing => {
     const assetId = `broken-roman-${missing}`
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ ...manifest, id: assetId }) } as Response)
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async () => {
       const gltf = await loadRig(readGlb(`${directory}/lod0.glb`))
-      if (missing === 'idle') gltf.animations = gltf.animations.filter((clip: THREE.AnimationClip) => clip.name !== 'idle')
+      if (['idle', 'axeAttack1H', 'axeAttack2H'].includes(missing)) gltf.animations = gltf.animations.filter((clip: THREE.AnimationClip) => clip.name !== missing)
       else gltf.scene.getObjectByName(missing)!.removeFromParent()
       return gltf
     })
@@ -87,7 +87,9 @@ describe('Roman T4 independent appearance asset', () => {
       createHash('sha256').update(readFileSync('artifacts/character_sources/roman-centurion/source.glb')).digest('hex'),
     )
     const base = JSON.parse(readFileSync('public/models/characters/v2/roman/manifest.json', 'utf8'))
-    const sourceHash = createHash('sha256').update(readFileSync(`public/models/characters/v2/roman/lod${lod}.glb`)).digest('hex')
+    // Appearance provenance refers to the immutable pre-axe Roman input.
+    // Axe clips are independently retargeted onto both assets after that build.
+    const sourceHash = base.axeAttackBuild.inputSha256[`lod${lod}`]
     expect(sourceHash).toBe(manifest.lodMeasurements[lod].sourceSha256)
     for (const binding of manifest.animations.embedded) {
       expect(gltf.animations.find((clip: THREE.AnimationClip) => clip.name === binding.clip)?.duration).toBeCloseTo(binding.duration, 5)

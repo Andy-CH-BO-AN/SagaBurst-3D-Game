@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import {
   createEmptyArmyConfig,
   type BattleConfig,
@@ -9,6 +9,8 @@ import { shouldCreateStartingHorse } from '../../src/Game'
 import { Player } from '../../src/player/Player'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { preloadTinyRangerBow } from '../helpers/rangerBowVisual'
+import type { CharacterRig } from '../../src/world/CharacterVisuals'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 
 const battleConfig = (): BattleConfig => ({
@@ -114,4 +116,20 @@ describe('Player loadout configuration', () => {
     expect(shouldCreateStartingHorse({ ...battleConfig(), playerLoadout: { meleeWeaponId: 'steel_lance', rangedWeaponId: 'elven_runebow', shieldId: null, startMounted: false } })).toBe(false)
     expect(shouldCreateStartingHorse({ ...battleConfig(), spectator: true, playerLoadout: { meleeWeaponId: 'steel_lance', rangedWeaponId: 'elven_runebow', shieldId: null, startMounted: true } })).toBe(false)
   })
+})
+
+it('Player rebuild selects the T4 body by weapon ID and clears pilum/bow transforms without acquiring a hero identity', async () => {
+  const asset = await preloadTinyRangerBow()
+  onTestFinished(() => asset.dispose())
+  const player = new Player(new THREE.Scene(), 'roman')
+  onTestFinished(() => player.dispose())
+  // Thin observer of the caller-owned visual; no full world or character GLB.
+  const visual = player as unknown as { bowPivot: THREE.Group; bowGripPivot: THREE.Group; rig: CharacterRig }
+  for (const id of ['maki-ranger-bow-ranged', 'elven_runebow', 'pilum_standard', 'maki-ranger-bow-ranged']) {
+    player.rebuildRangedWeapon(id)
+    expect(asset.containsBody(visual.bowGripPivot), id).toBe(id === 'maki-ranger-bow-ranged')
+    expect(visual.bowPivot.parent).toBe(id === 'pilum_standard' ? visual.rig.right.handSocket : visual.rig.left.handSocket)
+    expect(player.heroAssetId).toBeUndefined()
+    if (id === 'maki-ranger-bow-ranged') expect(visual.bowGripPivot.position.length()).toBe(0)
+  }
 })

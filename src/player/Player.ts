@@ -21,7 +21,7 @@ import type { HpBar } from '../ui/HpBar'
 import type { QuiverUI } from '../ui/QuiverUI'
 import type { SoundManager } from '../audio/SoundManager'
 import type { InventoryManager } from '../rpg/InventoryManager'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
+import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
@@ -345,7 +345,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[this.currentMeleeId]?.animationKind === 'sword' || WEAPONS[this.currentMeleeId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[this.currentMeleeId]?.animationKind === 'lance') applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
     this.rig.right.handSocket.add(this.swordPivot)
@@ -405,7 +405,7 @@ export class Player {
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
     if (this.rig.swordGripFrame && (WEAPONS[weaponId]?.animationKind === 'sword' || WEAPONS[weaponId]?.animationKind === 'axe')) {
-      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal)
+      applySwordAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.swordGripFrame, this.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, this.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     }
     if (this.rig.equipmentGripFrames && WEAPONS[weaponId]?.animationKind === 'lance') {
       applyEquipmentAttachment(this.rig.right.handSocket, this.swordPivot, this.swordGripPivot, this.rig.equipmentGripFrames.lanceRight, 'lance')
@@ -430,10 +430,7 @@ export class Player {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
-      if (this.heroAssetId === 'maki-archer-t4' || weaponId === T4_RANGER_BOW_RANGED_ID) {
-        const bow = createMakiRangerBowInstance()
-        this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
-      } else this.bowVisual.rebuild(weaponId)
+      this.bowVisual.rebuild(this.heroAssetId === 'maki-archer-t4' ? 'maki-ranger-bow' : weaponId)
     }
     polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false

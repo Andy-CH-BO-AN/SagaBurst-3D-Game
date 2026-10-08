@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { SwordGripFrame } from './SwordAttachmentContract'
 import { swordHandMatrix } from './SwordAttachmentContract'
 
-export type EquipmentGripFrame = SwordGripFrame & { modelRotationLocal?: [number, number, number, number] }
+export type EquipmentGripFrame = SwordGripFrame & { modelRotationLocal?: [number, number, number, number]; axeMountedRotationLocal?: [number, number, number, number] }
 export interface EquipmentGripFrames {
   lanceRight: EquipmentGripFrame
   lanceLeft: EquipmentGripFrame

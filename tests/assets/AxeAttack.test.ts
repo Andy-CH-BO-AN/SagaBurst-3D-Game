@@ -171,8 +171,8 @@ describe('Viking axe attacks', () => {
                     const errors = f.rigs.map((r, i) => ({ right: r.right.wrist.localToWorld(new T.Vector3(...f.frames[i].lanceRight.gripCenterLocal)).distanceTo(grip), left: r.left.wrist.localToWorld(new T.Vector3(...f.frames[i].lanceLeft.gripCenterLocal)).distanceTo(support) }));
                     rows.push({ mounted, shield, time: frame / 120, blade: blade.toArray(), errors, hit: e.hitActiveStarted });
                     if (frame / 120 < .48)
-                        for (const error of errors) {
-                            expect(error.right).toBeLessThan(.00001);
+                        for (const [lod, error] of errors.entries()) {
+                            expect(error.right, `LOD${lod} mounted=${mounted} shield=${shield} frame=${frame}`).toBeLessThan(.00001);
                             if (!shield && frame / 120 >= .08 && frame / 120 <= .42)
                                 expect(error.left).toBeLessThan(.00001);
                         }

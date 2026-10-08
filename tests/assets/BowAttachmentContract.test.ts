@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, onTestFinished } from 'vitest'
+import { preloadTinyRangerBow } from '../helpers/rangerBowVisual'
+import { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
+import { createMakiRangerBowInstance } from '../../src/world/MakiRangerEquipment'
 import * as THREE from 'three'
 import {
   DEFAULT_BOW_GRIP_PROFILE,
@@ -153,4 +156,40 @@ describe('BowAttachmentContract', () => {
     const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(bowWorldQuat)
     expect(bodyUp.y).toBeGreaterThan(0.99)
   })
+})
+
+it('T4 weapon identity uses its asset with a canonical palm grip, survives rebuilds, and isolates mutable instance calibration', async () => {
+  const asset = await preloadTinyRangerBow()
+  onTestFinished(() => asset.dispose())
+  const hand = new THREE.Group(), socket = new THREE.Group(), action = new THREE.Group(), grip = new THREE.Group()
+  hand.add(socket); socket.add(action); action.add(grip)
+  socket.userData.handGripFrame = {
+    palmContactCenter: new THREE.Vector3(), palmNormal: new THREE.Vector3(-1, 0, 0),
+    thumbDirection: new THREE.Vector3(0, 1, 0), thumbDir: 1,
+  }
+  const bow = new CharacterBowVisual(action, grip)
+  for (const id of ['maki-ranger-bow-ranged', 'elven_runebow', 'maki-ranger-bow', 'wooden_shortbow', 'maki-ranger-bow-ranged']) {
+    grip.position.set(2, 3, 4); grip.rotation.set(.5, .6, .7); grip.scale.setScalar(2)
+    bow.rebuild(id)
+    hand.updateMatrixWorld(true)
+    const special = id.startsWith('maki-ranger-bow')
+    expect(asset.containsBody(grip), id).toBe(special)
+    // Independent physical contract: an upright bow shoots forward and its
+    // grip center lies one handle radius into the palm's contact half-space.
+    expect(new THREE.Vector3(0, 0, -1).transformDirection(grip.matrixWorld).z, id).toBeGreaterThan(.999)
+    expect(new THREE.Vector3(0, 1, 0).transformDirection(grip.matrixWorld).y, id).toBeGreaterThan(.999)
+    expect(bow.getGripPosition(new THREE.Vector3()).distanceTo(new THREE.Vector3(special ? -.016 : -.028, 0, 0))).toBeLessThan(.00001)
+  }
+  const a = createMakiRangerBowInstance(), b = createMakiRangerBowInstance()
+  const expected = { rotation: b.model.quaternion.clone(), tip: b.topTip.clone(),
+    normal: b.profile.contactNormal.clone(), calibration: b.profile.handCalibrations!['maki-archer-t4'].contactNormal.clone() }
+  a.model.rotation.y = 1; a.topTip.setScalar(99); a.profile.contactNormal.setScalar(99)
+  a.profile.handCalibrations!['maki-archer-t4'].contactNormal.setScalar(99)
+  const c = createMakiRangerBowInstance()
+  for (const untouched of [b, c]) {
+    expect(untouched.model.quaternion.angleTo(expected.rotation)).toBeLessThan(.00001)
+    expect(untouched.topTip.distanceTo(expected.tip)).toBeLessThan(.00001)
+    expect(untouched.profile.contactNormal.distanceTo(expected.normal)).toBeLessThan(.00001)
+    expect(untouched.profile.handCalibrations!['maki-archer-t4'].contactNormal.distanceTo(expected.calibration)).toBeLessThan(.00001)
+  }
 })

@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { polishWeaponMaterials } from './CharacterVisuals'
+import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { createMakiRangerBowInstance } from './MakiRangerEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
@@ -58,6 +60,11 @@ export class CharacterBowVisual {
   ) {}
 
   rebuild(weaponId: string, consolidateMaterialGroups = false): void {
+    if (weaponId === T4_RANGER_BOW_RANGED_ID || weaponId === 'maki-ranger-bow') {
+      const bow = createMakiRangerBowInstance()
+      this.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
+      return
+    }
     this.profile = DEFAULT_BOW_GRIP_PROFILE
     this.gripPivot.clear()
     const parts = WeaponMeshFactory.buildRanged(weaponId, this.gripPivot, consolidateMaterialGroups)
@@ -73,6 +80,11 @@ export class CharacterBowVisual {
   }
 
   private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string): void {
+    // Rebuild can follow pilum, an animated attachment or another bow instance.
+    this.gripPivot.position.set(0, 0, 0)
+    this.gripPivot.quaternion.identity()
+    this.gripPivot.scale.set(1, 1, 1)
+    this.drawContact = this.arrowRest = undefined
     this.topTip.copy(parts.topTip)
     this.bottomTip.copy(parts.botTip)
     this.stringLength = parts.stringLength

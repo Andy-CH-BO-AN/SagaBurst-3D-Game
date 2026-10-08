@@ -1,9 +1,10 @@
 import * as THREE from 'three'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
 import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
 import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { getRangedCombatKind, getRangedDamageMultiplier } from '../../src/combat/CombatBalance'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { preloadTinyRangerBow } from '../helpers/rangerBowVisual'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 import { Player } from '../../src/player/Player'
 import type { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
@@ -247,4 +248,23 @@ describe('NPC temporary combat loadout', () => {
     expect(equipment._activateDirectObstacle(obstacle)).toBe(true)
     npc.dispose()
   })
+})
+
+it('NPC equips the T4 bow body on initial load and refresh while preserving ordinary identity and restoring its original bow', async () => {
+  const asset = await preloadTinyRangerBow()
+  onTestFinished(() => asset.dispose())
+  const npc = soldier('roman_archer', { meleeWeaponId: 'gladius_standard', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null })
+  onTestFinished(() => npc.dispose())
+  const visual = fixture(npc)
+  expect(asset.containsBody(visual.bowGripPivot)).toBe(true)
+  for (const id of ['elven_runebow', 'pilum_standard', 'maki-ranger-bow-ranged']) {
+    npc.applyTemporaryCombatLoadout({ meleeWeaponId: 'gladius_standard', rangedWeaponId: id, shieldId: null })
+    expect(asset.containsBody(visual.bowGripPivot), id).toBe(id === 'maki-ranger-bow-ranged')
+    expect(visual.bowPivot.parent).toBe(id === 'pilum_standard' ? visual.rig.right.handSocket : visual.rig.left.handSocket)
+    expect(npc.specialCombatProfile).toBeUndefined()
+    expect(npc.visualAssetId).toBeUndefined()
+  }
+  npc.restoreCombatLoadout()
+  expect(npc.rangedWeaponId).toBe('maki-ranger-bow-ranged')
+  expect(asset.containsBody(visual.bowGripPivot)).toBe(true)
 })

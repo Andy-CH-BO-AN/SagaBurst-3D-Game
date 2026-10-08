@@ -20,7 +20,7 @@ export function swordHandMatrix(frame: SwordGripFrame): THREE.Matrix4 {
 }
 
 /** Equipment owns two fixed transforms; mounting selects the forward grip. */
-export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object3D, model: THREE.Object3D, frame: SwordGripFrame, mountedRotation?: [number, number, number, number]): void {
+export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object3D, model: THREE.Object3D, frame: SwordGripFrame, mountedRotation?: [number, number, number, number], axeMountedRotation?: [number, number, number, number]): void {
   const center = model.userData.gripCenterLocal as number[] | undefined
   if (!center) throw new Error('劍模型缺少 gripCenterLocal')
   const weaponFrame = new THREE.Matrix4().makeTranslation(center[0], center[1], center[2])
@@ -36,6 +36,11 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
     )).multiply(weaponFrame).multiply(model.matrix.clone().invert())
     : matrix.clone()
   if (pivot.userData.axeVisual) {
+    pivot.userData.axeTwoHandedRotation = axeMountedRotation
+      ? new THREE.Quaternion().setFromRotationMatrix(socket.matrix.clone().invert().multiply(
+        new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion(...axeMountedRotation)))
+        .multiply(model.matrix.clone().invert())) : undefined
+    pivot.userData.axeTwoHandedCarry = undefined
     pivot.userData.axeFootRotation = new THREE.Quaternion()
     pivot.userData.axeMountedRotation = new THREE.Quaternion()
     const position = new THREE.Vector3(), scale = new THREE.Vector3()
@@ -68,10 +73,10 @@ export function axeCarryWeight(action: string, elapsed: number): number {
   return 1 - smooth(elapsed / .08) + smooth((elapsed - .42) / .06)
 }
 
-export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0): void {
+export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false): void {
   const axeVisual = pivot.userData.axeVisual as THREE.Object3D | undefined
   if (!pivot.userData.swordAttachmentOwned || (pivot.userData.swordMounted === mounted
-    && (!axeVisual || pivot.userData.axeCarryWeight === carryWeight))) return
+    && (!axeVisual || pivot.userData.axeCarryWeight === carryWeight && pivot.userData.axeTwoHandedCarry === twoHandedCarry))) return
   // Keep the lance's carry wrist untouched. Blend the axe attachment about its
   // fixed palm contact, then roll only the visual cutting edge toward the floor.
   const matrix = pivot.userData[mounted && !axeVisual ? 'swordMountedAttachment' : 'swordFootAttachment'] as THREE.Matrix4 | undefined
@@ -79,12 +84,13 @@ export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolea
   matrix.decompose(pivot.position, pivot.quaternion, pivot.scale)
   if (axeVisual) {
     if (carryWeight > 0) {
-      pivot.quaternion.copy(pivot.userData.axeFootRotation).slerp(pivot.userData.axeMountedRotation, carryWeight)
+      pivot.quaternion.copy(pivot.userData.axeFootRotation).slerp((twoHandedCarry && pivot.userData.axeTwoHandedRotation) || pivot.userData.axeMountedRotation, carryWeight)
       axeGripOffset.copy(pivot.userData.axePivotGrip).multiply(pivot.scale).applyQuaternion(pivot.quaternion)
       pivot.position.copy(pivot.userData.axeSocketGrip).sub(axeGripOffset)
     }
     axeVisual.quaternion.copy(axeAttackRotation).slerp(axeCarryRotation, carryWeight)
   }
+  pivot.userData.axeTwoHandedCarry = twoHandedCarry
   pivot.userData.axeCarryWeight = carryWeight
   pivot.userData.swordMounted = mounted
   pivot.updateMatrix()

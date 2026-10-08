@@ -41,7 +41,7 @@ Blender 角色本體設計高度 2.000 m；裸足基準面 0.033560 m，頭皮�
 - 最終 GLB audit：全部必要骨骼、socket、披風骨骼、4 權重正規化、面數預算、SHA-256、真實身高、每 LOD 12 個 clip × 7 個時間點 CPU 蒙皮包圍盒；failures 空集合。另執行現有 structural audit 與 Blender image audit。
 - Chrome 實際 GLB：idle、walk、run、axeAttack1H、axeAttack2H、mounted、death 的代表時間取樣；LOD0/1/2 切換；較低 LOD 另取樣雙手斧與騎乘。已實際擷取瀏覽器畫面，沒有使用 Blender 靜態畫面替代；暫存證據的清理方式見下文。
 - 一般首頁及既有 `?devmodels=humans&nolock` 預覽實際載入；一般維京與羅馬顯示、播放，瀏覽器沒有應用程式 error。
-- `verify-axe-assets.mjs origin/main`：一般 Viking/Roman 的 3 個 LOD 的 geometry、skeleton、existingClips、manifestHash 均一致。
+- 當時的一次性斧頭資產比對（腳本已清理）：一般 Viking/Roman 的 3 個 LOD 的 geometry、skeleton、existingClips、manifestHash 均一致。
 - `git diff --check` 通過。正式 UnitTier、Game、Player、NPC、戰役、傷害、AI、尋路、坐騎物理沒有修改。DEV 模組從正式 Vite JS bundle 消除；一般入口不呼叫英雄預載，也不改寫戰鬥 sessionStorage。
 - `npx vite build` 通過（既有大 chunk 警告）。
 - 新 skill 通過 skill-creator 官方 `quick_validate.py`；所有相對參考及 `.codex`／`.agents` 共用入口可正確解析。
