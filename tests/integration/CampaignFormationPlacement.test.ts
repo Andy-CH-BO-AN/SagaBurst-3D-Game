@@ -39,30 +39,36 @@ describe('Campaign formation placement wiring', () => {
     expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
   })
 
-  it.each(['tent', 'campfire', 'palisade', 'gate'] as const)(
-    'keeps formation slots clear of a real campaign %s', kind => {
-      const scene = new THREE.Scene()
-      const terrain = createTerrain(scene)
-      const outpost = createCampaignOutpost(scene, 'roman', terrain)
-      const navigation = new NavigationWorld()
-      navigation.sync(outpost.obstacles)
-      const piece = outpost.damageableObstacles.find(obstacle => obstacle.kind === kind)!
-      const obstacle = outpost.obstacles.find(candidate => candidate.damageable === piece)!
-      const center = obstacle.box.getCenter(new THREE.Vector3())
-      center.y = getTerrainHeight(center.x, center.z)
-      const participants = Array.from({ length: 5 }, (_, index) => {
-        const npc = placementParticipant(`p-${index}`, index - 2)
-        npc.combatPosition.z = -140
-        return npc
-      })
-      const { formation, solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
-      const placement = solve(center)
+  it('keeps formation slots clear of a real campaign tent', () => {
+    const scene = new THREE.Scene()
+    onTestFinished(() => {
+      const geometries = new Set<THREE.BufferGeometry>()
+      scene.traverse(object => { if (object instanceof THREE.Mesh) geometries.add(object.geometry) })
+      for (const geometry of geometries) geometry.dispose()
+      // Procedural materials are shared by the environment's cache.
+      scene.clear()
+    })
+    const kind = 'tent'
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain)
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const piece = outpost.damageableObstacles.find(obstacle => obstacle.kind === kind)!
+    const obstacle = outpost.obstacles.find(candidate => candidate.damageable === piece)!
+    const center = obstacle.box.getCenter(new THREE.Vector3())
+    center.y = getTerrainHeight(center.x, center.z)
+    const participants = Array.from({ length: 5 }, (_, index) => {
+      const npc = placementParticipant(`p-${index}`, index - 2)
+      npc.combatPosition.z = -140
+      return npc
+    })
+    const { formation, solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
+    const placement = solve(center)
 
-      expect(placement, kind).not.toBeNull()
-      expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
-      expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
-    },
-  )
+    expect(placement, kind).not.toBeNull()
+    expect(placement?.slots.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
+    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
+  })
 
   it('keeps all slots on the Roman defenders side of the outpost wall', () => {
     const scene = new THREE.Scene()

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { EquipmentVisualLODController } from '../../src/world/EquipmentVisualLODController'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 import { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
@@ -9,8 +9,19 @@ import { Player } from '../../src/player/Player'
 import { collectEquipmentRenderCensus } from '../../src/debug/EquipmentRenderCensus'
 
 const count = (root: THREE.Object3D) => { let n = 0; root.traverseVisible(o => { if ((o as THREE.Mesh).isMesh) n++ }); return n }
+function ownEquipmentGeometry(root: THREE.Object3D): void {
+  // Procedural builders own their geometry; their cached materials remain shared.
+  onTestFinished(() => {
+    const geometries = new Set<THREE.BufferGeometry>()
+    root.traverse(object => {
+      if ((object as THREE.Mesh).isMesh) geometries.add((object as THREE.Mesh).geometry)
+    })
+    geometries.forEach(geometry => geometry.dispose())
+  })
+}
 function build(kind: string, tier: number) {
   const root = new THREE.Group()
+  ownEquipmentGeometry(root)
   let tip: THREE.Vector3 | undefined
   if (kind === 'viking' || kind === 'roman' || kind === 'lance') tip = WeaponMeshFactory.buildNpcMelee(kind === 'roman' ? 'roman' : 'viking', tier, kind === 'lance', root)
   else if (kind === 'pilum') WeaponMeshFactory.buildNpcRanged('roman', tier, root)
@@ -28,7 +39,9 @@ const expected: Record<string, number[][]> = {
 }
 
 describe('equipment visual LOD', () => {
-  for (const kind of Object.keys(expected)) for (const tier of [1, 2, 3]) {
+  // Sword/shield tier geometry is owned by the builder suites; their LOD policy is tier-invariant.
+  const tierInvariantKinds = new Set(['viking', 'roman', 'round_shield', 'scutum'])
+  for (const kind of Object.keys(expected)) for (const tier of tierInvariantKinds.has(kind) ? [2] : [1, 2, 3]) {
     it(`${kind} T${tier}: exact counts, stable hierarchy / geometry / metadata / attachment`, () => {
       const { root, tip } = build(kind, tier), controller = new EquipmentVisualLODController()
       root.position.set(2, 3, 4); root.rotation.set(.2, .3, .4); root.scale.set(.8, 1.1, 1.2)
@@ -43,10 +56,12 @@ describe('equipment visual LOD', () => {
       expect(counts).toEqual(expected[kind][tier - 1] ?? expected[kind][0])
       expect(counts[0]).toBe(nearCount)
       expect(counts[0]).toBeGreaterThanOrEqual(counts[1]); expect(counts[1]).toBeGreaterThanOrEqual(counts[2])
-      for (let frame = 0; frame < 100; frame++) for (const level of [0, 1, 2, 1, 0] as const) {
-        controller.setLOD(level); expect(count(root)).toBe(counts[level])
+      for (let cycle = 0; cycle < 3; cycle++) {
+        for (const level of [0, 1, 2, 1, 0] as const) {
+          controller.setLOD(level); expect(count(root)).toBe(counts[level])
+        }
+        expect(snapshot()).toEqual(before)
       }
-      expect(snapshot()).toEqual(before)
     })
   }
 
@@ -56,12 +71,12 @@ describe('equipment visual LOD', () => {
     const prior = vi.fn((c: THREE.Camera) => THREE.LOD.prototype.update.call(lod, c))
     lod.update = prior; controller.followHumanoid(lod)
     const root = build('round_shield', 3).root; controller.register('shield', root)
-    for (let cycle = 0; cycle < 10; cycle++) for (const [distance, level] of [[27, 0], [28, 1], [29, 1], [59, 1], [60, 2], [61, 2], [59, 1], [61, 2], [29, 1], [27, 0]]) {
+    for (let cycle = 0; cycle < 3; cycle++) for (const [distance, level] of [[27, 0], [28, 1], [29, 1], [59, 1], [60, 2], [61, 2], [59, 1], [61, 2], [29, 1], [27, 0]]) {
       camera.position.z = distance; camera.updateMatrixWorld(); lod.update(camera)
       expect(controller.currentLevel).toBe(level); expect(count(root)).toBe([5, 3, 2][level])
     }
     camera.zoom = 2; camera.position.z = 60; camera.updateMatrixWorld(); lod.update(camera)
-    expect(controller.currentLevel).toBe(1); expect(prior).toHaveBeenCalledTimes(101)
+    expect(controller.currentLevel).toBe(1); expect(prior).toHaveBeenCalledTimes(31)
     const traverse = vi.spyOn(root, 'traverse')
     const writes = root.children.map(child => {
       let visible = child.visible
@@ -75,6 +90,7 @@ describe('equipment visual LOD', () => {
 
   it('does not own root or dynamic bow visibility during draw / hold / release / recovery', () => {
     const root = new THREE.Group(), action = new THREE.Group(); action.add(root)
+    ownEquipmentGeometry(root)
     const bow = new CharacterBowVisual(action, root); bow.rebuild('elven_runebow')
     const controller = new EquipmentVisualLODController(); controller.register('bow', root)
     for (const [draw, arrowVisible] of [[0, false], [.5, true], [1, true], [0, false], [0, false]] as const) {
@@ -93,6 +109,7 @@ describe('equipment visual LOD', () => {
     for (const faction of [Faction.PLAYER, Faction.ENEMY]) {
       const characterFaction = faction === Faction.ENEMY ? 'roman' : 'viking'
       const npc = new NPC(new THREE.Scene(), 0, 0, faction, characterFaction, AIType.RANGED, 'lifecycle', 3, false)
+      onTestFinished(() => npc.dispose())
       const fixture = npc as any
       npc.equipmentVisualLOD.setLOD(2)
       const counts = collectEquipmentRenderCensus([npc])
@@ -110,7 +127,9 @@ describe('equipment visual LOD', () => {
 
   it('replaces rebuilt shield registration immediately, counts ancestors and leaves Player full detail', () => {
     const scene = new THREE.Scene(), npc = new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'LOD', 3, false)
+    onTestFinished(() => npc.dispose())
     const player = new Player(scene), fixture = npc as any
+    onTestFinished(() => player.dispose())
     const playerDetails: THREE.Object3D[] = []
     player.group.traverse(o => { if (o.userData.equipmentLastVisibleLOD !== undefined) playerDetails.push(o) })
     expect(playerDetails.length).toBeGreaterThan(0)

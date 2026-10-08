@@ -8,6 +8,7 @@ import { CAREER_RANKS, claimCareerMission, clearCareerMission, createCareerProfi
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { BanditMissionController, selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { MountedMissionMarchController } from '../../src/career/MountedMissionMarch'
+import * as missionOutcomePolicy from '../../src/career/CareerMissionState'
 import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { damageNpc } from '../../src/combat/DamageRouter'
@@ -54,6 +55,7 @@ function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
     const spawn = roster[index === 1 ? 29 : index]
     const military = spec.role === 'ranger' ? null : townMilitaryEquipment('roman', spec.role)
     const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'roman', spawn.aiType, spec.id, military?.level ?? spawn.tier, true, military?.loadout ?? spawn.loadout, spawn.presetId, undefined, spec.id)
+    onTestFinished(() => npc.dispose())
     const mount = new Mount(scene, spec.role === 'ranger' ? MountType.BLACK_CAT : MountType.HORSE, spec.x, spec.z)
     onTestFinished(() => mount.dispose())
     npc.setTownPeaceful(); npc.mountVehicle(mount)
@@ -73,6 +75,7 @@ function fixture(garrisonCount = 0, joinAssembly = true, deferStart = false) {
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null, veteranFieldFactories: {},
   })
+  onTestFinished(() => controller.dispose())
   if (!deferStart) completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
   const assemble = (joinPlayer = true) => {
     for (let stage = 0; stage < 2 && profile.activeMission?.phase === 'ASSEMBLING'; stage++) {
@@ -448,13 +451,26 @@ describe('Sweep runtime and checkpoint', () => {
     c.dispose()
     for (const resident of f.residents) { resident.npc.dispose(); resident.homeMount.dispose() }
   })
-  it.each([[true, 1, 1, null], [true, 0, 1, 'failure'], [false, 0, 1, null], [true, 0, 0, 'victory'], [false, 1, 0, 'victory']] as const)('objective priority: dead=%s cavalry=%s bandits=%s => %s', (dead, allies, enemies, expected) => {
+  it('passes living cavalry, remaining Bandits and target registration to the shared outcome policy', () => {
+    const outcome = vi.spyOn(missionOutcomePolicy, 'resolveCareerMissionOutcome')
+    onTestFinished(() => outcome.mockRestore())
     const f = fixture(), c = f.controller
-    f.player.dead = dead
-    c.friendlies.forEach((n: NPC, i: number) => { if (i >= allies) n.takeDamage(999999) })
-    c.missionBandits.forEach((n: NPC, i: number) => { if (i >= enemies) n.takeDamage(999999) })
-    expect(c.evaluate(dead)).toBe(expected)
-    c.dispose()
+    f.player.dead = true
+    c.friendlies.forEach((n: NPC, i: number) => { if (i >= 1) n.takeDamage(999999) })
+    c.missionBandits.forEach((n: NPC, i: number) => { if (i >= 1) n.takeDamage(999999) })
+    expect(c.remainingEnemies).toBe(1)
+    expect(c.evaluate(true)).toBeNull()
+    expect(outcome).toHaveBeenLastCalledWith(true, true, 1, 1, true)
+
+    // A not-yet-registered target must not become an apparent cleared objective.
+    const unregistered: NPC = c.camps[0].mission.shift()
+    try {
+      expect(c.remainingEnemies).toBe(0)
+      expect(c.evaluate(true)).toBeNull()
+      expect(outcome).toHaveBeenLastCalledWith(true, false, 0, 1, true)
+    } finally {
+      c.camps[0].mission.unshift(unregistered)
+    }
   })
   it('claims offense merit once, records dead-player victory, and cleans all temporary mounts', () => {
     const f = fixture(), c = f.controller

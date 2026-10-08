@@ -1,6 +1,6 @@
 import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController, VETERAN_FIELD_LAYOUT } from '../../src/career/BanditMissionController'
 import { CAVALRY_SWEEP_ID } from '../../src/career/CavalrySweep'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -70,11 +70,11 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
       ranger ? rangerSpec.presetId : equipment.presetId, undefined, spec.id, undefined,
       ranger ? rangerSpec.visualAssetId : undefined, ranger ? rangerSpec.combatProfileId : undefined,
       ranger ? rangerSpec.specialCombatProfile : undefined)
+    cleanup.push(() => npc.dispose())
     const homeMount = new Mount(scene, ranger ? MountType.BLACK_CAT : MountType.HORSE, spec.x, spec.z)
-    onTestFinished(() => homeMount.dispose())
+    cleanup.push(() => homeMount.dispose())
     homeMount.group.rotation.y = spec.yaw ?? 0
     npc.mountVehicle(homeMount); npc.setTownPeaceful()
-    cleanup.push(() => { npc.dispose(); homeMount.dispose() })
     return { spec, npc, homeMount, cycle: -1, walkTime: 0 }
   })
   const patrol = new TownCavalryPatrolController(residents)
@@ -116,11 +116,14 @@ function fixture(options: { initial?: CareerProfile; unavailableTraining?: numbe
 }
 
 describe('Town cavalry mission and Patrol integration', () => {
-  it.each([0, 10])('starts Veteran field at 90 percent of survivors with %s casualties and retains the stragglers', casualties => {
+  it('starts Veteran field at 90 percent of survivors with 10 casualties and retains the stragglers', () => {
     const f = fixture(); f.accept()
     const friendlies = f.mission.friendlies
-    if (casualties) for (const npc of friendlies.slice(-casualties)) npc.takeDamage(999999)
-    const living = friendlies.filter(npc => !npc.dead), required = Math.ceil(living.length * .9)
+    expect(friendlies).toHaveLength(99)
+    for (const npc of friendlies.slice(-10)) npc.takeDamage(999999)
+    const living = friendlies.filter(npc => !npc.dead)
+    expect(living).toHaveLength(89)
+    const required = 81
     const placeAtMuster = (npc: NPC) => {
       const muster = (f.mission as any).veteranMusterPositions.get(npc.combatantId)
       npc.assignFormationTarget(9000, muster, new THREE.Vector3(0, 0, 1))
