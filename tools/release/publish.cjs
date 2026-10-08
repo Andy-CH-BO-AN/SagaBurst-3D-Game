@@ -67,9 +67,13 @@ function createGhClient(repo, tag, run = args => execFileSync('gh', args, {
       try { return JSON.parse(run(['api', `repos/${repo}/releases/tags/${encodeURIComponent(tag)}`])) }
       catch (error) {
         // Authentication, rate limiting and server failures must never mean "absent".
-        if (/\(HTTP 404\)/.test(String(error.stderr ?? ''))) return null
-        throw error
+        if (!/\(HTTP 404\)/.test(String(error.stderr ?? ''))) throw error
       }
+      // The tag endpoint only returns published releases; drafts need an authenticated listing.
+      const pages = JSON.parse(run(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`]))
+      const matches = pages.flat().filter(release => release.tag_name === tag)
+      if (matches.length > 1) throw new Error(`Duplicate release drafts for ${tag}`)
+      return matches[0] ?? null
     },
     createDraft() { run(['release', 'create', tag, '--repo', repo, '--draft', '--verify-tag',
       '--title', `SagaBurst ${tag}`, '--notes-file', `docs/releases/${tag}.md`]) },
