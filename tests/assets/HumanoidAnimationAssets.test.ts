@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { createHumanoidRigAdapter, MixerController, resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
+import { validateHumanoidManifest, type HumanoidAssetManifest, createHumanoidRigAdapter, MixerController, resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, PILUM_THROW_RELEASE_TIME } from '../../src/world/CharacterCombatAnimator'
 import { normalizeBowHandClips, prepareBowGripShape } from '../../src/world/CanonicalBowGripPose'
+import { loadTestGlbAsset } from '../helpers/testGlbAsset'
+import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { CharacterEquipmentPose } from '../../src/world/CharacterEquipmentPose'
 import { calibrateEquipmentFrames } from '../../src/world/EquipmentAttachmentContract'
 // @ts-expect-error diagnostic loader has no declaration; it parses the same embedded GLB via Three's GLTFLoader.
@@ -200,7 +202,8 @@ describe('humanoid embedded animation asset contract', () => {
       + pose.drawHand.distanceTo(rawSamples[index].drawHand), 0)
     expect(rawBowLoadMotion).toBeGreaterThan(0.1)
     for (let i = 0; i < samples.length; i++) {
-      if (lod === 0 && i === 1) {
+      // Viking LOD1/2 now share the authority trajectory in their own bind basis.
+      if ((lod === 0 || faction === 'viking') && i === 1) {
         expect(samples[i].arm.angleTo(rawSamples[i].arm)
           + samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeGreaterThan(0.1)
         continue
@@ -209,7 +212,7 @@ describe('humanoid embedded animation asset contract', () => {
       expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
       expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
     }
-    if (lod === 0) {
+    if (lod === 0 || faction === 'viking') {
       const almostFull = sample(0.99, true)
       const full = sample(1, true)
       expect(almostFull.arm.angleTo(full.arm)).toBeLessThan(0.1)
@@ -322,7 +325,7 @@ describe('humanoid embedded animation asset contract', () => {
   it('ships the runtime-required clips with names and durations matching each faction manifest', () => {
     for (const faction of ['viking', 'roman'] as const) {
       const manifest = readAnimationManifest(faction)
-      const required = [...CLIPS, ...(faction === 'viking' ? ['axeAttack1H', 'axeAttack2H'] : [])]
+      const required = [...CLIPS, 'axeAttack1H', 'axeAttack2H']
       expect(manifest.animations.embedded.map(binding => binding.clip)).toEqual(expect.arrayContaining(required))
       for (let lod = 0; lod < 3; lod++) {
         const document = readGlb(faction, lod)
@@ -355,4 +358,38 @@ describe('humanoid embedded animation asset contract', () => {
     }
   })
 
+})
+
+// Asset owner: the existing Viking AxeAttack suite owns the complete gameplay
+// matrix. These independent Roman payloads need real GLB decoding per LOD to
+// catch absent/static clips or tracks that cannot bind to their target skeleton.
+it.each(['roman', 'roman-hero-t4'] as const)('%s ships two playable axe clips on every runtime LOD', async assetId => {
+  const base = `public/models/characters/v2/${assetId}`
+  const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
+  const descriptor = assetId === 'roman' ? undefined : HERO_ASSETS[assetId].descriptor
+  for (const action of ['axeAttack1H', 'axeAttack2H'] as const) {
+    const broken = { ...manifest, animations: { ...manifest.animations!, embedded: manifest.animations!.embedded.filter(c => c.clip !== action) } }
+    expect(() => validateHumanoidManifest('roman', broken, descriptor)).toThrow('binding')
+    expect(manifest.animations!.embedded.find(c => c.clip === action)).toMatchObject({
+      sourceClip: action === 'axeAttack1H' ? 'HumanM@Attack1H01_R' : 'HumanM@Attack2H01',
+      events: { hit: action === 'axeAttack1H' ? .48 * 9 / 33 : .17, actionComplete: .48 },
+    })
+  }
+  for (const lod of [0, 1, 2]) {
+    const gltf = await loadTestGlbAsset(`${base}/lod${lod}.glb`)
+    const controller = new MixerController([new THREE.AnimationMixer(gltf.scene)], [gltf.animations])
+    try {
+      for (const action of ['axeAttack1H', 'axeAttack2H'] as const) {
+        const rig = createHumanoidRigAdapter(gltf.scene, controller)
+        expect(controller.play(action, { fadeSeconds: 0, loop: false }), `${assetId} LOD${lod} ${action}`).toBe(true)
+        controller.seek(action, .05); controller.update(0)
+        const start = rig.right.shoulder.quaternion.clone()
+        controller.seek(action, .65); controller.update(0)
+        expect(start.angleTo(rig.right.shoulder.quaternion), `${assetId} LOD${lod} ${action} motion`).toBeGreaterThan(.1)
+        const clip = gltf.animations.find(c => c.name === action)!
+        expect(clip.tracks.length).toBeGreaterThan(6)
+        for (const track of clip.tracks) expect([...track.values].every(Number.isFinite)).toBe(true)
+      }
+    } finally { controller.stop() }
+  }
 })

@@ -3,6 +3,8 @@ import * as THREE from 'three'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { describe, it, expect } from 'vitest'
 import { normalizeBowHandClips, prepareBowGripShape } from '../../src/world/CanonicalBowGripPose'
+import { resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
+import { loadTestGlbAsset } from '../helpers/testGlbAsset'
 import { DEFAULT_BOW_GRIP_PROFILE } from '../../src/world/BowAttachmentContract'
 // @ts-expect-error diagnostic GLB loader strips textures for CPU-only checks
 import { loadCharacter } from '../../tools/humanoid-diagnostics/measure-hands.mjs'
@@ -97,4 +99,40 @@ describe('actual asset bow hand normalization', () => {
     expect(closest).toBeGreaterThanOrEqual(DEFAULT_BOW_GRIP_PROFILE.gripRadius)
     console.log(`${faction}: closest hand surface to grip axis = ${closest.toFixed(6)} m; radius = ${DEFAULT_BOW_GRIP_PROFILE.gripRadius} m (numeric diagnostic, not Visual PASS)`)
   })
+})
+
+it('ordinary Viking visible bow LODs keep both hands at the authority attachment and draw contacts', async () => {
+  // Three independent GLBs are necessary: the previous lower-LOD bow poses
+  // left the hand 40 cm from the LOD0-owned equipment socket, even on T3 bows.
+  const levels = await Promise.all([0, 1, 2].map(lod => loadTestGlbAsset(`public/models/characters/v2/viking/lod${lod}.glb`)))
+  const clips = resolveHumanoidAnimationClips(levels.map(l => l.animations))
+  const mixers = levels.map(l => new THREE.AnimationMixer(l.scene))
+  try {
+    for (const state of ['bowLoad', 'bowHold', 'bowRelease']) {
+      mixers.forEach((mixer, lod) => {
+        mixer.stopAllAction()
+        const action = mixer.clipAction(clips[lod].find(c => c.name === state)!)
+        action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play()
+      })
+      for (const phase of [.1, .5, .9]) {
+        mixers.forEach((mixer, lod) => {
+          mixer.setTime(phase * clips[lod].find(c => c.name === state)!.duration)
+          levels[lod].scene.updateMatrixWorld(true)
+        })
+        for (const name of ['hand_l', 'hand_r']) {
+          const authority = levels[0].scene.getObjectByName(name)!.getWorldPosition(new THREE.Vector3())
+          for (const lod of [1, 2]) {
+            const hand = levels[lod].scene.getObjectByName(name)!
+            expect(hand.getWorldPosition(new THREE.Vector3()).distanceTo(authority),
+              `${state} phase ${phase} ${name} LOD${lod}`).toBeLessThan(.02)
+            // BowGripLOD retains authority left-hand geometry in hand-local
+            // coordinates, so matching wrist position alone is insufficient.
+            if (name === 'hand_l') expect(hand.getWorldQuaternion(new THREE.Quaternion()).angleTo(
+              levels[0].scene.getObjectByName(name)!.getWorldQuaternion(new THREE.Quaternion())),
+            `${state} phase ${phase} palm frame LOD${lod}`).toBeLessThan(.02)
+          }
+        }
+      }
+    }
+  } finally { mixers.forEach(mixer => mixer.stopAllAction()) }
 })

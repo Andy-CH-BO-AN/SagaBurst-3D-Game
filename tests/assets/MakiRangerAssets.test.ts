@@ -3,7 +3,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { HumanoidAssetRegistry, validateHumanoidManifest } from '../../src/world/HumanoidAssetRegistry'
-import { MAKI_HERO, MAKI_FALLBACK, resolveMakiEquipmentMode } from '../../src/world/MakiRangerEquipment'
+import { MAKI_HERO, MAKI_FALLBACK, resolveMakiEquipmentMode, preloadMakiRangerBow } from '../../src/world/MakiRangerEquipment'
 import { HumanoidStudioPlayback } from '../../src/debug/HumanoidStudioPlayback'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(`${directory}/manifest.json`, 'utf8'))
 
 describe('Maki hero asset integration', () => {
   it('launches along gameplay forward and releases once on foot and all mounts at multiple headings', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true, json: async () => String(url).endsWith('attachment.json') ? JSON.parse(readFileSync('public/models/weapons/maki-ranger-bow/attachment.json', 'utf8')) : manifest }) as Response)
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
     try {
       await HumanoidAssetRegistry.preloadAsset(MAKI_HERO)
@@ -22,13 +22,9 @@ describe('Maki hero asset integration', () => {
       onTestFinished(() => actor.dispose())
       const pivot = new THREE.Group(), grip = new THREE.Group()
       pivot.add(grip); actor.rig.left.handSocket.add(pivot)
-      const metadata = JSON.parse(readFileSync('public/models/weapons/maki-ranger-bow/attachment.json', 'utf8'))
-      const bowAsset = await loadRig(readGlb('public/models/weapons/maki-ranger-bow/bow.glb'))
+      await preloadMakiRangerBow()
       const bow = new CharacterBowVisual(pivot, grip)
-      bow.rebuildFromAsset(bowAsset.scene, { ...metadata, visualScale: 1,
-        gripCenterLocal: new THREE.Vector3(...metadata.gripCenterLocal), shootingAxis: new THREE.Vector3(0, 0, -1),
-        longitudinalAxis: new THREE.Vector3(...metadata.longitudinalAxis), contactNormal: new THREE.Vector3(...metadata.contactNormal),
-      }, new THREE.Vector3(...metadata.topTip), new THREE.Vector3(...metadata.bottomTip))
+      bow.rebuild('maki-ranger-bow-ranged')
       const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
       const lod = actor.root.children.find(o => o instanceof THREE.LOD) as THREE.LOD
       const checkShot = () => {
@@ -39,6 +35,8 @@ describe('Maki hero asset integration', () => {
         const origin = new THREE.Vector3(), direction = new THREE.Vector3()
         bow.writeLaunch(origin, direction, target)
         expect(direction.dot(forward)).toBeGreaterThan(.999)
+        // Body attachment must agree with the authored launch contacts, not only projectile aim.
+        expect(new THREE.Vector3(0, 0, -1).transformDirection(grip.matrixWorld).dot(forward)).toBeGreaterThan(.99)
         for (const level of lod.levels) {
           const point = (name: string) => level.object.getObjectByName(name)!.getWorldPosition(new THREE.Vector3())
           const shot = point('bow_arrow_rest').sub(point('bow_string_contact')).normalize()
@@ -81,7 +79,7 @@ describe('Maki hero asset integration', () => {
   })
 
   it('keeps the equipped bow and melee support contact through melee, draw and release', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true, json: async () => String(url).endsWith('attachment.json') ? JSON.parse(readFileSync('public/models/weapons/maki-ranger-bow/attachment.json', 'utf8')) : manifest }) as Response)
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
     try {
       await HumanoidAssetRegistry.preloadAsset(MAKI_HERO)
@@ -128,7 +126,7 @@ describe('Maki hero asset integration', () => {
   })
 
   it('loads all three GLBs with independent instances, required sockets and animation bindings', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true, json: async () => String(url).endsWith('attachment.json') ? JSON.parse(readFileSync('public/models/weapons/maki-ranger-bow/attachment.json', 'utf8')) : manifest }) as Response)
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
     try {
       await HumanoidAssetRegistry.preloadAsset(MAKI_HERO)

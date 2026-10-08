@@ -95,8 +95,8 @@
   },
   "fileSha256": {
     "lod0": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
-    "lod1": "ae5653e63856b4fb8b10269728886fd5b9521014768204fd237c5a33c650eff9",
-    "lod2": "0fc7209838c469967a6af394c69f7462e8f3999364f8ea944e969551a93a1491"
+    "lod1": "a117febc32324ab56b4642e68d7ee5defa3c313563fd8919aeecde1ac5df5bf3",
+    "lod2": "8bdd766457a5de23c0f4690e8a5dfd975d5c01c3cafe986a8f4ff81ddef872d5"
   },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
@@ -420,5 +420,19 @@
       "axeAttack2H": 18
     },
     "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+  },
+  "bowLodBuild": {
+    "sourceSha256": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
+    "sourceLOD": 0,
+    "clips": [
+      "bowLoad",
+      "bowHold",
+      "bowRelease"
+    ],
+    "targetLODs": [
+      1,
+      2
+    ],
+    "method": "Re-express authority skin deformation in target rest basis and retained left-hand topology frame; preserve two-key load endpoints for runtime completion"
   }
 }

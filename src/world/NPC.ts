@@ -30,7 +30,7 @@ import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials 
 import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
-import { createMakiRangerBowInstance, resolveMakiEquipmentMode } from './MakiRangerEquipment'
+import { resolveMakiEquipmentMode } from './MakiRangerEquipment'
 import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, type T4CombatProfileId } from '../battle/T4HeroCatalog'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
@@ -977,10 +977,7 @@ export class NPC {
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       if (kind === 'bow') {
         this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
-        if (this.specialCombatProfile === 'maki-ranger') {
-          const bow = createMakiRangerBowInstance()
-          this.bowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
-        } else this.bowVisual.rebuild(this.rangedWeaponId!, true)
+        this.bowVisual.rebuild(this.specialCombatProfile === 'maki-ranger' ? 'maki-ranger-bow' : this.rangedWeaponId!, true)
         this.bowVisual.hideArrow()
       }
     }

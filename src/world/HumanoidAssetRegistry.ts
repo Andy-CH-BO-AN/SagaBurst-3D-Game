@@ -69,6 +69,7 @@ export interface HumanoidAssetManifest {
   audit?: string
   handGripFrames?: {
     left?: {
+      bowCalibration?: string
       palmContactCenter: [number, number, number]
       palmNormal: [number, number, number]
       thumbDir: number
@@ -122,6 +123,7 @@ function readHandFrame(manifest: HumanoidAssetManifest): HandGripFrame | undefin
   const data = manifest.handGripFrames?.left
   if (!data) return undefined
   return {
+    bowCalibration: data.bowCalibration,
     palmContactCenter: new THREE.Vector3(...data.palmContactCenter),
     palmNormal: new THREE.Vector3(...data.palmNormal),
     thumbDir: data.thumbDir,
@@ -152,7 +154,7 @@ interface HumanoidTemplate {
 
 const LOD0_MOTION_CLIP_NAMES = new Set(['pilumThrow'])
 
-/** The source LOD0 bowLoad has only two almost identical arm keys. Interpolate
+/** Some source/retargeted bowLoad clips have two almost identical arm keys. Interpolate
  * its original raised-bow pose to its own bowHold pose so charge can drive a
  * draw without importing LOD1's differently aligned arm pose. GLBs stay raw. */
 function completeStaticBowLoad(load: THREE.AnimationClip, hold: THREE.AnimationClip): THREE.AnimationClip {
@@ -179,17 +181,17 @@ function completeStaticBowLoad(load: THREE.AnimationClip, hold: THREE.AnimationC
   return new THREE.AnimationClip(load.name, load.duration, tracks)
 }
 
-/** Roman LOD0 pilumThrow is static; Bow LOD0 needs only its own pose endpoints. */
+/** Roman LOD0 pilumThrow is static; each bow LOD uses its own pose endpoints. */
 export function resolveHumanoidAnimationClips(levelClips: THREE.AnimationClip[][]): THREE.AnimationClip[][] {
   const lod1ByName = new Map((levelClips[1] ?? []).map(clip => [clip.name, clip]))
-  const lod0BowHold = levelClips[0]?.find(clip => clip.name === 'bowHold')
-  return levelClips.map((clips, index) => index === 0
-    ? clips.map(clip => {
-      if (clip.name === 'bowLoad' && lod0BowHold) return completeStaticBowLoad(clip, lod0BowHold)
-      if (LOD0_MOTION_CLIP_NAMES.has(clip.name)) return lod1ByName.get(clip.name) ?? clip
+  return levelClips.map((clips, index) => {
+    const hold = clips.find(clip => clip.name === 'bowHold')
+    return clips.map(clip => {
+      if (clip.name === 'bowLoad' && hold) return completeStaticBowLoad(clip, hold)
+      if (index === 0 && LOD0_MOTION_CLIP_NAMES.has(clip.name)) return lod1ByName.get(clip.name) ?? clip
       return clip
     })
-    : clips)
+  })
 }
 
 export interface HumanoidCharacterInstance {
@@ -700,7 +702,7 @@ export function validateHumanoidManifest(faction: CharacterFaction, manifest: Hu
     const required: HumanoidAnimationState[] = descriptor?.animationContract === 'bandit'
       ? ['idle', 'walk', 'run', 'swordSlash', 'hit', 'death']
       : ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'swordSlash', 'pilumThrow']
-    if (faction === 'viking' && descriptor?.animationContract !== 'bandit') required.push('axeAttack1H', 'axeAttack2H')
+    if (descriptor?.animationContract !== 'bandit') required.push('axeAttack1H', 'axeAttack2H')
     const embedded = new Set(manifest.animations.embedded.map((binding) => binding.clip))
     if (required.some((clip) => !embedded.has(clip))) throw new Error(`${faction} manifest is missing a canonical animation binding`)
   }
