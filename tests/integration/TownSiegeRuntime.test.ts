@@ -1,5 +1,4 @@
-import { advanceNpcFrame, completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
-import { createTownFortifications } from '../../src/town/TownFortifications'
+import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { siegeRoster, siegeDefensePlans, siegePoint, siegeNearestGate, siegeOutward } from '../../src/career/TownSiege'
@@ -37,13 +36,6 @@ vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
   BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
 }))
 
-const npcConstruction = vi.hoisted(() => ({ count: 0 }))
-vi.mock('../../src/world/NPC', async original => {
-  const actual = await original<typeof import('../../src/world/NPC')>()
-  return { ...actual, NPC: class extends actual.NPC {
-    constructor(...args: ConstructorParameters<typeof actual.NPC>) { super(...args); npcConstruction.count++ }
-  } }
-})
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: { ready: true, createInstance: () => {
   const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
   return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null, setLocomotion: vi.fn(), setAppearanceVariant: vi.fn(), playOnce: vi.fn(), playDeath: vi.fn(), update: vi.fn(), dispose: vi.fn() }
@@ -82,14 +74,16 @@ interface CheckpointFixtureOptions {
   attackerSlots?: readonly number[]
   includeRanger?: boolean
   includeOfficerAttackers?: boolean
+  freshDeployment?: boolean
 }
 
-/** The full battlefield owns census/placement/readiness. Checkpoint tests supply
- * only the residents they observe; omitted attacker slots are saved casualties,
- * so restoration still uses the real 119/120-slot roster and spawn controller. */
+/** Real movement/damage/mount cases supply only the roles they observe.
+ * Omitted attacker slots are saved casualties, preserving the production roster
+ * producer without materializing unrelated actors. Spawn protocol and official
+ * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  fullBattlefield = false, deferStart = false }: CheckpointFixtureOptions & { fullBattlefield?: boolean; deferStart?: boolean } = {}) {
+  freshDeployment = false }: CheckpointFixtureOptions = {}) {
   const rank = 'veteran', templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
@@ -97,8 +91,7 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const townFaction = assault ? faction === 'roman' ? 'viking' : 'roman' : faction
   const sampledIds = new Set(residentIds)
   const roster = townRoster().filter(spec => spec.role !== 'cat' && spec.role !== 'merchant'
-    && (fullBattlefield || sampledIds.has(spec.id)))
-  const constructionStart = npcConstruction.count
+    && sampledIds.has(spec.id))
   const residents = roster.map(spec => {
     const civilian = spec.role === 'civilian', ranger = spec.role === 'ranger'
     const military = townMilitaryEquipment(townFaction, spec)
@@ -118,52 +111,35 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
   onTestFinished(() => cat.dispose())
   const obstacles: ObstacleData[] = []
-  const material = new THREE.MeshBasicMaterial()
-  onTestFinished(() => material.dispose())
-  const city = fullBattlefield
-    ? createTownFortifications(townFaction, obstacles, { stone: material, wood: material, dark: material, snow: material })
-    : sampledGates(townFaction, obstacles)
+  const city = sampledGates(townFaction, obstacles)
   scene.add(city.root)
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const patrol = new TownCavalryPatrolController(residents)
   profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
-  let attackerCount = assault ? 119 : 120
-  if (!fullBattlefield) {
-    // A minimal resident contract has its own explicit objective IDs. Fresh
-    // battlefield census is checked separately, rather than faked with actors.
-    if (assault) profile.activeMission!.targetActorIds = townAssaultObjectiveRoster(roster).map(spec => spec.id)
-    const active = profile.activeMission!, siege = active.siege!
-    const attackers = siegeRoster(assault ? faction : townFaction === 'roman' ? 'viking' : 'roman', assault)
-    siege.rosterCreated = true
-    siege.attackerIds = attackers.map((_, index) => `${active.id}:siege:${index}`)
-    const survivors = new Set(attackers.flatMap(({ spec }, index) =>
-      attackerSlots.includes(index) || includeRanger && spec.combatProfileId === 'ranger' || includeOfficerAttackers && spec.tier === 4 ? [index] : []))
-    const casualties = siege.attackerIds.filter((_, index) => !survivors.has(index))
-    if (assault) active.deadFriendlyActorIds = casualties
-    else active.deadTargetActorIds = casualties
-    siege.defensePlans = siegeDefensePlans(townRoster()).map(plan => ({ ...plan,
-      infantry: plan.infantry.filter(id => sampledIds.has(id)),
-      cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
-      leaderId: plan.leaderId && sampledIds.has(plan.leaderId) ? plan.leaderId : undefined,
-    }))
-    attackerCount = survivors.size
-  }
+  if (assault) profile.activeMission!.targetActorIds = townAssaultObjectiveRoster(roster).map(spec => spec.id)
+  const active = profile.activeMission!, siege = active.siege!
+  const attackers = siegeRoster(assault ? faction : townFaction === 'roman' ? 'viking' : 'roman', assault)
+  siege.rosterCreated = !freshDeployment
+  siege.attackerIds = attackers.map((_, index) => `${active.id}:siege:${index}`)
+  const survivors = new Set(attackers.flatMap(({ spec }, index) =>
+    attackerSlots.includes(index) || includeRanger && spec.combatProfileId === 'ranger' || includeOfficerAttackers && spec.tier === 4 ? [index] : []))
+  const casualties = siege.attackerIds.filter((_, index) => !survivors.has(index))
+  if (assault) active.deadFriendlyActorIds = casualties
+  else active.deadTargetActorIds = casualties
+  siege.defensePlans = siegeDefensePlans(townRoster()).map(plan => ({ ...plan,
+    infantry: plan.infantry.filter(id => sampledIds.has(id)),
+    cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
+    leaderId: plan.leaderId && sampledIds.has(plan.leaderId) ? plan.leaderId : undefined,
+  }))
+  const attackerCount = survivors.size
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
   onTestFinished(() => controller.dispose())
-  if (!deferStart) {
-    expect(completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
-    // Count actual constructors, including callers restoring authoritative slots.
-    expect(npcConstruction.count - constructionStart).toBe(residents.length + attackerCount)
-    expect(residents).toHaveLength(fullBattlefield ? 223 : residentIds.length)
-  }
+  completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
   return { controller, player, cat, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
-function battlefieldFixture(assault = true, deferStart = false) {
-  return siegeFixture({ fullBattlefield: true, assault, deferStart })
-}
 function checkpointFixture(options: CheckpointFixtureOptions = {}) { return siegeFixture(options) }
 
 describe('Siege faction and role wiring', () => {
@@ -391,11 +367,12 @@ describe('shared four-gate Siege runtime', () => {
 })
 
 describe('Siege deployment and shared rule ownership', () => {
-  it('deploys the complete battlefield and waits ten seconds', () => {
-    const assault = true
-    const f = battlefieldFixture(assault)
-    expect(f.controller.military).toHaveLength(203)
-    expect(f.controller.civilians).toHaveLength(20)
+  it('places one infantry role and four cavalry officers in their gate sectors before releasing two attackers', () => {
+    // Seven real NPCs: one infantry and four independent cavalry sectors need
+    // native placement/target behavior; two attackers exercise release. Official
+    // 203 military/20 civilian census is data-owned by TownSiegePolicy/TownHub.
+    const f = siegeFixture({ residentIds: ['gate:north:0', 'captain', 'ranger',
+      'town-patrol:a:captain', 'town-patrol:b:captain'], attackerSlots: [2, 3], includeRanger: false, freshDeployment: true })
     expect(f.controller.phase).toBe('PREPARING')
     expect(f.controller.preparationRemaining).toBe(10)
     expect([...f.gates.values()].every(g => g.state === 'closed')).toBe(true)
@@ -413,12 +390,12 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(f.controller.releasedEnemies).toHaveLength(0)
     f.controller.updateFlow(.1, 0)
     expect(f.controller.phase).toBe('ATTACKING')
-    expect(f.controller.releasedEnemies).toHaveLength(assault ? 119 : 120)
+    expect(f.controller.releasedEnemies).toHaveLength(2)
   })
 
   it('wires representative infantry and cavalry into their own breach relief', () => {
     const gateId: TownGateId = 'north'
-    // Full census/placement belongs to the preceding deployment owner.
+    // Representative native placement belongs to the preceding deployment owner.
     // North leader + infantry, West defender, two independently placed threats.
     const f = checkpointFixture({ residentIds: ['captain', 'gate:north:0', 'gate:west:0'], attackerSlots: [2, 3], includeRanger: false })
     const guard = f.controller.captain!
@@ -585,28 +562,5 @@ describe('Siege retained combat and settlement contracts', () => {
     town.equipment.visible = false; town.equipment.open.mockClear()
     player.takeDamage(999999, town.hp)
     town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
-  })
-})
-
-
-describe('Siege actual constructor frame budget', () => {
-  it('creates the complete four-gate army one per frame before consuming preparation time', () => {
-    const assault = true
-    const h = battlefieldFixture(assault, true)
-    const before = npcConstruction.count, total = assault ? 119 : 120
-    expect(h.controller.startActiveMission()).toBe(true)
-    expect(h.controller.startActiveMission()).toBe(true)
-    expect(npcConstruction.count).toBe(before)
-    for (let i = 1; i <= total; i++) {
-      advanceNpcFrame(gameplayNpcSpawnDriver); expect(npcConstruction.count - before).toBe(i)
-      if (i < total) {
-        expect(h.controller.ready).toBe(false); h.controller.updateFlow(100, 0)
-        expect(h.controller.preparationRemaining).toBe(10)
-        expect(h.controller.evaluate()).toBeNull()
-      }
-    }
-    expect(h.controller.ready).toBe(true); expect(h.controller.enemies).toHaveLength(total)
-    expect(h.controller.enemies.filter(npc => npc.isMounted).every(npc => npc.mount?.riderNpc === npc)).toBe(true)
-    expect(h.controller.preparationRemaining).toBe(10)
   })
 })

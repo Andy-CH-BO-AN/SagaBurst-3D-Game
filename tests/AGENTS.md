@@ -38,6 +38,17 @@
 - 儲存測試要涵蓋 serialization、parser、舊版相容與特殊欄位；不同 schema 各有保障。
 - Controller 間傳遞 in-memory object 不能當作 storage round-trip；持久化接線需經過真實序列化邊界。
 
+### Spawn 測試分層
+
+- Spawn Core 擁有共用 scheduler／batch 的完整機制矩陣：enqueue、frame budget、重複 ID／timestamp、reentrant jobs、cancel、rollback、loading promise 與 finalizer failure。直接使用真 scheduler 與輕量 jobs，不需要真 NPC／Mount。
+- Spawn Integration 擁有各 production caller 的 start／initialize／execute、roster 到 queue 的轉換、registration、readiness、取消與 cleanup 接線；保留開始前、最後一筆前後與 finalizer 成敗等 caller 邊界，不在各 caller 重跑完整核心矩陣。
+- Gameplay tests 不附帶重驗 Spawn。純規則使用資料；實際初始化、movement、damage、mount lifecycle 或 ownership 行為使用最小必要 actor graph。完成載入只是前置條件時，使用既有 bounded deployment driver，不逐案重驗 frame budget。
+- 正式 roster 的數量、IDs、tier、兵種、陣營與缺額，優先由 production plan／policy 的資料測試保護。完整 enqueue 接線使用真 roster producer 與 recording doubles；不得為縮短 queue 替換正在驗證的 roster 生成或 filtering，也不能以官方數量為理由建立完整實體。
+- Caller integration 可在 actor construction 邊界使用 recording NPC／Mount doubles，記錄 constructor inputs、binding 呼叫與 dispose；不得 mock 被測 caller、scheduler，或替 caller 完成 readiness、registration 與 selection 決策。
+- Doubles 只證明 caller 協定，不能作為真 actor 初始化、移動、傷害或 mount binding 內部行為的證據。這些真實行為由必要的小型 real-actor owner 承接；先查既有 owner，不因整理 Spawn 自動新增一整套。
+- 不同 production methods、registration／finalizer 與 ownership 流程各有接線 owner；同一 shared method 不因 mode 名稱不同而重跑完整流程。保留代表性的真實多 producer integration，使用 production 預設 scheduler 驗證共享 budget，不以全部注入同一 scheduler 代替預設接線。
+- 移除重複 case 前，對照每個原 assertion、特殊輸入與 failure mode 的替代 owner，並以相關負向驗證確認 caller regression protection。預期 IDs 來自獨立 identity contract，不能從受測 queue 讀回來比較自己。
+
 ## 避免重複與共用契約
 
 - 判斷重複前，先核對 production 模組、輸入、可觀察結果及 failure mode；名稱相似不足以判定。
@@ -63,19 +74,20 @@
 - 順序本身是契約時，明確驗證事件或副作用順序及其意義。
 - 自動化資產測試驗證 runtime 契約：parse/preload、必要 LOD、runtime 查找的 bone/socket/seat、gameplay 所需 clip/event、instance 建立與 mutable state 隔離、失敗處理及 manifest/package/path。
 - 純外觀、精確 duration/pose/quaternion、weights、材質數值、未被 runtime 查找的 mesh/name、clearance/silhouette、rotation-only/payload size，逐案確認無 runtime 依賴後列為移除候選；test-only PR 記錄理由、保留／替代自動化契約與測試結果，不要求附人工 QA 場景。
-- 非資產 gameplay 測試使用所需欄位最少的 typed visual fixture，保留真實 actor、AI、移動與傷害行為；真實 GLB 留在少量資產契約與必要 integration。
+- 非資產 gameplay 中需要驗證真角色行為的測試，使用所需欄位最少的 typed visual fixture，保留受測的真實 actor、AI、移動與傷害行為；純規則不建立 actors。真實 GLB 留在少量資產契約與必要 integration。
 - 共用 GLB loader 明示是否省略 image/material payload；只有契約不依賴這些內容時可省略，材質與紋理契約使用可保留內容的載入方式。
 
 ## Fixture cost and materialization ownership
 
 - Logic／policy 與 materialization 分開。若 IDs、counts、configs、slots、簡單 state objects 或 production pure function 已能證明 assertion，預設建立 0 個真 NPC／Mount／TownWorld。例如 available=1、required=2 的 shortage 應直接測 selection，不生成正式軍隊。
 - 不可為了表示 eligibility／unavailable 而先 spawn 大量 actors 再 kill／disable；使用 reduced candidate set、`unavailableActorIds`、saved IDs 或 cheap resident doubles。死亡與復原 lifecycle 本身是受測責任時，才建立必要 actors。
-- 每份正式 roster 只由少量明確的 full materialization owners 建立。Policy、save、ownership tests 不可因共用 helper 順便生成 40 Patrol、59 Sweep、99 Veteran 或整批敵軍。
+- 大型實體 fixture 只因具體 capacity、crowd、碰撞／物理、placement 或 navigation 互動而保留，明確說明小型 graph 與 doubles 無法保護的 failure mode；官方 roster 與既有 full fixture 不是充分理由。Policy、save、ownership tests 不可因共用 helper 順便生成 40 Patrol、59 Sweep、99 Veteran 或整批敵軍。
 - Fixture helper 必須揭露 NPC、Mount、TownWorld、real GLB、NavigationWorld 與 battle actors 成本，並讓非 spawn／load／crowd consumers 明確選擇 lightweight mode；review 必須追進 `fixture()` 查看實際配置。
-- 單一案例若建立超過 10 個真 NPC 或 Mount，須在名稱／註解指出 actor count 為何是 failure mode 必要輸入；不是硬上限。Formation capacity、full-loop spacing、official materialization、stress 合理；outcome、merit、saved IDs、單一借用 callback、faction mapping、deputy election 不構成理由。
+- 單一案例若建立超過 10 個真 NPC 或 Mount，須在名稱／註解指出 actor count 為何是 failure mode 必要輸入；不是硬上限。Formation capacity、full-loop spacing、crowd／navigation、stress 合理；official count、outcome、merit、saved IDs、單一借用 callback、faction mapping、deputy election 不構成理由。
 - Small integration 只建觸發 branch 的最小 actor graph：單一 ownership 通常 1–3，雙 squad wiring 通常 4–8。Enemy／另一方不是自動必要輸入；friendly placement 不生成無關敵軍，settlement 不生成整支正式友軍。
-- **Same failure mode has one heavy integration owner.** Pure/data owners 覆蓋完整 matrix；heavy runtime 只保留代表接線，或明確以 actor count／full roster 為輸入的 spawn、capacity、crowd、navigation、load 契約。
+- **Same failure mode has one heavy integration owner.** Pure/data owners 覆蓋完整 matrix；runtime 接線使用必要的小型 graph，heavy runtime 僅保留無法以小型 graph 保護的 capacity、crowd、navigation、placement 或載入資源互動。
 - 縮減 fixture 不得複製 production 演算法、mock 掉受測 function 或自算 expected 再比自己。直接呼叫現有 production owner，並以 constructor 量測與 bounded mutation 驗證成本與偵錯能力。
+- 成本量測分開記錄 real NPC constructors、real Mount constructors、recording constructor invocations、queue jobs 與 TownWorld builds。0 real constructors 不等於沒有 setup 成本；效能比較以相同環境的實際 execution／wall time 為據。
 
 ## 非同步、時間與 simulation
 
@@ -83,8 +95,8 @@
 - 未達成條件時回報 phase、actor、目標與已前進的時間／frame，讓失敗可定位。
 - 禁用 arbitrary sleeps、無限迴圈與任意放寬 timeout；非同步工作需 await 並驗證拒絕／失敗路徑。
 - 區分 simulated time 與 runner 的 wall-clock timeout；不能用 timeout 大小代表遊戲時間。
-- 時間或逐 frame 本身是規格時，保留臨界前後檢查，不能以一次 drain 取代 frame budget 驗證。
-- Scheduler core 驗證預算、cancel、rollback；caller 驗證 enqueue、materialization 與 readiness。
+- Gameplay 時間本身是規格時保留臨界前後檢查；共用 Spawn frame budget 的完整逐 frame 矩陣由 Spawn Core 擁有，不以一次 drain 取代該 owner。Caller 保留自己的 readiness、preparation／march 與 finalizer 邊界，不重驗共用 cadence。
+- Scheduler core 驗證 budget、cancel、rollback；caller 驗證 enqueue、registration、readiness 與 owner cleanup。不同 caller 的取消副作用不能只靠 core 代替。
 - Simulation 的動作要驅動真實受測 runtime；不要直接寫入結果狀態讓流程通過。
 - 新增高成本 simulation 前，說明純規則或小型 integration 無法保護的缺口。
 - Driver 或 fixture 共用不代表更快或不會 flaky；效能與穩定性主張需要實際量測。

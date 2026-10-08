@@ -62,7 +62,6 @@ const trainingRider = 'cavalry-training:melee_cavalry:0'
 
 /** The only private seam is the existing Town entry point. All methods still run on its real prototype. */
 interface TownMissionEntry {
-  acceptVeteranCareerMission(templateId: string): void
   unavailableTownCavalryActorIds(): ReadonlySet<string>
 }
 
@@ -123,8 +122,7 @@ function fixture(residentIds: readonly string[], options: { world?: boolean; obs
     for (const resident of residents) patrol.updateResident(resident, .1, player.group.position, worldData.obstacles, navigation)
   }
   return { scene, world: worldData, navigation, residents, patrol, mission, player, town, borrow, commit, stepPatrol,
-    profile: () => profile, deploy: () => completeNpcDeployment(() => mission.startActiveMission(), driver),
-    acceptOfficial: () => completeNpcDeployment(() => town.acceptVeteranCareerMission('veteran-scout-hunters'), driver) }
+    profile: () => profile, deploy: () => completeNpcDeployment(() => mission.startActiveMission(), driver) }
 }
 
 function unit(actorId: string, source: VeteranRosterUnit['source'], overrides: Partial<VeteranRosterUnit> = {}): VeteranRosterUnit {
@@ -134,7 +132,7 @@ function unit(actorId: string, source: VeteranRosterUnit['source'], overrides: P
 /** Substitute mission configuration only, at the existing roster/definition data seam.
  * Selection/assignment is tested in the pure reserve suites. The real controller still
  * restores sources, spawns, borrows, positions, equips and cleans up this small actor graph.
- * The official smoke below uses the untouched production roster and definition.
+ * Official identities/composition and queue wiring belong to the data and spawn integration owners.
  */
 function smallMission(f: ReturnType<typeof fixture>, friendly: VeteranRosterUnit[], enemy: VeteranRosterUnit[] = []) {
   const definition = veteranMissions.getVeteranMissionDefinition('veteran-scout-hunters')!
@@ -256,33 +254,39 @@ describe('Town cavalry mission and Patrol integration', () => {
     expect(f.player.combatPosition.distanceTo(f.mission.missionLeader!.combatPosition)).toBeGreaterThan(200)
   })
 
-  it('wires the official Scout roster once with native officers, full borrowed composition and one temporary Ranger', () => {
-    // Full 99/40 materialization is the input: catches runtime truncation that all small graphs miss.
-    const f = fixture(townRoster().filter(spec => spec.mounted || spec.role === 'ranger').map(spec => spec.id))
-    const before = new Map(f.residents.map(resident => [resident.spec.id, resident.npc.combatPosition.clone()]))
-    f.acceptOfficial()
-    expect(f.town.openPanel).not.toHaveBeenCalled()
-    const active = f.profile().activeMission!
-    expect(f.mission.friendlies).toHaveLength(99); expect(f.mission.missionBandits).toHaveLength(40)
-    expect(active.friendlyActorIds).toEqual(f.mission.friendlies.map(npc => npc.combatantId))
-    expect(active.targetActorIds).toEqual(f.mission.missionBandits.map(npc => npc.combatantId))
-    expect(active.borrowedActorIds).toHaveLength(98)
-    expect(active.borrowedActorIds!.filter(id => id.startsWith('cavalry-training:'))).toHaveLength(60)
-    expect(active.borrowedActorIds!.filter(id => id.startsWith('town-patrol:a:') && !id.endsWith(':captain'))).toHaveLength(19)
-    expect(active.borrowedActorIds!.filter(id => id.startsWith('town-patrol:b:') && !id.endsWith(':captain'))).toHaveLength(16)
-    expect(active.borrowedActorIds).toEqual(expect.arrayContaining(['captain', 'ranger', patrolCaptain]))
-    expect(f.mission.friendlies.filter(npc => npc.tier === 4)).toHaveLength(4)
-    expect(f.mission.friendlies.filter(npc => npc.tier === 3)).toHaveLength(95)
-    const temporary = f.mission.friendlies.filter(npc => !active.borrowedActorIds!.includes(npc.combatantId))
-    expect(temporary).toHaveLength(1)
-    expect(temporary[0]).toMatchObject({ name: 'Maki / Mounted Ranger', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger' })
-    expect(f.borrow).toHaveBeenCalledTimes(98)
-    for (const id of active.borrowedActorIds!) {
-      const npc = f.residents.find(resident => resident.spec.id === id)!.npc
-      expect(f.mission.friendlies).toContain(npc)
-      expect(npc.combatPosition).toEqual(before.get(id))
-      expect(npc.formationCommandId).toBe(9000)
+  it('initializes temporary Captain and Ranger with real mounts while reusing the Town Ranger', () => {
+    // Three real riders own actor initialization/binding; official roster truncation is
+    // protected with the full production IDs at the recording constructor boundary.
+    const f = fixture(['ranger']), resident = f.residents[0]
+    const position = resident.npc.combatPosition.clone(), borrowedDispose = vi.spyOn(resident.npc, 'dispose')
+    smallMission(f, [
+      unit('ranger', 'town', { presetId: 'roman_archer', tier: 4, heroRole: 'ranger', leader: true }),
+      unit('thin-field:captain', 'temporary', { tier: 4, heroRole: 'captain' }),
+      unit('thin-field:ranger', 'temporary', { presetId: 'roman_archer', tier: 4, heroRole: 'ranger' }),
+    ])
+    expect(f.deploy()).toBe(true)
+    const [borrowed, captain, ranger] = f.mission.friendlies
+    expect(borrowed).toBe(resident.npc)
+    expect(borrowed.combatPosition).toEqual(position)
+    expect(borrowed.mount).toBe(resident.homeMount)
+    expect(borrowed.formationCommandId).toBe(9000)
+    expect(f.borrow).toHaveBeenCalledExactlyOnceWith('ranger')
+    expect(captain).toMatchObject({ name: 'Captain', tier: 4, combatProfileId: 'praetorian', maxHp: 500 })
+    expect(captain.mount!.type).toBe(MountType.CORGI)
+    expect(ranger).toMatchObject({ name: 'Maki / Mounted Ranger', tier: 4, combatProfileId: 'ranger',
+      specialCombatProfile: 'maki-ranger', maxHp: 300 })
+    expect(ranger.hasActiveRangedWeapon).toBe(true)
+    expect(ranger.mount!.type).toBe(MountType.BLACK_CAT)
+    for (const npc of [captain, ranger]) {
+      expect(npc.mount!.riderNpc).toBe(npc)
+      expect(npc.mount!.group.position).toEqual(npc.group.position)
     }
+    f.mission.cleanupMission()
+    expect(borrowedDispose).not.toHaveBeenCalled()
+    expect(borrowed.mount).toBe(resident.homeMount)
+    expect(resident.homeMount.disposed).toBe(false)
+    expect(captain.group.parent).toBeNull()
+    expect(ranger.group.parent).toBeNull()
   })
 
   it('settles one borrowed Patrol rider, one temporary friendly and one enemy through real return and cleanup', () => {
