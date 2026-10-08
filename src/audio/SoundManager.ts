@@ -24,7 +24,7 @@ const REDUCED_BATTLE_SFX_VOLUME = 0.03
 const BOW_RELEASE_VOLUME = 0.2
 const MAX_BOW_RELEASE_VOICES = 6
 const MAX_NPC_GALLOP_VOICES = 8
-const EAGLE_WINGBEAT = { nearDistance: 12, farDistance: 140, maxNpcVoices: 8 } as const
+const EAGLE_WINGBEAT = { volume: REDUCED_BATTLE_SFX_VOLUME * 5, nearDistance: 12, farDistance: 140, maxNpcVoices: 8 } as const
 const MAX_BATTLE_IMPACT_VOICES = 16
 const TOWN_ALARM_STRIKES = 6
 const TOWN_ALARM_INTERVAL_SECONDS = 1
@@ -269,7 +269,7 @@ export class SoundManager {
       if (!selected.has(candidate.id)) continue
       const range = EAGLE_WINGBEAT.farDistance - EAGLE_WINGBEAT.nearDistance
       const attenuation = Math.max(0, 1 - Math.max(0, candidate.distance - EAGLE_WINGBEAT.nearDistance) / range)
-      const volume = REDUCED_BATTLE_SFX_VOLUME * attenuation * attenuation
+      const volume = EAGLE_WINGBEAT.volume * attenuation * attenuation
       const playing = this.wingbeatVoices.get(candidate.id)
       if (playing) playing.gain.gain.value = volume
       if (previous === undefined || candidate.sequence <= previous) continue
