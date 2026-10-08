@@ -1,6 +1,6 @@
 {
   "name": "sagaburst",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -31,7 +31,7 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3"
   },
-  "description": "SagaBurst \u2014 Viking and Roman 3D battles",
+  "description": "SagaBurst — Viking and Roman 3D battles",
   "author": "Andy-CH-BO-AN",
   "main": "electron/main.cjs",
   "build": {
