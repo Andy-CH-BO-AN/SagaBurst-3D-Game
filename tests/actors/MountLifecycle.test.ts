@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { Mount, MountState, MountType } from '../../src/world/Mount'
+import { Player } from '../../src/player/Player'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
@@ -38,4 +39,21 @@ describe('Mount Class Real Lifecycle Transitions', () => {
 
     mount.dispose()
   })
+  it('preserves player saddle height when a mount dies on elevated ground', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene)
+    onTestFinished(() => player.dispose())
+    const mount = new Mount(scene, MountType.CORGI, 0, 0, 8)
+    onTestFinished(() => mount.dispose())
+
+    player.mountVehicle(mount)
+    expect(player.isMounted).toBe(true)
+    const mountedHeight = player.position.y
+
+    mount.takeDamage(mount.maxHp)
+
+    expect(player.isMounted).toBe(false)
+    expect(player.position.y).toBeCloseTo(mountedHeight, 5)
+  })
+
 })

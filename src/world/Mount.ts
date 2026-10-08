@@ -357,7 +357,7 @@ export class Mount {
     if (this.currentHp <= 0) {
       this.state = MountState.DEAD
       this.riderNpc?.dismountFromMount()
-      this.riderPlayer?.dismountFromMount()
+      this.riderPlayer?.dismountFromMount({ preserveWorldPosition: true })
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
