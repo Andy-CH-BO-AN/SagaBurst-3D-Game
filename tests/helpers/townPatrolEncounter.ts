@@ -12,8 +12,8 @@ export function createTownPatrolEncounter(h: TownPatrolFixture) {
   const roaming = { owns: (npc: NPC) => actors.includes(npc), squadMembersFor: (npc: NPC) => [npc] }
   const a = h.controller.squads[0], b = h.controller.squads[1]
   for (const [index, r] of a.members.entries()) r.homeMount!.group.position.set(150 + index * 2, getTerrainHeight(150 + index * 2, 0), 0)
-  for (const [index, r] of b.members.entries()) r.homeMount!.group.position.set(-220 + index * 2, getTerrainHeight(-220 + index * 2, -200), -200)
-  bandit.group.position.copy(a.members[19].npc.combatPosition).x += 25
+  for (const [index, r] of (b?.members ?? []).entries()) r.homeMount!.group.position.set(-220 + index * 2, getTerrainHeight(-220 + index * 2, -200), -200)
+  bandit.group.position.copy(a.members.at(-1)!.npc.combatPosition).x += 25
   cavalry.group.position.set(320, 0, 300)
   const frame = (dt = .4, excluded = new Set<NPC>()) => {
     h.controller.beginFrame(excluded); grid.clear()

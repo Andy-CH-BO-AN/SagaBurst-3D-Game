@@ -26,6 +26,23 @@ function sourceCounts(roster: TownCavalryReserveResident[], ids: (string | undef
   return ['training', 'patrol-a', 'patrol-b'].map(source => selected.filter(r => townCavalryReserveSource(r.spec) === source).length)
 }
 
+describe('Town cavalry reserve minimal shortage matrix', () => {
+  it.each([
+    { available: 0, expected: [undefined, undefined] },
+    { available: 1, expected: ['cavalry-training:melee_cavalry:0', undefined] },
+    { available: 2, expected: ['cavalry-training:melee_cavalry:0', 'cavalry-training:melee_cavalry:1'] },
+  ])('fills two slots from $available available actors without spawning', ({ available, expected }) => {
+    const candidates = residents().filter(r => r.spec.duty === 'training' && r.spec.unitKind === 'sword_cavalry').slice(0, available)
+    expect(selectTownCavalryReserve(candidates, ordinary(2))).toEqual(expected)
+  })
+
+  it('leaves a missing slot rather than reusing the available actor or claiming an unavailable actor', () => {
+    const candidates = residents().filter(r => r.spec.duty === 'training' && r.spec.unitKind === 'sword_cavalry').slice(0, 2)
+    expect(selectTownCavalryReserve([candidates[0], candidates[0], candidates[1]], ordinary(2), new Set([candidates[1].spec.id])))
+      .toEqual(['cavalry-training:melee_cavalry:0', undefined])
+  })
+})
+
 describe('Town cavalry reserve source and roster boundaries', () => {
   it.each([
     { count: 50, sources: [50, 0, 0], temporary: 0 },

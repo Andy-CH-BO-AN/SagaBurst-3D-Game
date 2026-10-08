@@ -3,7 +3,7 @@ import { afterEach, beforeEach, vi } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
-import { townActorCaptainProfile, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
+import { townActorCaptainProfile, townMilitaryEquipment, townRoster, type TownPatrolId } from '../../src/town/TownRules'
 import { TownWorld } from '../../src/town/TownWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../../src/world/Mount'
@@ -22,6 +22,10 @@ function runCleanup(actions: readonly (() => void)[]): void {
 export interface TownPatrolFixtureOptions {
   faction?: 'roman' | 'viking'
   withWorld?: boolean
+  /** Full squads for explicit formation/route capacity owners. */
+  patrolIds?: readonly TownPatrolId[]
+  /** Total members INCLUDING canonical Captain; omitted squads are absent. No actors outside these specs. */
+  patrolMembers?: Partial<Record<TownPatrolId, number | 'full'>>
 }
 
 /** Explicit suite setup; importing this helper registers no hooks or asset loading. */
@@ -53,7 +57,7 @@ export function installTownPatrolFixtureEnvironment() {
   })
 
   /** Arrange real patrol residents; own every allocation even when setup or assertions throw. */
-  return function createTownPatrolFixture({ faction = 'roman', withWorld = false }: TownPatrolFixtureOptions = {}) {
+  return function createTownPatrolFixture({ faction = 'roman', withWorld = false, patrolIds = ['A', 'B'], patrolMembers }: TownPatrolFixtureOptions = {}) {
     const cleanup: (() => void)[] = []
     let disposed = false
     const dispose = () => {
@@ -73,7 +77,17 @@ export function installTownPatrolFixtureEnvironment() {
       }))
       const world = withWorld ? new TownWorld(faction, scene) : undefined
       if (world) cleanup.push(() => world.dispose())
-      const residents = townRoster().filter(spec => spec.duty === 'patrol').map(spec => {
+      // Explicit costs: one NPC + one Mount per selected spec; one NavigationWorld;
+      // TownWorld only withWorld=true; rendering substitutes never load real GLBs.
+      const specs = townRoster().filter(spec => spec.duty === 'patrol')
+      const selected = (['A', 'B'] as const).flatMap(id => {
+        const count = patrolMembers ? patrolMembers[id] : patrolIds.includes(id) ? 'full' : undefined
+        if (count === undefined) return []
+        if (count !== 'full' && (!Number.isInteger(count) || count < 1 || count > 20)) throw new Error('Patrol member count must include Captain and be within 1..20')
+        const squad = specs.filter(spec => spec.patrolId === id)
+        return count === 'full' ? squad : [squad.find(spec => spec.patrolLeader)!, ...squad.filter(spec => !spec.patrolLeader).slice(0, count - 1)]
+      })
+      const residents = selected.map(spec => {
         const equipment = townMilitaryEquipment(faction, spec)
         const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, faction, AIType.MELEE, spec.id,
           equipment.level, true, equipment.loadout, equipment.presetId, undefined, spec.id)

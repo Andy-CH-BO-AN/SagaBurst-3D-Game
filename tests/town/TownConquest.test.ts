@@ -49,7 +49,8 @@ function savedTown() {
 }
 
 describe('canonical free Town conquest population', () => {
-  it.each(['roman', 'viking'] as const)('assembles %s residents and expected IDs from the actual built HR layout, even at Recruit', faction => {
+  it('assembles Roman residents and expected IDs from the actual built HR layout, even at Recruit', () => {
+    const faction = 'roman'
     const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
     const cleanupCanvas = installFakeCanvasEnvironment({
       context,

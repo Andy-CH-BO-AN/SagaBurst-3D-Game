@@ -29,7 +29,7 @@ function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number })
 
 describe('Town patrol leadership and ownership lifecycle', () => {
   it('elects acting leaders, preserves metadata and mission orders, and reclaims Captain only after physically catching up', () => {
-    const h = createTownPatrolFixture(), squad = h.controller.squads[0], [captain, first, second] = h.residents
+    const h = createTownPatrolFixture({ patrolMembers: { A: 3 } }), squad = h.controller.squads[0], [captain, first, second] = h.residents
     h.stepFrame(); expect(squad.activeLeaderActorId).toBe(captain.spec.id)
     h.controller.relinquish(captain.spec.id)
     const missionGoal = new THREE.Vector3(120, 0, 70)
@@ -50,7 +50,7 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('pauses an empty squad without losing progress and skips dead or unmounted candidates', () => {
-    const h = createTownPatrolFixture(), squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 4 } }), squad = h.controller.squads[0]
     h.advanceUntil(() => squad.departureIndex > 0, {
       maxSimulationSeconds: 100, failureMessage: 'squad must advance along its departure path',
     })
@@ -65,7 +65,7 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('restarts the barracks departure after siege instead of reusing an exhausted waypoint index', () => {
-    const h = createTownPatrolFixture(), squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), squad = h.controller.squads[0]
 
     // Reach the normal patrol loop first, so departureIndex is exactly one past
     // the final departure waypoint before the siege takes ownership.
@@ -93,8 +93,8 @@ describe('Town patrol leadership and ownership lifecycle', () => {
     expect(squad.state).toBe('MOVING_TO_ROUTE')
   })
 
-  it('hands all forty positions to hostile AI without teleporting or issuing later patrol commands', () => {
-    const h = createTownPatrolFixture(); h.stepFrames(20)
+  it('hands both minimal squads to hostile AI without teleporting or issuing later patrol commands', () => {
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2, B: 2 } }); h.stepFrames(20)
     const positions = h.residents.map(r => r.npc.combatPosition.clone())
     const travels = h.residents.map(r => vi.spyOn(r.npc, 'updateTownTravel'))
     h.controller.stopForHostility()
@@ -108,7 +108,7 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('cancels a pending barracks refit and preserves defeated Patrol identities during hostility', () => {
-    const h = createTownPatrolFixture(), resident = h.residents[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), resident = h.residents[0]
     h.controller.beginMissionReturn(resident.spec.id)
     resident.npc.takeDamage(999999)
     h.controller.stopForHostility(); h.residents.forEach(r => r.npc.beginTownHostility())
@@ -120,9 +120,9 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('chooses another deputy when the acting leader is borrowed while a refitted Captain remains far away', () => {
-    const h = createTownPatrolFixture(), [captain, deputy, replacement] = h.residents, squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 3 } }), [captain, deputy, replacement] = h.residents, squad = h.controller.squads[0]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'selected squad must reach the exterior patrol loop',
     })
     h.controller.relinquish(captain.spec.id); h.stepFrames(20)
     expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
@@ -140,9 +140,9 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('elects a deputy when a borrowed Captain is restored at Barracks before the next frame', () => {
-    const h = createTownPatrolFixture({ withWorld: true }), [captain, deputy] = h.residents, squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), [captain, deputy] = h.residents, squad = h.controller.squads[0]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'selected squad must reach the exterior patrol loop',
     })
     expect(squad.activeLeaderActorId).toBe(captain.spec.id)
     h.controller.relinquish(captain.spec.id)
@@ -158,7 +158,7 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('lets a refitted Captain lead when it is the only remaining available squad member', () => {
-    const h = createTownPatrolFixture(), captain = h.residents[0], squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 1 } }), captain = h.residents[0], squad = h.controller.squads[0]
     h.advanceUntil(() => squad.departureIndex > 0, {
       maxSimulationSeconds: 100, failureMessage: 'squad must advance along its departure path',
     })
@@ -171,9 +171,9 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('replaces a dead Captain with the same actor and original Corgi at barracks, then retains the deputy until physical reunion', () => {
-    const h = createTownPatrolFixture({ withWorld: true }), [captain, deputy] = h.residents, squad = h.controller.squads[0]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), [captain, deputy] = h.residents, squad = h.controller.squads[0]
     h.advanceUntil(() => h.controller.squads.every(s => s.state === 'PATROLLING'), {
-      maxSimulationSeconds: 200, failureMessage: 'both squads must reach the exterior patrol loop',
+      maxSimulationSeconds: 200, failureMessage: 'selected squad must reach the exterior patrol loop',
     })
     h.controller.relinquish(captain.spec.id); h.stepFrames(20)
     expect(squad.activeLeaderActorId).toBe(deputy.spec.id)
@@ -202,12 +202,12 @@ describe('Town patrol leadership and ownership lifecycle', () => {
   })
 
   it('starts a new Town controller with the normal Patrol startup formation and no previous return state', () => {
-    const h = createTownPatrolFixture(), resident = h.residents[1]
+    const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), resident = h.residents[1]
     h.controller.relinquish(resident.spec.id)
     resident.homeMount.group.position.set(50, getTerrainHeight(50, 140), 140)
     h.controller.beginMissionReturn(resident.spec.id)
     expect(h.controller.isReserveAvailable(resident.spec.id)).toBe(false)
-    const reload = createTownPatrolFixture(), sameActor = reload.residents.find(r => r.spec.id === resident.spec.id)!
+    const reload = createTownPatrolFixture({ patrolMembers: { A: 2 } }), sameActor = reload.residents.find(r => r.spec.id === resident.spec.id)!
     expect(reload.controller.returnStateFor(sameActor.spec.id)).toBeNull()
     expect(reload.controller.isReserveAvailable(sameActor.spec.id)).toBe(true)
     expect(sameActor.npc.combatPosition.x).toBe(sameActor.spec.x)

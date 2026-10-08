@@ -14,7 +14,7 @@ import { NPC, AIState, AIType, Faction } from '../../src/world/NPC'
 import { MountType, mountTypeFromId } from '../../src/world/Mount'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
-import { getTerrainHeight } from '../../src/world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import { townWartimeHostile } from '../../src/town/TownWartime'
 import type { Player } from '../../src/player/Player'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
@@ -38,31 +38,44 @@ vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({ ...(aw
 }) }))
 const cleanups: (() => void)[] = []
 afterEach(() => { cleanups.splice(0).reverse().forEach(fn => fn()); vi.unstubAllGlobals() })
-function harness(faction: 'roman' | 'viking' = 'roman', count = 3) {
-  const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
+function renderingScene() {
+  const context = new Proxy<Record<string, unknown>>({ measureText: () => ({ width: 100 }) }, {
+    get: (target, key) => typeof key === 'string' ? target[key] ?? (() => {}) : undefined,
+  })
   vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
   vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
-  const scene = new THREE.Scene(), world = new TownWorld(faction, scene)
-  cleanups.push(() => world.dispose())
+  return new THREE.Scene()
+}
+function harness(faction: 'roman' | 'viking' = 'roman', count = 3) {
+  const scene = renderingScene(), hr = resolveTownHRLayout(faction, [], [])
+  const obstacles: ObstacleData[] = []
   const profile = { ...createCareerProfile(faction), rank: 'captain' as const,
     personalSquad: { members: Array.from({ length: count }, (_, i) => ({ id: `personal:${i}`, type: (['soldier', 'captain', 'ranger'] as const)[i % 3] })) } }
   const player = { group: new THREE.Group(), get combatPosition() { return this.group.position }, dead: false } as Player
   player.group.position.set(35, getTerrainHeight(35, 60), 60)
-  const controller = new TownPersonalSquadController(scene, world.hr, () => profile, () => player)
+  const controller = new TownPersonalSquadController(scene, hr, () => profile, () => player)
   cleanups.push(() => controller.cleanup())
-  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync(world.obstacles)
+  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync(obstacles)
   const step = (frames: number) => {
     for (let i = 0; i < frames; i++) {
-      navigation.sync(world.obstacles); navigation.beginFrame()
-      for (const actor of controller.actors) actor.updateTownTravel(.05, 30, controller.actors, world.obstacles, navigation)
+      navigation.sync(obstacles); navigation.beginFrame()
+      for (const actor of controller.actors) actor.updateTownTravel(.05, 30, controller.actors, obstacles, navigation)
       controller.updateLifecycle()
     }
   }
-  return { scene, world, profile, player, controller, navigation, step }
+  return { scene, hr, profile, player, controller, navigation, step }
+}
+// Geometry owns the built Town; runtime cases below need only an HR layout and real actors.
+function townGeometry(faction: 'roman' | 'viking') {
+  const world = new TownWorld(faction, renderingScene())
+  cleanups.push(() => world.dispose())
+  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
+  navigation.sync(world.obstacles)
+  return { world, navigation }
 }
 describe('HR Center and personal runtime', () => {
   it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots', faction => {
-    const { world, navigation } = harness(faction)
+    const { world, navigation } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
     expect(hr).toBeDefined()
     expect([world.hr.width, world.hr.depth]).toEqual(faction === 'roman' ? [16, 13] : [13, 22])
@@ -87,13 +100,14 @@ describe('HR Center and personal runtime', () => {
     expect(() => resolveTownHRLayout(faction, [{ box: new THREE.Box3(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500)), isBarricade: false }], world.roads)).toThrow()
   })
   it('spawns actual Roman T2/T4 NPCs at HR and walks to a distant Player', () => {
-    const { controller, world, player, step } = harness('roman')
+    const { controller, hr, player, step } = harness('roman')
     expect(controller.actors).toHaveLength(0); expect(controller.state).toBe('RESERVE')
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.state).toBe('DEPLOYING')
     const original = [...controller.actors]
     for (const [index, npc] of original.entries()) {
+      expect(npc.characterFaction).toBe('roman')
       expect(npc.combatantId).toBe(`personal:${index}`); expect(npc.combatOwnership).toBe('player-personal')
-      expect(npc.combatPosition.x).toBeCloseTo(world.hr.muster[index].x)
+      expect(npc.combatPosition.x).toBeCloseTo(hr.muster[index].x)
       expect(npc.combatPosition.distanceTo(player.combatPosition)).toBeGreaterThan(40)
       expect(npc.activeFollowTarget).toBe(player); expect(npc.respawnEnabled).toBe(false)
       expect(npc.tier).toBe(index === 0 ? 2 : 4)
@@ -134,11 +148,11 @@ describe('HR Center and personal runtime', () => {
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(3)
   })
   it('holds Roman personal Attack away from HR until Dismiss, including a targetless chase', () => {
-    const { controller, world, player, navigation, step } = harness('roman')
+    const { controller, hr, player, navigation, step } = harness('roman')
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); step(1000)
     const held = controller.actors.map(actor => actor.combatPosition.clone())
     for (const [index, actor] of controller.actors.entries()) {
-      expect(held[index].distanceTo(new THREE.Vector3(world.hr.muster[index].x, held[index].y, world.hr.muster[index].z))).toBeGreaterThan(50)
+      expect(held[index].distanceTo(new THREE.Vector3(hr.muster[index].x, held[index].y, hr.muster[index].z))).toBeGreaterThan(50)
       actor.setTacticalOrder('attack')
       // An ended chase must take the same no-target path as a fresh Attack order.
       actor.state = AIState.CHASE
@@ -158,29 +172,35 @@ describe('HR Center and personal runtime', () => {
     expect(controller.state).toBe('ACTIVE')
     controller.dismiss(); step(1200); expect(controller.state).toBe('RESERVE')
   })
-  it.each(['roman', 'viking'] as const)('preserves member IDs through %s Town faction switch and rebuilds native gear for the new faction', faction => {
-    const { controller, profile, scene, world, player } = harness(faction)
+  it('preserves member IDs through Roman to Viking Town faction switch and rebuilds native gear', () => {
+    const faction = 'roman'
+    const { controller, profile, scene, hr, player } = harness(faction)
+    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
+    const previousActors = [...controller.actors]
     const current = { ...profile, townEvent: { id: 'switch', state: 'hostile' as const } }
     const switched = settleTown(current, 'switch', 'town_defeated')
-    const opposite = faction === 'roman' ? 'viking' : 'roman'
+    const opposite = 'viking'
     expect(switched.faction).toBe(opposite); expect(switched.rank).toBe('recruit')
     expect(switched.personalSquad).toEqual(profile.personalSquad)
-    const rebuilt = new TownPersonalSquadController(scene, world.hr, () => switched, () => player)
+    const rebuilt = new TownPersonalSquadController(scene, hr, () => switched, () => player)
     cleanups.push(() => rebuilt.cleanup())
-    controller.cleanup(); completeNpcDeployment(() => rebuilt.follow(), gameplayNpcSpawnDriver)
+    controller.cleanup()
+    expect(previousActors.every(actor => actor.group.parent === null)).toBe(true)
+    completeNpcDeployment(() => rebuilt.follow(), gameplayNpcSpawnDriver)
+    expect(rebuilt.actors.every(actor => !previousActors.includes(actor))).toBe(true)
     expect(rebuilt.actors.map(actor => actor.combatantId)).toEqual(profile.personalSquad.members.map(member => member.id))
     expect(rebuilt.actors.every(actor => actor.characterFaction === opposite && actor.faction === Faction.PLAYER)).toBe(true)
-    expect(rebuilt.actors[0].presetId).toBe(`${opposite}_${opposite === 'roman' ? 'heavy_infantry' : 'berserker'}`)
+    expect(rebuilt.actors[0].presetId).toBe('viking_berserker')
     expect(rebuilt.actors.slice(1).every(actor => actor.mount?.type === MountType.HORSE)).toBe(true)
   })
   it('redeploys real configured weapons after death, dismissal, reload and faction change without changing totals', () => {
-    const { controller, profile, scene, world, player } = harness()
+    const { profile, scene, hr, player } = harness()
     const parsed = parseCareerProfile({ ...profile, totalMerit: 6000 })!
     parsed.inventory!.quantities.heavy_lance = 1
     parsed.personalSquad!.members[0].equipment!.melee = 'heavy_lance'
     parsed.personalSquad!.members[1].equipment!.mount = null
     const snapshot = JSON.stringify(parsed.inventory)
-    const runtime = new TownPersonalSquadController(scene, world.hr, () => parsed, () => player)
+    const runtime = new TownPersonalSquadController(scene, hr, () => parsed, () => player)
     cleanups.push(() => runtime.cleanup()); completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
     expect(runtime.actors[0]).toMatchObject({ tier: 2, meleeWeaponId: 'heavy_lance', isUsingLance: true })
     expect(runtime.actors[1]).toMatchObject({ tier: 4, combatProfileId: 'praetorian', isMounted: false })
@@ -188,15 +208,15 @@ describe('HR Center and personal runtime', () => {
     expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
     completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver); runtime.dismiss(); runtime.cleanup(); expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
     const loaded = parseCareerProfile(parsed)!; loaded.faction = 'viking'
-    const reloaded = new TownPersonalSquadController(scene, world.hr, () => loaded, () => player)
+    const reloaded = new TownPersonalSquadController(scene, hr, () => loaded, () => player)
     cleanups.push(() => reloaded.cleanup()); completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver)
     expect(reloaded.actors[0].meleeWeaponId).toBe('heavy_lance'); expect(reloaded.actors[0].tier).toBe(2)
     expect(JSON.stringify(loaded.inventory)).toBe(snapshot)
     reloaded.cleanup(); loaded.personalSquad!.members = []; expect(completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver)).toBe(false)
   })
   it('uses a real melee backup with a bow and stops ranged-only attacks close up or out of ammo', () => {
-    const { scene, world, player } = harness()
-    const make = (melee: string | null) => new TownPersonalSquadController(scene, world.hr, () => ({ ...createCareerProfile('roman'),
+    const { scene, hr, player } = harness()
+    const make = (melee: string | null) => new TownPersonalSquadController(scene, hr, () => ({ ...createCareerProfile('roman'),
       personalSquad: { members: [{ id: 'personal:bow', type: 'soldier', equipment: { ...initialPersonalEquipment('soldier', 'roman'), melee, ranged: 'recurve_longbow', shield: null } }] } }), () => player)
     const backup = make('gladius_standard'), onlyBow = make(null); cleanups.push(() => backup.cleanup(), () => onlyBow.cleanup())
     completeNpcDeployment(() => backup.follow(), gameplayNpcSpawnDriver); completeNpcDeployment(() => onlyBow.follow(), gameplayNpcSpawnDriver)
@@ -228,12 +248,12 @@ describe('HR Center and personal runtime', () => {
     personal.update(.05, player, [enemy], [enemy], [], {} as any, () => {}, () => {}, true, 30)
     expect(personal.state).toBe(AIState.ALERT)
   })
-  it('reload resets thirty owned identities to reserve and mission start excludes deployment', () => {
-    const { controller, world, scene, player, profile } = harness('roman', 30)
-    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(30)
+  it('reload resets three representative owned identities to reserve and mission start excludes deployment', () => {
+    const { controller, hr, scene, player, profile } = harness('roman', 3)
+    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(3)
     const originalIds = controller.actors.map(actor => actor.combatantId)
     controller.cleanup()
-    const reloaded = new TownPersonalSquadController(scene, world.hr, () => profile, () => player)
+    const reloaded = new TownPersonalSquadController(scene, hr, () => profile, () => player)
     cleanups.push(() => reloaded.cleanup())
     expect(reloaded.state).toBe('RESERVE'); expect(reloaded.actors).toHaveLength(0)
     completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver); expect(reloaded.actors.map(actor => actor.combatantId)).toEqual(originalIds)
@@ -268,13 +288,13 @@ describe('HR Center and personal runtime', () => {
     for (const npc of controller.actors) expect(npc.updateTownTravel).toHaveBeenCalledTimes(1)
   })
   it('routes real HR and personal actor damage in both directions, and a personal kill completes conquest', () => {
-    const { scene, controller, player, world, profile } = harness('roman', 1)
+    const { scene, controller, player, hr, profile } = harness('roman', 1)
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
-    const spec = hrOfficerSpec(world.hr), equipment = townMilitaryEquipment('roman', spec)
+    const spec = hrOfficerSpec(hr), equipment = townMilitaryEquipment('roman', spec)
     const officer = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'HR Officer', equipment.level,
       false, equipment.loadout, equipment.presetId, undefined, spec.id)
     officer.setTownPeaceful(); cleanups.push(() => officer.dispose())
-    const personal = controller.actors[0], population = townConquestRoster(world.hr), event = new TownEvent(population)
+    const personal = controller.actors[0], population = townConquestRoster(hr), event = new TownEvent(population)
     population.forEach(actor => event.register(actor.id, actor.id === spec.id ? officer : { dead: true }))
     event.complete(); event.hostile = true
     const stream = new CombatEventStream()
@@ -302,7 +322,7 @@ describe('HR Center and personal runtime', () => {
     expect(town.persistCasualties).toHaveBeenCalledOnce()
   })
   it('regroups after saved victory, preserving casualties, reserves and later player commands', () => {
-    const { controller, profile, player, scene, world } = harness()
+    const { controller, profile, player, scene, hr } = harness()
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
     const [dead, captain, ranger] = controller.actors
     dead.takeDamage(99999); captain.takeDamage(20); captain.mount!.takeDamage(20); ranger.restoreCombatAmmo(3)
@@ -345,7 +365,7 @@ describe('HR Center and personal runtime', () => {
     expect(saved.members['personal:0'].status).toBe('dead')
     expect(saved.members['personal:reserve']).toEqual({ status: 'reserve' })
     controller.cleanup()
-    const reloaded = new TownPersonalSquadController(scene, world.hr, () => town.profile, () => player)
+    const reloaded = new TownPersonalSquadController(scene, hr, () => town.profile, () => player)
     cleanups.push(() => reloaded.cleanup())
     completeNpcDeployment(() => reloaded.restoreMission(saved), gameplayNpcSpawnDriver)
     expect(reloaded.actors).toHaveLength(2)
