@@ -111,17 +111,65 @@ test('publication during a retry is detected before any subsequent mutation', as
   assert.deepEqual(await publishRelease(client, tag, paths), { changed: false })
   assert.deepEqual(client.calls, [])
 })
-test('only an explicit HTTP 404 is treated as an absent release', () => {
+test('tag and draft lookup API failures never mean an absent release', () => {
   for (const status of [401, 403, 429, 500]) {
     const error = Object.assign(new Error('API failed'), { stderr: `gh: failure (HTTP ${status})` })
     const client = createGhClient('owner/repo', tag, () => { throw error })
     assert.throws(() => client.read(), error)
+    const drafts = createGhClient('owner/repo', tag, args => {
+      if (args[1].includes('/tags/')) {
+        throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
+      }
+      throw error
+    })
+    assert.throws(() => drafts.read(), error)
   }
-  const client = createGhClient('owner/repo', tag, () => {
-    throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
+  const client = createGhClient('owner/repo', tag, args => {
+    if (args[1].includes('/tags/')) {
+      throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
+    }
+    return '[[]]'
   })
   assert.equal(client.read(), null)
   assert.throws(() => createGhClient('owner/repo', tag, () => 'not JSON').read(), SyntaxError)
+})
+test('a newly created draft is found across release pages and published with both downloads', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'sagaburst-release-test-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const localPaths = names.map(name => join(dir, name))
+  for (const path of localPaths) writeFileSync(path, 'PK-test')
+  let current = null
+  const mutations = []
+  const client = createGhClient('owner/repo', tag, args => {
+    if (args[0] === 'api') {
+      if (args[1].includes('/tags/')) {
+        if (current && !current.draft) return JSON.stringify(current)
+        throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
+      }
+      return JSON.stringify([[{ ...release(false), tag_name: 'v9.9.9' }], current ? [current] : []])
+    }
+    mutations.push(args[1])
+    if (args[1] === 'create') current = release(true, [])
+    if (args[1] === 'upload') current.assets.push(asset(basename(args[3])))
+    if (args[1] === 'edit') {
+      assert.deepEqual(current.assets.map(a => a.name), names)
+      current.draft = false
+    }
+    return ''
+  })
+  assert.deepEqual(await publishRelease(client, tag, localPaths), { changed: true })
+  assert.deepEqual(current, release(false))
+  assert.deepEqual(mutations, ['create', 'upload', 'upload', 'edit'])
+})
+test('duplicate drafts for the same tag fail before any mutation', async () => {
+  const client = createGhClient('owner/repo', tag, args => {
+    assert.equal(args[0], 'api')
+    if (args[1].includes('/tags/')) {
+      throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
+    }
+    return JSON.stringify([[release(true)], [release(true)]])
+  })
+  await assert.rejects(publishRelease(client, tag, paths), /Duplicate release/)
 })
 test('GitHub commands create a verified draft and upload without overwrite', t => {
   const dir = mkdtempSync(join(tmpdir(), 'sagaburst-release-test-'))
