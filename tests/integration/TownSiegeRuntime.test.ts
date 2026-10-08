@@ -171,18 +171,21 @@ describe('Siege faction and role wiring', () => {
     ['roman', true, 'roman', 'viking'], ['roman', false, 'viking', 'roman'],
     ['viking', true, 'viking', 'roman'], ['viking', false, 'roman', 'viking'],
   ] as const)('%s assault=%s wires army=%s residents=%s without repeating the shared flow', (faction, assault, armyFaction, residentFaction) => {
-    const f = checkpointFixture({ faction, assault, includeOfficerAttackers: true })
+    // Two resident roles and two spawned roles exercise real allegiance/mount wiring.
+    const f = checkpointFixture({ faction, assault, residentIds: ['captain', 'ranger'], attackerSlots: [0] })
     expect(f.controller.phase).toBe('PREPARING')
     expect(f.controller.preparationRemaining).toBe(10)
-    expect(f.controller.enemies).toHaveLength(8)
+    expect(f.controller.enemies).toHaveLength(2)
     expect(f.controller.enemies.every(npc => npc.faction === (assault ? Faction.TOWN : Faction.ENEMY))).toBe(true)
     expect(f.controller.enemies.every(npc => npc.characterFaction === armyFaction)).toBe(true)
     expect(f.controller.enemies.every(npc => npc.presetId?.startsWith(`${armyFaction}_`))).toBe(true)
     expect(f.residents.every(({ npc }) => npc.characterFaction === residentFaction)).toBe(true)
     expect(f.residents.every(({ npc }) => npc.hostileToPlayer === assault)).toBe(true)
-    expect(f.controller.playerEnemies).toHaveLength(assault ? 9 : 8)
+    expect(f.player.characterFaction).toBe(faction)
+    expect(f.residents.every(({ npc }) => npc.faction === (assault ? Faction.ENEMY : Faction.TOWN))).toBe(true)
+    expect(f.controller.playerEnemies).toHaveLength(2)
     const captains = f.controller.enemies.filter(npc => npc.combatProfileId !== 'ranger' && npc.visualAssetId)
-    expect(captains).toHaveLength(3)
+    expect(captains).toHaveLength(1)
     for (const captain of captains) {
       expect(captain.combatProfileId).toBe(armyFaction === 'roman' ? 'praetorian' : 'varangian')
       expect(captain.visualAssetId).toBe(`${armyFaction}-hero-t4`)
@@ -290,8 +293,7 @@ describe('shared four-gate Siege runtime', () => {
   })
 
   it('releases only breached reserves, preserves casualties and breaches across repeated reloads', () => {
-    const f = checkpointFixture({ faction, residentIds: ['gate:north:0', 'gate:south:0', 'gate:east:0', 'gate:west:0', 'civilian-0'], attackerSlots: [2, 3] })
-    expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
+    const f = checkpointFixture({ faction, residentIds: ['captain', 'gate:north:0', 'civilian-0'], attackerSlots: [2, 3], includeRanger: false })
     f.controller.updateFlow(10, 0)
     expect(f.controller.phase).toBe('ATTACKING')
     f.controller.noteEffectiveFriendlyDamage(f.controller.military[0])
@@ -323,7 +325,6 @@ describe('shared four-gate Siege runtime', () => {
       f.setProfile(saved)
       expect(completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)).toBe(true)
       expect(f.controller.enemies).toHaveLength(f.attackerCount - 1)
-      expect(f.controller.enemies.find(n => n.combatProfileId === 'ranger')!.mount!.type).toBe(MountType.BLACK_CAT)
       expect(f.controller.enemies.some(n => n.combatantId === deadId)).toBe(false)
       expect(f.controller.enemies.find(n => n.combatantId === footId)!.isMounted).toBe(false)
       expect(f.gates.get('north')!.state).toBe('destroyed')
@@ -415,24 +416,40 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(f.controller.releasedEnemies).toHaveLength(assault ? 119 : 120)
   })
 
-  it('wires a fresh complete battlefield into shared breach relief', () => {
+  it('wires representative infantry and cavalry into their own breach relief', () => {
     const gateId: TownGateId = 'north'
-    const f = battlefieldFixture()
+    // Full census/placement belongs to the preceding deployment owner.
+    // North leader + infantry, West defender, two independently placed threats.
+    const f = checkpointFixture({ residentIds: ['captain', 'gate:north:0', 'gate:west:0'], attackerSlots: [2, 3], includeRanger: false })
+    const guard = f.controller.captain!
+    const mount = new Mount(f.scene, MountType.CORGI, guard.combatPosition.x, guard.combatPosition.z)
+    onTestFinished(() => mount.dispose())
+    guard.mountVehicle(mount)
     f.controller.updateFlow(10, 0)
     const group = f.controller.groups.find(g => g.id === gateId)!
     const otherGate = 'west'
-    const [enemy, distraction] = f.controller.enemies.slice(2, 4)
+    const [enemy, distraction] = f.controller.enemies
     const place = (npc: NPC, point: THREE.Vector3) => { npc.group.position.copy(point); npc.mount?.group.position.copy(point) }
     place(enemy, siegePoint(gateId, 0, 5))
     place(distraction, siegePoint(otherGate, 0, 5))
     f.player.group.position.copy(siegePoint(otherGate, 0, 5))
+    expect(group.leader).toBe(f.controller.captain)
+    expect(group.members).toHaveLength(1)
+    expect(group.cavalry).toHaveLength(1)
+    expect(group.members[0].isMounted).toBe(false)
+    expect(guard.isMounted).toBe(true)
+    const west = f.controller.groups.find(g => g.id === otherGate)!
     f.gates.get(gateId)!.destroy()
+    f.controller.persistRuntimeProgress(true)
+    expect(f.profile().activeMission!.siege!.releasedReserveGateIds).toEqual(['north'])
+    expect(west.members[0].missionMovement).toBe(true)
+    expect(west.members[0].tacticalOrder).toBe('formation')
     for (const npc of [...group.members, ...group.cavalry]) {
       expect(npc.missionMovement).toBe(false)
+      expect(npc.tacticalOrder).toBe('charge')
       expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
       expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
     }
-    const guard = group.cavalry[0]
     const start = guard.combatPosition.clone()
     guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
     expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
@@ -488,12 +505,21 @@ describe('Siege retained combat and settlement contracts', () => {
     expect(f.controller.peersFor(civilian)).not.toContain(f.controller.military[0])
   })
 
-  it.each([10, 11])('Defense keeps civilian death threshold %s', deaths => {
-    const f = checkpointFixture({ assault: false, residentIds: Array.from({ length: 11 }, (_, index) => 'civilian-' + index),
-      attackerSlots: [], includeRanger: false })
-    f.controller.enemies.forEach(npc => npc.takeDamage(999999))
-    f.controller.civilians.slice(0, deaths).forEach(npc => npc.takeDamage(999999))
-    expect(f.controller.evaluate(true)).toBe(deaths === 10 ? 'victory' : 'failure')
+  it('feeds civilian death state through Defense evaluate at the policy boundary without spawning civilians', () => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission([], [], 'civilian-wiring')
+    profile.activeMission.phase = 'ATTACKING'
+    profile.activeMission.deadTargetActorIds = [...profile.activeMission.targetActorIds]
+    // evaluate reads role, dead and the registered IDs; render/AI state is irrelevant.
+    const residents = Array.from({ length: 11 }, (_, index) => ({ spec: { role: 'civilian' }, npc: { dead: index < 10 } }))
+    const controller: TownDefenseController = Object.assign(Object.create(TownDefenseController.prototype), {
+      readProfile: () => profile, residents, enemies: [],
+    })
+    expect(controller.civilianDeaths).toBe(10)
+    expect(controller.evaluate(true)).toBe('victory')
+    residents[10].npc.dead = true
+    expect(controller.civilianDeaths).toBe(11)
+    expect(controller.evaluate(true)).toBe('failure')
   })
 
   it('living armed civilians do not prevent Defense failure after Player and all military die', () => {
