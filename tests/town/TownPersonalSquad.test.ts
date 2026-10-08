@@ -1,3 +1,6 @@
+import { advanceUntil } from '../helpers/simulation'
+import { eagleLandingFootprint } from '../../src/world/EagleLanding'
+import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
 import { completeNpcDeployment, drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { initialPersonalEquipment } from '../../src/career/CareerInventory'
@@ -24,6 +27,7 @@ import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMis
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
 
+vi.mock('../../src/world/XongkoroVisual', async () => ({ XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble }))
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
   ready: true, createInstance: () => {
     const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
@@ -86,6 +90,18 @@ describe('HR Center and personal runtime', () => {
     for (const building of world.buildings.filter(building => building !== hr)) for (const obstacle of building.obstacles) {
       expect(obstacle.box.intersectsBox(hr.obstacles[0].box), building.id).toBe(false)
     }
+    const eagle = world.eagleTraining
+    expect(eagle.pads.length).toBe(30)
+    const trainer = eagleTrainerSpec(eagle)
+    expect(trainer).toMatchObject({ id: 'eagle-trainer', role: 'eagle-trainer', tier: 4, mounted: false })
+    expect(townConquestRoster(world.hr, undefined, eagle).filter(spec => spec.id === 'eagle-trainer')).toHaveLength(1)
+    expect(townAssaultObjectiveRoster([trainer]).map(spec => spec.id)).toEqual(['eagle-trainer'])
+    expect(navigation.areConnected(eagle.trainer, world.hr.officer)).toBe(true)
+    for (const pad of eagle.pads) {
+      const footprint = eagleLandingFootprint(pad)
+      expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(footprint))).toBe(false)
+      expect(navigation.areConnected(pad, world.hr.officer)).toBe(true)
+    }
     const actor = hrOfficerSpec(world.hr)
     expect(actor).toMatchObject({ id: 'hr-officer', duty: 'service', tier: 4, mounted: true, assaultObjective: false })
     expect(isTownMilitary(actor)).toBe(false); expect(townAssaultObjectiveRoster([actor])).toHaveLength(0)
@@ -99,6 +115,39 @@ describe('HR Center and personal runtime', () => {
     for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) expect(Math.hypot(world.hr.muster[i].x - world.hr.muster[j].x, world.hr.muster[i].z - world.hr.muster[j].z)).toBeGreaterThanOrEqual(4.4)
     expect(() => resolveTownHRLayout(faction, [{ box: new THREE.Box3(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500)), isBarricade: false }], world.roads)).toThrow()
   })
+  it.each(['normal landing', 'shot down during return'] as const)('walks one Captain from HR to the outdoor eagle, then returns on foot before refit after %s', returnKind => {
+    // Real actors: one NPC + one Mount, render-only visual double, zero TownWorld/GLBs.
+    const scene = renderingScene(), hr = resolveTownHRLayout('roman', [], [])
+    const pad = { x: hr.muster[0].x + 28, z: hr.muster[0].z, yaw: 0 }
+    const profile = { ...createCareerProfile('roman'), rank: 'captain' as const, personalSquad: { members: [{ id: 'personal:eagle', type: 'captain' as const,
+      equipment: { melee: 'centurion_blade', ranged: null, shield: 'scutum_t3', mount: 'xongkoro' as const } }] } }
+    const player = { group: new THREE.Group(), get combatPosition() { return this.group.position }, dead: false } as Player
+    player.group.position.set(pad.x + 30, 20, pad.z + 30)
+    const controller = new TownPersonalSquadController(scene, hr, () => profile, () => player, undefined, { eagleMuster: [pad] })
+    cleanups.push(() => controller.cleanup())
+    const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync([])
+    const step = () => { navigation.beginFrame(); for (const actor of controller.actors) actor.updateTownTravel(.05, 30, controller.actors, [], navigation); controller.updateLifecycle() }
+    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
+    const actor = controller.actors[0], eagle = controller.mounts[0]
+    expect(actor.mount).toBeNull(); expect(eagle.group.position.x).toBe(pad.x)
+    expect(eagle.group.rotation.y).toBe(pad.yaw)
+    expect(actor.group.position.x).toBe(hr.muster[0].x)
+    advanceUntil(() => actor.mount === eagle, step, { maxSimulationSeconds: 60, secondsPerStep: .05, failureMessage: 'Captain walking from HR to xongkoro boarding pad' })
+    actor.takeDamage(10); const woundedHp = actor.hp
+    advanceUntil(() => eagle.isAirborne, step, { maxSimulationSeconds: 10, secondsPerStep: .05, failureMessage: 'xongkoro follows Player after boarding' })
+    expect(controller.dismiss()).toBe(true)
+    expect(actor.hp).toBe(woundedHp); expect(controller.state).toBe('RETURNING')
+    if (returnKind === 'shot down during return') {
+      eagle.takeDamage(200)
+      expect(actor.isFalling).toBe(true)
+      controller.updateLifecycle()
+      expect(controller.state).toBe('RETURNING')
+      expect(actor.hp).toBe(woundedHp)
+    }
+    advanceUntil(() => controller.state === 'RESERVE', step, { maxSimulationSeconds: 180, secondsPerStep: .05, failureMessage: 'xongkoro lands before Captain walks to HR' })
+    expect(controller.actors).toHaveLength(0); expect(controller.mounts).toHaveLength(0)
+  })
+
   it('spawns actual Roman T2/T4 NPCs at HR and walks to a distant Player', () => {
     const { controller, hr, player, step } = harness('roman')
     expect(controller.actors).toHaveLength(0); expect(controller.state).toBe('RESERVE')

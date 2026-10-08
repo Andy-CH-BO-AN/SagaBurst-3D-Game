@@ -9,7 +9,7 @@ describe('Mounted NPC tactical movement', () => {
     onTestFinished(() => rider.dispose())
   // Movement-only boundary: this records speed and displacement, without a real Mount.
   const movement = vi.fn((direction: THREE.Vector3, speed: number, dt: number) => { rider.mount!.group.position.addScaledVector(direction, speed * dt) })
-  rider.mount = { group: new THREE.Group(), baseSpeed: 12, dead: false, addControlledMovement: movement } as unknown as NPC['mount']
+  rider.mount = { group: new THREE.Group(), baseSpeed: 12, dead: false, addControlledMovement: movement, releaseRider() {} } as unknown as NPC['mount']
   rider.assignFormationTarget(1, new THREE.Vector3(0, 0, 100), new THREE.Vector3(0, 0, 1), 12)
   const internal = rider as unknown as { _updateFormationMovement: (dt: number, peers: NPC[], obstacles: never[], skip: boolean, navigation: null) => void }
   internal._updateFormationMovement(.1, [], [], true, null)

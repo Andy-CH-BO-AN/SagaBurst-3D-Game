@@ -5,24 +5,28 @@ import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentU
 import type { Player } from '../player/Player'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
-import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { findEagleLandingPosition } from '../world/EagleLanding'
+import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 
 const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
   horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },
   corgi: { id: 'corgi', name: '柯基英雄坐騎', tier: 4 },
+  xongkoro: { id: 'xongkoro', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4 },
 }
 
 export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): CareerMountId[] {
   const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
   if (profile.ownedMounts.includes('corgi')) result.push('corgi')
+  if (profile.ownedMounts.includes('xongkoro')) result.push('xongkoro')
   return result
 }
 
 export function careerMountType(id: CareerMountId): MountType {
   if (id === 'black-cat') return MountType.BLACK_CAT
   if (id === 'corgi') return MountType.CORGI
+  if (id === 'xongkoro') return MountType.XONGKORO
   return MountType.HORSE
 }
 
@@ -81,6 +85,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly commit: (profile: CareerProfile) => boolean,
     private readonly obstacles: () => readonly ObstacleData[],
     private readonly occupied: () => readonly THREE.Vector3[],
+    private readonly sceneKey: () => string = () => 'town-home',
   ) {
     const state = this.readProfile().activeMission?.mountState
     if (!state) return
@@ -109,6 +114,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   activate(rawId: string): boolean {
+    if (this.player().isFalling || this.player().currentMount?.isAirborne) return this.fail('請先安全降落，再召喚或切換坐騎。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const config = MOUNTS[id]
     const profile = this.readProfile()
@@ -116,17 +122,17 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!canUseCareerMount(profile, id)) return this.fail('目前軍階不能使用這匹坐騎。')
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
     if (this.active?.id === id && !this.active.mount.dead) {
-      if (!this.player().isMounted) this.player().mountVehicle(this.active.mount)
+      if (!this.player().isMounted) this.player().mountVehicle(this.active.mount, id === 'xongkoro' ? this.active.mount.group.rotation.y : undefined)
       this.persistOutingState(id)
       this.statusText = `${config.name}已騎乘。`
       return true
     }
 
-    const position = findSafeCareerMountPosition(
-      this.player().combatPosition,
-      this.obstacles(),
-      this.occupied().filter(point => point !== this.active?.mount.group.position),
-    )
+    const occupied = this.occupied().filter(point => point !== this.active?.mount.group.position)
+    const heading = this.player().facingYaw
+    const position = id === 'xongkoro'
+      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), occupied, getScenePlayableWorldBound(this.scene))
+      : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), occupied)
     if (!position) return this.fail('附近空間不足，請移到較空曠的位置。')
 
     const previous = this.active
@@ -149,28 +155,36 @@ export class CareerMountController implements EquipmentMountAdapter {
 
     if (previous) this.removeMountVisual(previous)
     this.active = { id, mount }
-    this.player().mountVehicle(mount)
+    this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
     this.statusText = `${config.name}已騎乘。`
     return true
   }
 
   restoreActiveMount(): boolean {
     const profile = this.readProfile()
-    const savedId = profile.activeMission?.mountState?.activeMountId
+    const aerial = profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
+    if (aerial?.fall) return false
+    const savedId = profile.activeMission?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
-    const position = findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
+    const heading = aerial?.mount?.position.yaw ?? this.player().facingYaw
+    const position = id === 'xongkoro' && aerial?.mount
+      ? new THREE.Vector3(aerial.mount.position.x, aerial.mount.position.y, aerial.mount.position.z)
+      : id === 'xongkoro'
+      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), this.occupied(), getScenePlayableWorldBound(this.scene))
+      : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    this.player().mountVehicle(mount)
+    this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }
 
   dismiss(): boolean {
+    if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再收起坐騎。')
     if (!this.active) return false
     const entry = this.active
     this.hp.set(entry.id, entry.mount.currentHp)
@@ -182,6 +196,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   release(rawId: string): boolean {
+    if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再解除坐騎分配。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const next = cloneCareerProfile(this.readProfile())
     if (next.selectedMountId !== id) return false
@@ -197,7 +212,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const active = this.active
     if (!active) return
     active.mount.setCameraDistance(active.mount.group.position.distanceTo(this.player().position))
-    if (active.mount.dead) active.mount.update(dt, this.obstacles() as ObstacleData[])
+    if (active.mount.dead || active.mount.isFlyingMount && !active.mount.riderNpc && !active.mount.riderPlayer) active.mount.update(dt, this.obstacles() as ObstacleData[])
     if (this.hp.get(active.id) !== active.mount.currentHp) {
       this.hp.set(active.id, active.mount.currentHp)
       this.persistOutingState(active.id)

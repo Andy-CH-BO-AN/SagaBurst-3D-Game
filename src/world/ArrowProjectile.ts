@@ -279,7 +279,7 @@ export class ArrowProjectile {
     for (const mount of mounts) {
       if (mount.dead || mount.disposed || (this.isPlayerFired && mount === player.currentMount)
         || (mount.riderNpc && mount.riderNpc.combatantId === this.attribution?.source.actorId)
-        || mount.group.position.distanceToSquared(this.previousPosition) > broadRadius * broadRadius) continue
+        || mount.group.position.distanceToSquared(this.previousPosition) > (broadRadius + mount.combatRadius) ** 2) continue
       if (traceCombatSegment(mount, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
         nearest = this.contact.time; hitMount = mount; hitNpc = undefined; hitPlayer = false; hitObstacle = undefined
         Object.assign(this.bestContact, this.contact)

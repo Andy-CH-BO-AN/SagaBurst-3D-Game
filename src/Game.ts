@@ -1,3 +1,5 @@
+import { findEagleLandingPosition } from './world/EagleLanding'
+import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from './world/NpcSpawnScheduler'
 /**
  * Game.ts
@@ -8,6 +10,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { BlackCatVisual } from './world/BlackCatVisual'
+import { XongkoroVisual } from './world/XongkoroVisual'
+import { XONGKORO } from './movement/XongkoroConfig'
 import { MountStudioSeatContact } from './debug/MountStudioSeatContact'
 import {
   createSky,
@@ -190,6 +194,7 @@ import { DefenseCampaignHUD } from './ui/DefenseCampaignHUD'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { HeroMountTrialUI } from './ui/HeroMountTrialUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
+import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
@@ -365,7 +370,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload()])
+      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       for (const member of personalMembers) {
         const hero = personalMemberLoadout(member, personalProfile!.faction).hero
@@ -594,9 +599,8 @@ export class Game {
     target.copy(this._aimRaycaster.ray.origin).addScaledVector(this._tmpCameraDir, 100)
     this._aimRaycaster.far = 100
     const intersections = this._aimRaycaster.intersectObjects(this._aimTargetRegistry.targets, false)
-    if (intersections.length > 0) {
-      return target.copy(intersections[0].point)
-    }
+    const hit = intersections.find(hit => !this.player.currentMount?.aimColliders.some(collider => collider === hit.object))
+    if (hit) return target.copy(hit.point)
     return target
   }
 
@@ -640,6 +644,7 @@ export class Game {
         this.veteranOutpostCheckpoint = new CareerMissionCheckpoint(
           () => this.careerStore.loadChecked().profile ?? this.careerProfile!,
           profile => {
+            if (this.player) profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${campaignConfig.careerMissionId}`)
             const saved = this.careerStore.save(profile)
             if (saved) this.careerProfile = profile
             return saved
@@ -1027,10 +1032,16 @@ export class Game {
         campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
+      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
+      const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
+      if (startingHorse.isFlyingMount) {
+        const landing = findEagleLandingPosition({ ...playerSpawn, yaw: mountHeading }, this.obstacles, [], 300, 140)
+        if (!landing) { startingHorse.dispose(); throw new Error('找不到 xongkoro 可安全起降的出生位置') }
+        startingHorse.group.position.copy(landing)
+      }
       this.mounts.push(startingHorse)
       this.player.faceDirection(0, isRoman ? 1 : -1)
-      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
-      this._mountPlayer(startingHorse, reliefHeading)
+      this._mountPlayer(startingHorse, startingHorse.isFlyingMount ? mountHeading : reliefHeading)
       if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isRoman ? 0 : Math.PI)
     }
     
@@ -1039,6 +1050,7 @@ export class Game {
     // ── RPG Systems & Inventory ──
     this.staminaBar       = new StaminaBar()
     this.hpBar            = new HpBar()
+    this.player.setDamageHud(this.hpBar)
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
@@ -1780,7 +1792,7 @@ export class Game {
 
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {
     const mission = this.careerProfile?.activeOutpostMission
-    if (!mission?.personalSquad) return
+    if (!mission) return
     plan.npcSpecs.forEach((spec, index) => { spec.actorId = `${mission.id}:${wave}:${index}` })
   }
 
@@ -1815,7 +1827,7 @@ export class Game {
 
   private async _restorePersonalOutpostActors(progress: (text: string) => void): Promise<void> {
     const mission = this.careerProfile?.activeOutpostMission, saved = mission?.battle
-    if (!mission?.personalSquad || !saved) return
+    if (!mission || !saved) return
     this.campaignAttackersStarted = saved.attackersStarted
     this.campaignReinforcementSpawned = saved.reinforcementsSpawned
     const gate = this.previewCampaignGate
@@ -1868,7 +1880,10 @@ export class Game {
       saved.memberIds.length + 1, bounds, this.obstacles, this.navigationWorld, true)
       : [anchor, ...saved.memberIds.map(id => saved.members[id]?.position ?? anchor)]
     if (changedScene) {
-      const point = slots[0]
+      const point = this.player.currentMount?.isFlyingMount
+        ? findEagleLandingPosition({ ...slots[0], yaw }, this.obstacles, this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), 300, 150)
+        : slots[0]
+      if (!point) throw new Error('No clear xongkoro player deployment area near the Outpost')
       if (this.player.currentMount) {
         this.player.currentMount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
         this.player.currentMount.group.rotation.y = yaw
@@ -1878,8 +1893,20 @@ export class Game {
       this.player.spawnX = point.x; this.player.spawnZ = point.z
       this.thirdPersonCamera.setYaw(yaw + Math.PI)
     }
-    this.personalSquad = new PersonalSquadRuntime(this.scene, slots.slice(1), () => this.careerProfile!, () => this.player, undefined, {
-      sceneKey, hasHR: false,
+    const eagleMuster = slots.slice(1)
+    if (changedScene) {
+      const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
+      const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), this.player.combatPosition]
+      for (const [index, id] of saved.memberIds.entries()) {
+        if (owned.get(id)?.equipment?.mount !== 'xongkoro') continue
+        const position = findEagleLandingPosition({ ...(eagleMuster[index] ?? anchor), yaw }, this.obstacles, occupied, 300, 150)
+        if (!position) throw new Error('No clear xongkoro deployment area near the Outpost')
+        eagleMuster[index] = { x: position.x, z: position.z, yaw }
+        occupied.push(position)
+      }
+    }
+    this.personalSquad = new PersonalSquadRuntime(this.scene, eagleMuster, () => this.careerProfile!, () => this.player, undefined, {
+      sceneKey, hasHR: false, eagleMuster,
       formationSlots: (anchor, occupied, count) => personalRearDeployment(anchor, occupied, count,
         this.navigationWorld.grid, this.obstacles, this.navigationWorld),
       emit: this.combatEvents.emit,
@@ -1911,16 +1938,16 @@ export class Game {
     if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
     if (saved.shieldImpact !== undefined) this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
     if (saved.dead) { this.player.detachFromMountOnDeath(); this.player.takeDamage(this.player.maxHp * 100, this.hpBar) }
+    restoreCareerAerialState(this.player, this.startingHorse, this.careerProfile?.playerAerialState, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
   }
 
   private _persistPersonalOutpost(force = false, dt = 0): boolean {
     if (this.initializing || this.spawningStopped) return true
-    if (!this.personalSquad || !this.careerProfile) return true
-    const personal = this.personalSquad.checkpoint()
-    if (!personal) return true
+    if (!this.careerProfile || !this.defenseCampaignConfig?.careerMissionId) return true
+    const personal = this.personalSquad?.checkpoint()
     this.personalCheckpointElapsed += dt
-    const critical = JSON.stringify([personal.state, this.player.dead, this.campaignSpawnWave,
-      this.defenseCampaignRuntime?.getSnapshot().phase, personal.memberIds.map(id => {
+    const critical = JSON.stringify([personal?.state, this.player.dead, this.player.isFalling, this.player.currentMount?.dead, this.campaignSpawnWave,
+      this.defenseCampaignRuntime?.getSnapshot().phase, personal?.memberIds.map(id => {
         const actor = personal.members[id]
         return [actor.status, actor.order, actor.mount?.hp === 0, actor.formation?.commandId]
       })])
@@ -1933,8 +1960,9 @@ export class Game {
     const next = this.careerStore.loadChecked().profile
     const mission = next?.activeOutpostMission, runtime = this.defenseCampaignRuntime?.getSnapshot()
     if (!next || !mission || mission.id !== this.defenseCampaignConfig?.careerMissionId || !runtime) return false
-    personal.contribution = this.battleStats.commandCheckpoint()
+    if (personal) personal.contribution = this.battleStats.commandCheckpoint()
     mission.personalSquad = personal
+    next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
       runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
@@ -2194,6 +2222,7 @@ export class Game {
       this.player.detachFromMountOnDeath()
       this.player.takeDamage(this.player.maxHp * 100, this.hpBar)
     }
+    restoreCareerAerialState(this.player, this.startingHorse, this.careerProfile?.playerAerialState, `outpost:${campaign.careerMissionId}`)
     this.hpBar.setFill(this.player.hpRatio)
     this.staminaBar.setFill(this.player.staminaRatio)
   }
@@ -2297,7 +2326,7 @@ export class Game {
         this._showCareerOutpostSaveRetry(result)
         return
       }
-      if (!campaign.careerVeteranOutpost && this.personalSquad && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
+      if (!campaign.careerVeteranOutpost && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
       const fresh = this.careerStore.loadChecked().profile
       if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
       const claim = campaign.careerVeteranOutpost
@@ -2354,6 +2383,7 @@ export class Game {
 
   private _disposeCareerOutpostBattleActors(): void {
     this.spawningStopped = true
+    this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cleanup()
     for (const npc of this.npcs) { this._aimTargetRegistry?.unregisterNpc?.(npc); npc.dispose() }
@@ -2662,6 +2692,16 @@ export class Game {
   }
 
   // ── Keyboard Shortcuts ──
+  private _updatePlayerInputOwnership(): void {
+    if (this.equipmentUI.visible) {
+      this.input.clear()
+      this.player.clearTownAction()
+      return
+    }
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player'
+      && this.armyCommandController.update()) this.player.clearTownAction()
+  }
+
   private _setupShortcuts(): void {
     window.addEventListener('keydown', (e) => {
       if (this.previewCampaignGate && e.code === 'KeyG'
@@ -2673,7 +2713,10 @@ export class Game {
 
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
-        if (this.player.dead || this.controlMode === 'spectator') return
+        if (e.repeat || this.player.dead || this.controlMode === 'spectator') return
+        this.input.clear()
+        this.player.clearTownAction()
+        this.armyCommandController.close()
         this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
           this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
         })
@@ -2688,6 +2731,8 @@ export class Game {
       if (e.code === 'Escape') {
         if (this.equipmentUI.visible) {
           e.preventDefault()
+          this.input.clear()
+          this.player.clearTownAction()
           this.equipmentUI.close()
           this.input.requestPointerLock()
         }
@@ -2776,6 +2821,7 @@ export class Game {
     const inv = this.inventoryManager.saveState
 
     const ok = this.saveManager.save({
+      falling: this.player.isFalling ? this.player.fallSnapshot : undefined,
       position: { x: pos.x, y: pos.y, z: pos.z },
       hp: this.player.hp,
       stamina: this.player.staminaValue,
@@ -2791,6 +2837,8 @@ export class Game {
       mountData: this.player.isMounted && this.player.currentMount ? {
         isMounted: true,
         type: this.player.currentMount.type,
+        hp: this.player.currentMount.currentHp,
+        flight: this.player.currentMount.flight?.snapshot(),
         appearanceVariant: this.player.currentMount.type === MountType.HORSE
           ? this.player.currentMount.appearanceVariant
           : undefined,
@@ -2807,6 +2855,10 @@ export class Game {
   _loadGame(): void {
     if (this.defenseCampaignConfig?.careerMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
+    if (this.player.isFalling || this.player.currentMount?.isAirborne) {
+      this._showNotify('請先安全降落再讀檔。')
+      return
+    }
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
       return
@@ -2857,9 +2909,16 @@ export class Game {
 
     if (newMountToLoad) {
       this._mountPlayer(newMountToLoad)
+      if (data.mountData?.hp !== undefined) newMountToLoad.currentHp = Math.max(0, Math.min(newMountToLoad.maxHp, data.mountData.hp))
+      if (data.mountData?.flight && newMountToLoad.flight) {
+        newMountToLoad.flight.restore(data.mountData.flight)
+        newMountToLoad.group.rotation.set(-newMountToLoad.flight.pitch, newMountToLoad.flight.yaw, newMountToLoad.flight.bank, 'YXZ')
+        this.player.syncMountTransform()
+      }
     } else {
       this.mountHud.classList.remove('visible')
     }
+    if (data.falling) this.player.restorePendingFall(data.falling)
 
     this._showNotify('📂 讀檔成功（還原背包與裝備）')
   }
@@ -2867,6 +2926,7 @@ export class Game {
   private _mountPlayer(mount: Mount, initialHeading?: number): void {
     this._aimTargetRegistry.unregisterMount(mount)
     this.player.mountVehicle(mount, initialHeading)
+    if (mount.isFlyingMount && this.controlsHint) this.controlsHint.textContent = 'xongkoro · 滑鼠轉向 · W 起飛 · S 減速／低空降落 · A/D 側傾轉彎 · Shift 衝刺 · 左鍵鷹擊 · 右鍵遠程瞄準 · E 卸乘'
 
     this.mountNameEl.textContent = `坐騎：${mount.displayName}`
     this.mountHpFill.style.width = `${Math.max(0, (mount.currentHp / mount.maxHp) * 100)}%`
@@ -2894,6 +2954,9 @@ export class Game {
 
   private _enterSpectatorMode(reason: 'death' | 'initial' = 'death'): void {
     if (this.controlMode === 'spectator') return
+    this.input.clear()
+    this.player.clearTownAction()
+    this.armyCommandController.close()
     this.controlMode = 'spectator'
     this._spectatorReason = reason
     this.careerOutpostDefenseGuide?.hide()
@@ -3025,6 +3088,24 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
+    const eagle = this.player.currentMount
+    if (eagle?.isFlyingMount && !this.player.dead) {
+      if (!eagle.eagleAttack?.active) return
+      const targets = this.npcs.filter(npc => !npc.dead && npc.faction !== this.player.faction)
+      for (const contact of eagle.traceEagleAttack(targets, this.mounts, this.obstacles)) {
+        const target = contact.target as NPC | Mount
+        const context = { source: createPlayerCombatActorRef(this.player), method: 'melee' as const,
+          attackSource: 'xongkoro' as const, contact, emit: this.combatEvents.emit }
+        const amount = XONGKORO.attackDamage * this.skillManager.getMountedImpactMultiplier()
+        const result = contact.kind === 'mount' && contact.mount
+          ? damageMount(contact.mount, amount, context) : damageNpc(target as NPC, amount, context)
+        if (result.hitSuccess) {
+          this.damageNumbers.spawn(result.appliedDamage, target.group.position)
+          this._showEnemyHud(result.targetName, result.hpRatio)
+        }
+      }
+      return
+    }
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) return
     const equippedMelee = this.inventoryManager.equippedMelee
     if (!this.player.isHitFrame(equippedMelee)) {
@@ -3094,6 +3175,7 @@ export class Game {
       })
     }
     this.soundManager.updateHorseGallopLoops(gallopCandidates)
+    updateEagleWingbeatAudio(this.soundManager, this.mounts, this.camera.position, this.player.currentMount)
 
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
       this.pickupPromptEl.classList.remove('visible')
@@ -3181,7 +3263,7 @@ export class Game {
     const bodies: EntityCollisionBody[] = []
     const controlledMount = this.player.isMounted ? this.player.currentMount : null
 
-    if (this.player.spectatorOnly) {
+    if (this.player.spectatorOnly || this.player.isFalling || controlledMount?.isFlyingMount) {
       // Exclude non-participant spectator player from physical collision
     } else if (controlledMount) {
       bodies.push({
@@ -3201,7 +3283,7 @@ export class Game {
     }
 
     for (const npc of this.npcs) {
-      if (npc.dead) continue
+      if (npc.dead || npc.isFalling) continue
       if (npc.isMounted) continue
       bodies.push({
         position: npc.position,
@@ -3212,7 +3294,7 @@ export class Game {
     }
 
     for (const mount of this.mounts) {
-      if (mount === controlledMount) continue
+      if (mount === controlledMount || mount.isFlyingMount) continue
       bodies.push({
         position: mount.group.position,
         radius: 1.0,
@@ -3296,12 +3378,15 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
     if (this.heroMountTrialUI?.visible) {
+      this.soundManager.updateEagleWingbeats([])
       this.input.clear()
+      this.player.clearTownAction()
       this.renderer.render(this.scene, this.camera)
       return
     }
 
     if (import.meta.env.DEV && this._isSimulationFrozen) {
+      this.soundManager.updateEagleWingbeats([])
       if (profile) t0 = performance.now()
       this.renderer.render(this.scene, this.camera)
       const renderSubmitMs = profile ? performance.now() - t0 : 0
@@ -3336,6 +3421,9 @@ export class Game {
       } else instance.update(dt, instance.root.position.distanceTo(this.camera.position))
     }
 
+    // UI owns complete gestures before camera/player consume this frame's input.
+    this._updatePlayerInputOwnership()
+
     // Camera update based on controlMode / studio
     if (this.studioControls) {
       this.studioControls.update()
@@ -3354,9 +3442,6 @@ export class Game {
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible) {
-      this.armyCommandController.update()
-    }
     this.weaponWheelUI.update(this.inventoryManager, !this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible, this.armyCommandController.wheelMode)
 
     // Update Player logic (Player handles dead state internally without processing inputs)

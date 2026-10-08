@@ -1,4 +1,5 @@
 import type { CareerProfile } from '../career/CareerProfile'
+import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { availableCareerItem, careerItemTotal, careerItemTotals, initialPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { canRecruitPersonalSquad, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -42,9 +43,9 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         if (canRemove || !equipment[slot]) select.add(new Option('None', ''))
         for (const id of Object.keys(careerItemTotals(profile))) {
           const item = WEAPONS[id] ?? ARMORS[id]
-          const fits = slot === 'mount' ? ['horse', 'black-cat', 'corgi'].includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
+          const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
           if (!fits || !availableCareerItem(profile, id) && equipment[slot] !== id) continue
-          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat' } as Record<string, string>)[id]
+          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat', xongkoro: 'xongkoro' } as Record<string, string>)[id]
           select.add(new Option(`${name} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}`, id))
         }
         select.value = equipment[slot] ?? ''; select.disabled = currentState !== 'RESERVE'

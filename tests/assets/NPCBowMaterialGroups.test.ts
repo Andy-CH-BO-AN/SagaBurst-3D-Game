@@ -56,7 +56,7 @@ describe('NPC bow material ranges', () => {
   }
 
   it('opts in NPC Viking archers across tiers; shared builders stay unchanged', () => {
-    for (const tier of [1, 2, 3]) {
+    for (const tier of [1, 2, 3] as const) {
       const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'bow', tier, false)
       expect(stave(npc.group).geometry.groups).toHaveLength(3)
     }

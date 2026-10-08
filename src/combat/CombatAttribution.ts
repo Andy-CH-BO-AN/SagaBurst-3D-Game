@@ -8,7 +8,8 @@ import type { Faction, NPC } from '../world/NPC'
 
 export type CombatActorType = 'player' | 'npc'
 export type CombatTargetType = CombatActorType | 'mount' | 'structure'
-export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege'
+export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege' | 'fall'
+export type CombatAttackSource = 'xongkoro'
 
 export interface CombatActorRef {
   actorId: string
@@ -35,6 +36,7 @@ export interface CombatTargetRef {
 }
 
 export interface CombatDamageContext {
+  attackSource?: CombatAttackSource
   contact?: import('./ShieldBlocking').CombatContact
   hostileToTarget?: boolean
   source: CombatActorRef
@@ -44,6 +46,7 @@ export interface CombatDamageContext {
 }
 
 export interface DamageAppliedEvent {
+  attackSource?: CombatAttackSource
   type: 'damage_applied'
   source: CombatActorRef
   target: CombatTargetRef
@@ -54,6 +57,7 @@ export interface DamageAppliedEvent {
 }
 
 export interface ActorKilledEvent {
+  attackSource?: CombatAttackSource
   type: 'actor_killed'
   source: CombatActorRef
   target: CombatTargetRef
@@ -183,6 +187,7 @@ export function emitDamageApplied(
   if (!context?.emit || appliedDamage <= 0) return
   context.emit({
     type: 'damage_applied',
+    ...((context.attackSource ?? context.contact?.attackSource) ? { attackSource: context.attackSource ?? context.contact?.attackSource } : {}),
     source: context.source,
     target,
     method: context.method,
@@ -199,6 +204,7 @@ export function emitActorKilled(
   if (!context?.emit || (target.targetType !== 'player' && target.targetType !== 'npc')) return
   context.emit({
     type: 'actor_killed',
+    ...((context.attackSource ?? context.contact?.attackSource) ? { attackSource: context.attackSource ?? context.contact?.attackSource } : {}),
     source: context.source,
     target,
     method: context.method,

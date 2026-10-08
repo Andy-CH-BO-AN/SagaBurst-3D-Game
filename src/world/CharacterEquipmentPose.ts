@@ -4,6 +4,7 @@ import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
 import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnimator'
 import { swordHandMatrix } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
+import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 const smooth = (x: number): number => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
 const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
@@ -13,6 +14,7 @@ export interface EquipmentPoseState {
   lance: boolean
   mounted: boolean
   moving?: boolean
+  flightLean?: number
   mountKind: MountedPoseKind
   action: string
   elapsed: number
@@ -254,7 +256,7 @@ export class CharacterEquipmentPose {
       this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
       this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
     }
-    if (live && state.mounted && state.mountKind === 'CORGI' && this.seatedSpine) {
+    if (live && state.mounted && (state.mountKind === 'CORGI' || state.mountKind === 'xongkoro') && this.seatedSpine) {
       // Foot attacks twist the pelvis by up to a quarter turn. Transfer that
       // rotation to the upper chest so the attack keeps its upper-body arc while
       // the seated legs stay either side of the source corgi's barrel.
@@ -262,10 +264,15 @@ export class CharacterEquipmentPose {
       setRigRotation(this.seatedHips, 0, 0, 0)
       this.seatedHips.position.x = this.hipsBindPosition.x
       this.seatedHips.position.z = this.hipsBindPosition.z
+      if (state.mountKind === 'xongkoro') this.seatedHips.position.y = this.hipsBindPosition.y
       this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
       this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
     }
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted && state.mountKind === 'xongkoro' && this.seatedSpine && state.flightLean) {
+      this.seatedRotation.setFromAxisAngle(this.attackAxis.set(1, 0, 0), THREE.MathUtils.clamp(state.flightLean, 0, 1) * XONGKORO_VISUAL.sprintRiderLean)
+      this.seatedSpine.quaternion.multiply(this.seatedRotation)
+    }
     if (live && state.mounted && state.mountKind === 'CORGI' && this.root.name.startsWith('maki-archer-t4-')) {
       // Shorter thighs need slightly more abduction to place the knees outside
       // the source barrel, while the boots follow its flanks instead of splaying.

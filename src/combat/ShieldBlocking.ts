@@ -119,8 +119,11 @@ export interface PhysicalCombatTarget {
   currentMount?: Mount | null
   mountCollider?: LocalBoxCollider
 }
-export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget }
+export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' }
 const bodyBox = new THREE.Box3()
+const bodyInverse = new THREE.Matrix4()
+const bodyFrom = new THREE.Vector3()
+const bodyTo = new THREE.Vector3()
 // Shared synchronous scratch: sampled once per target query, not once per blade point.
 const limbCenters = Array.from({ length: 6 }, () => new THREE.Vector3())
 let limbCount = 0
@@ -149,9 +152,18 @@ function segmentSphereTime(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3,
 function bodyTime(target: PhysicalCombatTarget, from: THREE.Vector3, to: THREE.Vector3): number {
   if (target.mountCollider) return Infinity
   const p = target.group.position, base = p.y + (target.bodyBaseOffset ?? 0)
-  bodyBox.min.set(p.x - .3, base + .06, p.z - .3)
-  bodyBox.max.set(p.x + .3, base + 1.8, p.z + .3)
-  let time = segmentBoxTime(from, to, bodyBox)
+  let time: number
+  if ((target.mount ?? target.currentMount)?.isFlyingMount) {
+    target.group.updateWorldMatrix(true, false)
+    bodyInverse.copy(target.group.matrixWorld).invert()
+    bodyBox.min.set(-.3, (target.bodyBaseOffset ?? 0) + .06, -.3)
+    bodyBox.max.set(.3, (target.bodyBaseOffset ?? 0) + 1.8, .3)
+    time = segmentBoxTime(bodyFrom.copy(from).applyMatrix4(bodyInverse), bodyTo.copy(to).applyMatrix4(bodyInverse), bodyBox)
+  } else {
+    bodyBox.min.set(p.x - .3, base + .06, p.z - .3)
+    bodyBox.max.set(p.x + .3, base + 1.8, p.z + .3)
+    time = segmentBoxTime(from, to, bodyBox)
+  }
   // Small bone-following primitives include outstretched arms/hands and moving feet.
   for (let i = 0; i < limbCount; i++) time = Math.min(time, segmentSphereTime(from, to, limbCenters[i], .12))
   return time
@@ -165,6 +177,7 @@ export function traceCombatSegment(target: PhysicalCombatTarget, from: THREE.Vec
   out.kind = mount < body && mount <= shield ? 'mount' : shield < body ? 'shield' : 'body'
   out.mount = out.kind === 'mount' ? preparedMount ?? undefined : undefined
   out.target = target
+  out.attackSource = undefined
   return Number.isFinite(out.time)
 }
 

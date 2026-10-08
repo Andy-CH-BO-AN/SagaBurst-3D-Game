@@ -8,7 +8,7 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { TownScene } from '../../src/town/TownScene'
 import { TownEquipment } from '../../src/town/TownEquipment'
-import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../../src/town/TownRules'
+import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS, townShopProducts } from '../../src/town/TownRules'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -142,7 +142,7 @@ class PanelElement {
 }
 function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
-  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat']
+  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat', 'roman:eagle-trainer']
   const store = new CareerProfileStore(new MemoryStorage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
@@ -254,13 +254,13 @@ describe('Merchant panel purchase integration', () => {
 describe('Career hero mount purchases', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-  it.each(['black-cat', 'corgi'] as const)('purchases %s at the catalog price and persists ownership and selection', id => {
+  it.each([['black-cat', 4000], ['corgi', 4000], ['xongkoro', 10000]] as const)('purchases %s at the catalog price and persists ownership and selection', (id, price) => {
     for (const faction of ['roman', 'viking'] as const) {
-      const current = { ...profile('captain'), faction, totalMerit: 5000, availableMerit: 4229 }
+      const current = { ...profile('captain'), faction, totalMerit: 15000, availableMerit: price + 229 }
       const before = structuredClone(current)
       const result = purchaseTownMount(current, id)
-      expect(result).toMatchObject({ purchased: true, spentMerit: 4000, profile: {
-        totalMerit: 5000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
+      expect(result).toMatchObject({ purchased: true, spentMerit: price, profile: {
+        totalMerit: 15000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
       } })
       expect(current).toEqual(before)
       const store = new CareerProfileStore(new MemoryStorage())
@@ -275,14 +275,14 @@ describe('Career hero mount purchases', () => {
     }
   })
 
-  it.each(['black-cat', 'corgi'] as const)('enforces %s rank and balance without altering the profile', id => {
+  it.each([['black-cat', 4000], ['corgi', 4000], ['xongkoro', 10000]] as const)('enforces %s rank and balance without altering the profile', (id, price) => {
     for (const rank of ['recruit', 'soldier', 'veteran'] as const) {
       const current = { ...profile(rank), availableMerit: 8000 }
       expect(purchaseTownMount(current, id)).toMatchObject({ purchased: false, reason: 'tier-locked', spentMerit: 0, profile: current })
     }
-    const insufficient = { ...profile('captain'), totalMerit: 5000, availableMerit: 3999, selectedMountId: 'horse' as const }
+    const insufficient = { ...profile('captain'), totalMerit: 15000, availableMerit: price - 1, selectedMountId: 'horse' as const }
     expect(purchaseTownMount(insufficient, id)).toMatchObject({ purchased: false, reason: 'insufficient-merit', spentMerit: 0, profile: insufficient })
-    const exact = purchaseTownMount({ ...insufficient, rank: 'commander', availableMerit: 4000 }, id)
+    const exact = purchaseTownMount({ ...insufficient, rank: 'commander', availableMerit: price }, id)
     expect(exact.purchased).toBe(true)
     expect(exact.profile.availableMerit).toBe(0)
   })
@@ -317,6 +317,16 @@ describe('Career hero mount purchases', () => {
     }
   })
 
+  it('sells xongkoro only through the ranger at the eagle training ground', () => {
+    for (const shop of ['ranger', 'cat', 'merchant']) expect(townShopProducts(shop).map(item => item.id)).not.toContain('xongkoro')
+    expect(townShopProducts('eagle-trainer').map(item => item.id)).toEqual(['xongkoro'])
+    const { town, store, row } = merchantHarness(false, { ...profile('captain'), totalMerit: 25000, availableMerit: 20229 }, 'eagle-trainer')
+    row('xongkoro').children[2].onclick!()
+    row('xongkoro').children[2].onclick!()
+    expect(store.load()).toMatchObject({ availableMerit: 229, totalMerit: 25000, rank: 'captain', ownedMounts: ['xongkoro'], inventory: { quantities: { xongkoro: 2 } } })
+    expect(town.message).toContain('xongkoro')
+  })
+
   it('shows locked and unaffordable mount buttons, and rejects stale purchase clicks', () => {
     const locked = merchantHarness(false, { ...profile('veteran'), totalMerit: 5000, availableMerit: 8000 }, 'ranger')
     expect(locked.row('黑貓英雄坐騎').children[2]).toMatchObject({ textContent: '軍階未解鎖', disabled: true })
@@ -332,8 +342,8 @@ describe('Career hero mount purchases', () => {
     expect(ready.town.message).toBe('可用軍功不足')
   })
 
-  it.each(['黑貓英雄坐騎', '柯基英雄坐騎'])('keeps balance and ownership unchanged when saving %s fails', name => {
-    const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 5000, availableMerit: 4229, ownedMounts: ['horse'], selectedMountId: 'horse' }, 'ranger')
+  it.each([['黑貓英雄坐騎', 'ranger', 4000], ['柯基英雄坐騎', 'ranger', 4000], ['xongkoro · 巨鷹英雄坐騎', 'eagle-trainer', 10000]] as const)('keeps balance and ownership unchanged when saving %s fails', (name, shop, price) => {
+    const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 15000, availableMerit: price + 229, ownedMounts: ['horse'], selectedMountId: 'horse' }, shop)
     const before = structuredClone(town.profile)
     row(name).children[2].onclick!()
     expect(town.profile).toEqual(before)

@@ -25,6 +25,11 @@ import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
+import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
+import { damagePlayer } from '../combat/DamageRouter'
+import type { CombatDamageContext } from '../combat/CombatAttribution'
+import type { EagleAimHeading } from './EagleFlightAim'
+import { fitStandingRider } from '../world/StandingRider'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
@@ -84,6 +89,8 @@ export class Player {
   readonly group: THREE.Group
 
   private characterVisualGroup: THREE.Group
+  private readonly standingVisualBase = new THREE.Vector3()
+  private hasStandingVisualBase = false
   private externalPelvisHeight = 0
   private usesExternalForwardAdapter = false
   private rig!: CharacterRig
@@ -115,6 +122,21 @@ export class Player {
 
   private velY = 0
   private onGround = false
+  private readonly fallingRider = new FallingRider()
+  private fallContext?: CombatDamageContext
+  private readonly fallFeet = new THREE.Vector3()
+  private readonly seatUp = new THREE.Vector3()
+  private flightSteering: EagleAimHeading | null = null
+  private damageHud?: Pick<HpBar, 'setFill'>
+
+  get isFalling(): boolean { return this.fallingRider.active }
+  get fallSnapshot(): FallingRiderSnapshot { return this.fallingRider.snapshot() }
+  restorePendingFall(snapshot: FallingRiderSnapshot): void { this.fallingRider.restore(snapshot) }
+  setFlightSteering(heading: EagleAimHeading): void {
+    this.flightSteering ??= { yaw: 0, pitch: 0 }
+    Object.assign(this.flightSteering, heading)
+  }
+  setDamageHud(hud: Pick<HpBar, 'setFill'>): void { this.damageHud = hud }
 
   public maxHp: number = DEFAULT_PLAYER_MAX_HP
   private currentHp: number = DEFAULT_PLAYER_MAX_HP
@@ -184,7 +206,7 @@ export class Player {
   get hpRatio(): number         { return Math.max(0, this.currentHp / this.maxHp) }
 
   get combatPosition(): THREE.Vector3 {
-    if (this.isMounted && this.currentMount) {
+    if (this.isMounted && this.currentMount && !this.currentMount.isFlyingMount) {
       return this.currentMount.group.position.clone()
     }
     return this.group.position.clone()
@@ -507,14 +529,20 @@ export class Player {
   setMountedHeading(heading: number): void {
     if (!this.currentMount) return
     this.currentMount.group.rotation.y = heading
+    if (this.currentMount.flight?.phase === 'grounded') {
+      this.currentMount.flight.yaw = heading
+      this.currentMount.setFlightIntent({ yaw: heading, pitch: 0 })
+    }
     this.group.rotation.y = this._characterYaw(heading)
   }
 
   mountVehicle(mount: Mount, heading?: number): void {
-    if (this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
+    if (this.isDead || this.isFalling || this.currentMount?.isAirborne || mount.isAirborne || this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
     if (this.currentMount && this.currentMount !== mount) this.dismountFromMount()
+    if (this.currentMount && this.currentMount !== mount) return
     this.isMounted = true
     this.currentMount = mount
+    this.flightSteering = null
     mount.setPlayerRider(this)
     const targetHeading = heading !== undefined ? heading : this.facingYaw
     this.setMountedHeading(targetHeading)
@@ -523,6 +551,17 @@ export class Player {
 
   syncMountTransform(): void {
     if (!this.isMounted || !this.currentMount) return
+    if (this.currentMount.isFlyingMount) {
+      this.currentMount.getRiderStandingSeatWorld(this.group.position)
+      this.group.quaternion.copy(this.currentMount.group.quaternion)
+      this.group.position.add(this.seatUp.set(0, PLAYER_HALF_HEIGHT, 0).applyQuaternion(this.group.quaternion))
+      if (!this.usesExternalForwardAdapter) this.group.rotateY(Math.PI)
+      if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
+      this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.currentMount.type as MountedPoseKind })
+      this._alignExternalVisualToMount(true)
+      this.group.updateMatrixWorld(true)
+      return
+    }
     this.currentMount.getRiderPelvisSeatWorld(this.group.position)
     this.group.position.y += PLAYER_HALF_HEIGHT
     if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
@@ -532,9 +571,21 @@ export class Player {
     this.group.rotation.y = this._characterYaw(this.currentMount.group.rotation.y)
   }
 
-  dismountFromMount({ preserveWorldPosition = false }: { preserveWorldPosition?: boolean } = {}): void {
+  dismountFromMount({ preserveWorldPosition = false, forceFall = false }: { preserveWorldPosition?: boolean; forceFall?: boolean } = {}): void {
     if (!this.isMounted || !this.currentMount) return
-    const mountPosition = preserveWorldPosition ? null : this.currentMount.group.position.clone()
+    const mount = this.currentMount
+    const aerialFall = mount.isFlyingMount && (mount.isAirborne || mount.dead || this.dead || forceFall)
+    const groundedEagleDismount = mount.isFlyingMount && !aerialFall && !preserveWorldPosition
+    if (groundedEagleDismount && !mount.findGroundDismountPosition(this.fallFeet)) return
+    if (aerialFall) {
+      mount.getRiderStandingSeatWorld(this.fallFeet)
+      this.fallingRider.begin(this.fallFeet, mount.flight!.velocity)
+      this.fallContext = mount.knockdownContext
+      this.group.position.copy(this.fallFeet).y += PLAYER_HALF_HEIGHT
+      preserveWorldPosition = true
+    }
+    const mountPosition = groundedEagleDismount ? this.fallFeet.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
+      : preserveWorldPosition ? null : this.currentMount.group.position.clone()
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
@@ -548,6 +599,8 @@ export class Player {
     if (mountPosition) this.group.position.copy(mountPosition)
     else this.onGround = false
     this.group.rotation.x = 0
+    this.group.rotation.z = 0
+    this.flightSteering = null
     this.velY = 0
   }
 
@@ -558,6 +611,7 @@ export class Player {
    */
   detachFromMountOnDeath(): void {
     if (!this.isMounted || !this.currentMount) return
+    if (this.currentMount.isFlyingMount) { this.dismountFromMount({ preserveWorldPosition: true }); return }
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
@@ -567,10 +621,18 @@ export class Player {
     this.velY = 0
   }
 
-  takeDamage(amount: number, hpBar: HpBar, _riderHit = true): boolean {
-    if (this.isDead || this.spectatorOnly) return false
+  takeDamage(amount: number, hpBar: Pick<HpBar, 'setFill'>, _riderHit = true): boolean {
+    return this.applyHpDamage(applyHeroIncomingDamage(amount, this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null), hpBar)
+  }
 
-    this.currentHp = Math.max(0, this.currentHp - applyHeroIncomingDamage(amount, this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null))
+  takeFallDamage(amount: number, hpBar: Pick<HpBar, 'setFill'>): boolean {
+    return this.applyHpDamage(amount, hpBar)
+  }
+
+  private applyHpDamage(amount: number, hpBar: Pick<HpBar, 'setFill'>): boolean {
+    if (this.isDead || this.spectatorOnly) return false
+    this.damageHud = hpBar
+    this.currentHp = Math.max(0, this.currentHp - amount)
     hpBar.setFill(this.hpRatio)
 
     if (this.currentHp <= 0) {
@@ -647,6 +709,9 @@ export class Player {
   }
 
   dispose(): void {
+    this.fallingRider.clear()
+    this.fallContext = undefined
+    this.onPlayerDeath = null
     this.animator.cancel()
     this.rig.animation?.stop()
     this.onFireArrow = null
@@ -660,6 +725,7 @@ export class Player {
   }
 
   restoreForTown(): void {
+    if (this.isFalling) return
     this.shield.reset()
     this.weaponSweep.reset()
     this.isDead = false
@@ -682,17 +748,41 @@ export class Player {
 
   update(
     dt: number,
-    input: PlayerInput,
+    input: Pick<PlayerInput, 'keys' | 'isLeftMouseDown' | 'isRightMouseDown' | 'consumeLeftClick' | 'consumeLeftClickRelease'>,
     cameraYaw: number,
     cameraAimPoint: THREE.Vector3,
     obstacles: ObstacleData[],
-    staminaBar: StaminaBar,
-    quiverUI: QuiverUI,
-    soundManager: SoundManager,
+    staminaBar: Pick<StaminaBar, 'setFill'>,
+    quiverUI: Pick<QuiverUI, 'setShieldBlocked' | 'setAiming' | 'setChargeRatio'>,
+    soundManager: Pick<SoundManager, 'playBowRelease'>,
     inventoryManager?: InventoryManager,
     archeryMultiplier = 1.0,
   ): void {
-    if (this.spectatorOnly) return
+    if (this.spectatorOnly && !this.fallingRider.active) return
+
+    if (this.fallingRider.active) {
+      this.fallFeet.copy(this.group.position).y -= PLAYER_HALF_HEIGHT
+      const height = this.fallingRider.update(this.fallFeet, dt, obstacles, this.playableWorldBound)
+      this.group.position.copy(this.fallFeet).y += PLAYER_HALF_HEIGHT
+      if (height !== null) {
+        this.onGround = true
+        this.velY = 0
+        if (!this.isDead) {
+          const amount = riderFallDamage(this.maxHp, height)
+          const hud = this.damageHud ?? { setFill() {} }
+          if (this.fallContext) damagePlayer(this, amount, hud, null, {
+            source: this.fallContext.source, emit: this.fallContext.emit, method: 'fall',
+          })
+          else this.takeFallDamage(amount, hud)
+        }
+        this.fallContext = undefined
+      }
+      // Input and ground movement cannot erase a pending fall; a dead rider
+      // continues physically falling before its ordinary death fade starts.
+      this.animator?.update(dt)
+      if (this.isDead && !this.fallingRider.active) this.deathFade.update(this.group, dt)
+      return
+    }
 
     if (this.shieldHud) {
       this.shieldHud.hidden = this.isDead || this.shield.shieldImpactMax === 0
@@ -709,6 +799,7 @@ export class Player {
 
     const equippedMelee = inventoryManager?.meleeEnabled === false ? undefined : inventoryManager?.equippedMelee
     const equippedRanged = inventoryManager?.rangedEnabled === false ? undefined : inventoryManager?.equippedRanged
+    const flyingMount = this.currentMount?.isFlyingMount ? this.currentMount : null
 
     const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
@@ -727,7 +818,7 @@ export class Player {
     this.animator.setShieldRaised(this.shield.shieldRaised)
     quiverUI.setShieldBlocked?.(false)
     const wantAim = input.isRightMouseDown && Boolean(equippedRanged) && !equippedShield
-    const wantsBowAim = input.isRightMouseDown && Boolean(equippedRanged)
+    const wantsBowAim = input.isRightMouseDown && (Boolean(equippedRanged) || Boolean(flyingMount))
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
     if (!input.isRightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
     if (wantsBowAim) {
@@ -769,7 +860,10 @@ export class Player {
 
       const isLance = equippedMelee?.combatKind === 'lance'
       if (input.consumeLeftClick() && !wantsBowAim) {
-        if (!this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)) {
+        if (flyingMount) {
+          flyingMount.startEagleAttack()
+          this.meleeAttackBufferTimer = 0
+        } else if (!this._tryTriggerMeleeAttack(equippedMelee, wantsBowAim)) {
           if (isLance && this.animator.busy) {
             this.meleeAttackBufferTimer = MELEE_ATTACK_BUFFER_WINDOW
           } else {
@@ -825,6 +919,7 @@ export class Player {
     if (!wantSprint || !canSprint || !isMoving || this.stamina <= 0 || this.isSwinging || this.aiming) {
       this.isSprinting = false
     }
+    if (flyingMount) this.isSprinting = Boolean(wantSprint && this.stamina >= STAMINA_SPRINT_MIN)
 
     if (this.pilumCooldownTimer > 0) {
       this.pilumCooldownTimer -= dt
@@ -861,7 +956,16 @@ export class Player {
       else if (!isMoving || this.animator.currentAction === 'bowAim') this.animator.poseIdle()
     }
 
-    this.animator.setLocomotion(effectiveSpeed, this.isMounted, this.isSprinting)
+    if (flyingMount?.flight) {
+      const steering = this.flightSteering ?? flyingMount.flight
+      flyingMount.beginControlledFrame()
+      flyingMount.setFlightIntent({ yaw: steering.yaw, pitch: steering.pitch,
+        bankInput: Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])),
+        sprint: this.isSprinting, brake: Boolean(input.keys['KeyS']), takeoff: Boolean(input.keys['KeyW']) })
+      flyingMount.finishControlledFrame(dt, obstacles)
+      this.syncMountTransform()
+    }
+    this.animator.setLocomotion(flyingMount ? 0 : effectiveSpeed, this.isMounted, this.isSprinting)
 
     // Player Berserker attack-rate bonus only speeds up melee attack cadence/animation, never global animator.update
     const isMeleeAttack = this.animator.currentAction === 'swordSlash'
@@ -873,6 +977,7 @@ export class Player {
       || this.animator.currentAction === 'mountedLance'
     const animDt = isMeleeAttack ? dt * berserker.meleeAttackRateMultiplier : dt
     const animationEvents = this.animator.update(animDt)
+    if (flyingMount?.eagleVisual) fitStandingRider(this.characterVisualGroup, this.rig, flyingMount.eagleVisual.standingSocket)
     this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getSwordTipPosition())
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
     if (this.swordPivot.visible) this.meleeBowVisual?.update(0, undefined, false)
@@ -928,7 +1033,9 @@ export class Player {
     }
     staminaBar.setFill(this.staminaRatio)
 
-    if (this.isMounted && this.currentMount) {
+    if (flyingMount) {
+      this.velY = 0
+    } else if (this.isMounted && this.currentMount) {
       this.currentMount.beginControlledFrame()
       // Guarding does not change mounted movement or impact eligibility.
       // MountImpact reads this flag for the existing sprint damage multiplier.
@@ -1021,8 +1128,18 @@ export class Player {
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {
+    const standing = mounted && Boolean(this.currentMount?.isFlyingMount)
+    if (standing && !this.hasStandingVisualBase) {
+      this.standingVisualBase.copy(this.characterVisualGroup.position)
+      this.hasStandingVisualBase = true
+    } else if (!standing && this.hasStandingVisualBase) {
+      // Sole alignment may translate every axis; remove that correction once
+      // when leaving the eagle, preserving the normal authored visual origin.
+      this.characterVisualGroup.position.copy(this.standingVisualBase)
+      this.hasStandingVisualBase = false
+    }
     if (this.externalPelvisHeight <= 0) return
-    this.characterVisualGroup.position.y = -PLAYER_HALF_HEIGHT - (mounted ? this.externalPelvisHeight : 0)
+    this.characterVisualGroup.position.y = -PLAYER_HALF_HEIGHT - (mounted && !this.currentMount?.isFlyingMount ? this.externalPelvisHeight : 0)
   }
 
   private _characterYaw(desiredForwardYaw: number): number {

@@ -7,7 +7,7 @@ import { MAX_SKILL_LEVEL, SkillManager, createDefaultSkillState, normalizeSkillS
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 function damageEvent(
-  method: 'melee' | 'projectile' | 'mount-impact',
+  method: 'melee' | 'projectile' | 'mount-impact' | 'fall',
   targetType: 'npc' | 'mount' | 'structure',
   appliedDamage: number,
   weaponId?: string,
@@ -33,6 +33,17 @@ function damageEvent(
 }
 
 describe('Career skill progression', () => {
+  it('awards eagle melee to mountedImpact from attack metadata independent of the held sword', () => {
+    const event = damageEvent('melee', 'npc', 60, WEAPONS.steel_sword.id)
+    if (event.type !== 'damage_applied') throw new Error('expected damage event')
+    event.attackSource = 'xongkoro'
+    expect(resolveSkillProgressionAward(event, WEAPONS.steel_sword, true)).toEqual({ skill: 'mountedImpact', xp: 60 })
+    expect(resolveSkillProgressionAward(event)).toEqual({ skill: 'mountedImpact', xp: 60 })
+  })
+
+  it('fall damage never awards weapon or mountedImpact XP to the original attacker', () => {
+    expect(resolveSkillProgressionAward(damageEvent('fall', 'npc', 150), WEAPONS.steel_sword)).toBeNull()
+  })
   it('scales each skill from 1x at Lv.1 to exactly 3x at Lv.50', () => {
     expect(skillDamageMultiplier(1)).toBe(1)
     expect(skillDamageMultiplier(MAX_SKILL_LEVEL)).toBe(3)

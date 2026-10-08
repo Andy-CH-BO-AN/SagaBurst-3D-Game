@@ -53,7 +53,8 @@ export function resolveSkillProgressionAward(
   if (!isSkillProgressionTarget(event.target.targetType)) return null
   if (event.appliedDamage <= 0) return null
 
-  const skill = resolveCombatSkill(event.method, meleeWeapon, hasShield)
+  const skill = event.method === 'melee' && event.attackSource === 'xongkoro'
+    ? 'mountedImpact' : resolveCombatSkill(event.method, meleeWeapon, hasShield)
   if (!skill) return null
 
   const xp = Math.max(0, event.appliedDamage)

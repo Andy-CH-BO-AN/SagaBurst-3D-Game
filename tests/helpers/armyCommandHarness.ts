@@ -42,6 +42,7 @@ export function createArmyCommandHarness(
     consumeKeyPress: consume,
     consumeKeyE: () => consume('KeyE'),
     consumeLeftClick: () => consume('MouseLeft'),
+    consumeLeftGesture: () => { pressed.delete('MouseLeft') },
     consumeMiddleClick: () => consume('MouseMiddle'),
     consumeWheelStep: (): -1 | 0 | 1 => {
       if (wheelSteps > 0) {

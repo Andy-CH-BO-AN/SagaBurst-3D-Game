@@ -15,8 +15,16 @@ import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { LocalBoxCollider } from '../combat/ShieldBlocking'
+import { CompoundLocalBoxCollider } from '../combat/CompoundLocalBoxCollider'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, type CombatActorRef } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
+import { XongkoroVisual } from './XongkoroVisual'
+import { EagleFlightController, type EagleFlightIntent } from '../movement/EagleFlightController'
+import { XONGKORO } from '../movement/XongkoroConfig'
+import { FallingRider } from '../movement/FallingRider'
+import { EagleAttack } from '../combat/EagleAttack'
+import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
+import type { CombatDamageContext } from '../combat/CombatAttribution'
 
 const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
 const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
@@ -25,6 +33,7 @@ export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
   CORGI = 'CORGI',
   HORSE = 'HORSE',
+  XONGKORO = 'xongkoro',
 }
 
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
@@ -48,6 +57,7 @@ export enum MountState {
 }
 
 export function mountTypeFromSave(value: string): MountType {
+  if (value === 'xongkoro') return MountType.XONGKORO
   if (value === MountType.BLACK_CAT) return MountType.BLACK_CAT
   if (value === MountType.CORGI) return MountType.CORGI
   if (value === MountType.HORSE) return MountType.HORSE
@@ -55,6 +65,7 @@ export function mountTypeFromSave(value: string): MountType {
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
+  if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
   if (value === 'corgi') return MountType.CORGI
   return DEFAULT_MOUNT_TYPE
@@ -66,10 +77,21 @@ export class Mount {
   readonly horseVisual: HorseInstance | null
   readonly catVisual: BlackCatVisual | null = null
   readonly corgiVisual: CorgiVisual | null = null
+  readonly eagleVisual: XongkoroVisual | null = null
+  readonly flight: EagleFlightController | null = null
+  readonly eagleAttack: EagleAttack | null = null
+  knockdownContext: CombatDamageContext | undefined
+  private readonly eagleCorpseFall = new FallingRider({ radius: XONGKORO.bodyRadius, height: XONGKORO.bodyHeight })
+  private readonly eagleAttackSockets: THREE.Object3D[] = []
+  private collisionObstacles: readonly ObstacleData[] = []
+  get isFlyingMount(): boolean { return this.type === MountType.XONGKORO }
+  get combatRadius(): number { return this.isFlyingMount ? 7 : 2 }
+  get isAirborne(): boolean { return this.isFlyingMount && this.flight?.phase !== 'grounded' }
 
   get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
+  public readonly aimColliders: readonly THREE.Mesh[]
   public readonly mountCollider: LocalBoxCollider
   /** Runtime combat attribution, independent of an attached rider or Career ownership. */
   public combatOwner: CombatActorRef | undefined
@@ -97,7 +119,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? this.corgiVisual?.lod.getCurrentLevel() ?? 0
+    return this.eagleVisual?.lod.getCurrentLevel() ?? this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? this.corgiVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -124,7 +146,17 @@ export class Mount {
     this.group.name = `mount_${type}`
     this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : 12
 
-    if (type === MountType.HORSE) {
+    if (type === MountType.XONGKORO) {
+      this.horseVisual = null
+      this.eagleVisual = new XongkoroVisual()
+      this.group.add(this.eagleVisual.root)
+      this.flight = new EagleFlightController()
+      this.eagleAttack = new EagleAttack()
+      this.eagleAttackSockets.push(this.eagleVisual.headAttackSocket, this.eagleVisual.leftClawAttackSocket, this.eagleVisual.rightClawAttackSocket)
+      this.maxHp = this.currentHp = XONGKORO.maxHp
+      this.baseSpeed = XONGKORO.cruiseSpeed
+      this.ridePitch = 0
+    } else if (type === MountType.HORSE) {
       if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
       this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant })
       this.group.add(this.horseVisual.root)
@@ -157,10 +189,34 @@ export class Mount {
     this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
     this.aimCollider.name = `aim_proxy_mount_${type}`
     this.aimCollider.position.set(0, 0.825, 0)
+    if (this.isFlyingMount) {
+      this.aimCollider.scale.set(XONGKORO.torsoHurtSize[0] / 1.1, XONGKORO.torsoHurtSize[1] / 1.65, XONGKORO.torsoHurtSize[2] / 2.4)
+      this.aimCollider.position.fromArray(XONGKORO.torsoHurtCenter)
+    }
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
     this.group.add(this.aimCollider)
     if (!MOUNT_AIM_GEOMETRY.boundingBox) MOUNT_AIM_GEOMETRY.computeBoundingBox()
-    this.mountCollider = new LocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!)
+    if (this.eagleVisual) {
+      const head = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
+      head.name = 'aim_proxy_mount_xongkoro_head'
+      head.layers.set(AIM_RAYCAST_LAYER)
+      this.group.updateWorldMatrix(true, true)
+      this.eagleVisual.headAttackSocket.getWorldPosition(head.position)
+      this.group.worldToLocal(head.position).add(new THREE.Vector3().fromArray(XONGKORO.headHurtSocketOffset))
+      head.scale.set(XONGKORO.headHurtSize[0] / 1.1, XONGKORO.headHurtSize[1] / 1.65, XONGKORO.headHurtSize[2] / 2.4)
+      this.group.add(head)
+      // Preserve the measured world-size box while converting to the source
+      // socket's local space. Its donor scale must not enlarge the hurt region.
+      this.eagleVisual.headAttackSocket.attach(head)
+      this.eagleVisual.torsoSocket.attach(this.aimCollider)
+      this.aimColliders = [this.aimCollider, head]
+      this.mountCollider = new CompoundLocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!, [new LocalBoxCollider(head, MOUNT_AIM_GEOMETRY.boundingBox!)])
+      // Calibrate anatomy in the authored reference before taking the grounded pose.
+      this.eagleVisual.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
+    } else {
+      this.aimColliders = [this.aimCollider]
+      this.mountCollider = new LocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!)
+    }
 
     scene.add(this.group)
     this._pickWanderTarget()
@@ -173,6 +229,7 @@ export class Mount {
     return !this.disposed && (!this.reservedForTown || this.temporaryCombatId !== null) && !this.dead && this.state !== MountState.CONTROLLED && this.riderNpc === null
   }
   get displayName(): string {
+    if (this.isFlyingMount) return 'xongkoro'
     if (this.type === MountType.HORSE) return '戰馬'
     return this.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
   }
@@ -180,6 +237,10 @@ export class Mount {
   get horseSkeleton(): THREE.Skeleton | null { return this.horseVisual?.skeleton ?? null }
 
   getSaddleSeatLocal(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.eagleVisual) {
+      this.getRiderStandingSeatWorld(target)
+      return this.group.worldToLocal(target)
+    }
     if (this.proceduralVisual) {
       this.group.updateWorldMatrix(true, true)
       this.proceduralVisual.saddleSeat.getWorldPosition(target)
@@ -205,6 +266,7 @@ export class Mount {
   }
 
   getSaddleSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.eagleVisual) return this.getRiderStandingSeatWorld(target)
     if (this.proceduralVisual) return this.proceduralVisual.saddleSeat.getWorldPosition(target)
     if (this.horseVisual) {
       return this.horseVisual.saddleSeat.getWorldPosition(target)
@@ -227,9 +289,41 @@ export class Mount {
 
   setCameraDistance(distance: number): void {
     this.cameraDistance = Number.isFinite(distance) ? Math.max(0, distance) : 0
+    this.eagleVisual?.setCameraDistance(this.cameraDistance)
+  }
+
+  getRiderStandingSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    this.group.updateWorldMatrix(true, true)
+    return this.eagleVisual ? this.eagleVisual.standingSocket.getWorldPosition(target) : this.getSaddleSeatWorld(target)
+  }
+
+  /** Search real ground support beside the torso; grounded dismount is not a fall. */
+  findGroundDismountPosition(target: THREE.Vector3, obstacles: readonly ObstacleData[] = this.collisionObstacles): boolean {
+    for (const radius of [3, 4.5, 6]) for (const angle of [Math.PI / 2, -Math.PI / 2, Math.PI * .75, -Math.PI * .75, Math.PI]) {
+      const yaw = this.group.rotation.y + angle
+      const x = this.group.position.x + Math.sin(yaw) * radius
+      const z = this.group.position.z + Math.cos(yaw) * radius
+      const y = getTerrainHeight(x, z)
+      if (Math.abs(x) > this.playableWorldBound - .5 || Math.abs(z) > this.playableWorldBound - .5
+        || Math.abs(y - this.group.position.y) > 1.5) continue
+      if (obstacles.some(({ box }) => x + .45 > box.min.x && x - .45 < box.max.x
+        && z + .45 > box.min.z && z - .45 < box.max.z && y + 1.85 > box.min.y && y < box.max.y)) continue
+      target.set(x, y, z)
+      return true
+    }
+    return false
+  }
+
+  setFlightIntent(intent: EagleFlightIntent): void { this.flight?.setIntent(intent) }
+  startEagleAttack(): boolean {
+    return !this.dead && Boolean(this.eagleAttack?.start(this.eagleAttackSockets))
+  }
+  traceEagleAttack(targets: readonly PhysicalCombatTarget[], mounts: readonly Mount[] = [], obstacles: readonly ObstacleData[] = []): readonly CombatContact[] {
+    return this.eagleAttack?.trace(targets, mounts, this, obstacles) ?? []
   }
 
   startJump(velocity: number): void {
+    if (this.isFlyingMount) return
     if (this.dead || !this.onGround) return
     this.velY = velocity
     this.onGround = false
@@ -260,6 +354,7 @@ export class Mount {
   }
 
   setVisualHidden(hidden: boolean): void {
+    if (this.eagleVisual) this.eagleVisual.root.visible = !hidden
     if (this.proceduralVisual) this.proceduralVisual.root.visible = !hidden
     if (this.horseVisual) {
       this.horseVisual.root.visible = !hidden
@@ -267,16 +362,20 @@ export class Mount {
   }
 
   isVisualHidden(): boolean {
+    if (this.eagleVisual) return !this.eagleVisual.root.visible
     return this.proceduralVisual ? !this.proceduralVisual.root.visible : this.horseVisual ? !this.horseVisual.root.visible : false
   }
 
   dispose(): void {
     if (this.disposed) return
-    this.riderNpc?.dismountFromMount()
-    this.riderPlayer?.dismountFromMount()
+    this.riderNpc?.dismountFromMount({ forceFall: this.isFlyingMount })
+    this.riderPlayer?.dismountFromMount({ forceFall: this.isFlyingMount })
     this.disposed = true
     this.horseVisual?.dispose()
     this.proceduralVisual?.dispose()
+    this.eagleVisual?.dispose()
+    this.eagleAttack?.cancel()
+    this.eagleCorpseFall.clear()
     this.group.removeFromParent()
   }
 
@@ -308,12 +407,20 @@ export class Mount {
     this.riderFaction = faction
     this.combatOwner = createNpcCombatActorRef(npc)
     this.state = MountState.CONTROLLED
+    this.alignGroundFlightHeading()
   }
 
   setPlayerRider(player: Player): void {
     this.riderPlayer = player
     this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
+    this.alignGroundFlightHeading()
+  }
+
+  private alignGroundFlightHeading(): void {
+    if (!this.flight || this.flight.phase !== 'grounded') return
+    this.flight.yaw = this.group.rotation.y
+    this.flight.setIntent({ yaw: this.flight.yaw, pitch: 0 })
   }
 
   releaseRider(): void {
@@ -321,6 +428,7 @@ export class Mount {
     this.riderFaction = null
     this.riderPlayer = null
     if (!this.dead) this.state = MountState.IDLE
+    this.eagleAttack?.cancel()
   }
 
   restoreForTown(x: number, z: number, yaw: number): void {
@@ -349,6 +457,11 @@ export class Mount {
     this.proceduralVisual?.playStudioClip('idle')
     this.horseVisual?.setLocomotion(0)
     this.proceduralVisual?.setLocomotion(0)
+    this.eagleCorpseFall.clear()
+    this.knockdownContext = undefined
+    this.eagleAttack?.cancel()
+    this.flight?.restore({ phase: 'grounded', yaw, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } })
+    this.eagleVisual?.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
   }
 
   takeDamage(amount: number): boolean {
@@ -356,12 +469,14 @@ export class Mount {
     this.currentHp = Math.max(0, this.currentHp - amount)
     if (this.currentHp <= 0) {
       this.state = MountState.DEAD
+      if (this.flight && this.isAirborne) this.eagleCorpseFall.begin(this.group.position, this.flight.velocity)
       this.riderNpc?.dismountFromMount()
       this.riderPlayer?.dismountFromMount({ preserveWorldPosition: true })
       this.riderNpc = null
       this.riderFaction = null
       this.horseVisual?.playDeath()
       this.proceduralVisual?.playOnce('death')
+      this.eagleAttack?.cancel()
       for (const cb of this.onDeathCallbacks) cb(this)
     } else {
       this.horseVisual?.playOnce('hit')
@@ -376,6 +491,10 @@ export class Mount {
   }
 
   addControlledMovement(direction: THREE.Vector3, speed: number, dt: number): void {
+    if (this.flight) {
+      this.flight.setIntent({ yaw: Math.atan2(direction.x, direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), takeoff: true })
+      return
+    }
     if (this.dead || direction.lengthSq() === 0) return
     this.group.position.addScaledVector(direction, speed * dt)
   }
@@ -386,6 +505,21 @@ export class Mount {
     collector: NpcSubphaseCollector | null = null,
   ): void {
     if (this.dead) return
+    this.collisionObstacles = obstacles
+    if (this.flight && this.eagleVisual) {
+      this.eagleAttack!.advance(dt)
+      this.flight.update(this.group.position, this.group.rotation, dt, obstacles, this.playableWorldBound)
+      this.onGround = this.flight.phase === 'grounded'
+      this.velY = this.flight.velocity.y
+      this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, .0001)
+      this.isSprinting = this.flight.intent.sprint === true
+      this.skipImpactThisFrame = true
+      this.eagleVisual.update(dt, { flying: this.isAirborne, sprinting: this.isSprinting, attackWeight: this.eagleAttack!.weight, dead: false,
+        groundClearance: this.group.position.y - getTerrainHeight(this.group.position.x, this.group.position.z) })
+      this.group.updateWorldMatrix(true, true)
+      this.eagleAttack!.sample(this.eagleAttackSockets)
+      return
+    }
     const wasOnGround = this.onGround
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
@@ -437,6 +571,7 @@ export class Mount {
   }
 
   canImpact(target: object, now: number): boolean {
+    if (this.isFlyingMount) return false
     const lastImpact = this.impactTimes.get(target) ?? -Infinity
     if (now - lastImpact < COMBAT_BALANCE.mountImpact.sameTargetCooldown) return false
     this.impactTimes.set(target, now)
@@ -456,7 +591,20 @@ export class Mount {
 
   update(dt: number, obstacles: ObstacleData[]): void {
     if (this.disposed) return
+    this.collisionObstacles = obstacles
     if (this.state === MountState.DEAD) {
+      if (this.eagleVisual) {
+        this.eagleVisual.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: true })
+        if (this.eagleCorpseFall.active) {
+          if (this.eagleCorpseFall.update(this.group.position, dt, obstacles, this.playableWorldBound) !== null && this.flight) {
+            this.flight.phase = 'grounded'
+            this.flight.speed = 0
+            this.flight.velocity.set(0, 0, 0)
+            this.onGround = true
+          }
+          return
+        }
+      }
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
       else if (this.proceduralVisual) this.proceduralVisual.update(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
@@ -470,6 +618,15 @@ export class Mount {
       this.onGround = true
       this.proceduralVisual?.update(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
+      this.eagleVisual?.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
+      return
+    }
+
+    if (this.flight) {
+      this.beginControlledFrame()
+      // Riderless living eagles descend under the same movement and landing policy.
+      this.setFlightIntent({ yaw: this.flight.yaw, pitch: -.25, brake: true })
+      this.finishControlledFrame(dt, obstacles)
       return
     }
 

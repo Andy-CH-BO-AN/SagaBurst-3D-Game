@@ -1,3 +1,5 @@
+import { parseFallingRiderSnapshot, type FallingRiderSnapshot } from '../movement/FallingRider'
+import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/EagleFlightController'
 import { PERSONAL_SQUAD_ID } from '../battle/CommandTarget'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { CombatActorRef } from '../combat/CombatAttribution'
@@ -7,14 +9,16 @@ import type { CareerProfile } from './CareerProfile'
 import { PERSONAL_SQUAD_LIMIT } from './CareerPersonalSquad'
 
 export type PersonalSquadState = 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING'
-export interface PersonalActorPosition { x: number; z: number; yaw: number }
+export interface PersonalActorPosition { x: number; y?: number; z: number; yaw: number }
 export interface PersonalActorCheckpoint {
   status: 'reserve' | 'deployed' | 'dead' | 'exited'
   position?: PersonalActorPosition
   hp?: number
+  boarding?: boolean
+  fall?: FallingRiderSnapshot
   ammo?: number
   shieldImpact?: number
-  mount?: { hp: number; mounted: boolean; position: PersonalActorPosition }
+  mount?: { hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
   order?: TacticalOrder
   formation?: { commandId: number; position: PersonalActorPosition; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder }
 }
@@ -40,8 +44,8 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
   return { ...value, ...(value.pendingMemberIds ? { pendingMemberIds: [...value.pendingMemberIds] } : {}), memberIds: [...value.memberIds], contribution: { ...value.contribution },
     ...(value.playerLastPosition ? { playerLastPosition: { ...value.playerLastPosition } } : {}),
     members: Object.fromEntries(Object.entries(value.members).map(([id, actor]) => [id, {
-      ...actor, ...(actor.position ? { position: { ...actor.position } } : {}),
-      ...(actor.mount ? { mount: { ...actor.mount, position: { ...actor.mount.position } } } : {}),
+      ...actor, ...(actor.fall ? { fall: { ...actor.fall, velocity: { ...actor.fall.velocity } } } : {}), ...(actor.position ? { position: { ...actor.position } } : {}),
+      ...(actor.mount ? { mount: { ...actor.mount, position: { ...actor.mount.position }, ...(actor.mount.flight ? { flight: { ...actor.mount.flight, velocity: { ...actor.mount.flight.velocity } } } : {}) } } : {}),
       ...(actor.formation ? { formation: { ...actor.formation, position: { ...actor.formation.position } } } : {}),
     }])) }
 }
@@ -74,7 +78,7 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const nonnegative = (value: unknown): number => finite(value) ? Math.max(0, value) : 0
 function position(value: unknown): PersonalActorPosition | undefined {
   const raw = value as PersonalActorPosition | undefined
-  return raw && finite(raw.x) && finite(raw.z) && finite(raw.yaw) ? { x: raw.x, z: raw.z, yaw: raw.yaw } : undefined
+  return raw && finite(raw.x) && finite(raw.z) && finite(raw.yaw) ? { x: raw.x, z: raw.z, yaw: raw.yaw, ...(finite(raw.y) ? { y: raw.y } : {}) } : undefined
 }
 
 /** Missing mission membership is a legacy empty roster, never inferred from today's owned members. */
@@ -92,12 +96,14 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
     const mountPosition = position(actor?.mount?.position)
     const formationPosition = position(actor?.formation?.position)
     members[id] = { status,
+      ...(actor?.boarding === true ? { boarding: true } : {}),
+      ...(parseFallingRiderSnapshot(actor?.fall) ? { fall: parseFallingRiderSnapshot(actor?.fall) } : {}),
       ...(point ? { position: point } : {}),
       ...(finite(actor?.hp) ? { hp: nonnegative(actor.hp) } : {}),
       ...(finite(actor?.ammo) ? { ammo: Math.floor(nonnegative(actor.ammo)) } : {}),
       ...(finite(actor?.shieldImpact) ? { shieldImpact: nonnegative(actor.shieldImpact) } : {}),
       ...(actor?.order && ORDERS.includes(actor.order) ? { order: actor.order } : {}),
-      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition } } : {}),
+      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition, ...(parseEagleFlightSnapshot(actor.mount.flight) ? { flight: parseEagleFlightSnapshot(actor.mount.flight) } : {}) } } : {}),
       ...(formationPosition && finite(actor?.formation?.commandId) ? { formation: {
         commandId: actor.formation.commandId, position: formationPosition, reached: actor.formation.reached === true,
         ...(finite(actor.formation.speedLimit) ? { speedLimit: nonnegative(actor.formation.speedLimit) } : {}),

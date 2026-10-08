@@ -76,7 +76,7 @@ export type PlayerRangedWeaponId =
 export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
   | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
-export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'corgi'] as const
+export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'corgi', 'xongkoro'] as const
 export type PlayerMountId = typeof PLAYER_MOUNT_IDS[number]
 
 export interface PlayerLoadoutConfig {
