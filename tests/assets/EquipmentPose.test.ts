@@ -13,6 +13,7 @@ import { applySwordAttachment, setSwordMountedAttachment } from '../../src/world
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 import { ShieldState, ShieldCollider } from '../../src/combat/ShieldBlocking'
 import type { HandGripFrame } from '../../src/world/BowAttachmentContract'
+import type { CharacterRig } from '../../src/world/CharacterVisuals'
 
 const fixtures: Record<string, Awaited<ReturnType<typeof createFixture>>> = {}
 const persistentCleanups: Array<() => void> = []
@@ -66,9 +67,10 @@ async function createFixture(faction: string, emptyMounted = false, persistent =
   return { root, rigs, levels, controller, animator, lance, shield, reset, measure }
 }
 
-beforeAll(async () => { for (const f of ['roman', 'viking']) fixtures[f] = await createFixture(f, false, true) })
+// Viking owns the complete shared state matrix, including its independent axe clips.
+beforeAll(async () => { fixtures.viking = await createFixture('viking', false, true) })
 
-for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {
+for (const faction of ['viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {
   it('raised shield physically intercepts a frontal chest ray and leaves feet exposed, without changing legs', async () => {
     const f = await createFixture(faction), state = new ShieldState()
     const id = faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'
@@ -91,7 +93,6 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
     const f = await createFixture(faction)
     const frames = f.levels.map(l => l.scene.userData.equipmentGripFrames.shieldLeft)
     for (const mounted of [false, true]) for (const action of ['swordSlash', 'axeAttack1H'] as const) {
-      if (faction === 'roman' && action === 'axeAttack1H') continue // Axe clips are Viking-only.
       f.root.rotation.y = mounted ? 1.2 : -.7
       f.reset(true, mounted)
       f.animator.setEquipment(false, true)
@@ -303,6 +304,85 @@ for (const faction of ['roman', 'viking']) describe(`${faction} Sword Idle + Lan
     }
     expect(upper()).toEqual(idleArms)
     expect(lower(f)).toEqual(lower(previous))
+  })
+})
+
+
+// The independent Roman rig keeps its own calibration, scutum and mounted attachment boundaries.
+// Shared seek/throttle/authority/timing matrices are exercised above with the Viking rig.
+describe('Roman equipment rig integration', () => {
+  it('raised scutum intercepts the chest and leaves feet exposed without taking leg ownership', async () => {
+    const f = await createFixture('roman'), state = new ShieldState()
+    state.equip('scutum_t2')
+    const collider = new ShieldCollider(f.shield, state); collider.setModel('scutum_t2')
+    const legPose = () => f.rigs.flatMap((r: CharacterRig) => [r.leftLeg.hip, r.leftLeg.knee, r.rightLeg.hip, r.rightLeg.knee].flatMap(b => b.quaternion.toArray()))
+    f.reset(true, false, 2)
+    f.animator.setShieldRaised(false); f.animator.update(0)
+    const lower = legPose(), low = f.shield.getWorldPosition(new THREE.Vector3())
+    f.animator.setShieldRaised(true); f.animator.update(0)
+    expect(legPose()).toEqual(lower)
+    const center = f.shield.getWorldPosition(new THREE.Vector3())
+    expect(center.y).toBeGreaterThan(low.y)
+    expect(collider.time(new THREE.Vector3(0, center.y, 2), new THREE.Vector3(0, center.y, -2))).toBeLessThan(1)
+    expect(collider.time(new THREE.Vector3(0, .1, 2), new THREE.Vector3(0, .1, -2))).toBe(Infinity)
+  })
+
+  it('keeps all three LOD palm contacts and single hit/completion through lance and sword attacks', async () => {
+    const f = await createFixture('roman')
+    f.root.rotation.y = .7
+    // Separate entry points, without multiplying them by the shared motion/LOD/timing matrix.
+    for (const [mounted, lance, action] of [[false, true, 'lanceThrust'], [true, true, 'mountedLance'], [false, false, 'swordSlash']] as const) {
+      f.reset(true, mounted); f.animator.setEquipment(lance, true); f.animator.update(0)
+      const attachment = f.lance.matrix.clone()
+      const localShieldGrips = f.rigs.map((rig: CharacterRig, lod: number) => rig.upperChest!.worldToLocal(
+        rig.left.wrist.localToWorld(new THREE.Vector3(...f.levels[lod].scene.userData.equipmentGripFrames.shieldLeft.gripCenterLocal)),
+      ))
+      const checkContacts = () => {
+        const measured = f.measure()
+        for (const [lod, hand] of measured.hands.entries()) {
+          expect(hand.right.distanceTo(measured.grip), `Roman LOD${lod} lance palm`).toBeLessThan(.01)
+          expect(hand.shield.distanceTo(measured.shieldGrip), `Roman LOD${lod} scutum palm`).toBeLessThan(.01)
+          expect(f.rigs[lod].upperChest!.worldToLocal(hand.shield.clone()).distanceTo(localShieldGrips[lod]), `Roman LOD${lod} chest ownership`).toBeLessThan(.001)
+        }
+        if (lance) expect(measured.tip.clone().sub(measured.grip).normalize().dot(new THREE.Vector3(Math.sin(.7), 0, Math.cos(.7)))).toBeGreaterThan(0)
+        expect(f.lance.matrix.equals(attachment)).toBe(true)
+      }
+      checkContacts()
+      expect(f.animator.start(action)).toBe(true)
+      const beforeHit = { ...f.animator.update(.05) }
+      expect(beforeHit).toMatchObject({ hitActiveStarted: false, actionCompleted: false })
+      checkContacts()
+      let hits = 0, completed = 0
+      for (const dt of [.2, .25]) {
+        const events = f.animator.update(dt)
+        hits += Number(events.hitActiveStarted); completed += Number(events.actionCompleted)
+        checkContacts()
+      }
+      expect(hits).toBe(1); expect(completed).toBe(1)
+      expect(f.animator.currentAction).toBe('idle')
+      expect(f.animator.update(.1)).toMatchObject({ hitActiveStarted: false, actionCompleted: false })
+    }
+  })
+
+  it('maps the mounted sword to the Roman lance grip and restores its own foot attachment', async () => {
+    const f = await createFixture('roman'), pivot = new THREE.Group(), model = new THREE.Group()
+    model.userData.gripCenterLocal = [0, .1, 0]; pivot.add(model)
+    f.rigs[0].right.handSocket.add(pivot)
+    const frame = f.levels[0].scene.userData.equipmentGripFrames.lanceRight
+    applySwordAttachment(f.rigs[0].right.handSocket, pivot, model, frame, frame.modelRotationLocal)
+    const foot = pivot.matrix.clone()
+    f.reset(true, true); setSwordMountedAttachment(pivot, true)
+    f.root.updateMatrixWorld(true)
+    const swordGrip = model.localToWorld(new THREE.Vector3(0, .1, 0))
+    const swordDirection = model.localToWorld(new THREE.Vector3(0, 1, 0)).sub(swordGrip).normalize()
+    const lance = f.measure()
+    expect(swordGrip.distanceTo(lance.grip)).toBeLessThan(.00001)
+    expect(swordDirection.dot(lance.tip.sub(lance.grip).normalize())).toBeGreaterThan(.99999)
+    const mountedMatrix = pivot.matrix.clone()
+    setSwordMountedAttachment(pivot, true)
+    expect(pivot.matrix.equals(mountedMatrix)).toBe(true)
+    setSwordMountedAttachment(pivot, false)
+    pivot.matrix.elements.forEach((n, i) => expect(n).toBeCloseTo(foot.elements[i], 12))
   })
 })
 

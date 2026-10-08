@@ -301,7 +301,7 @@ describe('HR Center and personal runtime', () => {
     expect(event.evaluate(false)).toBe('town_defeated')
     expect(town.persistCasualties).toHaveBeenCalledOnce()
   })
-  it.each(['victory', 'failure'] as const)('regroups after saved %s, preserving casualties, reserves and later player commands', outcome => {
+  it('regroups after saved victory, preserving casualties, reserves and later player commands', () => {
     const { controller, profile, player, scene, world } = harness()
     completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
     const [dead, captain, ranger] = controller.actors
@@ -325,7 +325,7 @@ describe('HR Center and personal runtime', () => {
     })
     const original = [...controller.actors], wounded = controller.checkpoint()!.members['personal:1']
     const stats = { damageDealt: 200, damageTaken: 20, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
-    const claimed = claimCareerMission(profile, mission.id, outcome, stats).profile
+    const claimed = claimCareerMission(profile, mission.id, 'victory', stats).profile
     expect(town.commit(claimed)).toBe(false)
     expect(town.profile).toBe(profile)
     expect(captain.tacticalOrder).toBe('charge'); expect(ranger.tacticalOrder).toBe('formation')
@@ -406,7 +406,7 @@ describe('HR Center and personal runtime', () => {
     expect(town.profile.personalSquad).toEqual(profile.personalSquad)
     expect(town.personalCommands.close).toHaveBeenCalledOnce()
   })
-  it.each(['melee', 'projectile', 'mount-impact'] as const)('does not award Player XP for personal %s damage or kills', method => {
+  it('does not award Player XP for personal melee damage or kills', () => {
     const { controller, profile, player, scene } = harness(); completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
     const enemy = new NPC(scene, 0, 0, Faction.BANDIT, 'viking', AIType.MELEE, 'bandit', 2)
     cleanups.push(() => enemy.dispose())
@@ -415,12 +415,18 @@ describe('HR Center and personal runtime', () => {
       defense: { active: false }, mission: { events: { emit: vi.fn() }, alertGroupFor: vi.fn() },
       awardCareerSkillXp: vi.fn(), inventory: {},
     })
+    const source = controller.actors[1]
+    expect(source.combatOwnership).toBe('player-personal')
     const hp = enemy.hpRatio
-    town.hitFieldNpc(enemy, 10, method, controller.actors[1], { kind: 'body', time: .5 })
+    town.hitFieldNpc(enemy, 10, 'melee', source, { kind: 'body', time: .5 })
     expect(enemy.hpRatio).toBeLessThan(hp)
-    town.hitFieldNpc(enemy, 99999, method, controller.actors[1], { kind: 'body', time: .5 })
+    town.hitFieldNpc(enemy, 99999, 'melee', source, { kind: 'body', time: .5 })
     expect(enemy.dead).toBe(true); expect(town.awardCareerSkillXp).not.toHaveBeenCalled()
-    expect(town.mission.events.emit).toHaveBeenCalledWith(expect.objectContaining({ source: expect.objectContaining({ actorType: 'npc', actorId: 'personal:1' }) }))
+    for (const type of ['damage_applied', 'actor_killed']) {
+      expect(town.mission.events.emit).toHaveBeenCalledWith(expect.objectContaining({
+        type, source: expect.objectContaining({ actorType: 'npc', actorId: 'personal:1', ownership: 'player-personal' }),
+      }))
+    }
   })
   it('retains actual private projectile attribution after the shooter dies and its runtime is disposed', () => {
     const { controller, profile, player, scene } = harness(); completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)

@@ -116,10 +116,40 @@ function fixture(faction: 'roman' | 'viking', dt: number, cameraDistance: number
 
 const timings = [60, 30, 20].flatMap(fps => [0, 1 / 24].map(phase => ({ fps, dt: 1 / fps, phase })))
 
-describe.each(['roman', 'viking'] as const)('%s T4 lance physical-contact timing', faction => {
-  it.each(timings)('hits at 2.7m on the first thrust at $fps fps, mixer phase $phase, both near and far from the camera', ({ dt, phase }) => {
+describe('T4 lance physical-contact timing', () => {
+  // The Varangian's 1.5x attack clock owns frame/idle-phase sampling for the shared animator and sweep.
+  it.each(timings)('hits an NPC body on the first thrust at $fps fps and mixer phase $phase', ({ dt, phase }) => {
+    const h = fixture('viking', dt, 0, phase)
+    h.firstAttack()
+
+    expect(h.hit).toHaveBeenCalledTimes(1)
+    expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
+    expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), false, h.target)
+  })
+
+  // The Roman rig has its own calibrated hand/socket frame; exercise physical contact without repeating the clock matrix.
+  it('hits an NPC body with the Roman T4 rig at 20 fps and an offset mixer phase', () => {
+    const h = fixture('roman', 1 / 20, 0, 1 / 24)
+    h.firstAttack()
+
+    expect(h.hit).toHaveBeenCalledTimes(1)
+    expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
+    expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), false, h.target)
+  })
+
+  it('hits a Player body and dispatches Player damage on the first thrust at 20 fps', () => {
+    const h = fixture('viking', 1 / 20, 0, 1 / 24, 2.7, 'player')
+    h.firstAttack()
+
+    expect(h.hit).toHaveBeenCalledTimes(1)
+    expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
+    expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), true, undefined)
+  })
+
+  // Probe the far 12 Hz accumulator separately from the per-frame attack-clock matrix.
+  it('keeps first-thrust contact both near and 60m from the camera at 30 fps', () => {
     for (const cameraDistance of [0, 60]) {
-      const h = fixture(faction, dt, cameraDistance, phase)
+      const h = fixture('viking', 1 / 30, cameraDistance, 0)
       h.firstAttack()
 
       expect(h.hit, `first-thrust damage at camera distance ${cameraDistance}`).toHaveBeenCalledTimes(1)
@@ -128,17 +158,20 @@ describe.each(['roman', 'viking'] as const)('%s T4 lance physical-contact timing
     }
   })
 
-  it.each(timings)('hits a Player body on the first thrust at $fps fps, mixer phase $phase, both near and far from the camera', ({ dt, phase }) => {
-    for (const cameraDistance of [0, 60]) {
-      const h = fixture(faction, dt, cameraDistance, phase, 2.7, 'player')
-      h.firstAttack()
+  it('approaches a stationary target and physically hits at 20 fps, an offset mixer phase, and 60m camera distance', () => {
+    const dt = 1 / 20
+    const h = fixture('viking', dt, 60, 1 / 24, 4.4)
+    h.attacker.state = AIState.CHASE
+    for (let frame = 0; frame < Math.ceil(6 / dt) && !h.hit.mock.calls.length; frame++) h.step()
 
-      expect(h.hit, `first-thrust Player damage at camera distance ${cameraDistance}`).toHaveBeenCalledTimes(1)
-      expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
-      expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), true, undefined)
-    }
+    expect(h.hit).toHaveBeenCalledTimes(1)
+    expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
+    expect(h.attacker.position.z).toBeGreaterThan(.5)
   })
+})
 
+// Each rig's cavalry preset and sword/lance attachment round trip has independent calibration.
+describe.each(['roman', 'viking'] as const)('%s T4 lance attachment transitions', faction => {
   it('keeps the lance contact attachment when a mounted Captain switches to lance, dismounts, then restores the original blade and remounts', () => {
     const swordId = UNIT_PRESETS[`${faction}_sword_cavalry`].tierLoadouts[3].meleeWeaponId!
     const h = fixture(faction, 1 / 60, 0, 0, 2.7, 'player', swordId)
@@ -179,13 +212,4 @@ describe.each(['roman', 'viking'] as const)('%s T4 lance physical-contact timing
     pivot.matrix.elements.forEach((value, index) => expect(value).toBeCloseTo(originalMountedSwordMatrix.elements[index], 5))
   })
 
-  it.each(timings)('approaches a stationary target and physically hits at $fps fps, mixer phase $phase, and 60m camera distance', ({ dt, phase }) => {
-    const h = fixture(faction, dt, 60, phase, 4.4)
-    h.attacker.state = AIState.CHASE
-    for (let frame = 0; frame < Math.ceil(6 / dt) && !h.hit.mock.calls.length; frame++) h.step()
-
-    expect(h.hit).toHaveBeenCalledTimes(1)
-    expect(h.trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
-    expect(h.attacker.position.z).toBeGreaterThan(.5)
-  })
 })

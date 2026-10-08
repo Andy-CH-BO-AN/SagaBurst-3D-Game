@@ -404,11 +404,19 @@ describe('Mission identity, attribution and claim', () => {
     expect(controller.evaluate(false)).toBe('victory')
   })
 
-  it('prioritizes the objective in the final-target frame and waits for roster registration', () => {
-    expect(resolveCareerMissionOutcome(true, true, 0)).toBe('victory')
-    expect(resolveCareerMissionOutcome(false, false, 0)).toBeNull()
-    expect(resolveCareerMissionOutcome(false, true, 0)).toBe('victory')
-  })
+  it.each([
+    [true, true, 0, 0, 'victory'],
+    [false, false, 0, 0, null],
+    [false, true, 0, 0, 'victory'],
+    [true, true, 1, 1, null],
+    [true, true, 1, 0, 'failure'],
+    [false, true, 1, 0, null],
+    [false, true, 0, 1, 'victory'],
+  ] as const)('objective priority: dead=%s registered=%s targets=%s allies=%s => %s',
+    (dead, registered, targets, allies, expected) => {
+      expect(resolveCareerMissionOutcome(dead, registered, targets, allies)).toBe(expected)
+    },
+  )
 
   it('claims the mission once while spectator victory remains zero', () => {
     const profile = createCareerProfile('viking')
