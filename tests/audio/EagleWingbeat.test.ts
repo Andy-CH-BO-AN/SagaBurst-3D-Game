@@ -80,8 +80,8 @@ describe('Eagle wingbeat Web Audio ownership', () => {
     candidates.forEach(item => item.sequence++)
     manager.updateEagleWingbeats(candidates)
     expect(sources).toHaveLength(2)
-    expect(gains[0].gain.value).toBeCloseTo(.15)
-    expect(gains[1].gain.value).toBeCloseTo(.0375)
+    expect(gains[0].gain.value).toBeCloseTo(.5)
+    expect(gains[1].gain.value).toBeCloseTo(.125)
     far.distance = 12; lod2.lod = 0
     manager.updateEagleWingbeats(candidates)
     expect(sources).toHaveLength(2)
