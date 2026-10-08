@@ -1,0 +1,69 @@
+name: Prepare v1.1.0
+
+on:
+  push:
+    branches:
+      - release/v1.1.0-prep
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version 1.1.0 --no-git-tag-version
+          mkdir -p docs/releases
+          cat > docs/releases/v1.1.0.md <<'EOF'
+          # SagaBurst v1.1.0
+
+          SagaBurst v1.1.0 improves third-person combat, character equipment compatibility, and elevated mounted gameplay across browser and desktop builds.
+
+          ## Play
+
+          - **Browser:** [Play Online](https://andy-ch-bo-an.github.io/SagaBurst-3D-Game/) on a desktop computer with keyboard and mouse.
+          - **Windows x64:** download `SagaBurst-v1.1.0-Windows-x64.zip`, extract the entire folder, and open `SagaBurst.exe`.
+          - **macOS Apple Silicon:** download `SagaBurst-v1.1.0-macOS-arm64.zip`, extract it, move `SagaBurst.app` to Applications, and follow `MACOS-FIRST-LAUNCH.txt`.
+
+          No Node.js, npm or Git is needed. Desktop downloads contain all game assets and work offline.
+
+          ## Highlights
+
+          - Improved third-person camera collision around terrain, buildings, walls, and other large obstacles.
+          - Added proper backpedal and strafe movement on foot while preserving the camera and combat heading; mounted steering remains unchanged.
+          - Added an Esc pause, resume, and return-to-menu flow for Black Cat and Corgi hero-mount trials.
+          - Added Roman and Praetorian axe attack and mounted-carry animations, with corrected arm deformation.
+          - Fixed T4 bow rendering and grip compatibility for ordinary Viking, Roman, Praetorian, and hero characters while preserving Maki's authored calibration.
+          - Fixed fatal mount hits on rooftops and other elevated surfaces so the rider falls naturally from saddle height instead of being pushed through the structure.
+          - Consolidated and reduced duplicated heavy automated tests while retaining gameplay, release, Windows, macOS, and web validation coverage.
+
+          ## Compatibility and first launch
+
+          Existing Career and Campaign saves remain on the device. Browser and desktop saves are separate and do not sync.
+
+          The macOS build is ad-hoc signed but not Apple-notarized. Try **System Settings → Privacy & Security → Open Anyway** after the first launch. If macOS still reports that the app is damaged, move it to Applications and run:
+
+          ```bash
+          xattr -dr com.apple.quarantine "/Applications/SagaBurst.app"
+          open "/Applications/SagaBurst.app"
+          ```
+
+          Windows is unsigned and may display Microsoft Defender SmartScreen; use **More info → Run anyway** for the official GitHub download.
+          EOF
+          git rm .github/workflows/prepare-v1.1.0.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: prepare SagaBurst v1.1.0"
+          git push origin HEAD:release/v1.1.0-prep
