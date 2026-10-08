@@ -66,12 +66,16 @@ describe('Fixed-wing shared flight controller (zero actors)', () => {
     expect(position.y).toBeLessThanOrEqual(120)
     expect(flight.velocity.length()).toBeCloseTo(96 / 3.6)
   })
-  it('uses the same yaw-aware 24 by 14 metre landing footprint as Career deployment', () => {
+  it('uses the same yaw-aware 24 by 14 metre landing footprint and 14.5 metre wing clearance as Career deployment', () => {
     const flight = new EagleFlightController(), position = new THREE.Vector3()
     const building = { box: new THREE.Box3(new THREE.Vector3(-2, 0, 9), new THREE.Vector3(2, 8, 10)), isBarricade: false }
     expect(flight.canLand(position, [building], () => 0)).toBe(true)
     flight.yaw = Math.PI / 2
     expect(flight.canLand(position, [building], () => 0)).toBe(false)
+    const overhead = { box: new THREE.Box3(new THREE.Vector3(-1, 13.9, -1), new THREE.Vector3(1, 14, 1)), isBarricade: false }
+    expect(flight.canLand(position, [overhead], () => 0)).toBe(false)
+    overhead.box.translate(new THREE.Vector3(0, .7, 0))
+    expect(flight.canLand(position, [overhead], () => 0)).toBe(true)
     expect(flight.canLand(position, [], (x, z) => x > 5 && z > 5 ? 4 : 0)).toBe(false)
     position.x = 299
     expect(flight.canLand(position, [], () => 0, 300)).toBe(false)

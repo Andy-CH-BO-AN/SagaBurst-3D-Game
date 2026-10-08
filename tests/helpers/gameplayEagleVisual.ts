@@ -3,11 +3,12 @@ import type { XongkoroVisual } from '../../src/world/XongkoroVisual'
 
 /** Render-only fixture: 0 GLBs; callers retain real Mount, flight, damage and actor behavior. */
 export class GameplayEagleVisualDouble implements Pick<XongkoroVisual,
-  'root' | 'lod' | 'standingSocket' | 'headAttackSocket' | 'leftClawAttackSocket' | 'rightClawAttackSocket' | 'update' | 'dispose' | 'setCameraDistance'> {
+  'root' | 'lod' | 'torsoSocket' | 'standingSocket' | 'headAttackSocket' | 'leftClawAttackSocket' | 'rightClawAttackSocket' | 'update' | 'dispose' | 'setCameraDistance'> {
   static readonly ready = true
   static async preload(): Promise<void> {}
   readonly root = new THREE.Group()
   readonly lod = new THREE.LOD()
+  readonly torsoSocket = new THREE.Object3D()
   readonly standingSocket = new THREE.Object3D()
   readonly headAttackSocket = new THREE.Object3D()
   readonly leftClawAttackSocket = new THREE.Object3D()
@@ -17,7 +18,8 @@ export class GameplayEagleVisualDouble implements Pick<XongkoroVisual,
     this.headAttackSocket.position.set(0, 1.8, 4.5)
     this.leftClawAttackSocket.position.set(-.7, .5, 2)
     this.rightClawAttackSocket.position.set(.7, .5, 2)
-    this.root.add(this.standingSocket, this.headAttackSocket, this.leftClawAttackSocket, this.rightClawAttackSocket)
+    this.torsoSocket.add(this.standingSocket, this.headAttackSocket, this.leftClawAttackSocket, this.rightClawAttackSocket)
+    this.root.add(this.torsoSocket)
   }
   setCameraDistance(_distance: number): void {}
   update(_dt: number, _state: Parameters<XongkoroVisual['update']>[1]): void {}

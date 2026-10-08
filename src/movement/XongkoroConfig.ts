@@ -60,4 +60,15 @@ export const XONGKORO_VISUAL = {
   standingAnklePitch: -.12,
   standingSpread: .10,
   sprintRiderLean: .12,
+  groundTransitionSeconds: .38,
+  groundBodyPitch: -.35,
+  groundThighDirection: [0, -.75, .5],
+  groundCalfDirection: [0, -.72, -.62],
+  groundAnkleDirection: [0, -1, .24],
+  groundFootInfluence: .6,
+  flapClearanceStart: .5,
+  // Source downstroke reaches 7.46 m below the reference origin.
+  flapClearanceFull: 9,
+  minimumAudibleFlapWeight: .2,
+  maximumAudibleGroundWeight: .8,
 } as const

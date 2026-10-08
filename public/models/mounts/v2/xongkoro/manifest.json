@@ -47,7 +47,7 @@
     "landing",
     "death"
   ],
-  "procedural": "Attack extends neck/head and legs over the sampled flight pose. Grounded/dead flight playback is held; translation and corpse descent belong to gameplay.",
+  "procedural": "Grounded pose plants both feet using the source leg chains while retaining the spread wings; takeoff and landing blend with the source flight sample. Attack extends neck/head and legs over the current base pose. Death holds that base pose; translation and corpse descent belong to gameplay.",
   "sockets": {
     "standing": "socket_rider_standing",
     "head": "socket_attack_head",

@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { getTerrainHeight, type ObstacleData } from './Terrain'
 
-/** Full wing clearance, including a margin beyond the 10 m head/body/tail length. */
-export const XONGKORO_LANDING = { width: 24, depth: 14, verticalClearance: 12, maxHeightDifference: 3, separation: 3 } as const
+/** Full wing clearance, including the 13.91 m standing/flight transition envelope. */
+export const XONGKORO_LANDING = { width: 24, depth: 14, verticalClearance: 14.5, maxHeightDifference: 3, separation: 3 } as const
 export interface EagleLandingPoint { x: number; z: number; yaw?: number }
 export function eagleLandingFootprint(point: EagleLandingPoint, target = new THREE.Box3()): THREE.Box3 {
   const cosine = Math.abs(Math.cos(point.yaw ?? 0)), sine = Math.abs(Math.sin(point.yaw ?? 0))

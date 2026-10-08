@@ -11,6 +11,27 @@ import { XONGKORO } from '../../src/movement/XongkoroConfig'
 const manifest = JSON.parse(readFileSync('public/models/mounts/v2/xongkoro/manifest.json', 'utf8'))
 const state = { flying: true, sprinting: false, attackWeight: 0, dead: false }
 
+function footSupportHeights(visual: XongkoroVisual): number[] {
+  const body = visual.lod.levels[0].object as THREE.SkinnedMesh
+  const indices = body.geometry.getAttribute('skinIndex'), weights = body.geometry.getAttribute('skinWeight')
+  const point = new THREE.Vector3()
+  visual.root.updateWorldMatrix(true, true)
+  return ['L', 'R'].map(side => {
+    let lowest = Infinity
+    for (let vertex = 0; vertex < indices.count; vertex++) {
+      let footWeight = 0
+      for (let joint = 0; joint < 4; joint++) {
+        const name = visual.skeleton.bones[indices.getComponent(vertex, joint)].name
+        if (name === `Bip01_${side}_Foot` || name.startsWith(`BN_Toe_${side}_`)) footWeight += weights.getComponent(vertex, joint)
+      }
+      if (footWeight < .6) continue
+      body.getVertexPosition(vertex, point); body.localToWorld(point)
+      lowest = Math.min(lowest, point.y)
+    }
+    return lowest
+  })
+}
+
 describe('xongkoro shipped asset and visual ownership', () => {
   let template: GLTF
   beforeAll(async () => {
@@ -43,6 +64,9 @@ describe('xongkoro shipped asset and visual ownership', () => {
     // The source socket scale is about 29.7; the anatomical hurt shape stays metres.
     XONGKORO.headHurtSize.forEach((expected, axis) => expect(headSize.getComponent(axis)).toBeCloseTo(expected, 4))
     expect(headProxy.parent).toBe(visual.headAttackSocket)
+    expect(mount.aimColliders[0].parent).toBe(visual.torsoSocket)
+    // Real Mount materialization must plant both independent foot surfaces.
+    for (const foot of footSupportHeights(visual)) expect(Math.abs(foot)).toBeLessThan(.01)
     expect(visual.root.scale.toArray()).toEqual([1, 1, 1])
     expect(visual.standingSocket.parent?.name).toBe('Bip01_Spine1')
     expect(visual.lod.levels.map(level => level.object.name)).toEqual(['eagle_body_lod0', 'eagle_body_lod1', 'eagle_body_lod2'])
@@ -58,6 +82,9 @@ describe('xongkoro shipped asset and visual ownership', () => {
     const indices = body.geometry.getAttribute('skinIndex'), weights = body.geometry.getAttribute('skinWeight')
     const point = new THREE.Vector3()
     let rear = Infinity, front = -Infinity
+    // The ten-metre measurement is defined in the source reference, not the
+    // shorter horizontal projection of a chest-raised standing bird.
+    visual.update(0, state)
     visual.skeleton.update()
     for (let vertex = 0; vertex < body.geometry.getAttribute('position').count; vertex++) {
       let axialWeight = 0
@@ -129,17 +156,108 @@ describe('xongkoro shipped asset and visual ownership', () => {
     }
   })
 
-  it('rejects a missing torso socket and retries its failed preload without publishing a partial template', async () => {
+  it('blends off support, preserves the current base on death and replants both feet on return without pose drift', () => {
+    const visual = new XongkoroVisual()
+    onTestFinished(() => visual.dispose())
+    visual.update(0, { ...state, flying: false })
+    const standing = visual.standingSocket.getWorldPosition(new THREE.Vector3())
+    const head = visual.headAttackSocket.getWorldPosition(new THREE.Vector3())
+    const feet = footSupportHeights(visual)
+    for (const foot of feet) expect(Math.abs(foot)).toBeLessThan(.01)
+    visual.update(.016, state)
+    const transitioning = visual.standingSocket.getWorldPosition(new THREE.Vector3())
+    expect(transitioning.distanceTo(standing)).toBeGreaterThan(0)
+    expect(transitioning.distanceTo(standing)).toBeLessThan(.3)
+    visual.update(.5, state)
+    const airborne = visual.standingSocket.getWorldPosition(new THREE.Vector3())
+    expect(airborne.distanceTo(standing)).toBeGreaterThan(.5)
+    visual.update(.2, { ...state, flying: false, dead: true, attackWeight: 1 })
+    expect(visual.standingSocket.getWorldPosition(new THREE.Vector3()).distanceTo(airborne)).toBeLessThan(1e-5)
+    visual.update(0, { ...state, flying: false })
+    expect(visual.standingSocket.getWorldPosition(new THREE.Vector3()).distanceTo(standing)).toBeLessThan(1e-5)
+    visual.update(0, { ...state, flying: false, attackWeight: 1 })
+    visual.update(.2, { ...state, flying: false, dead: true })
+    expect(visual.headAttackSocket.getWorldPosition(new THREE.Vector3()).distanceTo(head)).toBeLessThan(1e-5)
+    for (let frame = 0; frame < 30; frame++) visual.update(1 / 60, { ...state, flying: false })
+    footSupportHeights(visual).forEach((foot, side) => expect(foot).toBeCloseTo(feet[side], 5))
+    expect(visual.standingSocket.getWorldPosition(new THREE.Vector3()).distanceTo(standing)).toBeLessThan(1e-5)
+    // The source may reach support on any flap phase. Blending the folded
+    // flight legs must not send their rotation arc through the support plane.
+    for (const phase of [.08, .29, .5]) {
+      visual.update(0, state)
+      visual.update(phase, state)
+      for (let frame = 0; frame < 20; frame++) {
+        visual.update(.02, { ...state, flying: false })
+        for (const foot of footSupportHeights(visual)) expect(foot).toBeGreaterThan(-1e-5)
+      }
+      footSupportHeights(visual).forEach(foot => expect(Math.abs(foot)).toBeLessThan(.01))
+    }
+  })
+
+  it('limits live downstrokes near support and preserves the last wing pose when the mount dies', () => {
+    const visual = new XongkoroVisual()
+    onTestFinished(() => visual.dispose())
+    const body = visual.lod.levels[0].object as THREE.SkinnedMesh
+    const indices = body.geometry.getAttribute('skinIndex'), weights = body.geometry.getAttribute('skinWeight')
+    const wing: number[] = []
+    for (let vertex = 0; vertex < indices.count; vertex++) {
+      let influence = 0
+      for (let joint = 0; joint < 4; joint++) {
+        if (visual.skeleton.bones[indices.getComponent(vertex, joint)].name.includes('Wing')) influence += weights.getComponent(vertex, joint)
+      }
+      if (influence > .5) wing.push(vertex)
+    }
+    expect(wing.length).toBeGreaterThan(0)
+    const point = new THREE.Vector3()
+    const step = template.animations.find(clip => clip.name === 'fly')!.duration / 24
+    for (const [clearance, bank] of [[0, 0], [3, 0], [6, 0], [9, 0], [6, .55], [9, .55], [15, .55]]) {
+      visual.root.rotation.z = bank
+      visual.root.updateWorldMatrix(true, true)
+      visual.update(0, { ...state, groundClearance: clearance })
+      for (let sample = 0; sample < 24; sample++) {
+        visual.update(step, { ...state, groundClearance: clearance })
+        let lowest = Infinity
+        for (const vertex of wing) {
+          body.getVertexPosition(vertex, point); body.localToWorld(point)
+          lowest = Math.min(lowest, point.y + clearance)
+        }
+        expect(lowest).toBeGreaterThan(-.01)
+      }
+    }
+    visual.update(step * 9, { ...state, groundClearance: 9 })
+    const wingTip = visual.skeleton.bones.find(bone => bone.name === 'BN_Wing_L_04')!
+    const held = wingTip.getWorldPosition(new THREE.Vector3())
+    visual.update(.2, { ...state, flying: false, dead: true, groundClearance: 0 })
+    expect(wingTip.getWorldPosition(new THREE.Vector3()).distanceTo(held)).toBeLessThan(1e-5)
+  })
+
+  it('rejects missing torso, standing bones or foot surfaces and retries without publishing a partial template', async () => {
     vi.resetModules()
     const { XongkoroVisual: FreshVisual } = await import('../../src/world/XongkoroVisual')
     const scene = cloneSkeleton(template.scene) as THREE.Group
     scene.getObjectByName('socket_rider_standing')!.removeFromParent()
+    const noCalf = cloneSkeleton(template.scene) as THREE.Group
+    noCalf.getObjectByName('Bip01_L_Calf')!.name = 'unavailable'
+    const noFeet = cloneSkeleton(template.scene) as THREE.Group
+    const footlessBody = noFeet.getObjectByName('eagle_body_lod0') as THREE.SkinnedMesh
+    footlessBody.geometry = footlessBody.geometry.clone()
+    onTestFinished(() => footlessBody.geometry.dispose())
+    const weights = footlessBody.geometry.getAttribute('skinWeight')
+    for (let vertex = 0; vertex < weights.count; vertex++) weights.setXYZW(vertex, 0, 0, 0, 0)
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify(manifest))))
-    const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValueOnce({ ...template, scene }).mockResolvedValueOnce(template)
+    const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync')
+      .mockResolvedValueOnce({ ...template, scene })
+      .mockResolvedValueOnce({ ...template, scene: noCalf })
+      .mockResolvedValueOnce({ ...template, scene: noFeet })
+      .mockResolvedValueOnce(template)
     await expect(FreshVisual.preload()).rejects.toThrow('socket_rider_standing')
+    expect(FreshVisual.ready).toBe(false)
+    await expect(FreshVisual.preload()).rejects.toThrow('Bip01_L_Calf')
+    expect(FreshVisual.ready).toBe(false)
+    await expect(FreshVisual.preload()).rejects.toThrow('L foot surface')
     expect(FreshVisual.ready).toBe(false)
     await FreshVisual.preload()
     expect(FreshVisual.ready).toBe(true)
-    expect(loader).toHaveBeenCalledTimes(2)
+    expect(loader).toHaveBeenCalledTimes(4)
   })
 })

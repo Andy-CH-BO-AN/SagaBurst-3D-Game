@@ -58,6 +58,7 @@ import { SkillManager } from '../rpg/SkillManager'
 import { SHIELD_CONFIG, traceCombatSegment, type CombatContact } from '../combat/ShieldBlocking'
 import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
+import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
@@ -1890,6 +1891,8 @@ export class TownScene {
       })
     }
     sound?.updateHorseGallopLoops(candidates)
+    updateEagleWingbeatAudio(sound, [playerMount, this.careerMounts.activeMount, ...this.mounts,
+      ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])], this.camera.position, playerMount)
   }
   private updateHostile(dt: number): void {
     this.navigation.sync(this.world.obstacles); this.navigation.beginFrame()
@@ -2069,6 +2072,7 @@ export class TownScene {
     }
     else {
       sound?.updateHorseGallopLoops([])
+      sound?.updateEagleWingbeats([])
       this.missionCombat.updateDefeatedActors(dt)
     }
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
@@ -2113,6 +2117,7 @@ export class TownScene {
     this.cancelPendingSpawns()
     this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])
+    sound?.updateEagleWingbeats([])
     if (this.disposed) return
     this.personalSquad?.cleanup()
     this.personalCommands?.close()

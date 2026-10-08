@@ -32,10 +32,14 @@ function fixture(rangedWeaponId: string | null = null, hero = false) {
 }
 
 describe('NPC eagle lifecycle and combat caller wiring', () => {
-  it('damageMount detaches at the current feet position, survives 14m and does not clear pending fall on repeated cleanup', () => {
+  it('damageMount detaches at the latest sampled feet position, survives 14m and does not clear pending fall on repeated cleanup', () => {
     const { npc, mount, placeAirborne } = fixture()
-    placeAirborne(14)
-    const start = npc.group.position.clone()
+    placeAirborne(12)
+    // The mount's pose can change after the last actor sync, before a projectile.
+    mount.eagleVisual!.standingSocket.position.y += 2
+    const start = mount.getRiderStandingSeatWorld(new THREE.Vector3())
+    expect(npc.group.position.y).toBeCloseTo(12)
+    expect(start.y).toBeCloseTo(14)
     expect(mount.currentHp).toBe(200)
     damageMount(mount, 200)
     expect(npc.mount).toBeNull()

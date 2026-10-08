@@ -913,6 +913,7 @@ export class NPC {
     const mountPosition = this._tmpDismountPosition.copy(airborne ? this.group.position : oldMount.group.position)
     if (oldMount.isFlyingMount && !airborne && !oldMount.findGroundDismountPosition(mountPosition, this.fallObstacles)) return
     if (airborne && oldMount.flight) {
+      oldMount.getRiderStandingSeatWorld(mountPosition)
       this.pendingFall.begin(mountPosition, oldMount.flight.velocity)
       this.fallContext = oldMount.knockdownContext
     }

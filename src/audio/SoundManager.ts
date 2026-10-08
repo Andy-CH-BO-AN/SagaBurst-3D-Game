@@ -15,10 +15,16 @@ export interface HorseGallopCandidate {
   isPlayer: boolean
 }
 
+export interface EagleWingbeatCandidate extends HorseGallopCandidate {
+  /** Monotonic count supplied by the actual animated downstroke, never frame count. */
+  sequence: number
+}
+
 const REDUCED_BATTLE_SFX_VOLUME = 0.03
 const BOW_RELEASE_VOLUME = 0.2
 const MAX_BOW_RELEASE_VOICES = 6
 const MAX_NPC_GALLOP_VOICES = 8
+const EAGLE_WINGBEAT = { nearDistance: 12, farDistance: 140, maxNpcVoices: 8 } as const
 const MAX_BATTLE_IMPACT_VOICES = 16
 const TOWN_ALARM_STRIKES = 6
 const TOWN_ALARM_INTERVAL_SECONDS = 1
@@ -30,6 +36,7 @@ type AudioAsset =
   | 'lanceImpact'
   | 'horseImpact'
   | 'horseGallop'
+  | 'eagleWingbeat'
   | 'romanAttack'
   | 'romanDefend'
   | 'romanFormation'
@@ -48,6 +55,7 @@ const ASSETS: Record<AudioAsset, string> = {
   lanceImpact: new URL('../../sagaburst_audio_pack_v3/sfx/lance_impact.wav', import.meta.url).href,
   horseImpact: new URL('../../sagaburst_audio_pack_v3/sfx/horse_impact.wav', import.meta.url).href,
   horseGallop: new URL('../../sagaburst_audio_pack_v3/sfx/horse_gallop.wav', import.meta.url).href,
+  eagleWingbeat: new URL('./assets/xongkoro_wingbeat_trimmed.wav', import.meta.url).href,
   romanAttack: new URL('../../sagaburst_audio_pack_v3/commands/roman/attack.wav', import.meta.url).href,
   romanDefend: new URL('../../sagaburst_audio_pack_v3/commands/roman/defend.wav', import.meta.url).href,
   romanFormation: new URL('../../sagaburst_audio_pack_v3/commands/roman/formation.wav', import.meta.url).href,
@@ -100,6 +108,8 @@ export class SoundManager {
   private readonly gallopWanted = new Map<object, boolean>()
   private readonly gallopLoops = new Map<object, GallopLoop>()
   private gallopLoadPending = false
+  private readonly wingbeatSequences = new Map<object, number>()
+  private readonly wingbeatVoices = new Map<object, GallopLoop>()
   private readonly bowReleaseVoices: BowReleaseVoice[] = []
   private bowReleaseSequence = 0
   private readonly battleImpactVoices: BattleImpactVoice[] = []
@@ -238,6 +248,62 @@ export class SoundManager {
         if (wanted) this._startGallop(id, loaded)
       }
     })
+  }
+
+  /** Phase-driven one-shots; inaudible crossings are discarded instead of replayed later. */
+  updateEagleWingbeats(candidates: EagleWingbeatCandidate[]): void {
+    const ids = new Set(candidates.map(candidate => candidate.id))
+    for (const id of this.wingbeatSequences.keys()) if (!ids.has(id)) this.wingbeatSequences.delete(id)
+    const eligible = candidates.filter(candidate => candidate.active && SoundManager.isAudibleAtLod(candidate.lod)
+      && Number.isFinite(candidate.distance) && candidate.distance < EAGLE_WINGBEAT.farDistance)
+    const selected = new Set<object>()
+    const player = eligible.find(candidate => candidate.isPlayer)
+    if (player) selected.add(player.id)
+    eligible.filter(candidate => !candidate.isPlayer).sort((a, b) => a.distance - b.distance)
+      .slice(0, EAGLE_WINGBEAT.maxNpcVoices).forEach(candidate => selected.add(candidate.id))
+    for (const id of this.wingbeatVoices.keys()) if (!selected.has(id)) this._stopWingbeat(id)
+    const buffer = this.buffers.get('eagleWingbeat')
+    for (const candidate of candidates) {
+      const previous = this.wingbeatSequences.get(candidate.id)
+      this.wingbeatSequences.set(candidate.id, candidate.sequence)
+      if (!selected.has(candidate.id)) continue
+      const range = EAGLE_WINGBEAT.farDistance - EAGLE_WINGBEAT.nearDistance
+      const attenuation = Math.max(0, 1 - Math.max(0, candidate.distance - EAGLE_WINGBEAT.nearDistance) / range)
+      const volume = REDUCED_BATTLE_SFX_VOLUME * attenuation * attenuation
+      const playing = this.wingbeatVoices.get(candidate.id)
+      if (playing) playing.gain.gain.value = volume
+      if (previous === undefined || candidate.sequence <= previous) continue
+      if (buffer) this._startWingbeat(candidate.id, buffer, volume)
+      else void this._load('eagleWingbeat') // Wait for the next real beat after loading.
+    }
+  }
+
+  private _startWingbeat(id: object, buffer: AudioBuffer, volume: number): void {
+    this._stopWingbeat(id)
+    try {
+      const ctx = this._init(), source = ctx.createBufferSource(), gain = ctx.createGain()
+      source.buffer = buffer
+      gain.gain.value = volume
+      source.connect(gain); gain.connect(ctx.destination)
+      const voice = { source, gain }
+      this.wingbeatVoices.set(id, voice)
+      source.addEventListener('ended', () => {
+        if (this.wingbeatVoices.get(id) === voice) this.wingbeatVoices.delete(id)
+        source.disconnect(); gain.disconnect()
+      }, { once: true })
+      source.start()
+    } catch {
+      this._stopWingbeat(id)
+    }
+  }
+
+  private _stopWingbeat(id: object): void {
+    const voice = this.wingbeatVoices.get(id)
+    if (!voice) return
+    this.wingbeatVoices.delete(id)
+    try { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect() } catch {
+      // An already-ended optional sound has no remaining gameplay ownership.
+    }
   }
 
   /** Play a faction command; charge waits for the voice before starting its horn. */

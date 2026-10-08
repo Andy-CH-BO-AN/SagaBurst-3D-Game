@@ -194,6 +194,7 @@ import { DefenseCampaignHUD } from './ui/DefenseCampaignHUD'
 import { EquipmentUI } from './ui/EquipmentUI'
 import { HeroMountTrialUI } from './ui/HeroMountTrialUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
+import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
@@ -2382,6 +2383,7 @@ export class Game {
 
   private _disposeCareerOutpostBattleActors(): void {
     this.spawningStopped = true
+    this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cleanup()
     for (const npc of this.npcs) { this._aimTargetRegistry?.unregisterNpc?.(npc); npc.dispose() }
@@ -3173,6 +3175,7 @@ export class Game {
       })
     }
     this.soundManager.updateHorseGallopLoops(gallopCandidates)
+    updateEagleWingbeatAudio(this.soundManager, this.mounts, this.camera.position, this.player.currentMount)
 
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
       this.pickupPromptEl.classList.remove('visible')
@@ -3375,6 +3378,7 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
     if (this.heroMountTrialUI?.visible) {
+      this.soundManager.updateEagleWingbeats([])
       this.input.clear()
       this.player.clearTownAction()
       this.renderer.render(this.scene, this.camera)
@@ -3382,6 +3386,7 @@ export class Game {
     }
 
     if (import.meta.env.DEV && this._isSimulationFrozen) {
+      this.soundManager.updateEagleWingbeats([])
       if (profile) t0 = performance.now()
       this.renderer.render(this.scene, this.camera)
       const renderSubmitMs = profile ? performance.now() - t0 : 0

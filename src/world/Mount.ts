@@ -208,8 +208,11 @@ export class Mount {
       // Preserve the measured world-size box while converting to the source
       // socket's local space. Its donor scale must not enlarge the hurt region.
       this.eagleVisual.headAttackSocket.attach(head)
+      this.eagleVisual.torsoSocket.attach(this.aimCollider)
       this.aimColliders = [this.aimCollider, head]
       this.mountCollider = new CompoundLocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!, [new LocalBoxCollider(head, MOUNT_AIM_GEOMETRY.boundingBox!)])
+      // Calibrate anatomy in the authored reference before taking the grounded pose.
+      this.eagleVisual.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
     } else {
       this.aimColliders = [this.aimCollider]
       this.mountCollider = new LocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!)
@@ -458,6 +461,7 @@ export class Mount {
     this.knockdownContext = undefined
     this.eagleAttack?.cancel()
     this.flight?.restore({ phase: 'grounded', yaw, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } })
+    this.eagleVisual?.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
   }
 
   takeDamage(amount: number): boolean {
@@ -510,7 +514,8 @@ export class Mount {
       this.movementSpeed = this.previousPosition.distanceTo(this.group.position) / Math.max(dt, .0001)
       this.isSprinting = this.flight.intent.sprint === true
       this.skipImpactThisFrame = true
-      this.eagleVisual.update(dt, { flying: this.isAirborne, sprinting: this.isSprinting, attackWeight: this.eagleAttack!.weight, dead: false })
+      this.eagleVisual.update(dt, { flying: this.isAirborne, sprinting: this.isSprinting, attackWeight: this.eagleAttack!.weight, dead: false,
+        groundClearance: this.group.position.y - getTerrainHeight(this.group.position.x, this.group.position.z) })
       this.group.updateWorldMatrix(true, true)
       this.eagleAttack!.sample(this.eagleAttackSockets)
       return
@@ -613,7 +618,7 @@ export class Mount {
       this.onGround = true
       this.proceduralVisual?.update(dt)
       if (this.horseVisual) this.horseVisual.update(dt, this.cameraDistance)
-      this.eagleVisual?.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: false })
+      this.eagleVisual?.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
       return
     }
 

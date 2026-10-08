@@ -53,7 +53,7 @@
 - `CombatContact.mount` 指向真正命中的坐騎。body／盾牌 overflow 只傷人物，mount 只傷坐騎；兩者死亡獨立、正常 release rider。`mount-impact` 是明確例外：目標騎乘存活坐騎時傷坐騎，否则傷人物，不判 first contact、不吃盾。未帶 contact 的 scripted damage 傷指定人物，不因 mounted 轉移。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
 - 戰場坐騎 HP 傷害與 NPC HP 傷害皆沿用 CombatEvent offensive XP；傷害數字只顯示 actual appliedDamage，HUD 對應實際命中對象。Player 的 mount HUD 由仍然 mounted 且 currentMount 存活決定，不由上一擊 isMountHit 決定。
 - `xongkoro` 是 Tier 4 英雄坐騎。`XongkoroConfig` 集中 200 HP、48／96 km/h、起降／高度／射界與主動攻擊參數；`EagleFlightController` 接收 Player／`EagleFlightAI` 共用意圖，執行有限轉向、連續位移碰撞及完整起降淨空。`ThirdPersonCamera` 單獨消費滑鼠 delta，由 `EagleFlightAim` 同時產生準星與飛行意圖；瞄準維持巡航。
-- `XongkoroVisual` 使用本地 CC BY 4.0 GLB：固定參考姿勢的頭身尾長度 10 m、+Z forward、MASK 羽毛材質；獨立 skeleton／mixer／程序化頭爪 pose。`StandingRider` 在飛行 transform、動畫及姿態後對齊軀幹 standing socket 與雙腳，不把坐騎縮放傳给騎手；Player／NPC 保持 mounted，使用獨立下半身站乘姿勢。
+- `XongkoroVisual` 使用本地 CC BY 4.0 GLB：固定參考姿勢的頭身尾長度 10 m、+Z forward、MASK 羽毛材質；獨立 skeleton／mixer／程序化頭爪 pose；落地以來源腿鏈建立雙腳支撐並維持展翼的姿勢，依蒙皮腳底一次校準，起降平滑混合回飛行取樣。軀幹／頭部受擊 proxy 跟隨同一骨架；低空依淨高限制拍翼幅度，拍翼聲由 `WingbeatPhaseTracker` 追蹤動畫下拍，`EagleWingbeatAudio` 將 Game／Town 的實例接至既有 SoundManager，依距離與數量預算播放本地音檔；音效不控制動畫或 gameplay。`StandingRider` 在飛行 transform、動畫及姿態後對齊軀幹 standing socket 與雙腳，不把坐騎縮放傳给騎手；Player／NPC 保持 mounted，使用獨立下半身站乘姿勢。
 - `EagleAttack` 只在主動窗口掃掠頭／爪，按 attack instance 去重、先判盾／人體／坐騎實際 contact；飛行坐騎排除被動 `MountImpact`。攻擊 method 為 melee、來源 metadata 為 `xongkoro`，技能歸屬 mountedImpact，與手持武器無關。
 - `FallingRider` 共用腳底最高點、繼承速度、重力與有效支撐面落地規則；解除綁定冪等，死亡角色仍完成墜落。`fall` 環境傷害繞過戰鬥減傷，以 rider.maxHp × h / 15 結算一次，h ≥ 15 必死；經正式 HP／死亡回呼與歸因事件，不給武器 XP。死鷹先墜落接地再淡出。`CareerAerialState` 與普通 `SaveManager` 保存未決墜落及飛行／戰損，合法退出清除舊場景 callback。
 - 授權、來源雜湊與重建方式保留於各模型目錄的 manifest／CREDITS 及必要 provenance；製作／匯出驗證由資產 skill 維護。

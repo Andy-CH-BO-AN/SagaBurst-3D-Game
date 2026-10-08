@@ -82,8 +82,9 @@ describe('Lazy Career audio runtime', () => {
   it('constructor preloads battle assets and fetches/decodes no Career assets', async () => {
     const manager = new SoundManager()
     await manager.preload()
-    expect(fetch).toHaveBeenCalledTimes(16)
-    expect(ctx.decodeAudioData).toHaveBeenCalledTimes(16)
+    expect(fetch).toHaveBeenCalledTimes(17)
+    expect(ctx.decodeAudioData).toHaveBeenCalledTimes(17)
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('xongkoro_wingbeat_trimmed.wav'))).toHaveLength(1)
     expect(careerRequests()).toHaveLength(0)
   })
 

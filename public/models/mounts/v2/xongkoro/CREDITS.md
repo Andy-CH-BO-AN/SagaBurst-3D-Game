@@ -8,7 +8,7 @@ License verified against the [official Sketchfab model API](https://api.sketchfa
 
 The supplied archive contains `source/Eagle Fly.zip` with `EAGLE FLY.fbx`, `Texture Base.tga`, `Texture Alpha.tga`, and `Texture Normal.tga`, plus separate base/normal PNGs. The FBX contains one rigged eagle and one fast-flight take (frames 1–19 at 30 fps). It has no attack, takeoff, landing, or death clip.
 
-SagaBurst modifications: fixed uniform anatomical head/body/tail length of 10 m; coordinate normalization to local +Z forward; removal of donor root trajectory; three source-derived LODs; torso standing socket and head/claw attack sockets; embedded supplied base/alpha/normal textures; runtime procedural head/neck and claw attack layered over the sampled flight pose. Grounded flight playback is held; takeoff, landing, falling and corpse translation use gameplay physics. No substitute bird or viewer dependency is used.
+SagaBurst modifications: fixed uniform anatomical head/body/tail length of 10 m; coordinate normalization to local +Z forward; removal of donor root trajectory; three source-derived LODs; torso standing socket and head/claw attack sockets; embedded supplied base/alpha/normal textures; runtime procedural standing pose with planted feet and spread wings, blended with the source flight sample; head/neck and claw attacks layered over the current base pose. Grounded foot placement is calibrated once from the skinned foot surfaces; the body, rider socket and hurt proxies follow the same skeleton. Takeoff, landing, falling and corpse translation use gameplay physics. No substitute bird or viewer dependency is used.
 
 Rebuild from the original user archive with Blender 5.2:
 

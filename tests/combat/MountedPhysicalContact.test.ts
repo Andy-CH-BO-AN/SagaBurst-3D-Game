@@ -49,12 +49,18 @@ describe('Mounted physical first contact', () => {
     expect(traceCombatSegment(mount, local(.7, .8, 3), local(.7, .8, -3), contact)).toBe(false)
   })
 
-  it('xongkoro head contacts follow the attacking anatomy while wing-envelope air remains empty', () => {
+  it('xongkoro torso and head contacts follow posed anatomy while wing-envelope air remains empty', () => {
     const { mount } = fixture(MountType.XONGKORO)
     mount.group.rotation.set(-.4, .7, .3, 'YXZ')
     const head = mount.aimColliders[1]
     const direction = new THREE.Vector3(1, 0, 0).applyQuaternion(mount.group.quaternion)
     const contact: CombatContact = { kind: 'body', time: Infinity }
+    const oldTorso = mount.aimCollider.getWorldPosition(new THREE.Vector3())
+    mount.eagleVisual!.torsoSocket.position.y += 3
+    const posedTorso = oldTorso.clone().add(new THREE.Vector3(0, 3, 0).applyQuaternion(mount.group.quaternion))
+    expect(traceCombatSegment(mount, posedTorso.clone().addScaledVector(direction, -2), posedTorso.clone().addScaledVector(direction, 2), contact)).toBe(true)
+    expect(contact.kind).toBe('mount')
+    expect(traceCombatSegment(mount, oldTorso.clone().addScaledVector(direction, -2), oldTorso.clone().addScaledVector(direction, 2), contact)).toBe(false)
     for (const extension of [0, 1.5]) {
       mount.eagleVisual!.headAttackSocket.position.z += extension
       const center = head.getWorldPosition(new THREE.Vector3())
