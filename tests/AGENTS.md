@@ -66,6 +66,17 @@
 - 非資產 gameplay 測試使用所需欄位最少的 typed visual fixture，保留真實 actor、AI、移動與傷害行為；真實 GLB 留在少量資產契約與必要 integration。
 - 共用 GLB loader 明示是否省略 image/material payload；只有契約不依賴這些內容時可省略，材質與紋理契約使用可保留內容的載入方式。
 
+## Fixture cost and materialization ownership
+
+- Logic／policy 與 materialization 分開。若 IDs、counts、configs、slots、簡單 state objects 或 production pure function 已能證明 assertion，預設建立 0 個真 NPC／Mount／TownWorld。例如 available=1、required=2 的 shortage 應直接測 selection，不生成正式軍隊。
+- 不可為了表示 eligibility／unavailable 而先 spawn 大量 actors 再 kill／disable；使用 reduced candidate set、`unavailableActorIds`、saved IDs 或 cheap resident doubles。死亡與復原 lifecycle 本身是受測責任時，才建立必要 actors。
+- 每份正式 roster 只由少量明確的 full materialization owners 建立。Policy、save、ownership tests 不可因共用 helper 順便生成 40 Patrol、59 Sweep、99 Veteran 或整批敵軍。
+- Fixture helper 必須揭露 NPC、Mount、TownWorld、real GLB、NavigationWorld 與 battle actors 成本，並讓非 spawn／load／crowd consumers 明確選擇 lightweight mode；review 必須追進 `fixture()` 查看實際配置。
+- 單一案例若建立超過 10 個真 NPC 或 Mount，須在名稱／註解指出 actor count 為何是 failure mode 必要輸入；不是硬上限。Formation capacity、full-loop spacing、official materialization、stress 合理；outcome、merit、saved IDs、單一借用 callback、faction mapping、deputy election 不構成理由。
+- Small integration 只建觸發 branch 的最小 actor graph：單一 ownership 通常 1–3，雙 squad wiring 通常 4–8。Enemy／另一方不是自動必要輸入；friendly placement 不生成無關敵軍，settlement 不生成整支正式友軍。
+- **Same failure mode has one heavy integration owner.** Pure/data owners 覆蓋完整 matrix；heavy runtime 只保留代表接線，或明確以 actor count／full roster 為輸入的 spawn、capacity、crowd、navigation、load 契約。
+- 縮減 fixture 不得複製 production 演算法、mock 掉受測 function 或自算 expected 再比自己。直接呼叫現有 production owner，並以 constructor 量測與 bounded mutation 驗證成本與偵錯能力。
+
 ## 非同步、時間與 simulation
 
 - 狀態等待使用 bounded deterministic driver，指定 maxFrames 或 maxSimulationSeconds。

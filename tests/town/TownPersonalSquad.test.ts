@@ -248,9 +248,9 @@ describe('HR Center and personal runtime', () => {
     personal.update(.05, player, [enemy], [enemy], [], {} as any, () => {}, () => {}, true, 30)
     expect(personal.state).toBe(AIState.ALERT)
   })
-  it('reload resets thirty owned identities to reserve and mission start excludes deployment', () => {
-    const { controller, hr, scene, player, profile } = harness('roman', 30)
-    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(30)
+  it('reload resets three representative owned identities to reserve and mission start excludes deployment', () => {
+    const { controller, hr, scene, player, profile } = harness('roman', 3)
+    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver); expect(controller.actors).toHaveLength(3)
     const originalIds = controller.actors.map(actor => actor.combatantId)
     controller.cleanup()
     const reloaded = new TownPersonalSquadController(scene, hr, () => profile, () => player)

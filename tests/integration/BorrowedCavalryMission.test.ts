@@ -149,18 +149,18 @@ function smallMission(f: ReturnType<typeof fixture>, friendly: VeteranRosterUnit
 }
 
 describe('Town cavalry mission and Patrol integration', () => {
-  it('excludes an engaging Patrol from two reserve slots while retaining one available Town rider', () => {
-    const f = fixture([patrolCaptain, patrolRider, trainingRider])
-    const [captain, rider] = f.residents.filter(resident => resident.spec.duty === 'patrol')
+  it('excludes both engaging Patrols from two reserve slots while retaining one available Town rider', () => {
+    const f = fixture([patrolCaptain, patrolRider, 'town-patrol:b:captain', 'town-patrol:b:0', trainingRider])
+    const members = f.residents.filter(resident => resident.spec.duty === 'patrol')
     const hostile = combatActor('ambient-threat', Faction.BANDIT)
-    expect(f.patrol.noteHostileHit(captain.npc, hostile)).toBe(true)
-    const positions = [captain, rider].map(resident => resident.npc.combatPosition.clone())
+    for (const captain of members.filter(r => r.spec.patrolLeader)) expect(f.patrol.noteHostileHit(captain.npc, hostile)).toBe(true)
+    const positions = members.map(resident => resident.npc.combatPosition.clone())
     const unavailable = f.town.unavailableTownCavalryActorIds()
-    expect(unavailable).toEqual(new Set([patrolCaptain, patrolRider]))
+    expect(unavailable).toEqual(new Set([patrolCaptain, patrolRider, 'town-patrol:b:captain', 'town-patrol:b:0']))
     expect(selectTownCavalryReserve(f.residents, [{ unitType: 'sword_cavalry' }, { unitType: 'sword_cavalry' }], unavailable))
       .toEqual([trainingRider, undefined])
-    expect([captain, rider].every(resident => f.patrol.combatEnabled(resident.npc))).toBe(true)
-    expect([captain, rider].map(resident => resident.npc.combatPosition)).toEqual(positions)
+    expect(members.every(resident => f.patrol.combatEnabled(resident.npc))).toBe(true)
+    expect(members.map(resident => resident.npc.combatPosition)).toEqual(positions)
     expect(f.borrow).not.toHaveBeenCalled()
   })
 
@@ -192,6 +192,8 @@ describe('Town cavalry mission and Patrol integration', () => {
     expect(f.deploy()).toBe(true)
     expect(f.mission.friendlies).toHaveLength(2); expect(f.mission.missionBandits).toHaveLength(0)
     expect(f.mission.friendlies[0]).toBe(f.residents[0].npc)
+    expect(f.mission.friendlies.map(npc => npc.combatantId)).toEqual(['captain', temporaryId])
+    expect(f.profile().activeMission!.borrowedActorIds).toEqual(['captain'])
     for (const [index, npc] of f.mission.friendlies.entries()) {
       expect(npc.combatPosition.x).toBe(index === 0 ? -140 : -70)
       expect(npc.combatPosition.z).toBe(index === 0 ? -70 : -45)
@@ -255,6 +257,7 @@ describe('Town cavalry mission and Patrol integration', () => {
   })
 
   it('wires the official Scout roster once with native officers, full borrowed composition and one temporary Ranger', () => {
+    // Full 99/40 materialization is the input: catches runtime truncation that all small graphs miss.
     const f = fixture(townRoster().filter(spec => spec.mounted || spec.role === 'ranger').map(spec => spec.id))
     const before = new Map(f.residents.map(resident => [resident.spec.id, resident.npc.combatPosition.clone()]))
     f.acceptOfficial()
