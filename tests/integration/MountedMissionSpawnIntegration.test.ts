@@ -121,6 +121,8 @@ describe('mounted mission spawn caller contracts', () => {
     expect(recording.npcs).toHaveLength(before)
     expect(h.controller.spawnBatches.flatMap(batch => [...batch.actors.keys()]).filter(id => !id.startsWith('ambient:'))).toEqual(expectedQueued)
     expect(expectedQueued).toHaveLength(96)
+    const reserved = h.controller.deploymentPositions.map(point => ({ x: point.x, z: point.z }))
+    expect(reserved.length).toBeGreaterThanOrEqual(59)
     expect(h.controller.friendlies).toEqual(h.residents.map(resident => resident.npc))
 
     for (const resident of h.residents) resident.npc.isFormationTargetReached.mockReturnValue(true)
@@ -145,6 +147,7 @@ describe('mounted mission spawn caller contracts', () => {
     expect(h.controller.friendlies.map(npc => npc.combatantId)).toEqual(expectedFriendlies)
     expect(h.controller.missionBandits.map(npc => npc.combatantId)).toEqual(expectedEnemies)
     expect(recording.npcs.slice(before).map(npc => npc.combatantId)).toEqual(expectedQueued)
+    for (const npc of h.controller.friendlies) expect(reserved).toContainEqual({ x: npc.combatPosition.x, z: npc.combatPosition.z })
     const createdRiders = recording.npcs.slice(before).filter(npc => npc.faction === Faction.TOWN)
     expect(createdRiders).toHaveLength(56)
     for (const rider of createdRiders) {

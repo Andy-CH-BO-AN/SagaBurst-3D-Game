@@ -122,8 +122,10 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
     profile, scene, player, navigation, residents: [], mounts: [], restoringAerialState: true,
     world: { obstacles, hr: { muster: [{ x: 10, z: 10, yaw: 0 }] }, eagleTraining: { pads: nativePads } },
     inventory: { prepareForCombat: vi.fn() },
-    mission: { spawnBatches: [], fieldNpcs: [], friendlies: [], events: { emit: vi.fn() } },
-    defense: { active: profile.activeMission, spawnBatches: [], fieldNpcs: official, events: { emit: vi.fn() },
+    mission: { spawnBatches: [], fieldNpcs: [], friendlies: [], deploymentPositions: [], events: { emit: vi.fn() } },
+    defense: { active: profile.activeMission, spawnBatches: [], fieldNpcs: [],
+      // Official actors are still queued: private deployment must honor their reserved positions.
+      deploymentPositions: official.map(npc => npc.combatPosition), events: { emit: vi.fn() },
       // Defense owns official positioning; its boundary supplies the real plan's Player muster.
       startActiveMission() {
         const spawn = profile.activeMission?.siege?.playerPosition ?? { ...anchor, yaw: 0 }
@@ -380,7 +382,7 @@ describe('production spawn callers with recorded constructor boundaries', () => 
 
   it.each([
     ['roman', 'fresh'], ['viking', 'restored'],
-  ] as const)('deploys %s private Player and squad eagles beside the %s assault muster through TownScene callers', async (faction, state) => {
+  ] as const)('deploys %s private Player and squad eagles clear of queued official positions beside the %s assault muster', async (faction, state) => {
     // Three recorded private actors and three recorded mounts; the 119 official positions are data only.
     const footEquipment = initialPersonalEquipment('soldier', faction)
     const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'captain', selectedMountId: 'xongkoro',
@@ -402,7 +404,15 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     if (state === 'restored') profile.activeMission.mountState = { activeMountId: 'xongkoro', hp: { xongkoro: 79 }, unavailable: [] }
     const { town, anchor, official, nativePads } = privateTownCaller(profile)
     expect(town.privateEaglePads.pads).toEqual([])
-    await town.restoreActiveCareerMission(); gameplayNpcSpawnDriver.drain()
+    await town.restoreActiveCareerMission()
+    expect(town.defense.fieldNpcs).toHaveLength(0)
+    expect(town.personalSquad.spawning).toBe(true)
+    const playerPosition = town.careerMounts.activeMount!.group.position.clone()
+    const initialPads = town.privateEaglePads.pads.map(pad => ({ ...pad }))
+    for (const pad of initialPads) expect(isEagleLandingClear(pad, [], official.map(npc => npc.combatPosition), 350)).toBe(true)
+    gameplayNpcSpawnDriver.drain()
+    expect(town.careerMounts.activeMount!.group.position).toEqual(playerPosition)
+    expect(town.privateEaglePads.pads).toEqual(initialPads)
     expect(town.personalSquad.actors.map(actor => actor.combatantId)).toEqual(['personal:foot', 'personal:a', 'personal:b'])
     expect(recording.mounts).toHaveLength(3)
     const pads = town.privateEaglePads.pads

@@ -46,9 +46,9 @@ function harness(height = 40, hero?: HeroAssetId) {
   const stamina = { setFill() {} }
   const quiver = { setShieldBlocked() {}, setAiming() {}, setChargeRatio() {} }
   const sound = { playBowRelease() {} }
-  const update = (input = controls(), dt = 1 / 60) => {
+  const update = (input = controls(), dt = 1 / 60, combatEnabled = true) => {
     orbit.update(input, dt)
-    player.update(dt, input, orbit.cameraYaw, new THREE.Vector3(0, 1, 100), [], stamina, quiver, sound, inventory)
+    player.update(dt, input, orbit.cameraYaw, new THREE.Vector3(0, 1, 100), [], stamina, quiver, sound, inventory, 1, combatEnabled)
   }
   return { player, mount, hud, inventory, orbit, update }
 }
@@ -241,4 +241,25 @@ it('Game Player fire callback carries a shot-specific airborne bow budget into t
   arrows[0].update(6, h.player, [], [], vi.fn(), () => { throw new Error('Own rider must not be hit') }, undefined, true)
   expect(arrows[0].isAlive).toBe(true)
   expect(arrows[0].mesh.position.y).toBeCloseTo(40 + .4 * 65 * 6 - .5 * 9.8 * 36)
+})
+
+it('movement-only deployment keeps eagle steering/flight and rider binding while cancelling its attack', () => {
+  const h = harness(), before = h.mount.group.position.clone()
+  const fire = vi.fn(); h.player.onFireArrow = fire
+  h.update(controls({ consumeLeftClick: () => true }))
+  expect(h.mount.eagleAttack!.weight).toBeGreaterThan(0)
+  h.update(controls({ keys: { KeyW: true, ShiftLeft: true }, consumeLeftClick: () => true,
+    isLeftMouseDown: true, isRightMouseDown: true }), .05, false)
+  expect(h.mount.group.position.distanceTo(before)).toBeGreaterThan(.1)
+  expect(h.mount.flight!.phase).toBe('cruise')
+  expect(h.mount.eagleAttack!.active).toBe(false)
+  expect(h.player.isAiming).toBe(false)
+  expect(fire).not.toHaveBeenCalled()
+  expect(h.player.currentMount).toBe(h.mount)
+  const rider = h.player.position.clone()
+  h.player.syncMountTransform()
+  expect(h.player.position.distanceTo(rider)).toBeLessThan(.000001)
+  for (let frame = 0; frame < 60; frame++) h.update(controls(), .05, false)
+  h.update(controls({ consumeLeftClick: () => true }), .05, true)
+  expect(h.mount.eagleAttack!.weight).toBeGreaterThan(0)
 })

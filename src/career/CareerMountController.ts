@@ -286,6 +286,12 @@ export class CareerMountController implements EquipmentMountAdapter {
     })
   }
 
+  /** Player-only checkpoint; does not inspect or persist any mission NPCs. */
+  checkpoint(): NonNullable<CareerProfile['activeMission']>['mountState'] {
+    if (this.active) this.hp.set(this.active.id, this.active.mount.currentHp)
+    return this.outingState(this.active?.id)
+  }
+
   private outingState(activeMountId: CareerMountId | undefined): NonNullable<CareerProfile['activeMission']>['mountState'] {
     const hp: Partial<Record<CareerMountId, number>> = {}
     for (const [id, value] of this.hp) hp[id] = Math.max(0, value)

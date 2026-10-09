@@ -28,7 +28,7 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
   const ui = { setAiming: vi.fn(), setChargeRatio: vi.fn(), setShieldBlocked: vi.fn() }
   const sounds = { playSwing: vi.fn(), playHit: vi.fn(), playBowRelease: vi.fn() }
 
-  const update = (controls: any, dt = 1 / 60) => {
+  const update = (controls: Parameters<Player['update']>[1] & Parameters<ThirdPersonCamera['update']>[0], dt = 1 / 60, combatEnabled = true) => {
     player.update(
       dt,
       controls,
@@ -39,6 +39,8 @@ function createPlayerHarness(initialLoadout?: { meleeWeaponId: string; rangedWea
       ui as any,
       sounds as any,
       inventory,
+      1,
+      combatEnabled,
     )
     tpCamera.update(controls, dt)
   }
@@ -709,4 +711,36 @@ describe('Targeted Verification: Melee Attack Input Buffer & Attack Cadence', ()
     expect(h.sounds.playSwing).not.toHaveBeenCalled()
     expect(h.player.swinging).toBe(false)
   })
+})
+
+it.each([
+  { action: 'melee', meleeWeaponId: 'steel_sword', rangedWeaponId: '', shieldId: 'round_shield_t3' },
+  { action: 'bow', meleeWeaponId: 'steel_sword', rangedWeaponId: 'elven_runebow', shieldId: null },
+  { action: 'pilum', meleeWeaponId: 'steel_sword', rangedWeaponId: 'pilum_standard', shieldId: null },
+])('movement-only update cancels queued $action, drains clicks and re-enables combat afterwards', loadout => {
+  const h = createPlayerHarness(loadout)
+  const fire = vi.fn(); h.player.onFireArrow = fire
+  h.update(input())
+  const aim = loadout.action !== 'melee'
+  h.update(input({ isRightMouseDown: aim, isLeftMouseDown: true, consumeLeftClick: () => true }))
+  if (loadout.action === 'bow') h.update(input({ isRightMouseDown: true, consumeLeftClickRelease: () => true }))
+  expect(h.player.combatAnimationAction).not.toBe('idle')
+  const before = h.player.position.clone(), ammo = h.player.arrowCount
+  const click = vi.fn(() => true), release = vi.fn(() => true)
+  const controls = input({ keys: { KeyW: true, ShiftLeft: true, Space: true },
+    isLeftMouseDown: true, isRightMouseDown: true, consumeLeftClick: click, consumeLeftClickRelease: release })
+  h.update(controls, .05, false)
+  expect(click).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce()
+  expect(h.player.position.distanceTo(before)).toBeGreaterThan(.1)
+  expect(h.player.position.y).toBeGreaterThan(before.y)
+  expect(h.player.combatAnimationAction).toBe('idle')
+  expect(h.player.shield.shieldRaised).toBe(false)
+  h.update(input({ isRightMouseDown: true, isLeftMouseDown: true }), .6, false)
+  expect(fire).not.toHaveBeenCalled()
+  expect(h.player.arrowCount).toBe(ammo)
+  h.update(input({ isRightMouseDown: true, consumeLeftClick: () => true }))
+  if (loadout.action === 'melee') {
+    expect(h.player.shield.shieldRaised).toBe(true)
+    expect(h.player.swinging).toBe(true)
+  } else expect(h.player.isAiming).toBe(true)
 })
