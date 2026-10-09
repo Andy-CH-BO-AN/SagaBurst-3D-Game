@@ -6,6 +6,7 @@ import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { getTerrainHeight } from '../../src/world/Terrain'
+import { townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { combatActor, combatFixture, combatMount, combatResident } from '../helpers/townMissionCombat'
 
@@ -29,7 +30,174 @@ function defenseFixture(phase: CareerMissionPhase = 'ATTACKING', assault = false
   return h
 }
 
+/** Sensor wiring only: no real NPC, Mount, TownWorld or visual assets. */
+function eagleAlertFixture() {
+  const h = combatFixture()
+  const spec = townEagleRoster({ pads: [{ id: 'town-eagle-pad:1', x: 0, z: 0, yaw: 0 }] })[0]
+  const eagle = combatActor(spec.id), resident = { ...combatResident(eagle, 'archer_infantry'), spec }
+  const bowRange = { value: 40 }
+  Object.defineProperty(eagle, 'maxRangedAttackDistance', { get: () => bowRange.value })
+  const duty = vi.fn((npc: NPC) => npc === eagle)
+  h.simulation.residents = [resident]
+  h.simulation.updateEagleDuty = duty
+  return { ...h, eagle, resident, bowRange, duty }
+}
+
+describe('Town eagle external alert through the mission interface', () => {
+  it.each(['ambient', 'mission', 'roaming'] as const)('starts a first sortie for a hostile from %s at 80m and retains the alert while boarding', source => {
+    const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
+    hostile.group.position.x = 80
+    h.field.fieldNpcs = [hostile]
+    if (source === 'ambient') h.field.ambientBandits = [hostile]
+    else if (source === 'mission') h.field.missionBandits = [hostile]
+    else {
+      const outskirts = { actors: [hostile], mounts: [], synchronizeRank: vi.fn(), prepareFrame: vi.fn(),
+        owns: (npc: NPC) => npc === hostile, combatEnabled: () => false, updateTravel: vi.fn() }
+      h.simulation.outskirts = () => outskirts
+    }
+    if (source !== 'roaming') expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(true)
+
+    h.combat.update(.02, 0, 0)
+    h.combat.update(.02, 0, .02)
+
+    expect(h.eagle.beginExternalThreat).toHaveBeenCalledOnce()
+    expect(h.eagle.endExternalThreat).not.toHaveBeenCalled()
+    expect(h.combat.externalDefenders).toEqual([h.eagle])
+    expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(true)
+    expect(h.duty.mock.calls.filter(([npc]) => npc === h.eagle)).toEqual([[h.eagle, .02, true], [h.eagle, .02, true]])
+    expect(h.simulation.peaceResident).not.toHaveBeenCalled()
+    expect(h.field.friendlies).toEqual([])
+  })
+
+  it.each([
+    { scenario: 'inclusive 120m edge', x: 120, y: 0, faction: Faction.BANDIT, dead: false, expected: true },
+    { scenario: 'beyond the initial radius', x: 120.01, y: 0, faction: Faction.BANDIT, dead: false, expected: false },
+    { scenario: '3D distance outside despite nearby XZ', x: 100, y: 70, faction: Faction.BANDIT, dead: false, expected: false },
+    { scenario: 'same-faction resident', x: 80, y: 0, faction: Faction.TOWN, dead: false, expected: false },
+    { scenario: 'dead hostile', x: 80, y: 0, faction: Faction.BANDIT, dead: true, expected: false },
+  ])('gates initial alert and friendly protection for $scenario', ({ x, y, faction, dead, expected }) => {
+    const h = eagleAlertFixture(), target = combatActor('candidate', faction)
+    target.group.position.set(x, y, 0); target.dead = dead
+    h.field.ambientBandits = [target]; h.field.fieldNpcs = [target]
+    // A long bow must not widen the first alert before assignment.
+    h.bowRange.value = 400
+    expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(expected)
+
+    h.combat.update(.02, 0, 0)
+
+    expect(h.combat.externalDefenders.includes(h.eagle)).toBe(expected)
+    expect(h.eagle.beginExternalThreat).toHaveBeenCalledTimes(expected ? 1 : 0)
+    expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(expected)
+  })
+
+  it.each([
+    { scenario: 'outside the home alert area', homeX: 0, actorX: 100, targetX: 180 },
+    { scenario: 'outside the Town world bounds', homeX: 300, actorX: 300, targetX: 351 },
+  ])('does not alert to a nearby hostile $scenario', ({ homeX, actorX, targetX }) => {
+    const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
+    h.resident.spec.eagle!.home.x = homeX
+    h.eagle.group.position.x = actorX; hostile.group.position.x = targetX
+    h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+    expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(false)
+
+    h.combat.update(.02, 0, 0)
+
+    expect(h.eagle.beginExternalThreat).not.toHaveBeenCalled()
+    expect(h.combat.externalDefenders).toEqual([])
+    expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(h.resident, .02)
+  })
+
+  it('retains the mounted bow engagement range but releases a nearby hostile beyond the home boundary', () => {
+    const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
+    h.resident.spec.eagle!.home.x = -100; h.eagle.group.position.x = -100
+    hostile.group.position.x = -20
+    h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+    h.combat.update(.02, 0, 0)
+    expect(h.eagle.beginExternalThreat).toHaveBeenCalledOnce()
+
+    h.bowRange.value = 400
+    h.eagle.group.position.set(-100, 30, 0); hostile.group.position.x = 100
+    h.combat.update(.02, 0, .02)
+    expect(h.combat.externalDefenders).toEqual([h.eagle])
+    expect(h.eagle.endExternalThreat).not.toHaveBeenCalled()
+
+    // The target remains in-world and close to the moving eagle, but is 401m from home.
+    h.eagle.group.position.x = 250; hostile.group.position.x = 301
+    h.combat.update(.02, 0, .04)
+    expect(h.combat.externalDefenders).toEqual([])
+    expect(h.eagle.endExternalThreat).toHaveBeenCalledOnce()
+    expect(h.eagle.group.position).toEqual(new THREE.Vector3(250, 30, 0))
+  })
+
+  it('does not grant Player protection to a hostile enemy-town eagle alerted by nearby scouts', () => {
+    const h = eagleAlertFixture(), scout = combatActor('scout', Faction.TOWN)
+    h.eagle.combatantId = 'enemy-town:town-eagle-rider:1'
+    h.resident.spec.id = h.eagle.combatantId
+    h.eagle.faction = Faction.ENEMY; h.eagle.hostileToPlayer = true
+    scout.group.position.x = 80; h.player.combatPosition.x = 1000
+    h.field.active = { ...createCavalrySweepMission(), kind: 'veteran-field',
+      templateId: 'veteran-tragedy-of-the-scouts', phase: 'ENGAGING' }
+    h.field.friendlies = [scout]; h.field.fieldNpcs = [scout]
+
+    h.combat.update(.02, 0, 0)
+
+    expect(h.eagle.beginExternalThreat).toHaveBeenCalledOnce()
+    expect(h.combat.enemyTownHostiles).toEqual([h.eagle])
+    expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(false)
+    expect(h.combat.externalDefenders).toEqual([])
+  })
+
+  it.each([20, 20.01, 80])('keeps ground garrison detection at 20m with a hostile at %sm', distance => {
+    const h = combatFixture(), guard = combatActor('ground-guard'), hostile = combatActor('hostile', Faction.BANDIT)
+    h.simulation.residents = [combatResident(guard)]
+    hostile.group.position.x = distance
+    h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+    expect(h.combat.isExternalThreatDefender(guard)).toBe(distance === 20)
+
+    h.combat.update(.02, 0, 0)
+
+    expect(guard.beginExternalThreat).toHaveBeenCalledTimes(distance === 20 ? 1 : 0)
+    expect(h.combat.externalDefenders.includes(guard)).toBe(distance === 20)
+  })
+
+  it('keeps a siege-owned eagle peaceful during preparation despite a hostile inside the alert radius', () => {
+    const h = eagleAlertFixture(), hostile = combatActor('roaming-hostile', Faction.BANDIT)
+    hostile.group.position.x = 80
+    const outskirts = { actors: [hostile], mounts: [], synchronizeRank: vi.fn(), prepareFrame: vi.fn(),
+      owns: (npc: NPC) => npc === hostile, combatEnabled: () => false, updateTravel: vi.fn() }
+    h.simulation.outskirts = () => outskirts
+    h.defense.active = createTownDefenseMission([h.eagle.combatantId], [], 'defense')
+    h.defense.phase = 'PREPARING'; h.defense.fieldNpcs = [h.eagle]
+
+    h.combat.update(.02, 0, 0)
+
+    expect(h.eagle.beginExternalThreat).not.toHaveBeenCalled()
+    expect(h.combat.externalDefenders).toEqual([])
+    expect(h.duty).toHaveBeenCalledExactlyOnceWith(h.eagle, .02, false)
+    expect(h.eagle.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('Town field combat through the mission interface', () => {
+  it.each(['PREPARING', 'ATTACKING', 'RESULT'] as const)('passes %s siege phase permission to air duty before any normal actor simulation', phase => {
+    const h = defenseFixture(phase), eagle = combatActor('town-eagle-rider:1')
+    h.defense.fieldNpcs = [eagle]
+    const duty = vi.fn(() => true)
+    h.simulation.updateEagleDuty = duty
+    h.combat.update(.02, 0, 0)
+    expect(duty).toHaveBeenCalledExactlyOnceWith(eagle, .02, phase === 'ATTACKING')
+    expect(eagle.update).not.toHaveBeenCalled()
+  })
+  it('forwards the verified shot budget from NPC release through the Town mission boundary', () => {
+    const h = combatFixture(), eagle = combatActor('town-eagle-rider:1')
+    h.field.fieldNpcs = [eagle]
+    h.combat.update(.02, 0, 0)
+    const origin = new THREE.Vector3(0, 30, 0), direction = new THREE.Vector3(0, .5, .5)
+    const budget = { maxLifetimeSeconds: 9, maxTravelDistance: 1600 }
+    eagle.update.mock.calls[0][7](origin, direction, 'arrow', budget)
+    expect(h.simulation.fireNpc).toHaveBeenCalledExactlyOnceWith(origin, direction, 'arrow', eagle, budget)
+  })
+
   it('updates navigation, flow, cues and residents before actors, then the active career mount', () => {
     const h = combatFixture(), log: string[] = []
     const actor = combatActor('captain'), bystander = combatResident(combatActor('merchant'), 'merchant')

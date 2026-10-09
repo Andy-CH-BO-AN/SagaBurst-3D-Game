@@ -187,7 +187,7 @@ describe('Veteran Career mission catalog and progression', () => {
       const spec = createVeteranSpawnSpec(unit, 'roman')
       const t4Profile = T4_UNIT_PROFILES[unit.presetId]
       expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
-      const expectedTier3Loadout = { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3] }
+      const expectedTier3Loadout = { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3], ...(unit.heroRole === 'ranger' ? { rangedWeaponId: 'maki-ranger-bow-ranged' } : {}) }
       const spawnLoadout = { ...spec.loadout! }
       delete expectedTier3Loadout.mountId
       delete spawnLoadout.mountId

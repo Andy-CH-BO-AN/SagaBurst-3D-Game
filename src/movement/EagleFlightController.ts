@@ -4,7 +4,7 @@ import { XONGKORO } from './XongkoroConfig'
 import { isEagleLandingClear } from '../world/EagleLanding'
 
 export type EagleFlightPhase = 'grounded' | 'takeoff' | 'cruise' | 'landing'
-export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean }
+export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean; landingTarget?: { x: number; z: number; yaw: number } }
 export interface EagleFlightSnapshot {
   phase: EagleFlightPhase; yaw: number; pitch: number; bank: number; speed: number
   velocity: { x: number; y: number; z: number }
@@ -39,7 +39,7 @@ export class EagleFlightController {
   private readonly side = new THREE.Vector3()
   private readonly landingPoint = { x: 0, z: 0, yaw: 0 }
 
-  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false }, intent) }
+  setIntent(intent: EagleFlightIntent): void { Object.assign(this.intent, { bankInput: 0, sprint: false, brake: false, takeoff: false, landingTarget: undefined }, intent) }
   snapshot(): EagleFlightSnapshot {
     return { phase: this.phase, yaw: this.yaw, pitch: this.pitch, bank: this.bank, speed: this.speed,
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z } }
@@ -78,9 +78,16 @@ export class EagleFlightController {
     for (let i = 0; i < steps; i++) {
       let desiredYaw = this.intent.yaw
       let desiredPitch = THREE.MathUtils.clamp(this.intent.pitch, -XONGKORO.maxPitch, XONGKORO.maxPitch)
-      if (this.phase === 'landing') desiredPitch = 0
+      if (this.phase === 'landing') {
+        desiredPitch = 0
+        const target = this.intent.landingTarget
+        if (target) desiredYaw = Math.atan2(target.x - position.x, target.z - position.z)
+      }
       const edge = bound - XONGKORO.boundaryMargin
-      if (Math.abs(position.x) > edge || Math.abs(position.z) > edge) desiredYaw = Math.atan2(-position.x, -position.z)
+      const assignedLanding = this.intent.landingTarget
+      const approachInsideBounds = assignedLanding && Math.abs(assignedLanding.x) <= bound - XONGKORO.wingClearance
+        && Math.abs(assignedLanding.z) <= bound - XONGKORO.wingClearance
+      if (!approachInsideBounds && (Math.abs(position.x) > edge || Math.abs(position.z) > edge)) desiredYaw = Math.atan2(-position.x, -position.z)
       const ground = terrainHeight(position.x, position.z)
       if (position.y > ground + XONGKORO.maxAltitude - 5) desiredPitch = Math.min(desiredPitch, -.2)
       if (this.phase === 'takeoff') {
@@ -93,7 +100,11 @@ export class EagleFlightController {
       this.yaw += turn
       this.pitch = approach(this.pitch, desiredPitch, XONGKORO.pitchRate * step)
       this.bank = approach(this.bank, THREE.MathUtils.clamp(-turn / step * .65, -XONGKORO.maxBank, XONGKORO.maxBank), XONGKORO.bankResponse * step)
-      const targetSpeed = this.intent.brake ? XONGKORO.minimumSpeed : this.intent.sprint ? XONGKORO.sprintSpeed : XONGKORO.cruiseSpeed
+      const landingTarget = this.intent.landingTarget
+      const targetDistance = landingTarget ? Math.hypot(landingTarget.x - position.x, landingTarget.z - position.z) : Infinity
+      const targetSpeed = this.phase === 'landing' && landingTarget
+        ? Math.min(XONGKORO.minimumSpeed, targetDistance / Math.max(.1, (position.y - ground) / 3))
+        : this.intent.brake ? XONGKORO.minimumSpeed : this.intent.sprint ? XONGKORO.sprintSpeed : XONGKORO.cruiseSpeed
       this.speed = approach(this.speed, targetSpeed, XONGKORO.acceleration * step)
       this.velocity.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).multiplyScalar(this.speed)
       this.previous.copy(position)
@@ -101,10 +112,15 @@ export class EagleFlightController {
       const surface = terrainHeight(position.x, position.z)
       const landing = (this.phase === 'landing' || this.intent.brake && this.speed <= XONGKORO.landingSpeed && this.pitch <= .2)
         && position.y - surface <= XONGKORO.landingHeight && this.canLand(position, obstacles, terrainHeight, bound)
+        && (!landingTarget || targetDistance < 5.5 && Math.abs(angleDelta(landingTarget.yaw, this.yaw)) < .4)
       if (this.phase === 'landing' && !landing) this.phase = 'cruise'
       if (landing) {
         this.phase = 'landing'
-        position.y = approach(position.y, surface, 3 * step)
+        // An assigned pad controls the final glide: reach it by displacement,
+        // rather than touching down several metres early or snapping X/Z.
+        const descentRate = landingTarget && targetDistance > .2
+          ? Math.min(3, Math.max(.1, (position.y - surface) * this.speed / targetDistance)) : 3
+        position.y = approach(position.y, surface, descentRate * step)
         if (position.y <= surface + .05) {
           position.y = surface; this.phase = 'grounded'; this.speed = 0; this.pitch = 0; this.bank = 0
           this.velocity.set(0, 0, 0)

@@ -31,7 +31,7 @@ import type { CharacterRig, MountedPoseKind, CharacterFaction } from './Characte
 import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveMakiEquipmentMode } from './MakiRangerEquipment'
-import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, type T4CombatProfileId } from '../battle/T4HeroCatalog'
+import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, resolveT4UnitLoadout, type T4CombatProfileId } from '../battle/T4HeroCatalog'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
 const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
@@ -76,7 +76,9 @@ import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/
 import { damageObstacle, damageNpc, damageMount } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
-import { EagleFlightAI } from '../movement/EagleFlightAI'
+import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
+import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
+import { BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
@@ -96,6 +98,8 @@ export enum AIType {
   MELEE = 'MELEE',
   RANGED = 'RANGED',
 }
+
+export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number } | { kind: 'hold'; cruiseAltitude?: number }
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
@@ -161,6 +165,7 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
 interface CombatEquipmentSnapshot {
   tier: 1 | 2 | 3 | 4
   squadId?: SquadId
+  presetId?: UnitPresetId
   meleeWeaponId: string | null
   meleeDamageOverride: number | undefined
   rangedWeaponId: string | undefined
@@ -178,6 +183,24 @@ export class NPC {
   private readonly eagleTargets: PhysicalCombatTarget[] = []
   private readonly eagleNpcCandidates: NPC[] = []
   private readonly eagleGoal = new THREE.Vector3()
+  private readonly eagleAnchor = new THREE.Vector3()
+  private eagleAnchorSet = false
+  private eagleFlightOrder: NpcEagleFlightOrder | null = null
+  private readonly eagleCommand: EagleFlightCommand = { kind: 'cruise', destination: this.eagleGoal }
+  private readonly eagleTargetVelocity = new THREE.Vector3()
+  private readonly eagleLastTargetPosition = new THREE.Vector3()
+  private eagleLastTarget: object | undefined
+  private readonly eagleMountNeighbors: Mount[] = []
+  private readonly eagleNeighborPoints: THREE.Vector3[] = []
+
+  get eagleTactic(): EagleTactic | null { return this.eaglePilot.tactic }
+  setEagleCruiseAltitude(altitude: number): void { this.eaglePilot.setCruiseAltitude(altitude) }
+  setEagleFlightOrder(order: NpcEagleFlightOrder | null): void {
+    this.eagleFlightOrder = order?.kind === 'return' ? { ...order, target: order.target.clone() } : order
+    if (order?.cruiseAltitude !== undefined) this.eaglePilot.setCruiseAltitude(order.cruiseAltitude)
+    this.eaglePilot.reset()
+    this.eagleAnchorSet = false
+  }
   private fallObstacles: ObstacleData[] = []
   get isFalling(): boolean { return this.pendingFall.active }
   get fallSnapshot(): FallingRiderSnapshot | undefined { return this.pendingFall.active ? this.pendingFall.snapshot() : undefined }
@@ -196,7 +219,7 @@ export class NPC {
   readonly visualAssetId?: HeroAssetId
   readonly combatProfileId?: T4CombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
-  readonly presetId?: UnitPresetId
+  presetId?: UnitPresetId
   private _squadId?: SquadId
   get squadId(): SquadId | undefined { return this._squadId }
   combatOwnership?: 'player-personal'
@@ -279,13 +302,23 @@ export class NPC {
   get maxRangedAttackDistance(): number {
     const kind = this.rangedCombatKind
     if (!kind) return 22.0
-    return getNpcRangedAttackRange(kind, this.isMounted) * (getT4HeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
+    const eagleRange = eagleBowEngagementRange(this.isMounted ? this.mount?.type : undefined, this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined)
+    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getT4HeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
   }
 
   get rangedProjectileSpeed(): number {
     const weapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
     return weapon?.arrowSpeedMax ?? NPC_FALLBACK_PROJECTILE_SPEED
   }
+
+  private readonly eagleBallisticIntercept = new BallisticIntercept()
+  private readonly eagleRangedOrigin = new THREE.Vector3()
+  private readonly eagleRangedAim = new THREE.Vector3()
+  private readonly eagleRangedTarget = new THREE.Vector3()
+  private readonly eagleRangedVelocity = new THREE.Vector3()
+  private readonly eagleRangedCandidates: NPC[] = []
+  private eagleShotCheckRemaining = 0
+  private eagleShotClear = false
 
   private bodyMesh: THREE.Group
   private headMesh: THREE.Mesh
@@ -395,6 +428,8 @@ export class NPC {
   private _siegeTargetObstacle: ObstacleData | null = null
   /** Urgent mission travel: sprint to the destination, defending immediate contact without abandoning the order. */
   missionMovement = false
+  /** Siege attackers may answer aircraft while retaining their assigned march. */
+  missionAerialDefense = false
   /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
   private missionCombatTarget: NPC | Player | null | undefined = undefined
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
@@ -610,8 +645,13 @@ export class NPC {
       const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier === 4 ? 3 : this.tier)
 
       this.meleeWeaponId = combatProfile.meleeWeaponId
-      this.rangedWeaponId = combatProfile.rangedWeaponId
-      this._rangedDamage = combatProfile.rangedDamage ?? 0
+      this.rangedWeaponId = specialCombatProfile === 'maki-ranger'
+        ? resolveT4UnitLoadout(`${characterFaction}_archer`).rangedWeaponId ?? undefined
+        : combatProfile.rangedWeaponId
+      const canonicalRangerBow = specialCombatProfile === 'maki-ranger' && this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+      this._rangedDamage = canonicalRangerBow
+        ? applyHeroOutgoingDamage(canonicalRangerBow.damageMax * getRangedDamageMultiplier('bow'), combatProfileId)
+        : combatProfile.rangedDamage ?? 0
       this.isUsingLance = combatProfile.isUsingLance
       this.shieldId = combatProfile.shieldId
       this.arrows = this.aiType === AIType.RANGED ? 30 : 0
@@ -1030,11 +1070,12 @@ export class NPC {
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
-  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId): void {
+  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId, presetId?: UnitPresetId): void {
     if (!this.originalCombatEquipment) {
       this.originalCombatEquipment = {
         tier: this.tier,
         squadId: this.squadId,
+        presetId: this.presetId,
         meleeWeaponId: this.meleeWeaponId,
         meleeDamageOverride: this._meleeDamageOverride,
         rangedWeaponId: this.rangedWeaponId,
@@ -1047,6 +1088,7 @@ export class NPC {
     this._cancelEquipmentCombatState()
     if (tier !== undefined) this._tier = tier
     if (squadId !== undefined) this._squadId = squadId
+    if (presetId !== undefined) this.presetId = presetId
     this._meleeDamageOverride = undefined
     this._setActiveMeleeWeapon(loadout.meleeWeaponId ?? null)
     this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
@@ -1073,6 +1115,7 @@ export class NPC {
     this._cancelEquipmentCombatState()
     this._tier = original.tier
     this._squadId = original.squadId
+    this.presetId = original.presetId
     this._setActiveMeleeWeapon(original.meleeWeaponId)
     this._meleeDamageOverride = original.meleeDamageOverride
     this.rangedWeaponId = original.rangedWeaponId
@@ -1143,6 +1186,7 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
+    if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this.formationTarget = null
     this.followTarget = null
     this.followSlotIndex = -1
@@ -1189,6 +1233,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
+    if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -1636,6 +1681,35 @@ export class NPC {
     return null
   }
 
+  /** Real launch position, finite constant-velocity lead, low ballistic arc and physical clearance. */
+  private _prepareEagleRangedShot(
+    target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC },
+    targetVelocity: THREE.Vector3,
+    obstacles: ObstacleData[],
+  ): boolean {
+    const flight = this.mount?.flight
+    if (!flight || target.isDead || !this.hasActiveRangedWeapon || !this._isEagleTargetInBounds(target.position)
+      || this.combatPosition.distanceToSquared(target.position) > this.maxRangedAttackDistance ** 2) return false
+    const origin = this.eagleRangedOrigin
+    if (this.bowVisual && this.rangedCombatKind === 'bow') this.bowVisual.getNockPosition(origin)
+    else this.bowGripPivot.getWorldPosition(origin)
+    this.eagleRangedTarget.copy(target.position).setY(target.position.y + RANGED_AI_TARGET_HEIGHT)
+    // Bound prediction by physically supported actor speeds; observed motion is
+    // sampled by the pilot, never used to steer an already-released projectile.
+    this.eagleRangedVelocity.copy(targetVelocity).clampLength(0, XONGKORO.sprintSpeed)
+    const solution = this.eagleBallisticIntercept
+    if (!solution.solve(origin, this.eagleRangedTarget, this.eagleRangedVelocity, this.rangedProjectileSpeed)) return false
+    if (Math.abs(solution.impactPoint.x) > this.playableWorldBound || Math.abs(solution.impactPoint.z) > this.playableWorldBound) return false
+    const direction = solution.direction
+    const aimYaw = Math.atan2(direction.x, direction.z)
+    const yawError = Math.atan2(Math.sin(aimYaw - flight.yaw), Math.cos(aimYaw - flight.yaw))
+    const pitchError = Math.atan2(direction.y, Math.hypot(direction.x, direction.z)) - flight.pitch
+    if (Math.abs(yawError) > XONGKORO.rangedYawArc || Math.abs(pitchError) > XONGKORO.rangedPitchArc
+      || !solution.isPathClear(origin, this.rangedProjectileSpeed, obstacles)) return false
+    this.eagleRangedAim.copy(origin).addScaledVector(direction, this.rangedProjectileSpeed * solution.flightTime)
+    return true
+  }
+
   private _getActiveSiegeObstacle(
     humanTarget: THREE.Vector3,
     obstacles: ObstacleData[],
@@ -1738,13 +1812,17 @@ export class NPC {
   }
 
   private _getPlayerPosition(player: Player, out: THREE.Vector3): THREE.Vector3 {
-    if (player.isMounted && player.currentMount) {
+    if (player.isMounted && player.currentMount && !player.currentMount.isFlyingMount) {
       return out.copy(player.currentMount.group.position)
     }
     return out.copy(player.group.position)
   }
 
   private _isCachedTargetValid(player: Player): boolean {
+    if (this.mount?.isFlyingMount) {
+      const position = this._cachedTargetIsPlayer ? this._getPlayerPosition(player, this._tmpTargetPosition) : this._cachedTargetNpc?.combatPosition
+      if (position && !this._isEagleTargetInBounds(position)) return false
+    }
     if (this._cachedTargetIsPlayer) {
       return this.targetsPlayer && player.targetable && !player.dead
     }
@@ -1872,6 +1950,37 @@ export class NPC {
     return null
   }
 
+  /** Eagle sensors keep the scene's hostile grid/mission policy, with a bounded 3D search. */
+  private _isEagleTargetInBounds(position: THREE.Vector3): boolean {
+    const range = this.hasActiveRangedWeapon ? Math.max(DETECTION_RADIUS, this.maxRangedAttackDistance) : DETECTION_RADIUS
+    return Number.isFinite(position.x + position.y + position.z)
+      && Math.abs(position.x) <= this.playableWorldBound && Math.abs(position.z) <= this.playableWorldBound
+      && this.combatPosition.distanceToSquared(position) <= range * range
+  }
+
+  private _findEagleTarget(player: Player, allNPCs: NPC[], grid: SpatialGrid<NPC> | null):
+    { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null {
+    const range = this.hasActiveRangedWeapon ? Math.max(DETECTION_RADIUS, this.maxRangedAttackDistance) : DETECTION_RADIUS
+    let nearest: NPC | null = null
+    let distanceSq = range * range + 1e-6
+    let playerTarget = false
+    const playerPosition = this._getPlayerPosition(player, this._tmpTargetPosition)
+    if (this.targetsPlayer && player.targetable && !player.dead && this._isEagleTargetInBounds(playerPosition)) {
+      playerTarget = true
+      distanceSq = this.combatPosition.distanceToSquared(playerPosition)
+      if (this.playerHitFocus > 0) return { position: playerPosition, isDead: false, isPlayer: true }
+    }
+    const candidates = grid?.getNearbyInto(this.combatPosition, range, this.eagleRangedCandidates) ?? allNPCs
+    for (const candidate of candidates) {
+      if (candidate === this || candidate.dead || !combatAllegiancesHostile(this, candidate)
+        || !this._isEagleTargetInBounds(candidate.combatPosition)) continue
+      const candidateDistanceSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
+      if (candidateDistanceSq < distanceSq) { nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false }
+    }
+    return playerTarget ? { position: playerPosition, isDead: false, isPlayer: true }
+      : nearest ? { position: nearest.combatPosition, isDead: false, isPlayer: false, npc: nearest } : null
+  }
+
   private _findTarget(
     player: Player,
     allNPCs: NPC[],
@@ -1881,11 +1990,13 @@ export class NPC {
     if (this.missionCombatTarget !== undefined) {
       const target = this.missionCombatTarget
       if (!target || target.dead) return null
+      if (this.mount?.isFlyingMount && !this._isEagleTargetInBounds(target.combatPosition)) return null
       if (target === player) return this.targetsPlayer && player.targetable
         ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true } : null
       if (target instanceof NPC && combatAllegiancesHostile(this, target)) return { position: target.combatPosition, isDead: false, isPlayer: false, npc: target }
       return null
     }
+    if (this.mount?.isFlyingMount) return this._findEagleTarget(player, allNPCs, hostileNpcGrid)
     let closestTarget = null
     let closestDistSq = Infinity
 
@@ -1944,7 +2055,7 @@ export class NPC {
     obstacles: ObstacleData[],
     _playerHpBar: Pick<HpBar, 'setFill'>,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
     _collector: NpcSubphaseCollector | null = null,
@@ -2036,8 +2147,14 @@ export class NPC {
     }
     const missionOrder = this.missionMovement ? this.tacticalOrder : null
     const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
+    const missionTargetMount = missionTarget?.isPlayer ? player.currentMount : missionTarget?.npc?.mount
+    // Marching archers cannot get within the ground-contact radius of a flying
+    // target. Use their existing 3D weapon range for that target only, preserving
+    // the 20m interruption policy for ground combat and the march destination.
+    const missionRangedRange = this.missionAerialDefense && missionTargetMount?.isFlyingMount && missionTargetMount.isAirborne
+      ? this.maxRangedAttackDistance : Math.min(20, this.maxRangedAttackDistance)
     const missionContact = missionTarget && !missionTarget.isDead
-      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= Math.min(20, this.maxRangedAttackDistance) ** 2 : this._isTargetInDefendRange(missionTarget.position))
+      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= missionRangedRange ** 2 : this._isTargetInDefendRange(missionTarget.position))
       && this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null
     if (missionContact) {
       this.tacticalOrder = 'defend'
@@ -2737,24 +2854,81 @@ export class NPC {
     else this.takeFallDamage(damage)
   }
 
+  private _addEagleNeighbor(other: Mount): void {
+    const mount = this.mount!
+    const position = mount.group.position, point = other.group.position
+    const ownVelocity = mount.flight!.velocity, velocity = other.flight!.velocity
+    const x = point.x - position.x, y = point.y - position.y, z = point.z - position.z
+    const vx = velocity.x - ownVelocity.x, vy = velocity.y - ownVelocity.y, vz = velocity.z - ownVelocity.z
+    const speedSq = vx * vx + vy * vy + vz * vz
+    const time = speedSq > .01 ? THREE.MathUtils.clamp(-(x * vx + y * vy + z * vz) / speedSq, 0, 2) : 0
+    const px = x + vx * time, py = y + vy * time, pz = z + vz * time
+    if (Math.min(x * x + y * y + z * z, px * px + py * py + pz * pz) >= XONGKORO.aiSeparationRadius ** 2) return
+    const index = this.eagleNeighbors.length
+    const neighbor = this.eagleNeighborPoints[index] ?? (this.eagleNeighborPoints[index] = new THREE.Vector3())
+    neighbor.set(position.x + px, position.y + py, position.z + pz)
+    if (neighbor.distanceToSquared(position) < .01) {
+      // Both members derive the same lateral axis and opposite signs. Exact
+      // coincidence and head-on predicted crossings cannot choose one escape side.
+      const lower = mount.group.id < other.group.id
+      const yaw = lower ? mount.flight!.yaw : other.flight!.yaw
+      neighbor.set(position.x + Math.cos(yaw) * (lower ? 1 : -1), position.y,
+        position.z - Math.sin(yaw) * (lower ? 1 : -1))
+    }
+    this.eagleNeighbors.push(neighbor)
+  }
+
+  /** Physical neighbors are independent of hostility, target acquisition and ground boid throttles. */
+  private _collectEagleNeighbors(nearby: NPC[], player?: Player, attackMount?: Mount | null): void {
+    const mount = this.mount!
+    this.eagleNeighbors.length = 0
+    const mounts = this.combatMountGrid?.getNearbyInto(mount.group.position,
+      XONGKORO.aiSeparationRadius + XONGKORO.sprintSpeed * 2, this.eagleMountNeighbors)
+    if (mounts) {
+      for (const other of mounts) if (other !== mount && other !== attackMount && other.isFlyingMount && !other.dead && !other.disposed) this._addEagleNeighbor(other)
+    } else {
+      // Isolated/dev callers have no scene index; production uses the all-mount spatial grid.
+      for (const other of nearby) if (other !== this && !other.dead && other.mount?.isFlyingMount && other.mount !== attackMount) this._addEagleNeighbor(other.mount)
+    }
+    const playerMount = player?.currentMount
+    if (playerMount?.isFlyingMount && !playerMount.dead && playerMount !== mount && playerMount !== attackMount
+      && (!mounts || !mounts.includes(playerMount))) this._addEagleNeighbor(playerMount)
+  }
+
   private _updateEagleTravel(dt: number, nearby: NPC[], obstacles: ObstacleData[],
-    followAnchor?: { position: THREE.Vector3; yaw: number }): void {
+    followAnchor?: { position: THREE.Vector3; yaw: number }, player?: Player): void {
     const mount = this.mount!
     const flight = mount.flight!
-    this.eagleNeighbors.length = 0
-    for (const other of nearby) if (other !== this && !other.dead && other.mount?.isFlyingMount) this.eagleNeighbors.push(other.mount.group.position)
+    this._collectEagleNeighbors(nearby, player)
     const formation = this.formationTarget
     const follow = this.tacticalOrder === 'follow' && this.followTarget && !this.followTarget.dead
-    if (follow) {
-      const anchor = followAnchor?.position ?? this.followTarget!.combatPosition
-      followSlotWorldPosition(anchor, followAnchor?.yaw ?? this.followTarget!.group.rotation.y, this.followLocalOffset, this.eagleGoal)
-    } else this.eagleGoal.copy(formation?.position ?? mount.group.position)
-    const land = !follow && Boolean(formation)
+    const order = this.eagleFlightOrder
+    const command = this.eagleCommand
+    command.target = undefined; command.altitude = undefined; command.landingYaw = undefined
+    if (order?.kind === 'return') {
+      command.kind = 'return'; this.eagleGoal.copy(order.target); command.landingYaw = order.landingYaw
+    } else if (follow) {
+      command.kind = 'follow'
+      const leader = this.followTarget!
+      const leaderMount = leader instanceof NPC ? leader.mount : leader.currentMount
+      const anchor = followAnchor?.position ?? (leaderMount?.isFlyingMount ? leaderMount.group.position : leader.combatPosition)
+      followSlotWorldPosition(anchor, followAnchor?.yaw ?? leader.group.rotation.y, this.followLocalOffset, this.eagleGoal)
+      if (leaderMount?.isAirborne) command.altitude = leaderMount.group.position.y + this.followLocalOffset.y
+    } else if (formation) {
+      command.kind = this.tacticalOrder === 'defend' ? 'defend' : 'formation'
+      this.eagleGoal.copy(formation.position)
+      if (formation.position.y > getTerrainHeight(formation.position.x, formation.position.z) + 10) command.altitude = formation.position.y
+    } else {
+      if (!this.eagleAnchorSet) { this.eagleAnchor.copy(mount.group.position); this.eagleAnchorSet = true }
+      this.eagleGoal.copy(this.eagleAnchor)
+      command.kind = order?.kind === 'hold' ? 'hold' : this.tacticalOrder === 'defend' ? 'defend' : 'cruise'
+    }
+    if (order?.kind === 'hold') command.kind = 'hold'
     mount.beginControlledFrame()
-    mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, this.eagleGoal, !land, land, this.eagleNeighbors, obstacles))
+    mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
     mount.finishControlledFrame(dt, obstacles)
     this._syncToMount()
-    if (formation && land && !mount.isAirborne && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < 15) {
+    if (formation && order?.kind !== 'return' && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
       formation.reached = true
       if (formation.arrivalOrder) this.tacticalOrder = formation.arrivalOrder
     }
@@ -2763,21 +2937,29 @@ export class NPC {
 
   private _updateEagleCombat(dt: number, player: Player, allNPCs: NPC[], nearby: NPC[], obstacles: ObstacleData[],
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum') => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
     cameraDistance: number, grid: SpatialGrid<NPC> | null): void {
     const mount = this.mount!
     const flight = mount.flight!
-    const target = this._getTarget(dt, player, allNPCs, grid)
-    const orderedTravel = this.formationTarget && (this.tacticalOrder === 'formation' || this.tacticalOrder === 'defend' && this.formationTarget.arrivalOrder === 'defend'
-      || this.tacticalOrder === 'follow' && (!target || this.group.position.distanceToSquared(target.position) > 40 ** 2))
-    this.eagleNeighbors.length = 0
-    this.eagleTargets.length = 0
-    for (const other of nearby) {
-      if (other === this || other.dead) continue
-      if (other.mount?.isFlyingMount) this.eagleNeighbors.push(other.mount.group.position)
+    let target = this.eagleFlightOrder ? null : this._getTarget(dt, player, allNPCs, grid)
+    const follow = this.tacticalOrder === 'follow' && this.followTarget && !this.followTarget.dead
+    if (this.tacticalOrder === 'defend') {
+      if (!this.eagleAnchorSet) { this.eagleAnchor.copy(this.formationTarget?.position ?? mount.group.position); this.eagleAnchorSet = true }
+      if (target && this.eagleAnchor.distanceToSquared(target.position) > Math.max(80, this.maxRangedAttackDistance) ** 2) target = null
     }
-    // Town and ground callers use 2m boid neighborhoods. The eagle's head/claws
-    // sweep beyond that, so combat broad phase must use its actual movement footprint.
+    const orderedTravel = Boolean(this.eagleFlightOrder || this.tacticalOrder === 'formation' && this.formationTarget
+      || follow && (!target || this.followTarget!.combatPosition.distanceToSquared(target.position) > 80 ** 2))
+    const targetMount = target?.npc?.mount ?? (target?.isPlayer ? player.currentMount : null)
+    const targetIdentity = target?.npc ?? (target?.isPlayer ? player : undefined)
+    this.eagleTargetVelocity.set(0, 0, 0)
+    if (target) {
+      if (targetMount?.flight) this.eagleTargetVelocity.copy(targetMount.flight.velocity)
+      else if (this.eagleLastTarget === targetIdentity && dt > 0) this.eagleTargetVelocity.copy(target.position).sub(this.eagleLastTargetPosition).divideScalar(dt).clampLength(0, 30)
+      this.eagleLastTargetPosition.copy(target.position)
+    }
+    this.eagleLastTarget = targetIdentity
+    this._collectEagleNeighbors(nearby, player, this.eaglePilot.canUseMelee || this.eaglePilot.maneuver === 'pass' ? targetMount : null)
+    this.eagleTargets.length = 0
     const combatCandidates = grid?.getNearbyInto(mount.group.position,
       XONGKORO.aiSeparationRadius + mount.movementSpeed * dt, this.eagleNpcCandidates) ?? nearby
     for (const other of combatCandidates) if (other !== this && !other.dead && combatAllegiancesHostile(this, other)) this.eagleTargets.push(other)
@@ -2789,39 +2971,44 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, this.shield.active, mount.type as MountedPoseKind, true)
     this.animator.setLocomotion(0, true, false)
     const ranged = this.hasActiveRangedWeapon && this.arrows > 0
-    if (orderedTravel || !target) this._updateEagleTravel(dt, nearby, obstacles)
+    const kind = this.rangedCombatKind ?? 'bow'
+    if (orderedTravel || !target) this._updateEagleTravel(dt, nearby, obstacles, undefined, player)
     else {
+      this.eagleAnchorSet = this.tacticalOrder === 'defend' && this.eagleAnchorSet
+      const command = this.eagleCommand
+      this.eagleGoal.copy(targetMount?.isFlyingMount ? targetMount.group.position : target.position)
+      command.kind = 'combat'; command.target = targetIdentity; command.targetAirborne = targetMount?.isAirborne === true
+      command.targetVelocity = this.eagleTargetVelocity; command.rangedAvailable = ranged && this.maxRangedAttackDistance >= this.eaglePilot.cruiseAltitude; command.rangedDistance = this.maxRangedAttackDistance
+      command.altitude = undefined
       mount.beginControlledFrame()
-      const targetYaw = Math.atan2(target.position.x - mount.group.position.x, target.position.z - mount.group.position.z)
+      mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
+      const targetYaw = Math.atan2(this.eagleGoal.x - mount.group.position.x, this.eagleGoal.z - mount.group.position.z)
       const headingError = Math.abs(Math.atan2(Math.sin(targetYaw - flight.yaw), Math.cos(targetYaw - flight.yaw)))
-      mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, target.position,
-        ranged && this.maxRangedAttackDistance >= XONGKORO.aiOrbitRadius && headingError < XONGKORO.rangedYawArc * .8,
-        false, this.eagleNeighbors, obstacles))
-      if (!ranged && mount.group.position.distanceTo(target.position) < XONGKORO.aiAttackRange && mount.startEagleAttack()) this.eaglePilot.attacked()
+      if ((!ranged || kind === 'bow') && this.eaglePilot.canUseMelee && headingError < .6 && mount.group.position.distanceTo(this.eagleGoal) < XONGKORO.aiAttackRange
+        && mount.startEagleAttack()) this.eaglePilot.attacked()
       mount.finishControlledFrame(dt, obstacles)
       this._syncToMount()
     }
     mount.setCameraDistance(cameraDistance)
     this.state = target ? AIState.ATTACK : AIState.IDLE
-    let canShoot = false
-    if (target && ranged) {
-      const direction = this._tmpRangedDirection.copy(target.position).sub(this.group.position)
-      const aimYaw = Math.atan2(direction.x, direction.z)
-      const yawError = Math.atan2(Math.sin(aimYaw - flight.yaw), Math.cos(aimYaw - flight.yaw))
-      const pitchError = Math.atan2(direction.y, Math.hypot(direction.x, direction.z)) - flight.pitch
-      canShoot = direction.length() <= this.maxRangedAttackDistance && Math.abs(yawError) <= XONGKORO.rangedYawArc
-        && Math.abs(pitchError) <= XONGKORO.rangedPitchArc && this._findRangedTrajectoryBlocker(target.position, obstacles) === null
+    this.eagleShotCheckRemaining -= dt
+    const eligible = Boolean(target && ranged && (this.eaglePilot.canUseRanged || kind === 'javelin' && this.eaglePilot.canUseMelee)
+      && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    if (!eligible) this.eagleShotClear = false
+    else if (this.eagleShotCheckRemaining <= 0) {
+      this.eagleShotClear = this._prepareEagleRangedShot(target!, this.eagleTargetVelocity, obstacles)
+      this.eagleShotCheckRemaining = .15
     }
-    const kind = this.rangedCombatKind ?? 'bow'
+    const canShoot = eligible && this.eagleShotClear
     const cooldown = getRangedCooldown(kind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+    if (ranged && kind === 'javelin') this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
     if (canShoot && target) {
-      this.attackTimer += dt
+      if (kind === 'bow') this.attackTimer += dt
       if (!this.animator.busy) {
         if (kind === 'bow') {
           this.bowArrowReleased = false
           this.animator.poseBow(Math.min(1, this.attackTimer / cooldown), Math.min(1, this.attackTimer / .18))
         } else if (this.attackTimer >= cooldown - (this.rig.animation?.getDuration('pilumThrow') ?? .45)) {
-          this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(target.position))
           if (this.animator.start('pilumThrow')) this.bowPivot.visible = true
         }
       }
@@ -2829,13 +3016,14 @@ export class NPC {
     }
     const events = this.animator.update(dt, cameraDistance)
     this._syncToMount()
-    if (target) this._updateBowVisual(Math.min(1, this.attackTimer / cooldown), target.position)
-    if (events.projectileRelease && ranged && canShoot && target) {
-      const origin = this._tmpRangedOrigin, direction = this._tmpRangedDirection
-      const aim = this._getElevatedRangedAimPoint(target.position)
-      if (kind === 'bow' && this.bowVisual) this.bowVisual.writeLaunch(origin, direction, aim)
-      else { this.bowGripPivot.getWorldPosition(origin); direction.copy(aim).sub(origin).normalize() }
-      onFireArrow(origin, direction, kind === 'bow' ? 'arrow' : 'pilum')
+    if (target && canShoot) this.bowVisual?.update(Math.min(1, this.attackTimer / cooldown), this.eagleRangedAim, !this.bowArrowReleased)
+    // Re-solve from the animated nock at release. A cached clear shot never
+    // authorizes firing through a newly encountered wall or an unreachable target.
+    if (events.projectileRelease && ranged && canShoot && target
+      && this._prepareEagleRangedShot(target, this.eagleTargetVelocity, obstacles)) {
+      const lifecycle = kind === 'bow'
+        ? createProjectileFlightBudget(this.rangedProjectileSpeed, this.eagleBallisticIntercept.flightTime) : undefined
+      onFireArrow(this.eagleRangedOrigin, this.eagleBallisticIntercept.direction, kind === 'bow' ? 'arrow' : 'pilum', lifecycle)
       this.arrows--
       this.attackTimer = 0
       this.bowArrowReleased = true
@@ -2845,6 +3033,12 @@ export class NPC {
     }
     if (events.actionCompleted && this.arrows === 0) this._switchToMelee()
     const mounts = this.combatMountGrid?.getNearbyInto(mount.group.position, 12 + mount.movementSpeed * dt, this.combatMountCandidates) ?? []
+    // Physical avoidance includes allies; an NPC attack only damages legal enemies.
+    for (let i = mounts.length - 1; i >= 0; i--) {
+      const other = mounts[i]
+      if (other.riderNpc ? !combatAllegiancesHostile(this, other.riderNpc)
+        : other.riderPlayer ? !this.targetsPlayer || !other.riderPlayer.targetable : other !== targetMount) mounts.splice(i, 1)
+    }
     for (const contact of mount.traceEagleAttack(this.eagleTargets, mounts, obstacles)) {
       Object.assign(this.weaponSweep.contact, contact)
       if (contact.target === player) onHitEntity(XONGKORO.attackDamage, true)

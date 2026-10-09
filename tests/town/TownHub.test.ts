@@ -1,3 +1,4 @@
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import * as THREE from 'three'
@@ -23,6 +24,9 @@ vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
   CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
 }))
+
+// Routing fixtures must fly above the actual terrain now that Town sweeps terrain contacts.
+const townShotHeight = getTerrainHeight(0, 1) + 1
 
 function memory() {
   const data = new Map<string, string>()
@@ -78,7 +82,7 @@ describe('Town population and civilian combat', () => {
   })
   it('registers every formal resident rather than selecting settlement principals', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
-    expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
+    expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 17, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
     const e = new TownEvent(townRoster()); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(roster.length)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
@@ -367,7 +371,7 @@ describe('Town orchestration transitions', () => {
     const source = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Town javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
     source.setTownPeaceful()
     const town = createTownCombatFixture() as any
-    town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
+    town.player = new Player(scene, 'roman'); town.player.setPosition(0, townShotHeight, 1)
     town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
     town.defense = { active: false, playerEnemies: [], releasedEnemies: [] }
@@ -377,8 +381,8 @@ describe('Town orchestration transitions', () => {
     const shot = () => {
       let alive = true
       const arrow = {
-        mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 10,
-        update: vi.fn(function (this: any) { this.mesh.position.set(0, 1, 2) }),
+        mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 10,
+        update: vi.fn(function (this: any) { this.mesh.position.set(0, townShotHeight, 2) }),
         destroy: vi.fn(() => { alive = false }),
         get isAlive() { return alive },
       }
@@ -424,8 +428,8 @@ describe('Town orchestration transitions', () => {
 
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }
@@ -505,8 +509,8 @@ describe('Town orchestration transitions', () => {
 
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }
@@ -590,7 +594,7 @@ describe('Town orchestration transitions', () => {
     town.defense = { active: true, playerEnemies: [], releasedEnemies: [], peersFor: vi.fn(() => []) }
     town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }
     const cat = { dead: false, group: new THREE.Group(), takeDamage: vi.fn(function (this: any) { this.dead = true }) }
-    cat.group.position.set(0, 0, 1)
+    cat.group.position.set(0, townShotHeight - 1, 1)
     town.runtimeCombatActors = () => []
     town.combatMounts = [cat]
     town.canHitTownMount = () => true
@@ -601,8 +605,8 @@ describe('Town orchestration transitions', () => {
     const source = { faction: Faction.ENEMY }
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 200,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 200,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }

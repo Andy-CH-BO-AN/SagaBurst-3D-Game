@@ -5,6 +5,9 @@ import { WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 
+/** Concurrent canonical ownership, including assigned, reserve and unavailable eagles. */
+export const MAX_PLAYER_OWNED_XONGKORO = 3
+
 export interface CareerInventory { version: 1; quantities: Record<string, number> }
 export interface PersonalEquipment { melee: string | null; ranged: string | null; shield: string | null; mount: PlayerMountId | null }
 export type PersonalEquipmentSlot = keyof PersonalEquipment

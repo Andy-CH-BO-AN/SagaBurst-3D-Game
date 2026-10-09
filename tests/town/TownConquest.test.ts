@@ -61,7 +61,7 @@ describe('canonical free Town conquest population', () => {
       const profile = createCareerProfile(faction), roster = townConquestRoster(world.hr)
       const entries = careerTownSceneRoster(profile, roster), event = new TownEvent(roster)
       expect(roster).toHaveLength(townRoster().length + 1)
-      expect(roster).toHaveLength(226) // Current composition check only; runtime never uses this number.
+      expect(roster).toHaveLength(231) // Current composition check only; runtime never uses this number.
       expect(new Set(roster.map(spec => spec.id)).size).toBe(roster.length)
       expect(roster.find(spec => spec.id === 'hr-officer')).toMatchObject(world.hr.officer)
       expect(entries.filter(entry => entry.spec.id === 'hr-officer')).toHaveLength(1)

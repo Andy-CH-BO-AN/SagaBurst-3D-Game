@@ -1,3 +1,5 @@
+import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
+import { AerialViewPolicy, usesAerialView } from './camera/AerialViewPolicy'
 import { findEagleLandingPosition } from './world/EagleLanding'
 import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from './world/NpcSpawnScheduler'
@@ -424,6 +426,7 @@ export class Game {
 
   private scene!: THREE.Scene
   private renderer: THREE.WebGLRenderer
+  private readonly aerialView = new AerialViewPolicy()
   private camera!: THREE.PerspectiveCamera
   private clock!: THREE.Clock
 
@@ -1192,6 +1195,8 @@ export class Game {
           weaponId: this.inventoryManager.equippedRanged.id,
           emit: this.combatEvents.emit,
         },
+        evt.visualKind === 'arrow' && this.player.isMounted && this.player.currentMount?.isFlyingMount
+          ? playerEagleProjectileBudget(evt.origin, evt.direction, evt.speed) : undefined,
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -2015,19 +2020,18 @@ export class Game {
       this.player.spawnX = point.x; this.player.spawnZ = point.z
       this.thirdPersonCamera.setYaw(yaw + Math.PI)
     }
-    const eagleMuster = slots.slice(1)
-    if (changedScene) {
-      const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
-      const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), this.player.combatPosition]
-      for (const [index, id] of saved.memberIds.entries()) {
-        if (owned.get(id)?.equipment?.mount !== 'xongkoro') continue
-        const position = findEagleLandingPosition({ ...(eagleMuster[index] ?? anchor), yaw }, this.obstacles, occupied, 300, 150)
-        if (!position) throw new Error('No clear xongkoro deployment area near the Outpost')
-        eagleMuster[index] = { x: position.x, z: position.z, yaw }
-        occupied.push(position)
-      }
+    const regularMuster = slots.slice(1)
+    const eagleMuster: Array<{ x: number; z: number; yaw: number }> = []
+    const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
+    const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), this.player.combatPosition]
+    for (const [index, id] of saved.memberIds.entries()) {
+      if (owned.get(id)?.equipment?.mount !== 'xongkoro') continue
+      const position = findEagleLandingPosition({ ...(regularMuster[index] ?? anchor), yaw }, this.obstacles, occupied, 300, 150)
+      if (!position) throw new Error('No clear xongkoro deployment area near the Outpost')
+      eagleMuster.push({ x: position.x, z: position.z, yaw })
+      occupied.push(position)
     }
-    this.personalSquad = new PersonalSquadRuntime(this.scene, eagleMuster, () => this.careerProfile!, () => this.player, undefined, {
+    this.personalSquad = new PersonalSquadRuntime(this.scene, regularMuster, () => this.careerProfile!, () => this.player, undefined, {
       sceneKey, hasHR: false, eagleMuster,
       formationSlots: (anchor, occupied, count) => personalRearDeployment(anchor, occupied, count,
         this.navigationWorld.grid, this.obstacles, this.navigationWorld),
@@ -3569,6 +3573,12 @@ export class Game {
       this.thirdPersonCamera.update(this.input, dt, this.obstacles)
     }
 
+    this.aerialView.update(this.camera, this.scene, usesAerialView(
+      Boolean(this.player.isMounted && this.player.currentMount?.isFlyingMount),
+      this.controlMode === 'spectator',
+      this.camera.position.y - getTerrainHeight(this.camera.position.x, this.camera.position.z),
+    ))
+
     const currentYaw = this.controlMode === 'spectator'
       ? this.spectatorController.cameraYaw
       : this.thirdPersonCamera.cameraYaw
@@ -3728,7 +3738,7 @@ export class Game {
             }
           }
         },
-        (origin, direction, visualKind) => {
+        (origin, direction, visualKind, lifecycle) => {
           // Ranged Fire Callback
           const arrow = new ArrowProjectile(
             this.scene,
@@ -3744,6 +3754,7 @@ export class Game {
               weaponId: npc.rangedWeaponId,
               emit: this.combatEvents.emit,
             },
+            lifecycle,
           )
           this.arrows.push(arrow)
           if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)

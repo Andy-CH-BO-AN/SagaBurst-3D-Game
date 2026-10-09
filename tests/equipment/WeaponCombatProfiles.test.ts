@@ -41,3 +41,21 @@ describe('Weapon combat profiles', () => {
     expect(WEAPONS['steel_sword'].range).toBe(1.8)
   })
 })
+
+
+it.each([
+  ['wooden_shortbow', 1, 8, 22, 12, 45, .8],
+  ['recurve_longbow', 2, 15, 42, 18, 55, 1.2],
+  ['elven_runebow', 3, 28, 75, 25, 65, 1.8],
+  ['maki-ranger-bow-ranged', 4, 40, 100, 40, 110, 1.8],
+] as const)('%s keeps its authoritative bow charge, speed and damage profile', (id, tier, damageMin, damageMax, arrowSpeedMin, arrowSpeedMax, speedOrCharge) => {
+  expect(WEAPONS[id]).toMatchObject({ tier, type: 'ranged', combatKind: 'bow', damageMin, damageMax, arrowSpeedMin, arrowSpeedMax, speedOrCharge })
+})
+
+it.each([
+  ['pilum_basic', 1, 8, 22, 12, 18, .8],
+  ['pilum_standard', 2, 15, 42, 14, 24, 1.2],
+  ['legionary_pilum', 3, 28, 75, 16, 30, 1.8],
+] as const)('%s preserves the complete javelin profile', (id, tier, damageMin, damageMax, arrowSpeedMin, arrowSpeedMax, speedOrCharge) => {
+  expect(WEAPONS[id]).toMatchObject({ tier, combatKind: 'javelin', damageMin, damageMax, arrowSpeedMin, arrowSpeedMax, speedOrCharge })
+})

@@ -103,6 +103,18 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(canUseCareerMount(h.read(), mountId)).toBe(true)
     expect(availableCareerItem(h.read(), 'horse')).toBe(1); balanced(h.read())
   })
+  it.each([true, false])('counts Player allocation=%s and actual private owners in the three-eagle cap, including casualties and reserves', playerOwns => {
+    const h = harness(), ids = [h.hire('captain'), h.hire('ranger'), h.hire('ranger')]
+    for (let count = 0; count < 3; count++) h.buy('xongkoro')
+    if (!playerOwns) { const next = cloneCareerProfile(h.read()); delete next.selectedMountId; h.save(next) }
+    for (const id of ids.slice(0, playerOwns ? 2 : 3)) expect(h.change(id, 'mount', 'xongkoro').changed).toBe(true)
+    expect(careerItemAllocated(h.read(), 'xongkoro')).toBe(3)
+    const before = cloneCareerProfile(h.read())
+    expect(purchaseTownMount(before, 'xongkoro')).toMatchObject({ purchased: false, spentMerit: 0, reason: 'ownership-limit' })
+    expect(h.read()).toEqual(before)
+    expect(h.store.load()!.inventory?.quantities.xongkoro).toBe(3)
+  })
+
   it('assigns xongkoro to Maki without changing her fixed bow and preserves it through storage', () => {
     const h = harness(), ranger = h.hire('ranger')
     h.buy('xongkoro')

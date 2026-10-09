@@ -33,7 +33,7 @@ describe('Player loadout configuration', () => {
     const t4Inventory = new InventoryManager(t4Bow.playerLoadout)
     expect(t4Inventory.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
     expect(t4Inventory.equippedRanged.tier).toBe(4)
-    expect(t4Inventory.equippedRanged.damageMax).toBe(WEAPONS.elven_runebow.damageMax)
+    expect(t4Inventory.equippedRanged.damageMax).toBe(100)
     expect(validateBattleConfig({ ...t4Bow, playerHeroId: 'maki-archer-t4' }).valid).toBe(true)
     expect(validateBattleConfig({ ...battleConfig(), playerHeroId: 'maki-archer-t4', playerLoadout: roman.playerLoadout }).valid).toBe(false)
     expect(validateBattleConfig({ ...battleConfig(), playerLoadout: { ...roman.playerLoadout, meleeWeaponId: 'not_a_weapon' } }).valid).toBe(false)
@@ -133,3 +133,19 @@ it('Player rebuild selects the T4 body by weapon ID and clears pilum/bow transfo
     if (id === 'maki-ranger-bow-ranged') expect(visual.bowGripPivot.position.length()).toBe(0)
   }
 })
+
+
+it.each([[0, 40, 28], [.9, 75, 49], [1.8, 110, 70]])(
+  'T4 bow charge %ss emits actual speed %sm/s and damage %s with the existing bow multiplier', (charge, speed, damage) => {
+    const player = new Player(new THREE.Scene())
+    onTestFinished(() => player.dispose())
+    player.setArrowCount(1)
+    const fire = vi.fn()
+    player.onFireArrow = fire
+    // Observe the release boundary; this does not bypass weapon interpolation.
+    const release = player as unknown as { _fireArrow(target: THREE.Vector3, skill: number, weapon: typeof WEAPONS[string], charge: number): void }
+    release._fireArrow(new THREE.Vector3(0, 2, 100), 1, WEAPONS[T4_RANGER_BOW_RANGED_ID], charge)
+    expect(fire).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ speed, damage, visualKind: 'arrow' }))
+    expect(player.arrowCount).toBe(0)
+  },
+)

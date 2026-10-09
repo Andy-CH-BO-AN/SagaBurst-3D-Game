@@ -8,8 +8,8 @@ import type { NPC } from '../../src/world/NPC'
 describe('Town patrol roster contracts', () => {
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
-    expect(roster).toHaveLength(225); expect(patrol).toHaveLength(40)
-    expect(new Set(roster.map(s => s.id)).size).toBe(225); expect(townRoster()).toEqual(roster)
+    expect(roster).toHaveLength(230); expect(patrol).toHaveLength(40)
+    expect(new Set(roster.map(s => s.id)).size).toBe(230); expect(townRoster()).toEqual(roster)
     expect(roster.filter(s => s.role === 'captain')).toHaveLength(1)
     for (const id of ['A', 'B']) {
       const members = patrol.filter(s => s.patrolId === id)
@@ -50,7 +50,7 @@ describe('Town patrol roster contracts', () => {
   it.each(['roman', 'viking'] as const)('includes patrols in the %s conquest population while preserving assault objective membership', faction => {
     const roster = townRoster()
     expect(townConquestRoster(resolveTownHRLayout(faction, [], []))).toHaveLength(roster.length + 1)
-    expect(townAssaultObjectiveRoster()).toHaveLength(203)
+    expect(townAssaultObjectiveRoster()).toHaveLength(208)
   })
 
   it('keeps patrol cavalry in the siege defense plans', () => {

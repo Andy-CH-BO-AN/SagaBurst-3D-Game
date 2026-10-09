@@ -30,13 +30,15 @@ function fortifications(faction: 'roman' | 'viking') {
 }
 
 describe('Fortified city explicit rosters', () => {
-  it('distributes the complete military roster into four disjoint gate defense plans', () => {
+  it('keeps ground defenders in four disjoint gate plans and five air defenders at their own pads', () => {
     const roster = townRoster(), groups = siegeDefensePlans([...roster].reverse())
-    expect(roster).toHaveLength(225)
-    expect(new Set(roster.map(actor => actor.id)).size).toBe(225)
+    expect(roster).toHaveLength(230)
+    expect(new Set(roster.map(actor => actor.id)).size).toBe(230)
     expect(groups).toHaveLength(4)
     const ids = groups.flatMap(group => [...group.infantry, ...group.cavalry])
     expect(ids).toHaveLength(203); expect(new Set(ids).size).toBe(203)
+    expect(roster.filter(actor => actor.duty === 'eagle_garrison').map(actor => actor.id)).toEqual([1, 2, 3, 4, 5].map(slot => `town-eagle-rider:${slot}`))
+    expect(ids.some(id => id.startsWith('town-eagle-rider:'))).toBe(false)
     expect(roster.filter(actor => actor.defenseGroup).every(actor => actor.duty === 'training' && actor.training && !actor.mounted)).toBe(true)
     for (const [prefix, count, role] of [['melee_cavalry', 5, 'melee_infantry'], ['lancer_cavalry', 5, 'spearman_infantry'], ['ranged_cavalry', 10, 'ranged_infantry']] as const) {
       for (let i = 0; i < count; i++) expect(roster.find(actor => actor.id === `${prefix}-${i}`)).toMatchObject({ role, mounted: false, duty: 'training', training: true })
@@ -120,7 +122,7 @@ describe('Fortified city explicit rosters', () => {
   it('assault acceptance targets exactly the scripted military identities, independent of ambient troops', () => {
     const mission = createEnemyTownAssaultMission('fortified-assault')
     expect(mission.targetActorIds).toEqual(townAssaultObjectiveRoster().map(actor => actor.id))
-    expect(mission.targetActorIds).toHaveLength(203)
+    expect(mission.targetActorIds).toHaveLength(208)
     const all = new Set(townRoster().map(actor => actor.id))
     expect(mission.targetActorIds.every(id => all.has(id))).toBe(true)
     expect(mission.targetActorIds.some(id => id.startsWith('gate:') || id.startsWith('cavalry-training:'))).toBe(true)

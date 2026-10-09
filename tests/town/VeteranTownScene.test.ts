@@ -92,7 +92,7 @@ describe('Veteran mission board integration', () => {
     expect(unlocked.town.profile.ownedMounts).toEqual([])
     const details = unlockedRow!.all().map(element => element.textContent).join(' ')
     expect(details).toContain('守護 vinum 村')
-    expect(details).toContain('友軍 204 人（含玩家；AI 守軍 203）')
+    expect(details).toContain('友軍 209 人（含玩家；AI 守軍 208）')
     expect(details).toContain('敵軍 120 人（T3 騎兵、4 名 T4 隊長）')
     expect(details).not.toMatch(/63|64|T2 騎兵/)
   })

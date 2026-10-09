@@ -1,8 +1,9 @@
 import { careerItemTotal, addCareerItem } from '../../src/career/CareerInventory'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createCareerProfile, getCareerPurchaseTier, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { createCareerProfile, getCareerPurchaseTier, purchaseCareerContent, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import * as THREE from 'three'
+import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { CareerMountController } from '../../src/career/CareerMountController'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
@@ -287,6 +288,36 @@ describe('Career hero mount purchases', () => {
     expect(exact.profile.availableMerit).toBe(0)
   })
 
+  it.each([0, 1, 2, 3, 4])('enforces the canonical concurrent eagle cap with %i owned, retaining legacy excess through storage', count => {
+    const current = { ...profile('captain'), availableMerit: 50000,
+      inventory: { version: 1 as const, quantities: { gladius_rusty: 1, ...(count ? { xongkoro: count } : {}) } },
+      ownedMounts: count ? ['xongkoro' as const] : [] }
+    const before = structuredClone(current), result = purchaseTownMount(current, 'xongkoro')
+    expect(result.purchased).toBe(count < 3)
+    expect(result.spentMerit).toBe(count < 3 ? 10000 : 0)
+    expect(result.profile.availableMerit).toBe(count < 3 ? 40000 : 50000)
+    expect(careerItemTotal(result.profile, 'xongkoro')).toBe(count < 3 ? count + 1 : count)
+    expect(current).toEqual(before)
+    if (count >= 3) {
+      expect(result.reason).toBe('ownership-limit'); expect(result.profile.selectedMountId).toBeUndefined()
+      expect(purchaseCareerContent(current, { id: 'xongkoro', kind: 'mount', requiredTier: 4, cost: 10000 })).toMatchObject({ purchased: false, spentMerit: 0, reason: 'ownership-limit' })
+    }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(result.profile)).toBe(true)
+    expect(careerItemTotal(store.load()!, 'xongkoro')).toBe(count < 3 ? count + 1 : count)
+  })
+
+  it('allows buying again only after legal sales lower legacy eagle ownership below three', () => {
+    const current = { ...profile('captain'), availableMerit: 50000,
+      inventory: { version: 1 as const, quantities: { gladius_rusty: 1, xongkoro: 4 } }, ownedMounts: ['xongkoro' as const] }
+    const three = sellTownProduct(current, 'xongkoro')
+    expect(three.sold).toBe(true); expect(purchaseTownMount(three.profile, 'xongkoro').reason).toBe('ownership-limit')
+    const two = sellTownProduct(three.profile, 'xongkoro')
+    expect(two.sold).toBe(true)
+    const bought = purchaseTownMount(two.profile, 'xongkoro')
+    expect(bought.purchased).toBe(true); expect(careerItemTotal(bought.profile, 'xongkoro')).toBe(3)
+  })
+
   it('rejects non-mount products and preserves legacy horse ownership', () => {
     const current = { ...profile('captain'), totalMerit: 5000, availableMerit: 8000 }
     for (const id of ['missing', '', 'horse-t1', 'steel_sword', 'scutum_t2', { id: 'black-cat', price: 0, tier: 1 }]) {
@@ -344,10 +375,15 @@ describe('Career hero mount purchases', () => {
 
   it.each([['黑貓英雄坐騎', 'ranger', 4000], ['柯基英雄坐騎', 'ranger', 4000], ['xongkoro · 巨鷹英雄坐騎', 'eagle-trainer', 10000]] as const)('keeps balance and ownership unchanged when saving %s fails', (name, shop, price) => {
     const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 15000, availableMerit: price + 229, ownedMounts: ['horse'], selectedMountId: 'horse' }, shop)
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 0, yaw: 0 })))
+    const scene = new THREE.Scene()
+    town.careerMounts = new CareerMountController(scene, () => town.player, () => town.profile, next => town.commit(next), () => [], () => [], () => 'town-home', { eaglePads: pads })
     const before = structuredClone(town.profile)
     row(name).children[2].onclick!()
     expect(town.profile).toEqual(before)
     expect(store.load()).toEqual(before)
+    expect(pads.get('player')).toBeUndefined(); expect(scene.children).toHaveLength(0)
+    expect(town.careerMounts.activeMount).toBeNull()
     expect(town.message).toContain('保存失敗')
     expect(row(name).children[2]).toMatchObject({ textContent: '購買', disabled: false })
   })

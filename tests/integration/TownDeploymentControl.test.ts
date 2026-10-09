@@ -47,6 +47,7 @@ function controlFixture() {
     spectator: null as { update: ReturnType<typeof vi.fn> } | null,
     cat: { dead: true }, careerMounts: { update: vi.fn() },
     outskirts: { synchronizeRank: vi.fn(), mounts: [] },
+    eagleGarrison: { beginFrame: vi.fn() },
     event: { hostile: false, evaluate: vi.fn(() => null) },
     mission: { get ready() { return batch.ready }, spawnBatches: [batch], evaluate: vi.fn(() => null), returnComplete: false },
     defense: { ready: true, active: false }, duel: { active: false },
@@ -63,7 +64,7 @@ function controlFixture() {
   town.inventory.equipWeapon('elven_runebow')
   const updatePlayer = vi.spyOn(player, 'update'), updateCamera = vi.spyOn(orbit, 'update')
   const combatCalls = () => [town.melee, town.missionCombat.update, town.updateShots,
-    town.event.evaluate, town.mission.evaluate, town.persistPersonalSquad]
+    town.event.evaluate, town.mission.evaluate, town.persistPersonalSquad, town.eagleGarrison.beginFrame]
   return { town, scene, player, orbit, batch, driver, updatePlayer, updateCamera, combatCalls }
 }
 

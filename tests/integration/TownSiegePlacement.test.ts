@@ -84,14 +84,17 @@ describe('full-capacity Siege resident placement', () => {
     const h = placementFixture()
     expect(h.controller.startActiveMission()).toBe(true)
     expect(h.scheduler.pending).toBe(0)
-    expect(recording.npcs).toHaveLength(223)
+    expect(recording.npcs).toHaveLength(228)
     expect(recording.mounts).toHaveLength(1)
-    const military = h.residents.filter(resident => resident.spec.role !== 'civilian')
+    const military = h.residents.filter(resident => resident.spec.role !== 'civilian' && !resident.spec.eagle)
+    const airborne = h.residents.filter(resident => resident.spec.eagle)
+    expect(airborne).toHaveLength(5)
+    for (const resident of airborne) expect(recording.npcs.find(npc => npc.combatantId === resident.spec.id)!.assignFormationTarget).not.toHaveBeenCalled()
     const civilians = h.residents.filter(resident => resident.spec.role === 'civilian')
     expect(military).toHaveLength(203); expect(civilians).toHaveLength(20)
 
-    const placements = h.residents.map(({ spec }, index) => {
-      const npc = recording.npcs[index]
+    const placements = h.residents.filter(resident => !resident.spec.eagle).map(({ spec }) => {
+      const npc = recording.npcs.find(actor => actor.combatantId === spec.id)!
       expect(npc.assignFormationTarget, `${spec.id} receives its deployment command`).toHaveBeenCalledOnce()
       const point = npc.formationTarget!.position
       const mountedWidth = spec.mounted || spec.role === 'ranger' || spec.role === 'civilian'

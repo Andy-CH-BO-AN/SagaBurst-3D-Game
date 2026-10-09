@@ -62,3 +62,41 @@ describe('Veteran field projectile routing', () => {
     expect(town.hitResident).not.toHaveBeenCalled()
   })
 })
+
+
+describe('Town projectile flight budgets and first-contact cleanup', () => {
+  it.each(['npc-eagle', 'player-eagle', 'player-ground'] as const)('%s formal fire path keeps only authorized long arrows after five seconds', source => {
+    const { town } = shotFixture(false, true)
+    town.shots.forEach((shot: { arrow: { destroy(): void } }) => shot.arrow.destroy())
+    town.shots = []; town.scene = new THREE.Scene(); town.mounts = []; town.cat = undefined; town.defense.playerEnemies = []
+    town.isProtectedTownAlly = () => false
+    Object.defineProperty(town.player, 'isMounted', { value: source === 'player-eagle' })
+    town.player.currentMount = source === 'player-eagle' ? { isFlyingMount: true } : null
+    const budget = source === 'npc-eagle' ? { maxLifetimeSeconds: 9, maxTravelDistance: 1500 } : undefined
+    town.fire(new THREE.Vector3(0, 100, -100), new THREE.Vector3(.8, .6, 0), 65, 25,
+      source !== 'npc-eagle', false, 'arrow', source === 'npc-eagle' ? actor('eagle-source', Faction.TOWN) : undefined, budget)
+    const shot = town.shots[0]
+    if (source !== 'player-eagle') expect(shot.maxLifetimeSeconds).toBe(source === 'player-ground' ? 5 : 9)
+    if (source === 'player-eagle') expect(shot.maxLifetimeSeconds).toBeGreaterThan(5)
+    for (let frame = 0; frame < 306; frame++) town.updateShots(1 / 60)
+    expect(shot.arrow.isAlive).toBe(source !== 'player-ground')
+    town.clearMissionCombatShots(); expect(shot.arrow.isAlive).toBe(false); expect(town.shots).toHaveLength(0)
+  })
+  it('does not apply contacts after the actual projectile expires during its update', () => {
+    const { town, arrow, target } = shotFixture(false, true)
+    town.mission.combatPeersFor = () => [target]
+    arrow.mesh.position.set(-2, 40, 0)
+    arrow.update.mockImplementation(() => { arrow.isAlive = false; return arrow.mesh.position.set(2, 40, 0) })
+    town.updateShots(.05)
+    expect(town.hitFieldNpc).not.toHaveBeenCalled(); expect(town.shots).toHaveLength(0)
+  })
+  it('terrain before a body on the same swept segment stops the arrow without damage', () => {
+    const { town, arrow, target } = shotFixture(false, true)
+    town.mission.combatPeersFor = () => [target]
+    target.group.position.set(0, -100, 0)
+    arrow.mesh.position.set(-2, 40, 0)
+    arrow.update.mockImplementation(() => arrow.mesh.position.set(0, -99, 0))
+    town.updateShots(.05)
+    expect(town.hitFieldNpc).not.toHaveBeenCalled(); expect(arrow.destroy).toHaveBeenCalledOnce()
+  })
+})

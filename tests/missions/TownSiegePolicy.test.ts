@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { siegeRoster, siegeDefensePlans, siegeGate, siegePoint, siegeOutward, siegeReservePoint, siegeMuster, siegeNearestGate } from '../../src/career/TownSiege'
 import { townRoster } from '../../src/town/TownRules'
-import { createEnemyTownAssaultMission, resolveAssaultOutcome } from '../../src/career/EnemyTownAssault'
+import { createAssaultRoster, createEnemyTownAssaultMission, resolveAssaultOutcome } from '../../src/career/EnemyTownAssault'
 
 describe('Siege gate direction data', () => {
   it.each([
@@ -37,7 +37,7 @@ describe('Siege gate direction data', () => {
 
 // Pure rosters/objectives own every faction/mode input without constructing actors.
 for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared four-gate Siege`, () => {
-  it('uses four squads with four T4 officers and counts Player inside the Assault roster', () => {
+  it('fills each gate with ten lancers, ten horse archers and ten faction-specific foot ranged soldiers, counting Player and T4 officers inside thirty', () => {
     for (const assault of [false, true]) {
       const roster = siegeRoster(faction, assault)
       expect(roster).toHaveLength(assault ? 119 : 120)
@@ -46,6 +46,30 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
       expect(roster.find(s => s.spec.combatProfileId === 'ranger')!.spec.loadout?.mountId).toBe('black-cat')
       for (const id of ['north', 'south', 'east', 'west']) expect(roster.filter(s => s.gateId === id).length + (assault && id === 'north' ? 1 : 0)).toBe(30)
       expect(roster.every(s => s.spec.tier === 4 || s.spec.tier === 3)).toBe(true)
+      expect(roster.filter(s => s.spec.cavalry)).toHaveLength(assault ? 79 : 80)
+      expect(roster.filter(s => !s.spec.cavalry)).toHaveLength(40)
+      if (assault) expect(createAssaultRoster(faction)).toEqual(roster.map(({ spec }) => spec))
+      for (const gateId of ['north', 'south', 'east', 'west']) {
+        const group = roster.filter(slot => slot.gateId === gateId)
+        const playerSlot = assault && gateId === 'north' ? 1 : 0
+        expect(group.filter(({ spec }) => spec.presetId === `${faction}_lancer`).length + playerSlot).toBe(10)
+        expect(group.filter(({ spec }) => spec.presetId === `${faction}_horse_archer`)).toHaveLength(10)
+        expect(group.filter(({ spec }) => spec.presetId === `${faction}_archer`)).toHaveLength(faction === 'viking' ? 10 : 5)
+        expect(group.filter(({ spec }) => spec.presetId === 'roman_javelin_infantry')).toHaveLength(faction === 'roman' ? 5 : 0)
+        expect(group.filter(({ spec }) => spec.tier === 4)).toHaveLength(1)
+      }
+      for (const { spec, slot } of roster) {
+        expect(spec.characterFaction).toBe(faction)
+        expect(spec.faction).toBe(assault ? 'TOWN' : 'ENEMY')
+        expect(spec.presetId?.startsWith(`${faction}_`)).toBe(true)
+        expect(spec.aiType).toBe(slot < 10 ? 'MELEE' : 'RANGED')
+        expect(Boolean(spec.loadout?.mountId)).toBe(spec.cavalry)
+        const bow = spec.specialCombatProfile === 'maki-ranger' ? 'maki-ranger-bow-ranged' : 'elven_runebow'
+        expect(spec.loadout).toMatchObject(slot < 10
+          ? { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null }
+          : { meleeWeaponId: faction === 'roman' ? 'gladius_rusty' : 'rusty_dagger',
+            rangedWeaponId: slot >= 25 && faction === 'roman' ? 'legionary_pilum' : bow, shieldId: null })
+      }
     }
   })
 })
@@ -65,7 +89,7 @@ describe('Siege officer profile policy without actor materialization', () => {
       combatProfileId, visualAssetId, loadout: { mountId },
     })
     expect(roster.filter(({ spec }) => spec.combatProfileId === 'ranger')).toMatchObject([{
-      gateId: 'west', slot: 20, spec: { characterFaction: faction, tier: 4,
+      gateId: 'west', slot: 10, spec: { characterFaction: faction, tier: 4,
         visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger',
         loadout: { mountId: 'black-cat' } },
     }])
@@ -83,7 +107,7 @@ describe('Siege deployment and shared rule ownership', () => {
 
   it('counts military objectives independently of faction and excludes civilians', () => {
     const objective = createEnemyTownAssaultMission().targetActorIds
-    expect(objective).toHaveLength(203)
+    expect(objective).toHaveLength(208)
     expect(objective.filter(id => id.startsWith('gate:'))).toHaveLength(40)
     expect(objective.filter(id => id.startsWith('town-patrol:'))).toHaveLength(40)
     expect(objective.some(id => id.startsWith('civilian'))).toBe(false)

@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ObstacleData } from '../world/Terrain'
+import { isEagleLandingClear } from '../world/EagleLanding'
+import type { EaglePad } from './EaglePadReservations'
 import type { PersonalActorPosition } from './CareerPersonalSquadMission'
 
 interface DeploymentBounds { minX: number; maxX: number; minZ: number; maxZ: number }
@@ -50,5 +52,22 @@ export function personalTownDeployment(anchor: PersonalActorPosition, official: 
     }
   }
   if (result.length !== count) throw new Error('No legal Town entry for the personal squad')
+  return result
+}
+
+/** Foreign Towns have no friendly HR or training pads: deploy beside the actual field muster. */
+export function personalTownEagleDeployment(anchor: PersonalActorPosition, official: readonly { x: number; z: number }[],
+  count: number, bounds: DeploymentBounds, obstacles: readonly ObstacleData[], navigation: NavigationWorld): EaglePad[] {
+  const occupied = [...official, anchor], result: EaglePad[] = []
+  const bound = Math.min(-bounds.minX, bounds.maxX, -bounds.minZ, bounds.maxZ)
+  for (let ring = 1; ring <= 16 && result.length < count; ring++) {
+    for (let step = 0; step < ring * 8 && result.length < count; step++) {
+      const angle = anchor.yaw + Math.PI + step * Math.PI * 2 / (ring * 8)
+      const point = { x: anchor.x + Math.sin(angle) * ring * 6, z: anchor.z + Math.cos(angle) * ring * 6, yaw: anchor.yaw }
+      if (!isEagleLandingClear(point, obstacles, occupied, bound) || !navigation.areConnected(anchor, point)) continue
+      result.push({ ...point, id: `private-eagle-pad:${result.length + 1}` }); occupied.push(point)
+    }
+  }
+  if (result.length !== count) throw new Error('No clear eagle deployment beside the Town field muster')
   return result
 }

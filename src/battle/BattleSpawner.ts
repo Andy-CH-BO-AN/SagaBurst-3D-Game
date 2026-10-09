@@ -11,7 +11,7 @@ import {
   ArmyConfig,
   normalizeArmyConfig,
 } from './BattleConfig'
-import { T4_UNIT_PROFILES, type T4CombatProfileId } from './T4HeroCatalog'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout, type T4CombatProfileId } from './T4HeroCatalog'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
@@ -383,7 +383,7 @@ export class BattleSpawner {
         const count = tierCounts[tier] || 0
         const profile = tier === 4 ? T4_UNIT_PROFILES[presetId] : null
         const baseLoadout = resolveUnitLoadout(presetId, tier === 4 ? 3 : tier)
-        const loadout = profile ? { ...baseLoadout, mountId: profile.mountOverride } : baseLoadout
+        const loadout = profile ? resolveT4UnitLoadout(presetId) : baseLoadout
         const hasRanged = Boolean(loadout.rangedWeaponId)
         const formationMounted = Boolean(baseLoadout.mountId)
         const formationRanged = Boolean(baseLoadout.rangedWeaponId)
