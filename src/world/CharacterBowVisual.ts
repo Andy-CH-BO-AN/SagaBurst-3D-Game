@@ -57,6 +57,7 @@ export class CharacterBowVisual {
   constructor(
     private readonly actionPivot: THREE.Group,
     private readonly gripPivot: THREE.Group,
+    private readonly ownerRoot: THREE.Group,
   ) {}
 
   rebuild(weaponId: string, consolidateMaterialGroups = false): void {
@@ -92,6 +93,8 @@ export class CharacterBowVisual {
     const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
     this.stringTop = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringBottom = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    this.stringTop.name = 'bow-string-top'
+    this.stringBottom.name = 'bow-string-bottom'
     this.gripPivot.add(this.stringTop, this.stringBottom)
 
     this.nockedArrow = new THREE.Group()
@@ -140,22 +143,18 @@ export class CharacterBowVisual {
     const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
     this.nockPosition.set(this.profile.gripRadius + 0.007, this.profile.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
     if (this.actionPivot.parent?.userData.handGripFrame) {
-      if (!this.drawContact) {
-        let ancestor: THREE.Object3D | null = this.actionPivot.parent
-        while (ancestor && !this.drawContact) {
-          this.drawContact = ancestor.getObjectByName(BOW_STRING_CONTACT)
-          this.arrowRest = ancestor.getObjectByName(BOW_ARROW_REST)
-          ancestor = ancestor.parent
-        }
-      }
+      // A stable actor root owns both hands, across equipment and rig rebuilds.
+      // Never search an ancestor: Scene lookup can borrow another archer's pose.
+      if (!this.isOwnerContact(this.drawContact)) this.drawContact = this.ownerRoot.getObjectByName(BOW_STRING_CONTACT)
+      if (!this.isOwnerContact(this.arrowRest)) this.arrowRest = this.ownerRoot.getObjectByName(BOW_ARROW_REST)
       if (arrowVisible && this.drawContact) {
         this.drawContact.getWorldPosition(this.tmpWorldNock)
         this.gripPivot.worldToLocal(this.tmpWorldNock)
         // This contact is part of the sampled humanoid pose and already moves
         // with bowLoad progress. Applying the charge ratio again would lag the
         // nock behind the draw hand (for example, half of a half-draw at 50%).
-        this.nockPosition.copy(this.tmpWorldNock)
-      } else this.nockPosition.z = .12
+        if (Number.isFinite(this.tmpWorldNock.x + this.tmpWorldNock.y + this.tmpWorldNock.z)) this.nockPosition.copy(this.tmpWorldNock)
+      } else if (!arrowVisible) this.nockPosition.z = .12
     }
     this.gripPivot.localToWorld(this.tmpWorldNock.copy(this.nockPosition))
     this.updateString(this.stringTop, this.topTip)
@@ -234,6 +233,13 @@ export class CharacterBowVisual {
       target[offset + 2] = this.tmpBodyPoint.z
     }
     return count
+  }
+
+  private isOwnerContact(contact: THREE.Object3D | undefined): boolean {
+    for (let node = contact; node; node = node.parent ?? undefined) {
+      if (node === this.ownerRoot) return true
+    }
+    return false
   }
 
   private updateString(mesh: THREE.Mesh, tip: THREE.Vector3): void {

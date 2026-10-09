@@ -27,7 +27,7 @@ function build(kind: string, tier: number) {
   else if (kind === 'pilum') WeaponMeshFactory.buildNpcRanged('roman', tier, root)
   else if (kind === 'bow') {
     const action = new THREE.Group(); action.add(root)
-    const bow = new CharacterBowVisual(action, root)
+    const bow = new CharacterBowVisual(action, root, action)
     bow.rebuild(['wooden_shortbow', 'recurve_longbow', 'elven_runebow'][tier - 1])
     bow.update(0, undefined, true)
   } else WeaponMeshFactory.buildShield(`${kind}_t${tier}`, root)
@@ -91,7 +91,7 @@ describe('equipment visual LOD', () => {
   it('does not own root or dynamic bow visibility during draw / hold / release / recovery', () => {
     const root = new THREE.Group(), action = new THREE.Group(); action.add(root)
     ownEquipmentGeometry(root)
-    const bow = new CharacterBowVisual(action, root); bow.rebuild('elven_runebow')
+    const bow = new CharacterBowVisual(action, root, action); bow.rebuild('elven_runebow')
     const controller = new EquipmentVisualLODController(); controller.register('bow', root)
     for (const [draw, arrowVisible] of [[0, false], [.5, true], [1, true], [0, false], [0, false]] as const) {
       for (const level of [0, 1, 2, 1, 0] as const) {

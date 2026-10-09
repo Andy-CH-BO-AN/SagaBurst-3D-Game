@@ -1060,7 +1060,7 @@ export class NPC {
       this.rig.left.handSocket.add(this.bowPivot)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       if (kind === 'bow') {
-        this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+        this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot, this.characterVisualGroup)
         this.bowVisual.rebuild(this.specialCombatProfile === 'maki-ranger' ? 'maki-ranger-bow' : this.rangedWeaponId!, true)
         this.bowVisual.hideArrow()
       }

@@ -405,7 +405,7 @@ export class Player {
     this.meleeBowVisual = null
     if (weaponId === 'maki-ranger-bow') {
       const bow = createMakiRangerBowInstance()
-      this.meleeBowVisual = new CharacterBowVisual(this.swordPivot, this.swordGripPivot)
+      this.meleeBowVisual = new CharacterBowVisual(this.swordPivot, this.swordGripPivot, this.characterVisualGroup)
       applyBowAttachment(this.rig.left.handSocket, this.swordPivot)
       this.rig.left.handSocket.add(this.swordPivot)
       this.swordPivot.userData.swordAttachmentOwned = false
@@ -449,7 +449,7 @@ export class Player {
       this.rig.right.handSocket.add(this.bowPivot)
       WeaponMeshFactory.buildNpcRanged('roman', weapon.tier, this.bowGripPivot)
     } else {
-      this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot)
+      this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot, this.characterVisualGroup)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
       this.bowVisual.rebuild(this.heroAssetId === 'maki-archer-t4' ? 'maki-ranger-bow' : weaponId)

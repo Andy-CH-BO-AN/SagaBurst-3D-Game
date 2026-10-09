@@ -919,7 +919,7 @@ describe('combat presentation regressions', () => {
     const actionPivot = new THREE.Group()
     const gripPivot = new THREE.Group()
     actionPivot.add(gripPivot)
-    const bow = new CharacterBowVisual(actionPivot, gripPivot)
+    const bow = new CharacterBowVisual(actionPivot, gripPivot, actionPivot)
     bow.rebuild('recurve_longbow')
     const target = new THREE.Vector3(2, 1.4, -20)
     bow.update(1, target, true)
@@ -946,7 +946,7 @@ describe('combat presentation regressions', () => {
     const drawContact = new THREE.Object3D()
     drawContact.name = BOW_STRING_CONTACT
     character.add(drawContact)
-    const bow = new CharacterBowVisual(actionPivot, gripPivot)
+    const bow = new CharacterBowVisual(actionPivot, gripPivot, character)
     bow.rebuild('recurve_longbow')
 
     const contactAt = (ratio: number) => new THREE.Vector3(

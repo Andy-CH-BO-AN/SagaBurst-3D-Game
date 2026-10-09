@@ -23,7 +23,7 @@ describe('Maki hero asset integration', () => {
       const pivot = new THREE.Group(), grip = new THREE.Group()
       pivot.add(grip); actor.rig.left.handSocket.add(pivot)
       await preloadMakiRangerBow()
-      const bow = new CharacterBowVisual(pivot, grip)
+      const bow = new CharacterBowVisual(pivot, grip, actor.root)
       bow.rebuild('maki-ranger-bow-ranged')
       const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
       const lod = actor.root.children.find(o => o instanceof THREE.LOD) as THREE.LOD

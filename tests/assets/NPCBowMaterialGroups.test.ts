@@ -34,7 +34,7 @@ describe('NPC bow material ranges', () => {
     it(`${id}: draw/release transforms and launch trajectory remain identical`, () => {
       const create = (compact: boolean) => {
         const action = new THREE.Group(), grip = new THREE.Group(); action.add(grip)
-        const bow = new CharacterBowVisual(action, grip); bow.rebuild(id, compact)
+        const bow = new CharacterBowVisual(action, grip, action); bow.rebuild(id, compact)
         return { action, grip, bow }
       }
       const a = create(false), b = create(true)
