@@ -12,6 +12,7 @@
 | --- | --- |
 | 啟動 | `src/main.ts`：DEV 路由、有效 session／Career 恢復、主選單與場景啟動 |
 | 戰鬥場景 | `src/Game.ts`：資產預載、Player/NPC、主迴圈、碰撞、UI 與場景生命週期 |
+| 訓練場 | `src/training/`：共用戰場的靜態假人、場內免費庫存與坐騎配置；`Game` 保留正式移動、攻擊與碰撞 ownership |
 | 城鎮場景 | `src/town/CareerTownEntry.ts`、`TownScene.ts`：生涯入口、獨立場景、任務與居民生命週期 |
 | 角色 | `src/player/Player.ts`、`PlayerInput.ts`、`src/world/NPC.ts`：玩家輸入與 NPC 行為 |
 | 地形／導航 | `src/world/Terrain.ts`、`SpatialGrid.ts`、`src/navigation/`：高度、障礙、鄰近搜尋與路徑 |
@@ -30,6 +31,11 @@
 - `CharacterEquipmentPose` 在 mixer 後套姿勢，下一次求值前還原。`bakedEquipmentActions` 表明已烘焙握點的動作，避免疊加通用 IK；資產與 runtime 不能同時擁有同一關節修正。
 
 ## 裝備與投射物
+
+- Training Ground 由主選單或 `?training=1` 直接進入，舊 `freeride` 網址轉入相同模式；不讀取生涯角色／裝備、不建立軍隊、任務或 TownWorld。一般角色可用正式目錄全部一般裝備；遊俠固定近戰弓透過場內角色切換使用正式 Ranger 資產及裝備限制。
+- `TrainingDummy` 實作 `DamageReceiver`，共用 `WeaponSweep`／`traceCombatSegment`、`ArrowProjectile`、`MountImpact` 及 `DamageRouter`，以 `training` 目標事件保留實際傷害、沒有 HP／死亡或 AI tick。`Game` 額外禁止整個訓練模式的技能 XP（包含停放坐騎與格擋）及 RPG 存讀檔。
+- 11 個靶位距離從同一個 0m 假人中心計算水平公尺；玩家出生在旁邊，射擊黃圈放在中心前方 1.5m，以免 0m 靶擋住其他射線。靶場沿用既有地形，125m 跑道與坐騎停放區相互分開；xongkoro 保留正式爪擊與飛行，地面衝撞仍依正式規則排除飛行坐騎。
+- 訓練重置保留原有假人／坐騎 identity，安全解除飛行騎乘及墜落狀態、重設坐騎、恢復正式共用箭／標槍彈藥池與盾牌耐久、清除投射物及命中資訊。退出取消事件訂閱、DOM listeners、輸入與場景資源，再載入明確主選單入口，不改 Career 或 Battle session data。
 
 - `WeaponMeshFactory` 共用於 Player、NPC、掉落物與工作室；[EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md) 維護外觀範圍。合併剛性零件須保留材質／render flags、幾何、grip/tip metadata 與動態零件。
 - `SwordAttachmentContract`／`EquipmentAttachmentContract` 管理握點；固定裝備 attachment 不由 animator idle／cancel 覆寫。調整武器方向繞掌心握點進行，不以扭腕掩蓋資產軸向錯誤。

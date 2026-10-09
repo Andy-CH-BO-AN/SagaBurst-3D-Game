@@ -7,6 +7,7 @@ import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { weaponShieldImpact } from './ShieldBlocking'
+import type { DamageReceiver } from './DamageReceiver'
 import type {
   DamageableObstacle,
   DamageableObstacleHitResult,
@@ -46,6 +47,17 @@ export interface DamageResult {
   isMountHit: boolean
   /** True when the mount died as a result of this hit (triggers dismount). */
   mountDied: boolean
+}
+
+/** Receiver owns its lifetime; combat callers retain their existing damage formulas. */
+export function damageReceiver(target: DamageReceiver, damage: number, context?: CombatDamageContext): DamageResult {
+  const appliedDamage = target.receiveDamage(damage)
+  emitDamageApplied(context, target.damageTarget, damage, appliedDamage)
+  return {
+    hitSuccess: appliedDamage > 0, requestedDamage: damage, appliedDamage, blockedImpact: 0,
+    targetId: target.damageTarget.targetId, targetName: target.damageTarget.name,
+    killed: false, hpRatio: 1, isMountHit: false, mountDied: false,
+  }
 }
 
 /** Only an authoritative geometric SHIELD_HIT can consume durability. */

@@ -464,6 +464,13 @@ export class Mount {
     this.eagleVisual?.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
   }
 
+  /** Reset a scene-owned mount after the player has safely detached. */
+  resetForScene(x: number, z: number, yaw: number): void {
+    this.releaseRider()
+    this.combatOwner = undefined
+    this.restoreForTown(x, z, yaw)
+  }
+
   takeDamage(amount: number): boolean {
     if (this.dead || this.disposed) return false
     this.currentHp = Math.max(0, this.currentHp - amount)

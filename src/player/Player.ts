@@ -741,9 +741,29 @@ export class Player {
     this.animator.setLocomotion(0, this.isMounted)
     this.animator.cancel()
     this.rig.animation?.update(0)
+    this.refillCombatSupplies()
+  }
+
+  refillCombatSupplies(): void {
     this.setHp(this.maxHp)
     this.setStamina(MAX_STAMINA)
+    // Bow and pilum use the same formal ammunition pool.
     this.setArrowCount(PLAYER_ARROW_CAPACITY)
+    this.shield.reset()
+    this.shieldCollider.refreshVisibility()
+  }
+
+  /** Scene reset cancels airborne detachment before restoring the ordinary player state. */
+  resetForScene(x: number, y: number, z: number): void {
+    this.dismountFromMount({ preserveWorldPosition: true })
+    this.fallingRider.clear()
+    this.fallContext = undefined
+    this.restoreForTown()
+    this.group.position.set(x, y, z)
+    this.group.rotation.x = this.group.rotation.z = 0
+    this.velY = 0
+    this.onGround = true
+    this.spawnX = x; this.spawnZ = z
   }
 
   update(

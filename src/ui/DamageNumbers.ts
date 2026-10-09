@@ -88,4 +88,9 @@ export class DamageNumbers {
       item.element.style.transform = `translate(-50%, -50%) scale(${0.8 + (1 - alpha) * 0.4})`
     }
   }
+
+  clear(): void {
+    for (const item of this.items) item.element.remove()
+    this.items.length = 0
+  }
 }

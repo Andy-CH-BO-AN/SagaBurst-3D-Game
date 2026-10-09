@@ -54,10 +54,12 @@ function gameEntry(h: ReturnType<typeof harness>) {
   camera.position.set(0, 30, 0)
   const spectatorController = new SpectatorCameraController(camera)
   const game = Object.assign(Object.create(Game.prototype) as GameInputEntry, {
+    sceneListeners: new AbortController(),
     input: h.input, player: h.player, controlMode: 'player', isModelStudio: false,
     armyCommandController: h.commands, equipmentUI, camera, spectatorController,
     _updateLockOverlayPrompt() {}, _showDeathBanner() {},
   })
+  onTestFinished(() => game.sceneListeners.abort())
   return game
 }
 

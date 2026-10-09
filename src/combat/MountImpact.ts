@@ -11,7 +11,8 @@ import { Mount, MountState } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
 import { COMBAT_BALANCE, calculateMountImpactDamage } from './CombatBalance'
-import { damageNpc, type DamageResult } from './DamageRouter'
+import { damageNpc, damageReceiver, type DamageResult } from './DamageRouter'
+import type { DamageReceiver } from './DamageReceiver'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import {
   createNpcCombatActorRef,
@@ -58,6 +59,8 @@ export function applyMountImpactDamage(
 }
 
 export interface MountImpactOptions {
+  receivers?: readonly DamageReceiver[]
+  onPlayerMountHitReceiver?: (target: DamageReceiver, result: DamageResult) => void
   /** Optional spatial grid for bounding nearby candidate queries to avoid O(M x N) scans. */
   npcGrid?: SpatialGrid<NPC>
   /** Reusable candidate array to prevent per-frame garbage collection. */
@@ -127,6 +130,15 @@ export function resolveMountImpacts(
             }
           })
         }
+      }
+      for (const target of options.receivers ?? []) {
+        if (!checkMountImpact(mount, target.combatPosition, 0.5)) continue
+        applyMountImpactDamage(mount, target, target.combatPosition, now, damage => {
+          const result = damageReceiver(target, Math.round(damage * Math.max(0, options.playerDamageMultiplier ?? 1)), {
+            source: createPlayerCombatActorRef(player), method: 'mount-impact', emit: options.combatEvents,
+          })
+          if (result.hitSuccess) options.onPlayerMountHitReceiver?.(target, result)
+        })
       }
       continue
     }

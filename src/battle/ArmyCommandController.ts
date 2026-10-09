@@ -112,7 +112,7 @@ export class ArmyCommandController {
     private readonly onCommandIssued: ((order: TacticalOrder) => void) | null = null,
     initialOrder: TacticalOrder = 'attack',
     private readonly canIssueOrder: ((order: TacticalOrder) => boolean) | null = null,
-    private readonly inventory: InventoryManager | null = null,
+    private inventory: InventoryManager | null = null,
     groupingMode: CommandGroupingMode = 'preset',
     private readonly commandsEnabled = true,
     private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
@@ -145,6 +145,13 @@ export class ArmyCommandController {
   get isFormationPlacementMode(): boolean { return this.formation?.isPlacementMode ?? false }
   get wheelMode(): WheelInputMode { return this.wheelInputMode }
   get grouping(): CommandGroupingMode { return this.groupingMode }
+
+  setInventory(inventory: InventoryManager): void {
+    this.close()
+    this.inventory = inventory
+    this.selectedWeaponId = inventory.equippedMelee.id
+    this._renderUi()
+  }
 
   close(): void { this.formation?.cancelPlacement(); this._closeSubmenu() }
 

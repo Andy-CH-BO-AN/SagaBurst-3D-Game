@@ -1,9 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/world/NPC'
+import { InventoryManager } from '../../src/rpg/InventoryManager'
 
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
+  it('routes weapon wheel input to the replacement character inventory without mutating the previous one', () => {
+    const previous = new InventoryManager()
+    const before = previous.saveState
+    const next = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
+    const h = controllerHarness([], null, null, previous, 'viking', 'preset', false)
+    h.controller.setInventory(next)
+    h.input.wheel(1)
+    h.controller.update()
+    expect(next.isEquipped('pilum_basic')).toBe(true)
+    expect(previous.saveState).toEqual(before)
+  })
   it('shows only unit presets that actually entered the battle, plus ALL', () => {
     const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
     const enemyArcher = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }

@@ -1,0 +1,14 @@
+#training-ground-ui { position: fixed; inset: 16px 20px auto; z-index: 1101; color: #f1e4cb; font: 13px system-ui; pointer-events: none; }
+.training-title { display: inline-flex; flex-direction: column; gap: 5px; padding: 12px 16px; background: #171c21dc; border-left: 3px solid #e4c86d; border-radius: 4px; }
+.training-title strong { font-size: 17px; }
+.training-title small { color: #c3baab; }
+.training-actions { float: right; display: flex; flex-wrap: wrap; gap: 6px; }
+#training-ground-ui button, #training-ground-ui select { pointer-events: auto; color: #f1e4cb; background: #222b34ee; border: 1px solid #938063; border-radius: 4px; padding: 9px 12px; font: inherit; cursor: pointer; }
+#training-ground-ui button:hover { background: #4d4737; }
+.training-damage { float: right; clear: right; padding: 14px; min-width: 235px; margin-top: 10px; white-space: pre-wrap; background: #171c21df; border-radius: 4px; font: 13px/1.65 system-ui; }
+.training-pause:not([hidden]) { position: fixed; inset: 0; display: grid; place-items: center; background: #0b1017bb; backdrop-filter: blur(4px); pointer-events: auto; }
+.training-pause-card { max-width: 520px; padding: 28px; background: #1e252e; border: 1px solid #938063; border-radius: 10px; line-height: 1.8; }
+.training-pause-card p { color: #c8c6be; }
+#training-labels { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+.training-world-label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font: 600 13px system-ui; color: #ffeab6; padding: 3px 7px; background: #121a21bd; border-radius: 3px; text-shadow: 0 1px 2px #000; }
+@media (max-width: 850px) { .training-actions { float: none; margin-top: 8px; } .training-damage { min-width: 0; font-size: 11px; max-width: 230px; } }

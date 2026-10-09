@@ -50,6 +50,7 @@ if (!container) throw new Error('#canvas-container not found')
 async function launchGame(
   battleConfig?: BattleConfig,
   campaignConfig?: DefenseCampaignLaunchConfig,
+  trainingGround = false,
 ): Promise<void> {
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
@@ -61,7 +62,7 @@ async function launchGame(
   try {
     // Let the overlay paint before cached assets lead into synchronous scene creation.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    ;(window as any).game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text })
+    ;(window as any).game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround)
     loading.remove()
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))
@@ -81,6 +82,13 @@ async function launchGame(
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
+  // Legacy public trial links now enter the unified sandbox. This takes priority
+  // over Career/session resumes and does not inspect or change those saves.
+  if (query.get('training') === '1' || query.get('freeride') === '1') {
+    await launchGame(undefined, undefined, true)
+    return
+  }
+  const menuOnly = query.get('menu') === '1'
   if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
     const descriptor = query.get('devhero') === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : query.get('devhero') === 'roman-t4' ? ROMAN_HERO : undefined
@@ -96,7 +104,6 @@ async function bootstrap(): Promise<void> {
   // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
   if (
     isDevCombat
-    || (query.get('freeride') === '1' && ['black-cat', 'corgi'].includes(query.get('mount') ?? ''))
     || isDevModels
     || isDamageableTest
     || isCampaignOutpostPreview
@@ -109,7 +116,7 @@ async function bootstrap(): Promise<void> {
   // 2. Trusted replay / reload state is stored in sessionStorage, but must
   // still pass validation before it can bypass the official menu.
   const careerStore = new CareerProfileStore()
-  const outpostProfile = careerStore.loadChecked().profile
+  const outpostProfile = menuOnly ? null : careerStore.loadChecked().profile
   const activeCareerMission = outpostProfile?.activeMission
   if (outpostProfile && isCareerVeteranOutpostMission(activeCareerMission)) {
     if (shouldResumeCareerVeteranOutpost(activeCareerMission)) {
@@ -138,10 +145,10 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
-  sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+  if (!menuOnly) sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
   let savedCampaign: DefenseCampaignLaunchConfig | null = null
   try {
-    const raw = sessionStorage.getItem('sagaburst_campaign_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_campaign_config')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateDefenseCampaignLaunchConfig(parsed)
@@ -167,7 +174,7 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_campaign_config')
   }
 
-  const careerResume = new CareerProfileStore().loadChecked().profile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1'
+  const careerResume = !menuOnly && (new CareerProfileStore().loadChecked().profile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
   if (savedCampaign && !careerResume) {
     await launchGame(undefined, savedCampaign)
     return
@@ -175,7 +182,7 @@ async function bootstrap(): Promise<void> {
 
   let savedConfig: BattleConfig | null = null
   try {
-    const raw = sessionStorage.getItem('sagaburst_battle_config')
+    const raw = menuOnly ? null : sessionStorage.getItem('sagaburst_battle_config')
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateBattleConfig(parsed)
@@ -198,8 +205,8 @@ async function bootstrap(): Promise<void> {
 
   let requestedCampaignSetup: DefenseCampaignSetupTarget | null = null
   try {
-    const raw = sessionStorage.getItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-    sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+    const raw = menuOnly ? null : sessionStorage.getItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+    if (!menuOnly) sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
     if (raw) {
       const parsed = parseDefenseCampaignSetupTarget(JSON.parse(raw))
       if (
@@ -242,6 +249,7 @@ async function bootstrap(): Promise<void> {
   showHome = (): void => {
     const menu = new MainMenuUI()
     menu.mount(document.body, {
+      onTrainingGround: () => { menu.destroy(); void launchGame(undefined, undefined, true) },
       onCareer: () => { menu.destroy(); enterCareerTown(container!, config => launchGame(undefined, config), showHome) },
       onCustomBattle: () => {
         menu.destroy()
