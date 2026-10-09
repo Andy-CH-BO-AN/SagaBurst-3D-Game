@@ -714,9 +714,11 @@ export class TownScene {
     if (e.code === 'KeyE' && this.personalCommands?.isFormationPlacementMode) return
     if (e.code === 'KeyE') {
       e.preventDefault(); e.stopImmediatePropagation()
-      if (this.player.isMounted) this.player.dismountFromMount()
+      // Recheck range and availability at the key event, using the same priority as the hint.
+      this.interaction()
+      if (this.target) this.talk(this.target)
+      else if (this.player.isMounted) this.player.dismountFromMount()
       else if (this.nearbyTemporaryMount?.availableForPlayer) this.player.mountVehicle(this.nearbyTemporaryMount)
-      else if (this.target) this.talk(this.target)
     }
   }
   private openPauseMenu(message = '返回主選單後，可再次進入 Career 繼續生涯。'): void {
@@ -2223,25 +2225,30 @@ export class TownScene {
   private interaction(): void {
     if (this.player.dead) { this.target = null; this.hint.textContent = ''; this.hint.style.display = 'none'; return }
     this.nearbyTemporaryMount = null
-    if (!this.player.isMounted) {
+    const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
+    if (!this.player.isMounted && !this.player.isFalling) {
       let mountDistance = 3
-      for (const mount of [...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])]) {
-        if (!mount.availableForPlayer) continue
-        const distance = Math.hypot(mount.group.position.x - this.player.combatPosition.x, mount.group.position.z - this.player.combatPosition.z)
+      const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])])
+      for (const mount of mounts) {
+        if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
+        const distance = Math.hypot(mount.group.position.x - playerPosition.x, mount.group.position.z - playerPosition.z)
         if (distance < mountDistance) { mountDistance = distance; this.nearbyTemporaryMount = mount }
       }
     }
     this.target = null; let nearest = 2.6
-    if (!this.event.hostile && !this.defense.active) for (const id of ['captain', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
+    if (!this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
       const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
-      const delta = pos.clone().sub(this.player.combatPosition); delta.y = 0; const distance = delta.length()
+      // Use the grounded mount's base, so the giant eagle's standing seat can still talk.
+      const delta = pos.clone().sub(playerPosition)
+      if (Math.abs(delta.y) > 2.6) continue
+      delta.y = 0; const distance = delta.length()
       if (distance > nearest || delta.normalize().dot(new THREE.Vector3(Math.sin(this.player.facingYaw), 0, Math.cos(this.player.facingYaw))) < .35) continue
       const start = this.player.position.clone(), end = pos.clone().add(new THREE.Vector3(0, 1, 0)), ray = new THREE.Ray(start, end.clone().sub(start).normalize())
       if (this.world.obstacles.some(o => { const hit = ray.intersectBox(o.box, new THREE.Vector3()); return hit && hit.distanceTo(start) < end.distanceTo(start) })) continue
       this.target = id; nearest = distance
     }
-    this.hint.textContent = this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
+    this.hint.textContent = this.target ? 'E 與 ' + NAMES[this.target] + ' 交談' : this.player.isMounted ? 'E 下馬' : this.nearbyTemporaryMount ? `E 騎乘 ${this.nearbyTemporaryMount.displayName}` : this.event.hostile ? '全鎮追擊中' : this.defense.active ? '城鎮正在遭受攻擊' : ''
     this.hint.style.display = this.hint.textContent ? '' : 'none'
   }
   private finish(result: TownResult): void {
