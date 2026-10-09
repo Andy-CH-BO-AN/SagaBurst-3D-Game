@@ -234,7 +234,8 @@ export class TownWorld {
       this.solid(x + side * halfWidth, z, .25, height, .25)
     }
     this.cube(root, 0, top - ground - .2, 0, width + .4, .2, .25, this.wood)
-    this.sign(root, lines.join('\n'), 0, top - ground - .6, 0, width, false)
+    // The unrotated label faces +Z; mount its .16m backing against the timber's front face.
+    this.sign(root, lines.join('\n'), 0, top - ground - .6, .25 / 2 + .16, width, false)
     this.batch(root)
   }
   private medievalFrame(root: THREE.Group, w: number, d: number, h: number, roman: boolean): void {

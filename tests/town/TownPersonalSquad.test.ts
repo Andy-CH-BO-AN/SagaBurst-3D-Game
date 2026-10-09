@@ -167,7 +167,7 @@ describe('HR Center and personal runtime', () => {
     expect(profile.inventory?.quantities.xongkoro).toBe(4)
   })
 
-  it.each(['roman', 'viking'] as const)('places %s hall with clear mounted slots, eight isolated eagle pads and terrain-anchored sign supports', faction => {
+  it.each(['roman', 'viking'] as const)('places %s hall with clear mounted slots, eight isolated eagle pads and unobscured terrain-anchored signs', faction => {
     const { world, navigation, dispose } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
     expect(hr).toBeDefined()
@@ -195,12 +195,34 @@ describe('HR Center and personal runtime', () => {
     const borrowedSignMaterials = new Set<THREE.Material>()
     // Reuse the built-world owner to check the actual supports and collider registration,
     // including different terrain heights at the two feet, rather than cosmetic mesh names.
-    for (const center of [{ x: trainer.x - 4, z: trainer.z + 1 },
-      { x: world.eagleGarrison.pads[0].x, z: world.eagleGarrison.pads[0].z - 10 }]) {
+    for (const center of [{ name: 'eagle training', x: trainer.x - 4, z: trainer.z + 1, bilingual: true },
+      { name: 'eagle garrison', x: world.eagleGarrison.pads[0].x, z: world.eagleGarrison.pads[0].z - 10, bilingual: true },
+      ...[47, 82, 117].map(x => ({ name: `cavalry ${x}`, x, z: -101, bilingual: false }))]) {
       const board = world.root.children.find(child => child instanceof THREE.Group
         && Math.abs(child.position.x - center.x) < 1e-6 && Math.abs(child.position.z - center.z) < 1e-6)
       expect(board, `grounded board at ${center.x}, ${center.z}`).toBeDefined()
       board!.updateWorldMatrix(true, true)
+      const label = board!.children.find((child): child is THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> =>
+        child instanceof THREE.Mesh && child.geometry instanceof THREE.PlaneGeometry
+          && child.material instanceof THREE.MeshBasicMaterial && child.material.map !== null)
+      expect(label, `${center.name} textured label`).toBeDefined()
+      const { width, height } = label!.geometry.parameters
+      const front = new THREE.Vector3(0, 0, 1).transformDirection(label!.matrixWorld)
+      const up = new THREE.Vector3(0, 1, 0).transformDirection(label!.matrixWorld)
+      // Sample across each text band on the 1024 x 160 canvas. Intersect real batched geometry,
+      // so drawing the label over wood with depth/render-order tricks cannot satisfy this check.
+      const textRows = center.bilingual
+        ? [{ name: 'English title', pixels: [32, 48, 62] }, { name: 'Chinese subtitle', pixels: [92, 108, 124] }]
+        : [{ name: 'cavalry title', pixels: [48, 80, 108] }]
+      for (const row of textRows) for (const pixelY of row.pixels) for (const u of [.1, .3, .5, .7, .9]) {
+        const target = label!.localToWorld(new THREE.Vector3((u - .5) * width, (.5 - pixelY / 160) * height, 0))
+        for (const drop of [0, 1.5]) {
+          const eye = target.clone().addScaledVector(front, 8).addScaledVector(up, -drop)
+          const ray = new THREE.Raycaster(eye, target.clone().sub(eye).normalize(), 0, eye.distanceTo(target) + .5)
+          expect(ray.intersectObject(board!, true)[0]?.object === label,
+            `${faction} ${center.name} ${row.name} (${u}, ${pixelY}) first sees the label from ${drop ? 'slightly below' : 'front'}`).toBe(true)
+        }
+      }
       const bounds = new THREE.Box3().setFromObject(board!), vertices: THREE.Vector3[] = []
       board!.traverse(child => {
         if (!(child instanceof THREE.Mesh)) return
