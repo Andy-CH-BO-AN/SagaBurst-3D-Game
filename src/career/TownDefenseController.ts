@@ -117,6 +117,24 @@ export class TownDefenseController {
     const batch = this.scheduler.batch(() => { this.disposeEnemies(); this.spawnBatch = batch })
     this.spawnBatch = batch
     this.siege = cloneCareerProfile(this.readProfile()).activeMission!.siege!
+    // Place/restore before controls resume; the batch finalizer must never rewind a moving rider.
+    const savedPlayer = this.siege.playerPosition
+    if (savedPlayer) {
+      const player = this.player(), mount = player.currentMount
+      if (mount) mount.group.position.set(savedPlayer.x, getTerrainHeight(savedPlayer.x, savedPlayer.z), savedPlayer.z)
+      else player.group.position.set(savedPlayer.x, getTerrainHeight(savedPlayer.x, savedPlayer.z) + .9, savedPlayer.z)
+      player.faceDirection(Math.sin(savedPlayer.yaw), Math.cos(savedPlayer.yaw))
+      if (mount) player.syncMountTransform()
+    } else if (this.assault) {
+      const point = this.withTerrain(siegeMuster('north', 1))
+      const player = this.player(), mount = player.currentMount
+      if (mount) mount.group.position.copy(point)
+      else player.group.position.copy(point).y += .9
+      player.faceDirection(0, 1)
+      if (mount) player.syncMountTransform()
+    }
+    if (active.playerHp !== undefined && !active.playerDead) this.player().setHp(active.playerHp)
+    if (active.playerStamina !== undefined && !active.playerDead) this.player().setStamina(active.playerStamina)
     this.civilianCombat.clear(); this.orders.clear(); this.approached.clear()
     for (const id of this.siege.approachedActorIds) this.approached.add(id)
     context.patrol.recallForSiege()
@@ -150,20 +168,9 @@ export class TownDefenseController {
       if (active.phase !== 'PREPARING') for (const npc of this.military) {
         if (!npc.dead && !insideSiegeTown(npc.combatPosition)) this.order(npc, npc.combatPosition.clone())
       }
-      const savedPlayer = this.siege!.playerPosition
-      if (savedPlayer) {
-        this.player().group.position.set(savedPlayer.x, getTerrainHeight(savedPlayer.x, savedPlayer.z) + .9, savedPlayer.z)
-        this.player().faceDirection(Math.sin(savedPlayer.yaw), Math.cos(savedPlayer.yaw))
-      } else if (this.assault) {
-        const point = this.withTerrain(siegeMuster('north', 1))
-        this.player().group.position.copy(point).y += .9
-        this.player().faceDirection(0, 1)
-      }
-      if (active.playerHp !== undefined && !active.playerDead) this.player().setHp(active.playerHp)
-      if (active.playerStamina !== undefined && !active.playerDead) this.player().setStamina(active.playerStamina)
       this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats,
         careerMissionCommandMeritPolicy(active, () => this.active ?? active))
-      // Both roles enter a fully deployed battlefield during loading.
+      // Fresh NPC formations take their deployment slots after the batch completes.
       // Checkpoints keep their actual positions, countdown and breaches.
       if (freshSiege) {
         for (const [npc, point] of this.orders) {

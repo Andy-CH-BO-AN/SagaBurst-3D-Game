@@ -15,7 +15,7 @@ import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import type { ObstacleData } from '../../src/world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
@@ -81,7 +81,7 @@ function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
     controller.cleanupMission(); controller.dispose(); context.outskirts?.dispose(); cat.dispose()
     expect(scheduler.pending).toBe(0)
   })
-  return { controller, scene, driver, scheduler, navigation, gates, context, profile: () => profile }
+  return { controller, player, scene, driver, scheduler, navigation, gates, context, profile: () => profile }
 }
 
 describe('Siege spawn caller protocol', () => {
@@ -92,6 +92,8 @@ describe('Siege spawn caller protocol', () => {
     const h = siegeFixture(assault), mountStart = recording.mounts.length
     expect(h.controller.startActiveMission()).toBe(true)
     const batch = h.controller.spawnBatches[0]
+    if (assault) expect(h.player.group.position.z).toBeLessThan(-100)
+    h.player.group.position.set(14, 32, 16)
     expect(h.controller.startActiveMission()).toBe(true)
     expect(h.controller.spawnBatches).toEqual([batch])
     expect([...batch.actors.keys()]).toEqual(ids)
@@ -116,6 +118,7 @@ describe('Siege spawn caller protocol', () => {
     expect(h.controller.evaluate(true)).toBeNull()
     h.driver.advanceFrame()
     expect(batch.status).toBe('complete')
+    expect(h.player.group.position.toArray()).toEqual([14, 32, 16])
     expect(h.controller.ready).toBe(true)
     expect(recording.npcs.map(npc => npc.combatantId)).toEqual(ids)
     expect(new Set(recording.npcs.map(npc => npc.combatantId)).size).toBe(count)
@@ -229,4 +232,40 @@ describe('Siege spawn caller protocol', () => {
     expect(original.dispose).toHaveBeenCalledOnce()
     expect(originalMount.dispose).toHaveBeenCalledOnce()
   })
+})
+
+// Placement is a caller/finalizer contract, so use a two-survivor checkpoint and
+// recording constructors, not a second 119/120-actor deployment integration.
+it.each([true, false])('places the saved rider before deployment and preserves movement/HP through finalization, assault=%s', assault => {
+  const ids = assault ? assaultIds : defenseIds
+  const h = siegeFixture(assault, [ids[2], ids[3]])
+  const active = h.profile().activeMission!
+  active.siege!.playerPosition = { x: 11, z: 13, yaw: .4 }
+  active.playerHp = 71; active.playerStamina = 42
+  const mountGroup = new THREE.Group()
+  const riderOffset = new THREE.Vector3(0, 2.5, 0)
+  // Transform/binding surface only; true seat physics is covered by Player/Mount.
+  Object.assign(h.player, {
+    currentMount: { group: mountGroup },
+    syncMountTransform() { h.player.group.position.copy(mountGroup.position).add(riderOffset) },
+    setHp(hp: number) { Object.assign(h.player, { hp }) },
+    setStamina(staminaValue: number) { Object.assign(h.player, { staminaValue }) },
+  })
+  expect(h.controller.startActiveMission()).toBe(true)
+  expect(h.controller.ready).toBe(false)
+  expect(mountGroup.position.toArray()).toEqual([11, getTerrainHeight(11, 13), 13])
+  expect(h.player.group.position.clone().sub(mountGroup.position)).toEqual(riderOffset)
+  expect(h.player.hp).toBe(71)
+  expect(h.player.staminaValue).toBe(42)
+  mountGroup.position.set(25, 40, 28)
+  h.player.group.position.copy(mountGroup.position).add(riderOffset)
+  Object.assign(h.player, { hp: 63, staminaValue: 30 })
+  const before = h.player.group.position.clone()
+  h.driver.drain()
+  expect(h.controller.ready).toBe(true)
+  expect(h.player.group.position).toEqual(before)
+  expect(mountGroup.position.toArray()).toEqual([25, 40, 28])
+  expect(h.player.hp).toBe(63)
+  expect(h.player.staminaValue).toBe(30)
+  expect(h.profile().activeMission!.siege!.playerPosition).toMatchObject({ x: 25, z: 28 })
 })
