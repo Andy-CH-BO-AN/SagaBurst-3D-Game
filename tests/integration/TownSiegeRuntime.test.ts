@@ -8,7 +8,7 @@ import { townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
-import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
+import { acceptCaptainSiegeCommand, createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { CAREER_RANK_THRESHOLDS, claimCareerMission, createCareerProfile, clearCareerMission } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { townCaptainProfile, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
@@ -78,6 +78,8 @@ interface CheckpointFixtureOptions {
   includeOfficerAttackers?: boolean
   freshDeployment?: boolean
   captain?: boolean
+  /** Persisted borrowed IDs exercise reload identity without materializing its former roaming squad. */
+  attackerIds?: Readonly<Record<number, string>>
 }
 
 /** Real movement/damage/mount cases supply only the roles they observe.
@@ -86,7 +88,7 @@ interface CheckpointFixtureOptions {
  * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  freshDeployment = false, captain = false }: CheckpointFixtureOptions = {}) {
+  freshDeployment = false, captain = false, attackerIds }: CheckpointFixtureOptions = {}) {
   const rank = captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
@@ -119,13 +121,14 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const patrol = new TownCavalryPatrolController(residents)
-  profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
+  if (assault && captain) profile = acceptCaptainSiegeCommand(profile, 'assault-test')!
+  else profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
   if (assault) profile.activeMission!.targetActorIds = townAssaultObjectiveRoster(roster).map(spec => spec.id)
   const active = profile.activeMission!, siege = active.siege!
   const attackers = siegeRoster(assault ? faction : townFaction === 'roman' ? 'viking' : 'roman', assault)
   siege.rosterCreated = !freshDeployment
-  siege.attackerIds = attackers.map((_, index) => `${active.id}:siege:${index}`)
+  siege.attackerIds = attackers.map((_, index) => attackerIds?.[index] ?? `${active.id}:siege:${index}`)
   const survivors = new Set(attackers.flatMap(({ spec }, index) =>
     attackerSlots.includes(index) || includeRanger && spec.combatProfileId === 'ranger' || includeOfficerAttackers && spec.tier === 4 ? [index] : []))
   const casualties = siege.attackerIds.filter((_, index) => !survivors.has(index))
@@ -136,8 +139,8 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
     cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
     leaderId: plan.leaderId && sampledIds.has(plan.leaderId) ? plan.leaderId : undefined,
   }))
-  if (captain) {
-    active.templateId = assault ? CAPTAIN_SIEGE_COMMAND_ID : CAPTAIN_GATE_DEFENSE_ID
+  if (captain && !assault) {
+    active.templateId = CAPTAIN_GATE_DEFENSE_ID
     active.officialSquad = { type: 'mission-official', missionId: active.id, townFaction: faction, squadId: 1,
       actorIds: assault ? siege.attackerIds.slice(0, 29) : residents.filter(r => r.spec.gateId === 'north').map(r => r.spec.id), contribution: emptyPersonalContribution() }
   }
@@ -575,6 +578,35 @@ describe('Siege retained combat and settlement contracts', () => {
 
 
 describe('Captain Siege command ownership caller', () => {
+  it.each([
+    { identity: 'new temporary roster', freshDeployment: true, attackerIds: undefined, expectedNorthId: 'assault-test:siege:2' },
+    { identity: 'saved borrowed roster', freshDeployment: false, attackerIds: { 2: 'outskirts:roman:a:2' }, expectedNorthId: 'outskirts:roman:a:2' },
+  ])('credits actual North damage and kills for $identity while excluding South and preserving reload totals', ({ freshDeployment, attackerIds, expectedNorthId }) => {
+    // Four real NPCs: one source per army, one target per source. Other roster slots are saved casualties.
+    const h = siegeFixture({ captain: true, assault: true, freshDeployment, attackerIds,
+      residentIds: ['gate:north:0', 'gate:south:0'], attackerSlots: [2, 30], includeRanger: false })
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const south = h.controller.enemies.find(npc => npc.squadId === 2)!
+    const [northTarget, southTarget] = h.controller.military
+    northTarget.restoreCombatHealth(70); southTarget.restoreCombatHealth(70)
+    expect(h.profile().activeMission!.templateId).toBe(CAPTAIN_SIEGE_COMMAND_ID)
+    expect(north.combatantId).toBe(expectedNorthId)
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toContain(expectedNorthId)
+    damageNpc(southTarget, 70, { source: createNpcCombatActorRef(south), method: 'melee', emit: h.controller.events.emit })
+    expect(h.controller.snapshot().meritPlayer).toMatchObject({ damageDealt: 0, kills: 0 })
+    damageNpc(northTarget, 20, { source: createNpcCombatActorRef(north), method: 'melee', emit: h.controller.events.emit })
+    damageNpc(northTarget, 50, { source: createNpcCombatActorRef(north), method: 'melee', emit: h.controller.events.emit })
+    const stats = h.controller.snapshot()
+    expect(stats.player).toMatchObject({ damageDealt: 0, kills: 0 })
+    expect(stats.meritPlayer).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(stats.squads.find(squad => squad.squadId === 1)).toMatchObject({ damageDealt: 70, kills: 1 })
+    h.controller.persistRuntimeProgress(true)
+    h.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(h.profile())))!)
+    completeNpcDeployment(() => h.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(h.controller.snapshot().meritPlayer).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(h.controller.officialContribution).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toContain(expectedNorthId)
+  })
   it('releases the nearby closed gate when Player replaces Charge with Defend', () => {
     const h = siegeFixture({ captain: true, assault: true, residentIds: [], attackerSlots: [2], includeRanger: false })
     h.profile().activeMission!.phase = 'ATTACKING'

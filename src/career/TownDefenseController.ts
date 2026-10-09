@@ -190,8 +190,11 @@ export class TownDefenseController {
       if (active.phase !== 'PREPARING') for (const npc of this.military) {
         if (!npc.dead && !this.isEagleGuard(npc) && !insideSiegeTown(npc.combatPosition)) this.order(npc, npc.combatPosition.clone())
       }
-      this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), active.playerStats,
-        careerMissionCommandMeritPolicy(active, () => this.active ?? active))
+      // Roster resolution replaces acceptance IDs with saved temporary/borrowed actor IDs.
+      // Capture that committed membership only after deployment, including on reload.
+      const deployed = this.active!
+      this.tracker = new BattleStatsTracker(this.events, this.assault, event => acceptsCareerMissionStat(this.active!, event), deployed.playerStats,
+        careerMissionCommandMeritPolicy(deployed, () => this.active ?? deployed))
       // Fresh NPC formations take their deployment slots after the batch completes.
       // Checkpoints keep their actual positions, countdown and breaches.
       if (freshSiege) {
@@ -202,7 +205,7 @@ export class TownDefenseController {
       }
       for (const [index, actorId] of (this.active?.officialSquad?.actorIds ?? []).entries()) {
         const npc = this.fieldNpcs.find(npc => npc.combatantId === actorId)
-        const saved = active.officialSquad?.members?.[actorId]
+        const saved = deployed.officialSquad?.members?.[actorId]
         if (!npc || !saved) continue
         restoreCommandActor(npc, saved, this.actorMounts.get(npc))
         if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))

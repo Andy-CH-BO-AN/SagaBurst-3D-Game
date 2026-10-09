@@ -102,6 +102,61 @@ describe('permanent Captain Town command roster', () => {
     expect(residents.slice(1).every(r => r.actor.assignFollowTarget.mock.calls.length === 0)).toBe(true)
     expect(returning.npc.hp).toBe(73); expect(returning.homeMount!.currentHp).toBe(61)
   })
+  it('interrupts peaceful returns during saved hostility and restores normal command/combat without changing the soldiers', () => {
+    const residents = townCommandSquadRoster('roman').map(resident), p = player()
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    const controller = new TownCommandSquadController(residents, () => p, () => profile, next => { profile = next; return true })
+    controller.grant(); const returning = residents[0], actorIds = residents.map(r => r.spec.id)
+    returning.npc.combatPosition.set(140, 0, 150); returning.homeMount!.group.position.copy(returning.npc.combatPosition)
+    const position = returning.npc.combatPosition.clone(), mountPosition = returning.homeMount!.group.position.clone()
+    expect(controller.issue('dismiss')).toBe(true)
+    expect(controller.accepts(returning.npc)).toBe(false); expect(controller.issue('follow')).toBe(false)
+    expect(controller.issue('attack')).toBe(false); expect(controller.combatActors).not.toContain(returning.npc)
+    expect(controller.ownsPeacefulTravel(returning.npc)).toBe(true)
+    expect(controller.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(true)
+    expect(returning.actor.updateTownTravel).toHaveBeenCalledOnce(); returning.actor.updateTownTravel.mockClear()
+
+    // The real caller persists hostile phase/loyal IDs before beginning live hostility.
+    profile.townEvent = { id: 'return-interrupted', state: 'hostile', authorizedTownCommandActorIds: [...actorIds] }
+    const savedDuringHandover = JSON.stringify(profile)
+    expect(controller.accepts(returning.npc)).toBe(true); expect(controller.combatActors).toContain(returning.npc)
+    expect(controller.ownsPeacefulTravel(returning.npc)).toBe(false)
+    controller.beginHostility()
+    expect(returning.npc.formationCommandId).toBeNull(); expect(returning.npc.tacticalOrder).toBe('attack')
+    expect(controller.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(false)
+    expect(returning.actor.updateTownTravel).not.toHaveBeenCalled()
+    expect(controller.checkpoint()?.members?.[returning.spec.id]).toMatchObject({ status: 'deployed', order: 'attack' })
+    expect(controller.checkpoint()?.members?.[returning.spec.id].formation).toBeUndefined()
+
+    // Reload may contain the old RETURNING checkpoint alongside the durably saved hostile phase.
+    profile = parseCareerProfile(JSON.parse(savedDuringHandover))!
+    const reload = new TownCommandSquadController(residents, () => p, () => profile, next => { profile = next; return true })
+    expect(reload.restore()).toBe(true)
+    expect(reload.authorizedActorIds).toEqual(actorIds); expect(reload.actors).toEqual(residents.map(r => r.npc))
+    expect(reload.combatActors).toHaveLength(30); expect(reload.accepts(returning.npc)).toBe(true)
+    expect(reload.ownsPeacefulTravel(returning.npc)).toBe(false)
+    expect(reload.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(false)
+    expect(returning.actor.updateTownTravel).not.toHaveBeenCalled()
+    for (const order of ['follow', 'attack', 'charge', 'defend', 'formation'] as const) {
+      expect(reload.issue(order), `Hostile returning soldiers accept ${order}`).toBe(true)
+      expect(profile.townCommandSquad?.members?.[returning.spec.id].order).toBe(order)
+    }
+    expect(reload.issue('dismiss')).toBe(true)
+    expect(returning.npc.formationCommandId).toBe(TOWN_COMMAND_RETURN_ID)
+    expect(profile.townCommandSquad?.members?.[returning.spec.id].formation?.commandId).toBe(TOWN_COMMAND_RETURN_ID)
+    expect(reload.ownsPeacefulTravel(returning.npc)).toBe(false)
+    expect(reload.issue('follow')).toBe(true)
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    expect(saved.townEvent?.authorizedTownCommandActorIds).toEqual(actorIds)
+    expect(saved.townCommandSquad?.actorIds).toEqual(actorIds)
+    expect(saved.townCommandSquad?.members?.[returning.spec.id].formation).toBeUndefined()
+    expect(returning.npc.faction).toBe(Faction.PLAYER); expect(returning.npc.hp).toBe(73)
+    expect(returning.homeMount!.currentHp).toBe(61); expect(returning.npc.isMounted).toBe(true)
+    expect(returning.npc.combatPosition.equals(position)).toBe(true)
+    expect(returning.homeMount!.group.position.equals(mountPosition)).toBe(true)
+    expect(saved.townCommandSquad?.members?.[returning.spec.id]).toMatchObject({ hp: 73,
+      position: { x: 140, y: 0, z: 150 }, mount: { hp: 61, mounted: true, position: { x: 140, y: 0, z: 150 } } })
+  })
   it('failed handover save leaves granted soldiers unchanged; successful handover preserves injured resident and mount', () => {
     const residents = townCommandSquadRoster('roman').map(resident), p = player()
     let profile = createCareerProfile('roman'); profile.rank = 'captain'

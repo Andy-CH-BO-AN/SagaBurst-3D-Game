@@ -41,13 +41,15 @@ export class TownCommandSquadController {
       && !profile.activeMission && !profile.activeOutpostMission && !this.player().dead)
   }
   owns(npc: NPC): boolean { return this.actors.includes(npc) }
-  accepts(npc: NPC): boolean { return Boolean(this.value?.authorized && this.owns(npc) && !this.isReturning(npc.combatantId)) }
+  accepts(npc: NPC): boolean { return Boolean(this.value?.authorized && this.owns(npc)
+    && (this.townHostile || !this.isReturning(npc.combatantId))) }
   get combatActors(): NPC[] {
     return this.value?.authorized ? this.actors.filter(npc => !npc.dead
-      && (this.read().townEvent?.state === 'hostile' || this.value!.members?.[npc.combatantId]?.status === 'deployed')
+      && (this.townHostile || this.value!.members?.[npc.combatantId]?.status === 'deployed')
       && !this.ownsPeacefulTravel(npc)) : []
   }
-  ownsPeacefulTravel(npc: NPC): boolean { return this.owns(npc) && this.isReturning(npc.combatantId) }
+  ownsPeacefulTravel(npc: NPC): boolean { return !this.townHostile && this.owns(npc) && this.isReturning(npc.combatantId) }
+  private get townHostile(): boolean { return this.read().townEvent?.state === 'hostile' }
   isReserveAvailable(actorId: string): boolean { return this.value?.sceneKey !== this.sceneKey || !this.value?.actorIds.includes(actorId) || !this.isReturning(actorId) && !this.value.authorized }
   private isReturning(id: string): boolean {
     const saved = this.value?.members?.[id]
@@ -131,6 +133,7 @@ export class TownCommandSquadController {
       npc.setCommandSquad(this.value.authorized ? 1 : undefined)
       npc.setTownPeaceful()
       if (!actor || npc.dead) continue
+      if (restore && this.value.authorized && this.townHostile) this.interruptReturn(npc, actor)
       if (this.isReturning(id)) this.applyReturn(npc, actor)
       else if (actor.status === 'deployed' && actor.order === 'follow') npc.assignFollowTarget(this.player(), index,
         officialFollowLocalOffset(index, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
@@ -140,7 +143,7 @@ export class TownCommandSquadController {
   /** Follow and Dismiss remain physical movement. Other orders are subsequently assigned by the common command UI. */
   issue(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget = 'all'): boolean {
     if (!this.commandsEnabled) return false
-    const selected = this.actors.filter(npc => !npc.dead && !this.isReturning(npc.combatantId) && matchesArmyCommandTarget(npc, target))
+    const selected = this.actors.filter(npc => !npc.dead && this.accepts(npc) && matchesArmyCommandTarget(npc, target))
     if (!selected.length) return false
     const value = this.checkpoint()!
     value.members ??= {}
@@ -156,10 +159,21 @@ export class TownCommandSquadController {
     return true
   }
 
-  /** Hostility never removes Player allegiance. The event snapshot is owned by the caller. */
+  /** Hostility keeps Player allegiance and hands returning soldiers back to normal command/combat. */
   beginHostility(): void {
     if (!this.value?.authorized) return
-    for (const npc of this.actors) { npc.setTownPeaceful(); npc.setCommandAllegiance(Faction.PLAYER) }
+    for (const npc of this.actors) {
+      npc.setTownPeaceful(); npc.setCommandAllegiance(Faction.PLAYER)
+      const actor = this.value.members?.[npc.combatantId]
+      if (actor && !npc.dead) this.interruptReturn(npc, actor)
+    }
+  }
+
+  private interruptReturn(npc: NPC, actor: PersonalActorCheckpoint): void {
+    if (!this.isReturning(npc.combatantId)) return
+    actor.status = 'deployed'; actor.order = 'attack'; delete actor.formation
+    this.value!.state = 'FOLLOWING'
+    npc.setTacticalOrder('attack')
   }
 
   beginFrame(): void {
