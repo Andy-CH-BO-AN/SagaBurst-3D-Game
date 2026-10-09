@@ -1,5 +1,6 @@
+import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
 import type { CareerAerialState } from './CareerAerialState'
-import { addCareerItem, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
+import { addCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO, isTradableCareerItem, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
 import type { CareerOutpostMission, CareerOutpostRecord, CareerOutpostStageId } from './CareerOutpostMission'
@@ -96,6 +97,7 @@ export interface CareerProfile {
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, UnitTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[] }
 
+  townEagleGarrisons?: TownEagleGarrisons
   inventory?: CareerInventory
   ownedWeapons: string[]
   ownedArmors: string[]
@@ -141,6 +143,7 @@ export type CareerPurchaseFailureReason =
   | 'already-owned'
   | 'tier-locked'
   | 'insufficient-merit'
+  | 'ownership-limit'
 
 export interface CareerPurchaseResult {
   profile: CareerProfile
@@ -373,6 +376,10 @@ export function purchaseCareerContent(
       reason: 'tier-locked',
     }
   }
+  // Cap the canonical quantity, not active actors or lifetime purchases. Legacy excess stays owned.
+  if (id === 'xongkoro' && careerItemTotal(profile, id) >= MAX_PLAYER_OWNED_XONGKORO) {
+    return { profile, purchased: false, spentMerit: 0, reason: 'ownership-limit' }
+  }
   const target = request.kind === 'weapon'
     ? profile.ownedWeapons as string[]
     : request.kind === 'armor'
@@ -412,6 +419,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),

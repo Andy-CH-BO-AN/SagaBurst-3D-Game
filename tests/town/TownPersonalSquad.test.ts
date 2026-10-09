@@ -3,10 +3,12 @@ import { eagleLandingFootprint } from '../../src/world/EagleLanding'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
 import { completeNpcDeployment, drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerMountController } from '../../src/career/CareerMountController'
+import { careerEaglePadOwners, EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { initialPersonalEquipment } from '../../src/career/CareerInventory'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { claimCareerMission, cloneCareerProfile, createCareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownWorld } from '../../src/town/TownWorld'
 import { resolveTownHRLayout, hrOfficerSpec, townConquestRoster } from '../../src/town/TownHRLayout'
@@ -78,6 +80,76 @@ function townGeometry(faction: 'roman' | 'viking') {
   return { world, navigation }
 }
 describe('HR Center and personal runtime', () => {
+  it('keeps shared Player and actual eagle-owner pad identities across roster reordering and releases reassigned owners', () => {
+    const profile = { ...createCareerProfile('roman'), selectedMountId: 'xongkoro' as const, personalSquad: { members: [
+      { id: 'personal:foot', type: 'soldier' as const },
+      { id: 'personal:ranger', type: 'ranger' as const, equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' as const } },
+      { id: 'personal:captain', type: 'captain' as const, equipment: { melee: 'centurion_blade', ranged: null, shield: null, mount: 'xongkoro' as const } },
+    ] } }
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 0, yaw: 0 })))
+    pads.syncOwners(careerEaglePadOwners(profile))
+    expect(pads.get('player')?.id).toBe('private-eagle-pad:1')
+    expect(pads.get('personal:captain')?.id).toBe('private-eagle-pad:2')
+    expect(pads.get('personal:ranger')?.id).toBe('private-eagle-pad:3')
+    expect(pads.get('personal:foot')).toBeUndefined(); expect(pads.reserve('legacy-fourth')).toBeUndefined()
+    profile.personalSquad.members.reverse(); pads.syncOwners(careerEaglePadOwners(profile))
+    expect(pads.get('personal:captain')?.id).toBe('private-eagle-pad:2')
+    expect(pads.get('personal:ranger')?.id).toBe('private-eagle-pad:3')
+    pads.syncOwners(['player', 'personal:ranger'])
+    expect(pads.get('personal:captain')).toBeUndefined()
+    expect(pads.reserve('personal:replacement')?.id).toBe('private-eagle-pad:2')
+    expect(pads.get('personal:ranger')?.id).toBe('private-eagle-pad:3')
+  })
+
+  it('rolls back a failed Player eagle activation reservation and preserves nearby summon after a successful retry', () => {
+    // At most one real Mount at a time and a Player boundary; no NPC, TownWorld or asset loading.
+    const scene = renderingScene(), group = new THREE.Group()
+    group.position.set(0, getTerrainHeight(0, 0), 0)
+    const mountVehicle = vi.fn(), player = { group, get combatPosition() { return group.position }, facingYaw: 0,
+      isFalling: false, isMounted: false, currentMount: null, mountVehicle } as unknown as Player
+    let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain' as const, ownedMounts: ['xongkoro' as const],
+      inventory: { version: 1 as const, quantities: { xongkoro: 1 } } }
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: 150 + index * 30, z: 100, yaw: 0 })))
+    let save = false
+    const controller = new CareerMountController(scene, () => player, () => profile, next => { if (!save) return false; profile = next; return true },
+      () => [], () => [], () => 'town-home', { eaglePads: pads })
+    cleanups.push(() => controller.dispose())
+    const before = structuredClone(profile)
+    expect(controller.activate('xongkoro')).toBe(false)
+    expect(profile).toEqual(before); expect(controller.activeMount).toBeNull()
+    expect(pads.get('player')).toBeUndefined(); expect(scene.children).toHaveLength(0)
+    expect(mountVehicle).not.toHaveBeenCalled()
+    save = true
+    expect(controller.activate('xongkoro')).toBe(true)
+    expect(pads.get('player')?.id).toBe('private-eagle-pad:1')
+    expect(controller.activeMount!.group.position.distanceTo(group.position)).toBeLessThan(46)
+    expect(mountVehicle).toHaveBeenCalledOnce()
+    controller.release('xongkoro')
+    expect(pads.get('player')).toBeUndefined(); expect(controller.activeMount).toBeNull()
+  })
+
+  it('restores an already-saved legacy Player eagle when three squad home pads are reserved', () => {
+    // One real Mount with a Player boundary and three data-only squad owners.
+    const scene = renderingScene(), group = new THREE.Group()
+    const player = { group, get combatPosition() { return group.position }, facingYaw: 0, currentMount: null,
+      mountVehicle: vi.fn() } as unknown as Player
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', selectedMountId: 'xongkoro', ownedMounts: ['xongkoro'],
+      inventory: { version: 1, quantities: { xongkoro: 4 } }, personalSquad: { members: ['a', 'b', 'c'].map(id => ({
+        id: `personal:${id}`, type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } })) } }
+    profile.personalSquadRuntime = snapshotPersonalMission(profile)!
+    for (const [index, member] of profile.personalSquad!.members.entries()) profile.personalSquadRuntime.members[member.id].eaglePadId = `private-eagle-pad:${index + 1}`
+    profile.playerAerialState = { sceneKey: 'town-home', hp: 100, dead: false, position: { x: 20, y: 34, z: 30, yaw: 0 },
+      mount: { hp: 100, position: { x: 20, y: 30, z: 30, yaw: 0 }, flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 15, velocity: { x: 0, y: 0, z: 15 } } } }
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 60, yaw: 0 })))
+    const controller = new CareerMountController(scene, () => player, () => profile, () => false, () => [], () => [], () => 'town-home', { eaglePads: pads })
+    cleanups.push(() => controller.dispose())
+    expect(pads.get('player')).toBeUndefined()
+    expect(controller.restoreActiveMount()).toBe(true)
+    expect(controller.activeMount!.group.position).toMatchObject({ x: 20, y: 30, z: 30 })
+    expect(pads.get('player')).toBeUndefined(); expect(pads.pads).toHaveLength(3)
+    expect(profile.inventory?.quantities.xongkoro).toBe(4)
+  })
+
   it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots', faction => {
     const { world, navigation } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
@@ -91,7 +163,8 @@ describe('HR Center and personal runtime', () => {
       expect(obstacle.box.intersectsBox(hr.obstacles[0].box), building.id).toBe(false)
     }
     const eagle = world.eagleTraining
-    expect(eagle.pads.length).toBe(30)
+    expect(eagle.pads.map(pad => pad.id)).toEqual(['private-eagle-pad:1', 'private-eagle-pad:2', 'private-eagle-pad:3'])
+    expect(eagle.candidatePads).toHaveLength(30)
     const trainer = eagleTrainerSpec(eagle)
     expect(trainer).toMatchObject({ id: 'eagle-trainer', role: 'eagle-trainer', tier: 4, mounted: false })
     expect(townConquestRoster(world.hr, undefined, eagle).filter(spec => spec.id === 'eagle-trainer')).toHaveLength(1)
@@ -115,6 +188,33 @@ describe('HR Center and personal runtime', () => {
     for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) expect(Math.hypot(world.hr.muster[i].x - world.hr.muster[j].x, world.hr.muster[i].z - world.hr.muster[j].z)).toBeGreaterThanOrEqual(4.4)
     expect(() => resolveTownHRLayout(faction, [{ box: new THREE.Box3(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500)), isBarricade: false }], world.roads)).toThrow()
   })
+  it.each(['ACTIVE', 'RETURNING'] as const)('restores a %s legacy fourth eagle without a fourth pad or a deleted checkpoint', state => {
+    // Three data-only reserve owners plus one real rider/mount; no full legacy squad spawn.
+    const scene = renderingScene(), hr = resolveTownHRLayout('roman', [], [])
+    const members = ['a', 'b', 'c', 'z'].map(id => ({ id: `personal:${id}`, type: 'captain' as const,
+      equipment: { melee: 'centurion_blade', ranged: null, shield: 'scutum_t3', mount: 'xongkoro' as const } }))
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', personalSquad: { members },
+      inventory: { version: 1, quantities: { xongkoro: 4, centurion_blade: 4, scutum_t3: 4 } }, ownedMounts: ['xongkoro'] }
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 60, yaw: 0 })))
+    const saved = snapshotPersonalMission(profile)!, flight = { phase: 'cruise' as const, yaw: 0, pitch: 0, bank: 0, speed: 15, velocity: { x: 0, y: 0, z: 15 } }
+    saved.state = state
+    saved.members['personal:z'] = { status: 'deployed', hp: 90, order: 'follow', position: { x: 15, y: 34, z: 30, yaw: 0 },
+      mount: { hp: 110, mounted: true, position: { x: 15, y: 30, z: 30, yaw: 0 }, flight } }
+    const player = { group: new THREE.Group(), get combatPosition() { return this.group.position }, dead: false } as Player
+    const controller = new TownPersonalSquadController(scene, hr, () => profile, () => player, undefined, { eaglePads: pads })
+    cleanups.push(() => controller.cleanup())
+    completeNpcDeployment(() => controller.restoreMission(saved), gameplayNpcSpawnDriver)
+    expect(controller.actors.map(actor => actor.combatantId)).toEqual(['personal:z'])
+    expect(controller.mounts[0].group.position).toMatchObject({ x: 15, y: 30, z: 30 })
+    expect(controller.mounts[0].isAirborne).toBe(true)
+    if (state === 'ACTIVE') expect(pads.get('personal:z')).toBeUndefined()
+    expect(pads.pads).toHaveLength(3)
+    expect(controller.checkpoint()!.members['personal:z']).toMatchObject({ status: 'deployed', hp: 90, mount: { hp: 110, mounted: true, flight } })
+    expect(profile.inventory?.quantities.xongkoro).toBe(4)
+    if (state === 'ACTIVE') expect(controller.dismiss()).toBe(true)
+    expect(pads.get('personal:z')?.id).toBe('private-eagle-pad:1')
+  })
+
   it.each(['normal landing', 'shot down during return'] as const)('walks one Captain from HR to the outdoor eagle, then returns on foot before refit after %s', returnKind => {
     // Real actors: one NPC + one Mount, render-only visual double, zero TownWorld/GLBs.
     const scene = renderingScene(), hr = resolveTownHRLayout('roman', [], [])

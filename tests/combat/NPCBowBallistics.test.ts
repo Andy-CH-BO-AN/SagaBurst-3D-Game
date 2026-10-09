@@ -3,6 +3,8 @@ import * as THREE from 'three'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { MountType, type Mount } from '../../src/world/Mount'
+import { eagleBowEngagementRange } from '../../src/combat/EagleRangedCombat'
 
 const GRAVITY = 9.8
 
@@ -111,5 +113,39 @@ describe('NPC ranged ballistics', () => {
       speed: 24,
       visualKind: 'pilum',
     }))
+  })
+})
+
+/** Getter adapter only: no actor construction is needed for equipment/range policy. */
+function rangePolicyNpc(weapon: string, mountType?: MountType, ranger = false): NPC {
+  const npc = Object.create(NPC.prototype) as NPC
+  Object.assign(npc, {
+    rangedWeaponId: weapon,
+    combatProfileId: ranger ? 'ranger' : undefined,
+    // This getter reads only mount identity/liveness; it does not simulate a mount.
+    mount: mountType ? { type: mountType, dead: false } as Mount : null,
+  })
+  return npc
+}
+
+describe('eagle bow engagement override consumes actual equipment', () => {
+  it.each([['wooden_shortbow', 200], ['recurve_longbow', 300], ['elven_runebow', 400], ['maki-ranger-bow-ranged', 500]] as const)(
+    '%s on xongkoro uses %dm without the Ranger range multiplier', (weapon, range) => {
+      expect(rangePolicyNpc(weapon, MountType.XONGKORO, true).maxRangedAttackDistance).toBe(range)
+    })
+  it.each([undefined, MountType.HORSE, MountType.BLACK_CAT, MountType.CORGI])('retains ordinary bow/javelin and Ranger policies on mount=%s', mountType => {
+    expect(rangePolicyNpc('elven_runebow', mountType).maxRangedAttackDistance).toBe(mountType ? 30 : 50)
+    expect(rangePolicyNpc('elven_runebow', mountType, true).maxRangedAttackDistance).toBe(mountType ? 60 : 100)
+    expect(rangePolicyNpc('legionary_pilum', mountType).maxRangedAttackDistance).toBe(mountType ? 15 : 30)
+  })
+  it('updates immediately after weapon changes and dismount, while a melee fallback never grants bow range', () => {
+    const npc = rangePolicyNpc('wooden_shortbow', MountType.XONGKORO, true)
+    expect(npc.maxRangedAttackDistance).toBe(200)
+    npc.rangedWeaponId = 'elven_runebow'
+    expect(npc.maxRangedAttackDistance).toBe(400)
+    npc.mount = null
+    expect(npc.maxRangedAttackDistance).toBe(100)
+    expect(eagleBowEngagementRange('xongkoro', WEAPONS['maki-ranger-bow'])).toBeUndefined()
+    expect(rangePolicyNpc('legionary_pilum', MountType.XONGKORO).maxRangedAttackDistance).toBe(15)
   })
 })

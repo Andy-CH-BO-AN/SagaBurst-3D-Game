@@ -1,3 +1,6 @@
+import * as THREE from 'three'
+import { EaglePadReservations } from '../../src/career/EaglePadReservations'
+import { CareerMountController } from '../../src/career/CareerMountController'
 import { describe, expect, it } from 'vitest'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createCareerProfile } from '../../src/career/CareerProfile'
@@ -47,7 +50,7 @@ describe('Career airborne state serialization', () => {
     profile.activeMission.mountState = { activeMountId: 'xongkoro', hp: { xongkoro: 127, horse: 0 }, unavailable: ['horse'] }
     profile.activeMission.personalSquad = { squadId: 'personal', memberIds: ['personal:eagle-ranger'], sceneKey: 'town-home', state: 'ACTIVE',
       contribution: { damageDealt: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
-      members: { 'personal:eagle-ranger': { status: 'deployed', hp: 62, position: { x: 25, y: 48, z: 30, yaw: .4 },
+      members: { 'personal:eagle-ranger': { status: 'deployed', eaglePadId: 'private-eagle-pad:3', hp: 62, position: { x: 25, y: 48, z: 30, yaw: .4 },
         mount: { hp: 94, mounted: true, position: { x: 25, y: 45, z: 28, yaw: .4 }, flight } } } }
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
@@ -57,6 +60,11 @@ describe('Career airborne state serialization', () => {
     expect(loaded.playerAerialState).toEqual(profile.playerAerialState)
     expect(loaded.activeMission?.mountState).toEqual(profile.activeMission.mountState)
     expect(loaded.activeMission?.personalSquad).toEqual(profile.activeMission.personalSquad)
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 0, yaw: 0 })))
+    // Construction restores reservations before any actors exist; the Player getter is not consumed.
+    new CareerMountController(new THREE.Scene(), () => { throw new Error('Unexpected Player access') }, () => loaded, () => false, () => [], () => [], () => 'town-home', { eaglePads: pads })
+    expect(pads.get('personal:eagle-ranger')?.id).toBe('private-eagle-pad:3')
+    expect(pads.get('player')?.id).toBe('private-eagle-pad:1')
   })
 
   it('preserves pending rider fall apex and velocity through storage after the eagle has died', () => {

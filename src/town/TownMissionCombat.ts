@@ -1,3 +1,4 @@
+import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { TownPersonalSquadController } from './TownPersonalSquadController'
 import * as THREE from 'three'
 import type { BanditMissionController, VeteranMissionEnemySquad } from '../career/BanditMissionController'
@@ -61,11 +62,12 @@ interface TownCombatScene {
   ownsPeacefulTravel?(npc: NPC): boolean
   preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
   peaceResident(resident: TownCombatResident, dt: number): void
+  updateEagleDuty?(npc: NPC, dt: number, combat: boolean): boolean
   updateCommandCue(): void
   clearCombatShots(): void
   hitNpc(target: NPC, damage: number, method: CombatDamageMethod, source?: NPC): void
   damagePlayer(source: NPC, damage: number, method: CombatDamageMethod): void
-  fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC): void
+  fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC, lifecycle?: ProjectileFlightBudget): void
 }
 
 /** Owns mission actor selection and simulation order; each mission retains its own phase rules.
@@ -345,13 +347,14 @@ export class TownMissionCombat {
         ? actor.tacticalOrder : null
       // Temporarily release the actor's combat AI while retaining its existing route/follow intent.
       if (travelOrder) actor.tacticalOrder = 'attack'
+      if (this.town.updateEagleDuty?.(actor, dt, true)) continue
       actor.update(dt, this.town.player(), peers, nearbyGrid.getNearbyInto(actor.combatPosition, warfareActive ? 8 : 2, this.neighbors),
         this.town.obstacles, this.town.hp,
         (damage, isPlayer, targetNpc) => {
           if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
           else if (targetNpc) this.town.hitNpc(targetNpc, damage, 'melee', actor)
         },
-        (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
+        (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
         false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }
@@ -414,7 +417,7 @@ export class TownMissionCombat {
       (damage, isPlayer, target) => {
         if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
         else if (target) this.town.hitNpc(target, damage, 'melee', actor)
-      }, (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
+      }, (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
       false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.travelThreatGrid, this.town.navigation)
   }
 
@@ -482,12 +485,13 @@ export class TownMissionCombat {
   }
 
   private updateRuntimeActor(actor: NPC, dt: number): void {
+    if (this.town.updateEagleDuty?.(actor, dt, true)) return
     actor.update(dt, this.town.player(), this.runtimeActors,
       this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.hp,
       (damage, isPlayer, target) => {
         if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
         else if (target) this.town.hitNpc(target, damage, 'melee', actor)
-      }, (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
+      }, (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
       false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.warfareGrid, this.town.navigation)
   }
 
@@ -622,12 +626,14 @@ export class TownMissionCombat {
         && (enemyTownScouts === undefined
           ? true
           : spec.id.startsWith('enemy-town:') && npc.faction === Faction.ENEMY)
-      const nearbyMissionActor = eligible && this.banditThreatGrid.getNearbyInto(npc.combatPosition, 20, this.neighbors)
+      const threatRange = spec.eagle && this.externalThreatActors.has(npc) ? Math.max(20, npc.maxRangedAttackDistance) : 20
+      const nearbyMissionActor = eligible && this.banditThreatGrid.getNearbyInto(npc.combatPosition, threatRange, this.neighbors)
         // Patrol-owned roaming encounters use the squad controller; other threats keep existing ownership.
         .some(threat => !threat.dead && townWartimeHostile(npc, threat)
+          && (!spec.eagle || threat.combatPosition.distanceToSquared(npc.combatPosition) <= threatRange ** 2)
           && (spec.duty !== 'patrol' || !outskirts?.owns(threat)))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
-        && !options.player.dead && npc.combatPosition.distanceToSquared(options.player.combatPosition) <= 20 * 20
+        && !options.player.dead && npc.combatPosition.distanceToSquared(options.player.combatPosition) <= threatRange * threatRange
       const threatened = Boolean(nearbyMissionActor || nearbyPlayer)
       if (threatened) {
         if (!this.externalThreatActors.has(npc)) {
@@ -641,7 +647,7 @@ export class TownMissionCombat {
         npc.endExternalThreat()
         // Patrol resumes its own navigation from the actual position, including a
         // recently released mission actor travelling to barracks. It owns arrival.
-        if (spec.duty === 'patrol') continue
+        if (spec.duty === 'patrol' || spec.duty === 'eagle_garrison') continue
         const point = new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
         if (npc.mount && !npc.mount.dead) {
           npc.mount.group.position.copy(point)
@@ -694,6 +700,7 @@ export class TownMissionCombat {
         this.updateOutskirtsActor(actor, outskirts, dt)
         continue
       }
+      if (this.town.updateEagleDuty?.(actor, dt, defense.phase !== 'PREPARING' && defense.phase !== 'RESULT' && defense.phase !== 'RESET' && !defense.active?.result)) continue
       defense.updateCivilianOrder(actor)
       const individualDefense = !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
       const travelOrder = individualDefense && (actor.tacticalOrder === 'formation' || actor.tacticalOrder === 'follow'
@@ -708,7 +715,7 @@ export class TownMissionCombat {
           if (isPlayer) this.town.damagePlayer(actor, damage, 'melee')
           else if (targetNpc) this.town.hitNpc(targetNpc, damage, 'melee', actor)
         },
-        (origin, direction, kind) => this.town.fireNpc(origin, direction, kind, actor),
+        (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
         false, actor.group.position.distanceTo(this.town.cameraPosition), null, hostileGrid, this.town.navigation)
       if (travelOrder && !actor.dead) actor.tacticalOrder = travelOrder
     }

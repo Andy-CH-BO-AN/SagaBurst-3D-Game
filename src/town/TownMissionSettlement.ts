@@ -39,6 +39,7 @@ interface TownReturnScene {
   residents: readonly ReturnResident[]
   releaseExternalThreat(npc: NPC): void
   beginPatrolMissionReturn?(actorId: string): void
+  beginEagleMissionReturn?(actorId: string): void
   cat: Pick<Mount, 'restoreForTown' | 'catVisual'> & Partial<Pick<Mount, 'dead'>>
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
@@ -111,6 +112,10 @@ export class TownMissionSettlement {
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : this.missions.field.friendlies) : null
     const next = clearCareerMission(profile, active.id)
+    const garrison = next.townEagleGarrisons?.[profile.faction]
+    if (inPlace && garrison) for (const pair of garrison.pairs) {
+      if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
+    }
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
     if (!this.profiles.commit(next)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
@@ -141,7 +146,10 @@ export class TownMissionSettlement {
         ? true
         : borrowed!.has(resident.npc))
       if (restore) {
-        if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
+        if (resident.spec.duty === 'eagle_garrison' && resident.spec.id && this.town.beginEagleMissionReturn) {
+          this.town.releaseExternalThreat(resident.npc)
+          this.town.beginEagleMissionReturn(resident.spec.id)
+        } else if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
           this.town.releaseExternalThreat(resident.npc)
           this.town.beginPatrolMissionReturn(resident.spec.id)
         } else this.restoreResident(resident)

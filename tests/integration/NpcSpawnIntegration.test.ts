@@ -1,3 +1,4 @@
+import { MountType } from '../../src/world/Mount'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../../src/town/TownScene'
@@ -5,6 +6,8 @@ import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarf
 import { outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
+import { EaglePadReservations } from '../../src/career/EaglePadReservations'
+import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
@@ -173,6 +176,14 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     expect(progress).toHaveBeenLastCalledWith(`建立駐軍與居民 ${roster.length} / ${roster.length}…`)
     expect(event.actors.size).toBe(population.length)
     expect(event.actors.get('hr-officer')).toBe(town.residents.find((resident: any) => resident.spec.id === 'hr-officer').npc)
+    const eagleRiders = recording.npcs.filter(npc => npc.combatantId.startsWith('town-eagle-rider:'))
+    const eagles = recording.mounts.filter(mount => mount.type === MountType.XONGKORO)
+    expect(eagleRiders.map(npc => npc.combatantId)).toEqual([1, 2, 3, 4, 5].map(slot => `town-eagle-rider:${slot}`))
+    expect(eagles.map(mount => mount.group.name)).toEqual([1, 2, 3, 4, 5].map(slot => `town-eagle-mount:${slot}`))
+    for (const npc of eagleRiders) {
+      expect(npc).toMatchObject({ tier: 3, presetId: 'roman_archer', loadout: { rangedWeaponId: 'elven_runebow' } })
+      expect(npc.mountVehicle).not.toHaveBeenCalled()
+    }
     event.complete(); expect(event.evaluate(false)).toBe('town_defeated')
   })
 
@@ -197,6 +208,9 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     await rejected
     town.residents.forEach((resident: any) => { resident.npc.dead = true })
     expect(town.residentSpawnBatch.status).toBe('failed')
+    expect(town.residents).toHaveLength(0); expect(town.mounts).toHaveLength(0)
+    expect(recording.npcs.every(npc => npc.dispose.mock.calls.length === 1)).toBe(true)
+    expect(recording.mounts.every(mount => mount.dispose.mock.calls.length === 1)).toBe(true)
     expect(event.registrationComplete).toBe(false); expect(event.evaluate(false)).toBeNull()
     expect(() => event.complete()).toThrow('hr-officer')
   })
@@ -276,6 +290,39 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     runtime.cleanup(); await step()
     expect(recording.npcs).toHaveLength(2)
     expect(runtime.actors).toHaveLength(0)
+  })
+
+  it('allocates the 21st member an actual private eagle pad without sharing the Player reservation, and releases canceled deployments', async () => {
+    // Twenty data-only reserves and one recorded rider/mount; no real actors or TownWorld.
+    const scene = new THREE.Scene(), step = loadingFrames(), player = playerFixture()
+    const members = Array.from({ length: 20 }, (_, index) => ({ id: `personal:reserve-${index}`, type: 'soldier' as const }))
+    const owner = { id: 'personal:eagle-last', type: 'ranger' as const,
+      equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' as const } }
+    const profile = { ...createCareerProfile('roman'), selectedMountId: 'xongkoro' as const,
+      personalSquad: { members: [...members, owner] } }
+    const pads = new EaglePadReservations([
+      { id: 'private-eagle-pad:1', x: 50, z: 50, yaw: 0 },
+      { id: 'private-eagle-pad:2', x: 80, z: 50, yaw: 0 },
+      { id: 'private-eagle-pad:3', x: 110, z: 50, yaw: 0 },
+    ])
+    const saved = snapshotPersonalMission(profile, 'town-home')!
+    saved.members[owner.id] = { status: 'reserve', order: 'follow' }; saved.pendingMemberIds = [owner.id]
+    const runtime = new PersonalSquadRuntime(scene, Array.from({ length: 21 }, (_, i) => ({ x: i * 5, z: -30, yaw: 0 })),
+      () => profile, () => player, spawnPersonalSquadActor, { eaglePads: pads })
+    dispose.push(() => runtime.cleanup())
+    runtime.restoreMission(saved)
+    await step()
+    expect(runtime.actors.map(actor => actor.combatantId)).toEqual([owner.id])
+    expect(pads.get('player')?.id).toBe('private-eagle-pad:1')
+    expect(pads.get(owner.id)?.id).toBe('private-eagle-pad:2')
+    expect(runtime.actors[0].mount).toBeNull()
+    expect(runtime.mounts[0].group.position).toMatchObject({ x: 80, z: 50 })
+    expect(runtime.checkpoint()?.members[owner.id].eaglePadId).toBe('private-eagle-pad:2')
+    runtime.cleanup()
+    expect(pads.get(owner.id)).toBeUndefined(); expect(pads.get('player')?.id).toBe('private-eagle-pad:1')
+    runtime.restoreMission(saved); expect(runtime.spawning).toBe(true)
+    runtime.cancelPendingSpawns(); await step()
+    expect(pads.get(owner.id)).toBeUndefined(); expect(runtime.actors).toHaveLength(0)
   })
 
   it('fails Personal publication without reporting readiness or retaining a partially registered rider', async () => {

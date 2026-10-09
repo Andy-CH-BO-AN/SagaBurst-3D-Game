@@ -202,7 +202,7 @@ describe('Town Siege outcomes and rewards', () => {
     const reset = clearCareerMission(profile, 'defense-reset')
     expect(reset.activeMission).toBeUndefined()
     expect(reset.ownedMounts).toEqual(['horse'])
-    expect(townRoster()).toHaveLength(225)
+    expect(townRoster()).toHaveLength(230) // Includes five independent Town air guards.
   })
 
   it('never creates or clears Town Crime state as part of mission claiming/reset', () => {

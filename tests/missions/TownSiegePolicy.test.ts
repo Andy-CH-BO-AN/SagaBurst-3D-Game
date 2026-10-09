@@ -83,7 +83,7 @@ describe('Siege deployment and shared rule ownership', () => {
 
   it('counts military objectives independently of faction and excludes civilians', () => {
     const objective = createEnemyTownAssaultMission().targetActorIds
-    expect(objective).toHaveLength(203)
+    expect(objective).toHaveLength(208)
     expect(objective.filter(id => id.startsWith('gate:'))).toHaveLength(40)
     expect(objective.filter(id => id.startsWith('town-patrol:'))).toHaveLength(40)
     expect(objective.some(id => id.startsWith('civilian'))).toBe(false)

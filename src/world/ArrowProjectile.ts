@@ -5,7 +5,8 @@
 import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import { getTerrainHeight, type ObstacleData } from './Terrain'
+import { getScenePlayableWorldBound, type ObstacleData } from './Terrain'
+import { PROJECTILE_GRAVITY, createProjectileFlightBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { traceCombatSegment, segmentBoxTime, type CombatContact } from '../combat/ShieldBlocking'
 import { damageMount, damageNpc, damageObstacle, damageReceiver, type DamageResult } from '../combat/DamageRouter'
 import type { DamageReceiver } from '../combat/DamageReceiver'
@@ -18,7 +19,6 @@ import type {
 import { proceduralMaterial } from './ProceduralMaterials'
 import type { DamageableObstacle } from './DamageableObstacle'
 
-const GRAVITY = -9.8 // m/s² downforce for arrow arc
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 export type ProjectileVisualKind = 'arrow' | 'pilum'
 
@@ -101,6 +101,10 @@ export class ArrowProjectile {
   private stuck = false
   private stuckTimer = 0
   private travelledDistance = 0
+  private flightAge = 0
+  private readonly worldBound: number
+  readonly maxFlightLifetimeSeconds: number
+  private readonly maxTravelDistance: number
   private readonly tipLocalZ: number
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
@@ -131,11 +135,21 @@ export class ArrowProjectile {
     isPlayerFired: boolean = false,
     visualKind: ProjectileVisualKind = 'arrow',
     attribution?: ProjectileAttribution,
+    flightBudget?: ProjectileFlightBudget,
   ) {
     this.damage = damage
     this.shooterFaction = shooterFaction
     this.isPlayerFired = isPlayerFired
     this.attribution = attribution
+    this.worldBound = getScenePlayableWorldBound(scene) + 24
+    // Bound an ordinary shot by its physical return time. Aerial intent supplies
+    // a tighter, shot-specific budget; neither depends on world-origin radius.
+    const defaultFlight = (speed + Math.sqrt(speed * speed + 2 * PROJECTILE_GRAVITY * Math.max(0, origin.y + 20))) / PROJECTILE_GRAVITY
+    const budget = flightBudget ?? createProjectileFlightBudget(speed, defaultFlight)
+    this.maxFlightLifetimeSeconds = Number.isFinite(budget.maxLifetimeSeconds)
+      ? Math.max(.01, Math.min(28, budget.maxLifetimeSeconds)) : 0
+    this.maxTravelDistance = Number.isFinite(budget.maxTravelDistance)
+      ? Math.max(0, budget.maxTravelDistance) : 0
     this.mesh = new THREE.Group()
     this.mesh.name = `${visualKind}-projectile`
     this.mesh.userData.ignoreAimRaycast = true
@@ -200,6 +214,8 @@ export class ArrowProjectile {
     this._tmpTargetPos.copy(this.velocity).normalize()
     this.mesh.quaternion.setFromUnitVectors(ARROW_LOCAL_FORWARD, this._tmpTargetPos)
     scene.add(this.mesh)
+    if (!Number.isFinite(speed) || speed <= 0 || !Number.isFinite(origin.x + origin.y + origin.z)
+      || !Number.isFinite(direction.x + direction.y + direction.z) || direction.lengthSq() < 1e-12) this.destroy()
   }
 
   update(
@@ -220,6 +236,7 @@ export class ArrowProjectile {
     receivers: readonly DamageReceiver[] = [],
   ): void {
     if (!this.alive) return
+    if (!Number.isFinite(dt) || dt < 0) { this.destroy(); return }
 
     // If stuck in ground or wall, countdown decay
     if (this.stuck) {
@@ -231,12 +248,22 @@ export class ArrowProjectile {
     }
 
     this.previousPosition.copy(this.mesh.position)
-    // Apply gravity
-    this.velocity.y += GRAVITY * dt
-
-    // Move along velocity
+    // Exact constant-acceleration integration matches the AI's verified arc.
+    // Semi-implicit Euler accumulated metres of drop over a long flight.
     this.mesh.position.addScaledVector(this.velocity, dt)
-    this.travelledDistance += this.velocity.length() * dt
+    this.mesh.position.y -= 0.5 * PROJECTILE_GRAVITY * dt * dt
+    this.velocity.y -= PROJECTILE_GRAVITY * dt
+    this.travelledDistance += this.previousPosition.distanceTo(this.mesh.position)
+    this.flightAge += dt
+
+    // Town uses visualOnly movement and owns collision/damage separately, but
+    // still consumes exactly the same finite flight budget and scene bounds.
+    if (!Number.isFinite(this.mesh.position.x + this.mesh.position.y + this.mesh.position.z)
+      || Math.abs(this.mesh.position.x) > this.worldBound || Math.abs(this.mesh.position.z) > this.worldBound
+      || this.flightAge > this.maxFlightLifetimeSeconds || this.travelledDistance > this.maxTravelDistance) {
+      this.destroy()
+      return
+    }
 
     // Orient arrow towards velocity
     this._tmpTargetPos.copy(this.velocity).normalize()
@@ -248,9 +275,7 @@ export class ArrowProjectile {
     // world geometry, then collide against the procedural terrain height—not
     // the global y=0 plane, which incorrectly swallowed shots fired in valleys.
     const worldCollisionsEnabled = this.travelledDistance >= 0.12
-    const groundY = getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.05
-    let nearest = worldCollisionsEnabled && this.mesh.position.y <= groundY
-      ? Math.max(0, Math.min(1, (this.previousPosition.y - groundY) / Math.max(1e-9, this.previousPosition.y - this.mesh.position.y))) : Infinity
+    let nearest = worldCollisionsEnabled ? projectileTerrainContactTime(this.previousPosition, this.mesh.position) : Infinity
     let hitObstacle: ObstacleData | undefined
     let hitNpc: NPC | undefined
     let hitPlayer = false
@@ -260,8 +285,15 @@ export class ArrowProjectile {
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
       for (const obs of obstacles) {
-        const time = segmentBoxTime(this.previousPosition, this.mesh.position, obs.box)
-        if (time < nearest) { nearest = time; hitObstacle = obs }
+        if (obs.projectileBoxes?.length) {
+          for (const box of obs.projectileBoxes) {
+            const time = segmentBoxTime(this.previousPosition, this.mesh.position, box)
+            if (time < nearest) { nearest = time; hitObstacle = obs }
+          }
+        } else {
+          const time = segmentBoxTime(this.previousPosition, this.mesh.position, obs.box)
+          if (time < nearest) { nearest = time; hitObstacle = obs }
+        }
       }
     }
     const broadRadius = this.previousPosition.distanceTo(this.mesh.position) + 4
@@ -338,10 +370,6 @@ export class ArrowProjectile {
       return
     }
 
-    // Out of bounds check (despawn radius scaled with world scale)
-    if (this.mesh.position.lengthSq() > 400 * 400) {
-      this.destroy()
-    }
   }
 
   private _damageContext(): CombatDamageContext | undefined {

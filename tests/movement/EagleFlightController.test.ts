@@ -81,3 +81,158 @@ describe('Fixed-wing shared flight controller (zero actors)', () => {
     expect(flight.canLand(position, [], () => 0, 300)).toBe(false)
   })
 })
+
+import { EagleFlightAI, type EagleFlightCommand } from '../../src/movement/EagleFlightAI'
+
+describe('Eagle tactical steering through shared flight physics (zero actors)', () => {
+  it.each([20, 25, 30, 35, 40])('holds %sm terrain-relative idle cruise without accumulating its current altitude', altitude => {
+    const { flight, position, rotation } = airborne()
+    const ai = new EagleFlightAI(); ai.setCruiseAltitude(altitude)
+    const terrain = (x: number, z: number) => 8 + Math.sin(x / 90) * 2 + Math.sin(z / 100) * 2
+    position.y = terrain(0, 0) + altitude
+    const command: EagleFlightCommand = { kind: 'cruise', destination: new THREE.Vector3(0, position.y, 0) }
+    let min = Infinity, max = -Infinity
+    for (let frame = 0; frame < 3600; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, terrain))
+      flight.update(position, rotation, 1 / 60, [], 300, terrain)
+      if (frame > 600) { min = Math.min(min, position.y - terrain(position.x, position.z)); max = Math.max(max, position.y - terrain(position.x, position.z)) }
+    }
+    expect(min).toBeGreaterThan(altitude - 1.5)
+    expect(max).toBeLessThan(altitude + 1.5)
+    expect(flight.phase).toBe('cruise')
+  })
+
+  it.each([false, true])('airborneTarget=%s keeps a ranged tactic through a turn instead of alternating ranged and dive', targetAirborne => {
+    const { flight, position, rotation } = airborne()
+    const ai = new EagleFlightAI(), target = new THREE.Vector3(0, targetAirborne ? 32 : 0, -80)
+    const command: EagleFlightCommand = { kind: 'combat', destination: target, target, targetAirborne, ranged: true, rangedDistance: 400, targetVelocity: new THREE.Vector3(4, 0, 0) }
+    for (let frame = 0; frame < 300; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+      expect(ai.tactic).toBe(targetAirborne ? 'RANGED_AIR' : 'RANGED_GROUND')
+      expect(ai.canUseRanged).toBe(true)
+    }
+    expect(position.x).toBeGreaterThan(1)
+    expect(position.y).toBeCloseTo(30)
+  })
+
+  it.each([false, true])('airborneTarget=%s completes a staged dive and returns to its assigned cruise height', targetAirborne => {
+    const { flight, position, rotation } = airborne()
+    position.set(0, 30, -80)
+    const ai = new EagleFlightAI(), target = new THREE.Vector3(0, targetAirborne ? 15 : 0, 0)
+    const command: EagleFlightCommand = { kind: 'combat', destination: target, target, targetAirborne, targetVelocity: new THREE.Vector3(0, 0, 0), ranged: false }
+    let attacked = false, recovered = false, minY = Infinity
+    for (let frame = 0; frame < 7200 && !recovered; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+      if (!attacked && ai.canUseMelee && position.distanceTo(target) < 6.5) { ai.attacked(); attacked = true }
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+      minY = Math.min(minY, position.y)
+      recovered = attacked && ai.maneuver === 'recover' && position.y >= 29
+    }
+    expect(attacked, JSON.stringify({ position, tactic: ai.tactic, maneuver: ai.maneuver })).toBe(true)
+    expect(recovered).toBe(true)
+    expect(minY).toBeGreaterThanOrEqual(.2)
+    expect(flight.phase).toBe('cruise')
+  })
+
+  it('separates true 3D neighbors and detects a thin obstruction along the whole lookahead corridor', () => {
+    const { flight, position } = airborne()
+    const ai = new EagleFlightAI()
+    const command: EagleFlightCommand = { kind: 'formation', destination: new THREE.Vector3(0, 30, 100), altitude: 30 }
+    const unobstructed = { ...ai.update(1 / 60, flight, position, command, [], [], 300, () => 0) }
+    const neighbor = new THREE.Vector3(4, 30, 5)
+    const separated = { ...ai.update(1 / 60, flight, position, command, [neighbor], [], 300, () => 0) }
+    expect(separated.yaw).toBeLessThan(unobstructed.yaw)
+    const farAbove = { ...ai.update(1 / 60, flight, position, command, [new THREE.Vector3(0, 80, 0)], [], 300, () => 0) }
+    expect(farAbove.yaw).toBe(unobstructed.yaw)
+    const wall = { box: new THREE.Box3(new THREE.Vector3(-8, 0, 8), new THREE.Vector3(8, 60, 8.1)), isBarricade: false }
+    const avoided = ai.update(1 / 60, flight, position, command, [], [wall], 300, () => 0)
+    expect(Math.abs(avoided.yaw)).toBeGreaterThan(.1)
+  })
+
+  it.each([0, Math.PI / 2, Math.PI])('formation remains airborne while an explicit return physically approaches and lands at its own pad with yaw %s', landingYaw => {
+    const { flight, position, rotation } = airborne()
+    position.set(0, 30, 70)
+    const ai = new EagleFlightAI(), destination = new THREE.Vector3()
+    const command: EagleFlightCommand = { kind: 'formation', destination }
+    for (let frame = 0; frame < 1200; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+    }
+    expect(flight.phase).toBe('cruise'); expect(position.y).toBeCloseTo(30)
+    command.kind = 'return'; command.landingYaw = landingYaw
+    for (let frame = 0; frame < 7200 && flight.phase !== 'grounded'; frame++) {
+      const previous = position.clone()
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+      expect(previous.distanceTo(position)).toBeLessThan(.5)
+    }
+    expect(flight.phase, JSON.stringify({ position, flight: flight.snapshot() })).toBe('grounded')
+    expect(position.distanceTo(destination), JSON.stringify({ position, flight: flight.snapshot() })).toBeLessThan(3)
+  })
+})
+
+
+describe('Eagle tactical safety aborts (zero actors)', () => {
+  it('abandons an established air dive when the moving target drops below safe interception altitude', () => {
+    const { flight, position, rotation } = airborne()
+    position.set(0, 30, -80)
+    const ai = new EagleFlightAI(), target = new THREE.Vector3(0, 15, 0)
+    const command: EagleFlightCommand = { kind: 'combat', destination: target, target, targetAirborne: true, ranged: false }
+    for (let frame = 0; frame < 3600 && !ai.canUseMelee; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+    }
+    expect(ai.canUseMelee).toBe(true)
+    target.y = 1
+    const intent = ai.update(1 / 60, flight, position, command, [], [], 300, () => 0)
+    expect(ai.maneuver).toBe('recover')
+    expect(ai.canUseMelee).toBe(false)
+    expect(intent.pitch).toBeGreaterThanOrEqual(0)
+  })
+
+  it('flies around a tall thin wall and returns to terrain cruise instead of climbing indefinitely', () => {
+    const { flight, position, rotation } = airborne()
+    position.set(0, 30, -60)
+    const ai = new EagleFlightAI()
+    const command: EagleFlightCommand = { kind: 'formation', destination: new THREE.Vector3(0, 0, 100) }
+    const wall = { box: new THREE.Box3(new THREE.Vector3(-8, 0, 0), new THREE.Vector3(8, 70, .1)), isBarricade: false }
+    let passed = false, maxY = 0
+    for (let frame = 0; frame < 3600; frame++) {
+      flight.setIntent(ai.update(1 / 60, flight, position, command, [], [wall], 300, () => 0))
+      flight.update(position, rotation, 1 / 60, [wall], 300, () => 0)
+      passed ||= position.z > 20
+      maxY = Math.max(maxY, position.y)
+    }
+    expect(passed).toBe(true)
+    expect(maxY).toBeLessThan(40)
+    expect(position.y).toBeCloseTo(30, 1)
+  })
+})
+
+it('lands at a legal edge pad using the reciprocal in-bounds approach without boundary steering pushing it away', () => {
+  const { flight, position, rotation } = airborne()
+  position.set(190, 30, 50)
+  const ai = new EagleFlightAI(), destination = new THREE.Vector3(280, 0, 50)
+  const command: EagleFlightCommand = { kind: 'return', destination, landingYaw: -Math.PI / 2 }
+  for (let frame = 0; frame < 7200 && flight.phase !== 'grounded'; frame++) {
+    flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+    flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+  }
+  expect(flight.phase, JSON.stringify({ position, state: flight.snapshot() })).toBe('grounded')
+  expect(position.distanceTo(destination)).toBeLessThan(3)
+})
+
+it('rebuilds an outward dive stage on the in-bounds side of an edge target and reaches the attack window', () => {
+  const { flight, position, rotation } = airborne()
+  position.set(-285, 30, 0)
+  const ai = new EagleFlightAI(), target = new THREE.Vector3(-280, 0, 0)
+  const command: EagleFlightCommand = { kind: 'combat', destination: target, target, ranged: false }
+  let reached = false
+  for (let frame = 0; frame < 3600 && !reached; frame++) {
+    flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+    flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+    reached = ai.canUseMelee && position.distanceTo(target) < 6.5
+  }
+  expect(reached, JSON.stringify({ position, maneuver: ai.maneuver })).toBe(true)
+})

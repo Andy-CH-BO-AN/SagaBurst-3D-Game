@@ -6,6 +6,7 @@ import type { Player } from '../player/Player'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
 import { findEagleLandingPosition } from '../world/EagleLanding'
+import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
 import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 
 const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
@@ -86,7 +87,9 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly obstacles: () => readonly ObstacleData[],
     private readonly occupied: () => readonly THREE.Vector3[],
     private readonly sceneKey: () => string = () => 'town-home',
+    private readonly options: { eaglePads?: EaglePadReservations } = {},
   ) {
+    syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const state = this.readProfile().activeMission?.mountState
     if (!state) return
     for (const id of Object.keys(state.hp) as CareerMountId[]) {
@@ -128,12 +131,20 @@ export class CareerMountController implements EquipmentMountAdapter {
       return true
     }
 
+    syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
+    const previousPad = this.options.eaglePads?.get(PLAYER_EAGLE_PAD_OWNER)
+    const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
+    if (id === 'xongkoro' && this.options.eaglePads && !pad) return this.fail('私人巨鷹停放位已滿。')
     const occupied = this.occupied().filter(point => point !== this.active?.mount.group.position)
+    const eagleOccupied = [...occupied, ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])]
     const heading = this.player().facingYaw
     const position = id === 'xongkoro'
-      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), occupied, getScenePlayableWorldBound(this.scene))
+      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), eagleOccupied, getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), occupied)
-    if (!position) return this.fail('附近空間不足，請移到較空曠的位置。')
+    if (!position) {
+      if (pad && !previousPad) this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
+      return this.fail('附近空間不足，請移到較空曠的位置。')
+    }
 
     const previous = this.active
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
@@ -150,11 +161,13 @@ export class CareerMountController implements EquipmentMountAdapter {
       if (previousHp === undefined) this.hp.delete(id)
       else this.hp.set(id, previousHp)
       mount.dispose()
+      if (pad && !previousPad) this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
       return this.fail('保存失敗，坐騎沒有變更。')
     }
 
     if (previous) this.removeMountVisual(previous)
     this.active = { id, mount }
+    syncCareerEaglePads(this.options.eaglePads, next, this.sceneKey())
     this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
     this.statusText = `${config.name}已騎乘。`
     return true
@@ -167,11 +180,16 @@ export class CareerMountController implements EquipmentMountAdapter {
     const savedId = profile.activeMission?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
+    syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
+    const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
+    // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
+    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount) return false
     const heading = aerial?.mount?.position.yaw ?? this.player().facingYaw
     const position = id === 'xongkoro' && aerial?.mount
       ? new THREE.Vector3(aerial.mount.position.x, aerial.mount.position.y, aerial.mount.position.z)
       : id === 'xongkoro'
-      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), this.occupied(), getScenePlayableWorldBound(this.scene))
+      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(),
+        [...this.occupied(), ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])], getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
     const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
@@ -204,6 +222,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (next.activeMission?.mountState) delete next.activeMission.mountState.activeMountId
     if (!this.commit(next)) return this.fail('保存失敗，分配沒有變更。')
     if (this.active?.id === id) { this.removeMountVisual(this.active); this.active = null }
+    if (id === 'xongkoro') this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
     this.statusText = '坐騎已解除分配，可交給隊員或出售。'
     return true
   }
@@ -233,6 +252,7 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   /** Called after an ownership change has been saved; never writes another transaction. */
   syncOwnership(): void {
+    syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const owned = new Set(ownedCareerMountIds(this.readProfile()))
     if (this.active && (!owned.has(this.active.id) || this.readProfile().selectedMountId !== this.active.id)) {
       this.removeMountVisual(this.active)
@@ -244,6 +264,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   dispose(): void {
+    this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
     if (this.active) {
       if (this.hp.get(this.active.id) !== this.active.mount.currentHp) {
         this.hp.set(this.active.id, this.active.mount.currentHp)

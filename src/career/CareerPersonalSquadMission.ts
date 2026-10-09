@@ -15,6 +15,8 @@ export interface PersonalActorCheckpoint {
   position?: PersonalActorPosition
   hp?: number
   boarding?: boolean
+  /** Stable private home identity; independent of full squad roster order. */
+  eaglePadId?: string
   fall?: FallingRiderSnapshot
   ammo?: number
   shieldImpact?: number
@@ -97,6 +99,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
     const formationPosition = position(actor?.formation?.position)
     members[id] = { status,
       ...(actor?.boarding === true ? { boarding: true } : {}),
+      ...(typeof actor?.eaglePadId === 'string' && actor.eaglePadId.length <= 100 ? { eaglePadId: actor.eaglePadId } : {}),
       ...(parseFallingRiderSnapshot(actor?.fall) ? { fall: parseFallingRiderSnapshot(actor?.fall) } : {}),
       ...(point ? { position: point } : {}),
       ...(finite(actor?.hp) ? { hp: nonnegative(actor.hp) } : {}),

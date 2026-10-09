@@ -31,7 +31,7 @@ describe('Veteran Home Defense career mission', () => {
     expect(template).toMatchObject({
       id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID, kind: 'town-defense', name: '守衛家園 · 老兵守城',
       minRank: 'veteran', requiresCompletions: 5, storyOnce: false,
-      friendlySoldiers: 203, friendlyCombatants: 204, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
+      friendlySoldiers: 208, friendlyCombatants: 209, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
     })
     expect(careerMissionTierForTemplateId(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(3)
     expect(availableCareerMissionsForPage(fourWins, 'veteran').some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)

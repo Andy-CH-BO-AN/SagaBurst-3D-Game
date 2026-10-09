@@ -1,3 +1,4 @@
+import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
@@ -18,6 +19,7 @@ export class TownWorld {
   readonly root = new THREE.Group()
   readonly roads: TownRoad[] = []
   readonly hr: TownHRLayout
+  readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
   readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
@@ -128,12 +130,13 @@ export class TownWorld {
     const hrRoot = this.buildings.find(building => building.id === 'hr-center')!.hp.root as THREE.Group
     this.sign(hrRoot, 'HR CENTER', 0, 6.5, this.hr.depth / 2 + .5, 9)
     this.eagleTraining = resolveTownEagleTrainingGround(this.obstacles, this.roads, this.hr)
+    this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
     this.eagleTrainingGround()
     this.batch(this.root)
   }
 
   private eagleTrainingGround(): void {
-    const { site, trainer } = this.eagleTraining
+    const { trainer } = this.eagleTraining
     const y = getTerrainHeight(trainer.x, trainer.z)
     const board = new THREE.Group(); board.name = 'xongkoro-eagle-training-ground'
     board.position.set(trainer.x - 4, y, trainer.z + 1); this.root.add(board)
@@ -141,12 +144,14 @@ export class TownWorld {
     this.sign(board, 'xongkoro', 0, 2.5, 0, 6)
     this.sign(board, '老鷹訓練場 · E 交談', 0, 1.5, 0, 6)
     // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
-    for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
+    for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
       for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
         const x = site.x + dx, z = site.z + dz
         this.cube(this.root, x, getTerrainHeight(x, z) + .2, z, .3, .4, .3, this.stone)
       }
     }
+    const garrison = this.eagleGarrison.pads[0]
+    this.sign(this.root, TOWN_EAGLE_GARRISON_NAME, garrison.x, getTerrainHeight(garrison.x, garrison.z) + 2.8, garrison.z - 10, 10)
     this.sign(this.root, '老鷹訓練場 →', this.hr.officer.x + 4, getTerrainHeight(this.hr.officer.x, this.hr.officer.z) + 2.8, this.hr.officer.z, 4)
   }
 

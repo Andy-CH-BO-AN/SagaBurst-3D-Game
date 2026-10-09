@@ -1,3 +1,4 @@
+import { parseTownEagleGarrisons } from '../town/TownEagleGarrisonState'
 import { parseCareerAerialState } from './CareerAerialState'
 import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { parsePersonalSquad } from './CareerPersonalSquad'
@@ -405,6 +406,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
       ? { starterWeaponId: raw.starterWeaponId } : {}),
     ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
+    ...(parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) ? { townEagleGarrisons: parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) } : {}),
     ...(parseCareerAerialState(raw.playerAerialState) ? { playerAerialState: parseCareerAerialState(raw.playerAerialState) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),

@@ -1,3 +1,4 @@
+import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
 import { TOWN_CITY, TOWN_CAVALRY_FIELD, type TownRoad } from './TownLayout'
@@ -64,8 +65,9 @@ export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
  * is a resident identity even though TownScene materializes it as a separate Mount.
  * HR's position comes from the built world's layout, regardless of recruitment unlocks.
  */
-export function townConquestRoster(layout: TownHRLayout, residents: readonly TownActorSpec[] = townRoster(), eagleTraining?: TownEagleTrainingGround): TownActorSpec[] {
-  const roster = [...residents, hrOfficerSpec(layout), ...(eagleTraining ? [eagleTrainerSpec(eagleTraining)] : [])]
+export function townConquestRoster(layout: TownHRLayout, residents: readonly TownActorSpec[] = townRoster(), eagleTraining?: TownEagleTrainingGround, eagleGarrison?: TownEagleGarrisonLayout): TownActorSpec[] {
+  const positioned = new Map(townEagleRoster(eagleGarrison).map(spec => [spec.id, spec]))
+  const roster = [...residents.map(spec => eagleGarrison && spec.eagle ? positioned.get(spec.id) ?? spec : spec), hrOfficerSpec(layout), ...(eagleTraining ? [eagleTrainerSpec(eagleTraining)] : [])]
   if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate town conquest actor ID')
   return roster
 }

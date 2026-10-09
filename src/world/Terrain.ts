@@ -11,6 +11,8 @@ import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle
 import type { CharacterFaction } from './CharacterVisuals'
 import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
 
+/** Sine amplitudes bound every terrain valley; fortified camp offsets are nonnegative. */
+export const TERRAIN_MIN_HEIGHT = -3.7
 export const TERRAIN_SIZE = 640
 export const PLAYABLE_WORLD_BOUND = 300
 

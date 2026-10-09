@@ -3,13 +3,24 @@ import * as THREE from 'three'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
-import { damageMount } from '../../src/combat/DamageRouter'
-import { createPlayerCombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { damageMount, damagePlayer } from '../../src/combat/DamageRouter'
+import { createPlayerCombatActorRef, createNpcCombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
 import { advanceUntil } from '../helpers/simulation'
 import { resolveMountImpacts } from '../../src/combat/MountImpact'
+import { ArrowProjectile } from '../../src/world/ArrowProjectile'
+import type { ProjectileFlightBudget } from '../../src/combat/ProjectileBallistics'
 
 vi.mock('../../src/world/XongkoroVisual', async () => ({
   XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble,
+}))
+vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/MakiRangerEquipment')>()),
+  createMakiRangerBowInstance: () => ({
+    model: new THREE.Group(), topTip: new THREE.Vector3(0, .8, 0), bottomTip: new THREE.Vector3(0, -.8, 0),
+    profile: { id: 'maki-ranger-bow', gripRadius: .02, gripLength: .2, visualScale: 1,
+      gripCenterLocal: new THREE.Vector3(), shootingAxis: new THREE.Vector3(0, 0, -1),
+      longitudinalAxis: new THREE.Vector3(0, 1, 0), contactNormal: new THREE.Vector3(1, 0, 0) },
+  }),
 }))
 vi.mock('../../src/world/Terrain', async original => ({ ...(await original<typeof import('../../src/world/Terrain')>()), getTerrainHeight: () => 0 }))
 
@@ -89,21 +100,66 @@ describe('NPC eagle lifecycle and combat caller wiring', () => {
     expect(deaths).toHaveBeenCalledTimes(1)
     expect(mount.riderNpc).toBeNull()
   })
-  it.each(['recurve_longbow', 'pilum_standard'])('the normal NPC update releases %s from its airborne weapon socket while flight continues', ranged => {
+  it.each([['recurve_longbow', 22], ['pilum_standard', 22], ['elven_runebow', 390], ['maki-ranger-bow-ranged', 490]] as const)('the normal NPC update releases %s against a %dm target from its airborne weapon socket while flight continues', (ranged, distance) => {
     const { scene, npc, mount, placeAirborne } = fixture(ranged)
     const player = new Player(scene); onTestFinished(() => player.dispose())
-    player.group.position.set(0, -player.bodyBaseOffset, 22)
-    placeAirborne(8, new THREE.Vector3(0, 0, 48 / 3.6))
-    const shots: Array<{ origin: THREE.Vector3; kind: string }> = []
+    const startZ = distance > 300 ? -250 : 0
+    mount.group.position.z = startZ
+    player.group.position.set(0, -player.bodyBaseOffset, startZ + distance)
+    placeAirborne(distance > 300 ? 30 : 8, new THREE.Vector3(0, 0, 48 / 3.6))
+    const shots: Array<{ origin: THREE.Vector3; kind: string; budget?: ProjectileFlightBudget }> = []
     const before = mount.group.position.clone(), ammo = npc.combatAmmo
     for (let frame = 0; frame < 1800 && !shots.length; frame++) npc.update(1 / 60, player, [npc], [npc], [], { setFill() {} }, () => {},
-      (origin, _direction, kind) => shots.push({ origin: origin.clone(), kind }), true)
+      (origin, _direction, kind, budget) => shots.push({ origin: origin.clone(), kind, budget }), true)
     expect(shots.length, JSON.stringify({ weapon: ranged, position: npc.position, flight: mount.flight!.snapshot(), action: npc.combatAnimationAction, range: npc.maxRangedAttackDistance, ammo: npc.combatAmmo })).toBeGreaterThan(0)
     expect(shots[0].kind).toBe(ranged === 'pilum_standard' ? 'pilum' : 'arrow')
     expect(shots[0].origin.y).toBeGreaterThan(2)
+    if (distance > 300) {
+      expect(shots[0].origin.distanceTo(player.group.position)).toBeGreaterThan(300)
+      expect(shots[0].budget?.maxLifetimeSeconds).toBeGreaterThan(5)
+    }
     expect(mount.group.position.distanceTo(before)).toBeGreaterThan(1)
     expect(npc.combatAmmo).toBe(ammo - 1)
     expect(mount.flight!.speed).toBeGreaterThan(7)
+  })
+  it('RANGED_AIR independently leads a moving eagle with gravity and releases a non-tracking arrow', () => {
+    // Two real mounts, one NPC and Player; render-only doubles retain actual flight and launch behavior.
+    const { scene, npc, mount, placeAirborne } = fixture('elven_runebow')
+    const player = new Player(scene); onTestFinished(() => player.dispose())
+    const targetMount = new Mount(scene, MountType.XONGKORO, 0, 220, Math.PI / 2)
+    onTestFinished(() => targetMount.dispose())
+    player.mountVehicle(targetMount)
+    targetMount.group.position.y = 30
+    targetMount.flight!.restore({ phase: 'cruise', yaw: Math.PI / 2, pitch: 0, bank: 0, speed: 48 / 3.6, velocity: { x: 48 / 3.6, y: 0, z: 0 } })
+    placeAirborne(32.8, new THREE.Vector3(0, 0, 48 / 3.6))
+    let shot: { origin: THREE.Vector3; direction: THREE.Vector3; target: THREE.Vector3; velocity: THREE.Vector3; yaw: number } | undefined
+    for (let frame = 0; frame < 600 && !shot; frame++) {
+      targetMount.beginControlledFrame()
+      targetMount.setFlightIntent({ yaw: Math.PI / 2, pitch: 0 })
+      targetMount.finishControlledFrame(1 / 60, [])
+      player.syncMountTransform()
+      npc.update(1 / 60, player, [npc], [], [], { setFill() {} }, () => {}, (origin, direction) => {
+        shot = { origin: origin.clone(), direction: direction.clone(), target: player.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)),
+          velocity: targetMount.flight!.velocity.clone(), yaw: mount.flight!.yaw }
+      }, true)
+    }
+    expect(shot).toBeDefined()
+    const released = shot!
+    expect(npc.eagleTactic).toBe('RANGED_AIR')
+    const flightTime = (released.target.z - released.origin.z) / (released.direction.z * npc.rangedProjectileSpeed - released.velocity.z)
+    const impact = released.origin.clone().addScaledVector(released.direction, npc.rangedProjectileSpeed * flightTime)
+    impact.y -= 4.9 * flightTime ** 2
+    expect(impact.distanceTo(released.target.clone().addScaledVector(released.velocity, flightTime))).toBeLessThan(1e-5)
+    const shotYaw = Math.atan2(released.direction.x, released.direction.z)
+    expect(Math.abs(shotYaw - released.yaw)).toBeGreaterThan(.01)
+    expect(impact.x).toBeGreaterThan(released.target.x + 10)
+    expect(mount.flight!.speed).toBeGreaterThan(7)
+    const arrow = new ArrowProjectile(scene, released.origin, released.direction, npc.rangedProjectileSpeed, 20, Faction.ENEMY)
+    onTestFinished(() => arrow.destroy())
+    targetMount.setFlightIntent({ yaw: -Math.PI / 2, pitch: .4 })
+    arrow.update(.1, player, [], [], () => {}, () => { throw new Error('no immediate target contact') }, undefined, true)
+    expect(arrow.mesh.position.x).toBeCloseTo(released.origin.x + released.direction.x * 65 * .1)
+    expect(arrow.mesh.position.z).toBeCloseTo(released.origin.z + released.direction.z * 65 * .1)
   })
   it('a fast eagle never routes the passive MountImpact path', () => {
     const { scene, npc, mount, placeAirborne } = fixture()
@@ -131,4 +187,130 @@ describe('NPC eagle lifecycle and combat caller wiring', () => {
     expect(npc.weaponSweep.contact.attackSource).toBe('xongkoro')
     expect(npc.meleeWeaponId).toBeNull()
   })
+})
+
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
+
+describe('NPC aerial orders and indexed physical neighbors', () => {
+  it.each(['ground', 'air'] as const)('follows a %s leader at terrain cruise or the same airborne altitude without stacking height', leaderKind => {
+    const { scene, npc, mount, placeAirborne } = fixture()
+    const player = new Player(scene); onTestFinished(() => player.dispose())
+    const leaderMount = leaderKind === 'air' ? new Mount(scene, MountType.XONGKORO, 0, 50, 0) : null
+    if (leaderMount) {
+      onTestFinished(() => leaderMount.dispose())
+      player.mountVehicle(leaderMount)
+      leaderMount.group.position.y = 35
+      leaderMount.flight!.restore({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } })
+      player.syncMountTransform()
+    } else player.group.position.set(0, -player.bodyBaseOffset, 50)
+    placeAirborne(30)
+    npc.assignFollowTarget(player, 0, new THREE.Vector3(0, 0, -25))
+    const navigation = new NavigationWorld()
+    for (let frame = 0; frame < 1800; frame++) npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    expect(mount.isAirborne).toBe(true)
+    expect(mount.group.position.y).toBeCloseTo(leaderKind === 'air' ? 35 : 30, 1)
+    expect(npc.tacticalOrder).toBe('follow')
+  })
+
+  it('a grounded hold suppresses takeoff until released and explicit return lands without using ground navigation', () => {
+    const { npc, mount } = fixture()
+    const navigation = new NavigationWorld()
+    const navigationRequests = vi.spyOn(navigation, 'queryPath')
+    npc.setEagleFlightOrder({ kind: 'hold', cruiseAltitude: 25 })
+    for (let frame = 0; frame < 120; frame++) npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    expect(mount.isAirborne).toBe(false)
+    npc.setEagleFlightOrder(null)
+    for (let frame = 0; frame < 900; frame++) npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    expect(mount.group.position.y).toBeGreaterThan(23)
+    npc.setEagleFlightOrder({ kind: 'return', target: new THREE.Vector3(), landingYaw: 0 })
+    advanceUntil(() => !mount.isAirborne, () => npc.updateTownTravel(1 / 60, 0, [], [], navigation),
+      { maxSimulationSeconds: 120, failureMessage: 'Eagle return to assigned pad' })
+    expect(mount.group.position.length()).toBeLessThan(3)
+    expect(navigationRequests).not.toHaveBeenCalled()
+  })
+
+  it('idle uses the all-mount spatial index even when ground nearbyNPCs is empty', () => {
+    const { scene, npc, mount, placeAirborne } = fixture()
+    const other = new Mount(scene, MountType.XONGKORO, 7, 8, 0); onTestFinished(() => other.dispose())
+    const grid = new SpatialGrid<Mount>(8)
+    npc.combatMountGrid = grid
+    placeAirborne(32.8, new THREE.Vector3(0, 0, 48 / 3.6))
+    other.group.position.y = mount.group.position.y
+    grid.insert(mount)
+    const navigation = new NavigationWorld()
+    npc.updateTownTravel(0, 0, [], [], navigation)
+    const unobstructedYaw = mount.flight!.intent.yaw
+    grid.insert(other)
+    npc.updateTownTravel(.1, 0, [], [], navigation)
+    expect(Math.abs(mount.flight!.intent.yaw - unobstructedYaw)).toBeGreaterThan(.2)
+    expect(mount.flight!.yaw).toBeGreaterThanOrEqual(-.085 - 1e-6)
+    expect(npc.eagleTactic).toBeNull()
+  })
+
+  it('a committed air dive intercepts a moving enemy mount, applies one swept contact and climbs away', () => {
+    const { scene, npc, mount, placeAirborne } = fixture()
+    const player = new Player(scene); onTestFinished(() => player.dispose())
+    const targetMount = new Mount(scene, MountType.XONGKORO, 0, 25, 0); onTestFinished(() => targetMount.dispose())
+    player.mountVehicle(targetMount)
+    targetMount.group.position.y = 15
+    targetMount.flight!.restore({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 7, velocity: { x: 0, y: 0, z: 7 } })
+    player.syncMountTransform()
+    const grid = new SpatialGrid<Mount>(8); npc.combatMountGrid = grid
+    placeAirborne(32.8, new THREE.Vector3(0, 0, 48 / 3.6))
+    let elapsed = 0, contacts = 0
+    const tick = () => {
+      elapsed += 1 / 60
+      targetMount.beginControlledFrame()
+      targetMount.setFlightIntent({ yaw: elapsed * .12, pitch: 0, brake: true, takeoff: true })
+      targetMount.finishControlledFrame(1 / 60, [])
+      player.syncMountTransform()
+      grid.clear(); grid.insert(mount); grid.insert(targetMount)
+      npc.update(1 / 60, player, [npc], [], [], { setFill() {} }, (amount, isPlayer) => {
+        if (isPlayer) {
+          const result = damagePlayer(player, amount, { setFill() {} }, null,
+            { source: createNpcCombatActorRef(npc), method: 'melee', contact: npc.weaponSweep.contact })
+          if (result.appliedDamage > 0) contacts++
+        }
+      }, () => {}, true)
+    }
+    advanceUntil(() => targetMount.currentHp < 200, tick, { maxSimulationSeconds: 120, failureMessage: 'Moving aerial eagle interception' })
+    expect(npc.eagleTactic).toBe('DIVE_AIR')
+    expect(targetMount.currentHp).toBe(140)
+    expect(npc.weaponSweep.contact.attackSource).toBe('xongkoro')
+    advanceUntil(() => mount.group.position.y >= 29, tick, { maxSimulationSeconds: 20, failureMessage: 'Eagle post-strike climb' })
+    expect(contacts).toBe(1)
+    expect(targetMount.currentHp).toBe(140)
+    expect(mount.isAirborne).toBe(true)
+  })
+})
+
+it.each(['coincident', 'head-on'] as const)('two allied eagles choose opposite physical escape paths from a %s collision using one mount index', scenario => {
+  // Two real riders and two mounts are necessary to verify pairwise opposite steering.
+  const { scene, npc, mount, placeAirborne } = fixture()
+  const otherNpc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Other eagle rider', 1, false,
+    { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: 'xongkoro' })
+  onTestFinished(() => otherNpc.dispose())
+  const other = new Mount(scene, MountType.XONGKORO, 0, scenario === 'head-on' ? 50 : 0, 0)
+  onTestFinished(() => other.dispose())
+  otherNpc.mountVehicle(other)
+  placeAirborne(32.8, new THREE.Vector3(0, 0, 48 / 3.6))
+  other.group.position.y = mount.group.position.y
+  other.flight!.restore({ phase: 'cruise', yaw: scenario === 'head-on' ? Math.PI : 0, pitch: 0, bank: 0,
+    speed: 48 / 3.6, velocity: { x: 0, y: 0, z: scenario === 'head-on' ? -48 / 3.6 : 48 / 3.6 } })
+  const grid = new SpatialGrid<Mount>(8), navigation = new NavigationWorld()
+  npc.combatMountGrid = grid; otherNpc.combatMountGrid = grid
+  grid.insert(mount); grid.insert(other)
+  npc.updateTownTravel(0, 0, [], [], navigation); otherNpc.updateTownTravel(0, 0, [], [], navigation)
+  expect(Math.sin(mount.flight!.intent.yaw)).toBeLessThan(0)
+  expect(Math.sin(other.flight!.intent.yaw)).toBeGreaterThan(0)
+  let closest = Infinity
+  for (let frame = 0; frame < 180; frame++) {
+    grid.clear(); grid.insert(mount); grid.insert(other)
+    npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    otherNpc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    closest = Math.min(closest, mount.group.position.distanceTo(other.group.position))
+  }
+  expect(mount.group.position.distanceTo(other.group.position)).toBeGreaterThan(12)
+  if (scenario === 'head-on') expect(closest).toBeGreaterThan(12)
 })

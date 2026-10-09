@@ -30,6 +30,25 @@ function defenseFixture(phase: CareerMissionPhase = 'ATTACKING', assault = false
 }
 
 describe('Town field combat through the mission interface', () => {
+  it.each(['PREPARING', 'ATTACKING', 'RESULT'] as const)('passes %s siege phase permission to air duty before any normal actor simulation', phase => {
+    const h = defenseFixture(phase), eagle = combatActor('town-eagle-rider:1')
+    h.defense.fieldNpcs = [eagle]
+    const duty = vi.fn(() => true)
+    h.simulation.updateEagleDuty = duty
+    h.combat.update(.02, 0, 0)
+    expect(duty).toHaveBeenCalledExactlyOnceWith(eagle, .02, phase === 'ATTACKING')
+    expect(eagle.update).not.toHaveBeenCalled()
+  })
+  it('forwards the verified shot budget from NPC release through the Town mission boundary', () => {
+    const h = combatFixture(), eagle = combatActor('town-eagle-rider:1')
+    h.field.fieldNpcs = [eagle]
+    h.combat.update(.02, 0, 0)
+    const origin = new THREE.Vector3(0, 30, 0), direction = new THREE.Vector3(0, .5, .5)
+    const budget = { maxLifetimeSeconds: 9, maxTravelDistance: 1600 }
+    eagle.update.mock.calls[0][7](origin, direction, 'arrow', budget)
+    expect(h.simulation.fireNpc).toHaveBeenCalledExactlyOnceWith(origin, direction, 'arrow', eagle, budget)
+  })
+
   it('updates navigation, flow, cues and residents before actors, then the active career mount', () => {
     const h = combatFixture(), log: string[] = []
     const actor = combatActor('captain'), bystander = combatResident(combatActor('merchant'), 'merchant')

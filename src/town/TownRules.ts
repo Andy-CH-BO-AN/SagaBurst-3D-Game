@@ -1,3 +1,4 @@
+import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
@@ -14,7 +15,7 @@ export const townName = (faction: CharacterFaction): string => faction === 'roma
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
 export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer' | 'eagle-trainer'
-export type TownDuty = 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
+export type TownDuty = 'eagle_garrison' | 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
 export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 export type TownUnitKind = 'sword_cavalry' | 'lancer' | 'horse_archer' | 'melee' | 'spearman' | 'ranged' | 'archer'
@@ -32,6 +33,8 @@ export interface TownActorSpec {
   /** Permanent Captain identity, independent of the runtime acting leader. */
   patrolLeader?: boolean
   gateId?: TownGateId
+  /** Permanent Town pair identity; never inferred from resident array order. */
+  eagle?: { riderId: string; mountId: string; homePadId: string; cruiseAltitude: number; home: { x: number; z: number; yaw: number } }
   tier: 2 | 3 | 4
   x: number
   z: number
@@ -50,7 +53,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
   const presetId = `${faction}_${kind}` as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
-  const tier = role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
+  const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
   const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || patrolCaptain ? 4 : tier
   return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
 }
@@ -124,6 +127,7 @@ export function townRoster(): TownActorSpec[] {
       })
     }
   }
+  result.push(...townEagleRoster())
   return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }

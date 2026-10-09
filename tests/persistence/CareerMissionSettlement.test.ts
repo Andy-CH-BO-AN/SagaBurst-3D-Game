@@ -43,7 +43,7 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
   expect(store.save(profile)).toBe(true)
 
-  const restoreResident = (spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw'>) => {
+  const restoreResident = (spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw'> & Partial<Pick<TownActorSpec, 'id' | 'duty' | 'mounted'>>) => {
     const npc = {
       group: new THREE.Group(), dead: true,
       dismountFromMount: vi.fn(() => events.push('dismount')),
@@ -82,9 +82,10 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
   const threats = new Set(residents.map(resident => resident.npc))
   const town = {
     residents, cat,
+    beginEagleMissionReturn: vi.fn((id: string) => events.push(`eagle-return:${id}`)),
     releaseExternalThreat: vi.fn((npc: NPC) => { threats.delete(npc) }),
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('town-repair')) },
-    navigation: { sync: vi.fn(() => events.push('navigation')) },
+    navigation: { sync: vi.fn(() => { events.push('navigation'); return true }) },
     inventory: { sheathAll: vi.fn(() => events.push('sheath')) },
     player: { group: new THREE.Group() },
     clearCombatShots: vi.fn(() => events.push('shots')),
@@ -328,8 +329,14 @@ describe('Town mission return saving and recovery through the settlement interfa
   it('restores all Town casualties after defense, including guards outside the defense roster', () => {
     const f = fixture('town-defense', { savedResult: true, fullTown: true })
     expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'defense' })
-    expect(f.town.residents).toHaveLength(224)
+    expect(f.town.residents).toHaveLength(229)
     for (const resident of f.town.residents) {
+      if (resident.spec.duty === 'eagle_garrison') {
+        expect(f.town.beginEagleMissionReturn).toHaveBeenCalledWith(resident.spec.id)
+        expect(resident.npc.restoreForTown).not.toHaveBeenCalled()
+        expect(f.threats.has(resident.npc)).toBe(false)
+        continue
+      }
       expect(resident.npc.restoreForTown).toHaveBeenCalledOnce()
       expect(resident.npc.dead).toBe(false)
       expect(f.threats.has(resident.npc)).toBe(false)

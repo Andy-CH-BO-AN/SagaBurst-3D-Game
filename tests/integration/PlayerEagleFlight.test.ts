@@ -1,3 +1,5 @@
+import { Game } from '../../src/Game'
+import type { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Player, type ArrowLaunchEvent } from '../../src/player/Player'
@@ -218,4 +220,25 @@ describe('Player eagle production wiring', () => {
     expect(h.player.arrowCount).toBe(29)
     expect(h.mount.group.position.z).toBeGreaterThan(z + 15)
   })
+})
+
+
+it('Game Player fire callback carries a shot-specific airborne bow budget into the real projectile', () => {
+  const h = harness()
+  const scene = new THREE.Scene(), arrows: ArrowProjectile[] = []
+  // Only the scene/UI boundary is provided; the production callback creates/updates a real arrow.
+  const game = Object.assign(Object.create(Game.prototype), {
+    scene, arrows, player: h.player, inventoryManager: h.inventory,
+    combatEvents: { emit: vi.fn() }, quiverUI: { setArrowCount: vi.fn() },
+  }) as { _bindPlayerCombatCallbacks(): void }
+  onTestFinished(() => arrows.forEach(arrow => arrow.destroy()))
+  game._bindPlayerCombatCallbacks()
+  const origin = new THREE.Vector3(0, 40, -200), direction = new THREE.Vector3(0, .4, Math.sqrt(.84))
+  h.player.onFireArrow!({ origin, direction, speed: 65, damage: 52.5, visualKind: 'arrow' })
+  expect(arrows).toHaveLength(1)
+  expect(arrows[0].maxFlightLifetimeSeconds).toBeGreaterThan(7)
+  expect(arrows[0].maxFlightLifetimeSeconds).toBeLessThan(11)
+  arrows[0].update(6, h.player, [], [], vi.fn(), () => { throw new Error('Own rider must not be hit') }, undefined, true)
+  expect(arrows[0].isAlive).toBe(true)
+  expect(arrows[0].mesh.position.y).toBeCloseTo(40 + .4 * 65 * 6 - .5 * 9.8 * 36)
 })
