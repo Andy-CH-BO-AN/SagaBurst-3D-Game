@@ -22,6 +22,14 @@ import type { DamageableObstacle } from './DamageableObstacle'
 const ARROW_LOCAL_FORWARD = new THREE.Vector3(0, 0, -1)
 export type ProjectileVisualKind = 'arrow' | 'pilum'
 
+/** Released mounts keep their allegiance; only truly unowned mounts block every faction. */
+function projectileCanHitMount(mount: Mount, shooterFaction: Faction): boolean {
+  const allegiance = mount.combatOwner?.allegiance
+    ?? mount.riderNpc?.faction
+    ?? (mount.riderPlayer ? Faction.PLAYER : undefined)
+  return allegiance !== shooterFaction
+}
+
 export interface ProjectileAttribution {
   source: CombatActorRef
   weaponId?: string
@@ -310,9 +318,9 @@ export class ArrowProjectile {
         Object.assign(this.bestContact, this.contact)
       }
     }
-    // Mounts remain physical targets after release, independent of faction or NPC liveness.
+    // Hostile and unowned mounts remain physical targets even after their rider leaves.
     for (const mount of mounts) {
-      if (mount.dead || mount.disposed || (this.isPlayerFired && mount === player.currentMount)
+      if (mount.dead || mount.disposed || !projectileCanHitMount(mount, this.shooterFaction) || (this.isPlayerFired && mount === player.currentMount)
         || (mount.riderNpc && mount.riderNpc.combatantId === this.attribution?.source.actorId)
         || mount.group.position.distanceToSquared(this.previousPosition) > (broadRadius + mount.combatRadius) ** 2) continue
       if (traceCombatSegment(mount, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {

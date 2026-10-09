@@ -57,12 +57,12 @@ export class CombatRenderWarmup {
 
       // Bow visuals: viking_bow and elven_runebow
       const vikingBowGroup = new THREE.Group()
-      const vikingBowVisual = new CharacterBowVisual(vikingBowGroup, vikingBowGroup)
+      const vikingBowVisual = new CharacterBowVisual(vikingBowGroup, vikingBowGroup, vikingBowGroup)
       vikingBowVisual.rebuild('viking_bow')
       warmupScene.add(vikingBowGroup)
 
       const elvenBowGroup = new THREE.Group()
-      const elvenBowVisual = new CharacterBowVisual(elvenBowGroup, elvenBowGroup)
+      const elvenBowVisual = new CharacterBowVisual(elvenBowGroup, elvenBowGroup, elvenBowGroup)
       elvenBowVisual.rebuild('elven_runebow')
       warmupScene.add(elvenBowGroup)
 

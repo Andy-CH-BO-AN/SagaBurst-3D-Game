@@ -261,7 +261,7 @@ describe('NPC equipment shadow LOD', () => {
         ownEquipmentRoot(actionPivot, () => meshes(gripPivot)
           .flatMap(mesh => Array.isArray(mesh.material) ? mesh.material : [mesh.material])
           .filter(material => !material.name.startsWith('procedural-')))
-        const bow = new CharacterBowVisual(actionPivot, gripPivot)
+        const bow = new CharacterBowVisual(actionPivot, gripPivot, actionPivot)
         bow.rebuild(bowId)
         // CharacterBowVisual calls polishWeaponMaterials internally
 

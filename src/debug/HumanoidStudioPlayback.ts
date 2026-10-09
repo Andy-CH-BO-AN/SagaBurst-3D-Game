@@ -66,7 +66,7 @@ export class HumanoidStudioPlayback {
     this.bow.add(bowGrip)
     applyBowAttachment(instance.rig.left.handSocket, this.bow)
     instance.rig.left.handSocket.add(this.bow)
-    this.bowVisual = new CharacterBowVisual(this.bow, bowGrip)
+    this.bowVisual = new CharacterBowVisual(this.bow, bowGrip, instance.root)
     if (assets) this.bowVisual.rebuildFromAsset(assets.bow.model, assets.bow.profile, assets.bow.topTip, assets.bow.bottomTip)
     else this.bowVisual.rebuild('recurve_longbow')
     this.animator = new CharacterCombatAnimator(instance.rig, this.sword, state === 'pilumThrow' ? this.pilum : this.bow)
