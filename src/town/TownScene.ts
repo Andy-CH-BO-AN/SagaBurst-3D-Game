@@ -389,7 +389,7 @@ export class TownScene {
     window.addEventListener('pagehide', () => {
       this.flushCareerSkillProgression()
       this.persistPersonalSquad(0, true)
-      if (this.defense?.active && !this.defense.active.result) this.defense.persistRuntimeProgress(true)
+      if (this.defense?.active && !this.defense.active.result) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
       if (this.profile.activeMission?.kind === 'veteran-field'
         && (!this.profile.activeMission.result || this.profile.activeMission.phase === 'RETURNING')) this.mission.persistRuntimeProgress(true)
     }, { signal: this.listeners.signal })
