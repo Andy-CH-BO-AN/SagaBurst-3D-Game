@@ -97,7 +97,7 @@ import { TownMissionSettlement } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
-import { TOWN_RULES, townActorCaptainProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -420,9 +420,9 @@ export class TownScene {
         const residentArmyFaction = context.missionOnlyResidents && !borrowed ? context.worldFaction : context.residentFaction
         const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
         const preset = military?.presetId
-        const captain = townActorCaptainProfile(residentArmyFaction, spec)
+        const hero = townActorHeroProfile(residentArmyFaction, spec)
         const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : captain?.visualAssetId, ranger ? 'ranger' : captain?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction))
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : hero?.visualAssetId, ranger ? 'ranger' : hero?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction))
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         let homeMount: Mount | undefined
         if (spec.role === 'ranger') homeMount = this.cat
@@ -432,8 +432,8 @@ export class TownScene {
           eagle.group.name = mountId; eagle.group.rotation.y = home.yaw; eagle.reservedForTown = true
           homeMount = eagle
         }
-        if (cavalry) { const mount = trackNpcSpawn(new Mount(this.scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z)); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); homeMount = mount }
-        if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : captain ? 2 : 2.2)) }
+        if (cavalry) { const mount = trackNpcSpawn(new Mount(this.scene, hero ? mountTypeFromId(hero.mountOverride) : MountType.HORSE, spec.x, spec.z)); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); homeMount = mount }
+        if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : hero ? 2 : 2.2)) }
         const training = !context.missionOnlyResidents && spec.training, target = training ? this.world.addTarget(spec.x, spec.z - (spec.mounted ? ranged ? 4 : 3 : ranged ? 3 : 1.5), ranged) : undefined
         this.event.register(spec.id, npc)
         if (homeMount && homeMount !== this.cat) this.mounts.push(homeMount)

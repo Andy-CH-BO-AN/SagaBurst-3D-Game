@@ -231,6 +231,12 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     expect(progress).toHaveBeenLastCalledWith(`建立駐軍與居民 ${roster.length} / ${roster.length}…`)
     expect(event.actors.size).toBe(population.length)
     expect(event.actors.get('hr-officer')).toBe(town.residents.find((resident: any) => resident.spec.id === 'hr-officer').npc)
+    const sergeant = recording.npcs.find(npc => npc.combatantId === 'deployment')!
+    expect(sergeant).toMatchObject({
+      tier: 4, presetId: 'roman_heavy_infantry', visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian',
+      loadout: { mountId: null },
+    })
+    expect(sergeant.mountVehicle).not.toHaveBeenCalled()
     const eagleRiders = recording.npcs.filter(npc => npc.combatantId.startsWith('town-eagle-rider:'))
     const eagles = recording.mounts.filter(mount => mount.type === MountType.XONGKORO)
     expect(eagleRiders.map(npc => npc.combatantId)).toEqual([1, 2, 3, 4, 5].map(slot => `town-eagle-rider:${slot}`))

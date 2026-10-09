@@ -3,7 +3,7 @@ import { afterEach, beforeEach, vi } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
-import { townActorCaptainProfile, townMilitaryEquipment, townRoster, type TownPatrolId } from '../../src/town/TownRules'
+import { townActorHeroProfile, townMilitaryEquipment, townRoster, type TownPatrolId } from '../../src/town/TownRules'
 import { TownWorld } from '../../src/town/TownWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../../src/world/Mount'
@@ -92,7 +92,7 @@ export function installTownPatrolFixtureEnvironment() {
         const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, faction, AIType.MELEE, spec.id,
           equipment.level, true, equipment.loadout, equipment.presetId, undefined, spec.id)
         cleanup.push(() => npc.dispose())
-        const captain = townActorCaptainProfile(faction, spec)
+        const captain = townActorHeroProfile(faction, spec)
         const homeMount = new Mount(scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z)
         cleanup.push(() => homeMount.dispose())
         homeMount.group.rotation.y = spec.yaw!; npc.mountVehicle(homeMount); npc.setTownPeaceful()

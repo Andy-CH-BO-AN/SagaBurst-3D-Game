@@ -7,7 +7,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { TownEvent, townRoster, townMilitaryEquipment, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
+import { TownEvent, townRoster, townMilitaryEquipment, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, townActorHeroProfile, stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
 import { TownEquipment, canUseCareerEquipment } from '../../src/town/TownEquipment'
 import { NPC, AIType, Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
@@ -88,18 +88,25 @@ describe('Town population and civilian combat', () => {
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
     expect(TOWN_PRODUCTS.some(p => p.id.includes('civilian'))).toBe(false)
   })
-  it('uses faction T2 presets for peaceful garrison and a foot T3 melee profile for the sergeant', () => {
+  it('uses faction T2 presets for peaceful garrison and a foot T4 hero profile for the sergeant', () => {
     for (const faction of ['roman', 'viking'] as const) {
       const sword = townMilitaryEquipment(faction, 'melee_cavalry')
       const lancer = townMilitaryEquipment(faction, 'lancer_cavalry')
       const spear = townMilitaryEquipment(faction, 'spearman_infantry')
-      const sergeant = townMilitaryEquipment(faction, 'deployment')
+      const spec = townRoster().find(actor => actor.id === 'deployment')!
+      const sergeant = townMilitaryEquipment(faction, spec)
       expect(sword).toMatchObject({ presetId: `${faction}_sword_cavalry`, tier: 2, level: 2 })
       expect(lancer).toMatchObject({ presetId: `${faction}_lancer`, tier: 2, level: 2 })
       expect(spear).toMatchObject({ presetId: `${faction}_spearman`, tier: 2, level: 2 })
-      expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 3 })
+      expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 4 })
       expect(sergeant.loadout).toEqual(UNIT_PRESETS[sergeant.presetId].tierLoadouts[3])
       expect(sergeant.loadout.mountId).toBeNull()
+      expect(spec).toMatchObject({ tier: 4, mounted: false, duty: 'service', unitKind: 'melee' })
+      expect(townMilitaryEquipment(faction, 'deployment')).toEqual(sergeant)
+      expect(townActorHeroProfile(faction, spec)).toEqual({
+        visualAssetId: `${faction}-hero-t4`, combatProfileId: faction === 'roman' ? 'praetorian' : 'varangian',
+        baseLoadoutTier: 3, mountOverride: null,
+      })
     }
   })
   it('uses HP 50, no squad or weapon in peace; arms once with catalog gladius after hostility', () => {
