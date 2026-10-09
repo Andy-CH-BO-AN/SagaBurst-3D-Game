@@ -5,6 +5,7 @@ import { Player } from '../../src/player/Player'
 import { ThirdPersonCamera } from '../../src/camera/ThirdPersonCamera'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
 import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
@@ -145,19 +146,32 @@ describe('Career deployment control dispatch', () => {
   })
 })
 
-it('restores Career equipment before official deployment completes without waiting', async () => {
+it.each([true, false])('restores equipment and synchronizes a restored rider at the saved siege position without waiting, assault=%s', async assault => {
   const scheduler = new NpcSpawnScheduler()
   const batch = scheduler.batch()
   batch.enqueue('pending-entry', () => {}); batch.seal()
   onTestFinished(() => batch.cancel())
   const profile = createCareerProfile('roman')
-  profile.activeMission = createEnemyTownAssaultMission('entry-assault')
+  profile.activeMission = assault ? createEnemyTownAssaultMission('entry-assault') : createTownDefenseMission([], [], 'entry-defense')
+  profile.activeMission.siege!.playerPosition = { x: 12, z: 14, yaw: .4 }
+  profile.activeMission.mountState = { activeMountId: 'horse', hp: { horse: 67 }, unavailable: [] }
   const group = new THREE.Group(); group.position.set(12, 1, 14)
+  // Transform-only restore boundary: existing real Player/Mount tests own seat physics.
+  const mount = { group: new THREE.Group() }, offset = new THREE.Vector3(0, 2.5, 0)
+  const player = { group, combatPosition: group.position, currentMount: null as typeof mount | null, facingYaw: .4,
+    faceDirection(x: number, z: number) { mount.group.rotation.y = Math.atan2(x, z) },
+    syncMountTransform() { group.position.copy(mount.group.position).add(offset) },
+  }
   const state = {
-    profile, player: { group, combatPosition: group.position, currentMount: null },
+    profile, player,
     mission: { spawnBatches: [] },
     defense: { startActiveMission: vi.fn(() => true), spawnBatches: [batch] },
-    inventory: { prepareForCombat: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn() },
+    inventory: { prepareForCombat: vi.fn() }, careerMounts: { restoreActiveMount: vi.fn(() => {
+      // Mount creation initially chooses a nearby safe point, then TownScene must
+      // apply the saved anchor and resynchronize its rider before controls resume.
+      mount.group.position.set(15, 0, 17); player.currentMount = mount
+      player.syncMountTransform()
+    }) },
     restorePersonalSquad: vi.fn(),
   }
   const town = Object.assign(Object.create(TownScene.prototype) as object, state) as typeof state & {
@@ -169,4 +183,7 @@ it('restores Career equipment before official deployment completes without waiti
   expect(town.inventory.prepareForCombat).toHaveBeenCalledOnce()
   expect(town.careerMounts.restoreActiveMount).toHaveBeenCalledOnce()
   expect(wait).not.toHaveBeenCalled()
+  expect(mount.group.position.toArray()).toEqual([12, getTerrainHeight(12, 14), 14])
+  expect(mount.group.rotation.y).toBeCloseTo(.4)
+  expect(group.position.clone().sub(mount.group.position)).toEqual(offset)
 })

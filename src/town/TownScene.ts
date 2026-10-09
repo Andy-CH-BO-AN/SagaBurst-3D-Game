@@ -648,7 +648,7 @@ export class TownScene {
     const skillsSaved = this.flushCareerSkillProgression()
     this.persistPersonalSquad(0, true)
     if (this.duel?.active) this.duel.persistRuntimeProgress(true)
-    else if (this.defense?.active) this.defense.persistRuntimeProgress(true)
+    else if (this.defense?.active) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
     else if (this.profile.activeMission) this.mission.persistRuntimeProgress(true)
     const saved = this.commit(this.profile)
     if (!skillsSaved || !saved || this.careerSaveFailures !== failures) {
@@ -1141,17 +1141,21 @@ export class TownScene {
       profile = this.profile
       const active = profile.activeMission!
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
-      const assaultAnchor = active.kind === 'enemy-town-assault' ? this.player.combatPosition.clone() : null
+      const siegeAnchor = active.kind === 'enemy-town-assault' || active.kind === 'town-defense' && active.siege?.playerPosition
+        ? this.player.combatPosition.clone() : null
+      const siegeHeading = this.player.facingYaw
       this.careerMounts.restoreActiveMount()
       if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) {
         this.player.currentMount.group.rotation.y = active.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : SWEEP_YAW
       }
       if (active.kind === 'enemy-town-assault') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
-        if (this.player.currentMount) {
-          this.player.currentMount.group.position.copy(assaultAnchor!)
-          this.player.currentMount.group.rotation.y = this.player.group.rotation.y
-        }
+      }
+      if (siegeAnchor && this.player.currentMount) {
+        const mount = this.player.currentMount
+        mount.group.position.set(siegeAnchor.x, getTerrainHeight(siegeAnchor.x, siegeAnchor.z), siegeAnchor.z)
+        this.player.faceDirection(Math.sin(siegeHeading), Math.cos(siegeHeading))
+        this.player.syncMountTransform()
       }
       if (active.kind === 'veteran-field' && !active.playerDead) {
         if (active.playerHp !== undefined) this.player.setHp(active.playerHp)
@@ -1179,9 +1183,7 @@ export class TownScene {
     if (!saved || !this.personalSquad) return
     if (saved.sceneKey !== this.personalSquad.sceneKey) {
       const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.group.rotation.y }
-      const official = (this.defense.active ? this.defense.fieldNpcs : this.mission.friendlies)
-        .filter(npc => !npc.dead && npc.faction !== Faction.ENEMY && npc.combatPosition.distanceToSquared(this.player.combatPosition) < 80 * 80)
-        .map(npc => npc.combatPosition)
+      const official = this.defense.active ? this.defense.deploymentPositions : this.mission.deploymentPositions
       this.personalSquad.setMuster(personalTownDeployment(anchor, official, saved.memberIds.length,
         TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation))
     }
