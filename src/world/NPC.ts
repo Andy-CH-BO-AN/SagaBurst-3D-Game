@@ -2959,26 +2959,26 @@ export class NPC {
     this.animator.setEquipment(this.isUsingLance, this.shield.active, mount.type as MountedPoseKind, true)
     this.animator.setLocomotion(0, true, false)
     const ranged = this.hasActiveRangedWeapon && this.arrows > 0
+    const kind = this.rangedCombatKind ?? 'bow'
     if (orderedTravel || !target) this._updateEagleTravel(dt, nearby, obstacles, undefined, player)
     else {
       this.eagleAnchorSet = this.tacticalOrder === 'defend' && this.eagleAnchorSet
       const command = this.eagleCommand
       this.eagleGoal.copy(targetMount?.isFlyingMount ? targetMount.group.position : target.position)
       command.kind = 'combat'; command.target = targetIdentity; command.targetAirborne = targetMount?.isAirborne === true
-      command.targetVelocity = this.eagleTargetVelocity; command.ranged = ranged && this.maxRangedAttackDistance >= this.eaglePilot.cruiseAltitude; command.rangedDistance = this.maxRangedAttackDistance
+      command.targetVelocity = this.eagleTargetVelocity; command.rangedAvailable = ranged && this.maxRangedAttackDistance >= this.eaglePilot.cruiseAltitude; command.rangedDistance = this.maxRangedAttackDistance
       command.altitude = undefined
       mount.beginControlledFrame()
       mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
       const targetYaw = Math.atan2(this.eagleGoal.x - mount.group.position.x, this.eagleGoal.z - mount.group.position.z)
       const headingError = Math.abs(Math.atan2(Math.sin(targetYaw - flight.yaw), Math.cos(targetYaw - flight.yaw)))
-      if (!ranged && this.eaglePilot.canUseMelee && headingError < .6 && mount.group.position.distanceTo(this.eagleGoal) < XONGKORO.aiAttackRange
+      if ((!ranged || kind === 'bow') && this.eaglePilot.canUseMelee && headingError < .6 && mount.group.position.distanceTo(this.eagleGoal) < XONGKORO.aiAttackRange
         && mount.startEagleAttack()) this.eaglePilot.attacked()
       mount.finishControlledFrame(dt, obstacles)
       this._syncToMount()
     }
     mount.setCameraDistance(cameraDistance)
     this.state = target ? AIState.ATTACK : AIState.IDLE
-    const kind = this.rangedCombatKind ?? 'bow'
     this.eagleShotCheckRemaining -= dt
     const eligible = Boolean(target && ranged && (this.eaglePilot.canUseRanged || kind === 'javelin' && this.eaglePilot.canUseMelee)
       && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)

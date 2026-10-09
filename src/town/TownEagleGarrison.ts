@@ -1,6 +1,8 @@
 import type { TownActorSpec } from './TownRules'
 import type { TownEagleTrainingGround } from './TownEagleTrainingGround'
 
+/** Initial defense alert; boarding retains this minimum before mounted bow range is available. */
+export const TOWN_EAGLE_ALERT_RADIUS = 120
 export const TOWN_EAGLE_GARRISON_NAME = 'Town Eagle Garrison · 城鎮空軍駐地'
 export const TOWN_EAGLE_PAIRS = [1, 2, 3, 4, 5].map((slot, index) => ({
   riderId: `town-eagle-rider:${slot}`, mountId: `town-eagle-mount:${slot}`,

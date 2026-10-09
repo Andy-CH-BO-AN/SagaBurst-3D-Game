@@ -248,17 +248,18 @@ describe('NPC aerial orders and indexed physical neighbors', () => {
     expect(npc.eagleTactic).toBeNull()
   })
 
-  it('a committed air dive intercepts a moving enemy mount, applies one swept contact and climbs away', () => {
-    const { scene, npc, mount, placeAirborne } = fixture()
+  it('a bow-equipped eagle shoots, dives into a moving enemy mount with arrows remaining, recovers and shoots again', () => {
+    const { scene, npc, mount, placeAirborne } = fixture('elven_runebow')
     const player = new Player(scene); onTestFinished(() => player.dispose())
-    const targetMount = new Mount(scene, MountType.XONGKORO, 0, 25, 0); onTestFinished(() => targetMount.dispose())
+    const targetMount = new Mount(scene, MountType.XONGKORO, 0, 90, 0); onTestFinished(() => targetMount.dispose())
     player.mountVehicle(targetMount)
     targetMount.group.position.y = 15
     targetMount.flight!.restore({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 7, velocity: { x: 0, y: 0, z: 7 } })
     player.syncMountTransform()
     const grid = new SpatialGrid<Mount>(8); npc.combatMountGrid = grid
     placeAirborne(32.8, new THREE.Vector3(0, 0, 48 / 3.6))
-    let elapsed = 0, contacts = 0
+    let elapsed = 0, contacts = 0, shots = 0
+    const initialAmmo = npc.combatAmmo
     const tick = () => {
       elapsed += 1 / 60
       targetMount.beginControlledFrame()
@@ -272,16 +273,26 @@ describe('NPC aerial orders and indexed physical neighbors', () => {
             { source: createNpcCombatActorRef(npc), method: 'melee', contact: npc.weaponSweep.contact })
           if (result.appliedDamage > 0) contacts++
         }
-      }, () => {}, true)
+      }, () => { shots++ }, true)
     }
+    advanceUntil(() => shots > 0, tick, { maxSimulationSeconds: 15, failureMessage: 'Initial armed eagle shot' })
+    expect(npc.eagleTactic).toBe('RANGED_AIR')
     advanceUntil(() => targetMount.currentHp < 200, tick, { maxSimulationSeconds: 120, failureMessage: 'Moving aerial eagle interception' })
     expect(npc.eagleTactic).toBe('DIVE_AIR')
+    expect(npc.combatAmmo).toBeGreaterThan(0)
+    expect(npc.combatAmmo).toBe(initialAmmo - shots)
     expect(targetMount.currentHp).toBe(140)
     expect(npc.weaponSweep.contact.attackSource).toBe('xongkoro')
     advanceUntil(() => mount.group.position.y >= 29, tick, { maxSimulationSeconds: 20, failureMessage: 'Eagle post-strike climb' })
     expect(contacts).toBe(1)
     expect(targetMount.currentHp).toBe(140)
     expect(mount.isAirborne).toBe(true)
+    const shotsBeforeRecovery = shots
+    advanceUntil(() => shots > shotsBeforeRecovery, tick, { maxSimulationSeconds: 20, failureMessage: 'Armed eagle resumes firing after recovery' })
+    expect(npc.eagleTactic).toBe('RANGED_AIR')
+    expect(mount.group.position.y).toBeGreaterThanOrEqual(29)
+    expect(npc.combatAmmo).toBe(initialAmmo - shots)
+    expect(contacts).toBe(1)
   })
 })
 

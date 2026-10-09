@@ -12,7 +12,8 @@ export interface EagleFlightCommand {
   target?: object
   targetAirborne?: boolean
   targetVelocity?: THREE.Vector3
-  ranged?: boolean
+  /** Equipment/ammo availability; tactic selection remains committed until recovery. */
+  rangedAvailable?: boolean
   rangedDistance?: number
   /** Explicit world altitude for following an airborne leader, never added to AGL. */
   altitude?: number
@@ -27,6 +28,7 @@ export class EagleFlightAI {
   private target: object | undefined
   private elapsed = 0
   private pass = 0
+  private rangedCommitRemaining = 0
   private landingStage: 'approach' | 'final' = 'approach'
   private landingX = Infinity
   private landingZ = Infinity
@@ -50,7 +52,7 @@ export class EagleFlightAI {
     if (Number.isFinite(altitude)) this.cruiseAltitude = THREE.MathUtils.clamp(altitude, 20, 40)
   }
   reset(): void {
-    this.target = undefined; this.tactic = null; this.maneuver = 'cruise'; this.elapsed = 0; this.pass = 0
+    this.target = undefined; this.tactic = null; this.maneuver = 'cruise'; this.elapsed = 0; this.pass = 0; this.rangedCommitRemaining = 0
     this.landingStage = 'approach'; this.landingX = this.landingZ = Infinity
     this.avoidanceRemaining = 0; this.progressSeconds = 0
   }
@@ -74,7 +76,7 @@ export class EagleFlightAI {
     this.intent.brake = false
     this.intent.takeoff = command.kind !== 'hold'
     if (command.kind !== 'combat') {
-      this.target = undefined; this.tactic = null; this.maneuver = 'cruise'
+      this.target = undefined; this.tactic = null; this.maneuver = 'cruise'; this.rangedCommitRemaining = 0
       if (command.kind === 'return') this.planLanding(position, destination, command.landingYaw ?? flight.yaw, flight, terrainHeight, bound)
       else {
         this.goal.y = command.altitude ?? terrainHeight(destination.x, destination.z) + this.cruiseAltitude
@@ -84,12 +86,18 @@ export class EagleFlightAI {
         this.intent.sprint = distance > 90 && command.kind === 'follow'
       }
     } else {
-      if (this.target !== command.target || !this.tactic || this.maneuver === 'cruise' && this.tactic.startsWith('RANGED') && !command.ranged) {
+      if (this.target !== command.target || !this.tactic) {
+        const committedDive = this.tactic?.startsWith('DIVE') && this.maneuver !== 'cruise'
         this.target = command.target
-        this.tactic = command.ranged ? command.targetAirborne ? 'RANGED_AIR' : 'RANGED_GROUND' : command.targetAirborne ? 'DIVE_AIR' : 'DIVE_GROUND'
-        this.maneuver = agl < this.cruiseAltitude - 2 ? 'climb' : this.tactic.startsWith('RANGED') ? 'cruise' : 'setup'
-        this.elapsed = 0
-        this.stage(position, destination, terrainHeight, bound)
+        if (committedDive) {
+          // A new target cannot cancel the physical pullout of the previous pass.
+          if (this.maneuver !== 'recover' && this.maneuver !== 'pass') this.recover(position, flight, ground)
+        } else {
+          this.selectTactic(command, command.rangedAvailable === true)
+          this.maneuver = agl < this.cruiseAltitude - 2 ? 'climb' : this.tactic!.startsWith('RANGED') ? 'cruise' : 'setup'
+          this.elapsed = 0
+          this.stage(position, destination, terrainHeight, bound)
+        }
       }
       this.intercept.copy(destination)
       const leadTime = Math.min(2, position.distanceTo(destination) / Math.max(7, flight.speed))
@@ -107,8 +115,8 @@ export class EagleFlightAI {
       if (this.maneuver === 'climb' || this.maneuver === 'recover') {
         this.goal.set(position.x + Math.sin(flight.yaw) * 45, ground + this.cruiseAltitude, position.z + Math.cos(flight.yaw) * 45)
         if (agl >= this.cruiseAltitude - 1 && Math.abs(flight.pitch) < .2 && (this.maneuver === 'climb' || this.elapsed >= XONGKORO.aiRecoverySeconds)) {
-          if (this.maneuver === 'recover') this.tactic = command.ranged ? command.targetAirborne ? 'RANGED_AIR' : 'RANGED_GROUND' : command.targetAirborne ? 'DIVE_AIR' : 'DIVE_GROUND'
-          this.maneuver = this.tactic.startsWith('RANGED') ? 'cruise' : 'setup'
+          if (this.maneuver === 'recover') this.selectTactic(command, command.rangedAvailable === true)
+          this.maneuver = this.tactic!.startsWith('RANGED') ? 'cruise' : 'setup'
           this.elapsed = 0; this.stage(position, this.intercept, terrainHeight, bound)
         }
       } else if (this.maneuver === 'cruise') {
@@ -116,6 +124,15 @@ export class EagleFlightAI {
         const radius = Math.max(12, Math.min(XONGKORO.aiOrbitRadius, (command.rangedDistance ?? 80) * .6))
         if (distance < radius * 1.8) this.orbit(position, this.intercept, radius)
         this.goal.y = terrainHeight(this.goal.x, this.goal.z) + this.cruiseAltitude
+        this.rangedCommitRemaining = Math.max(0, this.rangedCommitRemaining - dt)
+        const opportunity = this.rangedCommitRemaining === 0 && flight.phase === 'cruise'
+          && agl >= this.cruiseAltitude - 2 && !unsafeAirIntercept && distance > 12 && distance < 110
+          && this.avoidanceRemaining === 0 && this.clearDiveCorridor(position, obstacles)
+        if (!command.rangedAvailable || opportunity) {
+          this.selectTactic(command, false)
+          this.maneuver = 'setup'; this.elapsed = 0
+          this.stage(position, this.intercept, terrainHeight, bound)
+        }
       } else if (this.maneuver === 'setup' || this.maneuver === 'align') {
         this.goal.copy(this.maneuver === 'setup' ? this.staging : this.intercept)
         this.goal.y = attackAltitude
@@ -216,6 +233,25 @@ export class EagleFlightAI {
     return this.intent
   }
 
+  private selectTactic(command: EagleFlightCommand, ranged: boolean): void {
+    const wasRanged = this.tactic?.startsWith('RANGED') === true
+    this.tactic = ranged ? command.targetAirborne ? 'RANGED_AIR' : 'RANGED_GROUND'
+      : command.targetAirborne ? 'DIVE_AIR' : 'DIVE_GROUND'
+    // Give the bow a real firing interval both initially and after every pullout.
+    // Heading/range changes during this interval cannot cause frame-by-frame thrash.
+    // Swapping nearby targets must not restart that interval and starve dives.
+    if (ranged && !wasRanged) this.rangedCommitRemaining = XONGKORO.aiRangedCommitSeconds
+  }
+  private clearDiveCorridor(position: THREE.Vector3, obstacles: readonly ObstacleData[]): boolean {
+    for (const obstacle of obstacles) {
+      this.expanded.copy(obstacle.box)
+      this.expanded.min.x -= XONGKORO.wingClearance; this.expanded.max.x += XONGKORO.wingClearance
+      this.expanded.min.z -= XONGKORO.wingClearance; this.expanded.max.z += XONGKORO.wingClearance
+      this.expanded.min.y -= XONGKORO.bodyHeight + 1
+      if (Number.isFinite(segmentBoxTime(position, this.intercept, this.expanded))) return false
+    }
+    return true
+  }
   private orbit(position: THREE.Vector3, center: THREE.Vector3, radius: number): void {
     const angle = Math.atan2(position.x - center.x, position.z - center.z) + .75
     this.goal.x = center.x + Math.sin(angle) * radius

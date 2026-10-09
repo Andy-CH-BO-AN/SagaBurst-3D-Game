@@ -39,6 +39,7 @@ export const XONGKORO = {
   aiAttackApproachDistance: 55,
   aiAttackRange: 6.5,
   aiRecoverySeconds: 2.2,
+  aiRangedCommitSeconds: 6,
   rangedYawArc: 1.25,
   rangedPitchArc: 1.25,
   aimFreeYaw: 0.45,

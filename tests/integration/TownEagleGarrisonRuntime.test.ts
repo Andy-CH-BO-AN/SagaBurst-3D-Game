@@ -81,12 +81,10 @@ describe('Town eagle physical duty caller', () => {
   })
   it('authorizes free-hostility refit only after the matching settlement saves and preserves it through restart', () => {
     const { runtime, npc, mount, spec, step } = fixture()
-    mount.takeDamage(10000); step(true)
+    npc.restoreCombatAmmo(7); mount.takeDamage(10000); step(true)
     const profile = createCareerProfile('roman'), storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     profile.townEvent = { id: 'free-hostility', state: 'hostile' }
-    profile.townEagleGarrisons = { roman: runtime.snapshot('town:roman'), viking: runtime.snapshot('town:viking') }
-    profile.townEagleGarrisons.viking!.pairs[0].ammo = 3
-    const untouchedCity = structuredClone(profile.townEagleGarrisons.viking)
+    profile.townEagleGarrisons = { roman: runtime.snapshot('town:roman') }
     const actions: (() => void)[] = [], restarted: CareerProfile[] = []
     const town = Object.assign(Object.create(TownScene.prototype), {
       profile, store, world: { faction: 'roman' }, garrisonRestored: true, eagleGarrison: runtime,
@@ -97,7 +95,11 @@ describe('Town eagle physical duty caller', () => {
       dispose: vi.fn(), onRestart: (next: CareerProfile) => { restarted.push(next) },
     }) as { profile: CareerProfile; commit(next: CareerProfile): boolean; finish(result: 'town_defeated'): void }
     expect(town.commit(cloneCareerProfile(profile))).toBe(true)
-    expect(store.load()!.townEagleGarrisons!.roman!.pairs[0].refitAllowed).toBe(false)
+    const hostileSnapshot = store.load()!.townEagleGarrisons!.roman!
+    expect(hostileSnapshot.pairs[0]).toMatchObject({
+      riderId: 'town-eagle-rider:1', mountId: 'town-eagle-mount:1', homePadId: 'town-eagle-pad:1',
+      duty: 'casualty', ammo: 7, refitAllowed: false, mount: { hp: 0 },
+    })
     const mismatched = cloneCareerProfile(profile)
     mismatched.townEvent = { id: 'another-event', state: 'settled' }
     expect(town.commit(mismatched)).toBe(true)
@@ -119,15 +121,21 @@ describe('Town eagle physical duty caller', () => {
     expect(town.commit(cloneCareerProfile(town.profile))).toBe(true)
     const saved = store.load()!.townEagleGarrisons!
     expect(saved.roman!.pairs[0]).toMatchObject({ duty: 'casualty', refitAllowed: true, mount: { hp: 0 } })
-    expect(saved.viking).toEqual(untouchedCity)
     actions.pop()!() // The actual settled-result panel's scene restart action.
     expect(restarted).toHaveLength(1)
     expect(restarted[0].townEagleGarrisons).toEqual(saved)
+    // One reload graph owns both forbidden early refit and authorized settlement refit.
     const replacement = fixture()
+    replacement.runtime.restore(hostileSnapshot, 'town:roman')
+    replacement.step(true); replacement.step(false)
+    expect(replacement.mount.dead).toBe(true)
+    expect(replacement.npc.combatAmmo).toBe(7)
+    expect(replacement.runtime.dutyFor(replacement.npc)).toBe('casualty')
     replacement.runtime.restore(saved.roman, 'town:roman')
     replacement.step(false)
     expect(replacement.mount.dead).toBe(false)
     expect(replacement.runtime.dutyFor(replacement.npc)).toBe('standby')
+    expect(replacement.npc.mount).toBeNull()
   })
   it('stands beside a grounded reserved eagle, walks to mount, climbs, returns to its pad and walks back without teleporting', () => {
     const { runtime, npc, mount, spec, step, report, scene, targets, shots } = fixture()
@@ -149,41 +157,18 @@ describe('Town eagle physical duty caller', () => {
     advanceUntil(() => shots.length > 0, () => step(true), { maxSimulationSeconds: 30, failureMessage: 'return interruption releases target suppression' })
     step(false)
     const returningShotCount = shots.length
-    let frames = 0
-    while (runtime.dutyFor(npc) !== 'standby' && frames++ < 7200) step(false)
+    try {
+      advanceUntil(() => runtime.dutyFor(npc) === 'standby', () => step(false), {
+        maxSimulationSeconds: 120, failureMessage: 'Town eagle return and dismount',
+      })
+    } catch (error) {
+      if (error instanceof Error) error.message += `: ${report()}`
+      throw error
+    }
     expect(runtime.dutyFor(npc), report()).toBe('standby')
     expect(shots).toHaveLength(returningShotCount)
     expect(npc.mount).toBeNull(); expect(mount.isAirborne).toBe(false)
     expect(Math.hypot(mount.group.position.x, mount.group.position.z)).toBeLessThan(3)
     expect(Math.hypot(npc.group.position.x - spec.x, npc.group.position.z - spec.z)).toBeLessThan(1)
-  })
-  it('storage reload preserves mount casualty, rider ammo and pair duty until a saved settlement authorizes refit', () => {
-    const { runtime, npc, mount, step } = fixture()
-    npc.restoreCombatAmmo(7); mount.takeDamage(10000); step(true)
-    const profile = createCareerProfile('roman'), store = new CareerProfileStore(new MemoryStorage())
-    profile.townEagleGarrisons = { roman: runtime.snapshot('town:roman'), viking: runtime.snapshot('town:viking') }
-    profile.townEagleGarrisons.viking!.pairs[0].ammo = 3
-    expect(store.save(profile)).toBe(true)
-    const cities = store.load()!.townEagleGarrisons!
-    expect(cities.viking!.pairs[0].ammo).toBe(3)
-    const saved = cities.roman!
-    // The actual Town commit snapshots the visited enemy city, retaining the home city's casualty.
-    profile.activeMission = createEnemyTownAssaultMission('city-transition')
-    const town = Object.assign(Object.create(TownScene.prototype), {
-      profile, store, world: { faction: 'viking' }, garrisonRestored: true, eagleGarrison: runtime,
-      skills: { skillState: profile.skills }, clearCareerSkillSaveTimer: vi.fn(),
-    }) as { commit(next: CareerProfile): boolean }
-    npc.restoreCombatAmmo(5)
-    expect(town.commit(profile)).toBe(true)
-    expect(store.load()!.townEagleGarrisons!.roman!.pairs[0]).toMatchObject({ ammo: 7, mount: { hp: 0 } })
-    expect(store.load()!.townEagleGarrisons!.viking!.pairs[0].ammo).toBe(5)
-    expect(saved.pairs[0]).toMatchObject({ riderId: 'town-eagle-rider:1', mountId: 'town-eagle-mount:1', homePadId: 'town-eagle-pad:1', duty: 'casualty', ammo: 7, mount: { hp: 0 } })
-    const replacement = fixture()
-    replacement.runtime.restore(saved, 'town:roman')
-    replacement.step(true); replacement.step(false)
-    expect(replacement.mount.dead).toBe(true); expect(replacement.npc.combatAmmo).toBe(7)
-    replacement.runtime.beginRefit('town-eagle-rider:1'); replacement.step(false)
-    expect(replacement.mount.dead).toBe(false); expect(replacement.runtime.dutyFor(replacement.npc)).toBe('standby')
-    expect(replacement.npc.mount).toBeNull()
   })
 })

@@ -1,6 +1,9 @@
 import { advanceUntil } from '../helpers/simulation'
 import { eagleLandingFootprint } from '../../src/world/EagleLanding'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
+import { townEagleRoster } from '../../src/town/TownEagleGarrison'
+import { townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { EagleFlightController } from '../../src/movement/EagleFlightController'
 import { completeNpcDeployment, drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { CareerMountController } from '../../src/career/CareerMountController'
@@ -19,7 +22,7 @@ import { NPC, AIState, AIType, Faction } from '../../src/world/NPC'
 import { MountType, mountTypeFromId } from '../../src/world/Mount'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
-import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { getTerrainHeight, isObstaclePathClear, type ObstacleData } from '../../src/world/Terrain'
 import { townWartimeHostile } from '../../src/town/TownWartime'
 import type { Player } from '../../src/player/Player'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
@@ -78,6 +81,15 @@ function townGeometry(faction: 'roman' | 'viking') {
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(world.obstacles)
   return { world, navigation }
+}
+/** Intersect the complete finite travel segment, rather than sampling a few waypoints. */
+function crossesPadCorridor(footprint: THREE.Box3, start: THREE.Vector3, end: THREE.Vector3, halfWidth: number): boolean {
+  const corridor = footprint.clone().expandByVector(new THREE.Vector3(halfWidth, 0, halfWidth))
+  if (corridor.containsPoint(start)) return true
+  const direction = end.clone().sub(start), length = direction.length()
+  if (length === 0) return false
+  const contact = new THREE.Ray(start, direction.divideScalar(length)).intersectBox(corridor, new THREE.Vector3())
+  return contact !== null && start.distanceTo(contact) <= length
 }
 describe('HR Center and personal runtime', () => {
   it('keeps shared Player and actual eagle-owner pad identities across roster reordering and releases reassigned owners', () => {
@@ -150,7 +162,7 @@ describe('HR Center and personal runtime', () => {
     expect(profile.inventory?.quantities.xongkoro).toBe(4)
   })
 
-  it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots', faction => {
+  it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots and eight isolated eagle pads', faction => {
     const { world, navigation } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
     expect(hr).toBeDefined()
@@ -170,10 +182,53 @@ describe('HR Center and personal runtime', () => {
     expect(townConquestRoster(world.hr, undefined, eagle).filter(spec => spec.id === 'eagle-trainer')).toHaveLength(1)
     expect(townAssaultObjectiveRoster([trainer]).map(spec => spec.id)).toEqual(['eagle-trainer'])
     expect(navigation.areConnected(eagle.trainer, world.hr.officer)).toBe(true)
-    for (const pad of eagle.pads) {
-      const footprint = eagleLandingFootprint(pad)
-      expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(footprint))).toBe(false)
-      expect(navigation.areConnected(pad, world.hr.officer)).toBe(true)
+    // Reuse this geometry owner: one TownWorld and NavigationWorld per faction, no NPCs/Mounts/GLBs.
+    expect(world.eagleGarrison.pads).toHaveLength(5)
+    const pads = [...eagle.pads, ...world.eagleGarrison.pads], patrol = townPatrolRoute()
+    const footprints = pads.map(pad => eagleLandingFootprint(pad))
+    for (const [index, pad] of pads.entries()) {
+      const footprint = footprints[index]
+      expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(footprint)), pad.id).toBe(false)
+      expect(navigation.areConnected(pad, world.hr.officer), pad.id).toBe(true)
+      const cell = navigation.grid.worldToCell(pad)
+      expect(cell, `${pad.id} inside walkable bounds`).not.toBeNull()
+      expect(navigation.grid.isBlocked(cell!), `${pad.id} walkable without snapping`).toBe(false)
+      expect(footprint.min.x, pad.id).toBeGreaterThanOrEqual(-350)
+      expect(footprint.max.x, pad.id).toBeLessThanOrEqual(350)
+      expect(footprint.min.z, pad.id).toBeGreaterThanOrEqual(-350)
+      expect(footprint.max.z, pad.id).toBeLessThanOrEqual(350)
+      for (let other = index + 1; other < pads.length; other++) {
+        expect(footprint.clone().expandByVector(new THREE.Vector3(3, 0, 3)).intersectsBox(footprints[other]),
+          `${pad.id} / ${pads[other].id}: three-metre landing separation`).toBe(false)
+      }
+      for (const [roadIndex, road] of world.roads.entries()) {
+        expect(crossesPadCorridor(footprint, new THREE.Vector3(road.ax, 0, road.az),
+          new THREE.Vector3(road.bx, 0, road.bz), road.width / 2 + 2), `${pad.id} / road ${roadIndex}`).toBe(false)
+      }
+      for (const [id, gate] of world.gates) {
+        expect(footprint.intersectsBox(gate.collisionBox.clone().expandByVector(new THREE.Vector3(2, 100, 2))),
+          `${pad.id} / ${id} gate clearance`).toBe(false)
+      }
+      for (let segment = 0; segment < patrol.length; segment++) {
+        // Six metres covers the outer mounted follow column and the horse body, including loop closure.
+        expect(crossesPadCorridor(footprint, patrol[segment], patrol[(segment + 1) % patrol.length], 6),
+          `${pad.id} / patrol segment ${segment}`).toBe(false)
+      }
+      const position = new THREE.Vector3(pad.x, getTerrainHeight(pad.x, pad.z), pad.z), ground = position.y
+      const flight = new EagleFlightController()
+      flight.setIntent({ yaw: pad.yaw, pitch: .32, takeoff: true })
+      flight.update(position, new THREE.Euler(0, pad.yaw, 0), .05, world.obstacles, 350)
+      expect(flight.phase, `${pad.id} accepts takeoff with built terrain and obstacles`).toBe('takeoff')
+      expect(position.y, `${pad.id} lifts from the ground`).toBeGreaterThan(ground)
+    }
+    for (const rider of townEagleRoster(world.eagleGarrison)) {
+      const standby = new THREE.Vector3(rider.x, getTerrainHeight(rider.x, rider.z), rider.z), home = rider.eagle!.home
+      const landing = new THREE.Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)
+      const cell = navigation.grid.worldToCell(standby)
+      expect(cell, `${rider.id} standby inside walkable bounds`).not.toBeNull()
+      expect(navigation.grid.isBlocked(cell!), `${rider.id} standby walkable without snapping`).toBe(false)
+      expect(navigation.areConnected(standby, landing), `${rider.id} walking access to own eagle`).toBe(true)
+      expect(isObstaclePathClear(standby, landing, .45, 1.8, 0, world.obstacles), `${rider.id} clear boarding walk`).toBe(true)
     }
     const actor = hrOfficerSpec(world.hr)
     expect(actor).toMatchObject({ id: 'hr-officer', duty: 'service', tier: 4, mounted: true, assaultObjective: false })

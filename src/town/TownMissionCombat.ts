@@ -16,6 +16,8 @@ import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { isTownMilitary, isCivilian, type TownActorSpec } from './TownRules'
 import { townWartimeHostile } from './TownWartime'
+import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
+import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
 
 export interface TownCombatResident {
@@ -200,11 +202,12 @@ export class TownMissionCombat {
     const resident = this.town.residents.find(candidate => candidate.npc === ally)
     if (!resident || ally.dead || !this.isMilitary(resident.spec)) return false
     const outskirts = this.town.outskirts?.()
+    const alertRange = resident.spec.eagle ? TOWN_EAGLE_ALERT_RADIUS : 20
     return [...this.missions.field.ambientBandits, ...this.missions.field.missionBandits,
-      ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, 20, this.protectionCandidates)]
+      ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, alertRange, this.protectionCandidates)]
       .some(threat => !threat.dead && townWartimeHostile(ally, threat)
         && (resident.spec.duty !== 'patrol' || !outskirts?.owns(threat))
-        && threat.combatPosition.distanceToSquared(ally.combatPosition) <= 20 * 20)
+        && this.isExternalThreatInRange(resident, threat.combatPosition, alertRange))
   }
 
   /** Resident restoration owns the physical reset; combat only releases its threat registration. */
@@ -626,14 +629,16 @@ export class TownMissionCombat {
         && (enemyTownScouts === undefined
           ? true
           : spec.id.startsWith('enemy-town:') && npc.faction === Faction.ENEMY)
-      const threatRange = spec.eagle && this.externalThreatActors.has(npc) ? Math.max(20, npc.maxRangedAttackDistance) : 20
+      const alertRange = spec.eagle ? TOWN_EAGLE_ALERT_RADIUS : 20
+      const threatRange = spec.eagle && this.externalThreatActors.has(npc)
+        ? Math.max(alertRange, npc.maxRangedAttackDistance) : alertRange
       const nearbyMissionActor = eligible && this.banditThreatGrid.getNearbyInto(npc.combatPosition, threatRange, this.neighbors)
         // Patrol-owned roaming encounters use the squad controller; other threats keep existing ownership.
         .some(threat => !threat.dead && townWartimeHostile(npc, threat)
-          && (!spec.eagle || threat.combatPosition.distanceToSquared(npc.combatPosition) <= threatRange ** 2)
+          && (!spec.eagle || this.isExternalThreatInRange(resident, threat.combatPosition, threatRange))
           && (spec.duty !== 'patrol' || !outskirts?.owns(threat)))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
-        && !options.player.dead && npc.combatPosition.distanceToSquared(options.player.combatPosition) <= threatRange * threatRange
+        && !options.player.dead && this.isExternalThreatInRange(resident, options.player.combatPosition, threatRange)
       const threatened = Boolean(nearbyMissionActor || nearbyPlayer)
       if (threatened) {
         if (!this.externalThreatActors.has(npc)) {
@@ -662,6 +667,16 @@ export class TownMissionCombat {
     if (enemyTownScouts !== undefined) for (const npc of this.externalThreatActors) {
       if (npc.combatantId.startsWith('enemy-town:') && !npc.dead) this.enemyTownHostileActors.push(npc)
     }
+  }
+
+  private isExternalThreatInRange({ spec, npc }: TownCombatResident, position: THREE.Vector3, range: number): boolean {
+    if (!(npc.combatPosition.distanceToSquared(position) <= range * range)) return false
+    if (!spec.eagle) return true
+    const home = spec.eagle.home
+    // A moving sortie may use its bow range, but cannot drag Town defense across the map.
+    return Number.isFinite(position.x + position.y + position.z)
+      && Math.abs(position.x) <= TOWN_PLAYABLE_WORLD_BOUND && Math.abs(position.z) <= TOWN_PLAYABLE_WORLD_BOUND
+      && (position.x - home.x) ** 2 + (position.z - home.z) ** 2 <= range * range
   }
 
   private isMilitary(spec: TownActorSpec): boolean { return isTownMilitary(spec) }
