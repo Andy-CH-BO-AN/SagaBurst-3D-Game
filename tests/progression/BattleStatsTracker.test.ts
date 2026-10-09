@@ -76,15 +76,20 @@ describe('BattleStatsTracker', () => {
       events.emit({ type: 'damage_applied', source, target: npcTarget('enemy'), method: 'projectile', requestedDamage: 100, appliedDamage })
       events.emit({ type: 'actor_killed', source, target: npcTarget('enemy'), method: 'projectile' })
     }
+    for (const [source, appliedDamage] of [[official, 4], [personal, 9]] as const) {
+      events.emit({ type: 'damage_applied', source: enemySource(), target: { targetId: source.actorId, targetType: 'npc',
+        name: source.actorId, allegiance: source.allegiance, characterFaction: source.characterFaction, squadId: source.squadId },
+        method: 'melee', requestedDamage: 100, appliedDamage })
+    }
     const player = { dead: false } as Player
     const actors = [{ combatantId: 'borrowed', dead: true, squadId: 1 },
       { combatantId: 'personal:test', dead: false, squadId: 'personal' }] as unknown as NPC[]
     const snapshot = tracker.snapshot(actors, player)
     expect(snapshot.player).toMatchObject({ damageDealt: 3, kills: 1 })
-    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 21, kills: 3 })
+    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 21, kills: 3, damageTaken: 0 })
     expect(snapshot.squads).toEqual([
-      expect.objectContaining({ squadId: 1, damageDealt: 7, kills: 1, startingMembers: 1, casualties: 1 }),
-      expect.objectContaining({ squadId: 'personal', damageDealt: 11, kills: 1, startingMembers: 1, survivors: 1 }),
+      expect.objectContaining({ squadId: 1, damageDealt: 7, damageTaken: 4, kills: 1, startingMembers: 1, casualties: 1 }),
+      expect.objectContaining({ squadId: 'personal', damageDealt: 11, damageTaken: 9, kills: 1, startingMembers: 1, survivors: 1 }),
     ])
     const resumed = new BattleStatsTracker(new CombatEventStream(), true, undefined, tracker.checkpoint(),
       { ...policy, initialContribution: tracker.commandCheckpoint(),
@@ -93,7 +98,7 @@ describe('BattleStatsTracker', () => {
     expect(resumed.snapshot(actors, player)).toEqual(snapshot)
     tracker.freeze()
     events.emit({ type: 'actor_killed', source: official, target: npcTarget('late-enemy'), method: 'projectile' })
-    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1 })
+    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1, damageTaken: 4 })
   })
 
   it('never adds player events or an overlapping NPC to command merit more than once', () => {

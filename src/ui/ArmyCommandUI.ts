@@ -28,7 +28,8 @@ const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
   mixed: '混合',
 }
 
-export function armyCommandTargetLabel(target: ArmyCommandTarget | null): string {
+export function armyCommandTargetLabel(target: ArmyCommandTarget | null, officialSquadLabel?: string): string {
+  if (target === 'squad:1' && officialSquadLabel) return officialSquadLabel
   if (target === 'all') return '全軍命令'
   if (target === null) return '命令'
   if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
@@ -42,6 +43,9 @@ export class ArmyCommandUI {
   private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
   private readonly wheelHint: HTMLElement
+  private officialSquadLabel: string | undefined
+  setOfficialSquadLabel(label?: string): void { this.officialSquadLabel = label }
+
   private feedbackTimer: number | null = null
   private townHudObserver: ResizeObserver | null = null
 
@@ -114,7 +118,7 @@ export class ArmyCommandUI {
     this.commands.replaceChildren()
     const title = document.createElement('div')
     title.className = 'army-command-panel-title'
-    title.textContent = armyCommandTargetLabel(selectedTarget)
+    title.textContent = armyCommandTargetLabel(selectedTarget, this.officialSquadLabel)
     this.commands.appendChild(title)
 
     const actions: Array<[string, string, TacticalOrder | 'dismiss']> = [
@@ -152,7 +156,7 @@ export class ArmyCommandUI {
 
     const title = document.createElement('div')
     title.className = 'army-command-panel-title'
-    title.textContent = `${armyCommandTargetLabel(target).replace('命令', '')} — 列陣位置`
+    title.textContent = `${armyCommandTargetLabel(target, this.officialSquadLabel).replace('命令', '')} — 列陣位置`
     this.commands.appendChild(title)
 
     for (const label of ['中央準星：選擇位置', '[E] / [左鍵] / [中鍵] 確認']) {
@@ -194,7 +198,8 @@ export class ArmyCommandUI {
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
       label.className = 'army-command-label'
-      label.textContent = `[${entry.key}] ${entry.label}${entry.summary ? ` ${entry.summary}` : ''}`
+      const name = entry.target === 'squad:1' && this.officialSquadLabel ? this.officialSquadLabel : entry.label
+      label.textContent = `[${entry.key}] ${name}${entry.summary ? ` ${entry.summary}` : ''}`
       const order = document.createElement('span')
       order.className = `army-command-order ${entry.order}`
       order.textContent = ORDER_LABELS[entry.order]

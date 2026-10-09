@@ -140,8 +140,14 @@ export class BattleStatsTracker {
     return { ...this.playerTotals }
   }
 
-  commandCheckpoint(): PersonalCombatContribution { return { ...this.commandContribution } }
-  officialCommandCheckpoint(): PersonalCombatContribution { return { ...this.officialContribution } }
+  commandCheckpoint(): PersonalCombatContribution {
+    const damageTaken = this.squads.get('personal')?.damageTaken ?? 0
+    return { ...this.commandContribution, ...(damageTaken > 0 ? { damageTaken } : {}) }
+  }
+  officialCommandCheckpoint(): PersonalCombatContribution {
+    const damageTaken = this.squads.get(1)?.damageTaken ?? 0
+    return { ...this.officialContribution, ...(damageTaken > 0 ? { damageTaken } : {}) }
+  }
   freeze(): void { this.frozen = true }
 
   registerNpc(npc: NPC, friendly = npc.faction === Faction.PLAYER): void {

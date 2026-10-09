@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { parseTownCommandSquad, officialMissionSourcePolicy, parseOfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { acceptCaptainEagle } from '../../src/career/CaptainBattleLaunch'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { Faction } from '../../src/world/NPC'
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
 
@@ -13,6 +17,21 @@ describe('Saved official command membership', () => {
         mount: { hp: 0, mounted: false, position: { x: 9, y: 2, z: 20, yaw: 1 } },
         formation: { commandId: -20, position: { x: 0, y: 1, z: 0, yaw: 0 }, reached: false } } } }
     expect(parseTownCommandSquad(JSON.parse(JSON.stringify(saved)))).toEqual(saved)
+  })
+
+  it('preserves official and personal incoming damage through the real Career store without changing merit fields', () => {
+    const profile = acceptCaptainEagle({ ...createCareerProfile('roman'), rank: 'captain', ownedMounts: ['xongkoro'],
+      personalSquad: { members: [{ id: 'personal:damage', type: 'soldier' }] } }, 'damage-resume')!
+    profile.activeMission!.officialSquad!.contribution = { ...emptyPersonalContribution(), damageDealt: 7, damageTaken: 13 }
+    profile.activeMission!.personalSquad!.contribution = { ...emptyPersonalContribution(), damageDealt: 11, damageTaken: 19 }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const saved = store.load()!.activeMission!
+    expect(saved.officialSquad!.contribution).toEqual(profile.activeMission!.officialSquad!.contribution)
+    expect(saved.personalSquad!.contribution).toEqual(profile.activeMission!.personalSquad!.contribution)
+    expect(store.save({ ...store.load()!, activeMission: { ...saved, officialSquad: { ...saved.officialSquad!,
+      contribution: { ...saved.officialSquad!.contribution, damageTaken: Infinity } } } })).toBe(true)
+    expect(store.load()!.activeMission!.officialSquad!.contribution.damageTaken).toBeUndefined()
   })
 
   it('fails closed on duplicate or invalid authoritative IDs rather than granting current soldiers', () => {

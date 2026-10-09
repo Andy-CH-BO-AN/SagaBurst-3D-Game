@@ -85,6 +85,7 @@ export function parseOfficialCommandAuthority(value: unknown): OfficialCommandAu
     const amount = raw.contribution?.[key]
     contribution[key] = typeof amount === 'number' && Number.isFinite(amount) ? Math.max(0, amount) : 0
   }
+  if (finite(raw.contribution?.damageTaken)) contribution.damageTaken = nonnegative(raw.contribution.damageTaken)
   contribution.kills = Math.floor(contribution.kills)
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)

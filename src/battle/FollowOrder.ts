@@ -17,6 +17,13 @@ export function followLocalOffset(slotIndex: number, mounted = false): THREE.Vec
   return new THREE.Vector3(lateral, 0, -row * spacing)
 }
 
+/** Give the official wing its own lateral corridor when HR follows the same Player. */
+export function officialFollowLocalOffset(slotIndex: number, mounted = false, hasPersonalSquad = false): THREE.Vector3 {
+  const offset = followLocalOffset(slotIndex, mounted)
+  if (hasPersonalSquad) offset.x += 12
+  return offset
+}
+
 /** Compact muster slots keep a returning party inside the Town arrival area. */
 export function returnFollowLocalOffset(slotIndex: number, followerCount: number, mounted = false, maxColumns = 6): THREE.Vector3 {
   const spacing = mounted ? FOLLOW_THRESHOLDS.mountedSpacing : FOLLOW_THRESHOLDS.infantrySpacing
