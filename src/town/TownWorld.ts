@@ -3,7 +3,7 @@ import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, TOWN_PLAZA, TOWN_PLAZA_CENTER, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -62,7 +62,7 @@ export class TownWorld {
     const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land); this.terrainMesh = land
     this.road(-57, 0, 85, 0, 8); this.road(0, -23, 0, 36, 12); this.road(25, -50, 25, 30, 7)
     this.road(-35, -18, -27, 32, 6); this.road(0, 10, 0, 30, 12); this.road(-25, 20, 10, 20, 8); this.road(-22, -10, 0, -10, 7)
-    for (let z = -10; z <= 10; z += 2) this.road(-17, z, 18, z, 2.1)
+    for (let z = TOWN_PLAZA.minZ; z <= TOWN_PLAZA.maxZ; z += 2) this.road(TOWN_PLAZA.minX, z, TOWN_PLAZA.maxX, z, 2.1)
     this.building('hall', '', faction === 'roman' ? 0 : -3, -34, faction === 'roman' ? 18 : 14, faction === 'roman' ? 14 : 24, 6, 'hall')
     this.building('weapons', '武器店 · ARMOURY', TOWN_SITES.weapons.x, TOWN_SITES.weapons.z, 11, 10, 3.6, 'shop', TOWN_SITES.weapons.yaw)
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
@@ -137,7 +137,11 @@ export class TownWorld {
 
   private eagleTrainingGround(): void {
     const { trainer } = this.eagleTraining
-    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], trainer.x - 4, trainer.z + 1, 12)
+    // Leave the first landing pad and the nearby diagonal road clear after turning the frame.
+    const x = trainer.x - 4.5, z = trainer.z + 3.5
+    const yaw = Math.atan2(TOWN_PLAZA_CENTER.x - x, TOWN_PLAZA_CENTER.z - z)
+    // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
+    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 12, yaw, 2.6)
     // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
     for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
       for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
@@ -223,18 +227,33 @@ export class TownWorld {
     this.batch(entrance)
   }
   /** The cavalry-style timber board shares one level top; each post reaches its own terrain sample. */
-  private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number): void {
+  private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number, yaw = 0, minimumHeadroom = 0): void {
     const root = new THREE.Group(), ground = getTerrainHeight(x, z)
-    root.position.set(x, ground, z); this.root.add(root)
-    const halfWidth = width / 2, leftGround = getTerrainHeight(x - halfWidth, z), rightGround = getTerrainHeight(x + halfWidth, z)
-    const top = Math.max(ground, leftGround, rightGround) + 3.6
-    for (const side of [-1, 1]) {
-      const postGround = side < 0 ? leftGround : rightGround, height = top - postGround
+    root.position.set(x, ground, z); root.rotation.y = yaw; this.root.add(root)
+    const halfWidth = width / 2, cos = Math.cos(yaw), sin = Math.sin(yaw)
+    const point = (side: number, front = 0) => ({ x: x + cos * side + sin * front, z: z - sin * side + cos * front })
+    const posts = [-1, 1].map(side => {
+      const position = point(side * halfWidth)
+      return { side, ...position, ground: getTerrainHeight(position.x, position.z) }
+    })
+    const collisionSpan = .25 * (Math.abs(cos) + Math.abs(sin))
+    let top = Math.max(ground, ...posts.map(post => post.ground)) + 3.6
+    if (minimumHeadroom > 0) {
+      // Include the front-mounted board and a walking body's depth, not just its two feet.
+      let passageGround = ground
+      for (let side = -halfWidth; side <= halfWidth; side += .5) for (const front of [-.6, 0, .3, .9]) {
+        const sample = point(side, front)
+        passageGround = Math.max(passageGround, getTerrainHeight(sample.x, sample.z))
+      }
+      top = Math.max(top, passageGround + minimumHeadroom + .6 + (width / 6.4 + .15) / 2)
+    }
+    for (const post of posts) {
+      const { side, ground: postGround } = post, height = top - postGround
       this.cube(root, side * halfWidth, postGround - ground + height / 2, 0, .2, height, .2, this.wood)
-      this.solid(x + side * halfWidth, z, .25, height, .25)
+      this.solid(post.x, post.z, collisionSpan, height, collisionSpan)
     }
     this.cube(root, 0, top - ground - .2, 0, width + .4, .2, .25, this.wood)
-    // The unrotated label faces +Z; mount its .16m backing against the timber's front face.
+    // The label faces local +Z; mount its .16m backing against the timber's front face.
     this.sign(root, lines.join('\n'), 0, top - ground - .6, .25 / 2 + .16, width, false)
     this.batch(root)
   }

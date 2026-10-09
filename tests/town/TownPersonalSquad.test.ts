@@ -13,6 +13,7 @@ import { CareerMountController } from '../../src/career/CareerMountController'
 import { careerEaglePadOwners, EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { initialPersonalEquipment } from '../../src/career/CareerInventory'
 import * as THREE from 'three'
+import { OBB } from 'three/examples/jsm/math/OBB.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -167,7 +168,7 @@ describe('HR Center and personal runtime', () => {
     expect(profile.inventory?.quantities.xongkoro).toBe(4)
   })
 
-  it.each(['roman', 'viking'] as const)('places %s hall with clear mounted slots, eight isolated eagle pads and unobscured terrain-anchored signs', faction => {
+  it.each(['roman', 'viking'] as const)('places %s hall, isolated eagle pads and terrain-anchored signs with a plaza-facing walk-through training board', faction => {
     const { world, navigation, dispose } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
     expect(hr).toBeDefined()
@@ -195,9 +196,9 @@ describe('HR Center and personal runtime', () => {
     const borrowedSignMaterials = new Set<THREE.Material>()
     // Reuse the built-world owner to check the actual supports and collider registration,
     // including different terrain heights at the two feet, rather than cosmetic mesh names.
-    for (const center of [{ name: 'eagle training', x: trainer.x - 4, z: trainer.z + 1, bilingual: true },
-      { name: 'eagle garrison', x: world.eagleGarrison.pads[0].x, z: world.eagleGarrison.pads[0].z - 10, bilingual: true },
-      ...[47, 82, 117].map(x => ({ name: `cavalry ${x}`, x, z: -101, bilingual: false }))]) {
+    for (const center of [{ name: 'eagle training', x: trainer.x - 4.5, z: trainer.z + 3.5, bilingual: true, walkThrough: true },
+      { name: 'eagle garrison', x: world.eagleGarrison.pads[0].x, z: world.eagleGarrison.pads[0].z - 10, bilingual: true, walkThrough: false },
+      ...[47, 82, 117].map(x => ({ name: `cavalry ${x}`, x, z: -101, bilingual: false, walkThrough: false }))]) {
       const board = world.root.children.find(child => child instanceof THREE.Group
         && Math.abs(child.position.x - center.x) < 1e-6 && Math.abs(child.position.z - center.z) < 1e-6)
       expect(board, `grounded board at ${center.x}, ${center.z}`).toBeDefined()
@@ -209,6 +210,22 @@ describe('HR Center and personal runtime', () => {
       const { width, height } = label!.geometry.parameters
       const front = new THREE.Vector3(0, 0, 1).transformDirection(label!.matrixWorld)
       const up = new THREE.Vector3(0, 1, 0).transformDirection(label!.matrixWorld)
+      if (center.walkThrough) {
+        // The actual paved square spans x=-17..18, z=-10..10; do not compare to a yaw constant.
+        expect(world.roads).toContainEqual({ ax: -17, az: 0, bx: 18, bz: 0, width: 2.1 })
+        const towardPlaza = new THREE.Vector3(.5 - center.x, 0, -center.z).normalize()
+        expect(front.dot(towardPlaza), `${faction} training label faces the paved plaza`).toBeCloseTo(1, 6)
+        const eye = new THREE.Vector3(.5, getTerrainHeight(.5, -10) + 1.7, -10)
+        world.root.updateWorldMatrix(true, true)
+        for (const pixelY of [48, 108]) {
+          const target = label!.localToWorld(new THREE.Vector3(0, (.5 - pixelY / 160) * height, 0))
+          const ray = new THREE.Raycaster(eye, target.clone().sub(eye).normalize(), 0, eye.distanceTo(target) + .5)
+          expect(ray.intersectObject(world.root, true)[0]?.object === label,
+            `${faction} plaza edge at z=-10 first sees text band ${pixelY} in the complete Town`).toBe(true)
+        }
+      } else {
+        expect(front.toArray(), `${center.name} retains its existing direction`).toEqual([0, 0, 1])
+      }
       // Sample across each text band on the 1024 x 160 canvas. Intersect real batched geometry,
       // so drawing the label over wood with depth/render-order tricks cannot satisfy this check.
       const textRows = center.bilingual
@@ -223,7 +240,7 @@ describe('HR Center and personal runtime', () => {
             `${faction} ${center.name} ${row.name} (${u}, ${pixelY}) first sees the label from ${drop ? 'slightly below' : 'front'}`).toBe(true)
         }
       }
-      const bounds = new THREE.Box3().setFromObject(board!), vertices: THREE.Vector3[] = []
+      const vertices: THREE.Vector3[] = []
       board!.traverse(child => {
         if (!(child instanceof THREE.Mesh)) return
         ownedSignResources.add(child.geometry)
@@ -237,16 +254,75 @@ describe('HR Center and personal runtime', () => {
           vertices.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(child.matrixWorld))
         }
       })
-      const supports = world.obstacles.filter(obstacle => obstacle.box.min.x > bounds.min.x
-        && obstacle.box.max.x < bounds.max.x && obstacle.box.min.z <= center.z && obstacle.box.max.z >= center.z)
+      const feet = [-1, 1].map(side => board!.localToWorld(new THREE.Vector3(side * width / 2, 0, 0)))
+      const supports = world.obstacles.filter(obstacle => feet.some(foot =>
+        Math.abs(obstacle.box.getCenter(new THREE.Vector3()).x - foot.x) < 1e-6
+          && Math.abs(obstacle.box.getCenter(new THREE.Vector3()).z - foot.z) < 1e-6))
       expect(supports).toHaveLength(2)
+      const postFootVertices = new Set<THREE.Vector3>()
       for (const support of supports) {
         const foot = support.box.getCenter(new THREE.Vector3()); foot.y = getTerrainHeight(foot.x, foot.z)
         const postVertices = vertices.filter(vertex => vertex.x >= support.box.min.x && vertex.x <= support.box.max.x
           && vertex.z >= support.box.min.z && vertex.z <= support.box.max.z)
         expect(Math.min(...postVertices.map(vertex => vertex.y)), 'each timber reaches its own ground height').toBeCloseTo(foot.y, 5)
+        const postFoot = vertices.filter(vertex => Math.abs(vertex.y - foot.y) < 1e-5
+          && Math.hypot(vertex.x - foot.x, vertex.z - foot.z) < .2)
+        expect(postFoot.length, 'rotated post foot exists at the collider center').toBeGreaterThan(0)
+        for (const vertex of postFoot) {
+          postFootVertices.add(vertex)
+          expect(support.box.containsPoint(vertex), 'collider encloses the rotated timber foot').toBe(true)
+        }
+        const footBounds = new THREE.Box3().setFromPoints(postFoot), footprintSize = footBounds.getSize(new THREE.Vector3())
+        const colliderSize = support.box.getSize(new THREE.Vector3())
+        expect(colliderSize.x, 'rotated X collision padding remains proportional').toBeCloseTo(footprintSize.x * 1.25, 5)
+        expect(colliderSize.z, 'rotated Z collision padding remains proportional').toBeCloseTo(footprintSize.z * 1.25, 5)
         expect(isObstaclePathClear(foot.clone().add(new THREE.Vector3(0, 0, 1)),
           foot.clone().add(new THREE.Vector3(0, 0, -1)), .45, 1.8, 0, world.obstacles), 'support blocks walking').toBe(false)
+      }
+      if (center.walkThrough) {
+        // Remove only the two grounded feet. The backing's lower corners lie outside the posts,
+        // so filtering by horizontal span would accidentally omit the lowest overhead geometry.
+        const overheadVertices = vertices.filter(vertex => !postFootVertices.has(vertex))
+        expect(overheadVertices.length, 'physical overhead geometry exists').toBeGreaterThan(0)
+        const lowestOverhead = Math.min(...overheadVertices.map(vertex => vertex.y))
+        for (const side of [-4, -2, 0, 2, 4]) for (const front of [-.125, .125, .305]) {
+          const sample = board!.localToWorld(new THREE.Vector3(side, 0, front))
+          expect(lowestOverhead - getTerrainHeight(sample.x, sample.z), 'backing and crossbar clear an on-foot body plus headroom').toBeGreaterThanOrEqual(2.5)
+        }
+        for (const side of [-2, 0, 2]) {
+          const start = board!.localToWorld(new THREE.Vector3(side, 0, -1.5))
+          const end = board!.localToWorld(new THREE.Vector3(side, 0, 1.5))
+          start.y = getTerrainHeight(start.x, start.z); end.y = getTerrainHeight(end.x, end.z)
+          for (const fraction of [0, .25, .5, .75, 1]) {
+            const sample = start.clone().lerp(end, fraction)
+            expect(lowestOverhead - getTerrainHeight(sample.x, sample.z), 'raised board clears an on-foot body plus headroom').toBeGreaterThanOrEqual(2.5)
+          }
+          expect(isObstaclePathClear(start, end, .45, 2.3, 0, world.obstacles), 'central walking passage remains physically open').toBe(true)
+          expect(navigation.areConnected(start, end), 'both sides remain connected through Town navigation').toBe(true)
+          for (const point of [start, end]) {
+            const cell = navigation.grid.worldToCell(point)
+            expect(cell).not.toBeNull()
+            expect(navigation.grid.isBlocked(cell!), 'passage is walkable without snapping').toBe(false)
+          }
+        }
+        const orientedBounds = new OBB().fromBox3(new THREE.Box3().setFromPoints(vertices.map(vertex => board!.worldToLocal(vertex.clone())))).applyMatrix4(board!.matrixWorld)
+        for (const building of world.buildings) for (const obstacle of building.obstacles) {
+          expect(orientedBounds.intersectsBox3(obstacle.box), `${building.id} stays clear of the rotated training sign`).toBe(false)
+        }
+        for (const footprint of footprints) expect(orientedBounds.intersectsBox3(footprint), 'training sign clears every eagle landing footprint').toBe(false)
+        for (const support of supports) {
+          const footprint = support.box.clone(); footprint.min.y = -100; footprint.max.y = 100
+          for (const road of world.roads) {
+            const transform = new THREE.Matrix4().makeRotationY(Math.atan2(road.bx - road.ax, road.bz - road.az))
+            transform.setPosition((road.ax + road.bx) / 2, 0, (road.az + road.bz) / 2)
+            const roadFootprint = new OBB(new THREE.Vector3(), new THREE.Vector3(road.width / 2, 100,
+              Math.hypot(road.bx - road.ax, road.bz - road.az) / 2)).applyMatrix4(transform)
+            expect(roadFootprint.intersectsBox3(footprint), 'rotated supports stay outside paved roads').toBe(false)
+          }
+        }
+      } else {
+        const highestGround = Math.max(getTerrainHeight(center.x, center.z), ...feet.map(foot => getTerrainHeight(foot.x, foot.z)))
+        expect(label!.getWorldPosition(new THREE.Vector3()).y, `${center.name} retains its existing height`).toBeCloseTo(highestGround + 3, 6)
       }
     }
     for (const [index, pad] of pads.entries()) {
