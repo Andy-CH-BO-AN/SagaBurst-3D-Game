@@ -99,9 +99,13 @@ describe('NPC temporary combat loadout', () => {
     npc.meleeDamage = 42
     equipment.arrows = 7
     equipment.rangedActive = false
-    npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_javelin_infantry.tierLoadouts[1])
+    npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_javelin_infantry.tierLoadouts[1], 1, 2, 'roman_javelin_infantry')
+    expect(npc.presetId).toBe('roman_javelin_infantry')
+    expect(npc.tier).toBe(1)
+    expect(npc.squadId).toBe(2)
     expect(equipment.bowPivot.parent).toBe(equipment.rig.right.handSocket)
-    npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_spearman.tierLoadouts[3])
+    npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_spearman.tierLoadouts[3], 3, 3, 'roman_spearman')
+    expect(npc.presetId).toBe('roman_spearman')
     expect(npc.isUsingLance).toBe(true)
     expect(npc.rangedDamage).toBe(0)
     npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_archer.tierLoadouts[1])
@@ -109,6 +113,9 @@ describe('NPC temporary combat loadout', () => {
     npc.restoreCombatLoadout()
 
     expect(npc.loadout).toBe(canonical)
+    expect(npc.presetId).toBe('roman_archer')
+    expect(npc.tier).toBe(3)
+    expect(npc.squadId).toBeUndefined()
     expect(npc.meleeWeaponId).toBe(canonical!.meleeWeaponId)
     expect(npc.meleeDamage).toBe(42)
     expect(npc.isUsingLance).toBe(false)

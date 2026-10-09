@@ -117,7 +117,7 @@
 | --- | --- |
 | `BanditMissionController` | 剿匪／巡邏與返程；借用同一位隊長，穩定 FOLLOW slots，僅正式名單納入任務歸因 |
 | `CavalrySweep`、`MountedMissionMarch` | Town mounted missions 共用騎兵入口前空地的集合點；既有 actor 從目前位置集合，temporary 沿既有 supportApproach／townEntry 從 map edge 進場。集合完成即自動行軍；友軍 temporary 結算後沿既有 departure 實際騎乘／步行到 edge 才移除，結算後 reload 不重建，敵軍仍正常清理 |
-| `TownDefenseController`、`TownSiege` | Soldier Enemy Town Assault／Veteran Home Defense 共用四門 Siege：固定 120 人（Assault 含 Player）、每門 30 人、T3 普通兵與四名 T4 officer；重用 208 名原駐軍（含五名空軍）與 20 名平民，authoritative roster 建立後不補員 |
+| `TownDefenseController`、`TownSiege` | Soldier Enemy Town Assault／Veteran Home Defense 共用四門 Siege：固定 120 人（Assault 含 Player）、每門 30 人：10 槍騎、10 弓騎、Roman 5 步弓＋5 標槍／Viking 10 步弓。T3 普通兵；三名 T4 Captain 計入槍騎，西門 T4 Maki 計入弓騎，Assault Player 替代北門一名普通槍騎。`rosterVersion=2` 固定新版 slot；已開始而缺版本的舊存檔按 v1 保留原全騎兵索引、死亡與領用 identity，不補員。重用 208 名原駐軍（含五名空軍）與 20 名平民 |
 | `CareerDuelController` | 借用士兵／英雄進行 1v1，保存倒數、戰鬥與結果；任務 ownership 優先，外敵解除後恢復原路；帶路角色死亡由 Captain／referee／其餘存活任務角色接手剩餘路線，全隊死亡仍允許 Player 自行返營結算，結算歸還角色 |
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置，避免套用自由戰役裝備 |
 
@@ -127,7 +127,9 @@ Duel arena 由 `TownDuelArena` 在步兵／騎兵訓練區之間的 forecourt �
 
 `TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，不讀寫 Career profile／inventory／購買狀態。玩家用既有 mountVehicle／dismountFromMount 暫時騎乘、下馬與再騎；任務結算、失敗、放棄、撤退、回城／場景退出會解除臨時騎乘並沿用 controller cleanup。只登記本次 combat 生成或騎兵死亡後釋放的可借用坐騎，排除 owned mount 與 Town service／merchant mounts。原有駐軍坐騎僅在本次 combat 釋放後暫時允許騎乘；cleanup 保留其 Town 實體並恢復 reserved 資格，其他臨時無主坐騎清除，仍被 NPC 騎乘者依原 controller 返程／離場。永久選擇與 HP persistence 始終指向原購入坐騎，runtime temporary 標記不進存檔。
 
-`TownEagleTrainingGround` 從實際 Town 障礙、道路、巡邏與 HR footprint 搜尋候選起降空地，正式 layout 只建立三個私人 pad，另由 `TownEagleGarrison` 建立五個獨立 Town pad。訓練場仍售 xongkoro（10,000 availableMerit、Captain／Commander），domain 以 CareerInventory canonical quantity 限制同時持有三隻，包含 Player／私兵／Reserve／戰損；舊版超額庫存保留且禁止繼續購買。`EaglePadReservations` 依永久 owner ID 配置、保存優先 pad 與釋放，不使用整份私兵名冊 index；Player 與私兵共用私人配置，Town 不入私人庫存。
+`TownEagleTrainingGround` 從實際 Town 障礙、道路、巡邏與 HR footprint 搜尋候選起降空地，正式 layout 只建立三個私人 pad，另由 `TownEagleGarrison` 建立五個獨立 Town pad。兩處標示重用騎兵場大型木看板，每根實體支架依自身地形高度接地並註冊碰撞；不保留懸空標牌。訓練場仍售 xongkoro（10,000 availableMerit、Captain／Commander），domain 以 CareerInventory canonical quantity 限制同時持有三隻，包含 Player／私兵／Reserve／戰損；舊版超額庫存保留且禁止繼續購買。`EaglePadReservations` 依永久 owner ID 配置、保存優先 pad 與釋放，不使用整份私兵名冊 index；Player 與私兵共用私人配置，Town 不入私人庫存。敵城沒有友方 HR／私人訓練場：待任務設定 Player 的實際集結點後，`personalTownEagleDeployment` 在其附近建立共享的三個安全 field pad，普通私兵 muster 避讓其翼展；同場景合法飛行 checkpoint 仍優先恢復原位置。
+
+Siege 攻方的 `missionAerialDefense` 明確允許行軍時以現有武器 3D 射程回應真正飛行中的目標，目標離開／死亡即沿原 formation 繼續；地面接敵與其他任務仍維持 20m 行軍中斷政策。新版步弓越過城門後使用 `attack`，避免套用 Viking `charge` 收弓近戰規則。普通步弓 50m、馬弓 30m 與標槍等原武器數值不變，不能因目標是巨鷹而越過自身射程。
 
 `TownEagleGarrisonController` 管五對固定 rider／mount／home pad identity 與 duty，Roman／Viking 都為真正 T3 Archer。和平時地面待命；既有合法 combat phase 才實際步行登乘、錯峰起飛，返回時排隊飛抵自己的 pad、落地、卸乘與步行待命。空軍不進一般借兵名單；新增 rider 加入適用人口／objective，坐騎不加必殺目標。`townEagleGarrisons` 按城鎮陣營各自保存戰損、位置、飛行、未決墜落與 duty，整補只在既有結算授權後進行；舊任務保存的目標 IDs 保持權威，不因新名冊重置戰況。
 

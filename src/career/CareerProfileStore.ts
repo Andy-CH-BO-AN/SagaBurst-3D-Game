@@ -161,6 +161,7 @@ function parseSiege(value: unknown): ActiveCareerMission['siege'] {
   const health = raw.gateHealth && typeof raw.gateHealth === 'object' ? raw.gateHealth as Record<string, unknown> : {}
   return {
     version: 1, rosterCreated: raw.rosterCreated === true,
+    rosterVersion: raw.rosterCreated === true && raw.rosterVersion !== 2 ? 1 : 2,
     attackerIds: uniqueStrings(raw.attackerIds), claimedSquadIds: uniqueStrings(raw.claimedSquadIds).filter(id => /^outskirts:cavalry:[abc]$/.test(id)),
     destroyedGateIds: gates(raw.destroyedGateIds), releasedReserveGateIds: gates(raw.releasedReserveGateIds),
     crossedActorIds: uniqueStrings(raw.crossedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),

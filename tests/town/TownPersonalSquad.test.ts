@@ -1,5 +1,8 @@
 import { advanceUntil } from '../helpers/simulation'
-import { eagleLandingFootprint } from '../../src/world/EagleLanding'
+import { personalTownDeployment, personalTownEagleDeployment } from '../../src/career/PersonalSquadDeployment'
+import { createAssaultRoster } from '../../src/career/EnemyTownAssault'
+import { siegeMuster } from '../../src/career/TownSiege'
+import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
 import { townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { townPatrolRoute } from '../../src/town/TownPatrolRoute'
@@ -77,10 +80,12 @@ function harness(faction: 'roman' | 'viking' = 'roman', count = 3) {
 // Geometry owns the built Town; runtime cases below need only an HR layout and real actors.
 function townGeometry(faction: 'roman' | 'viking') {
   const world = new TownWorld(faction, renderingScene())
-  cleanups.push(() => world.dispose())
+  let disposed = false
+  const dispose = () => { if (!disposed) { disposed = true; world.dispose() } }
+  cleanups.push(dispose)
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(world.obstacles)
-  return { world, navigation }
+  return { world, navigation, dispose }
 }
 /** Intersect the complete finite travel segment, rather than sampling a few waypoints. */
 function crossesPadCorridor(footprint: THREE.Box3, start: THREE.Vector3, end: THREE.Vector3, halfWidth: number): boolean {
@@ -162,8 +167,8 @@ describe('HR Center and personal runtime', () => {
     expect(profile.inventory?.quantities.xongkoro).toBe(4)
   })
 
-  it.each(['roman', 'viking'] as const)('places %s hall behind Horse Shop with thirty clear mounted slots and eight isolated eagle pads', faction => {
-    const { world, navigation } = townGeometry(faction)
+  it.each(['roman', 'viking'] as const)('places %s hall with clear mounted slots, eight isolated eagle pads and terrain-anchored sign supports', faction => {
+    const { world, navigation, dispose } = townGeometry(faction)
     const hr = world.buildings.find(building => building.id === 'hr-center')!
     expect(hr).toBeDefined()
     expect([world.hr.width, world.hr.depth]).toEqual(faction === 'roman' ? [16, 13] : [13, 22])
@@ -186,6 +191,42 @@ describe('HR Center and personal runtime', () => {
     expect(world.eagleGarrison.pads).toHaveLength(5)
     const pads = [...eagle.pads, ...world.eagleGarrison.pads], patrol = townPatrolRoute()
     const footprints = pads.map(pad => eagleLandingFootprint(pad))
+    const ownedSignResources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
+    const borrowedSignMaterials = new Set<THREE.Material>()
+    // Reuse the built-world owner to check the actual supports and collider registration,
+    // including different terrain heights at the two feet, rather than cosmetic mesh names.
+    for (const center of [{ x: trainer.x - 4, z: trainer.z + 1 },
+      { x: world.eagleGarrison.pads[0].x, z: world.eagleGarrison.pads[0].z - 10 }]) {
+      const board = world.root.children.find(child => child instanceof THREE.Group
+        && Math.abs(child.position.x - center.x) < 1e-6 && Math.abs(child.position.z - center.z) < 1e-6)
+      expect(board, `grounded board at ${center.x}, ${center.z}`).toBeDefined()
+      board!.updateWorldMatrix(true, true)
+      const bounds = new THREE.Box3().setFromObject(board!), vertices: THREE.Vector3[] = []
+      board!.traverse(child => {
+        if (!(child instanceof THREE.Mesh)) return
+        ownedSignResources.add(child.geometry)
+        for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+          if (material.name.startsWith('procedural-')) borrowedSignMaterials.add(material)
+          else ownedSignResources.add(material)
+          if (material instanceof THREE.MeshBasicMaterial && material.map) ownedSignResources.add(material.map)
+        }
+        const positions = child.geometry.getAttribute('position')
+        for (let index = 0; index < positions.count; index++) {
+          vertices.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(child.matrixWorld))
+        }
+      })
+      const supports = world.obstacles.filter(obstacle => obstacle.box.min.x > bounds.min.x
+        && obstacle.box.max.x < bounds.max.x && obstacle.box.min.z <= center.z && obstacle.box.max.z >= center.z)
+      expect(supports).toHaveLength(2)
+      for (const support of supports) {
+        const foot = support.box.getCenter(new THREE.Vector3()); foot.y = getTerrainHeight(foot.x, foot.z)
+        const postVertices = vertices.filter(vertex => vertex.x >= support.box.min.x && vertex.x <= support.box.max.x
+          && vertex.z >= support.box.min.z && vertex.z <= support.box.max.z)
+        expect(Math.min(...postVertices.map(vertex => vertex.y)), 'each timber reaches its own ground height').toBeCloseTo(foot.y, 5)
+        expect(isObstaclePathClear(foot.clone().add(new THREE.Vector3(0, 0, 1)),
+          foot.clone().add(new THREE.Vector3(0, 0, -1)), .45, 1.8, 0, world.obstacles), 'support blocks walking').toBe(false)
+      }
+    }
     for (const [index, pad] of pads.entries()) {
       const footprint = footprints[index]
       expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(footprint)), pad.id).toBe(false)
@@ -221,6 +262,26 @@ describe('HR Center and personal runtime', () => {
       expect(flight.phase, `${pad.id} accepts takeoff with built terrain and obstacles`).toBe('takeoff')
       expect(position.y, `${pad.id} lifts from the ground`).toBeGreaterThan(ground)
     }
+    // Reuse this geometry owner to check field deployment against the actual Town,
+    // with production army positions and thirty private slots but no spawned actors.
+    const assaultAnchor = { ...siegeMuster('north', 1), yaw: 0 }, official = createAssaultRoster(faction)
+    const fieldPads = personalTownEagleDeployment(assaultAnchor, official, 3, TOWN_NAVIGATION_BOUNDS, world.obstacles, navigation)
+    const fieldSlots = personalTownDeployment(assaultAnchor, official, 30, TOWN_NAVIGATION_BOUNDS,
+      [...world.obstacles, ...fieldPads.map(pad => ({ box: eagleLandingFootprint(pad), isBarricade: false }))], navigation)
+    expect(fieldSlots).toHaveLength(30)
+    for (const pad of fieldPads) {
+      expect(Math.hypot(pad.x - assaultAnchor.x, pad.z - assaultAnchor.z)).toBeLessThanOrEqual(96)
+      expect(navigation.areConnected(assaultAnchor, pad), `${pad.id} reachable beside the assault muster`).toBe(true)
+      expect(isEagleLandingClear(pad, world.obstacles, [...official, ...fieldPads.filter(other => other !== pad)], 350)).toBe(true)
+      const footprint = eagleLandingFootprint(pad)
+      expect(fieldSlots.every(slot => !footprint.containsPoint(new THREE.Vector3(slot.x, 0, slot.z)))).toBe(true)
+      const position = new THREE.Vector3(pad.x, getTerrainHeight(pad.x, pad.z), pad.z), ground = position.y
+      const flight = new EagleFlightController()
+      flight.setIntent({ yaw: pad.yaw, pitch: .32, takeoff: true })
+      flight.update(position, new THREE.Euler(0, pad.yaw, 0), .05, world.obstacles, 350)
+      expect(flight.phase, `${pad.id} accepts field takeoff with built Town terrain and obstacles`).toBe('takeoff')
+      expect(position.y).toBeGreaterThan(ground)
+    }
     for (const rider of townEagleRoster(world.eagleGarrison)) {
       const standby = new THREE.Vector3(rider.x, getTerrainHeight(rider.x, rider.z), rider.z), home = rider.eagle!.home
       const landing = new THREE.Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)
@@ -242,6 +303,16 @@ describe('HR Center and personal runtime', () => {
     }
     for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) expect(Math.hypot(world.hr.muster[i].x - world.hr.muster[j].x, world.hr.muster[i].z - world.hr.muster[j].z)).toBeGreaterThanOrEqual(4.4)
     expect(() => resolveTownHRLayout(faction, [{ box: new THREE.Box3(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500)), isBarricade: false }], world.roads)).toThrow()
+    const disposalCounts = new Map<THREE.BufferGeometry | THREE.Material | THREE.Texture, number>()
+    for (const resource of [...ownedSignResources, ...borrowedSignMaterials]) {
+      const onDispose = () => disposalCounts.set(resource, (disposalCounts.get(resource) ?? 0) + 1)
+      const events: THREE.EventDispatcher<{ dispose: {} }> = resource
+      events.addEventListener('dispose', onDispose)
+      cleanups.push(() => events.removeEventListener('dispose', onDispose))
+    }
+    dispose()
+    for (const resource of ownedSignResources) expect(disposalCounts.get(resource), 'owned sign resource disposed once').toBe(1)
+    for (const material of borrowedSignMaterials) expect(disposalCounts.has(material), 'shared wood remains usable').toBe(false)
   })
   it.each(['ACTIVE', 'RETURNING'] as const)('restores a %s legacy fourth eagle without a fourth pad or a deleted checkpoint', state => {
     // Three data-only reserve owners plus one real rider/mount; no full legacy squad spawn.

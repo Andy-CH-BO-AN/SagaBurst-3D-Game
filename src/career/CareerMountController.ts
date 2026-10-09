@@ -5,7 +5,7 @@ import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentU
 import type { Player } from '../player/Player'
 import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
-import { findEagleLandingPosition } from '../world/EagleLanding'
+import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
 import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
 import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 
@@ -87,7 +87,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly obstacles: () => readonly ObstacleData[],
     private readonly occupied: () => readonly THREE.Vector3[],
     private readonly sceneKey: () => string = () => 'town-home',
-    private readonly options: { eaglePads?: EaglePadReservations } = {},
+    private readonly options: { eaglePads?: EaglePadReservations; eagleDeployment?: () => EagleLandingPoint | undefined } = {},
   ) {
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const state = this.readProfile().activeMission?.mountState
@@ -137,9 +137,10 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (id === 'xongkoro' && this.options.eaglePads && !pad) return this.fail('私人巨鷹停放位已滿。')
     const occupied = this.occupied().filter(point => point !== this.active?.mount.group.position)
     const eagleOccupied = [...occupied, ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])]
-    const heading = this.player().facingYaw
+    const deployment = this.options.eagleDeployment?.()
+    const heading = deployment?.yaw ?? this.player().facingYaw
     const position = id === 'xongkoro'
-      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(), eagleOccupied, getScenePlayableWorldBound(this.scene))
+      ? findEagleLandingPosition(deployment ?? { ...this.player().combatPosition, yaw: heading }, this.obstacles(), eagleOccupied, getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), occupied)
     if (!position) {
       if (pad && !previousPad) this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
@@ -184,11 +185,12 @@ export class CareerMountController implements EquipmentMountAdapter {
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
     // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
     if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount) return false
-    const heading = aerial?.mount?.position.yaw ?? this.player().facingYaw
+    const deployment = this.options.eagleDeployment?.()
+    const heading = aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
     const position = id === 'xongkoro' && aerial?.mount
       ? new THREE.Vector3(aerial.mount.position.x, aerial.mount.position.y, aerial.mount.position.z)
       : id === 'xongkoro'
-      ? findEagleLandingPosition({ ...this.player().combatPosition, yaw: heading }, this.obstacles(),
+      ? findEagleLandingPosition(deployment ?? { ...this.player().combatPosition, yaw: heading }, this.obstacles(),
         [...this.occupied(), ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])], getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false

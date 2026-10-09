@@ -1,10 +1,10 @@
 import { playerEagleProjectileBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { TownEagleGarrisonController } from './TownEagleGarrisonController'
-import { EaglePadReservations } from '../career/EaglePadReservations'
+import { EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from '../career/EaglePadReservations'
 import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
 import { captureCareerAerialState, restoreCareerAerialState } from '../career/CareerAerialState'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
-import { availableCareerItem, careerItemTotal } from '../career/CareerInventory'
+import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
 import { squadEquipmentUI } from './TownSquadEquipmentUI'
 import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
@@ -15,7 +15,8 @@ import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMem
 import { townConquestRoster } from './TownHRLayout'
 import { TownPersonalSquadController } from './TownPersonalSquadController'
 import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
-import { personalTownDeployment } from '../career/PersonalSquadDeployment'
+import { siegeMuster } from '../career/TownSiege'
+import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -30,6 +31,7 @@ import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
+import { eagleLandingFootprint } from '../world/EagleLanding'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
@@ -173,6 +175,7 @@ export class TownScene {
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
   private missionCombat!: TownMissionCombat
+  private privateEaglePads?: EaglePadReservations
   private personalSquad?: TownPersonalSquadController
   private personalCommands?: ArmyCommandController
   private personalSaveElapsed = 0
@@ -260,20 +263,11 @@ export class TownScene {
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds)
     this.outskirts.synchronizeRank()
-    const privateEaglePads = new EaglePadReservations(this.world.eagleTraining.pads)
-    this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player, undefined, {
-      sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
-      hasHR: context.worldFaction === profile.faction,
-      eagleMuster: this.world.eagleTraining.pads, eaglePads: privateEaglePads,
-      formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
-        TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation),
-      emit: event => (this.defense?.active ? this.defense.events : this.mission.events).emit(event),
-      onSpawn: npc => (this.defense?.active ? this.defense : this.mission)?.registerPersonalActor(npc),
-    })
+    this.initializePersonalSquad()
     this.personalCommandUI = new ArmyCommandUI(profile.faction, this.hud)
-    this.personalFormation = new FormationController(this.scene, this.camera, this.personalSquad.actors, this.world.terrainMesh,
+    this.personalFormation = new FormationController(this.scene, this.camera, this.personalSquad!.actors, this.world.terrainMesh,
       this.world.obstacles, this.navigation, TOWN_NAVIGATION_BOUNDS)
-    this.personalCommands = new ArmyCommandController(this.personalSquad.actors, profile.faction, this.input, this.personalCommandUI,
+    this.personalCommands = new ArmyCommandController(this.personalSquad!.actors, profile.faction, this.input, this.personalCommandUI,
       this.personalFormation, order => { this.personalSquad?.resumeCommand(order); if (order === 'attack' || order === 'charge' || order === 'defend') sound.playCommanderCommand(this.profile.faction, order) },
       'follow', order => this.personalCommandsEnabled() && (order === 'follow' || this.personalSquad?.state !== 'RESERVE'), this.inventory, 'squad', true, {
         enabled: () => this.personalCommandsEnabled(),
@@ -307,21 +301,7 @@ export class TownScene {
       ambientEnemies: () => this.mission.ambientBandits,
     })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
-    this.careerMounts = new CareerMountController(
-      this.scene,
-      () => this.player,
-      () => this.profile,
-      p => this.commit(p),
-      () => this.world.obstacles,
-      () => [
-        ...this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatPosition),
-        ...this.mounts.filter(mount => !mount.dead && (!this.sceneContext.missionOnlyResidents || mount !== this.cat)).map(mount => mount.group.position),
-        ...this.mission.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
-        ...this.defense.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
-      ],
-      () => this.personalSquad?.sceneKey ?? 'town-home',
-      { eaglePads: privateEaglePads },
-    )
+    this.initializeCareerMounts()
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -365,7 +345,7 @@ export class TownScene {
       if (batch.status === 'pending' || batch.status === 'failed')
         await gameplayNpcSpawns.wait(batch, (done, total) => progress(`建立城外部隊 ${done} / ${total}…`))
     }
-    await this.personalSquad.waitForSpawns()
+    await this.personalSquad!.waitForSpawns()
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()
     for (const distance of [100, 35, 0]) {
@@ -1157,6 +1137,64 @@ export class TownScene {
     return bodies
   }
 
+  private initializePersonalSquad(): void {
+    const context = this.sceneContext, profile = this.profile
+    const home = context.worldFaction === profile.faction
+    const privateEaglePads = this.privateEaglePads = new EaglePadReservations(home ? this.world.eagleTraining.pads : [])
+    this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player, undefined, {
+      sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
+      hasHR: home, eaglePads: privateEaglePads,
+      formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
+        TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation),
+      emit: event => (this.defense?.active ? this.defense.events : this.mission.events).emit(event),
+      onSpawn: npc => (this.defense?.active ? this.defense : this.mission)?.registerPersonalActor(npc),
+    })
+  }
+
+  private initializeCareerMounts(): void {
+    this.careerMounts = new CareerMountController(
+      this.scene,
+      () => this.player,
+      () => this.profile,
+      p => this.commit(p),
+      () => this.world.obstacles,
+      () => [
+        ...this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatPosition),
+        ...this.mounts.filter(mount => !mount.dead && (!this.sceneContext.missionOnlyResidents || mount !== this.cat)).map(mount => mount.group.position),
+        ...this.mission.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
+        ...this.defense.fieldNpcs.filter(npc => !npc.dead).map(npc => npc.combatPosition),
+        ...(this.personalSquad?.actors ?? []).filter(npc => !npc.dead).map(npc => npc.combatPosition),
+        ...(this.personalSquad?.mounts ?? []).filter(mount => !mount.dead).map(mount => mount.group.position),
+      ],
+      () => this.personalSquad?.sceneKey ?? 'town-home',
+      { eaglePads: this.privateEaglePads,
+        eagleDeployment: () => this.restoringAerialState && !this.personalSquad?.hasHR
+          ? this.privateEaglePads?.get(PLAYER_EAGLE_PAD_OWNER) : undefined },
+    )
+  }
+
+  private preparePersonalFieldDeployment(saved: CareerProfile['personalSquadRuntime']): void {
+    if (!this.personalSquad || this.personalSquad.hasHR) return
+    const active = this.profile.activeMission, aerial = this.profile.playerAerialState
+    // An airborne checkpoint may be above an unwalkable roof. Plan only its reserve
+    // pads at the lawful entry; the actual saved Player/squad flight stays authoritative.
+    const airborne = aerial?.sceneKey === this.personalSquad.sceneKey
+      && (aerial.mount && aerial.mount.flight.phase !== 'grounded' || aerial.fall?.active)
+    const entry = airborne && active?.kind === 'enemy-town-assault' ? siegeMuster('north', 1)
+      : airborne && active?.kind === 'veteran-field' ? veteranPlayerSpawn(active.templateId) : null
+    const anchor = entry ? { x: entry.x, z: entry.z, yaw: active?.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : 0 }
+      : { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.facingYaw }
+    const official = (this.defense.active ? this.defense.fieldNpcs : this.mission.friendlies)
+      .filter(npc => !npc.dead && npc.faction !== Faction.ENEMY && Math.hypot(npc.combatPosition.x - anchor.x, npc.combatPosition.z - anchor.z) < 110)
+      .map(npc => npc.combatPosition)
+    const pads = personalTownEagleDeployment(anchor, official, careerItemTotal(this.profile, 'xongkoro') > 0 ? MAX_PLAYER_OWNED_XONGKORO : 0,
+      TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation)
+    const landingObstacles = pads.map(pad => ({ box: eagleLandingFootprint(pad), isBarricade: false }))
+    const muster = personalTownDeployment(anchor, official, saved?.memberIds.length ?? this.profile.personalSquad?.members.length ?? 0,
+      TOWN_NAVIGATION_BOUNDS, [...this.world.obstacles, ...landingObstacles], this.navigation)
+    this.personalSquad.setMuster(muster, pads)
+  }
+
   private async restoreActiveCareerMission(): Promise<void> {
     let { profile } = this
     if (profile.activeMission) {
@@ -1186,6 +1224,7 @@ export class TownScene {
       profile = this.profile
       const active = profile.activeMission!
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
+      this.preparePersonalFieldDeployment(active.personalSquad)
       const assaultAnchor = active.kind === 'enemy-town-assault' ? this.player.combatPosition.clone() : null
       this.careerMounts.restoreActiveMount()
       if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) {
@@ -1193,7 +1232,7 @@ export class TownScene {
       }
       if (active.kind === 'enemy-town-assault') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
-        if (this.player.currentMount) {
+        if (this.player.currentMount && !this.player.currentMount.isFlyingMount) {
           this.player.currentMount.group.position.copy(assaultAnchor!)
           this.player.currentMount.group.rotation.y = this.player.group.rotation.y
         }
@@ -1221,7 +1260,7 @@ export class TownScene {
 
   private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
     if (!saved || !this.personalSquad) return
-    if (saved.sceneKey !== this.personalSquad.sceneKey) {
+    if (saved.sceneKey !== this.personalSquad.sceneKey && this.personalSquad.hasHR) {
       const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.group.rotation.y }
       const official = (this.defense.active ? this.defense.fieldNpcs : this.mission.friendlies)
         .filter(npc => !npc.dead && npc.faction !== Faction.ENEMY && npc.combatPosition.distanceToSquared(this.player.combatPosition) < 80 * 80)

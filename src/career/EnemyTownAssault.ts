@@ -51,7 +51,7 @@ export function createEnemyTownAssaultMission(id = createCareerMissionId(ENEMY_T
     friendlyActorIds: Array.from({ length: 119 }, (_, index) => `${id}:assault:${index}`), acceptedAt: Date.now(),
   }
 }
-/** Player is one of the 120 combatants; four officers and 115 regular NPCs. */
+/** Player occupies a North lancer slot among 120 combatants; four officers and 115 regular NPCs. */
 export function createAssaultRoster(faction: CharacterFaction): NpcSpawnSpec[] {
   return siegeRoster(faction, true).map(slot => slot.spec)
 }

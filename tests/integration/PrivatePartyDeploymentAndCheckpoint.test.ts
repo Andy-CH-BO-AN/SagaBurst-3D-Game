@@ -6,13 +6,16 @@ import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntim
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
 import { personalMissionSourcePolicy, clonePersonalMission } from '../../src/career/CareerPersonalSquadMission'
-import { personalRearDeployment, personalTownDeployment } from '../../src/career/PersonalSquadDeployment'
+import { personalRearDeployment, personalTownDeployment, personalTownEagleDeployment } from '../../src/career/PersonalSquadDeployment'
 import { acceptCareerOutpost, acceptCareerOutpostRelief, parseCareerOutpostCheckpoint } from '../../src/career/CareerOutpostMission'
 import { createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
 import { getCampaignDefenderFacingYaw } from '../../src/campaign/CampaignOutpost'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { isEagleLandingClear } from '../../src/world/EagleLanding'
+import { createAssaultRoster } from '../../src/career/EnemyTownAssault'
+import { siegeMuster } from '../../src/career/TownSiege'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -206,6 +209,22 @@ describe('Personal deployment uses existing navigation and independent slots', (
     for (const point of slots.slice(1)) expect(projection(point)).toBeLessThan(projection(slots[0]))
     for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) {
       expect(Math.hypot(slots[i].x - slots[j].x, slots[i].z - slots[j].z)).toBeGreaterThanOrEqual(4.8)
+    }
+  })
+
+  it.each(['roman', 'viking'] as const)('keeps three %s assault eagle pads on the connected field side with full takeoff clearance', faction => {
+    // Production roster positions and navigation only: no NPC, Mount or TownWorld constructors.
+    const bounds = { minX: -350, maxX: 350, minZ: -350, maxZ: 350 }, navigation = new NavigationWorld(bounds)
+    const obstacles = [{ box: new THREE.Box3(new THREE.Vector3(-350, -10, -260), new THREE.Vector3(350, 20, -258)), isBarricade: false }]
+    navigation.sync(obstacles)
+    const anchor = { ...siegeMuster('north', 1), yaw: 0 }, official = createAssaultRoster(faction)
+    const pads = personalTownEagleDeployment(anchor, official, 3, bounds, obstacles, navigation)
+    expect(pads.map(pad => pad.id)).toEqual(['private-eagle-pad:1', 'private-eagle-pad:2', 'private-eagle-pad:3'])
+    for (const pad of pads) {
+      expect(pad.z).toBeLessThan(-260)
+      expect(Math.hypot(pad.x - anchor.x, pad.z - anchor.z)).toBeLessThanOrEqual(96)
+      expect(navigation.areConnected(anchor, pad)).toBe(true)
+      expect(isEagleLandingClear(pad, obstacles, [...official, ...pads.filter(other => other !== pad)], 350)).toBe(true)
     }
   })
 

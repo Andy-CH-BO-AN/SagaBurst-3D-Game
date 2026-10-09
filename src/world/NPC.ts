@@ -165,6 +165,7 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
 interface CombatEquipmentSnapshot {
   tier: 1 | 2 | 3 | 4
   squadId?: SquadId
+  presetId?: UnitPresetId
   meleeWeaponId: string | null
   meleeDamageOverride: number | undefined
   rangedWeaponId: string | undefined
@@ -218,7 +219,7 @@ export class NPC {
   readonly visualAssetId?: HeroAssetId
   readonly combatProfileId?: T4CombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
-  readonly presetId?: UnitPresetId
+  presetId?: UnitPresetId
   private _squadId?: SquadId
   get squadId(): SquadId | undefined { return this._squadId }
   combatOwnership?: 'player-personal'
@@ -427,6 +428,8 @@ export class NPC {
   private _siegeTargetObstacle: ObstacleData | null = null
   /** Urgent mission travel: sprint to the destination, defending immediate contact without abandoning the order. */
   missionMovement = false
+  /** Siege attackers may answer aircraft while retaining their assigned march. */
+  missionAerialDefense = false
   /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
   private missionCombatTarget: NPC | Player | null | undefined = undefined
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
@@ -1067,11 +1070,12 @@ export class NPC {
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
-  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId): void {
+  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId, presetId?: UnitPresetId): void {
     if (!this.originalCombatEquipment) {
       this.originalCombatEquipment = {
         tier: this.tier,
         squadId: this.squadId,
+        presetId: this.presetId,
         meleeWeaponId: this.meleeWeaponId,
         meleeDamageOverride: this._meleeDamageOverride,
         rangedWeaponId: this.rangedWeaponId,
@@ -1084,6 +1088,7 @@ export class NPC {
     this._cancelEquipmentCombatState()
     if (tier !== undefined) this._tier = tier
     if (squadId !== undefined) this._squadId = squadId
+    if (presetId !== undefined) this.presetId = presetId
     this._meleeDamageOverride = undefined
     this._setActiveMeleeWeapon(loadout.meleeWeaponId ?? null)
     this.rangedWeaponId = loadout.rangedWeaponId ?? undefined
@@ -1110,6 +1115,7 @@ export class NPC {
     this._cancelEquipmentCombatState()
     this._tier = original.tier
     this._squadId = original.squadId
+    this.presetId = original.presetId
     this._setActiveMeleeWeapon(original.meleeWeaponId)
     this._meleeDamageOverride = original.meleeDamageOverride
     this.rangedWeaponId = original.rangedWeaponId
@@ -2141,8 +2147,14 @@ export class NPC {
     }
     const missionOrder = this.missionMovement ? this.tacticalOrder : null
     const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
+    const missionTargetMount = missionTarget?.isPlayer ? player.currentMount : missionTarget?.npc?.mount
+    // Marching archers cannot get within the ground-contact radius of a flying
+    // target. Use their existing 3D weapon range for that target only, preserving
+    // the 20m interruption policy for ground combat and the march destination.
+    const missionRangedRange = this.missionAerialDefense && missionTargetMount?.isFlyingMount && missionTargetMount.isAirborne
+      ? this.maxRangedAttackDistance : Math.min(20, this.maxRangedAttackDistance)
     const missionContact = missionTarget && !missionTarget.isDead
-      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= Math.min(20, this.maxRangedAttackDistance) ** 2 : this._isTargetInDefendRange(missionTarget.position))
+      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= missionRangedRange ** 2 : this._isTargetInDefendRange(missionTarget.position))
       && this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null
     if (missionContact) {
       this.tacticalOrder = 'defend'

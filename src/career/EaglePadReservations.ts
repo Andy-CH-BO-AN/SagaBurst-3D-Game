@@ -15,8 +15,19 @@ export function careerEaglePadOwners(profile: CareerProfile): string[] {
 /** Shared by Player and Personal Squad. Town-owned pads use a separate layout/owner. */
 export class EaglePadReservations {
   private readonly reservations = new Map<string, EaglePad>()
-  constructor(readonly pads: readonly EaglePad[]) {
+  private layout: readonly EaglePad[]
+  constructor(pads: readonly EaglePad[]) { this.layout = []; this.setPads(pads) }
+  get pads(): readonly EaglePad[] { return this.layout }
+  /** Rebase a shared field deployment after the mission establishes its actual muster. */
+  setPads(pads: readonly EaglePad[]): void {
     if (new Set(pads.map(pad => pad.id)).size !== pads.length) throw new Error('Duplicate eagle pad identity')
+    const byId = new Map(pads.map(pad => [pad.id, pad]))
+    for (const [owner, previous] of this.reservations) {
+      const pad = byId.get(previous.id)
+      if (pad) this.reservations.set(owner, pad)
+      else this.reservations.delete(owner)
+    }
+    this.layout = pads
   }
   get(ownerId: string): EaglePad | undefined { return this.reservations.get(ownerId) }
   reserve(ownerId: string, preferredPadId?: string): EaglePad | undefined {

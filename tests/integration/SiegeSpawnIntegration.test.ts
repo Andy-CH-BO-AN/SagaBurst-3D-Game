@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
 import { createCareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { CampaignGateController } from '../../src/campaign/CampaignGate'
@@ -66,8 +68,13 @@ function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
     const ids = assault ? assaultIds : defenseIds
     profile.activeMission.siege!.rosterCreated = true
     profile.activeMission.siege!.attackerIds = [...ids]
-    if (assault) profile.activeMission.deadFriendlyActorIds = ids.filter(id => !survivorIds.includes(id))
-    else profile.activeMission.deadTargetActorIds = ids.filter(id => !survivorIds.includes(id))
+    if (assault) {
+      profile.activeMission.friendlyActorIds = [...ids]
+      profile.activeMission.deadFriendlyActorIds = ids.filter(id => !survivorIds.includes(id))
+    } else {
+      profile.activeMission.targetActorIds = [...ids]
+      profile.activeMission.deadTargetActorIds = ids.filter(id => !survivorIds.includes(id))
+    }
   }
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   const cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
@@ -75,20 +82,22 @@ function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
   const context: NonNullable<ConstructorParameters<typeof TownDefenseController>[7]> = {
     gates, obstacles, patrol, closureBodies: () => [],
   }
+  let failNextCommit = false
   const controller = new TownDefenseController(scene, [], () => player, () => profile,
-    next => { profile = next; return true }, cat, navigation, context, scheduler)
+    next => { if (failNextCommit) { failNextCommit = false; return false } profile = next; return true }, cat, navigation, context, scheduler)
   onTestFinished(() => {
     controller.cleanupMission(); controller.dispose(); context.outskirts?.dispose(); cat.dispose()
     expect(scheduler.pending).toBe(0)
   })
-  return { controller, scene, driver, scheduler, navigation, gates, context, profile: () => profile }
+  return { controller, scene, driver, scheduler, navigation, gates, context, profile: () => profile, failNextCommit: () => { failNextCommit = true },
+    reloadProfile: () => { const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true); profile = store.load()! } }
 }
 
 describe('Siege spawn caller protocol', () => {
   it.each([
-    { assault: true, count: 119, ids: assaultIds, faction: Faction.TOWN, characterFaction: 'roman' },
-    { assault: false, count: 120, ids: defenseIds, faction: Faction.ENEMY, characterFaction: 'viking' },
-  ])('queues all $count independent identities, registers the final actor and then unlocks preparation, assault=$assault', ({ assault, count, ids, faction, characterFaction }) => {
+    { assault: true, count: 119, mounts: 79, ids: assaultIds, faction: Faction.TOWN, characterFaction: 'roman' },
+    { assault: false, count: 120, mounts: 80, ids: defenseIds, faction: Faction.ENEMY, characterFaction: 'viking' },
+  ])('queues all $count independent identities, registers the final actor and then unlocks preparation, assault=$assault', ({ assault, count, mounts, ids, faction, characterFaction }) => {
     const h = siegeFixture(assault), mountStart = recording.mounts.length
     expect(h.controller.startActiveMission()).toBe(true)
     const batch = h.controller.spawnBatches[0]
@@ -122,10 +131,13 @@ describe('Siege spawn caller protocol', () => {
     expect(h.controller.enemies.map(npc => npc.combatantId)).toEqual(ids)
     expect(h.profile().activeMission!.siege!.attackerIds).toEqual(ids)
     expect(assault ? h.profile().activeMission!.friendlyActorIds : h.profile().activeMission!.targetActorIds).toEqual(ids)
-    expect(recording.mounts).toHaveLength(mountStart + count)
+    expect(recording.mounts).toHaveLength(mountStart + mounts)
+    expect(recording.npcs.filter(npc => !npc.mountedInput)).toHaveLength(40)
     for (const npc of recording.npcs) {
-      expect(npc).toMatchObject({ faction, characterFaction, mountedInput: true })
-      expect(npc.mountVehicle).toHaveBeenCalledExactlyOnceWith(npc.mount)
+      expect(npc).toMatchObject({ faction, characterFaction, missionAerialDefense: true })
+      expect(npc.mountedInput).toBe(Boolean(npc.loadout?.mountId))
+      if (npc.mountedInput) expect(npc.mountVehicle).toHaveBeenCalledExactlyOnceWith(npc.mount)
+      else { expect(npc.mount).toBeNull(); expect(npc.mountVehicle).not.toHaveBeenCalled() }
     }
     expect(h.controller.enemyMounts).toEqual(recording.mounts.slice(mountStart))
     expect([...h.gates.values()].every(gate => gate.state === 'closed')).toBe(true)
@@ -143,6 +155,74 @@ describe('Siege spawn caller protocol', () => {
     expect(recording.npcs.every(npc => npc.dispose.mock.calls.length === 1)).toBe(true)
     expect(recording.mounts.slice(mountStart).every(mount => mount.dispose.mock.calls.length === 1)).toBe(true)
     expect([...h.gates.values()].every(gate => gate.state === 'open')).toBe(true)
+  })
+
+
+  it.each([
+    { assault: false, version: undefined, ids: defenseIds, rangedIndex: 20, expectedPreset: 'viking_horse_archer', mounted: true },
+    { assault: true, version: undefined, ids: assaultIds, rangedIndex: 19, expectedPreset: 'roman_horse_archer', mounted: true },
+    { assault: false, version: 2, ids: defenseIds, rangedIndex: 20, expectedPreset: 'viking_archer', mounted: false },
+    { assault: true, version: 2, ids: assaultIds, rangedIndex: 19, expectedPreset: 'roman_archer', mounted: false },
+  ] as const)('reloads version=$version assault=$assault without converting saved soldiers or reviving dead riders/mounts', ({ assault, version, ids, rangedIndex, expectedPreset, mounted }) => {
+    const h = siegeFixture(assault, [ids[2], ids[3], ids[rangedIndex]])
+    const active = h.profile().activeMission!
+    if (version === undefined) delete active.siege!.rosterVersion
+    else active.siege!.rosterVersion = version
+    active.siege!.crossedActorIds = [ids[rangedIndex]]
+    active.actorHealth = { [ids[2]]: { hp: 43, mountHp: 0 }, [ids[3]]: { hp: 0, mountHp: 70 }, [ids[rangedIndex]]: { hp: 61 } }
+    h.reloadProfile()
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect([...h.controller.spawnBatches[0].actors.keys()]).toEqual([ids[2], ids[rangedIndex]])
+    h.driver.drain()
+    expect(h.controller.enemies.map(npc => npc.combatantId)).toEqual([ids[2], ids[rangedIndex]])
+    expect(recording.npcs[0]).toMatchObject({ hp: 43, mount: null,
+      presetId: `${assault ? 'roman' : 'viking'}_${version === undefined ? 'sword_cavalry' : 'lancer'}` })
+    expect(recording.npcs[1]).toMatchObject({ hp: 61, presetId: expectedPreset, mountedInput: mounted })
+    expect(Boolean(recording.npcs[1].mount)).toBe(mounted)
+    expect(recording.npcs[1].tacticalOrder).toBe(version === 2 ? 'attack' : 'charge')
+    expect(h.controller.enemyMounts).toHaveLength(mounted ? 1 : 0)
+    expect(h.profile().activeMission!.siege!.attackerIds).toEqual(ids)
+    expect(h.profile().activeMission!.siege!.rosterVersion).toBe(version ?? 1)
+    expect(assault ? h.profile().activeMission!.deadFriendlyActorIds : h.profile().activeMission!.deadTargetActorIds).toContain(ids[3])
+  })
+
+  it.each([false, true])('accounts for saved zero-HP attackers without constructing dead soldiers, initial commit fails=%s', failFirstCommit => {
+    const h = siegeFixture(false, [defenseIds[2]])
+    h.profile().activeMission!.actorHealth = { [defenseIds[2]]: { hp: 0 } }
+    h.reloadProfile()
+    if (failFirstCommit) h.failNextCommit()
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(recording.npcs).toHaveLength(0)
+    expect(h.scheduler.pending).toBe(0)
+    expect(h.profile().activeMission!.deadTargetActorIds).toHaveLength(120)
+    h.controller.updateFlow(10, 0)
+    expect(h.controller.evaluate(false)).toBe('victory')
+  })
+
+  it('keeps a Viking bow infantry bow order when crossing a breached gate while lancers still charge', () => {
+    const ids = [defenseIds[2], defenseIds[20]]
+    const h = siegeFixture(false, ids)
+    const active = h.profile().activeMission!
+    active.phase = 'ATTACKING'
+    active.siege!.approachedActorIds = [...ids]
+    active.siege!.destroyedGateIds = ['north']
+    active.actorPositions = Object.fromEntries(ids.map(id => [id, { x: 0, z: -103, yaw: 0 }]))
+    expect(h.controller.startActiveMission()).toBe(true)
+    h.driver.drain()
+    expect(recording.npcs[0]).toMatchObject({ presetId: 'viking_lancer', tacticalOrder: 'charge', missionMovement: false })
+    expect(recording.npcs[1]).toMatchObject({ presetId: 'viking_archer', tacticalOrder: 'attack', missionMovement: false })
+    expect(h.profile().activeMission!.siege!.crossedActorIds).toEqual(ids)
+  })
+
+  it('does not append phantom actors to a saved shortened identity roster', () => {
+    const h = siegeFixture(false, [defenseIds[0]])
+    h.profile().activeMission!.siege!.attackerIds = [defenseIds[0]]
+    h.reloadProfile()
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect([...h.controller.spawnBatches[0].actors.keys()]).toEqual([defenseIds[0]])
+    h.driver.drain()
+    expect(h.controller.enemies.map(npc => npc.combatantId)).toEqual([defenseIds[0]])
+    expect(h.profile().activeMission!.siege!.attackerIds).toEqual([defenseIds[0]])
   })
 
   it('keeps failed deployment finalization unready, rolls back caller registrations and does not consume countdown', () => {
@@ -217,7 +297,8 @@ describe('Siege spawn caller protocol', () => {
     expect(h.controller.ready).toBe(true)
     expect(recording.npcs.filter(npc => npc.combatantId === claimed.combatantId)).toEqual([original])
     expect(new Set(h.controller.enemies.map(npc => npc.combatantId))).toEqual(new Set(ids))
-    expect(original.applyTemporaryCombatLoadout).toHaveBeenCalledOnce()
+    expect(original.applyTemporaryCombatLoadout).toHaveBeenCalledExactlyOnceWith({ meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'horse' }, 3, 1, 'viking_lancer')
+    expect(original).toMatchObject({ presetId: 'viking_lancer', missionAerialDefense: true })
     expect(original.dispose).not.toHaveBeenCalled()
     expect(originalMount.dispose).not.toHaveBeenCalled()
     h.controller.cleanupMission()

@@ -1,6 +1,14 @@
-import { MountType } from '../../src/world/Mount'
+import { MountType, type Mount } from '../../src/world/Mount'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { initialPersonalEquipment } from '../../src/career/CareerInventory'
+import { CareerMountController } from '../../src/career/CareerMountController'
+import { createAssaultRoster, createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
+import { siegeMuster } from '../../src/career/TownSiege'
+import { TownPersonalSquadController } from '../../src/town/TownPersonalSquadController'
+import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
+import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../../src/world/Terrain'
+import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { TownScene } from '../../src/town/TownScene'
 import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
 import { outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
@@ -8,7 +16,7 @@ import { BanditMissionController } from '../../src/career/BanditMissionControlle
 import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
-import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
 import { createEmptyArmyConfig } from '../../src/battle/BattleConfig'
@@ -83,6 +91,51 @@ function loadingFrames(verifySharedBudget = false) {
     if (verifySharedBudget) expect(recording.npcs.length - before).toBeLessThanOrEqual(1)
     return frame
   }
+}
+
+interface PrivateTownCaller {
+  profile: CareerProfile
+  personalSquad: TownPersonalSquadController
+  careerMounts: CareerMountController
+  privateEaglePads: EaglePadReservations
+  initializePersonalSquad(): void
+  initializeCareerMounts(): void
+  restoreActiveCareerMission(): Promise<void>
+}
+
+/** Town controller wiring only: no TownWorld, real Player, NPC or Mount constructors. */
+function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = []) {
+  const scene = new THREE.Scene(), group = new THREE.Group()
+  setScenePlayableWorldBound(scene, 350)
+  const anchor = siegeMuster('north', 1)
+  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS); navigation.sync(obstacles)
+  const player = { group, dead: false, isFalling: false, hp: 100, currentMount: null as Mount | null,
+    get combatPosition() { return this.currentMount?.group.position ?? group.position },
+    get facingYaw() { return group.rotation.y }, get isMounted() { return this.currentMount !== null },
+    mountVehicle(mount: Mount, yaw = 0) { this.currentMount = mount; mount.group.rotation.y = yaw; group.position.copy(mount.group.position) },
+    dismountFromMount() { this.currentMount = null }, setHp(hp: number) { this.hp = hp },
+  }
+  const official = createAssaultRoster(profile.faction).map(spec => ({ dead: false, faction: spec.faction,
+    combatPosition: new THREE.Vector3(spec.x, 0, spec.z) }))
+  const nativePads = [1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 20, yaw: 0 }))
+  const town = Object.assign(Object.create(TownScene.prototype) as PrivateTownCaller, {
+    profile, scene, player, navigation, residents: [], mounts: [], restoringAerialState: true,
+    world: { obstacles, hr: { muster: [{ x: 10, z: 10, yaw: 0 }] }, eagleTraining: { pads: nativePads } },
+    inventory: { prepareForCombat: vi.fn() },
+    mission: { spawnBatches: [], fieldNpcs: [], friendlies: [], events: { emit: vi.fn() } },
+    defense: { active: profile.activeMission, spawnBatches: [], fieldNpcs: official, events: { emit: vi.fn() },
+      // Defense owns official positioning; its boundary supplies the real plan's Player muster.
+      startActiveMission() {
+        const spawn = profile.activeMission?.siege?.playerPosition ?? { ...anchor, yaw: 0 }
+        group.position.set(spawn.x, getTerrainHeight(spawn.x, spawn.z) + .9, spawn.z); group.rotation.y = spawn.yaw
+      },
+      registerPersonalActor: vi.fn(),
+    },
+    commit(next: CareerProfile) { town.profile = next; return true },
+  })
+  town.initializePersonalSquad(); town.initializeCareerMounts()
+  dispose.push(() => { town.personalSquad.cleanup(); town.careerMounts.dispose() })
+  return { town, player, official, anchor, nativePads }
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
@@ -323,6 +376,135 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     runtime.restoreMission(saved); expect(runtime.spawning).toBe(true)
     runtime.cancelPendingSpawns(); await step()
     expect(pads.get(owner.id)).toBeUndefined(); expect(runtime.actors).toHaveLength(0)
+  })
+
+  it.each([
+    ['roman', 'fresh'], ['viking', 'restored'],
+  ] as const)('deploys %s private Player and squad eagles beside the %s assault muster through TownScene callers', async (faction, state) => {
+    // Three recorded private actors and three recorded mounts; the 119 official positions are data only.
+    const footEquipment = initialPersonalEquipment('soldier', faction)
+    const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'captain', selectedMountId: 'xongkoro',
+      ownedMounts: ['xongkoro'], inventory: { version: 1, quantities: { xongkoro: 3,
+        ...Object.fromEntries(Object.values(footEquipment).filter((id): id is string => id !== null).map(id => [id, 1])) } }, personalSquad: { members: [
+        { id: 'personal:foot', type: 'soldier', equipment: footEquipment },
+        ...['a', 'b'].map(id => ({ id: `personal:${id}`, type: 'ranger' as const,
+          equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' as const } })),
+      ] } }
+    profile.playerAerialState = { sceneKey: 'town-home', hp: 100, dead: false, position: { x: 30, y: 40, z: 20, yaw: 1 },
+      mount: { hp: 80, position: { x: 30, y: 37, z: 20, yaw: 1 }, flight: { phase: 'cruise', yaw: 1, pitch: .2, bank: .1, speed: 15, velocity: { x: 10, y: 2, z: 10 } } } }
+    profile.activeMission = createEnemyTownAssaultMission('private-eagle-assault')
+    profile.activeMission.personalSquad = snapshotPersonalMission(profile)!
+    const saved = profile.activeMission.personalSquad
+    saved.state = 'ACTIVE'
+    for (const id of saved.memberIds) saved.members[id] = { status: 'deployed', hp: 73, ammo: 6, order: 'follow',
+      position: { x: 30, y: 40, z: 20, yaw: 1 }, ...(id !== 'personal:foot' ? { mount: { hp: 61, mounted: true,
+        position: { x: 30, y: 37, z: 20, yaw: 1 }, flight: { phase: 'cruise', yaw: 1, pitch: .2, bank: .1, speed: 15, velocity: { x: 10, y: 2, z: 10 } } } } : {}) }
+    if (state === 'restored') profile.activeMission.mountState = { activeMountId: 'xongkoro', hp: { xongkoro: 79 }, unavailable: [] }
+    const { town, anchor, official, nativePads } = privateTownCaller(profile)
+    expect(town.privateEaglePads.pads).toEqual([])
+    await town.restoreActiveCareerMission(); gameplayNpcSpawnDriver.drain()
+    expect(town.personalSquad.actors.map(actor => actor.combatantId)).toEqual(['personal:foot', 'personal:a', 'personal:b'])
+    expect(recording.mounts).toHaveLength(3)
+    const pads = town.privateEaglePads.pads
+    expect(pads).toHaveLength(3); expect(pads).not.toEqual(nativePads)
+    const owners = ['player', 'personal:a', 'personal:b']
+    expect(new Set(owners.map(id => town.privateEaglePads.get(id)?.id)).size).toBe(3)
+    for (const owner of owners) {
+      const pad = town.privateEaglePads.get(owner)!
+      const mount = owner === 'player' ? town.careerMounts.activeMount! : town.personalSquad.actors.find(actor => actor.combatantId === owner)!.mount!
+      expect(mount.group.position).toMatchObject({ x: pad.x, y: getTerrainHeight(pad.x, pad.z), z: pad.z })
+      expect(Math.hypot(pad.x - anchor.x, pad.z - anchor.z)).toBeLessThanOrEqual(96)
+      expect(town.navigation.areConnected(anchor, pad)).toBe(true)
+      expect(isEagleLandingClear(pad, [], [...official.map(npc => npc.combatPosition), ...pads.filter(other => other !== pad)], 350)).toBe(true)
+      expect(mount.flight?.snapshot().phase).toBe('grounded')
+    }
+    const foot = town.personalSquad.actors[0]
+    expect(pads.every(pad => !eagleLandingFootprint(pad).containsPoint(foot.combatPosition))).toBe(true)
+    expect(town.personalSquad.actors.every(actor => actor.hp === 73 && actor.tacticalOrder === 'defend')).toBe(true)
+    expect(town.personalSquad.mounts.every(mount => mount.currentHp === 61)).toBe(true)
+    expect(town.defense.registerPersonalActor).toHaveBeenCalledTimes(3)
+    expect(town.personalSquad.dismiss()).toBe(false)
+  })
+
+  it('retains the home training layout when TownScene initializes shared private reservations', () => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', selectedMountId: 'xongkoro',
+      ownedMounts: ['xongkoro'], inventory: { version: 1, quantities: { xongkoro: 1 } } }
+    const { town, nativePads } = privateTownCaller(profile)
+    expect(town.personalSquad.hasHR).toBe(true)
+    expect(town.privateEaglePads.pads).toBe(nativePads)
+    expect(town.privateEaglePads.get('player')).toBe(nativePads[0])
+    expect(recording.mounts).toHaveLength(0)
+  })
+
+  it('keeps field capacity for an unassigned owned eagle selected after the assault starts', async () => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', ownedMounts: ['xongkoro'],
+      inventory: { version: 1, quantities: { xongkoro: 1 } }, activeMission: createEnemyTownAssaultMission('reserve-eagle-assault') }
+    const { town, player } = privateTownCaller(profile)
+    await town.restoreActiveCareerMission()
+    expect(town.privateEaglePads.pads).toHaveLength(3)
+    expect(town.careerMounts.activeMount).toBeNull()
+    const before = player.combatPosition.clone()
+    expect(town.careerMounts.activate('xongkoro')).toBe(true)
+    expect(town.privateEaglePads.get('player')).toBeDefined()
+    expect(town.careerMounts.activeMount!.group.position.distanceTo(before)).toBeLessThan(46)
+  })
+
+  it('uses the updated shared field pad when Follow deploys a reserve eagle after setMuster', () => {
+    const scene = new THREE.Scene(), player = playerFixture()
+    const profile: CareerProfile = { ...createCareerProfile('roman'), personalSquad: { members: [{ id: 'personal:field', type: 'ranger',
+      equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } }] } }
+    const pads = new EaglePadReservations([{ id: 'private-eagle-pad:1', x: 30, z: 20, yaw: 0 }])
+    pads.reserve('personal:field')
+    const runtime = new PersonalSquadRuntime(scene, [{ x: 0, z: 0, yaw: 0 }], () => profile, () => player,
+      spawnPersonalSquadActor, { sceneKey: 'town-enemy:viking', hasHR: false, eaglePads: pads })
+    dispose.push(() => runtime.cleanup())
+    runtime.setMuster([{ x: 10, z: -260, yaw: .7 }], [{ id: 'private-eagle-pad:1', x: 70, z: -250, yaw: .7 }])
+    expect(pads.get('personal:field')).toEqual({ id: 'private-eagle-pad:1', x: 70, z: -250, yaw: .7 })
+    expect(runtime.follow()).toBe(true); gameplayNpcSpawnDriver.drain()
+    expect(runtime.actors).toHaveLength(1)
+    expect(runtime.actors[0].mount!.group.position).toMatchObject({ x: 70, z: -250 })
+    expect(runtime.actors[0].mount!.group.rotation.y).toBe(.7)
+    expect(runtime.actors[0].tacticalOrder).toBe('follow')
+  })
+
+  it('plans same-scene grounded eagle reservations near the saved Player instead of the original assault entry', async () => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', selectedMountId: 'xongkoro', ownedMounts: ['xongkoro'],
+      inventory: { version: 1, quantities: { xongkoro: 1 } }, activeMission: createEnemyTownAssaultMission('saved-grounded-eagle') }
+    profile.activeMission!.siege!.playerPosition = { x: 60, z: 70, yaw: .4 }
+    const ground = getTerrainHeight(60, 70)
+    profile.playerAerialState = { sceneKey: 'town-enemy:viking', hp: 65, dead: false, position: { x: 60, y: ground + 4, z: 70, yaw: .4 },
+      mount: { hp: 72, position: { x: 60, y: ground, z: 70, yaw: .4 }, flight: { phase: 'grounded', yaw: .4, pitch: 0, bank: 0, speed: 0,
+        velocity: { x: 0, y: 0, z: 0 } } } }
+    const { town } = privateTownCaller(profile)
+    await town.restoreActiveCareerMission()
+    expect(town.privateEaglePads.pads).toHaveLength(3)
+    expect(town.privateEaglePads.pads.every(pad => Math.hypot(pad.x - 60, pad.z - 70) <= 96)).toBe(true)
+    expect(town.careerMounts.activeMount!.group.position).toMatchObject({ x: 60, y: ground, z: 70 })
+    expect(town.careerMounts.activeMount!.flight?.snapshot().phase).toBe('grounded')
+  })
+
+  it('preserves same-scene Player and private eagle flights above a blocked roof while planning reserve pads at the assault entry', async () => {
+    const flight = { phase: 'cruise' as const, yaw: .4, pitch: .1, bank: -.1, speed: 15, velocity: { x: 6, y: 1, z: 13 } }
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', selectedMountId: 'xongkoro', ownedMounts: ['xongkoro'],
+      inventory: { version: 1, quantities: { xongkoro: 2 } }, personalSquad: { members: [{ id: 'personal:a', type: 'ranger',
+        equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } }] } }
+    profile.activeMission = createEnemyTownAssaultMission('saved-private-flight')
+    profile.activeMission.siege!.playerPosition = { x: 60, z: 70, yaw: .4 }
+    profile.activeMission.mountState = { activeMountId: 'xongkoro', hp: { xongkoro: 72 }, unavailable: [] }
+    profile.playerAerialState = { sceneKey: 'town-enemy:viking', hp: 65, dead: false, position: { x: 60, y: 44, z: 70, yaw: .4 },
+      mount: { hp: 72, position: { x: 60, y: 40, z: 70, yaw: .4 }, flight } }
+    const saved = profile.activeMission.personalSquad = snapshotPersonalMission(profile, 'town-enemy:viking')!
+    saved.state = 'ACTIVE'; saved.members['personal:a'] = { status: 'deployed', hp: 71, order: 'attack', eaglePadId: 'private-eagle-pad:3',
+      position: { x: 80, y: 45, z: 90, yaw: .4 }, mount: { hp: 63, mounted: true, position: { x: 80, y: 41, z: 90, yaw: .4 }, flight } }
+    const { town } = privateTownCaller(profile, [{ box: new THREE.Box3(new THREE.Vector3(45, -10, 55), new THREE.Vector3(75, 20, 85)), isBarricade: false }])
+    await town.restoreActiveCareerMission(); gameplayNpcSpawnDriver.drain()
+    expect(town.privateEaglePads.pads.every(pad => pad.z < -200)).toBe(true)
+    expect(town.careerMounts.activeMount!.group.position).toMatchObject({ x: 60, y: 40, z: 70 })
+    expect(town.careerMounts.activeMount!.flight?.snapshot()).toEqual(flight)
+    expect(town.personalSquad.actors[0].mount!.group.position).toMatchObject({ x: 80, y: 41, z: 90 })
+    expect(town.personalSquad.actors[0].mount!.flight?.snapshot()).toEqual(flight)
+    expect(town.personalSquad.actors[0].tacticalOrder).toBe('attack')
+    expect(town.privateEaglePads.get('personal:a')?.id).toBe('private-eagle-pad:3')
   })
 
   it('fails Personal publication without reporting readiness or retaining a partially registered rider', async () => {

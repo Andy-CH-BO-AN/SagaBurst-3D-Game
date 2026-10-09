@@ -137,12 +137,7 @@ export class TownWorld {
 
   private eagleTrainingGround(): void {
     const { trainer } = this.eagleTraining
-    const y = getTerrainHeight(trainer.x, trainer.z)
-    const board = new THREE.Group(); board.name = 'xongkoro-eagle-training-ground'
-    board.position.set(trainer.x - 4, y, trainer.z + 1); this.root.add(board)
-    for (const x of [-2.5, 2.5]) this.cube(board, x, 1.4, 0, .18, 2.8, .18, this.wood)
-    this.sign(board, 'xongkoro', 0, 2.5, 0, 6)
-    this.sign(board, '老鷹訓練場 · E 交談', 0, 1.5, 0, 6)
+    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], trainer.x - 4, trainer.z + 1, 12)
     // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
     for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
       for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
@@ -151,8 +146,7 @@ export class TownWorld {
       }
     }
     const garrison = this.eagleGarrison.pads[0]
-    this.sign(this.root, TOWN_EAGLE_GARRISON_NAME, garrison.x, getTerrainHeight(garrison.x, garrison.z) + 2.8, garrison.z - 10, 10)
-    this.sign(this.root, '老鷹訓練場 →', this.hr.officer.x + 4, getTerrainHeight(this.hr.officer.x, this.hr.officer.z) + 2.8, this.hr.officer.z, 4)
+    this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), garrison.x, garrison.z - 10, 12)
   }
 
   private roadSurface?: THREE.MeshStandardMaterial
@@ -217,11 +211,7 @@ export class TownWorld {
     // cut through actors on the undulating terrain.
     for (const x of [35, 70, 105]) {
       this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
-      const sign = new THREE.Group(); sign.position.set(x + 12, getTerrainHeight(x + 12, -101), -101)
-      this.root.add(sign)
-      for (const side of [-1, 1]) { this.cube(sign, side * 5, 1.8, 0, .2, 3.6, .2, this.wood); this.solid(x + 12 + side * 5, -101, .25, 3.6, .25) }
-      this.sign(sign, x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS', 0, 3, 0, 10)
-      this.batch(sign)
+      this.groundedTrainingSign([x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS'], x + 12, -101, 10)
     }
     // Wide south-facing entrance connects to the internal mounted road.
     const entrance = new THREE.Group(); entrance.position.set((field.minX + field.maxX) / 2, getTerrainHeight(82, -53), -53)
@@ -231,6 +221,21 @@ export class TownWorld {
       this.solid(82 + side * 8, -53, .25, 4.4, .25)
     }
     this.batch(entrance)
+  }
+  /** The cavalry-style timber board shares one level top; each post reaches its own terrain sample. */
+  private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number): void {
+    const root = new THREE.Group(), ground = getTerrainHeight(x, z)
+    root.position.set(x, ground, z); this.root.add(root)
+    const halfWidth = width / 2, leftGround = getTerrainHeight(x - halfWidth, z), rightGround = getTerrainHeight(x + halfWidth, z)
+    const top = Math.max(ground, leftGround, rightGround) + 3.6
+    for (const side of [-1, 1]) {
+      const postGround = side < 0 ? leftGround : rightGround, height = top - postGround
+      this.cube(root, side * halfWidth, postGround - ground + height / 2, 0, .2, height, .2, this.wood)
+      this.solid(x + side * halfWidth, z, .25, height, .25)
+    }
+    this.cube(root, 0, top - ground - .2, 0, width + .4, .2, .25, this.wood)
+    this.sign(root, lines.join('\n'), 0, top - ground - .6, 0, width, false)
+    this.batch(root)
   }
   private medievalFrame(root: THREE.Group, w: number, d: number, h: number, roman: boolean): void {
     for (const side of [-1, 1]) {
@@ -387,12 +392,14 @@ export class TownWorld {
     for (let y = 8; y < 160; y += 8) { ctx.strokeStyle = y % 16 ? '#4b3825' : '#291d13'; ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(300, y - 4, 650, y + 5, 1024, y); ctx.stroke() }
     ctx.strokeStyle = '#917044'; ctx.lineWidth = 6; ctx.strokeRect(8, 8, 1008, 144)
     for (const x of [28, 996]) for (const y of [28, 132]) { ctx.fillStyle = '#201b17'; ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill() }
-    ctx.fillStyle = '#f3dfab'; ctx.font = 'bold 78px Georgia, serif'; ctx.textAlign = 'center'; ctx.fillText(text, 512, 112)
+    const lines = text.split('\n')
+    ctx.fillStyle = '#f3dfab'; ctx.font = `bold ${lines.length > 1 ? 48 : 78}px Georgia, serif`; ctx.textAlign = 'center'
+    lines.forEach((line, index) => ctx.fillText(line, 512, lines.length > 1 ? 65 + index * 62 : 112, 940))
     const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; this.textures.add(map); return map
   }
-  private sign(parent: THREE.Object3D, text: string, x: number, y: number, z: number, width: number): void {
+  private sign(parent: THREE.Object3D, text: string, x: number, y: number, z: number, width: number, hanging = true): void {
     this.cube(parent, x, y, z - .08, width + .18, width / 6.4 + .15, .16, this.dark)
-    for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
+    if (hanging) for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
     const material = new THREE.MeshBasicMaterial({ map: this.textTexture(text) }); this.materials.add(material)
     const sign = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(width, width / 6.4)), material)
     sign.name = 'town-shop-sign'; sign.position.set(x, y, z + .02); parent.add(sign)

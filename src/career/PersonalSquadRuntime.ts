@@ -13,7 +13,7 @@ import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
 import { initialPersonalEquipment } from './CareerInventory'
-import { careerEaglePadOwners, EaglePadReservations } from './EaglePadReservations'
+import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 import { careerMountType } from './CareerMountController'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import type { CareerProfile } from './CareerProfile'
@@ -111,7 +111,10 @@ export class PersonalSquadRuntime {
   }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }
   get hasHR(): boolean { return this.options.hasHR !== false }
-  setMuster(slots: readonly PersonalSquadSpawnSlot[]): void { this.muster = slots }
+  setMuster(slots: readonly PersonalSquadSpawnSlot[], eaglePads?: readonly EaglePad[]): void {
+    if (eaglePads) this.eaglePads.setPads(eaglePads)
+    this.muster = slots
+  }
   captureForMission(value: PersonalSquadMission): PersonalSquadMission {
     const previous = this.mission
     this.mission = clonePersonalMission(value)
@@ -333,7 +336,8 @@ export class PersonalSquadRuntime {
     batch.enqueue(member.id, () => {
       const saved = this.mission?.members[member.id]
       const boardAtHome = this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
-      const npc = this.spawnMember(member, slot, boardAtHome ? eaglePad : undefined, index)
+      const deployment = !this.hasHR && eaglePad && !restoreExistingEagle ? eaglePad : slot
+      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index)
       restore?.(npc)
       if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
       this.holdDeadPlayerFollow(npc, index)

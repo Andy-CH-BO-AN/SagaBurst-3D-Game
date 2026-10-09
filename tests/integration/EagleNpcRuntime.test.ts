@@ -9,6 +9,12 @@ import { advanceUntil } from '../helpers/simulation'
 import { resolveMountImpacts } from '../../src/combat/MountImpact'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import type { ProjectileFlightBudget } from '../../src/combat/ProjectileBallistics'
+import { siegeRoster } from '../../src/career/TownSiege'
+
+vi.mock('../../src/world/HorseAssetRegistry', async original => ({
+  ...(await original<typeof import('../../src/world/HorseAssetRegistry')>()),
+  HorseAssetRegistry: { ready: true, createInstance: (await import('../helpers/gameplayHorseVisual')).createGameplayHorseVisual },
+}))
 
 vi.mock('../../src/world/XongkoroVisual', async () => ({
   XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble,
@@ -43,6 +49,86 @@ function fixture(rangedWeaponId: string | null = null, hero = false) {
 }
 
 describe('NPC eagle lifecycle and combat caller wiring', () => {
+  it.each([
+    { faction: 'viking', mounted: false, altitude: 40, range: 50 },
+    { faction: 'roman', mounted: true, altitude: 20, range: 30 },
+  ] as const)('a marching $faction bow mounted=$mounted can hit an eagle at $altitude m AGL and resumes its route when the threat leaves', ({ faction, mounted, altitude, range }) => {
+    // Two real NPCs, one eagle and (only for the mounted branch) one horse.
+    // This owns actual airborne-target acquisition, bow release and projectile contact;
+    // siege roster counts and command transitions are covered by their cheaper callers.
+    const { scene, npc: target, mount: eagle, placeAirborne } = fixture()
+    const player = new Player(scene); onTestFinished(() => player.dispose())
+    player.spectatorOnly = true
+    const spec = siegeRoster(faction, true).find(({ spec }) => spec.tier === 3
+      && spec.presetId === `${faction}_${mounted ? 'horse_archer' : 'archer'}`)!.spec
+    const shooter = new NPC(scene, 0, -12, spec.faction, spec.characterFaction, spec.aiType,
+      spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId)
+    onTestFinished(() => shooter.dispose())
+    if (mounted) {
+      const horse = new Mount(scene, MountType.HORSE, 0, -12)
+      onTestFinished(() => horse.dispose())
+      shooter.mountVehicle(horse)
+    }
+    expect(shooter.maxRangedAttackDistance).toBe(range)
+    expect(shooter.rangedProjectileSpeed).toBe(65)
+    placeAirborne(altitude + 2.8)
+    expect(eagle.group.position.y).toBeCloseTo(altitude)
+    const hostiles = new SpatialGrid<NPC>(16); hostiles.insert(target)
+    const arrows: ArrowProjectile[] = [], firedAt: number[] = []
+    let contacts = 0
+    const tick = () => {
+      hostiles.clear(); hostiles.insert(target)
+      shooter.update(1 / 60, player, [target], [], [], { setFill() {} }, () => {}, (origin, direction, kind) => {
+        firedAt.push(shooter.combatPosition.distanceTo(target.combatPosition))
+        expect(kind).toBe('arrow')
+        expect(direction.y).toBeGreaterThan(0)
+        const arrow = new ArrowProjectile(scene, origin, direction, shooter.rangedProjectileSpeed,
+          shooter.rangedDamage, shooter.faction, false, kind, { source: createNpcCombatActorRef(shooter) })
+        onTestFinished(() => arrow.destroy())
+        arrows.push(arrow)
+      }, true, 0, null, hostiles)
+      for (const arrow of arrows) arrow.update(1 / 60, player, [target], [], () => { contacts++ },
+        () => { throw new Error('spectator must not be hit') }, undefined, false, [eagle])
+    }
+    shooter.missionMovement = true
+    shooter.assignFormationTarget(1, shooter.combatPosition.clone(), new THREE.Vector3(0, 0, 1))
+    // Other missions retain their 20m ground-contact interruption policy.
+    for (let frame = 0; frame < 120; frame++) tick()
+    expect(firedAt).toHaveLength(0)
+    shooter.missionAerialDefense = true
+    // Even opted-in siege archers keep the 20m interruption limit on grounded targets.
+    eagle.group.position.set(0, 0, mounted ? 12 : 20)
+    eagle.flight!.phase = 'grounded'
+    target.updateTownPeace(0, 0, false, false)
+    for (let frame = 0; frame < 120; frame++) tick()
+    expect(firedAt).toHaveLength(0)
+    eagle.group.position.z = 0
+    placeAirborne(altitude + 2.8)
+    const destination = new THREE.Vector3(0, 0, 80)
+    shooter.assignFormationTarget(2, destination, new THREE.Vector3(0, 0, 1))
+    const stopped = shooter.combatPosition.clone(), initialHp = target.hp, initialMountHp = eagle.currentHp
+    advanceUntil(() => contacts > 0, tick, { maxSimulationSeconds: 4, failureMessage: 'Siege march anti-air projectile contact' })
+    expect(firedAt.length).toBeGreaterThan(0)
+    expect(firedAt.every(distance => distance > 20 && distance <= range)).toBe(true)
+    expect(target.hp < initialHp || eagle.currentHp < initialMountHp).toBe(true)
+    expect(shooter.combatPosition.distanceTo(stopped)).toBeLessThan(.01)
+    expect(shooter.tacticalOrder).toBe('formation')
+    expect(shooter.missionMovement).toBe(true)
+    const shotsBeforeExit = firedAt.length
+    placeAirborne(mounted ? 42.8 : 70)
+    for (let frame = 0; frame < 60; frame++) tick()
+    expect(firedAt).toHaveLength(shotsBeforeExit)
+    expect(shooter.combatPosition.z).toBeGreaterThan(stopped.z + 1)
+    placeAirborne(altitude + 2.8)
+    advanceUntil(() => firedAt.length > shotsBeforeExit, tick, { maxSimulationSeconds: 4, failureMessage: 'Re-entered airborne threat' })
+    target.takeDamage(10000)
+    const resumed = shooter.combatPosition.clone(), shotsBeforeDeath = firedAt.length
+    for (let frame = 0; frame < 60; frame++) tick()
+    expect(firedAt).toHaveLength(shotsBeforeDeath)
+    expect(shooter.combatPosition.z).toBeGreaterThan(resumed.z + 1)
+    expect(shooter.tacticalOrder).toBe('formation')
+  })
+
   it('damageMount detaches at the latest sampled feet position, survives 14m and does not clear pending fall on repeated cleanup', () => {
     const { npc, mount, placeAirborne } = fixture()
     placeAirborne(12)
