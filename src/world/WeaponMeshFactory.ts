@@ -6,6 +6,7 @@ import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { createPaladinEquipment } from './PaladinEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -154,6 +155,10 @@ export interface NpcRangedMeshParts {
   nockedArrow?: THREE.Group
 }
 
+// Shared immutable grip resources; cloned shield instances own only transforms.
+const PALADIN_GRIP_GEOMETRY = new THREE.CapsuleGeometry(.024, .2, 4, 8)
+const PALADIN_GRIP_MOUNT_GEOMETRY = new THREE.BoxGeometry(.055, .035, .17)
+
 export class WeaponMeshFactory {
   /**
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
@@ -161,6 +166,11 @@ export class WeaponMeshFactory {
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
+
+    if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
+      pivot.add(createPaladinEquipment(weaponId))
+      return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_sword_t4' ? 1.3275 : .99375, 0) }
+    }
 
     if (weaponId === 'gladius_rusty' || weaponId === 'gladius_standard' || weaponId === 'centurion_blade') {
       const tier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'centurion_blade' ? 3 : 2
@@ -627,6 +637,22 @@ export class WeaponMeshFactory {
     const iron = proceduralMaterial({ kind: 'iron', color: tier === 1 ? 0x77604e : tier === 3 ? 0xbfc2bd : 0x686d70, roughness: tier === 1 ? 0.88 : 0.4, metalness: tier === 1 ? 0.45 : 0.82 })
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
+
+    if (shieldId === 'paladin_shield_t4') {
+      pivot.add(createPaladinEquipment(shieldId))
+      // Same central vertical grip geometry and frame as the existing shields.
+      const rearGrip = equipmentShadowUntil(new THREE.Mesh(PALADIN_GRIP_GEOMETRY, leather), -1)
+      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.name = 'shield-rear-grip'
+      pivot.add(equipmentDetail(rearGrip, 0))
+      for (const y of [-.10, .10]) {
+        const mount = new THREE.Mesh(PALADIN_GRIP_MOUNT_GEOMETRY, leather)
+        mount.name = 'shield-grip-mount'
+        mount.position.set(0, y, .16)
+        pivot.add(equipmentDetail(equipmentShadowUntil(mount, -1), 0))
+      }
+      return
+    }
 
     if (isRoman) {
       const width = 0.58, height = 0.98, depth = 0.055, curve = 0.13, boardZ = 0.02

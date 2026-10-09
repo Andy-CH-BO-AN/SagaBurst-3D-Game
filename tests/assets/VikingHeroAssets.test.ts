@@ -32,6 +32,14 @@ describe('independent hero asset', () => {
       expect(a.skeleton).not.toBe(b.skeleton)
       expect(a.mixers).toHaveLength(3)
       for (let i = 0; i < 3; i++) expect(a.mixers[i]).not.toBe(b.mixers[i])
+      a.rig.animation!.setSwordHandShape!(true)
+      let grips = 0
+      a.root.traverse(node => {
+        if (!(node instanceof THREE.SkinnedMesh) || node.morphTargetDictionary?.swordHand === undefined) return
+        expect(node.morphTargetInfluences![node.morphTargetDictionary.swordHand]).toBe(1)
+        grips++
+      })
+      expect(grips).toBe(3) // One generated grasp per LOD; previously silently absent.
       const before = b.rig.right.shoulder.quaternion.clone()
       a.rig.animation!.play('axeAttack2H', { fadeSeconds: 0, loop: false })
       a.rig.animation!.seek('axeAttack2H', .35)

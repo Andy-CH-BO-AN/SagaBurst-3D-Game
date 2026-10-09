@@ -25,6 +25,8 @@ describe('Career weapon shop canonical purchases', () => {
     ['recruit', 'rusty_dagger', true], ['recruit', 'steel_sword', false],
     ['soldier', 'steel_sword', true], ['soldier', 'runic_greatsword', false],
     ['veteran', 'runic_greatsword', true],
+    ['veteran', 'paladin_sword_t4', false], ['veteran', 'paladin_mace_t4', false], ['veteran', 'paladin_shield_t4', false],
+    ['captain', 'paladin_sword_t4', true], ['captain', 'paladin_mace_t4', true], ['captain', 'paladin_shield_t4', true],
   ] as const)('%s purchases %s: %s', (rank, id, allowed) => {
     const current = { ...profile(rank), availableMerit: 2000 }
     const result = purchaseTownEquipment(current, id)
@@ -115,6 +117,22 @@ describe('Career purchased inventory and persistence', () => {
     addCareerItem(reloaded, 'horse', 1)
     const relief = acceptCareerOutpostRelief({ ...reloaded, completedOutpostStages: [1, 2, 3], ownedMounts: ['horse'], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }, 'shop-relief')!
     expect(createCareerOutpostLaunch(relief).playerLoadout).toMatchObject(expected)
+  })
+  it.each(['roman', 'viking'] as const)('%s captain purchases, equips and reloads shared T4 equipment', faction => {
+    const store = new CareerProfileStore(new MemoryStorage())
+    let current = { ...profile('captain'), faction, totalMerit: 10000, availableMerit: 10000 }
+    const inventory = new TownEquipment(() => current, next => { current = next; return store.save(next) })
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4']) {
+      const purchase = purchaseTownEquipment(current, id)
+      expect(purchase.purchased).toBe(true)
+      current = purchase.profile
+      expect(inventory.equipWeapon(id)).toBe(true)
+    }
+    const loaded = store.load()!
+    expect(loaded.equipment).toMatchObject({ melee: 'paladin_mace_t4', shield: 'paladin_shield_t4' })
+    expect(loaded.ownedWeapons).toEqual(expect.arrayContaining(['paladin_sword_t4', 'paladin_mace_t4']))
+    expect(loaded.ownedArmors).toContain('paladin_shield_t4')
+    expect(loaded.availableMerit).toBe(5360)
   })
   it('buys repeated military horses alongside equipment', () => {
     const current = { ...profile('veteran'), availableMerit: 2500 }

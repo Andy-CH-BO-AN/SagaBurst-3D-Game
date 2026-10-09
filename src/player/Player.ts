@@ -33,7 +33,7 @@ import { fitStandingRider } from '../world/StandingRider'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
-import { CharacterCombatAnimator, type CombatAction } from '../world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from '../world/CharacterCombatAnimator'
 import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
 import { applySwordAttachment, weaponGripWorld } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
@@ -516,7 +516,7 @@ export class Player {
       return false
     }
     const action = this._meleeAction(equippedMelee)
-    if (this.animator.start(action, getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1)) {
+    if (this.animator.start(action, meleeActionTimeScale(action, equippedMelee, getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1))) {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false

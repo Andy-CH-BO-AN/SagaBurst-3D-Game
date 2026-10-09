@@ -36,7 +36,7 @@ import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
 const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
 const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
-import { CharacterCombatAnimator, type CombatAction } from './CharacterCombatAnimator'
+import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
 import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
@@ -2714,7 +2714,7 @@ export class NPC {
             Boolean(this.shieldId),
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
             this.attackHitProcessed = false
           }
 

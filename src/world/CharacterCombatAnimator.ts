@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { CharacterRig, HumanoidAnimationState, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
+import type { WeaponData } from '../rpg/WeaponDatabase'
 
 export type CombatAction =
   | 'idle'
@@ -50,6 +51,13 @@ export const PILUM_THROW_RELEASE_TIME = 17 / 30
 // Measured on the actual cutting edge, not the sword's legacy tip marker.
 // Retiming retains the original .48s action/cadence budget.
 export const AXE_HIT_TIMES = { axeAttack1H: .48 * 9 / 33, axeAttack2H: .48 * 17 / 48 } as const
+
+/** One clock scales clip playback, contact events and recovery together. */
+export function meleeActionTimeScale(action: CombatAction, weapon: WeaponData | undefined, heroSpeed = 1): number {
+  if (!weapon?.meleeCycleSeconds) return heroSpeed
+  const profile = COMBAT_ANIMATION_PROFILES[action]
+  return heroSpeed * (profile.windup + profile.active + profile.recovery) / weapon.meleeCycleSeconds
+}
 
 const clamp01 = (value: number): number => THREE.MathUtils.clamp(value, 0, 1)
 const IDLE_BLADE_PITCH = 2.85

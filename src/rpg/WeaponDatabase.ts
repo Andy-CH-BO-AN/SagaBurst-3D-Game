@@ -18,6 +18,10 @@ export interface WeaponData {
   // For melee: swingDuration in seconds; for bow: maxChargeTime in seconds
   speedOrCharge: number
   animationKind: WeaponAnimationKind
+  /** Opt-in action duration; legacy melee keeps its existing animation cadence. */
+  meleeCycleSeconds?: number
+  /** Fixed physical shield impact, independent of hero/body damage multipliers. */
+  shieldImpact?: number
   // For ranged weapons: projectile speed range [speedMin, speedMax]
   arrowSpeedMin?: number
   arrowSpeedMax?: number
@@ -30,6 +34,18 @@ export interface WeaponData {
 export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
 export const WEAPONS: Record<string, WeaponData> = {
+  paladin_sword_t4: {
+    id: 'paladin_sword_t4', name: '聖騎士長劍 Paladin Sword', type: 'melee', tier: 4,
+    combatKind: 'sword', animationKind: 'sword', damageMin: 60, damageMax: 60,
+    speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
+    description: '羅馬與維京 T4 共用長劍；命中盾面造成 1 點固定衝擊。',
+  },
+  paladin_mace_t4: {
+    id: 'paladin_mace_t4', name: '聖騎士戰槌 Paladin Mace', type: 'melee', tier: 4,
+    combatKind: 'sword', animationKind: 'axe', damageMin: 55, damageMax: 55,
+    speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 12, range: 1.8,
+    description: '羅馬與維京 T4 共用戰槌；沿用長斧動作，命中盾面造成 12 點固定衝擊，無護甲穿透。',
+  },
   'maki-ranger-bow': {
     id: 'maki-ranger-bow', name: 'T4 遊俠弓（近戰）', type: 'melee', tier: 3,
     combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: .35,

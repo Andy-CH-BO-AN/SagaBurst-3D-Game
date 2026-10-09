@@ -22,6 +22,9 @@ import { advanceUntil } from '../helpers/simulation'
 import type { Player } from '../../src/player/Player'
 import { TownScene } from '../../src/town/TownScene'
 
+// Rendering only: mission ownership, equipment IDs, damage and spawn remain real.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
+
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
   CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,

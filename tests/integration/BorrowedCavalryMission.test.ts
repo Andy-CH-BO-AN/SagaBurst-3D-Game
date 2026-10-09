@@ -22,6 +22,9 @@ import { isObstaclePathClear, type ObstacleData } from '../../src/world/Terrain'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { advanceUntil } from '../helpers/simulation'
 
+// Rendering only: mission ownership, equipment IDs, damage and spawn remain real.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
+
 vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
   BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,

@@ -10,7 +10,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
     descriptor: { assetId: 'viking-hero-t4', faction: 'viking', heightM: 2, maxShoulderWidthM: .78, neckLengthM: .11 },
   },
   'roman-hero-t4': {
-    nameZh: '羅馬禁衛軍', nameEn: 'Praetorian Guard',
+    nameZh: '聖騎士', nameEn: 'Paladin',
     descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .10 },
   },
   'maki-archer-t4': {

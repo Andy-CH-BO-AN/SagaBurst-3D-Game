@@ -187,6 +187,10 @@ export class BattleSetupUI {
               { id: 'gladius_standard', tier: 'T2', zh: '制式羅馬短劍', en: 'STANDARD GLADIUS' },
               { id: 'centurion_blade', tier: 'T3', zh: '百夫長短劍', en: 'CENTURION BLADE' },
             ], 'melee')}
+            ${renderEquipmentGroup('T4 共用', 'SHARED T4', [
+              { id: 'paladin_sword_t4', tier: 'T4', zh: '聖騎士長劍', en: 'PALADIN SWORD' },
+              { id: 'paladin_mace_t4', tier: 'T4', zh: '聖騎士戰槌', en: 'PALADIN MACE' },
+            ], 'melee')}
             ${renderEquipmentGroup('長槍', 'LANCE', [
               { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
               { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
@@ -208,6 +212,7 @@ export class BattleSetupUI {
           </section>
         </div>
         <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
+          ${renderEquipmentGroup('T4 共用', 'SHARED T4', [{ id: 'paladin_shield_t4', tier: 'T4', zh: '聖騎士盾牌', en: 'PALADIN SHIELD (48 IMPACT)' }], 'shield')}
           ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
             { id: 'round_shield_t1', tier: 'T1', zh: '基礎圓盾', en: `BASIC ROUND SHIELD (${ARMORS.round_shield_t1.shieldImpactMax} IMPACT)` },
@@ -386,6 +391,10 @@ export class BattleSetupUI {
         && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
         this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
       }
+      if (!this.config.playerHeroId && this.config.playerLoadout) {
+        if (this.config.playerLoadout.meleeWeaponId.startsWith('paladin_')) this.config.playerLoadout.meleeWeaponId = 'steel_lance'
+        if (this.config.playerLoadout.shieldId === 'paladin_shield_t4') this.config.playerLoadout.shieldId = 'round_shield_t3'
+      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {
@@ -468,6 +477,7 @@ export class BattleSetupUI {
         const target = card as HTMLElement
         if (getHeroFixedEquipment(this.config.playerHeroId) && ['melee', 'shield'].includes(target.dataset.loadoutKind ?? '')) return
         const id = target.dataset.loadoutId || null
+        if (!this.config.playerHeroId && id?.startsWith('paladin_')) return
         if (this.config.playerHeroId === 'maki-archer-t4' && target.dataset.loadoutKind === 'ranged'
           && WEAPONS[id ?? '']?.combatKind !== 'bow') return
         switch (target.dataset.loadoutKind) {
@@ -952,7 +962,8 @@ export class BattleSetupUI {
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLButtonElement
-        const locked = (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
+        const locked = (!this.config.playerHeroId && Boolean(el.dataset.loadoutId?.startsWith('paladin_')))
+          || (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
           || (this.config.playerHeroId === 'maki-archer-t4' && el.dataset.loadoutKind === 'ranged'
             && WEAPONS[el.dataset.loadoutId ?? '']?.combatKind !== 'bow')
         el.disabled = locked
