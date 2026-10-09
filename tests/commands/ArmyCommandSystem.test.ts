@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/world/NPC'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 
-import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
+import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
   it('commands explicit Town allies and personal members separately while excluding unassigned PLAYER troops', () => {
@@ -25,6 +25,38 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(official.setTacticalOrder).toHaveBeenLastCalledWith('defend')
     expect(personal.setTacticalOrder).toHaveBeenLastCalledWith('defend')
     expect(bystander.setTacticalOrder).not.toHaveBeenCalled()
+  })
+
+  it('refreshes same-squad progressive additions and casualties without rebuilding an unchanged HUD', () => {
+    const actors: CommandRecipientFixture[] = [
+      { combatantId: 'official:0', faction: Faction.TOWN, squadId: 1, dead: false },
+      { combatantId: 'personal:test', faction: Faction.PLAYER, squadId: 'personal', dead: false },
+    ]
+    const ids = new Set(['official:0', 'official:1', 'personal:test'])
+    const h = controllerHarness(actors, null, null, null, 'viking', 'squad', true, undefined,
+      { accepts: npc => ids.has(npc.combatantId), enabled: () => true })
+    h.ui.render.mockClear()
+    h.controller.update()
+    expect(h.ui.render).not.toHaveBeenCalled()
+
+    actors.push({ combatantId: 'official:1', faction: Faction.TOWN, squadId: 1, dead: false },
+      { combatantId: 'unassigned', faction: Faction.PLAYER, squadId: 1, dead: false })
+    h.controller.update()
+    expect(h.ui.render).toHaveBeenCalledOnce()
+    expect(h.ui.render.mock.calls.at(-1)![0].map(entry => [entry.target, entry.summary])).toEqual([
+      ['squad:1', '2/2'], ['squad:personal', '1/1'], ['all', '3/3'],
+    ])
+    h.controller.update()
+    expect(h.ui.render).toHaveBeenCalledOnce()
+
+    actors[0].dead = true
+    h.controller.update()
+    expect(h.ui.render).toHaveBeenCalledTimes(2)
+    expect(h.ui.render.mock.calls.at(-1)![0].map(entry => [entry.target, entry.summary])).toEqual([
+      ['squad:1', '1/2'], ['squad:personal', '1/1'], ['all', '2/3'],
+    ])
+    h.controller.update()
+    expect(h.ui.render).toHaveBeenCalledTimes(2)
   })
 
   it('closes a pending command when the Player dies and removes revoked command membership', () => {

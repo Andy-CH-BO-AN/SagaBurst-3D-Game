@@ -568,8 +568,8 @@ export class ArmyCommandController {
 
     const available = this._availableShortcuts()
     const signature = `${this.groupingMode}:${available
-      .filter(shortcut => shortcut.target !== 'all')
-      .map(shortcut => shortcut.target)
+      .map(shortcut => this.groupingMode === 'squad'
+        ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}` : shortcut.target)
       .join('|')}`
     const targets = this._wheelTargets()
     let changed = signature !== this.rosterSignature || previousPersonalOrder !== this.orders.get('squad:personal')
