@@ -8,7 +8,7 @@ import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRo
 import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateController } from '../campaign/CampaignGate'
 import { closeSiegeGate, overlapsGateClosure, type GateClosureBody } from '../town/TownSiegeGateClosure'
-import type { TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
+import type { SiegeCavalryClaim, TownOutskirtsWarfareController } from '../town/TownOutskirtsWarfareController'
 import type { TownCavalryPatrolController } from '../town/TownCavalryPatrolController'
 import type { ObstacleData } from '../world/Terrain'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
@@ -43,6 +43,12 @@ export interface TownSiegeContext {
   closureBodies(): GateClosureBody[]
 }
 interface RuntimeAttackGroup { id: TownGateId; members: NPC[]; released: boolean; leader: NPC | null }
+interface PendingSiegeRoster {
+  missionId: string
+  rosterVersion: NonNullable<TownSiegeState['rosterVersion']>
+  attackerIds: string[]
+  borrowedActorIds: string[]
+}
 
 /** Shared Town war runtime: resident defense, civilian shelter behavior and faction peers.
  * In assault, the spawned army is friendly; objectives still count resident military only.
@@ -83,8 +89,11 @@ export class TownDefenseController {
   private spawnBatch?: NpcSpawnBatch
   private startedMissionId?: string
   private readonly claimedActors = new Set<NPC>()
+  private readonly claimedEventSinks = new Map<NPC, () => void>()
+  private pendingRoster?: PendingSiegeRoster
+  private rosterCommitPending = false
   get spawnBatches(): readonly NpcSpawnBatch[] { return this.spawnBatch ? [this.spawnBatch] : [] }
-  get ready(): boolean { return !this.spawnBatch || this.spawnBatch.pending === 0 && (this.spawnBatch.status === 'pending' || this.spawnBatch.ready) }
+  get ready(): boolean { return !this.rosterCommitPending && (!this.spawnBatch || this.spawnBatch.pending === 0 && (this.spawnBatch.status === 'pending' || this.spawnBatch.ready)) }
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(
@@ -123,15 +132,21 @@ export class TownDefenseController {
   get reserveHasCharged(): boolean { return this.reserveCharged }
 
   startActiveMission(): boolean {
-    const active = this.active, context = this.siegeContext
-    if (!active?.siege || active.result || !context) return false
-    if (this.startedMissionId === active.id) return this.spawnBatch?.status !== 'failed'
-    const freshSiege = !active.siege.rosterCreated
+    const requested = this.active, context = this.siegeContext
+    if (!requested?.siege || requested.result || !context) return false
+    if (this.startedMissionId === requested.id) return this.spawnBatch?.status !== 'failed'
+    const freshSiege = !requested.siege.rosterCreated
     this.disposeEnemies()
+    this.siege = cloneCareerProfile(this.readProfile()).activeMission!.siege!
+    this.rosterCommitPending = true
+    const prepared = this.prepareSiegeArmy(requested)
+    if (!prepared) return false
+    const active = prepared.active
+    this.rosterCommitPending = false
     this.startedMissionId = active.id
     const batch = this.scheduler.batch(() => { this.disposeEnemies(); this.spawnBatch = batch })
     this.spawnBatch = batch
-    this.siege = cloneCareerProfile(this.readProfile()).activeMission!.siege!
+    prepared.claim?.claim()
     // Place/restore before controls resume; the batch finalizer must never rewind a moving rider.
     const savedPlayer = this.siege.playerPosition
     if (savedPlayer) {
@@ -170,7 +185,7 @@ export class TownDefenseController {
     for (const plan of this.siege.defensePlans) {
       this.groups.push({ id: plan.gateId, members: plan.infantry.map(id => byId.get(id)!), cavalry: plan.cavalry.map(id => byId.get(id)!), leader: plan.leaderId ? byId.get(plan.leaderId)! : null })
     }
-    this.spawnSiegeArmy(active)
+    this.spawnSiegeArmy(active, prepared.claim)
     batch.seal(() => {
       this.prepareDeployment()
       this.preparationElapsed = active.defensePreparationElapsed ?? 0
@@ -297,7 +312,7 @@ export class TownDefenseController {
     this.siegeContext?.patrol.releaseSiegeOwnership()
     this.siegeContext?.outskirts?.releaseSiegeOwnership()
     for (const gate of this.siegeContext?.gates.values() ?? []) gate.restoreOpen()
-    this.orders.clear(); this.siege = null
+    this.orders.clear(); this.siege = null; this.pendingRoster = undefined; this.rosterCommitPending = false
     this.groups.length = 0
     this.civilianCombat.clear()
     this.preparationElapsed = 0
@@ -459,20 +474,66 @@ export class TownDefenseController {
     if (npc.mount) { npc.mount.group.position.copy(point); npc.mount.group.rotation.y = npc.group.rotation.y }
   }
 
-  private spawnSiegeArmy(active: ActiveCareerMission): void {
+  /** Save the resolved identities before any world ownership or deployment changes. */
+  private prepareSiegeArmy(active: ActiveCareerMission): { active: ActiveCareerMission; claim?: SiegeCavalryClaim } | null {
     const faction = this.assault ? this.readProfile().faction : this.readProfile().faction === 'roman' ? 'viking' : 'roman'
     const siege = this.siege!
-    const rosterVersion = siegeRosterVersion(siege)
-    const roster = siegeRoster(faction, this.assault, rosterVersion)
-    const claim = !siege.rosterCreated ? this.siegeContext!.outskirts?.claimCavalryForSiege(faction) : undefined
-    const available = [...(claim?.actors ?? [])]
+    if (this.pendingRoster?.missionId !== active.id) this.pendingRoster = undefined
+    let claim: SiegeCavalryClaim | undefined
     if (!siege.rosterCreated) {
+      const pending = this.pendingRoster
+      const rosterVersion = pending?.rosterVersion ?? siegeRosterVersion(siege)
+      claim = this.siegeContext!.outskirts?.prepareCavalryForSiege(faction, pending?.borrowedActorIds)
+      const available = [...(claim?.actors ?? [])]
+      const borrowedActorIds: string[] = []
       siege.rosterVersion = rosterVersion
-      siege.claimedSquadIds = claim?.squadIds ?? []
-      siege.attackerIds = roster.map(({ spec }, index) => spec.tier === 3 && spec.presetId?.endsWith(rosterVersion === 1 ? 'sword_cavalry' : '_lancer') && available.length
-        ? available.shift()!.combatantId : `${active.id}:siege:${index}`)
+      siege.attackerIds = pending ? [...pending.attackerIds] : siegeRoster(faction, this.assault, rosterVersion).map(({ spec }, index) => {
+        if (spec.tier === 3 && spec.presetId?.endsWith(rosterVersion === 1 ? 'sword_cavalry' : '_lancer') && available.length) {
+          const id = available.shift()!.combatantId
+          borrowedActorIds.push(id)
+          return id
+        }
+        return `${active.id}:siege:${index}`
+      })
+      siege.claimedSquadIds = [...(claim?.squadIds ?? [])]
       siege.rosterCreated = true
+      this.pendingRoster = pending ?? { missionId: active.id, rosterVersion, attackerIds: [...siege.attackerIds], borrowedActorIds }
     }
+    const profile = cloneCareerProfile(this.readProfile())
+    const mission = profile.activeMission!
+    const dead = new Set([
+      ...(this.assault ? active.deadFriendlyActorIds : active.deadTargetActorIds) ?? [],
+      ...siege.attackerIds.filter(id => active.actorHealth?.[id]?.hp === 0),
+    ])
+    // Borrowed identities and health must survive a reload before the first runtime checkpoint.
+    const borrowed = new Map((claim?.actors ?? []).map(npc => [npc.combatantId, npc]))
+    for (const id of this.pendingRoster?.borrowedActorIds ?? []) {
+      const npc = borrowed.get(id)
+      if (!npc || npc.dead) dead.add(id)
+      if (npc) {
+        mission.actorHealth = { ...mission.actorHealth, [id]: { hp: npc.hp, mountHp: npc.mount?.currentHp ?? 0 } }
+      } else {
+        mission.actorHealth = { ...mission.actorHealth, [id]: { ...mission.actorHealth?.[id], hp: 0 } }
+      }
+    }
+    mission.siege = { ...siege }
+    if (this.assault) {
+      mission.friendlyActorIds = [...siege.attackerIds]
+      mission.deadFriendlyActorIds = [...dead]
+      if (mission.templateId === CAPTAIN_SIEGE_COMMAND_ID && mission.officialSquad) mission.officialSquad.actorIds = siege.attackerIds.slice(0, 29)
+    } else {
+      mission.targetActorIds = [...siege.attackerIds]
+      mission.deadTargetActorIds = [...dead]
+    }
+    if (!this.commit(profile)) return null
+    this.pendingRoster = undefined
+    return { active: mission, ...(claim ? { claim } : {}) }
+  }
+
+  private spawnSiegeArmy(active: ActiveCareerMission, claim?: SiegeCavalryClaim): void {
+    const faction = this.assault ? this.readProfile().faction : this.readProfile().faction === 'roman' ? 'viking' : 'roman'
+    const siege = this.siege!
+    const roster = siegeRoster(faction, this.assault, siegeRosterVersion(siege))
     const claimedById = new Map((claim?.actors ?? []).map(npc => [npc.combatantId, npc]))
     const occupied: { point: THREE.Vector3; spacing: number }[] = []
     const dead = new Set([
@@ -491,7 +552,11 @@ export class TownDefenseController {
       const materialize = () => {
         const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile))
         npc.respawnEnabled = false; npc.missionAerialDefense = true; npc.clearEncounter()
-        if (reused) { this.claimedActors.add(npc); npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, 3, spec.squadId, spec.presetId) }
+        if (reused) {
+          this.claimedActors.add(npc)
+          this.claimedEventSinks.set(npc, npc.bindCombatEventSink(this.events.emit))
+          npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, 3, spec.squadId, spec.presetId)
+        }
         else if (spec.loadout?.mountId && (active.actorHealth?.[id]?.mountHp ?? 1) > 0) {
           const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), point.x, point.z))
           npc.mountVehicle(mount)
@@ -507,20 +572,6 @@ export class TownDefenseController {
       if (reused) materialize()
       else this.spawnBatch!.enqueue(id, materialize)
     })
-    const profile = cloneCareerProfile(this.readProfile())
-    profile.activeMission!.siege = { ...siege }
-    if (this.assault) {
-      profile.activeMission!.friendlyActorIds = [...siege.attackerIds]
-      profile.activeMission!.deadFriendlyActorIds = [...dead]
-      if (profile.activeMission!.templateId === CAPTAIN_SIEGE_COMMAND_ID && profile.activeMission!.officialSquad) {
-        profile.activeMission!.officialSquad!.actorIds = siege.attackerIds.slice(0, 29)
-      }
-    } else {
-      profile.activeMission!.targetActorIds = [...siege.attackerIds]
-      profile.activeMission!.deadTargetActorIds = [...dead]
-    }
-    // A failed write is retried by the normal full checkpoint; never rebuild or reinforce this runtime roster.
-    this.commit(profile)
   }
 
   private restoreActor(npc: NPC, active: ActiveCareerMission, dead: boolean): void {
@@ -649,7 +700,8 @@ export class TownDefenseController {
 
   private disposeEnemies(): void {
     this.spawnBatch?.cancel(); this.spawnBatch = undefined; this.startedMissionId = undefined
-    this.claimedActors.clear()
+    for (const release of this.claimedEventSinks.values()) release()
+    this.claimedEventSinks.clear(); this.claimedActors.clear()
     this.plannedArmyPositions.length = 0
     for (const off of this.gateListeners.splice(0)) off()
     this.actorMounts.clear()

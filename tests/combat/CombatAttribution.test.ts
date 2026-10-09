@@ -1,10 +1,12 @@
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
-import { CombatEventStream, type CombatDamageContext } from '../../src/combat/CombatAttribution'
+import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { Faction } from '../../src/world/NPC'
+import { AIType, Faction, NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
 
@@ -94,6 +96,51 @@ function sourceContext(
 }
 
 describe('Combat attribution foundation', () => {
+  it('routes nested NPC event scopes once and restores the original sink after ordered or repeated releases', () => {
+    // One real foot NPC, no Mount, Player constructor, TownWorld or GLB; actual melee observes routing.
+    const original = vi.fn<CombatEventSink>(), first = vi.fn<CombatEventSink>(), second = vi.fn<CombatEventSink>()
+    const scene = new THREE.Scene()
+    const npc = new NPC(scene, 0, 80, Faction.PLAYER, 'viking', AIType.MELEE, 'Scoped attacker', 1, false,
+      { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null }, undefined, undefined, 'scoped-attacker', original)
+    let disposed = false
+    onTestFinished(() => { if (!disposed) npc.dispose() })
+    npc.group.position.y = getTerrainHeight(0, 80)
+    const gate = new DamageableObstacle({ kind: 'gate', maxHp: 5000, root: new THREE.Object3D(), ownerFaction: 'roman' })
+    const obstacle: ObstacleData = { isBarricade: false, damageable: gate,
+      box: new THREE.Box3(new THREE.Vector3(-1, -100, 80.5), new THREE.Vector3(1, 100, 81.5)) }
+    const player = { targetable: false, dead: false, isMounted: false } as unknown as Player
+    npc.setTacticalOrder('attack'); npc.assignSiegeObstacle(obstacle)
+    const hit = (expected: ReturnType<typeof vi.fn<CombatEventSink>>) => {
+      const beforeHp = gate.currentHp, before = [original.mock.calls.length, first.mock.calls.length, second.mock.calls.length]
+      for (let frame = 0; frame < 80 && gate.currentHp === beforeHp; frame++) {
+        npc.update(.05, player, [npc], [], [obstacle], { setFill() {} }, vi.fn(), vi.fn(), true)
+      }
+      expect(gate.currentHp, 'scoped attacker must hit the structure within 4 simulated seconds').toBeLessThan(beforeHp)
+      expect([original, first, second].map((sink, index) => sink.mock.calls.length - before[index])).toEqual(
+        [original, first, second].map(sink => sink === expected ? 1 : 0))
+      expect(expected).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'structure_damaged', source: expect.objectContaining({ actorId: 'scoped-attacker' }) }))
+    }
+    hit(original)
+    const releaseFirst = npc.bindCombatEventSink(first)
+    hit(first)
+    const releaseSecond = npc.bindCombatEventSink(second)
+    hit(second)
+    releaseFirst(); releaseFirst()
+    hit(second)
+    releaseSecond(); releaseSecond()
+    hit(original)
+    const releaseOuter = npc.bindCombatEventSink(first), releaseInner = npc.bindCombatEventSink(second)
+    hit(second)
+    releaseInner()
+    hit(first)
+    releaseOuter()
+    hit(original)
+    const releaseAtDisposal = npc.bindCombatEventSink(first)
+    npc.dispose(); disposed = true
+    expect(() => { releaseAtDisposal(); releaseAtDisposal() }).not.toThrow()
+    expect(() => npc.bindCombatEventSink(second)).toThrow('Cannot bind combat events to a disposed NPC')
+  })
+
   it('counts actual HP loss instead of requested overkill and emits one kill', () => {
     const { events, stream } = eventHarness()
     const npc = mockNpc({ hp: 3, maxHp: 200 })

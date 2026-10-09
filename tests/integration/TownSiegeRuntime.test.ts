@@ -1,6 +1,6 @@
 import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_SIEGE_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
-import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { completeNpcDeployment, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { siegeRoster, siegeDefensePlans, siegePoint, siegeNearestGate, siegeOutward } from '../../src/career/TownSiege'
@@ -14,6 +14,9 @@ import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { townCaptainProfile, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
 import { TOWN_GATES, type TownGateId } from '../../src/town/TownLayout'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
+import type { CombatEvent, CombatEventSink } from '../../src/combat/CombatAttribution'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
@@ -649,4 +652,78 @@ describe('Captain Siege command ownership caller', () => {
     expect(guard.tacticalOrder).toBe('formation')
     expect(guard.squadId).toBe(1)
   })
+})
+
+it('counts a borrowed North cavalry real siege hit once, excludes South and releases the borrowed event lease', () => {
+  // Two real NPCs, three Mounts (two horses and the controller's cat), one Player, no TownWorld/GLB.
+  // All unrelated siege slots are saved casualties.
+  // Real NPC melee and damage routing remain intact, including the animation hit window.
+  const scene = new THREE.Scene(), obstacles: ObstacleData[] = []
+  const scheduler = new NpcSpawnScheduler(), driver = new NpcSpawnTestDriver(scheduler)
+  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS), city = sampledGates('viking', obstacles)
+  scene.add(city.root); navigation.sync(obstacles)
+  const player = new Player(scene, 'roman'), cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
+  let profile = acceptCaptainSiegeCommand({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000 }, 'borrowed-events')!
+  const ids = Array.from({ length: 119 }, (_, index) => `borrowed-events:siege:${index}`)
+  profile.activeMission!.deadFriendlyActorIds = ids.filter(id => id !== ids[30])
+  const outskirts = new TownOutskirtsWarfareController(scene, 'viking', () => profile, obstacles, navigation,
+    undefined, [], scheduler)
+  const context = { gates: city.gates, obstacles, outskirts, patrol: new TownCavalryPatrolController([]), closureBodies: () => [] }
+  const controller = new TownDefenseController(scene, [], () => player, () => profile, next => { profile = next; return true },
+    cat, navigation, context, scheduler)
+  onTestFinished(() => { controller.cleanupMission(); controller.dispose(); outskirts.dispose(); player.dispose(); cat.dispose(); expect(scheduler.pending).toBe(0) })
+  for (const batch of outskirts.batches) if (!batch.actors.has('outskirts:cavalry:a:0')) batch.cancel()
+  driver.advanceFrame()
+  const north = outskirts.actors[0], horse = north.mount!
+  const previousSink = vi.fn<CombatEventSink>(), releasePrevious = north.bindCombatEventSink(previousSink)
+  const bind = north.bindCombatEventSink.bind(north), releases: ReturnType<typeof vi.fn>[] = []
+  vi.spyOn(north, 'bindCombatEventSink').mockImplementation(sink => {
+    const release = vi.fn(bind(sink)); releases.push(release); return release
+  })
+  const dispose = vi.spyOn(north, 'dispose')
+  const position = north.combatPosition.clone()
+  expect(controller.startActiveMission()).toBe(true)
+  driver.drain()
+  expect(controller.ready).toBe(true)
+  expect(outskirts.owns(north)).toBe(false)
+  expect(north.mount).toBe(horse)
+  expect(north.combatPosition).toEqual(position)
+  expect(controller.enemies.map(npc => npc.combatantId)).toEqual(['outskirts:cavalry:a:0', ids[30]])
+  expect(profile.activeMission!.officialSquad!.actorIds).toContain(north.combatantId)
+  expect(profile.activeMission!.officialSquad!.actorIds).not.toContain(ids[30])
+  controller.updateFlow(10, 0)
+  const emitted: CombatEvent[] = [], unsubscribe = controller.events.subscribe(event => emitted.push(event))
+  onTestFinished(unsubscribe)
+
+  const hitGate = (npc: NPC, gateId: TownGateId) => {
+    const gate = city.gates.get(gateId)!
+    // Arrange 17 remaining gate HP; the tested damage is exclusively produced by NPC.update.
+    gate.damageable.takeDamage(gate.damageable.currentHp - 17)
+    const point = siegePoint(gateId, 0, -1.5); point.y = getTerrainHeight(point.x, point.z)
+    npc.group.position.copy(point); npc.mount!.group.position.copy(point)
+    npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.assignSiegeObstacle(gate.siegeObstacle)
+    for (let frame = 0; frame < 80 && !gate.damageable.destroyed; frame++) {
+      npc.update(.05, player, controller.enemies, [], obstacles, { setFill() {} }, vi.fn(), vi.fn(), true)
+    }
+    expect(gate.damageable.destroyed, `${npc.combatantId} must hit ${gateId} within 4 simulated seconds`).toBe(true)
+    npc.update(.05, player, controller.enemies, [], obstacles, { setFill() {} }, vi.fn(), vi.fn(), true)
+  }
+  hitGate(north, 'north')
+  expect(controller.snapshot().meritPlayer).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  expect(emitted.filter(event => event.source.actorId === north.combatantId).map(event => event.type)).toEqual(['structure_damaged', 'structure_destroyed'])
+  expect(previousSink).not.toHaveBeenCalled()
+  expect(controller.snapshot().player).toMatchObject({ structureDamage: 0, gateBreaches: 0 })
+  expect(controller.officialContribution).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  hitGate(controller.enemies[1], 'south')
+  expect(emitted.filter(event => event.source.actorId === ids[30]).map(event => event.type)).toEqual(['structure_damaged', 'structure_destroyed'])
+  expect(controller.snapshot().meritPlayer).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  controller.persistRuntimeProgress(true)
+  const saved = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+  expect(saved.activeMission!.officialSquad!.contribution).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  controller.cleanupMission()
+  expect(releases).toHaveLength(1)
+  expect(releases[0]).toHaveBeenCalledOnce()
+  expect(dispose).toHaveBeenCalledOnce()
+  expect(releases[0].mock.invocationCallOrder[0]).toBeLessThan(dispose.mock.invocationCallOrder[0])
+  releasePrevious()
 })

@@ -227,7 +227,24 @@ export class NPC {
   setCommandSquad(squadId: SquadId | undefined): void { this._squadId = squadId }
   combatOwnership?: import('../combat/CombatFaction').CombatOwnership
   readonly combatantId: string
-  private readonly combatEventSink?: CombatEventSink
+  private readonly originalCombatEventSink?: CombatEventSink
+  private readonly combatEventBindings: { sink: CombatEventSink }[] = []
+  private combatEventBindingsClosed = false
+  private get combatEventSink(): CombatEventSink | undefined {
+    return this.combatEventBindings[this.combatEventBindings.length - 1]?.sink ?? this.originalCombatEventSink
+  }
+
+  /** Borrowed ownership replaces routing for its lifetime without subscribing a second listener. */
+  bindCombatEventSink(sink: CombatEventSink): () => void {
+    if (this.combatEventBindingsClosed) throw new Error('Cannot bind combat events to a disposed NPC')
+    const binding = { sink }
+    this.combatEventBindings.push(binding)
+    return () => {
+      const index = this.combatEventBindings.indexOf(binding)
+      // Token identity makes cleanup idempotent and keeps an older owner from restoring over a newer one.
+      if (index >= 0) this.combatEventBindings.splice(index, 1)
+    }
+  }
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -624,7 +641,7 @@ export class NPC {
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
-    this.combatEventSink = combatEventSink
+    this.originalCombatEventSink = combatEventSink
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -909,6 +926,8 @@ export class NPC {
   }
 
   dispose(): void {
+    this.combatEventBindingsClosed = true
+    this.combatEventBindings.length = 0
     this.pendingFall.clear()
     this.fallContext = undefined
     this.mount?.releaseRider()

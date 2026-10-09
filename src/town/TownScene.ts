@@ -278,7 +278,8 @@ export class TownScene {
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
-      () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds)
+      () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
+      undefined, this.profile.activeMission?.siege?.attackerIds)
     this.outskirts.synchronizeRank()
     this.outskirts.restoreCheckpoint(this.profile.activeMission?.patrolOutskirts)
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
