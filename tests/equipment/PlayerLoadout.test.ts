@@ -118,19 +118,21 @@ describe('Player loadout configuration', () => {
   })
 })
 
-it('Player rebuild selects the T4 body by weapon ID and clears pilum/bow transforms without acquiring a hero identity', async () => {
+it('Roman and Viking Player rebuilds select the T4 body by weapon ID and clear pilum/bow transforms without acquiring a hero identity', async () => {
   const asset = await preloadTinyRangerBow()
   onTestFinished(() => asset.dispose())
-  const player = new Player(new THREE.Scene(), 'roman')
-  onTestFinished(() => player.dispose())
-  // Thin observer of the caller-owned visual; no full world or character GLB.
-  const visual = player as unknown as { bowPivot: THREE.Group; bowGripPivot: THREE.Group; rig: CharacterRig }
-  for (const id of ['maki-ranger-bow-ranged', 'elven_runebow', 'pilum_standard', 'maki-ranger-bow-ranged']) {
-    player.rebuildRangedWeapon(id)
-    expect(asset.containsBody(visual.bowGripPivot), id).toBe(id === 'maki-ranger-bow-ranged')
-    expect(visual.bowPivot.parent).toBe(id === 'pilum_standard' ? visual.rig.right.handSocket : visual.rig.left.handSocket)
-    expect(player.heroAssetId).toBeUndefined()
-    if (id === 'maki-ranger-bow-ranged') expect(visual.bowGripPivot.position.length()).toBe(0)
+  for (const faction of ['roman', 'viking'] as const) {
+    const player = new Player(new THREE.Scene(), faction)
+    onTestFinished(() => player.dispose())
+    // Thin observer of the caller-owned visual; no full world or character GLB.
+    const visual = player as unknown as { bowPivot: THREE.Group; bowGripPivot: THREE.Group; rig: CharacterRig }
+    for (const id of ['maki-ranger-bow-ranged', 'elven_runebow', 'pilum_standard', 'maki-ranger-bow-ranged']) {
+      player.rebuildRangedWeapon(id)
+      expect(asset.containsBody(visual.bowGripPivot), faction + ' ' + id).toBe(id === 'maki-ranger-bow-ranged')
+      expect(visual.bowPivot.parent).toBe(id === 'pilum_standard' ? visual.rig.right.handSocket : visual.rig.left.handSocket)
+      expect(player.heroAssetId).toBeUndefined()
+      if (id === 'maki-ranger-bow-ranged') expect(visual.bowGripPivot.position.length()).toBe(0)
+    }
   }
 })
 

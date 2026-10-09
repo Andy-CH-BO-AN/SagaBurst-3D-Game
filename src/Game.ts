@@ -364,13 +364,17 @@ export class Game {
       const usesPlayerT4Bow = (
         campaignConfig?.playerLoadout?.rangedWeaponId ?? battleConfig?.playerLoadout?.rangedWeaponId
       ) === T4_RANGER_BOW_RANGED_ID
-      const savedPlayerT4Bow = !trainingGround && new SaveManager().load().inventory.equippedRangedId === T4_RANGER_BOW_RANGED_ID
+      const savedInventory = !trainingGround ? new SaveManager().load().inventory : undefined
+      const savedPlayerT4Bow = savedInventory?.equippedRangedId === T4_RANGER_BOW_RANGED_ID
+        || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
+      const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
+      const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
       if (legacyQa) {
         await Promise.all([
           HorseAssetRegistry.preload(renderer),
           BlackCatVisual.preload(),
           CorgiVisual.preload(),
-          ...(usesPlayerT4Bow || savedPlayerT4Bow || personalMembers.some(member => member.type === 'ranger') ? [preloadMakiRangerBow()] : []),
+          ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
         const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
         await game.initialization
@@ -411,7 +415,7 @@ export class Game {
       }
       await Promise.all([
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
-        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow ? [preloadMakiRangerBow()] : []),
+        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
       const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
       await game.initialization

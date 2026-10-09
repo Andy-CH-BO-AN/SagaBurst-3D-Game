@@ -150,6 +150,15 @@ describe('Veteran Career mission catalog and progression', () => {
     expect(countPreset(one.reinforcements, 'roman_lancer', 3)).toBe(48)
     expect(one.reinforcements.filter(unit => unit.tier === 4).length).toBe(2)
     expect(one.reinforcements.filter(unit => unit.tier === 4 && unit.heroRole === 'ranger').length).toBe(1)
+    for (const unit of [...one.enemy, ...two.enemy].filter(unit => unit.heroRole === 'captain')) {
+      expect(createVeteranSpawnSpec(unit, 'roman', 'enemy').loadout).toEqual({
+        meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'black-cat',
+      })
+    }
+    const reinforcementCaptain = one.reinforcements.find(unit => unit.heroRole === 'captain')!
+    expect(createVeteranSpawnSpec(reinforcementCaptain, 'roman').loadout).toEqual({
+      meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi',
+    })
     for (const unit of [...one.friendly, ...two.friendly, ...two.enemy]) {
       if (unit.tier === 3) expect(createVeteranSpawnSpec(unit, 'roman').loadout).toEqual(UNIT_PRESETS[unit.presetId].tierLoadouts[3])
       else expect(T4_UNIT_PROFILES[unit.presetId]).toBeDefined()
@@ -202,6 +211,9 @@ describe('Veteran Career mission catalog and progression', () => {
       const spec = createVeteranSpawnSpec(unit, 'viking')
       const t4Profile = T4_UNIT_PROFILES[unit.presetId]
       expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
+      if (unit.heroRole === 'captain') expect(spec.loadout).toEqual({
+        meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'black-cat',
+      })
     }
 
     const legacy = createVeteranRoster(vi, 'roman', 'legacy-vi', 1)

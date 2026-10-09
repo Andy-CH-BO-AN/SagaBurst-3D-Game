@@ -26,7 +26,12 @@ describe('Career weapon shop canonical purchases', () => {
     ['soldier', 'steel_sword', true], ['soldier', 'runic_greatsword', false],
     ['veteran', 'runic_greatsword', true],
     ['veteran', 'paladin_sword_t4', false], ['veteran', 'paladin_mace_t4', false], ['veteran', 'paladin_shield_t4', false],
+    ['recruit', 'paladin_sword_t4', false], ['recruit', 'paladin_mace_t4', false], ['recruit', 'paladin_shield_t4', false],
+    ['soldier', 'paladin_sword_t4', false], ['soldier', 'paladin_mace_t4', false], ['soldier', 'paladin_shield_t4', false],
     ['captain', 'paladin_sword_t4', true], ['captain', 'paladin_mace_t4', true], ['captain', 'paladin_shield_t4', true],
+    ['commander', 'paladin_sword_t4', true], ['commander', 'paladin_mace_t4', true], ['commander', 'paladin_shield_t4', true],
+    ['recruit', T4_RANGER_BOW_RANGED_ID, false], ['soldier', T4_RANGER_BOW_RANGED_ID, false], ['veteran', T4_RANGER_BOW_RANGED_ID, false],
+    ['captain', T4_RANGER_BOW_RANGED_ID, true], ['commander', T4_RANGER_BOW_RANGED_ID, true],
   ] as const)('%s purchases %s: %s', (rank, id, allowed) => {
     const current = { ...profile(rank), availableMerit: 2000 }
     const result = purchaseTownEquipment(current, id)
@@ -61,12 +66,16 @@ describe('Career weapon shop canonical purchases', () => {
     expect(canonical.spentMerit).toBe(400); expect(canonical.profile.ownedArmors).toEqual([])
     expect(canonical.profile.ownedWeapons).toContain('steel_sword')
   })
-  it.each(['maki-ranger-bow', T4_RANGER_BOW_RANGED_ID])('excludes Hero-only %s from catalog and purchase', id => {
+  it('excludes Maki fixed melee weapon from catalog and purchase', () => {
+    const id = 'maki-ranger-bow'
     expect(TOWN_PRODUCTS.some(p => p.id === id)).toBe(false)
     const current = profile('commander')
     expect(purchaseTownEquipment(current, id)).toMatchObject({ purchased: false, profile: current, reason: 'invalid-id' })
   })
   it('keeps weapon and shield catalog prices and faction independent collection', () => {
+    expect(TOWN_PRODUCTS.filter(item => item.id === T4_RANGER_BOW_RANGED_ID)).toEqual([
+      { id: T4_RANGER_BOW_RANGED_ID, name: 'T4 遊俠弓 Ranger Bow', category: 'weapon', tier: 4, price: 1600 },
+    ])
     for (const item of TOWN_PRODUCTS.filter(p => p.category !== 'mount')) expect(item.price).toBe(item.tier ** 2 * (item.category === 'weapon' ? 100 : 90))
     expect(purchaseTownEquipment(profile(), 'viking_axe_t2').purchased).toBe(true)
     expect(purchaseTownEquipment({ ...profile(), faction: 'viking' }, 'pilum_standard').purchased).toBe(true)
@@ -122,17 +131,33 @@ describe('Career purchased inventory and persistence', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     let current = { ...profile('captain'), faction, totalMerit: 10000, availableMerit: 10000 }
     const inventory = new TownEquipment(() => current, next => { current = next; return store.save(next) })
-    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4']) {
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4', T4_RANGER_BOW_RANGED_ID]) {
       const purchase = purchaseTownEquipment(current, id)
       expect(purchase.purchased).toBe(true)
       current = purchase.profile
       expect(inventory.equipWeapon(id)).toBe(true)
     }
     const loaded = store.load()!
-    expect(loaded.equipment).toMatchObject({ melee: 'paladin_mace_t4', shield: 'paladin_shield_t4' })
-    expect(loaded.ownedWeapons).toEqual(expect.arrayContaining(['paladin_sword_t4', 'paladin_mace_t4']))
+    expect(loaded.equipment).toMatchObject({ melee: 'paladin_mace_t4', ranged: T4_RANGER_BOW_RANGED_ID, shield: null })
+    expect(loaded.ownedWeapons).toEqual(expect.arrayContaining(['paladin_sword_t4', 'paladin_mace_t4', T4_RANGER_BOW_RANGED_ID]))
     expect(loaded.ownedArmors).toContain('paladin_shield_t4')
-    expect(loaded.availableMerit).toBe(5360)
+    expect(loaded.availableMerit).toBe(3760)
+    const outpost = acceptCareerOutpost(loaded, 1, 't4-shop-outpost')!
+    expect(createCareerOutpostLaunch(outpost).playerLoadout.rangedWeaponId).toBe(T4_RANGER_BOW_RANGED_ID)
+    const returned = new TownEquipment(() => loaded, () => true)
+    returned.prepareForCombat()
+    expect(returned.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
+    expect(returned.rangedEnabled).toBe(true)
+    expect(returned.shieldEnabled).toBe(false)
+    expect(inventory.equipWeapon('paladin_shield_t4')).toBe(true)
+    expect(inventory.rangedEnabled).toBe(false)
+    expect(current.ownedWeapons).toContain(T4_RANGER_BOW_RANGED_ID)
+    expect(current.equipment?.ranged).toBeUndefined()
+    expect(inventory.equipWeapon(T4_RANGER_BOW_RANGED_ID)).toBe(true)
+    expect(inventory.shieldEnabled).toBe(false)
+    const foreign = { ...store.load()!, faction: faction === 'roman' ? 'viking' as const : 'roman' as const }
+    expect(store.save(foreign)).toBe(true)
+    expect(store.load()?.equipment?.ranged).toBe(T4_RANGER_BOW_RANGED_ID)
   })
   it('buys repeated military horses alongside equipment', () => {
     const current = { ...profile('veteran'), availableMerit: 2500 }

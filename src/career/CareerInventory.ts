@@ -1,7 +1,7 @@
 import type { CareerProfile, CareerMountId } from './CareerProfile'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 
@@ -15,7 +15,7 @@ export function canonicalInventoryId(id: string): string {
   return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : id
 }
 export function isTradableCareerItem(id: string): boolean {
-  return id !== 'maki-ranger-bow' && id !== T4_RANGER_BOW_RANGED_ID
+  return id !== 'maki-ranger-bow'
     && (Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id))
 }
 export function initialPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {

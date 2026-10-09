@@ -142,7 +142,9 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
     expect(roster.filter(s => s.squadId === 1 && s.tier !== 4)).toHaveLength(28)
     expect(roster.filter(s => s.squadId === 2 && s.tier !== 4)).toHaveLength(29)
     expect(roster.every(s => s.cavalry && s.loadout?.mountId && s.characterFaction === faction)).toBe(true)
-    expect(roster.find(s => s.name === 'Captain')).toMatchObject({ tier: 4, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4' })
+    expect(roster.find(s => s.name === 'Captain')).toMatchObject({ tier: 4, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4',
+      loadout: { meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: faction === 'roman' ? 'corgi' : 'black-cat' } })
     expect(roster.find(s => s.name === 'Maki')).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', loadout: { mountId: 'black-cat' } })
     const positions = [...roster.map(s => new THREE.Vector3(s.x, 0, s.z)), sweepPlayerSpawn()]
     for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) expect(positions[i].distanceTo(positions[j])).toBeGreaterThan(2)

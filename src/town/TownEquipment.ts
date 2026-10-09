@@ -73,7 +73,7 @@ export class TownEquipment extends InventoryManager {
     super.equipWeapon(id)
     this.drawn.add(id)
     if (slot === 'melee') this.meleeEnabled = true
-    if (slot === 'ranged') this.rangedEnabled = true
+    if (slot === 'ranged') { this.rangedEnabled = true; this.shieldEnabled = false }
     if (slot === 'shield') this.shieldEnabled = true
     return true
   }

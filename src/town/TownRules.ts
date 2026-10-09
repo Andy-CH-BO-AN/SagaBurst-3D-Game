@@ -2,12 +2,12 @@ import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -55,7 +55,10 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
   const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
   const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
-  return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
+  const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
+  // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
+  return { presetId, tier, level, loadout: level === 4
+    ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : { ...base } }
 }
 export const TOWN_SITES = {
   weapons: { x: -29, z: -10, yaw: Math.PI / 2 },
@@ -184,9 +187,9 @@ export function careerTownWeapon(profile: CareerProfile): string {
   return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
 }
 export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4; price: number }
-// Hero fixed equipment is not part of the ordinary Career collection.
+// Maki's melee action weapon stays fixed; the ranged Ranger Bow is a shop item.
 export function isTownShopWeapon(id: string): boolean {
-  return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow' && id !== T4_RANGER_BOW_RANGED_ID
+  return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow'
 }
 export const XONGKORO_PRODUCT: Readonly<TownProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
 export const TOWN_PRODUCTS: TownProduct[] = [

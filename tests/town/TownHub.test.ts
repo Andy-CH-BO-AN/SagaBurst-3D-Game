@@ -99,7 +99,8 @@ describe('Town population and civilian combat', () => {
       expect(lancer).toMatchObject({ presetId: `${faction}_lancer`, tier: 2, level: 2 })
       expect(spear).toMatchObject({ presetId: `${faction}_spearman`, tier: 2, level: 2 })
       expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 4 })
-      expect(sergeant.loadout).toEqual(UNIT_PRESETS[sergeant.presetId].tierLoadouts[3])
+      expect(sergeant.loadout).toEqual({ meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null })
       expect(sergeant.loadout.mountId).toBeNull()
       expect(spec).toMatchObject({ tier: 4, mounted: false, duty: 'service', unitKind: 'melee' })
       expect(townMilitaryEquipment(faction, 'deployment')).toEqual(sergeant)
@@ -107,6 +108,14 @@ describe('Town population and civilian combat', () => {
         visualAssetId: `${faction}-hero-t4`, combatProfileId: faction === 'roman' ? 'praetorian' : 'varangian',
         baseLoadoutTier: 3, mountOverride: null,
       })
+    }
+  })
+  it.each(['roman', 'viking'] as const)('%s Town Captain and HR Officer use T4 weapons and shields', faction => {
+    for (const role of ['captain', 'hr-officer'] as const) {
+      expect(townMilitaryEquipment(faction, role)).toMatchObject({ level: 4, loadout: {
+        meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'horse',
+      } })
     }
   })
   it('uses HP 50, no squad or weapon in peace; arms once with catalog gladius after hostility', () => {
