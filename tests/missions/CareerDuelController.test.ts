@@ -105,21 +105,47 @@ describe('Career Duel existing actor and loadout selection', () => {
     })
   }
 
-  it.each(['roman_heavy_infantry', 'roman_spearman', 'roman_javelin_infantry', 'viking_berserker', 'viking_spearman'] as const)('T4 %s uses dismounted Captain with Maki referee and preserves hero identity', preset => {
+  it.each([
+    ['roman_heavy_infantry', { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null }],
+    ['roman_spearman', { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: null }],
+    ['roman_javelin_infantry', { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: 'legionary_pilum', shieldId: null, mountId: null }],
+    ['viking_berserker', { meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null }],
+    ['viking_spearman', { meleeWeaponId: 'heavy_lance', secondaryMeleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: null, mountId: null }],
+  ] as const)('T4 %s uses canonical foot gear for acceptance and saved resume, then restores Captain equipment', (preset, expected) => {
     const h = harness(UNIT_PRESETS[preset].faction)
+    const roster = selectCareerDuelRoster(h.residents, h.blackCat, preset, 4)!
+    const canonical = { ...roster.opponent.npc.loadout }
+    expect(roster.loadout).toEqual(expected)
     h.start(preset, 4)
     expect(h.controller.opponent).toBe(h.controller.captain)
     expect(h.controller.opponent!.mount).toBeNull()
     expect(h.controller.referee!.combatantId).toBe('ranger')
     expect(h.profile.activeMission?.duelRefereeActorId).toBe('ranger')
-    expect(h.controller.opponent!.applyTemporaryCombatLoadout).toHaveBeenCalledWith(UNIT_PRESETS[preset].tierLoadouts[3])
+    expect(h.controller.opponent!.applyTemporaryCombatLoadout).toHaveBeenCalledWith(expected)
     expect(h.controller.opponent!.combatProfileId).toBe('praetorian')
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(h.profile)))!
+    const reload = harness(UNIT_PRESETS[preset].faction, saved)
+    expect(reload.controller.startActiveMission()).toBe(true)
+    expect(reload.controller.opponent!.applyTemporaryCombatLoadout).toHaveBeenCalledWith(expected)
+    h.controller.cleanupMission(); reload.controller.cleanupMission()
+    expect(roster.opponent.npc.loadout).toEqual(canonical)
+    expect(roster.opponent.npc).toMatchObject({ equipped: canonical })
+    expect(reload.residents.find(resident => resident.spec.role === 'captain')!.npc).toMatchObject({ equipped: canonical })
+    expect(roster.opponent.npc.restoreCombatLoadout).toHaveBeenCalled()
   })
 
-  it.each(['roman_sword_cavalry', 'roman_lancer', 'viking_sword_cavalry', 'viking_lancer'] as const)('T4 %s retains Captain own mount', preset => {
+  it.each([
+    ['roman_sword_cavalry', 'paladin_sword_t4', 'paladin_shield_t4'],
+    ['roman_lancer', 'heavy_lance', null],
+    ['viking_sword_cavalry', 'paladin_mace_t4', 'paladin_shield_t4'],
+    ['viking_lancer', 'heavy_lance', null],
+  ] as const)('T4 %s retains Captain own mount with role-specific equipment', (preset, meleeWeaponId, shieldId) => {
     const h = harness(UNIT_PRESETS[preset].faction)
     const captain = h.residents.find(resident => resident.spec.role === 'captain')!
+    const expected = { meleeWeaponId, rangedWeaponId: null, shieldId, mountId: 'horse' }
+    expect(selectCareerDuelRoster(h.residents, h.blackCat, preset, 4)!.loadout).toEqual(expected)
     h.start(preset, 4)
+    expect(captain.npc.applyTemporaryCombatLoadout).toHaveBeenCalledWith(expected)
     expect(h.controller.opponent).toBe(captain.npc)
     expect(h.controller.opponent!.mount).toBe(captain.homeMount)
     expect(h.controller.referee!.combatantId).toBe('ranger')

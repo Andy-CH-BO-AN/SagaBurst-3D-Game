@@ -196,7 +196,7 @@ describe('Town patrol outskirts engagement and casualty recovery', () => {
     expect(captain.npc.dead).toBe(true); expect(dead.npc.dead).toBe(true); expect(foot.homeMount!.dead).toBe(true)
     e.bandit.dead = true; e.frame()
     expect(captain.npc.hpRatio).toBe(1); expect(captain.npc.tier).toBe(4)
-    expect(captain.npc.meleeWeaponId).toBe('centurion_blade')
+    expect(captain.npc.meleeWeaponId).toBe('paladin_sword_t4')
     expect(captain.homeMount!.type).toBe(MountType.CORGI)
     expect(dead.npc.hpRatio).toBe(1); expect(dead.npc.mount).toBe(dead.homeMount)
     expect(foot.homeMount!.dead).toBe(true); expect(h.controller.isReserveAvailable(foot.spec.id)).toBe(false)

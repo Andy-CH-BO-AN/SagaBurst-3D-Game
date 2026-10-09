@@ -8,6 +8,7 @@ import { TownWorld } from '../../src/town/TownWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../../src/world/Mount'
 import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
 import { advanceUntil, type AdvanceUntilOptions } from './simulation'
 import { createThreeTestScene, installFakeCanvasEnvironment } from './threeTestEnvironment'
 
@@ -35,6 +36,7 @@ export function installTownPatrolFixtureEnvironment() {
   // Substitute rendering only: travel, mount physics, collision and navigation remain real.
   // Per-test spies also work when another import has already loaded the registry.
   beforeEach(() => {
+    vi.spyOn(PaladinEquipment, 'createPaladinEquipment').mockImplementation(() => new THREE.Group())
     vi.spyOn(HorseAssetRegistry, 'ready', 'get').mockReturnValue(true)
     vi.spyOn(HorseAssetRegistry, 'createInstance').mockImplementation(() => {
       const root = new THREE.Group(), saddleSeat = new THREE.Object3D()

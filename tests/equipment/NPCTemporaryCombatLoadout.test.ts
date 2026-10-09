@@ -11,6 +11,10 @@ import type { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
 import type { CharacterRig } from '../../src/world/CharacterVisuals'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import type { ObstacleData } from '../../src/world/Terrain'
+import { personalMemberLoadout } from '../../src/career/PersonalSquadRuntime'
+
+// Asset parsing belongs to PaladinEquipmentAssets; runtime equipment uses a cheap render boundary.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 interface EquipmentFixture {
   arrows: number
@@ -173,23 +177,34 @@ describe('NPC temporary combat loadout', () => {
     npc.dispose()
   })
 
-  it('retains the T4 Captain visual and combat profile when changing weapon type', () => {
-    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Captain', 4,
-      true, UNIT_PRESETS.roman_sword_cavalry.tierLoadouts[3], 'roman_sword_cavalry', undefined,
-      'captain', undefined, 'roman-hero-t4', 'praetorian')
+  it.each([
+    ['roman', 'paladin_sword_t4', 60, 'roman-hero-t4', 'praetorian'],
+    ['viking', 'paladin_mace_t4', 55, 'viking-hero-t4', 'varangian'],
+  ] as const)('%s HR Captain consumes custom %s and restores it after temporary mission equipment', (faction, weapon, damage, visualAssetId, combatProfileId) => {
+    // One real NPC, no Mount or world: this owner verifies runtime equipment, not deployment policy.
+    const spec = personalMemberLoadout({ id: 'personal:captain', type: 'captain',
+      equipment: { melee: weapon, ranged: null, shield: 'paladin_shield_t4', mount: 'horse' } }, faction)
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, faction, AIType.MELEE, 'Captain', spec.tier,
+      spec.mounted, spec.loadout, spec.presetId, undefined, 'personal:captain', undefined,
+      spec.hero?.visualAssetId, spec.hero?.combatProfileId)
+    onTestFinished(() => npc.dispose())
+    expect(npc.meleeWeaponId).toBe(weapon)
+    expect(npc.meleeDamage).toBe(damage)
+    expect(npc.shield.shieldImpactMax).toBe(48)
     const visual = npc.characterVisualGroup
     npc.applyTemporaryCombatLoadout(UNIT_PRESETS.roman_javelin_infantry.tierLoadouts[3])
-    expect(npc.visualAssetId).toBe('roman-hero-t4')
-    expect(npc.combatProfileId).toBe('praetorian')
+    expect(npc.visualAssetId).toBe(visualAssetId)
+    expect(npc.combatProfileId).toBe(combatProfileId)
     expect(npc.characterVisualGroup).toBe(visual)
     expect(npc.maxHp).toBe(500)
     expect(npc.rangedDamage).toBe(WEAPONS.legionary_pilum.damageMax * getRangedDamageMultiplier('javelin') * 2)
     npc.restoreForTown()
-    expect(npc.meleeWeaponId).toBe('centurion_blade')
-    expect(npc.shieldId).toBe('scutum_t3')
+    expect(npc.meleeWeaponId).toBe(weapon)
+    expect(npc.meleeDamage).toBe(damage)
+    expect(npc.shieldId).toBe('paladin_shield_t4')
+    expect(npc.shield.shieldImpactRemaining).toBe(48)
     expect(npc.rangedWeaponId).toBeUndefined()
     expect(npc.rangedDamage).toBe(0)
-    npc.dispose()
   })
 
   it('restores dead Town opponents with original ranged equipment, full health and ammo, and clears temporary hostility', () => {

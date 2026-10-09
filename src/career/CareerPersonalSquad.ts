@@ -97,7 +97,7 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   if (id !== null && (typeof id !== 'string' || !id)) return fail('invalid-item')
   const item = id ? WEAPONS[id] ?? ARMORS[id] : undefined
   if (id && (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(id) :
-    !item || item.type !== (slot === 'shield' ? 'shield' : slot) || id.startsWith('maki-ranger-bow'))) return fail('invalid-item')
+    !item || item.type !== (slot === 'shield' ? 'shield' : slot) || id === 'maki-ranger-bow')) return fail('invalid-item')
   const next = cloneCareerProfile(current)
   normalizeCareerInventory(next)
   const member = next.personalSquad!.members.find(member => member.id === memberId)!

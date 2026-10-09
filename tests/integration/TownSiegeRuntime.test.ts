@@ -27,6 +27,9 @@ import { CampaignGateController } from '../../src/campaign/CampaignGate'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 
+// Equipment GLB parsing has its own asset owner; Siege keeps real combat and movement.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
+
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
   CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,

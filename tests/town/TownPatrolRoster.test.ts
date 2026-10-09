@@ -26,9 +26,9 @@ describe('Town patrol roster contracts', () => {
 
   // Faction is a policy axis; no actors, world or movement state machine are created here.
   it.each([
-    { faction: 'roman', presetId: 'roman_sword_cavalry', officerWeapon: 'centurion_blade', weapon: 'gladius_standard',
+    { faction: 'roman', presetId: 'roman_sword_cavalry', officerWeapon: 'paladin_sword_t4', weapon: 'gladius_standard',
       shield: 'scutum_t2', hero: { visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', baseLoadoutTier: 3, mountOverride: 'corgi' } },
-    { faction: 'viking', presetId: 'viking_sword_cavalry', officerWeapon: 'viking_axe_t3', weapon: 'viking_axe_t2',
+    { faction: 'viking', presetId: 'viking_sword_cavalry', officerWeapon: 'paladin_mace_t4', weapon: 'viking_axe_t2',
       shield: 'round_shield_t2', hero: { visualAssetId: 'viking-hero-t4', combatProfileId: 'varangian', baseLoadoutTier: 3, mountOverride: 'black-cat' } },
   ] as const)('equips $faction patrol officers with the canonical T4 hero profile and ordinary riders with T2 weapons', ({ faction, presetId, officerWeapon, weapon, shield, hero }) => {
     expect(townCaptainProfile(faction)).toEqual(hero)
@@ -38,7 +38,7 @@ describe('Town patrol roster contracts', () => {
       expect(equipment.loadout.mountId).toBe('horse')
       if (spec.patrolLeader) {
         expect(townActorHeroProfile(faction, spec)).toEqual(hero)
-        expect(equipment).toMatchObject({ tier: 3, level: 4, loadout: { meleeWeaponId: officerWeapon } })
+        expect(equipment).toMatchObject({ tier: 3, level: 4, loadout: { meleeWeaponId: officerWeapon, shieldId: 'paladin_shield_t4' } })
       } else {
         expect(equipment).toMatchObject({ tier: 2, level: 2,
           loadout: { meleeWeaponId: weapon, rangedWeaponId: null, shieldId: shield, mountId: 'horse' } })

@@ -76,22 +76,31 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
 
 describe('Siege officer profile policy without actor materialization', () => {
   it.each([
-    ['roman', true, 'praetorian', 'roman-hero-t4', 'corgi'],
-    ['roman', false, 'praetorian', 'roman-hero-t4', 'corgi'],
-    ['viking', true, 'varangian', 'viking-hero-t4', 'black-cat'],
-    ['viking', false, 'varangian', 'viking-hero-t4', 'black-cat'],
-  ] as const)('%s assault=%s selects the canonical Captain and Ranger profiles', (faction, assault, combatProfileId, visualAssetId, mountId) => {
-    const roster = siegeRoster(faction, assault)
+    ['roman', true, 2, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['roman', false, 2, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['viking', true, 2, 'varangian', 'viking-hero-t4', 'black-cat'],
+    ['viking', false, 2, 'varangian', 'viking-hero-t4', 'black-cat'],
+    ['roman', true, 1, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['roman', false, 1, 'praetorian', 'roman-hero-t4', 'corgi'],
+    ['viking', true, 1, 'varangian', 'viking-hero-t4', 'black-cat'],
+    ['viking', false, 1, 'varangian', 'viking-hero-t4', 'black-cat'],
+  ] as const)('%s assault=%s roster=%s keeps Captain weapons appropriate to the saved unit kind', (faction, assault, version, combatProfileId, visualAssetId, mountId) => {
+    const roster = siegeRoster(faction, assault, version)
+    expect(roster).toHaveLength(assault ? 119 : 120)
+    for (const gateId of ['north', 'south', 'east', 'west']) expect(roster.filter(slot => slot.gateId === gateId).length + (assault && gateId === 'north' ? 1 : 0)).toBe(30)
     const captains = roster.filter(({ spec }) => spec.name === 'Captain')
     expect(captains.map(slot => slot.gateId)).toEqual(['north', 'south', 'east'])
     for (const { spec } of captains) expect(spec).toMatchObject({
       characterFaction: faction, faction: assault ? 'TOWN' : 'ENEMY', tier: 4,
-      combatProfileId, visualAssetId, loadout: { mountId },
+      combatProfileId, visualAssetId, presetId: `${faction}_${version === 1 ? 'sword_cavalry' : 'lancer'}`,
+      loadout: { meleeWeaponId: version === 1 ? faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4' : 'heavy_lance',
+        rangedWeaponId: null, shieldId: version === 1 ? 'paladin_shield_t4' : null, mountId },
     })
     expect(roster.filter(({ spec }) => spec.combatProfileId === 'ranger')).toMatchObject([{
-      gateId: 'west', slot: 10, spec: { characterFaction: faction, tier: 4,
+      gateId: 'west', slot: version === 1 ? 20 : 10, spec: { characterFaction: faction, tier: 4,
         visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger',
-        loadout: { mountId: 'black-cat' } },
+        loadout: { meleeWeaponId: version === 1 || faction === 'viking' ? 'rusty_dagger' : 'gladius_rusty',
+          rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: 'black-cat' } },
     }])
   })
 })

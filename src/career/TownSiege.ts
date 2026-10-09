@@ -83,7 +83,9 @@ export function siegeRoster(faction: CharacterFaction, assault: boolean, version
       x: point.x, z: point.z, faction: assault ? Faction.TOWN : Faction.ENEMY, characterFaction: faction,
       aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Maki' : `${gate.id} ${slot + 1}`,
       tier: hero ? 4 : 3, cavalry, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
-      loadout: { ...(ranger ? resolveT4UnitLoadout(version === 1 ? 'viking_archer' : `${faction}_archer`) : UNIT_PRESETS[presetId].tierLoadouts[3]), ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
+      loadout: { ...(ranger ? resolveT4UnitLoadout(version === 1 ? 'viking_archer' : `${faction}_archer`)
+        : captain ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[3]),
+        ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
       ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
     } }
   }).filter((slot): slot is SiegeRosterSlot => slot !== null))
