@@ -1,10 +1,36 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { COMBAT_ANIMATION_PROFILES } from '../../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale, AXE_HIT_TIMES } from '../../src/world/CharacterCombatAnimator'
+import type { CharacterRig } from '../../src/world/CharacterVisuals'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 
 describe('Weapon combat profiles', () => {
+  it.each([
+    ['paladin_sword_t4', 'sword', 60, .48, 1],
+    ['paladin_mace_t4', 'axe', 55, .54, 12],
+  ] as const)('%s has shared T4 damage, cadence and fixed shield impact', (id, animationKind, damage, cycle, shieldImpact) => {
+    expect(WEAPONS[id]).toMatchObject({ tier: 4, combatKind: 'sword', animationKind,
+      damageMin: damage, damageMax: damage, speedOrCharge: cycle, meleeCycleSeconds: cycle, shieldImpact })
+  })
+
+  it.each(['axeAttack1H', 'axeAttack2H'] as const)('%s retimes Mace playback, one contact and completion together', action => {
+    const animation = { has: () => true, play: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn() }
+    // Only the animator-to-renderer boundary is replaced; actual event clock runs.
+    const rig = { animation } as unknown as CharacterRig
+    const animator = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+    const scale = meleeActionTimeScale(action, WEAPONS.paladin_mace_t4, 1.5)
+    expect(animator.start(action, scale)).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith(action, expect.objectContaining({ timeScale: expect.closeTo(4 / 3, 12) }))
+    const contact = AXE_HIT_TIMES[action] / scale
+    expect(animator.update(contact - .001).hitActiveStarted).toBe(false)
+    expect(animator.update(.002).hitActiveStarted).toBe(true)
+    expect(animator.update(.36 - contact - .002).actionCompleted).toBe(false)
+    const events = animator.update(.002)
+    expect(events.actionCompleted).toBe(true)
+    expect(events.hitActiveStarted).toBe(false)
+    expect(meleeActionTimeScale(action, WEAPONS.viking_axe_t3, 1.5)).toBe(1.5)
+  })
   it('Lance mesh length in WeaponMeshFactory remains 2.6m (mesh length unchanged)', () => {
     const parent = new THREE.Group()
     const { tipLocal } = WeaponMeshFactory.buildMelee('steel_lance', parent)

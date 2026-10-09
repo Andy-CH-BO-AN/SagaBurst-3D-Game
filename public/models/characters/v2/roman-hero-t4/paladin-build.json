@@ -1,0 +1,17 @@
+{
+  "heightM": 1.95,
+  "heightDefinition": "Overall armoured stature including helmet horns; enclosed anatomical crown unavailable",
+  "uniformScaleAppliedOffline": 0.009867640062940039,
+  "sourceBoundsZ": [
+    0.3360055387020111,
+    197.95164489746094
+  ],
+  "triangles": {
+    "lod0": 15398,
+    "lod1": 7798,
+    "lod2": 1899
+  },
+  "shoulderWidthM": 0.48849549742998566,
+  "shoulderWidthDefinition": "Anatomical shoulder joint span in normalized T-pose; pauldron silhouette extends beyond joints",
+  "neckLengthM": 0.10646904476240662
+}

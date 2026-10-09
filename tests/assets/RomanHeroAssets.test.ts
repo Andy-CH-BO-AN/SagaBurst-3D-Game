@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -9,7 +9,7 @@ import { readGlb, loadRig } from '../../tools/lib/humanoid-glb.mjs'
 
 const directory = 'public/models/characters/v2/roman-hero-t4'
 const manifest = JSON.parse(readFileSync(`${directory}/manifest.json`, 'utf8'))
-const descriptor: HumanoidAssetDescriptor = { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .10 }
+const descriptor: HumanoidAssetDescriptor = HERO_ASSETS['roman-hero-t4'].descriptor
 
 describe('Roman T4 independent appearance asset', () => {
   it('uses a separate stature contract without relaxing ordinary Romans', () => {
@@ -40,7 +40,7 @@ describe('Roman T4 independent appearance asset', () => {
       const lod = a.root.children.find(child => child instanceof THREE.LOD) as THREE.LOD
       for (const level of lod.levels) {
         expect(level.object.userData.humanoidLod2RepresentationControl).toBeUndefined()
-        for (const name of ['New_head', 'New_legs', 'head', 'socket_hand_r', 'socket_hand_l', 'socket_pelvis']) expect(level.object.getObjectByName(name)).toBeDefined()
+        for (const name of ['hips', 'head', 'socket_hand_r', 'socket_hand_l', 'socket_pelvis', 'socket_back', 'socket_head', 'socket_foot_l', 'socket_foot_r', 'sole_l', 'sole_r']) expect(level.object.getObjectByName(name)).toBeDefined()
       }
       const before = b.rig.right.shoulder.quaternion.clone()
       a.rig.animation!.play('swordSlash', { fadeSeconds: 0, loop: false })
@@ -80,17 +80,9 @@ describe('Roman T4 independent appearance asset', () => {
   it.each([0, 1, 2])('LOD%d preserves source provenance and its declared gameplay clip/event bindings', async lod => {
     const asset = readGlb(`${directory}/lod${lod}.glb`)
     const gltf = await loadRig(asset)
-    expect(asset.document.asset.extras.romanHelmetReplacement.sourceSha256).toBe(
-      createHash('sha256').update(readFileSync('artifacts/character_sources/roman-helmet/source.glb')).digest('hex'),
-    )
-    expect(asset.document.asset.extras.romanGreavesReplacement.sourceSha256).toBe(
-      createHash('sha256').update(readFileSync('artifacts/character_sources/roman-centurion/source.glb')).digest('hex'),
-    )
-    const base = JSON.parse(readFileSync('public/models/characters/v2/roman/manifest.json', 'utf8'))
-    // Appearance provenance refers to the immutable pre-axe Roman input.
-    // Axe clips are independently retargeted onto both assets after that build.
-    const sourceHash = base.axeAttackBuild.inputSha256[`lod${lod}`]
-    expect(sourceHash).toBe(manifest.lodMeasurements[lod].sourceSha256)
+    expect(asset.document.asset.extras.paladinSourceSha256).toBe(manifest.source.sourceSha256)
+    expect(asset.document.asset.extras.animationSourceSha256).toBe(manifest.animationRetarget.sha256)
+    const base = JSON.parse(readFileSync('tools/assets/roman-t4-animation-source.json', 'utf8'))
     for (const binding of manifest.animations.embedded) {
       expect(gltf.animations.find((clip: THREE.AnimationClip) => clip.name === binding.clip)?.duration).toBeCloseTo(binding.duration, 5)
     }

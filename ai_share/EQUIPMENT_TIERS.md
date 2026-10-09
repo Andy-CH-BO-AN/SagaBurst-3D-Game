@@ -1,6 +1,6 @@
-# T1–T3 裝備盤點與外觀規格
+# 裝備盤點與外觀規格
 
-目前可裝備物品共 **18 件武器、6 面盾牌**。人物胸甲、頭盔與衣物屬於陣營共用的 humanoid GLB，不是獨立的防具物品；本次不改骨架、角色模型或人物服裝。
+T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
 
 ## 物品與數值
 
@@ -16,6 +16,20 @@
 | 方盾 | 簡陋方盾 `scutum_t1` | 軍團方盾 `scutum_t2` | 百夫長方盾 `scutum_t3` | 減傷 10% / 15% / 20% |
 
 數值列記錄 WeaponDatabase / ArmorDatabase 的原始設定，並非所有動畫或兵種系統最終時長。舊物品 ID 保留相容性：`rusty_dagger` 現在是單手長劍，`runic_greatsword` 現在也是單手長劍。
+
+## 共用 T4 裝備
+
+Roman／Viking 英雄可共用，保留各自英雄倍率。Career 沿用 Captain 解鎖與軍功購買，Custom Battle 限 T4 Player，Training Ground 沿用全部目錄物品。Maki 固定裝備不變。
+
+| ID | 來源外觀 | 基礎傷害 | 基礎完整攻擊週期 | 盾牌衝擊／耐久 |
+| --- | --- | --- | --- | --- |
+| `paladin_sword_t4` | DJMaesen Paladin 原始長劍 | 60 | 0.48 秒／Sword | 衝擊 1 |
+| `paladin_mace_t4` | Efarys Paladin Mace | 55 | 0.54 秒／Axe 1H 或 2H | 衝擊 12 |
+| `paladin_shield_t4` | Efarys Paladin Shield＋既有中央握把 | — | — | 耐久 48 |
+
+不含護甲穿透或被動減傷。`meleeCycleSeconds` 同步縮放動畫、接觸事件與收招；T1–T3 未設定此欄位，時序維持原狀。物理命中盾面才消耗固定衝擊，不乘英雄傷害倍率；不足耐久沿用 `ShieldState.absorb` 比例溢出。
+
+`PaladinEquipment` 預載並共用幾何、材質與貼圖；每個持有者只複製物件變換。來源、授權及可重建流程見 `public/models/weapons/paladin/ATTRIBUTION.md`。Paladin 身體不含常駐武器。
 
 ## 三階視覺
 

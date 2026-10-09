@@ -10,11 +10,27 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { ARMORS } from '../../src/rpg/ArmorDatabase'
 
 const shield = (tier = 1, kind = 'round_shield') => { const s = new ShieldState(); s.equip(`${kind}_t${tier}`); return s }
 const context = (kind: 'shield' | 'body' = 'shield') => ({ source: { actorId: 'enemy', actorType: 'npc' as const, allegiance: Faction.ENEMY, characterFaction: 'viking' as const }, method: 'melee' as const, weaponId: 'viking_axe_t3', contact: { kind, time: .2 } })
 
 describe('Shield impact and overflow', () => {
+  it('T4 Mace breaks 48-impact T4 Shield on its fourth hit without scaling impact by hero damage', () => {
+    expect(ARMORS.paladin_shield_t4).toMatchObject({ tier: 4, shieldImpactMax: 48 })
+    const state = new ShieldState(); state.equip('paladin_shield_t4')
+    const impact = weaponShieldImpact('paladin_mace_t4')
+    expect(impact).toBe(12); expect(weaponShieldImpact('paladin_sword_t4')).toBe(1)
+    for (const remaining of [36, 24, 12, 0]) {
+      expect(state.absorb(110, impact).damage).toBe(0)
+      expect(state.shieldImpactRemaining).toBe(remaining)
+      expect(state.shieldBroken).toBe(remaining === 0)
+    }
+  })
+  it('T4 Mace overflows exactly 7/12 of body damage when five impact remains', () => {
+    const state = new ShieldState(); state.equip('paladin_shield_t4'); state.shieldImpactRemaining = 5
+    expect(state.absorb(110, weaponShieldImpact('paladin_mace_t4')).damage).toBeCloseTo(110 * 7 / 12)
+  })
   it('breaks T1 after exactly five fully blocked ordinary hits', () => {
     const s = shield(); for (let i = 0; i < 5; i++) expect(s.absorb(80, 1).damage).toBe(0)
     expect(s.shieldBroken).toBe(true); expect(s.absorb(80, 1, 50)).toEqual({ damage: 80, blockedImpact: 0 })
@@ -49,6 +65,19 @@ function geometry() {
   return { group, pivot, shield: state, shieldCollider: collider, isMounted: false, combatPosition: group.position }
 }
 describe('Physical first contact', () => {
+  it('Paladin face follows rotation, excludes grip air and tapered corners, and disappears when broken', () => {
+    const state = new ShieldState(); state.equip('paladin_shield_t4')
+    const pivot = new THREE.Group(); pivot.position.set(2, 1, 3); pivot.rotation.y = .8; pivot.updateMatrixWorld(true)
+    const collider = new ShieldCollider(pivot, state); collider.setModel('paladin_shield_t4')
+    const point = (x: number, y: number, z: number) => pivot.localToWorld(new THREE.Vector3(x, y, z))
+    expect(collider.time(point(0, 0, 1), point(0, 0, -.1))).toBeLessThan(1)
+    expect(collider.time(point(-.2, 0, .085), point(.2, 0, .085))).toBe(Infinity)
+    expect(collider.time(point(.3, -.45, 1), point(.3, -.45, -1))).toBe(Infinity)
+    expect(state.shieldImpactRemaining).toBe(48)
+    state.absorb(110, 48); collider.refreshVisibility()
+    expect(pivot.visible).toBe(false)
+    expect(collider.time(point(0, 0, 1), point(0, 0, -1))).toBe(Infinity)
+  })
   it('shield wins in front, body wins behind, legs and side bypass', () => {
     const target = geometry(), out: CombatContact = { kind: 'body', time: 0 }
     expect(traceCombatSegment(target, new THREE.Vector3(0, 1.3, 2), new THREE.Vector3(0, 1.3, -2), out)).toBe(true)

@@ -180,18 +180,20 @@ describe('Veteran Career mission catalog and progression', () => {
 
     const captain = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'captain')!, 'roman')
     expect(captain).toMatchObject({ tier: 4, visualAssetId: T4_UNIT_PROFILES.roman_sword_cavalry.visualAssetId, combatProfileId: T4_UNIT_PROFILES.roman_sword_cavalry.combatProfileId, cavalry: true })
-    expect(captain.loadout).toEqual({ ...UNIT_PRESETS.roman_sword_cavalry.tierLoadouts[3], mountId: T4_UNIT_PROFILES.roman_sword_cavalry.mountOverride })
+    expect(captain.loadout).toEqual({ meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi' })
     const ranger = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'ranger')!, 'roman')
     expect(ranger).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', cavalry: true, loadout: { mountId: 'black-cat' } })
     for (const unit of roster.friendly) {
       const spec = createVeteranSpawnSpec(unit, 'roman')
       const t4Profile = T4_UNIT_PROFILES[unit.presetId]
       expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
-      const expectedTier3Loadout = { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3], ...(unit.heroRole === 'ranger' ? { rangedWeaponId: 'maki-ranger-bow-ranged' } : {}) }
+      const expectedLoadout = unit.heroRole === 'ranger'
+        ? { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3], rangedWeaponId: 'maki-ranger-bow-ranged' }
+        : { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi' }
       const spawnLoadout = { ...spec.loadout! }
-      delete expectedTier3Loadout.mountId
+      delete expectedLoadout.mountId
       delete spawnLoadout.mountId
-      expect(spawnLoadout).toEqual(expectedTier3Loadout)
+      expect(spawnLoadout).toEqual(expectedLoadout)
       expect(spec.loadout!.mountId).toBe(unit.heroRole === 'ranger' ? 'black-cat' : t4Profile.mountOverride)
       if (unit.heroRole === 'ranger') expect(spec).toMatchObject({ specialCombatProfile: 'maki-ranger', cavalry: true })
     }

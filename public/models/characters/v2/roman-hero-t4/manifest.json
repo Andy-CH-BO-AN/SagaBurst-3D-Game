@@ -1,266 +1,38 @@
 {
   "schemaVersion": 1,
   "id": "roman-hero-t4",
-  "displayName": "羅馬禁衛軍 T4",
   "status": "ready",
   "source": {
-    "uid": "61cd5cae148042c38048bff2bd206af3",
-    "title": "Roman Soldier - T pose - free download",
-    "author": "Andy Woodhead",
-    "url": "https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "downloadedAt": "2026-07-20T03:49:30Z",
-    "sourceFile": "Old man head 12 FBX test.fbx",
-    "sourceSha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
+    "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+    "source": "https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9",
+    "title": "Paladin",
+    "sourceSha256": "ea73c6eaea636f927197d400d9b8c4a778e9d4e6363efd500e250c6ed5bd7e63",
+    "sourceFile": "paladin.glb",
+    "bytes": 31441392
   },
-  "attribution": "Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.",
+  "attribution": "Paladin by DJMaesen, CC-BY-4.0. Adapted for SagaBurst; original source linked in ATTRIBUTION.md.",
   "modifications": [
-    "Original Roman face, neck and visible clothing topology retained; no anatomy reconstructed. User-requested local shoulder/thigh repair tucks covered skin beneath sleeves and skirt; two hidden thigh lining pieces have a narrower waist and intermediate weight-support rings",
-    "Uniform offline scaling of mesh positions, rest translations, inverse binds, sockets, animation translations and grip frames; anatomical height measured from scalp to unshod foot surface",
-    "Independent named atlas copies: charcoal steel, preserved antique gold detail, navy tunic and dark brown leather; skin/eye/normal image bytes preserved",
-    "Hero-only offline pelvis floor contact for idle/walk/run/swordSlash/death; existing mounted upper-body binding and project death profile baked without changing source clips or event times",
-    "Review refinements: clean UV-bounded gold bosses and continuous trim; dark navy front/back; shoulder cloth clearance with matching pauldron weights; bracers shortened below elbows and bound to forearms. All repairs confined to this hero.",
-    "Replacement helmet: supplied stratovarius1980 CC BY 4.0 Roman helmet, with its original integrated cheek guards retained as requested. Old Helmet3 and generated face mask removed from all LODs. Source-derived LODs with re-baked original color atlas, offline fit and torso-sampled steel/gold palette; original head, skeleton, body and animation data unchanged by replacement.",
-    "Replacement footwear: source centurion shoes, greaves and their four existing buckles only. Old Boots entirely removed. Fitted to unchanged T4 feet/calves, torso steel and existing dark leather palette, barycentric skin transfer, three source-derived LODs. Skeleton and animation payloads unchanged."
+    "Source skin retained; offline T-pose, metre normalization, LOD reduction and existing Roman T4 animation retarget",
+    "Both source swords and scabbards removed from body; actual bastard sword exported as shared equipment"
   ],
   "metrics": {
-    "heightM": 1.9499999963499655,
-    "overallHeightM": 1.991793237351972,
-    "shoulderWidthM": 0.4817781683423575,
-    "shoulderJointSpanM": 0.45423598943442256,
-    "neckLengthM": 0.09971035837158335,
-    "barefootPlaneY": 0.013424678187132992,
-    "scalpY": 1.963424678187133,
-    "uniformScaleAppliedOffline": 1.1078928707953706,
-    "runtimeScale": [
-      1,
-      1,
-      1
+    "heightM": 1.95,
+    "heightDefinition": "Overall armoured stature including helmet horns; enclosed anatomical crown unavailable",
+    "uniformScaleAppliedOffline": 0.009867640062940039,
+    "sourceBoundsZ": [
+      0.3360055387020111,
+      197.95164489746094
     ],
-    "sourceMeasurements": {
-      "posture": "exported T-pose, +Y up; anatomical head surface and unshod New_legs foot surface; shoulder armour cross-section",
-      "facialLandmarks": [
-        {
-          "name": "brow",
-          "x": 0,
-          "y": 1.628,
-          "z": 0.12988766172179603
-        },
-        {
-          "name": "noseTip",
-          "x": 0,
-          "y": 1.571,
-          "z": 0.14484548748462459
-        },
-        {
-          "name": "cheekbone",
-          "x": 0.034,
-          "y": 1.565,
-          "z": 0.11292989495313849
-        },
-        {
-          "name": "upperLip",
-          "x": 0,
-          "y": 1.55,
-          "z": 0.12591741042002585
-        },
-        {
-          "name": "chin",
-          "x": 0,
-          "y": 1.505,
-          "z": 0.1206105543905438
-        },
-        {
-          "name": "jaw",
-          "x": 0.034,
-          "y": 1.52,
-          "z": 0.10042323319839735
-        }
-      ],
-      "facialRaySamples": [
-        {
-          "y": 1.49,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.10441719377912564
-            },
-            {
-              "x": 0.02,
-              "z": 0.07752283276692803
-            },
-            {
-              "x": 0.04,
-              "z": 0.04216233320602891
-            },
-            {
-              "x": 0.06,
-              "z": 0.020069922585034983
-            }
-          ]
-        },
-        {
-          "y": 1.51,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.12100021589284851
-            },
-            {
-              "x": 0.02,
-              "z": 0.1102727032591653
-            },
-            {
-              "x": 0.04,
-              "z": 0.08814273866933256
-            },
-            {
-              "x": 0.06,
-              "z": 0.02081274053464227
-            }
-          ]
-        },
-        {
-          "y": 1.53,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.11979086830793231
-            },
-            {
-              "x": 0.02,
-              "z": 0.11085073748747853
-            },
-            {
-              "x": 0.04,
-              "z": 0.10164406096814516
-            },
-            {
-              "x": 0.06,
-              "z": 0.04913656649180442
-            }
-          ]
-        },
-        {
-          "y": 1.55,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.12591741042002585
-            },
-            {
-              "x": 0.02,
-              "z": 0.11919349249276423
-            },
-            {
-              "x": 0.04,
-              "z": 0.1099674266288165
-            },
-            {
-              "x": 0.06,
-              "z": 0.07926035842555548
-            }
-          ]
-        },
-        {
-          "y": 1.57,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.1445780133136309
-            },
-            {
-              "x": 0.02,
-              "z": 0.12214973509393792
-            },
-            {
-              "x": 0.04,
-              "z": 0.11125401581032981
-            },
-            {
-              "x": 0.06,
-              "z": 0.09202199719151846
-            }
-          ]
-        },
-        {
-          "y": 1.59,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.1363310346176
-            },
-            {
-              "x": 0.02,
-              "z": 0.11241169449430674
-            },
-            {
-              "x": 0.04,
-              "z": 0.10041211860183097
-            },
-            {
-              "x": 0.06,
-              "z": 0.08707218489019705
-            }
-          ]
-        },
-        {
-          "y": 1.61,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.12270312572602729
-            },
-            {
-              "x": 0.02,
-              "z": 0.07496249658378507
-            },
-            {
-              "x": 0.04,
-              "z": 0.07208264107693069
-            },
-            {
-              "x": 0.06,
-              "z": 0.08260608816405382
-            }
-          ]
-        },
-        {
-          "y": 1.63,
-          "samples": [
-            {
-              "x": 0,
-              "z": 0.1295828563099702
-            },
-            {
-              "x": 0.02,
-              "z": 0.12681967914336206
-            },
-            {
-              "x": 0.04,
-              "z": 0.11579037785086924
-            },
-            {
-              "x": 0.06,
-              "z": 0.08615825667490506
-            }
-          ]
-        }
-      ],
-      "scalpY": 1.7360656261444092,
-      "barefootY": -0.024032350296282024,
-      "soleY": -0.03614965743040524,
-      "anatomicalHeightM": 1.7600979764406912,
-      "overallHeightM": 1.7800523406884619,
-      "shoulderJointSpanM": 0.4099999209384935,
-      "outerShoulderWidthM": 0.43485988676548004
-    },
     "triangles": {
-      "lod0": 61007,
-      "lod1": 22013,
-      "lod2": 7995
+      "lod0": 15398,
+      "lod1": 7798,
+      "lod2": 1899
     },
+    "shoulderWidthM": 0.48849549742998566,
+    "shoulderWidthDefinition": "Anatomical shoulder joint span in normalized T-pose; pauldron silhouette extends beyond joints",
+    "overallHeightM": 1.95,
+    "neckLengthM": 0.10646904476240662,
     "textures": {
       "lod0": 2048,
       "lod1": 1024,
@@ -272,71 +44,67 @@
     "lod1": "lod1.glb",
     "lod2": "lod2.glb"
   },
-  "fileSha256": {
-    "lod0": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34",
-    "lod1": "b8436e19351889af559f54b89cc6467b515ddf8c1bdbf1aa30352131716ca997",
-    "lod2": "3b78cc1ba4e7057200de391e66ee876af6d18e6d389515d6aeae5ff4608d5441"
-  },
   "skeleton": "project-humanoid-v1",
   "boneMap": "bone-map.json",
   "audit": "audit.json",
+  "handShapeMode": "authored",
   "handGripFrames": {
     "left": {
       "palmContactCenter": [
-        -0.008863142966362965,
-        0.060934107893745384,
-        -0.014402607320339808
+        -0.014181067225544746,
+        0.09749456251895003,
+        -0.023044190810380658
       ],
       "palmNormal": [
-        0,
-        0,
-        -1
+        -5.316211876090433e-08,
+        -2.036188636993073e-07,
+        -0.9999999999999778
       ],
       "thumbDir": 1,
       "thumbDirection": [
-        1,
-        0,
-        0
+        0.9999999999999255,
+        3.8211652202787307e-07,
+        -5.316219656703799e-08
       ],
       "fingerDirection": [
-        0,
-        1,
-        0
+        -3.8211653285269124e-07,
+        0.9999999999999062,
+        -2.0361884338516706e-07
       ],
       "wristCenter": [
         0,
         0,
         0
       ],
-      "fingerBase": 0.060934107893745384,
       "thumbBaseCenter": [
-        0.038776250477837976,
-        0.019942071674316667,
-        0.00443157148318149
-      ]
+        0.06204198894917045,
+        0.03190733982993971,
+        0.007090504577870677
+      ],
+      "fingerBase": 0.09749457262999262
     }
   },
   "swordGripFrames": {
     "lod0": {
       "gripCenterLocal": [
-        0.008863142966362963,
-        0.060934107893745384,
-        -0.04793172391093424
+        0,
+        0.115,
+        -0.065
       ],
       "gripAxisLocal": [
-        -1,
-        0,
-        0
+        -0.999999999999913,
+        4.166355064542328e-07,
+        2.1060538271621752e-08
       ],
       "palmNormalLocal": [
-        -3.308722450212111e-24,
-        -4.197606579480168e-24,
-        -1
+        -2.106064178013712e-08,
+        -2.484389958508035e-07,
+        -0.9999999999999689
       ],
       "fingerDirection": [
-        1.3234889800848443e-23,
-        1,
-        2.539883426411287e-24
+        4.1663550122196047e-07,
+        0.9999999999998823,
+        -2.4843900462539365e-07
       ],
       "wristCenter": [
         0,
@@ -344,33 +112,33 @@
         0
       ],
       "thumbBaseCenter": [
-        -0.03877625047783797,
-        0.019942071674316667,
-        0.00443157148318149
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
       ],
-      "fingerBase": 0.060934107893745384,
+      "fingerBase": 0.09749457262999262,
       "gripRadius": 0.03474352042814283
     },
     "lod1": {
       "gripCenterLocal": [
-        0.008863142966362963,
-        0.060934107893745384,
-        -0.04793172391093424
+        0,
+        0.115,
+        -0.065
       ],
       "gripAxisLocal": [
-        -1,
-        0,
-        0
+        -0.999999999999913,
+        4.166355064542328e-07,
+        2.1060538271621752e-08
       ],
       "palmNormalLocal": [
-        -3.308722450212111e-24,
-        -4.197606579480168e-24,
-        -1
+        -2.106064178013712e-08,
+        -2.484389958508035e-07,
+        -0.9999999999999689
       ],
       "fingerDirection": [
-        1.3234889800848443e-23,
-        1,
-        2.539883426411287e-24
+        4.1663550122196047e-07,
+        0.9999999999998823,
+        -2.4843900462539365e-07
       ],
       "wristCenter": [
         0,
@@ -378,33 +146,33 @@
         0
       ],
       "thumbBaseCenter": [
-        -0.03877625047783797,
-        0.019942071674316667,
-        0.00443157148318149
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
       ],
-      "fingerBase": 0.060934107893745384,
+      "fingerBase": 0.09749457262999262,
       "gripRadius": 0.03474352042814283
     },
     "lod2": {
       "gripCenterLocal": [
-        0.008863142966362963,
-        0.060934107893745384,
-        -0.04793172391093424
+        0,
+        0.115,
+        -0.065
       ],
       "gripAxisLocal": [
-        -1,
-        0,
-        0
+        -0.999999999999913,
+        4.166355064542328e-07,
+        2.1060538271621752e-08
       ],
       "palmNormalLocal": [
-        -3.308722450212111e-24,
-        -4.197606579480168e-24,
-        -1
+        -2.106064178013712e-08,
+        -2.484389958508035e-07,
+        -0.9999999999999689
       ],
       "fingerDirection": [
-        1.3234889800848443e-23,
-        1,
-        2.539883426411287e-24
+        4.1663550122196047e-07,
+        0.9999999999998823,
+        -2.4843900462539365e-07
       ],
       "wristCenter": [
         0,
@@ -412,11 +180,11 @@
         0
       ],
       "thumbBaseCenter": [
-        -0.03877625047783797,
-        0.019942071674316667,
-        0.00443157148318149
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
       ],
-      "fingerBase": 0.060934107893745384,
+      "fingerBase": 0.09749457262999262,
       "gripRadius": 0.03474352042814283
     }
   },
@@ -565,275 +333,95 @@
       "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
     }
   ],
+  "animationRetarget": {
+    "source": "ae06476:public/models/characters/v2/roman-hero-t4/lod0.glb",
+    "sha256": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34"
+  },
   "attachmentOffsets": {
     "corgiPelvis": [
       0,
-      0.17,
+      0.09,
       0
     ]
   },
   "lodMeasurements": [
     {
       "lod": 0,
-      "triangles": 61007,
-      "materials": 15,
-      "bytes": 22076148,
-      "textures": [
-        {
-          "name": "Armour_top_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Dangles_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Full_figure_42_T_pose_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Tunic_1_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Wrist_guard1_TXTR",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Praetorian_helmet_albedo",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Praetorian_greaves_albedo",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Praetorian_greaves_metalrough",
-          "width": 2048,
-          "height": 2048
-        },
-        {
-          "name": "Praetorian_greaves_normal",
-          "width": 2048,
-          "height": 2048
-        }
-      ],
-      "sourceSha256": "aa10f27f9b29d672cdb5acf757a7e828ab0ae6a9519914b219389a7dedc4bb11",
-      "sha256": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34",
-      "anatomicalHeightM": 1.9499999963499655,
-      "overallHeightM": 1.991793237351972,
-      "helmetTriangles": 11000,
-      "footwearTriangles": 5590
+      "triangles": 15398,
+      "drawCalls": 2,
+      "bytes": 4629500,
+      "sha256": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
     },
     {
       "lod": 1,
-      "triangles": 22013,
-      "materials": 15,
-      "bytes": 6728072,
-      "textures": [
-        {
-          "name": "Armour_top_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Dangles_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Full_figure_42_T_pose_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Tunic_1_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Wrist_guard1_TXTR",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Praetorian_helmet_albedo",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Praetorian_greaves_albedo",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Praetorian_greaves_metalrough",
-          "width": 1024,
-          "height": 1024
-        },
-        {
-          "name": "Praetorian_greaves_normal",
-          "width": 1024,
-          "height": 1024
-        }
-      ],
-      "sourceSha256": "06526947fb43a22338648030a0eab9d84c3cc216e418ff066fc8f48d7e13fc70",
-      "sha256": "b8436e19351889af559f54b89cc6467b515ddf8c1bdbf1aa30352131716ca997",
-      "anatomicalHeightM": 1.9498763763167013,
-      "overallHeightM": 1.9914512312449113,
-      "helmetTriangles": 3800,
-      "footwearTriangles": 1830
+      "triangles": 7798,
+      "drawCalls": 2,
+      "bytes": 1725568,
+      "sha256": "a00a0480c8b814d263f57217b88db1ccece3398e3f462ed0b3642a75c2be1458",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
     },
     {
       "lod": 2,
-      "triangles": 7995,
-      "materials": 15,
-      "bytes": 2630876,
-      "textures": [
-        {
-          "name": "Armour_top_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Dangles_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Full_figure_42_T_pose_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Tunic_1_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Wrist_guard1_TXTR",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Praetorian_helmet_albedo",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Praetorian_greaves_albedo",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Praetorian_greaves_metalrough",
-          "width": 512,
-          "height": 512
-        },
-        {
-          "name": "Praetorian_greaves_normal",
-          "width": 512,
-          "height": 512
-        }
-      ],
-      "sourceSha256": "0c759f1d056fc2bce8bac50cde26e9d4e2de631987d0f7fac7dee1131e4a8b14",
-      "sha256": "3b78cc1ba4e7057200de391e66ee876af6d18e6d389515d6aeae5ff4608d5441",
-      "anatomicalHeightM": 1.9498258315779318,
-      "overallHeightM": 1.992404816240121,
-      "helmetTriangles": 950,
-      "footwearTriangles": 942
+      "triangles": 1899,
+      "drawCalls": 2,
+      "bytes": 819388,
+      "sha256": "cb6de6a5eb2205edcf7bc02d3ee66bd9e4bce31cffcfe9cc284041d1ea730284",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
     }
   ],
-  "visualAcceptance": "Front, side, three-quarter and animation review required after export; see docs/roman-t4-helmet-validation.md.",
-  "inheritedLimitations": [
-    "The source FBX contains disconnected meshes, no armature, no weights, no actions, and emits excess-layer warnings during Blender import.",
-    "The mounted thigh and skirt silhouette passed the isolated 12:32 asset review provisionally but must be validated against the actual saddle in the browser.",
-    "If saddle validation exposes gaps or clipping, the corrective path is manual topology and weight refinement in Blender, not runtime non-uniform scaling."
-  ],
-  "helmetSource": {
-    "title": "An ancient Roman helmet (Древнеримский шлем)",
-    "author": "stratovarius1980",
-    "url": "https://sketchfab.com/3d-models/an-ancient-roman-helmet-00be37c8062c430daad5686d4f17916f",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "b698b183e8fa260955f514a0e0c5e30f7d515c4f0b85171aaaa324c332ef7a6f",
-    "verifiedAt": "2026-09-28",
-    "licenseEvidence": "Sketchfab v3 model API and embedded GLB asset.extras both state CC BY 4.0",
-    "integratedCheekGuards": "Retained by explicit user clarification; old T4 generated face mask removed."
-  },
-  "helmetFit": {
-    "headUnchanged": true,
-    "sourceScale": [
-      0.43,
-      0.3,
-      0.375
-    ],
-    "sourceYawRadians": -1.5707963267948966,
-    "worldPositionM": [
-      0,
-      1.84,
-      0.004
-    ],
-    "palette": {
-      "bodyAtlas": "Armour_top_TXTR",
-      "steelSRGB": [
-        0.13333333333333333,
-        0.1450980392156863,
-        0.1607843137254902
-      ],
-      "goldSRGB": [
-        0.5843137254901961,
-        0.4470588235294118,
-        0.23137254901960785
-      ],
-      "metallicFactor": 0.62,
-      "roughnessFactor": 0.48,
-      "redAccents": "No red in the current T4 torso palette; no new red painted."
-    }
-  },
-  "footwearSource": {
-    "title": "Roman Centurion Armor",
-    "author": "Tactical_Beard (embedded credit: Tactical_Gamer)",
-    "url": "https://sketchfab.com/3d-models/roman-centurion-armor-d0c6de99f16c49f386a9f8d7c3120dec",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "4956bb60a97a0320c8abd17f9cd83825731b2452ad055082ca0013a072151de6",
-    "verifiedAt": "2026-09-28",
-    "licenseEvidence": "Sketchfab v3 API and embedded GLB asset.extras agree.",
-    "selectedSourceMeshes": [
-      "defaultMaterial_11",
-      "defaultMaterial_9",
-      "defaultMaterial_10",
-      "defaultMaterial_12",
-      "defaultMaterial_13"
-    ]
-  },
-  "footwearFit": {
-    "bodyLegsUnchanged": true,
-    "palette": {
-      "bodyAtlas": "Armour_top_TXTR",
-      "steelSRGB": [
-        0.13333333333333333,
-        0.1450980392156863,
-        0.1607843137254902
-      ],
-      "leatherSRGB": [
-        0.1803921568627451,
-        0.13333333333333333,
-        0.09803921568627451
-      ],
-      "metalMetallic": 0.62,
-      "metalRoughness": 0.48,
-      "leatherRoughness": 0.7
-    },
-    "method": "Separate bilateral stance fitting, surface clearance, original UVs and foot-surface skin weights."
+  "fileSha256": {
+    "lod0": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+    "lod1": "a00a0480c8b814d263f57217b88db1ccece3398e3f462ed0b3642a75c2be1458",
+    "lod2": "cb6de6a5eb2205edcf7bc02d3ee66bd9e4bce31cffcfe9cc284041d1ea730284"
   },
   "axeAttackBuild": {
     "inputSha256": {
@@ -853,24 +441,5 @@
       "axeAttack2H": 18
     },
     "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
-  },
-  "armRigRepair": {
-    "bind": {
-      "version": 1,
-      "targetAssetId": "roman-hero-t4",
-      "method": "Arm joints recentered on calibrated wrist; inverse bind matrices and socket/grip coordinates rebased; rest geometry and limb lengths preserved"
-    },
-    "surfaces": {
-      "version": 2,
-      "targetAssetId": "roman-hero-t4",
-      "method": "Unchanged anatomy; sleeve fitted outside source skin, shared shoulder weights, bracer bound below elbow",
-      "meshes": [
-        "New_arms",
-        "Tunic_1",
-        "Armour_top",
-        "Wrist_guard1"
-      ]
-    },
-    "anatomicalVertices": "preserved; only sleeve fit, bracer clearance and shoulder weights changed"
   }
 }

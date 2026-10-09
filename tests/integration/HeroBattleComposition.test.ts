@@ -20,6 +20,7 @@ import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { getRangedDamageMultiplier } from '../../src/combat/CombatBalance'
+import { InventoryManager } from '../../src/rpg/InventoryManager'
 
 function battle() {
   const config = createEmptyBattleConfig()
@@ -29,6 +30,36 @@ function battle() {
 }
 
 describe('T4 Hero Custom Battle domain', () => {
+  it('upgrades shared T4 melee and shields while retaining unit roles and immutable T1–T3 presets', () => {
+    const before = JSON.stringify(UNIT_PRESETS)
+    for (const [id, melee, ranged, shield] of [
+      ['roman_heavy_infantry', 'paladin_sword_t4', null, 'paladin_shield_t4'],
+      ['roman_sword_cavalry', 'paladin_sword_t4', null, 'paladin_shield_t4'],
+      ['viking_berserker', 'paladin_mace_t4', null, 'paladin_shield_t4'],
+      ['viking_sword_cavalry', 'paladin_mace_t4', null, 'paladin_shield_t4'],
+      ['roman_lancer', 'heavy_lance', null, null],
+      ['viking_spearman', 'heavy_lance', null, null],
+      ['roman_javelin_infantry', 'paladin_sword_t4', 'legionary_pilum', null],
+    ] as const) expect(resolveT4UnitLoadout(id)).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged, shieldId: shield })
+    expect(JSON.stringify(UNIT_PRESETS)).toBe(before)
+  })
+  it.each(['roman-hero-t4', 'viking-hero-t4', 'maki-archer-t4'] as const)('%s preserves its equipment policy for all shared T4 items', hero => {
+    const inventory = new InventoryManager(undefined, hero)
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4']) {
+      inventory.addWeapon(id)
+      expect(inventory.equipWeapon(id)).toBe(hero !== 'maki-archer-t4')
+    }
+    if (hero === 'maki-archer-t4') expect(inventory.equippedMelee.id).toBe('maki-ranger-bow')
+  })
+  it('Custom Battle accepts shared T4 items for either hero and rejects an ordinary player', () => {
+    const config = battle()
+    config.playerLoadout = { meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: 'elven_runebow', shieldId: 'paladin_shield_t4', startMounted: false }
+    expect(validateBattleConfig(config).valid).toBe(false)
+    for (const hero of ['roman-hero-t4', 'viking-hero-t4'] as const) {
+      config.playerHeroId = hero
+      expect(validateBattleConfig(config).valid).toBe(true)
+    }
+  })
   it('keeps Campaign tiers separate and counts T4 toward the army total', () => {
     expect(BASE_UNIT_TIERS).toEqual([1, 2, 3])
     expect(CUSTOM_BATTLE_UNIT_TIERS).toEqual([1, 2, 3, 4])
