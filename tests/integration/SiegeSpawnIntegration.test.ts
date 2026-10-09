@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
+import { TownScene } from '../../src/town/TownScene'
+import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
+import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { CareerMountController } from '../../src/career/CareerMountController'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
@@ -15,7 +21,7 @@ import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import type { ObstacleData } from '../../src/world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
@@ -40,7 +46,7 @@ const defenseIds = Array.from({ length: 120 }, (_, index) => `siege-defense:sieg
 
 /** No TownWorld, resident actors or GLB. Four mesh-free gate controllers provide
  * the finalizer's real close/listener/cleanup boundary; NPC/Mount are recordings. */
-function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
+function siegeFixture(assault: boolean, survivorIds?: readonly string[], store?: CareerProfileStore) {
   const scheduler = new NpcSpawnScheduler(), driver = new NpcSpawnTestDriver(scheduler)
   const scene = new THREE.Scene(), obstacles: ObstacleData[] = []
   const gates = new Map<TownGateId, CampaignGateController>()
@@ -58,7 +64,7 @@ function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
   // Player visual/input APIs are outside spawn ownership; this is the exact
   // state and placement surface read by the real finalizer and checkpoint.
   const player = { group, dead: false, hp: 100, staminaValue: 100,
-    get combatPosition() { return group.position }, faceDirection: vi.fn() } as unknown as Player
+    get combatPosition() { return group.position }, get facingYaw() { return group.rotation.y }, faceDirection: vi.fn() } as unknown as Player
   let profile = createCareerProfile('roman')
   profile.rank = 'captain'
   profile.activeMission = assault ? createEnemyTownAssaultMission('siege-assault') : createTownDefenseMission([], [], 'siege-defense')
@@ -76,12 +82,12 @@ function siegeFixture(assault: boolean, survivorIds?: readonly string[]) {
     gates, obstacles, patrol, closureBodies: () => [],
   }
   const controller = new TownDefenseController(scene, [], () => player, () => profile,
-    next => { profile = next; return true }, cat, navigation, context, scheduler)
+    next => { if (store && !store.save(next)) return false; profile = next; return true }, cat, navigation, context, scheduler)
   onTestFinished(() => {
     controller.cleanupMission(); controller.dispose(); context.outskirts?.dispose(); cat.dispose()
     expect(scheduler.pending).toBe(0)
   })
-  return { controller, scene, driver, scheduler, navigation, gates, context, profile: () => profile }
+  return { controller, player, scene, driver, scheduler, navigation, gates, context, profile: () => profile, setProfile: (next: typeof profile) => { profile = next } }
 }
 
 describe('Siege spawn caller protocol', () => {
@@ -92,6 +98,8 @@ describe('Siege spawn caller protocol', () => {
     const h = siegeFixture(assault), mountStart = recording.mounts.length
     expect(h.controller.startActiveMission()).toBe(true)
     const batch = h.controller.spawnBatches[0]
+    if (assault) expect(h.player.group.position.z).toBeLessThan(-100)
+    h.player.group.position.set(14, 32, 16)
     expect(h.controller.startActiveMission()).toBe(true)
     expect(h.controller.spawnBatches).toEqual([batch])
     expect([...batch.actors.keys()]).toEqual(ids)
@@ -116,6 +124,7 @@ describe('Siege spawn caller protocol', () => {
     expect(h.controller.evaluate(true)).toBeNull()
     h.driver.advanceFrame()
     expect(batch.status).toBe('complete')
+    expect(h.player.group.position.toArray()).toEqual([14, 32, 16])
     expect(h.controller.ready).toBe(true)
     expect(recording.npcs.map(npc => npc.combatantId)).toEqual(ids)
     expect(new Set(recording.npcs.map(npc => npc.combatantId)).size).toBe(count)
@@ -166,6 +175,11 @@ describe('Siege spawn caller protocol', () => {
     expect(h.controller.phase).toBe('PREPARING')
     expect(h.controller.evaluate(true)).toBeNull()
     expect(h.scheduler.pending).toBe(0)
+    const committed = structuredClone(h.profile())
+    h.player.group.position.set(30, 0, 34)
+    h.controller.persistRuntimeProgress(true, { activeMountId: 'horse', hp: { horse: 61 }, unavailable: [] })
+    expect(h.profile()).toEqual(committed)
+    expect(h.controller.deploymentPositions).toEqual([])
     h.gates.get('north')!.destroy()
     expect(h.controller.reserveHasCharged).toBe(false)
   })
@@ -229,4 +243,128 @@ describe('Siege spawn caller protocol', () => {
     expect(original.dispose).toHaveBeenCalledOnce()
     expect(originalMount.dispose).toHaveBeenCalledOnce()
   })
+})
+
+// Placement is a caller/finalizer contract, so use a two-survivor checkpoint and
+// recording constructors, not a second 119/120-actor deployment integration.
+it.each([true, false])('places the saved rider before deployment and preserves movement/HP through finalization, assault=%s', assault => {
+  const ids = assault ? assaultIds : defenseIds
+  const h = siegeFixture(assault, [ids[2], ids[3]])
+  const active = h.profile().activeMission!
+  active.siege!.playerPosition = { x: 11, z: 13, yaw: .4 }
+  active.playerHp = 71; active.playerStamina = 42
+  const mountGroup = new THREE.Group()
+  const riderOffset = new THREE.Vector3(0, 2.5, 0)
+  // Transform/binding surface only; true seat physics is covered by Player/Mount.
+  Object.assign(h.player, {
+    currentMount: { group: mountGroup },
+    syncMountTransform() { h.player.group.position.copy(mountGroup.position).add(riderOffset) },
+    setHp(hp: number) { Object.assign(h.player, { hp }) },
+    setStamina(staminaValue: number) { Object.assign(h.player, { staminaValue }) },
+  })
+  expect(h.controller.startActiveMission()).toBe(true)
+  expect(h.controller.ready).toBe(false)
+  expect(mountGroup.position.toArray()).toEqual([11, getTerrainHeight(11, 13), 13])
+  expect(h.player.group.position.clone().sub(mountGroup.position)).toEqual(riderOffset)
+  expect(h.player.hp).toBe(71)
+  expect(h.player.staminaValue).toBe(42)
+  mountGroup.position.set(25, 40, 28)
+  h.player.group.position.copy(mountGroup.position).add(riderOffset)
+  Object.assign(h.player, { hp: 63, staminaValue: 30 })
+  const before = h.player.group.position.clone()
+  h.driver.drain()
+  expect(h.controller.ready).toBe(true)
+  expect(h.player.group.position).toEqual(before)
+  expect(mountGroup.position.toArray()).toEqual([25, 40, 28])
+  expect(h.player.hp).toBe(63)
+  expect(h.player.staminaValue).toBe(30)
+  expect(h.profile().activeMission!.siege!.playerPosition).toMatchObject({ x: 25, z: 28 })
+})
+
+
+it('restores a private member around the complete queued official plan and retains spacing after deployment', () => {
+  // Two official survivors + one private member, all recording constructors.
+  const h = siegeFixture(true, [assaultIds[2], assaultIds[3]])
+  const profile = h.profile()
+  profile.activeMission!.actorPositions = {
+    [assaultIds[2]]: { x: 0, z: 13, yaw: 0 }, [assaultIds[3]]: { x: 12, z: 13, yaw: 0 },
+  }
+  profile.personalSquad = { members: [{ id: 'personal:one', type: 'soldier' }] }
+  const saved = snapshotPersonalMission(profile, 'town-home')!
+  h.navigation.sync([])
+  const personal = new PersonalSquadRuntime(h.scene, [], h.profile, () => h.player, undefined,
+    { sceneKey: 'enemy-town', hasHR: false, scheduler: h.scheduler })
+  onTestFinished(() => personal.cleanup())
+  h.controller.startActiveMission()
+  h.player.group.position.set(0, 0, 19)
+  const town = Object.assign(Object.create(TownScene.prototype) as { restorePersonalSquad(value: typeof saved): void }, {
+    player: h.player, defense: h.controller, personalSquad: personal,
+    world: { obstacles: [] }, navigation: h.navigation,
+  })
+  town.restorePersonalSquad(saved)
+  expect(h.controller.ready).toBe(false)
+  expect(h.controller.enemies).toHaveLength(0)
+  h.driver.drain()
+  expect(h.controller.ready).toBe(true)
+  expect(personal.actors).toHaveLength(1)
+  const slot = personal.actors[0].combatPosition
+  // Without the queued reservations, the first private ring slot is (0, 13).
+  for (const npc of h.controller.enemies) expect(Math.hypot(slot.x - npc.combatPosition.x, slot.z - npc.combatPosition.z)).toBeGreaterThanOrEqual(4.8)
+})
+
+it.each([false, true])('returns home while pending and reloads Player state without checkpointing partial NPCs, mounted=%s', mounted => {
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  const h = siegeFixture(false, [defenseIds[2], defenseIds[3]], store)
+  h.profile().activeMission!.actorPositions = { [defenseIds[3]]: { x: 14, z: 17, yaw: .2 } }
+  h.profile().activeMission!.actorHealth = { [defenseIds[3]]: { hp: 57, mountHp: 41 } }
+  Object.assign(h.player, { isFalling: false,
+    setHp(hp: number) { Object.assign(h.player, { hp }) },
+    setStamina(staminaValue: number) { Object.assign(h.player, { staminaValue }) },
+  })
+  h.controller.startActiveMission(); h.driver.advanceFrame()
+  // No locomotion assertion here: Player/Mount suites own those physics.
+  const root = new THREE.Group(); root.position.set(31, 8, 34)
+  const mount = { group: root, currentHp: 67 }
+  h.player.group.position.set(31, 10.5, 34); h.player.group.rotation.y = .3
+  Object.assign(h.player, { hp: 61, staminaValue: 29, currentMount: mounted ? mount : null })
+  const mounts = new CareerMountController(h.scene, () => h.player, h.profile, () => true, () => [], () => [])
+  // Install the owned-mount boundary only; real checkpoint() must read its live HP/identity.
+  if (mounted) Object.assign(mounts, { active: { id: 'horse', mount } })
+  expect(store.save(h.profile())).toBe(true)
+  const officialBefore = store.load()!.activeMission!
+  storage.failWrites = true
+  h.controller.persistRuntimeProgress(true, mounts.checkpoint())
+  expect(store.load()!.activeMission).toEqual(officialBefore)
+  storage.failWrites = false
+  const onHome = vi.fn()
+  const town = Object.assign(Object.create(TownScene.prototype) as { returnHome(): void }, {
+    player: h.player, defense: h.controller, careerMounts: mounts,
+    disposed: false, careerSaveFailures: 0, flushCareerSkillProgression: () => true,
+    persistPersonalSquad: () => {},
+    commit(next: ReturnType<typeof h.profile>) { if (!store.save(next)) return false; h.setProfile(next); return true },
+    dispose: vi.fn(), onHome,
+  })
+  Object.defineProperty(town, 'profile', { get: h.profile })
+  town.returnHome()
+  expect(onHome).toHaveBeenCalledOnce()
+  const loaded = store.load()!
+  const { siege, playerHp, playerStamina, playerDead, mountState, ...official } = loaded.activeMission!
+  const { siege: oldSiege, playerHp: _hp, playerStamina: _stamina, playerDead: _dead, mountState: _mount, ...oldOfficial } = officialBefore
+  expect(official).toEqual(oldOfficial)
+  expect({ ...siege, playerPosition: undefined }).toEqual({ ...oldSiege, playerPosition: undefined })
+  expect({ playerHp, playerStamina, playerDead }).toEqual({ playerHp: 61, playerStamina: 29, playerDead: false })
+  expect(siege!.playerPosition).toEqual({ x: 31, z: 34, yaw: .3 })
+  if (mounted) expect(mountState).toEqual({ activeMountId: 'horse', hp: { horse: 67 }, unavailable: [] })
+  // Restart the same mission from a genuine store round-trip, still only two queued survivors.
+  h.controller.cleanupMission(); h.setProfile(loaded)
+  h.player.group.position.set(0, 0, 0)
+  if (mounted) root.position.set(0, 0, 0)
+  Object.assign(h.player, { syncMountTransform() { h.player.group.position.copy(root.position).y += 2.5 } })
+  expect(h.controller.startActiveMission()).toBe(true)
+  expect(h.controller.ready).toBe(false)
+  expect(h.player.group.position.x).toBe(31); expect(h.player.group.position.z).toBe(34)
+  if (mounted) expect(root.position.toArray()).toEqual([31, getTerrainHeight(31, 34), 34])
+  expect(h.player.hp).toBe(61); expect(h.player.staminaValue).toBe(29)
+  h.driver.drain()
+  expect(h.player.group.position.x).toBe(31); expect(h.player.group.position.z).toBe(34)
 })

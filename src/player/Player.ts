@@ -777,7 +777,18 @@ export class Player {
     soundManager: Pick<SoundManager, 'playBowRelease'>,
     inventoryManager?: InventoryManager,
     archeryMultiplier = 1.0,
+    combatEnabled = true,
   ): void {
+    // Deployment can advance locomotion without releasing queued combat actions.
+    // Drain click edges so they cannot replay when readiness changes next frame.
+    if (!combatEnabled) {
+      input.consumeLeftClick(); input.consumeLeftClickRelease()
+      if (!this.isDead && (this.animator.currentAction !== 'idle' || this.isSwinging || this.pendingRangedWeapon
+        || this.meleeAttackBufferTimer > 0 || this.bowChargeTime > 0)) this.clearTownAction()
+      this.currentMount?.eagleAttack?.cancel()
+      this.shield.shieldRaised = false
+      this.shieldCollider.refreshVisibility()
+    }
     if (this.spectatorOnly && !this.fallingRider.active) return
 
     if (this.fallingRider.active) {
@@ -821,6 +832,9 @@ export class Player {
     const equippedRanged = inventoryManager?.rangedEnabled === false ? undefined : inventoryManager?.equippedRanged
     const flyingMount = this.currentMount?.isFlyingMount ? this.currentMount : null
 
+    const leftMouseDown = combatEnabled && input.isLeftMouseDown
+    const rightMouseDown = combatEnabled && input.isRightMouseDown
+
     const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
@@ -829,7 +843,7 @@ export class Player {
 
     const equippedShield = inventoryManager?.shieldEnabled === false ? null : inventoryManager?.equippedShield ?? null
     this.rebuildShield(equippedShield ? equippedShield.id : null)
-    this.shield.shieldRaised = this.shield.active && input.isRightMouseDown
+    this.shield.shieldRaised = this.shield.active && rightMouseDown
     this.shieldCollider.refreshVisibility()
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
@@ -837,10 +851,10 @@ export class Player {
     this.animator.setEquipment(equippedMelee?.combatKind === 'lance', this.hasShield, this.currentMount?.type as MountedPoseKind | undefined)
     this.animator.setShieldRaised(this.shield.shieldRaised)
     quiverUI.setShieldBlocked?.(false)
-    const wantAim = input.isRightMouseDown && Boolean(equippedRanged) && !equippedShield
-    const wantsBowAim = input.isRightMouseDown && (Boolean(equippedRanged) || Boolean(flyingMount))
+    const wantAim = rightMouseDown && Boolean(equippedRanged) && !equippedShield
+    const wantsBowAim = rightMouseDown && (Boolean(equippedRanged) || Boolean(flyingMount))
     const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    if (!input.isRightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
+    if (!rightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
     if (wantsBowAim) {
       this.meleeAttackBufferTimer = 0
     }
@@ -858,14 +872,14 @@ export class Player {
         this.bowChargeTime = 0
         quiverUI.setChargeRatio(0)
         this.animator.posePilum(0)
-        if (input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
+        if (combatEnabled && input.consumeLeftClick()) this._startPilumThrow(cameraAimPoint, archeryMultiplier, equippedRanged)
       } else {
-        if (input.isLeftMouseDown && this.arrows > 0) {
+        if (leftMouseDown && this.arrows > 0) {
           this.bowChargeTime = Math.min(maxChargeTime, this.bowChargeTime + dt * (getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1))
           quiverUI.setChargeRatio(this.bowChargeTime / maxChargeTime)
         }
         this.bowVisualDrawRatio = THREE.MathUtils.clamp(this.bowChargeTime / maxChargeTime, 0, 1)
-        if (input.consumeLeftClickRelease()) {
+        if (combatEnabled && input.consumeLeftClickRelease()) {
           this._startBowRelease(cameraAimPoint, archeryMultiplier, equippedRanged)
           if (this.animator.currentAction !== 'bowRelease') {
             this.bowChargeTime = 0
@@ -879,7 +893,7 @@ export class Player {
       quiverUI.setChargeRatio(0)
 
       const isLance = equippedMelee?.combatKind === 'lance'
-      if (input.consumeLeftClick() && !wantsBowAim) {
+      if (combatEnabled && input.consumeLeftClick() && !wantsBowAim) {
         if (flyingMount) {
           flyingMount.startEagleAttack()
           this.meleeAttackBufferTimer = 0
@@ -1025,7 +1039,7 @@ export class Player {
         this.bowVisualDrawRatio = 0
         soundManager.playBowRelease(0, true, 0)
       }
-      this.rangedAimViewActive = this.pendingRangedWeapon?.combatKind !== 'javelin' && input.isRightMouseDown
+      this.rangedAimViewActive = this.pendingRangedWeapon?.combatKind !== 'javelin' && rightMouseDown
     }
     quiverUI.setAiming(this.rangedAimViewActive)
     if (animationEvents.actionCompleted) {

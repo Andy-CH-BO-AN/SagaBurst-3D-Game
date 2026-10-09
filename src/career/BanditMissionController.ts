@@ -202,6 +202,13 @@ export class BanditMissionController {
   private route: THREE.Vector3[] = []
   private routeIndex = 0
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
+  private readonly plannedFriendlyPositions: THREE.Vector3[] = []
+  /** Reserve queued friendly positions without waiting for actor construction. */
+  get deploymentPositions(): readonly THREE.Vector3[] {
+    const residents = this.residents.filter(resident => this.active?.friendlyActorIds.includes(resident.npc.combatantId))
+    return [...this.friendlies, ...residents.map(resident => resident.npc)].filter(npc => !npc.dead)
+      .map(npc => npc.combatPosition).concat(this.plannedFriendlyPositions)
+  }
   private missionBatch?: NpcSpawnBatch
   private startedMissionId?: string
   private readonly ambientBatches = new Map<number, NpcSpawnBatch>()
@@ -940,6 +947,7 @@ export class BanditMissionController {
         ?? (legacyMarchAnchor ? muster : resident && !survival ? homePosition! : survival
           ? this.safeMountedMissionSlot(veteranFieldPosition(VETERAN_FIELD_LAYOUT.scoutRally, unit, slot, 'friendly', friendlySquadCount), occupiedSupportApproach)
           : supportApproach ?? muster)
+      this.plannedFriendlyPositions.push(initialPosition.clone())
       spec.x = initialPosition.x; spec.z = initialPosition.z
       const materialize = () => {
         const npc = resident?.npc ?? this.createVeteranNpc(spec, unit.actorId)
@@ -1309,6 +1317,7 @@ export class BanditMissionController {
       const initialPosition = savedActor?.position ?? resident?.npc.combatPosition.clone()
         ?? (legacySpec ? new THREE.Vector3(legacySpec.x, getTerrainHeight(legacySpec.x, legacySpec.z), legacySpec.z)
           : this.safeMountedMissionSlot(approach, occupiedApproach, PLAYABLE_WORLD_BOUND - 4))
+      this.plannedFriendlyPositions.push(initialPosition.clone())
       spec.x = initialPosition.x; spec.z = initialPosition.z
       const materialize = () => {
         const npc = resident?.npc ?? this.createVeteranNpc(spec, id)
@@ -1471,6 +1480,7 @@ export class BanditMissionController {
 
   private disposeMissionEntities(departTemporaryCavalry = false): void {
     this.missionBatch?.cancel(); this.missionBatch = undefined; this.startedMissionId = undefined
+    this.plannedFriendlyPositions.length = 0
     this.travelEncounter.clear()
     this.veteranDamageActivationUnsubscribe?.()
     this.veteranDamageActivationUnsubscribe = null

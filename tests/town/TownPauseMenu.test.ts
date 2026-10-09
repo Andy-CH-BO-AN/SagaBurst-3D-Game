@@ -77,12 +77,13 @@ describe('Career Escape navigation', () => {
   })
   it('does not exit after a failed mission checkpoint even if the final profile write succeeds', () => {
     const h = harness()
+    h.town.careerMounts = { checkpoint: () => ({ hp: {}, unavailable: [] }) }
     h.town.defense = { active: true, persistRuntimeProgress: vi.fn(() => {
       vi.spyOn(h.store, 'save').mockReturnValueOnce(false)
       h.town.commit({ ...h.town.profile, availableMerit: 77 })
     }) }
     h.escape(); h.back()
-    expect(h.town.defense.persistRuntimeProgress).toHaveBeenCalledWith(true)
+    expect(h.town.defense.persistRuntimeProgress).toHaveBeenCalledWith(true, { hp: {}, unavailable: [] })
     expect(h.town.onHome).not.toHaveBeenCalled(); expect(h.town.dispose).not.toHaveBeenCalled()
   })
 })
