@@ -54,7 +54,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const presetId = `${faction}_${kind}` as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
   const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
-  const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || patrolCaptain ? 4 : tier
+  const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
   return { presetId, tier, level, loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[tier] } }
 }
 export const TOWN_SITES = {
@@ -109,7 +109,7 @@ export function townRoster(): TownActorSpec[] {
   for (const [role, site, side, forward] of [['captain', 'barracks', -5, 8], ['deployment', 'barracks', 4, 8], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
     id: role, role, index: 0, ...townSitePoint(site, side, forward), duty: 'service', mounted: role === 'captain', training: false,
     ...(role === 'captain' ? { unitKind: 'sword_cavalry' as const } : role === 'deployment' ? { unitKind: 'melee' as const } : {}),
-    tier: role === 'captain' || role === 'ranger' ? 4 : role === 'deployment' ? 3 : 2,
+    tier: role === 'captain' || role === 'ranger' || role === 'deployment' ? 4 : 2,
     assaultObjective: role === 'captain' || role === 'deployment' || role === 'ranger',
   })
   for (const patrolId of ['A', 'B'] as const) {
@@ -313,8 +313,9 @@ export function sellTownProducts(current: CareerProfile, productIds: readonly st
   return { profile, sold: true, soldCount, earnedMerit, reason: undefined }
 }
 
-/** Service and Patrol Captains share the faction's canonical T4 mounted profile. */
-export function townActorCaptainProfile(faction: CharacterFaction, spec: TownActorSpec) {
+/** Town officers use the faction's canonical T4 profile for their mounted or foot role. */
+export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec) {
+  if (spec.role === 'deployment') return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker']
   if (spec.role === 'captain' || spec.role === 'hr-officer') return townCaptainProfile(faction)
   if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
   return undefined

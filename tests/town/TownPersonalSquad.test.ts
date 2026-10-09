@@ -21,7 +21,7 @@ import { TownWorld } from '../../src/town/TownWorld'
 import { resolveTownHRLayout, hrOfficerSpec, townConquestRoster } from '../../src/town/TownHRLayout'
 import { TownPersonalSquadController } from '../../src/town/TownPersonalSquadController'
 import { TOWN_CITY } from '../../src/town/TownLayout'
-import { TOWN_SITES, TownEvent, townMilitaryEquipment, isTownMilitary, townActorCaptainProfile, townAssaultObjectiveRoster, settleTown } from '../../src/town/TownRules'
+import { TOWN_SITES, TownEvent, townMilitaryEquipment, isTownMilitary, townActorHeroProfile, townAssaultObjectiveRoster, settleTown } from '../../src/town/TownRules'
 import { NPC, AIState, AIType, Faction } from '../../src/world/NPC'
 import { MountType, mountTypeFromId } from '../../src/world/Mount'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -393,7 +393,7 @@ describe('HR Center and personal runtime', () => {
     expect(actor).toMatchObject({ id: 'hr-officer', duty: 'service', tier: 4, mounted: true, assaultObjective: false })
     expect(isTownMilitary(actor)).toBe(false); expect(townAssaultObjectiveRoster([actor])).toHaveLength(0)
     expect(townConquestRoster(world.hr).find(spec => spec.id === actor.id)).toEqual(actor)
-    expect(mountTypeFromId(townActorCaptainProfile(faction, actor)!.mountOverride)).toBe(faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
+    expect(mountTypeFromId(townActorHeroProfile(faction, actor)!.mountOverride)).toBe(faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT)
     for (const slot of [world.hr.officer, ...world.hr.muster]) {
       const box = new THREE.Box3(new THREE.Vector3(slot.x - 1.8, -50, slot.z - 1.8), new THREE.Vector3(slot.x + 1.8, 50, slot.z + 1.8))
       expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(box))).toBe(false)

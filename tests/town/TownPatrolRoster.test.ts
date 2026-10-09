@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../../src/town/TownRules'
+import { townActorHeroProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { townConquestRoster, resolveTownHRLayout } from '../../src/town/TownHRLayout'
 import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
@@ -37,12 +37,12 @@ describe('Town patrol roster contracts', () => {
       expect(equipment.presetId).toBe(presetId)
       expect(equipment.loadout.mountId).toBe('horse')
       if (spec.patrolLeader) {
-        expect(townActorCaptainProfile(faction, spec)).toEqual(hero)
+        expect(townActorHeroProfile(faction, spec)).toEqual(hero)
         expect(equipment).toMatchObject({ tier: 3, level: 4, loadout: { meleeWeaponId: officerWeapon } })
       } else {
         expect(equipment).toMatchObject({ tier: 2, level: 2,
           loadout: { meleeWeaponId: weapon, rangedWeaponId: null, shieldId: shield, mountId: 'horse' } })
-        expect(townActorCaptainProfile(faction, spec)).toBeUndefined()
+        expect(townActorHeroProfile(faction, spec)).toBeUndefined()
       }
     }
   })
