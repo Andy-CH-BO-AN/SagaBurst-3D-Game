@@ -15,6 +15,8 @@ const distanceSq = (a: THREE.Vector3, b: THREE.Vector3) => (a.x - b.x) ** 2 + (a
 
 /** A runtime interruption only. The mission owns its roster, route and eventual resume orders. */
 export class MissionTravelEncounter {
+  constructor(private readonly canCommandActor: (actor: NPC) => boolean = () => true) {}
+
   private origin: THREE.Vector3 | null = null
   private readonly threats = new Set<NPC>()
   private readonly participants = new Set<NPC>()
@@ -86,6 +88,7 @@ export class MissionTravelEncounter {
     for (const actor of members) {
       if (actor.dead) continue
       this.participants.add(actor)
+      if (!this.canCommandActor(actor)) continue
       actor.clearEncounter()
       actor.setTacticalOrder('charge')
     }
@@ -107,7 +110,7 @@ export class MissionTravelEncounter {
     if (!this.origin) return
     const supportTarget = this.threats.values().next().value?.combatPosition ?? this.origin
     for (const actor of this.participants) {
-      if (actor.dead || !members.includes(actor)) continue
+      if (actor.dead || !members.includes(actor) || !this.canCommandActor(actor)) continue
       if (distanceSq(actor.combatPosition, this.origin) <= OUTSKIRTS_ENCOUNTER_LEASH ** 2) {
         if (actor.tacticalOrder !== 'charge') actor.setTacticalOrder('charge')
         this.supportTargets.delete(actor)

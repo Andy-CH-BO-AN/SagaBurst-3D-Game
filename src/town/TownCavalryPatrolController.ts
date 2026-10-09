@@ -11,7 +11,8 @@ import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownP
 import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
 import { townWartimeHostile } from './TownWartime'
 
-interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
+export interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
+export interface AvailableTownPatrolSquad { patrolId: TownPatrolId; actorIds: string[] }
 export type TownPatrolState = 'BARRACKS' | 'MOVING_TO_ROUTE' | 'PATROLLING' | 'PAUSED' | 'ENGAGING' | 'RETURN_TO_BARRACKS'
 export type TownPatrolReturnState = 'RETURN_TO_BARRACKS' | 'REFIT' | 'REJOIN_PATROL'
 interface PatrolReturn {
@@ -106,6 +107,50 @@ export class TownCavalryPatrolController {
         state: 'BARRACKS' as TownPatrolState, waypoint: departure.phase, departureIndex: 0, departure, trail, commandedWaypoint: null,
         engagementOrigin: null, participants: new Set<string>(), threats: new Set<NPC>(), sensorRemaining: id === 'A' ? 0 : OUTSKIRTS_SENSOR_INTERVAL / 2 }]
     })
+  }
+
+  /** Captain borrows an intact permanent squad including its T4 Captain, never temporary replacements. */
+  selectAvailableSquad(): AvailableTownPatrolSquad | null {
+    if (this.hostile || this.siegeOwned) return null
+    for (const squad of this.squads) {
+      if (squad.members.length !== 20 || !squad.members.some(resident => resident.spec.patrolLeader)) continue
+      if (!squad.members.every(({ spec, npc, homeMount }) => !npc.dead && this.isReserveAvailable(spec.id)
+        && !this.returning.has(spec.id) && Boolean((npc.mount ?? homeMount) && !(npc.mount ?? homeMount)!.dead
+          && !(npc.mount ?? homeMount)!.disposed && !(npc.mount ?? homeMount)!.riderPlayer
+          && (!(npc.mount ?? homeMount)!.riderNpc || (npc.mount ?? homeMount)!.riderNpc === npc)))) continue
+      return { patrolId: squad.id, actorIds: [...squad.members]
+        .sort((a, b) => Number(Boolean(b.spec.patrolLeader)) - Number(Boolean(a.spec.patrolLeader)) || a.spec.index - b.spec.index)
+        .map(resident => resident.spec.id) }
+    }
+    return null
+  }
+
+  /** Atomic post-save handover. No member is released if the accepted roster is no longer available. */
+  relinquishSquad(actorIds: readonly string[]): boolean {
+    const available = this.selectAvailableSquad()
+    if (!available || !sameActorIds(available.actorIds, actorIds)) return false
+    return this.resumeSquad(actorIds)
+  }
+
+  /** Reload uses saved identities even after injuries; autonomous patrol must not take them back. */
+  resumeSquad(actorIds: readonly string[]): boolean {
+    const squad = this.squads.find(candidate => candidate.members.length === 20
+      && sameActorIds(candidate.members.map(resident => resident.spec.id), actorIds))
+    if (!squad) return false
+    for (const resident of squad.members) {
+      this.relinquished.add(resident.spec.id); this.available.delete(resident.spec.id); this.returning.delete(resident.spec.id)
+      resident.npc.clearEncounter()
+    }
+    squad.activeLeaderActorId = null; squad.participants.clear(); squad.threats.clear(); squad.engagementOrigin = null
+    return true
+  }
+
+  /** Reclaim hands survivors and casualties to the existing physical return/refit owner. */
+  returnSquad(actorIds: readonly string[]): boolean {
+    const known = actorIds.every(id => this.residents.has(id))
+    if (!known) return false
+    for (const id of actorIds) this.beginMissionReturn(id)
+    return true
   }
 
   /** Call before the borrower issues any movement orders. The borrower owns travel to muster too. */
@@ -376,4 +421,8 @@ export class TownCavalryPatrolController {
   }
 
   private distance(a: THREE.Vector3, b: THREE.Vector3): number { return Math.hypot(a.x - b.x, a.z - b.z) }
+}
+
+function sameActorIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && new Set(b).size === b.length && a.every(id => b.includes(id))
 }

@@ -1,3 +1,5 @@
+import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_SIEGE_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
@@ -75,6 +77,7 @@ interface CheckpointFixtureOptions {
   includeRanger?: boolean
   includeOfficerAttackers?: boolean
   freshDeployment?: boolean
+  captain?: boolean
 }
 
 /** Real movement/damage/mount cases supply only the roles they observe.
@@ -83,8 +86,8 @@ interface CheckpointFixtureOptions {
  * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  freshDeployment = false }: CheckpointFixtureOptions = {}) {
-  const rank = 'veteran', templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID
+  freshDeployment = false, captain = false }: CheckpointFixtureOptions = {}) {
+  const rank = captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
   profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
@@ -133,6 +136,11 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
     cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
     leaderId: plan.leaderId && sampledIds.has(plan.leaderId) ? plan.leaderId : undefined,
   }))
+  if (captain) {
+    active.templateId = assault ? CAPTAIN_SIEGE_COMMAND_ID : CAPTAIN_GATE_DEFENSE_ID
+    active.officialSquad = { type: 'mission-official', missionId: active.id, townFaction: faction, squadId: 1,
+      actorIds: assault ? siege.attackerIds.slice(0, 29) : residents.filter(r => r.spec.gateId === 'north').map(r => r.spec.id), contribution: emptyPersonalContribution() }
+  }
   const attackerCount = survivors.size
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
   onTestFinished(() => controller.dispose())
@@ -562,5 +570,51 @@ describe('Siege retained combat and settlement contracts', () => {
     town.equipment.visible = false; town.equipment.open.mockClear()
     player.takeDamage(999999, town.hp)
     town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Captain Siege command ownership caller', () => {
+  it('releases the nearby closed gate when Player replaces Charge with Defend', () => {
+    const h = siegeFixture({ captain: true, assault: true, residentIds: [], attackerSlots: [2], includeRanger: false })
+    h.profile().activeMission!.phase = 'ATTACKING'
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const approach = siegePoint('north', 0, -12)
+    north.group.position.copy(approach)
+    north.mount?.group.position.copy(approach)
+    north.setTacticalOrder('charge')
+    h.controller.updateFlow(.1, 0)
+    expect(north.hasSiegeObstacle).toBe(true)
+    north.setTacticalOrder('defend')
+    h.controller.updateFlow(.1, 0)
+    expect(north.hasSiegeObstacle).toBe(false)
+    expect(north.tacticalOrder).toBe('defend')
+    expect(h.gates.get('north')!.state).toBe('closed')
+  })
+  it('leaves North attack formation intact across a breach while South still receives automatic attack orders', () => {
+    const h = siegeFixture({ captain: true, assault: true, residentIds: [], attackerSlots: [2, 30], includeRanger: false })
+    h.profile().activeMission!.phase = 'ATTACKING'
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const south = h.controller.enemies.find(npc => npc.squadId === 2)!
+    const desired = siegePoint('north', 8, 24)
+    north.assignFormationTarget(765, desired, new THREE.Vector3(0, 0, 1))
+    h.gates.get('north')!.destroy()
+    h.controller.updateFlow(.1, 0)
+    expect(north.formationCommandId).toBe(765)
+    expect(north.tacticalOrder).toBe('formation')
+    expect(south.formationCommandId).not.toBeNull()
+    expect(south.tacticalOrder).toBe('formation')
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toHaveLength(29)
+  })
+  it('leaves the authorized North infantry formation intact after defense reserve release', () => {
+    const h = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    h.profile().activeMission!.phase = 'ATTACKING'
+    const guard = h.residents[0].npc
+    guard.assignFormationTarget(766, siegePoint('north', 8, 24), new THREE.Vector3(0, 0, 1))
+    h.gates.get('north')!.destroy()
+    h.controller.updateFlow(.1, 0)
+    expect(guard.formationCommandId).toBe(766)
+    expect(guard.tacticalOrder).toBe('formation')
+    expect(guard.squadId).toBe(1)
   })
 })

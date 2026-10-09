@@ -4,6 +4,9 @@ import { followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrde
 import { FollowTrail } from '../battle/FollowTrail'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CareerProfile } from '../career/CareerProfile'
+import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { parseOfficialCommandAuthority } from '../career/CareerCommandAuthority'
+import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -39,6 +42,26 @@ export interface OutskirtsFactories {
   createNpc(spec: NpcSpawnSpec): NPC
   createMount(x: number, z: number): Mount
 }
+export interface TownOutskirtsCheckpoint {
+  squads: { id: string; generation: number; state: OutskirtsSquadState; waypoint: number; respawnRemaining?: number;
+    members: Record<string, PersonalActorCheckpoint> }[]
+}
+export function parseTownOutskirtsCheckpoint(value: unknown): TownOutskirtsCheckpoint | undefined {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as TownOutskirtsCheckpoint).squads)) return undefined
+  const known = new Set(outskirtsSquadSpecs().map(spec => spec.id))
+  const states: OutskirtsSquadState[] = ['SPAWNING', 'PATROLLING', 'ENGAGING', 'REGROUPING', 'ENTERING', 'RESPAWN_COOLDOWN', 'SIEGE_OWNED']
+  const squads: TownOutskirtsCheckpoint['squads'] = []
+  for (const raw of (value as TownOutskirtsCheckpoint).squads) {
+    if (!raw || !known.has(raw.id) || squads.some(s => s.id === raw.id) || !Number.isSafeInteger(raw.generation) || raw.generation < 0
+      || !Number.isSafeInteger(raw.waypoint) || raw.waypoint < 0 || !states.includes(raw.state)) continue
+    const spec = outskirtsSquadSpecs().find(s => s.id === raw.id)!
+    const ids = Array.from({ length: spec.size }, (_, index) => outskirtsActorId(raw.id, index, raw.generation))
+    const authority = parseOfficialCommandAuthority({ type: 'mission-official', townFaction: 'roman', squadId: 1, actorIds: ids, members: raw.members })!
+    squads.push({ id: raw.id, generation: raw.generation, state: raw.state, waypoint: raw.waypoint,
+      members: authority.members ?? {}, ...(Number.isFinite(raw.respawnRemaining) ? { respawnRemaining: Math.max(0, raw.respawnRemaining!) } : {}) })
+  }
+  return { squads }
+}
 
 const TRAVEL_COMMAND = -5
 const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null } as const
@@ -56,6 +79,7 @@ export class TownOutskirtsWarfareController {
   private enabled = false
   private spawnFailure?: NpcSpawnBatch
   private readonly spawnBatches = new Map<string, NpcSpawnBatch>()
+  private restoredCheckpoint?: TownOutskirtsCheckpoint
   get batches(): readonly NpcSpawnBatch[] { return [...this.spawnBatches.values(), ...(this.spawnFailure ? [this.spawnFailure] : [])] }
 
   constructor(
@@ -82,6 +106,27 @@ export class TownOutskirtsWarfareController {
   combatEnabled(npc: NPC): boolean {
     const squad = this.squadForActor.get(npc)
     return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
+  }
+
+  checkpoint(): TownOutskirtsCheckpoint {
+    return { squads: this.squads.map(squad => ({ id: squad.id, generation: squad.generation, state: squad.state,
+      waypoint: squad.waypoint, ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}),
+      members: Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc)])) })) }
+  }
+  /** Call before advancing spawn queues. Generation IDs, surviving HP and cooldown survive reload. */
+  restoreCheckpoint(value: TownOutskirtsCheckpoint | undefined): void {
+    if (!value) return
+    this.restoredCheckpoint = value
+    for (const squad of this.squads) {
+      const saved = value.squads.find(s => s.id === squad.id)
+      if (!saved || squad.state === 'SIEGE_OWNED') continue
+      this.spawnBatches.get(squad.id)?.cancel()
+      for (const npc of squad.members) { this.squadForActor.delete(npc); this.allActors.splice(this.allActors.indexOf(npc), 1); npc.dispose() }
+      for (const mount of squad.mounts) { this.allMounts.splice(this.allMounts.indexOf(mount), 1); mount.dispose() }
+      squad.members = []; squad.mounts = []; squad.generation = saved.generation; squad.waypoint = saved.waypoint % squad.route.length
+      squad.respawnRemaining = saved.respawnRemaining
+      this.spawnSquad(squad, saved.state === 'ENTERING')
+    }
   }
 
   private disposed = false
@@ -324,6 +369,8 @@ export class TownOutskirtsWarfareController {
           this.allMounts.push(mount)
           squad.mounts.push(mount)
         }
+        const restored = this.restoredCheckpoint?.squads.find(s => s.id === squad.id && s.generation === squad.generation)?.members[actorId]
+        if (restored) restoreCommandActor(npc, restored, npc.mount ?? undefined)
         npc.configureBanditEncounter(npc.combatPosition, [npc.combatPosition], OUTSKIRTS_ENCOUNTER_LEASH)
         this.allActors.push(npc)
         this.squadForActor.set(npc, squad)
@@ -331,8 +378,9 @@ export class TownOutskirtsWarfareController {
       })
     }
     batch.seal(() => {
-      squad.leader = squad.members[0]
-      squad.state = edge ? 'ENTERING' : 'PATROLLING'
+      squad.leader = squad.members.find(npc => !npc.dead) ?? squad.members[0]
+      const restored = this.restoredCheckpoint?.squads.find(s => s.id === squad.id && s.generation === squad.generation)
+      squad.state = restored?.state === 'RESPAWN_COOLDOWN' ? 'RESPAWN_COOLDOWN' : edge ? 'ENTERING' : 'PATROLLING'
       squad.engagementOrigin = null
       squad.commandedWaypoint = null
       squad.trail.reset(squad.leader.combatPosition, yaw)

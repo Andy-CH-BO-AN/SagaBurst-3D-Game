@@ -1,3 +1,5 @@
+import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
 import type { BattleStatsSnapshot, PlayerBattleStats } from '../combat/BattleStatsTracker'
 import { claimCareerBattle, cloneCareerProfile, canonicalCareerMountId, recordCareerMissionCompletion, type CareerProfile } from './CareerProfile'
 import { canUseCareerMount, ownedCareerMountIds } from './CareerMountController'
@@ -21,8 +23,8 @@ export interface CareerOutpostMission {
 }
 export interface CareerOutpostCheckpoint {
   runtime: DefenseCampaignRuntimeSnapshot
-  actors: Record<string, { hp: number; x: number; z: number; yaw: number; mountHp?: number }>
-  player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; ammo?: number; shieldImpact?: number }
+  actors: Record<string, { hp: number; x: number; z: number; yaw: number; mountHp?: number; checkpoint?: PersonalActorCheckpoint }>
+  player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; ammo?: number; shieldImpact?: number; mounted?: boolean; mountPosition?: PersonalActorPosition }
   playerStats: PlayerBattleStatsCheckpoint
   wave: 'attackers' | 'reinforcement' | null
   waveIndex: number
@@ -87,12 +89,16 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
   for (const key of ['mountHp', 'ammo', 'shieldImpact'] as const) {
     if (raw.player[key] !== undefined && (!number(raw.player[key]) || raw.player[key]! < 0)) return undefined
   }
+  if (raw.player.mounted !== undefined && typeof raw.player.mounted !== 'boolean') return undefined
+  if (raw.player.mountPosition !== undefined && (!point(raw.player.mountPosition)
+    || raw.player.mountPosition.y !== undefined && !number(raw.player.mountPosition.y))) return undefined
   for (const key of ['deploymentRemainingSeconds', 'assaultElapsedSeconds', 'reinforcementRemainingSeconds'] as const) {
     if (!number(raw.runtime[key]) || raw.runtime[key] < 0) return undefined
   }
   for (const [id, actor] of Object.entries(raw.actors)) {
     if (!id || id.length > 256 || !point(actor) || !number(actor.hp) || actor.hp < 0
-      || actor.mountHp !== undefined && (!number(actor.mountHp) || actor.mountHp < 0)) return undefined
+      || actor.mountHp !== undefined && (!number(actor.mountHp) || actor.mountHp < 0)
+      || actor.checkpoint !== undefined && !parseCommandActorCheckpoint(actor.checkpoint)) return undefined
   }
   for (const key of ['damageDealt', 'damageTaken', 'kills', 'structureDamage', 'structuresDestroyed', 'gateBreaches'] as const) {
     if (!number(raw.playerStats[key]) || raw.playerStats[key] < 0) return undefined
@@ -111,12 +117,18 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
     actors: Object.fromEntries(Object.entries(raw.actors).map(([id, actor]) => [id, {
       hp: actor.hp, x: actor.x, z: actor.z, yaw: actor.yaw,
       ...(actor.mountHp !== undefined ? { mountHp: actor.mountHp } : {}),
+      ...(actor.checkpoint ? { checkpoint: parseCommandActorCheckpoint(actor.checkpoint)! } : {}),
     }])),
     player: { hp: raw.player.hp, stamina: raw.player.stamina, dead: raw.player.dead,
       x: raw.player.x, z: raw.player.z, yaw: raw.player.yaw,
       ...(raw.player.mountHp !== undefined ? { mountHp: raw.player.mountHp } : {}),
       ...(raw.player.ammo !== undefined ? { ammo: Math.floor(raw.player.ammo) } : {}),
       ...(raw.player.shieldImpact !== undefined ? { shieldImpact: raw.player.shieldImpact } : {}),
+      ...(raw.player.mounted !== undefined ? { mounted: raw.player.mounted } : {}),
+      ...(raw.player.mountPosition ? { mountPosition: {
+        x: raw.player.mountPosition.x, z: raw.player.mountPosition.z, yaw: raw.player.mountPosition.yaw,
+        ...(raw.player.mountPosition.y !== undefined ? { y: raw.player.mountPosition.y } : {}),
+      } } : {}),
     },
     playerStats: {
       damageDealt: raw.playerStats.damageDealt, damageTaken: raw.playerStats.damageTaken,

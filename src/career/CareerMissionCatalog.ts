@@ -1,3 +1,4 @@
+import { CAPTAIN_MISSION_CATALOG, availableCaptainMissions, getCaptainMissionDefinition, type CaptainMissionDefinition } from './CaptainMissionCatalog'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type CareerMissionTier, type CareerProfile, type CareerRank } from './CareerProfile'
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
@@ -54,7 +55,7 @@ export type RecruitMissionTemplate =
   | RecruitPatrolMissionTemplate
   | RecruitTownDefenseMissionTemplate
 
-export type CareerMissionTemplate = RecruitMissionTemplate | VeteranMissionDefinition
+export type CareerMissionTemplate = RecruitMissionTemplate | VeteranMissionDefinition | CaptainMissionDefinition
 
 const mission = (
   id: string,
@@ -173,7 +174,7 @@ export function getRecruitMissionTemplate(id: string): RecruitMissionTemplate | 
 /** Generic lookup used by the active-mission save parser; the legacy Recruit lookup stays narrow. */
 export function getCareerMissionTemplate(id: string): CareerMissionTemplate | null {
   if (id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID) return VETERAN_TOWN_DEFENSE_TEMPLATE
-  return getRecruitMissionTemplate(id) ?? getVeteranMissionDefinition(id)
+  return getRecruitMissionTemplate(id) ?? getVeteranMissionDefinition(id) ?? getCaptainMissionDefinition(id)
 }
 
 export function isEnemyTownAssaultUnlocked(profile: Pick<CareerProfile, 'completedOutpostRelief'>): boolean {
@@ -200,21 +201,22 @@ export function availableRecruitMissions(profile: CareerProfile): RecruitMission
     : available
 }
 
-export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran'
+export type CareerMissionPage = 'recruit' | 'soldier' | 'veteran' | 'captain'
 
 export function defaultCareerMissionPage(profile: Pick<CareerProfile, 'rank'>): CareerMissionPage {
-  return CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('veteran') ? 'veteran'
+  return CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('captain') ? 'captain'
+    : CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('veteran') ? 'veteran'
     : CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf('soldier') ? 'soldier' : 'recruit'
 }
 
 export function isCareerMissionPageUnlocked(profile: Pick<CareerProfile, 'rank'>, page: CareerMissionPage): boolean {
-  const requiredRank: CareerRank = page === 'veteran' ? 'veteran' : page === 'soldier' ? 'soldier' : 'recruit'
+  const requiredRank: CareerRank = page === 'captain' ? 'captain' : page === 'veteran' ? 'veteran' : page === 'soldier' ? 'soldier' : 'recruit'
   return CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(requiredRank)
 }
 
 export function careerMissionPage(template: CareerMissionTemplate): CareerMissionPage {
   const tier = careerMissionTier(template)
-  return tier === 3 ? 'veteran' : tier === 2 ? 'soldier' : 'recruit'
+  return tier === 4 ? 'captain' : tier === 3 ? 'veteran' : tier === 2 ? 'soldier' : 'recruit'
 }
 
 export function careerMissionTier(template: CareerMissionTemplate): CareerMissionTier {
@@ -222,6 +224,7 @@ export function careerMissionTier(template: CareerMissionTemplate): CareerMissio
 }
 
 export function careerMissionTemplatesForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
+  if (page === 'captain') return isCareerMissionPageUnlocked(profile, page) ? [...CAPTAIN_MISSION_CATALOG] : []
   if (page === 'veteran') {
     if (!isCareerMissionPageUnlocked(profile, page)) return []
     const homeDefense = { ...VETERAN_TOWN_DEFENSE_TEMPLATE, enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, profile.rank) }
@@ -239,6 +242,7 @@ function isTownDefenseMissionAvailable(profile: CareerProfile, template: Recruit
 }
 
 export function availableCareerMissionsForPage(profile: CareerProfile, page: CareerMissionPage): CareerMissionTemplate[] {
+  if (page === 'captain') return availableCaptainMissions(profile)
   if (page === 'veteran') return careerMissionTemplatesForPage(profile, page).filter(template => template.kind === 'town-defense'
     ? availableRecruitMissions(profile).some(available => available.id === template.id)
     : getVeteranMissionAvailability(profile, template.id).unlocked)

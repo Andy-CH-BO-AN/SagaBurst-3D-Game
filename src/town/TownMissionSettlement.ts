@@ -13,6 +13,7 @@ import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import type { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 
 interface MissionProfiles {
   read(): CareerProfile
@@ -24,6 +25,7 @@ interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
   duel: Pick<CareerDuelController, 'snapshot' | 'cleanupMission' | 'actors'>
   defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'>
+  patrol?: Pick<CaptainPatrolCommandController, 'statsSnapshot' | 'release' | 'actors'>
 }
 
 interface ReturnResident {
@@ -48,6 +50,7 @@ interface TownReturnScene {
   clearCombatShots(): void
   restPlayer(): void
   returnPersonalSquad?(direct: boolean): void
+  preservesResident?(npc: NPC): boolean
   restart(profile: CareerProfile): void
 }
 
@@ -82,7 +85,8 @@ export class TownMissionSettlement {
     if (active.personalSquad && this.personalResult?.missionId === active.id) {
       stats = this.personalResult.stats; outcome = this.personalResult.outcome
     } else {
-      stats = source.snapshot()
+      stats = active.kind === 'captain-patrol-command' && this.missions.patrol?.statsSnapshot
+        ? this.missions.patrol.statsSnapshot : source.snapshot()
       if (active.personalSquad) this.personalResult = { missionId: active.id, outcome, stats: structuredClone(stats),
         ...(active.kind === 'town-defense' ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
     }
@@ -104,13 +108,14 @@ export class TownMissionSettlement {
     const defense = active.kind === 'town-defense'
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
+    const captainPatrol = active.kind === 'captain-patrol-command'
     const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
     if (veteranField && !active.result) return { status: 'ignored' }
-    const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField)
-    if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField) && active.result)) return { status: 'ignored' }
+    const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
+    if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField || captainPatrol) && active.result)) return { status: 'ignored' }
 
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
-    const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : this.missions.field.friendlies) : null
+    const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
     const next = clearCareerMission(profile, active.id)
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
@@ -119,6 +124,7 @@ export class TownMissionSettlement {
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
     if (!this.profiles.commit(next)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
+    if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {
       if (active.kind === 'enemy-town-assault') this.missions.defense.cleanupMission()
@@ -142,6 +148,7 @@ export class TownMissionSettlement {
     else this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
+      if (this.town.preservesResident?.(resident.npc)) continue
       const restore = resident.npc.dead || (defense
         ? true
         : borrowed!.has(resident.npc))
