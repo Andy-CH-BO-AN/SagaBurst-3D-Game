@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { parseTownCommandSquad, officialMissionSourcePolicy, parseOfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { acceptCaptainEagle } from '../../src/career/CaptainBattleLaunch'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { Faction } from '../../src/world/NPC'
@@ -19,19 +21,24 @@ describe('Saved official command membership', () => {
     expect(parseTownCommandSquad(JSON.parse(JSON.stringify(saved)))).toEqual(saved)
   })
 
-  it('preserves official and personal incoming damage through the real Career store without changing merit fields', () => {
-    const profile = acceptCaptainEagle({ ...createCareerProfile('roman'), rank: 'captain', ownedMounts: ['xongkoro'],
-      personalSquad: { members: [{ id: 'personal:damage', type: 'soldier' }] } }, 'damage-resume')!
-    profile.activeMission!.officialSquad!.contribution = { ...emptyPersonalContribution(), damageDealt: 7, damageTaken: 13 }
-    profile.activeMission!.personalSquad!.contribution = { ...emptyPersonalContribution(), damageDealt: 11, damageTaken: 19 }
+  it('preserves incoming damage through authority serialization and the real personal Career store', () => {
+    const profile = createCareerProfile('roman')
+    profile.personalSquad = { members: [{ id: 'personal:damage', type: 'soldier' }] }
+    profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'damage-resume')
+    profile.activeMission.personalSquad = snapshotPersonalMission(profile)!
+    profile.activeMission.personalSquad.contribution = { ...emptyPersonalContribution(), damageDealt: 11, damageTaken: 19 }
+    const authority: OfficialCommandAuthority = { type: 'mission-official', missionId: 'damage-resume',
+      townFaction: 'roman', squadId: 1, actorIds: ['accepted'],
+      contribution: { ...emptyPersonalContribution(), damageDealt: 7, damageTaken: 13 } }
+
+    const savedAuthority = parseOfficialCommandAuthority(JSON.parse(JSON.stringify(authority)))!
+    expect(savedAuthority.contribution).toEqual(authority.contribution)
+    const invalid = { ...authority, contribution: { ...authority.contribution, damageTaken: Infinity } }
+    expect(parseOfficialCommandAuthority(JSON.parse(JSON.stringify(invalid)))!.contribution.damageTaken).toBeUndefined()
+
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
-    const saved = store.load()!.activeMission!
-    expect(saved.officialSquad!.contribution).toEqual(profile.activeMission!.officialSquad!.contribution)
-    expect(saved.personalSquad!.contribution).toEqual(profile.activeMission!.personalSquad!.contribution)
-    expect(store.save({ ...store.load()!, activeMission: { ...saved, officialSquad: { ...saved.officialSquad!,
-      contribution: { ...saved.officialSquad!.contribution, damageTaken: Infinity } } } })).toBe(true)
-    expect(store.load()!.activeMission!.officialSquad!.contribution.damageTaken).toBeUndefined()
+    expect(store.load()!.activeMission!.personalSquad!.contribution).toEqual(profile.activeMission.personalSquad.contribution)
   })
 
   it('fails closed on duplicate or invalid authoritative IDs rather than granting current soldiers', () => {
