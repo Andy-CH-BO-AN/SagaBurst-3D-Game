@@ -71,9 +71,11 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
   const profile = T4_UNIT_PROFILES[presetId]
   const base = { ...resolveUnitLoadout(presetId, profile.baseLoadoutTier) }
   if (profile.specialCombatProfile !== 'maki-ranger') {
-    const weapon = WEAPONS[base.meleeWeaponId ?? '']
-    if (weapon?.animationKind === 'sword' || weapon?.animationKind === 'axe') {
-      base.meleeWeaponId = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
+    for (const slot of ['meleeWeaponId', 'secondaryMeleeWeaponId'] as const) {
+      const weapon = WEAPONS[base[slot] ?? '']
+      if (weapon?.animationKind === 'sword' || weapon?.animationKind === 'axe') {
+        base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
+      }
     }
     if (base.shieldId) base.shieldId = 'paladin_shield_t4'
   }

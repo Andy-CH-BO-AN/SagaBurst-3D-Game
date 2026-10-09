@@ -38,9 +38,12 @@ describe('T4 Hero Custom Battle domain', () => {
       ['viking_berserker', 'paladin_mace_t4', null, 'paladin_shield_t4'],
       ['viking_sword_cavalry', 'paladin_mace_t4', null, 'paladin_shield_t4'],
       ['roman_lancer', 'heavy_lance', null, null],
+      ['viking_lancer', 'heavy_lance', null, null],
+      ['roman_spearman', 'heavy_lance', null, null],
       ['viking_spearman', 'heavy_lance', null, null],
       ['roman_javelin_infantry', 'paladin_sword_t4', 'legionary_pilum', null],
     ] as const) expect(resolveT4UnitLoadout(id)).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged, shieldId: shield })
+    expect(resolveT4UnitLoadout('viking_spearman').secondaryMeleeWeaponId).toBe('paladin_sword_t4')
     expect(JSON.stringify(UNIT_PRESETS)).toBe(before)
   })
   it.each(['roman-hero-t4', 'viking-hero-t4', 'maki-archer-t4'] as const)('%s preserves its equipment policy for all shared T4 items', hero => {

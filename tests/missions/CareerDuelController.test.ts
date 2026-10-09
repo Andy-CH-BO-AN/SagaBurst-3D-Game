@@ -110,7 +110,7 @@ describe('Career Duel existing actor and loadout selection', () => {
     ['roman_spearman', { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: null }],
     ['roman_javelin_infantry', { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: 'legionary_pilum', shieldId: null, mountId: null }],
     ['viking_berserker', { meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null }],
-    ['viking_spearman', { meleeWeaponId: 'heavy_lance', secondaryMeleeWeaponId: 'runic_greatsword', rangedWeaponId: null, shieldId: null, mountId: null }],
+    ['viking_spearman', { meleeWeaponId: 'heavy_lance', secondaryMeleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: null, mountId: null }],
   ] as const)('T4 %s uses canonical foot gear for acceptance and saved resume, then restores Captain equipment', (preset, expected) => {
     const h = harness(UNIT_PRESETS[preset].faction)
     const roster = selectCareerDuelRoster(h.residents, h.blackCat, preset, 4)!
