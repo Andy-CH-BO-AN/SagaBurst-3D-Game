@@ -432,8 +432,9 @@ interface EagleSensorProbe {
 function sensorActor(faction: Faction, x: number, y: number, z: number, eagle = false): NPC {
   const actor = Object.create(NPC.prototype) as NPC
   const group = new THREE.Group(); group.position.set(x, y, z)
+  Object.defineProperty(actor, 'faction', { value: faction })
   Object.assign(actor, {
-    group, faction, rangedWeaponId: 'maki-ranger-bow-ranged', rangedActive: true, arrows: 30, shieldId: null,
+    group, rangedWeaponId: 'maki-ranger-bow-ranged', rangedActive: true, arrows: 30, shieldId: null,
     mount: eagle ? { type: MountType.XONGKORO, isFlyingMount: true, dead: false } as Mount : null,
     playableWorldBound: 350, eagleRangedCandidates: [], _tmpTargetPosition: new THREE.Vector3(),
   })
