@@ -59,6 +59,7 @@ interface TownCombatScene {
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
   outskirts?(): TownOutskirtsCombatRuntime | undefined
   personalSquad?(): TownPersonalSquadController | undefined
+  commandActors?(): readonly NPC[]
   patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
   ownsPeacefulTravel?(npc: NPC): boolean
@@ -215,6 +216,7 @@ export class TownMissionCombat {
 
   private updateField(dt: number, cameraYaw: number, elapsed: number): void {
     const { field } = this.missions
+    const commandActors = new Set(this.town.commandActors?.() ?? [])
     const veteranField = field.active?.kind === 'veteran-field'
     // Veteran battles have explicit, persistent rosters. Build the two membership
     // sets and shared peer lists once per frame instead of asking the controller
@@ -224,7 +226,7 @@ export class TownMissionCombat {
     field.prepareTravelEncounter(dt, this.outskirtsGrid, outskirts ?? { owns: () => false })
     field.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
-    const warfareActive = Boolean(outskirts?.actors.length || this.town.personalSquad?.()?.actors.length)
+    const warfareActive = Boolean(outskirts?.actors.length || this.town.personalSquad?.()?.actors.length || commandActors.size)
     const currentVeteran = veteranField ? field.active : undefined
     const veteranSurvival = currentVeteran?.templateId === 'veteran-tragedy-of-the-scouts'
     const player = this.town.player()
@@ -240,6 +242,7 @@ export class TownMissionCombat {
     const veteranEnemyPeers = veteranField ? [...new Set([...field.missionBandits, ...field.friendlies, ...this.externalThreatActors])] : null
     const veteranMarchingPeers = veteranField ? [...new Set([...field.friendlies, ...this.externalThreatActors])] : null
     const missionActors = new Set(veteranActors ?? field.fieldNpcs)
+    for (const actor of commandActors) missionActors.add(actor)
     if (veteranField) for (const npc of this.enemyTownHostileActors) missionActors.add(npc)
     this.town.preparePeaceResidents?.(new Set([...missionActors, ...this.externalThreatActors]))
     const patrol = this.town.patrol?.()
@@ -252,7 +255,7 @@ export class TownMissionCombat {
       ? [...new Set([...field.missionBandits, ...field.friendlies, ...this.enemyTownHostileActors])]
       : [...new Set([...field.fieldNpcs, ...this.externalThreatActors])]
     const actors = [...new Set([...missionCombatActors,
-      ...(warfareActive ? field.ambientBandits : []), ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors])]
+      ...(warfareActive ? field.ambientBandits : []), ...(outskirts?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors, ...commandActors])]
     this.grid.clear()
     if (veteranField) { this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear() }
     for (const actor of actors) {
@@ -297,6 +300,7 @@ export class TownMissionCombat {
     if (veteranField) for (const enemy of this.engagedVeteranEnemies) this.veteranEngagedEnemyGrid.insert(enemy)
     const veteranSquadCombatActive = veteranCombatActive || this.engagedVeteranEnemies.size > 0
     for (const actor of actors) {
+      if (commandActors.has(actor)) { this.updateRuntimeActor(actor, dt); continue }
       if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)
@@ -606,6 +610,7 @@ export class TownMissionCombat {
     const missionFriendlies = new Set([...field.friendlies, ...this.missions.duel.fieldNpcs, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (this.town.commandActors?.().includes(npc)) { this.externalThreatActors.delete(npc); continue }
       if (this.missions.duel.active && this.missions.duel.isMissionActor(npc)) {
         this.externalThreatActors.delete(npc)
         continue

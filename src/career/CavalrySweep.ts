@@ -1,3 +1,5 @@
+import { CAPTAIN_CAVALRY_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
+import { emptyPersonalContribution } from '../combat/CommandMerit'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
@@ -70,4 +72,16 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
     }
   }
   return specs
+}
+
+/** Captain borrows the same 59 riders; only Squad A's 29 NPCs are authorized. */
+export function acceptCaptainCavalryCommand(current: CareerProfile, id = createCareerMissionId(CAPTAIN_CAVALRY_COMMAND_ID), garrisonActorIds: SweepGarrisonActorIds = []): CareerProfile | null {
+  if (!getCaptainMissionAvailability(current, CAPTAIN_CAVALRY_COMMAND_ID).unlocked) return null
+  const profile = acceptCavalrySweep(current, id, garrisonActorIds)
+  if (!profile?.activeMission) return null
+  const active = profile.activeMission
+  active.templateId = CAPTAIN_CAVALRY_COMMAND_ID
+  active.officialSquad = { type: 'mission-official', missionId: id, townFaction: current.faction, squadId: 1,
+    actorIds: active.friendlyActorIds.slice(0, 29), contribution: emptyPersonalContribution() }
+  return profile
 }

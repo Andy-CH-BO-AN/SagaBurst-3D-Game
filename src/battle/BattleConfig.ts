@@ -122,6 +122,8 @@ export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
 ]
 
 export interface BattleConfig {
+  /** Trusted Career launch identity; never accepted from a free battle session. */
+  careerEagleMissionId?: string
   mode?: BattleMode
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]

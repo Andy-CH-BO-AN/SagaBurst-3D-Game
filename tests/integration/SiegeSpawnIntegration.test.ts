@@ -8,7 +8,7 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { CareerMountController } from '../../src/career/CareerMountController'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
+import { acceptCaptainSiegeCommand, createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { CampaignGateController } from '../../src/campaign/CampaignGate'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -197,7 +197,13 @@ describe('Siege spawn caller protocol', () => {
     const h = siegeFixture(false, [defenseIds[2]])
     h.profile().activeMission!.actorHealth = { [defenseIds[2]]: { hp: 0 } }
     h.reloadProfile()
-    if (failFirstCommit) h.failNextCommit()
+    if (failFirstCommit) {
+      h.failNextCommit()
+      expect(h.controller.startActiveMission()).toBe(false)
+      expect(h.controller.ready).toBe(false)
+      expect(h.controller.evaluate(false)).toBeNull()
+      expect(h.profile().activeMission!.deadTargetActorIds).toHaveLength(119)
+    }
     expect(h.controller.startActiveMission()).toBe(true)
     expect(recording.npcs).toHaveLength(0)
     expect(h.scheduler.pending).toBe(0)
@@ -279,6 +285,81 @@ describe('Siege spawn caller protocol', () => {
     expect(recording.npcs.map(npc => npc.combatantId)).toEqual(['siege-defense:siege:2'])
     expect(h.scheduler.pending).toBe(0)
     expect([...h.gates.values()].every(gate => gate.state === 'open')).toBe(true)
+  })
+
+  it('keeps an unsaved Captain roster unclaimed and retries with the same rider identities and health', () => {
+    // Zero real actors: actual preview, Store and scheduler callers use constructor recordings.
+    const store = new CareerProfileStore(new MemoryStorage()), h = siegeFixture(true, undefined, store)
+    const accepted = acceptCaptainSiegeCommand({ ...h.profile(), totalMerit: 5000, activeMission: undefined }, 'siege-assault')!
+    // Only the borrowed North cavalry and one fresh South cavalry survive this checkpoint.
+    accepted.activeMission!.friendlyActorIds = [...assaultIds]
+    accepted.activeMission!.officialSquad!.actorIds = assaultIds.slice(0, 29)
+    accepted.activeMission!.deadFriendlyActorIds = assaultIds.filter(id => id !== assaultIds[30])
+    h.setProfile(accepted); h.reloadProfile()
+    const outskirts = new TownOutskirtsWarfareController(h.scene, 'viking', h.profile, [], h.navigation,
+      undefined, [], h.scheduler)
+    h.context.outskirts = outskirts
+    for (const batch of outskirts.batches) if (!batch.actors.has('outskirts:cavalry:a:0')) batch.cancel()
+    h.driver.advanceFrame()
+    const rider = outskirts.actors[0], original = recording.npcs[0], horse = recording.mounts[1]
+    original.hp = 63; horse.currentHp = 41
+    const position = rider.combatPosition.clone(), savedBefore = store.load()!, pendingBefore = h.scheduler.pending
+    const sourceBatch = outskirts.batches.find(batch => batch.actors.has('outskirts:cavalry:a:0'))!
+    expect(pendingBefore).toBe(9)
+    expect(outskirts.owns(rider)).toBe(true)
+
+    h.failNextCommit()
+    const started = h.controller.startActiveMission()
+    expect(h.controller.enemies).toEqual([])
+    expect(h.scheduler.pending).toBe(pendingBefore)
+    expect(started).toBe(false)
+    expect(h.controller.ready).toBe(false)
+    expect(h.controller.spawnBatches).toEqual([])
+    expect(sourceBatch.status).toBe('pending')
+    expect(outskirts.owns(rider)).toBe(true)
+    expect(outskirts.squadMembersFor(rider)).toEqual([rider])
+    expect(original.applyTemporaryCombatLoadout).not.toHaveBeenCalled()
+    expect(original.bindCombatEventSink).not.toHaveBeenCalled()
+    expect(original.dispose).not.toHaveBeenCalled()
+    expect(horse.dispose).not.toHaveBeenCalled()
+    expect(recording.npcs).toEqual([original])
+    expect(rider.combatPosition).toEqual(position)
+    expect(rider.mount).toBe(horse)
+    expect(rider.hp).toBe(63)
+    expect(horse.currentHp).toBe(41)
+    h.controller.updateFlow(100, 0)
+    expect(h.controller.evaluate(false)).toBeNull()
+    h.controller.persistRuntimeProgress(true)
+    expect(h.profile()).toEqual(savedBefore)
+    expect(store.load()).toEqual(savedBefore)
+    expect(h.controller.snapshot().player).toMatchObject({ damageDealt: 0, kills: 0, structureDamage: 0, gateBreaches: 0 })
+    expect(h.profile().totalMerit).toBe(savedBefore.totalMerit)
+
+    expect(h.controller.startActiveMission()).toBe(true)
+    const ids = [...assaultIds]; ids[1] = 'outskirts:cavalry:a:0'
+    // Retry transfers only the saved selection; unborrowed pending riders retain their owner.
+    expect(sourceBatch.status).toBe('pending')
+    expect(h.scheduler.pending).toBe(pendingBefore + 1)
+    expect(outskirts.owns(rider)).toBe(false)
+    expect(h.controller.enemies).toEqual([rider])
+    expect([...h.controller.spawnBatches[0].actors.keys()]).toEqual([assaultIds[30]])
+    const committed = store.load()!.activeMission!
+    expect(committed.siege!.attackerIds).toEqual(ids)
+    expect(committed.friendlyActorIds).toEqual(ids)
+    expect(committed.officialSquad!.actorIds).toEqual(ids.slice(0, 29))
+    expect(committed.actorHealth!['outskirts:cavalry:a:0']).toEqual({ hp: 63, mountHp: 41 })
+    expect(original.applyTemporaryCombatLoadout).toHaveBeenCalledOnce()
+    expect(original.bindCombatEventSink).toHaveBeenCalledExactlyOnceWith(h.controller.events.emit)
+    expect(rider.combatPosition).toEqual(position)
+    expect(rider.mount).toBe(horse)
+    expect(rider.hp).toBe(63)
+    expect(horse.currentHp).toBe(41)
+    h.driver.drain()
+    expect(h.controller.ready).toBe(true)
+    expect(recording.npcs.filter(npc => npc.combatantId === rider.combatantId)).toEqual([original])
+    expect(h.controller.enemies.map(npc => npc.combatantId)).toEqual(['outskirts:cavalry:a:0', assaultIds[30]])
+    expect(store.load()!.activeMission!.officialSquad!.actorIds).toEqual(ids.slice(0, 29))
+    expect(h.profile().totalMerit).toBe(savedBefore.totalMerit)
   })
 
   it('reuses a partially loaded outskirts rider once and transfers its lifetime to Siege cleanup', () => {

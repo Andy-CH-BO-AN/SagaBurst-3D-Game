@@ -49,15 +49,19 @@ describe('Veteran mission board integration', () => {
     expect(tab).toBeDefined()
     expect(tab!.disabled).toBe(rank === 'recruit' || rank === 'soldier')
     const tabs = elements.filter(element => 'aria-pressed' in element.attributes)
-    expect(tabs.map(element => element.textContent.split(' · 升階')[0])).toEqual(['菜兵任務', '士兵任務', '老兵任務', '1v1 Duel · 單挑'])
+    expect(tabs.map(element => element.textContent.split(' · 升階')[0])).toEqual(['菜兵任務', '士兵任務', '老兵任務', '隊長任務', '1v1 Duel · 單挑'])
+    expect(tabs.find(element => element.textContent.startsWith('隊長任務'))!.disabled).toBe(rank !== 'captain' && rank !== 'commander')
   })
 
-  it.each(['veteran', 'captain', 'commander'] as const)('defaults %s to Veteran and allows selecting older pages', rank => {
+  it.each(['veteran', 'captain', 'commander'] as const)('defaults %s to its newest unlocked page and allows selecting older pages', rank => {
     const { town, elements } = board(rank)
-    expect(town.deploymentPage).toBe('veteran')
-    expect(elements.find(element => element.textContent === '老兵任務')!.attributes['aria-pressed']).toBe('true')
+    const expectedPage = rank === 'veteran' ? 'veteran' : 'captain'
+    const expectedTab = rank === 'veteran' ? '老兵任務' : '隊長任務'
+    expect(town.deploymentPage).toBe(expectedPage)
+    expect(elements.find(element => element.textContent === expectedTab)!.attributes['aria-pressed']).toBe('true')
     expect(board(rank, 'recruit').town.deploymentPage).toBe('recruit')
     expect(board(rank, 'soldier').town.deploymentPage).toBe('soldier')
+    expect(board(rank, 'veteran').town.deploymentPage).toBe('veteran')
     expect(board(rank, 'duel').town.deploymentPage).toBe('duel')
   })
 

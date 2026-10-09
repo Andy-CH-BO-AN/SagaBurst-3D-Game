@@ -1,3 +1,5 @@
+import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
+import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
 import { Mount, mountTypeFromId } from '../world/Mount'
@@ -158,10 +160,23 @@ export function shouldPersistMissionRoute(savedStage: number, currentStage: numb
     || lastStage >= 0 && currentStage === lastStage && savedStage !== currentStage
 }
 
+function getBanditFieldMissionTemplate(templateId: string) {
+  const template = getRecruitMissionTemplate(templateId)
+  if (template) return template
+  if (templateId !== CAPTAIN_CAVALRY_COMMAND_ID) return null
+  const original = getRecruitMissionTemplate('career-cavalry-sweep')
+  return original ? { ...original, id: templateId } : null
+}
+
 export class BanditMissionController {
   personalActors: () => readonly NPC[] = () => []
   registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
   get personalContribution() { return this.tracker?.commandCheckpoint() }
+  get officialContribution() { return this.tracker?.officialCommandCheckpoint() }
+  private isPlayerCommanded(npc: NPC): boolean {
+    const active = this.active
+    return Boolean(active && !active.result && active.phase !== 'RETURNING' && active.officialSquad?.actorIds.includes(npc.combatantId))
+  }
   freezeStats(): void { this.tracker?.freeze() }
   onMarchStarted: (() => void) | null = null
   onSweepCharge: (() => void) | null = null
@@ -175,7 +190,7 @@ export class BanditMissionController {
   private readonly temporaryCavalry: { npc: NPC; mount?: Mount }[] = []
   private readonly departingCavalry: { npc: NPC; mount: Mount }[] = []
   private mountedMarch: MountedMissionMarchController | null = null
-  readonly travelEncounter = new MissionTravelEncounter()
+  readonly travelEncounter = new MissionTravelEncounter(actor => !this.isPlayerCommanded(actor))
   private veteranSurvivalElapsed = 0
   private readonly veteranTargetActorIds = new Set<string>()
   private readonly veteranFriendlyActorIds = new Set<string>()
@@ -343,7 +358,7 @@ export class BanditMissionController {
       if (!started) this.disposeMissionEntities()
       return started
     }
-    const template = getRecruitMissionTemplate(active.templateId)
+    const template = getBanditFieldMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     if (!template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault') || !camp) return false
 
@@ -390,7 +405,7 @@ export class BanditMissionController {
           this.assignFollowers()
         } else if (active.phase === 'ENGAGING') {
           this.positionPartyForReload(this.route.length - 1)
-          for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+          for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
         }
       }
     })
@@ -425,7 +440,7 @@ export class BanditMissionController {
     const active = this.active
     if (!active || active.phase === 'RESULT') { this.guide.hide(); return }
     const camp = this.camps[active.targetCampId]
-    const template = getRecruitMissionTemplate(active.templateId)
+    const template = getBanditFieldMissionTemplate(active.templateId)
     if (!camp || !template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || template.kind === 'cavalry-sweep')) return
     this.checkpoint.advance(dt)
     const hasLeader = this.ensureLivingLeader() && Boolean(this.leader)
@@ -482,7 +497,7 @@ export class BanditMissionController {
       const friendlyAlive = this.friendlies.reduce((alive, npc) => alive + Number(!npc.dead), 0)
       return resolveVeteranFieldMissionOutcome(current.templateId, playerDead || Boolean(current.playerDead), registrationComplete, this.remainingEnemies, friendlyAlive + personalAlive, this.survivalElapsedSeconds)
     }
-    const template = getRecruitMissionTemplate(active.templateId)
+    const template = getBanditFieldMissionTemplate(active.templateId)
     const camp = this.camps[active.targetCampId]
     const patrolComplete = template?.kind !== 'patrol' || Boolean(camp && (active.patrolStage ?? 0) >= this.patrolWaypoints(template, camp.center).length)
     const accountedIds = new Set([
@@ -507,7 +522,7 @@ export class BanditMissionController {
     const active = this.active
     const veteranField = active?.kind === 'veteran-field'
       && getVeteranMissionDefinition(active.templateId)?.objective.kind === 'eliminate-all'
-    const template = active ? getRecruitMissionTemplate(active.templateId) : null
+    const template = active ? getBanditFieldMissionTemplate(active.templateId) : null
     const camp = active ? this.camps[active.targetCampId] : null
     if (!active || (!veteranField && (!template || template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || !camp))) return false
     if (veteranField && (active.result?.outcome !== 'victory' || !active.result.stats.survived || this.player().dead)) return false
@@ -684,7 +699,7 @@ export class BanditMissionController {
   }
 
   private ensureLivingLeader(): boolean {
-    const fallback = selectLivingMissionLeader(this.leader, this.friendlies)
+    const fallback = selectLivingMissionLeader(this.leader, this.friendlies.filter(npc => !this.isPlayerCommanded(npc)))
     if (fallback === this.leader) return true
     if (!fallback) { this.leader = null; return false }
     this.leader = fallback
@@ -701,7 +716,7 @@ export class BanditMissionController {
       this.assignLeader(this.assemblyPoint())
       this.assignFollowers()
     } else {
-      for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+      for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
     }
     return true
   }
@@ -719,6 +734,7 @@ export class BanditMissionController {
         deadFriendlyActorIds: this.deadActorIds(active.friendlyActorIds, this.friendlies, active.deadFriendlyActorIds),
         mountedMarchPosition: this.mountedMarchAnchor(active),
       } : {}),
+      ...(this.officialCheckpoint(active) ? { officialSquad: this.officialCheckpoint(active) } : {}),
       playerStats: this.tracker?.checkpoint() ?? active.playerStats, targetActorIds: [...active.targetActorIds], friendlyActorIds: [...active.friendlyActorIds] }), { immediate: true })
     if (saved && phase === 'ENGAGING' && this.travelEncounter.active) this.travelEncounter.clear()
     return saved
@@ -776,14 +792,14 @@ export class BanditMissionController {
     const objectives = this.patrolWaypoints(template, camp.center)
     const stage = Math.min(active.patrolStage ?? 0, objectives.length)
     if (campAlerted && this.remainingEnemies > 0) {
-      if (this.setPhase('ENGAGING', this.routeIndex, stage)) for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+      if (this.setPhase('ENGAGING', this.routeIndex, stage)) for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
       return
     }
     const objective = objectives[stage]
     if (!objective || leader.combatPosition.distanceToSquared(objective) > 64) return
     if (stage === this.patrolEncounterStage(template, active.id, camp.center) && this.remainingEnemies > 0) {
       for (const bandit of camp.mission) if (!bandit.dead) bandit.triggerEncounterAlert()
-      if (this.setPhase('ENGAGING', this.routeIndex, stage)) for (const friendly of this.friendlies) if (!friendly.dead) friendly.setTacticalOrder('charge')
+      if (this.setPhase('ENGAGING', this.routeIndex, stage)) for (const friendly of this.friendlies) if (!friendly.dead && !this.isPlayerCommanded(friendly)) friendly.setTacticalOrder('charge')
       return
     }
     if (this.travelEncounter.active) return
@@ -850,7 +866,7 @@ export class BanditMissionController {
   private guideTarget(active: ActiveCareerMission, camp: THREE.Vector3): THREE.Vector3 | null {
     if (active.phase === 'ASSEMBLING') return this.assemblyPoint()
     if (active.phase === 'RETURNING') return this.assemblyPoint()
-    const template = getRecruitMissionTemplate(active.templateId)
+    const template = getBanditFieldMissionTemplate(active.templateId)
     if (!template || (template.kind === 'town-defense' || template.kind === 'enemy-town-assault' || template.kind === 'cavalry-sweep')) return camp
     return this.missionObjective(template, active, camp)
   }
@@ -1249,6 +1265,15 @@ export class BanditMissionController {
     return health
   }
 
+  private officialCheckpoint(active: ActiveCareerMission): ActiveCareerMission['officialSquad'] {
+    if (!active.officialSquad) return undefined
+    const members = { ...active.officialSquad.members }
+    for (const npc of this.friendlies) if (active.officialSquad.actorIds.includes(npc.combatantId)) {
+      members[npc.combatantId] = snapshotCommandActor(npc, this.fieldActorMounts.get(npc.combatantId) ?? undefined)
+    }
+    return { ...active.officialSquad, members, contribution: this.officialContribution ?? active.officialSquad.contribution }
+  }
+
   private snapshotVeteranActorPositions(): NonNullable<ActiveCareerMission['actorPositions']> {
     const positions: NonNullable<ActiveCareerMission['actorPositions']> = { ...this.active?.actorPositions }
     for (const npc of [...this.friendlies, ...this.missionBandits]) {
@@ -1358,11 +1383,18 @@ export class BanditMissionController {
       this.friendlies.sort((a, b) => active.friendlyActorIds.indexOf(a.combatantId) - active.friendlyActorIds.indexOf(b.combatantId))
       const firstSquad = this.friendlies.filter(npc => active.friendlyActorIds.indexOf(npc.combatantId) < 29)
       const secondSquad = this.friendlies.filter(npc => active.friendlyActorIds.indexOf(npc.combatantId) >= 29)
-      this.leader = this.friendlies.find(npc => npc.combatantId === active.friendlyActorIds[0] && !npc.dead) ?? null
+      this.leader = this.friendlies.find(npc => npc.combatantId === active.friendlyActorIds[active.officialSquad ? 29 : 0] && !npc.dead) ?? null
       if (returning || active.result) this.leader ??= this.friendlies.find(npc => !npc.dead) ?? null
       this.tracker = new BattleStatsTracker(this.events, true, event => this.acceptMissionEvent(active, event), active.playerStats,
         careerMissionCommandMeritPolicy(active, () => this.active ?? active))
       for (const friendly of this.friendlies) this.tracker.registerNpc(friendly)
+      for (const [index, actorId] of (active.officialSquad?.actorIds ?? []).entries()) {
+        const npc = this.friendlies.find(npc => npc.combatantId === actorId)
+        const saved = active.officialSquad?.members?.[actorId]
+        if (!npc || !saved) continue
+        restoreCommandActor(npc, saved, this.fieldActorMounts.get(actorId) ?? undefined)
+        if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
+      }
       if (returning) {
         this.assignLeader(this.assemblyPoint()); this.assignFollowers()
         return
@@ -1381,8 +1413,9 @@ export class BanditMissionController {
           leaderDeathMode: 'replace',
           chargeDistance: SWEEP_CHARGE_DISTANCE, followerCount: 29, playFollow: !active.followVoicePlayed,
           marchTarget: SWEEP_CENTER,
+          ...(active.officialSquad ? { leaderMode: 'independent' as const, playerSquadIndex: null } : {}),
           squads: [
-            { leader: firstSquad.find(npc => npc.combatantId === active.friendlyActorIds[0]), members: firstSquad },
+            ...(!active.officialSquad ? [{ leader: firstSquad.find(npc => npc.combatantId === active.friendlyActorIds[0]), members: firstSquad }] : []),
             { leader: secondSquad.find(npc => npc.combatantId === active.friendlyActorIds[29]), members: secondSquad },
           ],
         },
@@ -1418,7 +1451,7 @@ export class BanditMissionController {
     for (const npc of this.friendlies) {
       const entry = this.veteranSupportEntryPositions.get(npc.combatantId)
       const muster = this.veteranMusterPositions.get(npc.combatantId)
-      if (npc.dead || !entry || !muster) continue
+      if (npc.dead || this.isPlayerCommanded(npc) || !entry || !muster) continue
       if (npc.isFormationTargetReached(VETERAN_SUPPORT_ENTRY_COMMAND_ID)
         || npc.combatPosition.distanceToSquared(entry) <= VETERAN_ASSEMBLY_RADIUS ** 2) {
         this.veteranSupportEntryPositions.delete(npc.combatantId)
@@ -1427,7 +1460,7 @@ export class BanditMissionController {
           npc.mount?.baseSpeed ?? MISSION_LEADER_MARCH_SPEED)
       }
     }
-    const living = this.friendlies.filter(npc => !npc.dead)
+    const living = this.friendlies.filter(npc => !npc.dead && !this.isPlayerCommanded(npc))
     const assembledCount = living.filter(npc => {
       const muster = this.veteranMusterPositions.get(npc.combatantId)
       return npc.isFormationTargetReached(VETERAN_ASSEMBLY_COMMAND_ID)
@@ -1623,6 +1656,7 @@ export class BanditMissionController {
     const playerVitalChanged = veteranField && (playerHp !== active.playerHp || playerStamina !== active.playerStamina)
     return this.checkpoint.persist(() => ({
       ...active,
+      ...(this.officialCheckpoint(active) ? { officialSquad: this.officialCheckpoint(active) } : {}),
       playerDead,
       deadTargetActorIds: targetIds,
       deadFriendlyActorIds: friendlyIds,
