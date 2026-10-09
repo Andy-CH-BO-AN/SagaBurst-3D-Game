@@ -210,7 +210,8 @@ export class NPC {
   // Visuals
   group: THREE.Group
   characterVisualGroup: THREE.Group
-  readonly faction: Faction
+  private _faction: Faction
+  get faction(): Faction { return this._faction }
   readonly characterFaction: CharacterFaction
   readonly aiType: AIType
   readonly name: string
@@ -222,7 +223,9 @@ export class NPC {
   presetId?: UnitPresetId
   private _squadId?: SquadId
   get squadId(): SquadId | undefined { return this._squadId }
-  combatOwnership?: 'player-personal'
+  /** Command membership changes independently of weapons, HP and mount state. */
+  setCommandSquad(squadId: SquadId | undefined): void { this._squadId = squadId }
+  combatOwnership?: import('../combat/CombatFaction').CombatOwnership
   readonly combatantId: string
   private readonly combatEventSink?: CombatEventSink
 
@@ -607,7 +610,7 @@ export class NPC {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
-    this.faction = faction
+    this._faction = faction
     this.characterFaction = characterFaction
     this.aiType = aiType
     this.name = name
@@ -775,6 +778,18 @@ export class NPC {
   }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
+  /** Only town resident command handoffs change allegiance; appearance and identity stay intact. */
+  setCommandAllegiance(faction: Faction.PLAYER | Faction.TOWN): void {
+    if (this._faction !== Faction.PLAYER && this._faction !== Faction.TOWN) return
+    if (this._faction === faction) return
+    this._faction = faction
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this._rangedVisibleTargetHoldFrames = 0
+    this.playerHitFocus = 0
+    if (this.mount) this.mount.setNpcRider(this, faction)
+  }
   /** Local duel hostility never activates Town retaliation or targets other actors. */
   setDuelHostility(active: boolean): void {
     if (this.duelHostile === active) return

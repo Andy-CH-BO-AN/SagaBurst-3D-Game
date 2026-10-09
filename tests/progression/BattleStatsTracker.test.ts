@@ -6,6 +6,9 @@ import {
   type CombatTargetRef,
 } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/world/NPC'
+import type { NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 
 function playerSource(): CombatActorRef {
   return {
@@ -58,6 +61,54 @@ function mockSquadNpc(id: string, squadId: 1 | 2 | 3, dead = false): any {
 }
 
 describe('BattleStatsTracker', () => {
+  it('keeps official and private contributions separate, sums merit once, and resumes both checkpoints', () => {
+    const events = new CombatEventStream()
+    const official = { ...squadSource(1), actorId: 'borrowed', allegiance: Faction.TOWN }
+    const personal: CombatActorRef = { ...squadSource(1), actorId: 'personal:test', squadId: 'personal', ownership: 'player-personal' }
+    const policy = {
+      acceptsSource: (source: CombatActorRef) => source.actorId === personal.actorId,
+      initialMemberIds: [personal.actorId],
+      official: { acceptsSource: (source: CombatActorRef) => source.actorId === official.actorId, initialMemberIds: [official.actorId] },
+    }
+    const tracker = new BattleStatsTracker(events, true, undefined, {}, policy)
+    onTestFinished(() => tracker.dispose())
+    for (const [source, appliedDamage] of [[playerSource(), 3], [official, 7], [personal, 11]] as const) {
+      events.emit({ type: 'damage_applied', source, target: npcTarget('enemy'), method: 'projectile', requestedDamage: 100, appliedDamage })
+      events.emit({ type: 'actor_killed', source, target: npcTarget('enemy'), method: 'projectile' })
+    }
+    const player = { dead: false } as Player
+    const actors = [{ combatantId: 'borrowed', dead: true, squadId: 1 },
+      { combatantId: 'personal:test', dead: false, squadId: 'personal' }] as unknown as NPC[]
+    const snapshot = tracker.snapshot(actors, player)
+    expect(snapshot.player).toMatchObject({ damageDealt: 3, kills: 1 })
+    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 21, kills: 3 })
+    expect(snapshot.squads).toEqual([
+      expect.objectContaining({ squadId: 1, damageDealt: 7, kills: 1, startingMembers: 1, casualties: 1 }),
+      expect.objectContaining({ squadId: 'personal', damageDealt: 11, kills: 1, startingMembers: 1, survivors: 1 }),
+    ])
+    const resumed = new BattleStatsTracker(new CombatEventStream(), true, undefined, tracker.checkpoint(),
+      { ...policy, initialContribution: tracker.commandCheckpoint(),
+        official: { ...policy.official, initialContribution: tracker.officialCommandCheckpoint() } })
+    onTestFinished(() => resumed.dispose())
+    expect(resumed.snapshot(actors, player)).toEqual(snapshot)
+    tracker.freeze()
+    events.emit({ type: 'actor_killed', source: official, target: npcTarget('late-enemy'), method: 'projectile' })
+    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1 })
+  })
+
+  it('never adds player events or an overlapping NPC to command merit more than once', () => {
+    const events = new CombatEventStream(), tracker = new BattleStatsTracker(events, true, undefined, {}, {
+      acceptsSource: () => true,
+      official: { acceptsSource: () => true },
+    })
+    onTestFinished(() => tracker.dispose())
+    for (const source of [playerSource(), squadSource(1)]) events.emit({ type: 'damage_applied', source,
+      target: npcTarget('enemy'), method: 'melee', requestedDamage: 10, appliedDamage: 10 })
+    expect(tracker.snapshot([], { dead: false } as Player).meritPlayer?.damageDealt).toBe(20)
+    expect(tracker.commandCheckpoint().damageDealt).toBe(10)
+    expect(tracker.officialCommandCheckpoint().damageDealt).toBe(0)
+  })
+
   it('counts explicitly registered Town allies but ignores enemy actors with colliding squad ids', () => {
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events)

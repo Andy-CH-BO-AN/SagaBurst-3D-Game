@@ -45,6 +45,12 @@ export interface PlayerCommandMeritPolicy {
   initialContribution?: PersonalCombatContribution
   initialMemberIds?: readonly string[]
   departedSurvivors?(): readonly string[]
+  official?: {
+    acceptsSource(source: CombatActorRef): boolean
+    initialContribution?: PersonalCombatContribution
+    initialMemberIds?: readonly string[]
+    departedSurvivors?(): readonly string[]
+  }
 }
 
 interface MutableCombatTotals {
@@ -88,9 +94,10 @@ function emptySquadTotals(): MutableSquadTotals {
 export class BattleStatsTracker {
   private readonly playerTotals: MutableCombatTotals
   private readonly squads = new Map<SquadId, MutableSquadTotals>()
-  private readonly registeredSquadActors = new Set<string>()
+  private readonly registeredSquadActors = new Map<string, SquadId>()
   private readonly unsubscribe: () => void
   private readonly commandContribution: PersonalCombatContribution
+  private readonly officialContribution: PersonalCombatContribution
   private frozen = false
 
   constructor(
@@ -110,11 +117,21 @@ export class BattleStatsTracker {
       gateBreaches: Math.floor(value(initialPlayerTotals.gateBreaches)),
     }
     this.commandContribution = { ...emptyPersonalContribution(), ...commandMerit?.initialContribution }
+    this.officialContribution = { ...emptyPersonalContribution(), ...commandMerit?.official?.initialContribution }
     if (commandMerit) {
       const personal = this._squad('personal')
       Object.assign(personal, this.commandContribution)
-      for (const id of commandMerit.initialMemberIds ?? []) this.registeredSquadActors.add(id)
+      for (const id of commandMerit.initialMemberIds ?? []) this.registeredSquadActors.set(id, 'personal')
       personal.startingMembers = commandMerit.initialMemberIds?.length ?? 0
+      if (commandMerit.official) {
+        const official = this._squad(1)
+        Object.assign(official, this.officialContribution)
+        for (const id of commandMerit.official.initialMemberIds ?? []) {
+          if (this.registeredSquadActors.has(id)) continue
+          this.registeredSquadActors.set(id, 1)
+          official.startingMembers++
+        }
+      }
     }
     this.unsubscribe = events.subscribe(event => this._onEvent(event))
   }
@@ -124,6 +141,7 @@ export class BattleStatsTracker {
   }
 
   commandCheckpoint(): PersonalCombatContribution { return { ...this.commandContribution } }
+  officialCommandCheckpoint(): PersonalCombatContribution { return { ...this.officialContribution } }
   freeze(): void { this.frozen = true }
 
   registerNpc(npc: NPC, friendly = npc.faction === Faction.PLAYER): void {
@@ -135,7 +153,7 @@ export class BattleStatsTracker {
       return
     }
 
-    this.registeredSquadActors.add(npc.combatantId)
+    this.registeredSquadActors.set(npc.combatantId, npc.squadId)
     this._squad(npc.squadId).startingMembers++
   }
 
@@ -144,14 +162,17 @@ export class BattleStatsTracker {
     // requested. Do not turn this into a per-frame 200v200 scan.
     const survivorsBySquad = new Map<SquadId, number>()
     for (const npc of npcs) {
-      if (!this.registeredSquadActors.has(npc.combatantId) || npc.squadId === undefined || npc.dead) continue
+      const squadId = this.registeredSquadActors.get(npc.combatantId)
+      if (squadId === undefined || npc.dead) continue
       survivorsBySquad.set(
-        npc.squadId,
-        (survivorsBySquad.get(npc.squadId) ?? 0) + 1,
+        squadId,
+        (survivorsBySquad.get(squadId) ?? 0) + 1,
       )
     }
     const departed = this.commandMerit?.departedSurvivors?.().filter(id => this.registeredSquadActors.has(id)) ?? []
     if (departed.length) survivorsBySquad.set('personal', (survivorsBySquad.get('personal') ?? 0) + new Set(departed).size)
+    const officialDeparted = this.commandMerit?.official?.departedSurvivors?.().filter(id => this.registeredSquadActors.get(id) === 1) ?? []
+    if (officialDeparted.length) survivorsBySquad.set(1, (survivorsBySquad.get(1) ?? 0) + new Set(officialDeparted).size)
 
     const squads = [...this.squads.entries()]
       .sort(([a], [b]) => squadDisplayOrder(a) - squadDisplayOrder(b))
@@ -180,7 +201,7 @@ export class BattleStatsTracker {
         survived: !player.dead,
       },
       squads,
-      ...(this.commandMerit ? { meritPlayer: mergePersonalMerit({ ...this.playerTotals, survived: !player.dead }, this.commandContribution) } : {}),
+      ...(this.commandMerit ? { meritPlayer: mergePersonalMerit({ ...this.playerTotals, survived: !player.dead }, this.commandContribution, this.officialContribution) } : {}),
     }
   }
 
@@ -190,10 +211,13 @@ export class BattleStatsTracker {
 
   private _onEvent(event: CombatEvent): void {
     if (this.frozen || !this.acceptEvent(event)) return
-    const commandSource = this.commandMerit?.acceptsSource(event.source)
-      && (this.commandMerit.acceptsEvent?.(event) ?? true)
+    const meritEvent = this.commandMerit?.acceptsEvent?.(event) ?? true
+    const commandSource = event.source.actorType !== 'player' && this.commandMerit?.acceptsSource(event.source) && meritEvent
+    const officialSource = event.source.actorType !== 'player' && !commandSource
+      && this.commandMerit?.official?.acceptsSource(event.source) && meritEvent
+    const contribution = commandSource ? this.commandContribution : officialSource ? this.officialContribution : undefined
     if (event.type === 'damage_applied') {
-      if (commandSource) this.commandContribution.damageDealt += event.appliedDamage
+      if (contribution) contribution.damageDealt += event.appliedDamage
       if (event.source.actorType === 'player') {
         this.playerTotals.damageDealt += event.appliedDamage
       }
@@ -211,7 +235,7 @@ export class BattleStatsTracker {
     }
 
     if (event.type === 'actor_killed') {
-      if (commandSource) this.commandContribution.kills++
+      if (contribution) contribution.kills++
       if (event.source.actorType === 'player') this.playerTotals.kills++
       if (this._sourceCountsForSquad(event.source) && event.source.squadId !== undefined) this._squad(event.source.squadId).kills++
       return
@@ -220,7 +244,7 @@ export class BattleStatsTracker {
     if (!this.trackStructureStats) return
 
     if (event.type === 'structure_damaged') {
-      if (commandSource) this.commandContribution.structureDamage += event.appliedDamage
+      if (contribution) contribution.structureDamage += event.appliedDamage
       if (event.source.actorType === 'player') {
         this.playerTotals.structureDamage += event.appliedDamage
       }
@@ -232,9 +256,9 @@ export class BattleStatsTracker {
 
     if (event.type === 'structure_destroyed') {
       const gate = event.target.structureKind === 'gate'
-      if (commandSource) {
-        this.commandContribution.structuresDestroyed++
-        if (gate) this.commandContribution.gateBreaches++
+      if (contribution) {
+        contribution.structuresDestroyed++
+        if (gate) contribution.gateBreaches++
       }
       if (event.source.actorType === 'player') {
         this.playerTotals.structuresDestroyed++

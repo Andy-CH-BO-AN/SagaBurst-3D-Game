@@ -5,6 +5,41 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
+  it('commands explicit Town allies and personal members separately while excluding unassigned PLAYER troops', () => {
+    const official = { combatantId: 'official', faction: Faction.TOWN, squadId: 1, setTacticalOrder: vi.fn() }
+    const personal = { combatantId: 'personal:test', faction: Faction.PLAYER, squadId: 'personal', setTacticalOrder: vi.fn() }
+    const bystander = { combatantId: 'bystander', faction: Faction.PLAYER, squadId: 1, setTacticalOrder: vi.fn() }
+    const acceptedIds = new Set(['official', 'personal:test'])
+    const issue = vi.fn(() => true)
+    const h = controllerHarness([official, personal, bystander], null, null, null, 'viking', 'squad', true, undefined,
+      { accepts: npc => acceptedIds.has(npc.combatantId), enabled: () => true, issue })
+    const entries = h.ui.render.mock.calls.at(-1)![0]
+    expect(entries.map(entry => [entry.target, entry.summary])).toEqual([['squad:1', '1/1'], ['squad:personal', '1/1'], ['all', '2/2']])
+    h.input.press('1'); h.controller.update(); h.input.press('2'); h.controller.update()
+    expect(official.setTacticalOrder).toHaveBeenCalledWith('charge')
+    expect(personal.setTacticalOrder).not.toHaveBeenCalled()
+    expect(bystander.setTacticalOrder).not.toHaveBeenCalled()
+    h.input.press('9'); h.controller.update(); h.input.press('5'); h.controller.update()
+    expect(issue).toHaveBeenCalledWith('follow', 'squad:personal')
+    h.input.pressAll(); h.controller.update(); h.input.press('3'); h.controller.update()
+    expect(official.setTacticalOrder).toHaveBeenLastCalledWith('defend')
+    expect(personal.setTacticalOrder).toHaveBeenLastCalledWith('defend')
+    expect(bystander.setTacticalOrder).not.toHaveBeenCalled()
+  })
+
+  it('closes a pending command when the Player dies and removes revoked command membership', () => {
+    const actor = { combatantId: 'official', faction: Faction.TOWN, squadId: 1, setTacticalOrder: vi.fn() }
+    let alive = true, authorized = true
+    const h = controllerHarness([actor], null, null, null, 'viking', 'squad', true, undefined,
+      { accepts: () => authorized, enabled: () => alive })
+    h.input.press('1'); h.controller.update()
+    alive = false; h.input.press('2'); h.controller.update()
+    expect(actor.setTacticalOrder).not.toHaveBeenCalled()
+    expect(h.controller.isSubmenuOpen).toBe(false)
+    alive = true; authorized = false; h.controller.update()
+    expect(h.ui.render.mock.calls.at(-1)![0].map(entry => entry.target)).toEqual(['all'])
+  })
+
   it('routes weapon wheel input to the replacement character inventory without mutating the previous one', () => {
     const previous = new InventoryManager()
     const before = previous.saveState

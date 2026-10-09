@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
-import { Faction } from '../../src/world/NPC'
+import { Faction, type NPC } from '../../src/world/NPC'
 import { FormationController } from '../../src/battle/FormationController'
 import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../../src/world/Terrain'
 
@@ -12,6 +12,24 @@ function placementHarness(...args: Parameters<typeof createFormationPlacementHar
 }
 
 describe('Formation placement and confirmation', () => {
+  it('uses explicit authority for mixed Town and flying members, placing only the flyer at cruise height', () => {
+    const foot = { ...placementParticipant('official', -10), faction: Faction.TOWN }
+    const flyer = { ...placementParticipant('personal', 10, true), mount: { isFlyingMount: true } }
+    const bystander = placementParticipant('bystander', 20)
+    const formation = new FormationController(new THREE.Scene(), new THREE.PerspectiveCamera(),
+      [foot, flyer, bystander] as unknown as NPC[], new THREE.Object3D(), [])
+    onTestFinished(() => formation.cancelPlacement())
+    formation.setParticipantPolicy(npc => npc.name === 'official' || npc.name === 'personal')
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: new THREE.Vector3(0, getTerrainHeight(0, 0), 0) }])
+    formation.beginPlacement('all')
+    expect(formation.confirmPlacement().count).toBe(2)
+    const groundSlot = foot.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
+    const airSlot = flyer.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
+    expect(groundSlot.y).toBe(getTerrainHeight(groundSlot.x, groundSlot.z))
+    expect(airSlot.y).toBe(getTerrainHeight(airSlot.x, airSlot.z) + 30)
+    expect(bystander.assignFormationTarget).not.toHaveBeenCalled()
+  })
+
   it('keeps every ideal slot when no obstacle blocks it', () => {
     const center = new THREE.Vector3(12, getTerrainHeight(12, -8), -8)
     const participants = [placementParticipant('left', -1), placementParticipant('right', 1)]
