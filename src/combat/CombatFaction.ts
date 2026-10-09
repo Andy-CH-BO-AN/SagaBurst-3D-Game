@@ -6,15 +6,17 @@ export enum Faction {
   BANDIT = 'BANDIT',
 }
 
+export type CombatOwnership = 'player-personal' | 'town-command' | 'mission-official'
+
 export interface CombatAllegiance {
   faction: Faction
-  combatOwnership?: 'player-personal'
+  combatOwnership?: CombatOwnership
   hostileToPlayer?: boolean
 }
 /** A player-owned Town party is allied to peaceful residents and opposes hostile residents. */
 export function combatAllegiancesHostile(actor: CombatAllegiance, target: CombatAllegiance): boolean {
   if (actor.faction === target.faction) return false
-  if (actor.combatOwnership === 'player-personal' && target.faction === Faction.TOWN) return target.hostileToPlayer === true
-  if (target.combatOwnership === 'player-personal' && actor.faction === Faction.TOWN) return actor.hostileToPlayer === true
+  if (actor.combatOwnership && actor.faction === Faction.PLAYER && target.faction === Faction.TOWN) return target.hostileToPlayer === true
+  if (target.combatOwnership && target.faction === Faction.PLAYER && actor.faction === Faction.TOWN) return actor.hostileToPlayer === true
   return true
 }

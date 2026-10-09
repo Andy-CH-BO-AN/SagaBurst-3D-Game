@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
+import { ArmyCommandController, type ArmyCommandAuthority } from '../../src/battle/ArmyCommandController'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 import type { NPC, Faction } from '../../src/world/NPC'
 import type { PlayerInput } from '../../src/player/PlayerInput'
@@ -10,6 +10,7 @@ import type { InventoryManager } from '../../src/rpg/InventoryManager'
 /** Dispatch-only records; these do not stand in for real actor AI, HP or movement. */
 export interface CommandRecipientFixture {
   faction?: Faction
+  combatantId?: string
   presetId?: string
   squadId?: number | string
   dead?: boolean
@@ -30,6 +31,7 @@ export function createArmyCommandHarness(
   grouping: 'preset' | 'squad' = 'preset',
   commandsEnabled = true,
   personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
+  authority?: ArmyCommandAuthority,
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -83,6 +85,7 @@ export function createArmyCommandHarness(
     grouping,
     commandsEnabled,
     personalCommands,
+    authority,
   )
   return { controller, input, ui }
 }

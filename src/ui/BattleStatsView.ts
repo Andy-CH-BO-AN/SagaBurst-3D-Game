@@ -40,7 +40,7 @@ export function renderBattleStats(
         <div><small>破門</small><b>${player.gateBreaches}</b></div>
         <div><small>存活</small><b>${player.survived ? '✓' : '✕'}</b></div>
       </div>
-      ${snapshot.meritPlayer ? `<div class="battle-stats-player-title">玩家與私兵軍功貢獻 · 傷害 ${whole(snapshot.meritPlayer.damageDealt)} · 擊殺 ${snapshot.meritPlayer.kills} · 建物 ${whole(snapshot.meritPlayer.structureDamage)} · 破門 ${snapshot.meritPlayer.gateBreaches}</div>` : ''}
+      ${snapshot.meritPlayer ? `<div class="battle-stats-player-title">玩家與授權部隊軍功貢獻 · 傷害 ${whole(snapshot.meritPlayer.damageDealt)} · 擊殺 ${snapshot.meritPlayer.kills} · 建物 ${whole(snapshot.meritPlayer.structureDamage)} · 破門 ${snapshot.meritPlayer.gateBreaches}</div>` : ''}
       ${squadRows ? `
         <div class="battle-stats-squad-list">
           <div class="battle-stats-squad-title">小隊統計 <small>SQUADS</small></div>

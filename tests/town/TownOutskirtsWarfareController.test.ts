@@ -2,9 +2,11 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { drainNpcSpawns, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { advanceUntil } from '../helpers/simulation'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import type { NpcSpawnSpec } from '../../src/battle/BattleSpawner'
-import type { CareerProfile, CareerRank } from '../../src/career/CareerProfile'
+import { createCareerProfile, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
 import type { CharacterFaction } from '../../src/world/CharacterVisuals'
@@ -74,7 +76,7 @@ class TestNpc {
   updateDeathPresentation(dt: number): void { this.deathPresentationComplete = this.deathPresentation.update(this.group, dt) }
 }
 
-function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'roman', playerFaction: CharacterFaction = 'roman', obstacles: ObstacleData[] = [], scheduler?: NpcSpawnScheduler) {
+function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'roman', playerFaction: CharacterFaction = 'roman', obstacles: ObstacleData[] = [], scheduler?: NpcSpawnScheduler, claimedSquads: readonly string[] = [], claimedActorIds: readonly string[] = []) {
   let profile: Pick<CareerProfile, 'rank' | 'faction'> = { rank, faction: playerFaction }
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.rebuild(obstacles)
@@ -82,7 +84,7 @@ function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'ro
   const controller = new TownOutskirtsWarfareController(new THREE.Scene(), townFaction, () => profile, obstacles, navigation, {
     createNpc(spec) { const npc = new TestNpc(spec); created.push(npc); return npc as unknown as NPC },
     createMount(x, z) { const mount = new TestMount(); mount.group.position.set(x, 0, z); horses.push(mount); return mount as unknown as Mount },
-  }, [], scheduler)
+  }, claimedSquads, scheduler, claimedActorIds)
   if (!scheduler) drainNpcSpawns(gameplayNpcSpawnDriver)
   const player = { targetable: true, dead: false, combatPosition: new THREE.Vector3(10000, 0, 10000) } as unknown as Player
   const frame = (dt = .4, peers: NPC[] = []) => { controller.prepareFrame(dt, [...controller.actors, ...peers], player); drainNpcSpawns(gameplayNpcSpawnDriver) }
@@ -501,6 +503,75 @@ describe('Town outskirts runtime', () => {
 
 
 describe('Outskirts pending generations', () => {
+  it('previews ownership without cancellation and claims only saved retry IDs while later arrivals remain roaming', () => {
+    // Recording actors exercise ownership and queue protocol; no real NPC, Mount or TownWorld.
+    const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
+    onTestFinished(() => h.controller.dispose())
+    advanceUntil(() => h.horses.length === 1, () => driver.advanceFrame(), {
+      maxFrames: 32, failureMessage: 'claim preview needs the first cavalry rider',
+    })
+    const rider = h.created[30], horse = rider.mount, position = rider.combatPosition.clone()
+    const preview = h.controller.prepareCavalryForSiege('viking')
+    expect(preview.actors).toEqual([rider])
+    expect(h.controller.owns(rider as unknown as NPC)).toBe(true)
+    expect(rider.clearEncounter).not.toHaveBeenCalled()
+    expect(h.controller.squads.filter(s => s.spec.kind === 'cavalry').every(s => s.state === 'SPAWNING')).toBe(true)
+    expect(h.created).toHaveLength(31)
+    driver.advanceFrame()
+    const arrival = h.created[31]
+    expect(h.controller.owns(arrival as unknown as NPC)).toBe(true)
+    const retry = h.controller.prepareCavalryForSiege('viking', [rider.combatantId])
+    expect(retry.actors).toEqual([rider])
+    expect(retry.squadIds).toEqual([])
+    retry.claim(); retry.claim()
+    expect(rider.clearEncounter).toHaveBeenCalledOnce()
+    expect(h.controller.owns(rider as unknown as NPC)).toBe(false)
+    expect(h.controller.owns(arrival as unknown as NPC)).toBe(true)
+    expect(rider.combatPosition).toEqual(position)
+    expect(rider.mount).toBe(horse)
+    expect(rider.disposed).toBe(false); expect(horse?.disposed).toBe(false)
+    driver.drain()
+    expect(h.created).toHaveLength(60)
+    expect(h.controller.actors.filter(npc => npc.faction !== Faction.BANDIT)).toHaveLength(29)
+    expect(h.controller.squads.filter(s => s.spec.kind === 'cavalry').every(s => s.state === 'PATROLLING')).toBe(true)
+    const profile = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000,
+      activeMission: createEnemyTownAssaultMission('partial-retry') }
+    profile.activeMission.siege!.rosterCreated = true
+    profile.activeMission.siege!.attackerIds = [rider.combatantId]
+    profile.activeMission.siege!.claimedSquadIds = retry.squadIds
+    const reloaded = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    const reloadDriver = new NpcSpawnTestDriver()
+    const restored = setup(reloaded.rank, 'roman', reloaded.faction, [], reloadDriver.scheduler,
+      reloaded.activeMission!.siege!.claimedSquadIds, reloaded.activeMission!.siege!.attackerIds)
+    onTestFinished(() => restored.controller.dispose())
+    reloadDriver.drain()
+    const roamingIds = restored.controller.actors.filter(npc => npc.faction !== Faction.BANDIT).map(npc => npc.combatantId)
+    expect(roamingIds).toHaveLength(29)
+    expect(roamingIds).not.toContain(rider.combatantId)
+    expect(roamingIds).toContain(arrival.combatantId)
+    expect(new Set(roamingIds).size).toBe(29)
+    expect(restored.created).toHaveLength(59)
+    expect(restored.horses).toHaveLength(29)
+    // The receiving owner owns the transferred original objects' lifetime.
+    onTestFinished(() => { rider.dispose(); horse?.dispose() })
+  })
+
+  it('completes an entirely excluded saved generation without constructing borrowed actors', () => {
+    // Recording queue boundary only: no real NPC, Mount or TownWorld.
+    const driver = new NpcSpawnTestDriver()
+    const excluded = Array.from({ length: 10 }, (_, index) => `outskirts:cavalry:a:${index}`)
+    const h = setup('captain', 'roman', 'roman', [], driver.scheduler, [], excluded)
+    onTestFinished(() => h.controller.dispose())
+    driver.drain()
+    const squad = h.controller.squads.find(candidate => candidate.id === 'outskirts:cavalry:a')!
+    expect(squad.members).toEqual([])
+    expect(squad.leader).toBeNull()
+    expect(squad.state).toBe('PATROLLING')
+    expect(h.controller.batches.every(batch => batch.ready)).toBe(true)
+    expect(h.created).toHaveLength(50)
+    expect(h.horses).toHaveLength(20)
+  })
+
   it('transfers existing partial cavalry unchanged, cancels its remaining generation and replenishes only on release', () => {
     const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
     advanceUntil(() => h.horses.length === 1, () => driver.advanceFrame(), {

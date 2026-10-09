@@ -7,7 +7,8 @@ import { Faction, NPC } from '../../src/world/NPC'
 
 function actor(id: string, faction: Faction, x = 0) {
   const npc = Object.create(NPC.prototype)
-  Object.assign(npc, { combatantId: id, faction, group: new THREE.Group(), mount: null })
+  Object.defineProperty(npc, 'faction', { value: faction })
+  Object.assign(npc, { combatantId: id, group: new THREE.Group(), mount: null })
   Object.defineProperties(npc, { dead: { value: false }, hostileToPlayer: { value: faction === Faction.ENEMY } })
   npc.group.position.set(x, 39, 0)
   return npc as NPC

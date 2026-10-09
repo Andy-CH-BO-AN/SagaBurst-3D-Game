@@ -5,6 +5,7 @@ import type { DamageableObstacle, DamageableObstacleKind } from '../world/Damage
 import type { Mount } from '../world/Mount'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { Faction, NPC } from '../world/NPC'
+import type { CombatOwnership } from './CombatFaction'
 
 export type CombatActorType = 'player' | 'npc'
 export type CombatTargetType = CombatActorType | 'mount' | 'structure' | 'training'
@@ -18,7 +19,7 @@ export interface CombatActorRef {
   characterFaction: CharacterFaction
   presetId?: UnitPresetId
   squadId?: SquadIdentity
-  ownership?: 'player-personal'
+  ownership?: CombatOwnership
   /** Riding state when this source reference was captured, including melee hit time. */
   isMounted?: boolean
 }

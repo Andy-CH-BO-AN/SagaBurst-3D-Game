@@ -134,6 +134,34 @@ export function townRoster(): TownActorSpec[] {
   return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
+/** Captain's fixed T2 training residents. Selection never draws from officers, gates or Patrols. */
+export function townCommandSquadRoster(faction: CharacterFaction, roster: readonly TownActorSpec[] = townRoster()): TownActorSpec[] {
+  const ids = [
+    ...Array.from({ length: 5 }, (_, i) => `cavalry-training:melee_cavalry:${i}`),
+    ...Array.from({ length: 5 }, (_, i) => `cavalry-training:lancer_cavalry:${i}`),
+    ...Array.from({ length: 4 }, (_, i) => `cavalry-training:ranged_cavalry:${i}`),
+    ...Array.from({ length: 8 }, (_, i) => `ranged_infantry-${i}`),
+    ...Array.from({ length: 4 }, (_, i) => `melee_infantry-${i}`),
+    ...Array.from({ length: 4 }, (_, i) => `spearman_infantry-${i}`),
+  ]
+  const actors = new Map(roster.map(actor => [actor.id, actor]))
+  return ids.flatMap(id => {
+    const actor = actors.get(id)
+    if (!actor || actor.duty !== 'training' || actor.tier !== 2) return []
+    if (actor.id.startsWith('ranged_infantry-')) {
+      const archer = faction === 'viking' || actor.index < 4
+      return [{ ...actor, role: archer ? 'archer_infantry' as const : 'ranged_infantry' as const,
+        unitKind: archer ? 'archer' as const : 'ranged' as const }]
+    }
+    return [{ ...actor }]
+  })
+}
+
+/** Render the whole existing population with the Captain roster's faction-native equipment. */
+export function withTownCommandSquadRoster(faction: CharacterFaction, roster: readonly TownActorSpec[]): TownActorSpec[] {
+  const command = new Map(townCommandSquadRoster(faction, roster).map(actor => [actor.id, actor]))
+  return roster.map(actor => command.get(actor.id) ?? actor)
+}
 export function isCivilian(role: TownRole): boolean { return role === 'civilian' || role === 'merchant' }
 export function isTownMilitary(actor: TownActorSpec): boolean { return Boolean(actor.unitKind) }
 export type TownResult = 'player_defeated' | 'town_defeated'
@@ -142,6 +170,7 @@ export class TownEvent {
   readonly allActors = new Map<string, { dead: boolean }>()
   readonly actors = new Map<string, { dead: boolean }>()
   private readonly expectedIds: Set<string>
+  private excludedActorIds: ReadonlySet<string> = new Set()
   hostile = false
   registrationComplete = false
   constructor(objectiveRoster: readonly Pick<TownActorSpec, 'id'>[]) {
@@ -158,10 +187,14 @@ export class TownEvent {
     if (missing.length) throw new Error('Town objective roster incomplete: ' + missing.join(', '))
     this.registrationComplete = true
   }
+  /** Saved event-start authority IDs are the exclusion contract, independent of current rank or faction. */
+  excludeAuthorizedActors(actorIds: readonly string[]): void {
+    this.excludedActorIds = new Set(actorIds.filter(id => this.expectedIds.has(id)))
+  }
   evaluate(playerDead: boolean): TownResult | null {
     if (!this.hostile) return null
     if (playerDead) return 'player_defeated'
-    return this.registrationComplete && [...this.expectedIds].every(id => this.actors.get(id)?.dead === true) ? 'town_defeated' : null
+    return this.registrationComplete && [...this.expectedIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
   }
 }
 export function settleTown(current: CareerProfile, id: string, result: TownResult): CareerProfile {
@@ -169,7 +202,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   if (profile.townEvent?.id !== id || profile.townEvent.state !== 'hostile') return profile
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }

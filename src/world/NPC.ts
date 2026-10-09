@@ -210,7 +210,8 @@ export class NPC {
   // Visuals
   group: THREE.Group
   characterVisualGroup: THREE.Group
-  readonly faction: Faction
+  private _faction: Faction
+  get faction(): Faction { return this._faction }
   readonly characterFaction: CharacterFaction
   readonly aiType: AIType
   readonly name: string
@@ -222,9 +223,28 @@ export class NPC {
   presetId?: UnitPresetId
   private _squadId?: SquadId
   get squadId(): SquadId | undefined { return this._squadId }
-  combatOwnership?: 'player-personal'
+  /** Command membership changes independently of weapons, HP and mount state. */
+  setCommandSquad(squadId: SquadId | undefined): void { this._squadId = squadId }
+  combatOwnership?: import('../combat/CombatFaction').CombatOwnership
   readonly combatantId: string
-  private readonly combatEventSink?: CombatEventSink
+  private readonly originalCombatEventSink?: CombatEventSink
+  private readonly combatEventBindings: { sink: CombatEventSink }[] = []
+  private combatEventBindingsClosed = false
+  private get combatEventSink(): CombatEventSink | undefined {
+    return this.combatEventBindings[this.combatEventBindings.length - 1]?.sink ?? this.originalCombatEventSink
+  }
+
+  /** Borrowed ownership replaces routing for its lifetime without subscribing a second listener. */
+  bindCombatEventSink(sink: CombatEventSink): () => void {
+    if (this.combatEventBindingsClosed) throw new Error('Cannot bind combat events to a disposed NPC')
+    const binding = { sink }
+    this.combatEventBindings.push(binding)
+    return () => {
+      const index = this.combatEventBindings.indexOf(binding)
+      // Token identity makes cleanup idempotent and keeps an older owner from restoring over a newer one.
+      if (index >= 0) this.combatEventBindings.splice(index, 1)
+    }
+  }
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
@@ -607,7 +627,7 @@ export class NPC {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
-    this.faction = faction
+    this._faction = faction
     this.characterFaction = characterFaction
     this.aiType = aiType
     this.name = name
@@ -621,7 +641,7 @@ export class NPC {
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
-    this.combatEventSink = combatEventSink
+    this.originalCombatEventSink = combatEventSink
     this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
@@ -775,6 +795,18 @@ export class NPC {
   }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
+  /** Only town resident command handoffs change allegiance; appearance and identity stay intact. */
+  setCommandAllegiance(faction: Faction.PLAYER | Faction.TOWN): void {
+    if (this._faction !== Faction.PLAYER && this._faction !== Faction.TOWN) return
+    if (this._faction === faction) return
+    this._faction = faction
+    this._cachedTargetIsPlayer = false
+    this._cachedTargetNpc = null
+    this._targetAcquisitionInitialized = false
+    this._rangedVisibleTargetHoldFrames = 0
+    this.playerHitFocus = 0
+    if (this.mount) this.mount.setNpcRider(this, faction)
+  }
   /** Local duel hostility never activates Town retaliation or targets other actors. */
   setDuelHostility(active: boolean): void {
     if (this.duelHostile === active) return
@@ -894,6 +926,8 @@ export class NPC {
   }
 
   dispose(): void {
+    this.combatEventBindingsClosed = true
+    this.combatEventBindings.length = 0
     this.pendingFall.clear()
     this.fallContext = undefined
     this.mount?.releaseRider()

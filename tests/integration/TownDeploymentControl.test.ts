@@ -5,6 +5,7 @@ import { Player } from '../../src/player/Player'
 import { ThirdPersonCamera } from '../../src/camera/ThirdPersonCamera'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
@@ -144,6 +145,27 @@ describe('Career deployment control dispatch', () => {
     expect(h.updateCamera).not.toHaveBeenCalled()
     expect(h.town.spectator.update).toHaveBeenCalledOnce()
     for (const consumer of h.combatCalls()) expect(consumer).not.toHaveBeenCalled()
+  })
+
+  it('saves a dead Patrol Player through the Patrol owner while its living squad continues simulation', () => {
+    const h = controlFixture()
+    h.town.profile.rank = 'captain'
+    h.town.profile.activeMission = createCaptainPatrolCommandMission(h.town.profile,
+      Array.from({ length: 20 }, (_, i) => `town-patrol:a:${i ? i - 1 : 'captain'}`), 'observer-patrol')
+    const bandit = Object.assign(h.town.mission, { persistRuntimeProgress: vi.fn() })
+    const town = Object.assign(h.town, { enterMissionObserver: vi.fn(), captainPatrol: {
+      active: h.town.profile.activeMission, setEligibleTargets: vi.fn(), update: vi.fn(), persist: vi.fn(() => true), evaluateOutcome: vi.fn(() => null),
+    } })
+    h.driver.drain()
+    h.player.takeDamage(10000, { setFill() {} }); town.spectator = { update: vi.fn() }
+    town.updateGameplay(.05)
+    expect(h.updatePlayer).not.toHaveBeenCalled()
+    expect(town.missionCombat.update).toHaveBeenCalledOnce()
+    expect(town.captainPatrol.update).toHaveBeenCalledExactlyOnceWith(.05)
+    expect(town.captainPatrol.persist).toHaveBeenCalledExactlyOnceWith(true)
+    expect(town.captainPatrol.evaluateOutcome).toHaveBeenCalledOnce()
+    expect(bandit.persistRuntimeProgress).not.toHaveBeenCalled()
+    expect(town.mission.evaluate).not.toHaveBeenCalled()
   })
 })
 

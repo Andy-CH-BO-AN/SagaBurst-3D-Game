@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition, returnFollowLocalOffset } from '../../src/battle/FollowOrder'
+import { FOLLOW_THRESHOLDS, followLocalOffset, officialFollowLocalOffset, followSlotWorldPosition, returnFollowLocalOffset } from '../../src/battle/FollowOrder'
 
 describe('FOLLOW tactical geometry', () => {
+  it('gives official and private mixed ground or mounted followers separate corridors', () => {
+    const privateSlots = [false, true].flatMap(mounted => Array.from({ length: 30 }, (_, i) => followLocalOffset(i, mounted)))
+    const officialSlots = [false, true].flatMap(mounted => Array.from({ length: 30 }, (_, i) => officialFollowLocalOffset(i, mounted, true)))
+    for (const official of officialSlots) for (const personal of privateSlots) expect(Math.abs(official.x - personal.x)).toBeGreaterThan(2.1)
+    expect(officialFollowLocalOffset(0, true, false)).toEqual(followLocalOffset(0, true))
+  })
+
   it('assigns ten stable, distinct slots instead of one leader position', () => {
     const first = Array.from({ length: 10 }, (_, index) => followLocalOffset(index))
     const second = Array.from({ length: 10 }, (_, index) => followLocalOffset(index))

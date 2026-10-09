@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
-import { acceptCavalrySweep, createSweepRoster, sweepPlayerSpawn } from '../../src/career/CavalrySweep'
+import { acceptCaptainCavalryCommand, acceptCavalrySweep, createSweepRoster, sweepPlayerSpawn } from '../../src/career/CavalrySweep'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { VETERAN_MISSION_IDS } from '../../src/career/VeteranMission'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -44,7 +44,7 @@ function sequence(prefix: string, count: number): string[] {
  * The controller owns its instance scheduler; its unrelated two ambient doubles load explicitly.
  * Position inputs below exercise phase gates, not locomotion or NPC.mountVehicle internals.
  */
-function sweep(options: { livingSlots?: number[]; enemyCount?: number } = {}) {
+function sweep(options: { livingSlots?: number[]; enemyCount?: number; captain?: boolean } = {}) {
   const driver = new NpcSpawnTestDriver(), scene = new THREE.Scene()
   const roster = createSweepRoster('roman'), town = townRoster()
   const borrowedSlots = [0, 1, 29]
@@ -60,7 +60,8 @@ function sweep(options: { livingSlots?: number[]; enemyCount?: number } = {}) {
     return { spec, npc, homeMount }
   })
   const selected = Array.from({ length: 59 }, (_, slot) => borrowedSlots.includes(slot) ? `garrison:${slot}` : undefined)
-  let profile = acceptCavalrySweep({ ...createCareerProfile('roman'), ownedHorseTiers: [1] }, 'sweep', selected)!
+  const fresh: CareerProfile = { ...createCareerProfile('roman'), ownedHorseTiers: [1], ...(options.captain ? { rank: 'captain' as const, totalMerit: 5000 } : {}) }
+  let profile = (options.captain ? acceptCaptainCavalryCommand : acceptCavalrySweep)(fresh, 'sweep', selected)!
   if (options.livingSlots) profile.activeMission!.deadFriendlyActorIds = profile.activeMission!.friendlyActorIds.filter((_, slot) => !options.livingSlots!.includes(slot))
   if (options.enemyCount !== undefined) profile.activeMission!.deadTargetActorIds = profile.activeMission!.targetActorIds.slice(options.enemyCount)
   const player = { dead: false, combatPosition: sweepPlayerSpawn() }
@@ -267,4 +268,49 @@ describe('mounted mission spawn caller contracts', () => {
       expect(resident.npc.respawnEnabled).toBe(true)
     }
   })
+})
+
+
+describe('Captain Cavalry command caller', () => {
+  it('keeps the authorized rider command while the existing second squad charges independently', () => {
+    // Only three recording residents and no temporary actors: full official IDs
+    // remain saved casualties, so the test observes command ownership alone.
+    const h = sweep({ captain: true, livingSlots: [0, 29], enemyCount: 0 })
+    h.profile().activeMission!.phase = 'ENGAGING'
+    expect(h.controller.startActiveMission()).toBe(true)
+    h.driver.drain()
+    const controlled = h.residents[0].npc, otherCaptain = h.residents[2].npc
+    controlled.setTacticalOrder('defend')
+    controlled.setTacticalOrder.mockClear()
+    controlled.assignFormationTarget.mockClear()
+    controlled.assignFollowTarget.mockClear()
+    h.controller.updateFlow(.1, 0)
+    h.controller.updateFlow(.1, 0)
+    expect(controlled.tacticalOrder).toBe('defend')
+    expect(controlled.setTacticalOrder).not.toHaveBeenCalled()
+    expect(controlled.assignFormationTarget).not.toHaveBeenCalled()
+    expect(controlled.assignFollowTarget).not.toHaveBeenCalled()
+    expect(otherCaptain.setTacticalOrder).toHaveBeenCalledWith('charge')
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toHaveLength(29)
+    expect(h.profile().activeMission!.officialSquad!.actorIds).not.toContain('garrison:29')
+  })
+  it('keeps a Captain rider command when marching is interrupted by an incidental threat', () => {
+    const h = sweep({ captain: true, livingSlots: [0, 29], enemyCount: 0 })
+    h.profile().activeMission!.phase = 'MARCHING'
+    expect(h.controller.startActiveMission()).toBe(true)
+    h.driver.drain()
+    const controlled = h.residents[0].npc, otherCaptain = h.residents[2].npc
+    controlled.setTacticalOrder('defend')
+    controlled.setTacticalOrder.mockClear()
+    controlled.assignFormationTarget.mockClear()
+    const threat = { faction: Faction.BANDIT, dead: false, hostileToPlayer: true,
+      combatPosition: controlled.combatPosition.clone(), encounterAggroState: 'engaging' } as unknown as NPC
+    expect(h.controller.noteTravelHit(controlled as unknown as NPC, threat, { owns: actor => actor === threat })).toBe(true)
+    expect(h.controller.travelEncounter.owns(controlled as unknown as NPC)).toBe(true)
+    expect(controlled.tacticalOrder).toBe('defend')
+    expect(controlled.setTacticalOrder).not.toHaveBeenCalled()
+    expect(controlled.assignFormationTarget).not.toHaveBeenCalled()
+    expect(otherCaptain.setTacticalOrder).toHaveBeenCalledWith('charge')
+  })
+
 })

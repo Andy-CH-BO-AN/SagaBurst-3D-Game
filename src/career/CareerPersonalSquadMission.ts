@@ -116,6 +116,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
   }
   const contribution = emptyPersonalContribution()
   for (const key of Object.keys(contribution) as (keyof PersonalCombatContribution)[]) contribution[key] = nonnegative(raw.contribution?.[key])
+  if (finite(raw.contribution?.damageTaken)) contribution.damageTaken = nonnegative(raw.contribution.damageTaken)
   contribution.kills = Math.floor(contribution.kills)
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)

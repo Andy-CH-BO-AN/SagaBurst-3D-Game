@@ -82,7 +82,7 @@ export interface DefenseCampaignLaunchConfig {
   deploymentSeconds?: number
   capabilities?: Partial<DefenseCampaignCapabilities>
   careerMissionId?: string
-  careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault'
+  careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-outpost-defense'
   careerReliefPhase?: 'march' | 'charge'
   careerVeteranOutpost?: CareerVeteranOutpostLaunchData
   careerPersonalSquad?: PersonalSquadMission
@@ -170,6 +170,7 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   const veteranOutpost = config.careerVeteranOutpost
+  if (config.careerMissionKind === 'captain-outpost-defense' && (!config.careerMissionId || config.stageId !== 9)) errors.push('Captain Frontline requires Career Stage IX')
   if (config.careerPersonalSquad && (!config.careerMissionId || !parsePersonalMission(config.careerPersonalSquad))) {
     errors.push('Personal squad requires a valid Career mission roster')
   }

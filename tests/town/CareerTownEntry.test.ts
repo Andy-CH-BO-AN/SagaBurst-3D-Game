@@ -1,3 +1,6 @@
+import { acceptCaptainEagle, acceptCaptainFrontline, type CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
+import { claimCareerMission } from '../../src/career/CareerProfile'
+import { CAREER_OUTPOST_SESSION_KEY } from '../../src/career/CareerOutpostMission'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -98,5 +101,50 @@ describe('Town load failure recovery', () => {
     expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull(); expect(home).toHaveBeenCalledTimes(1)
     expect(local.getItem('sagaburst_career_v1')).toBe(saved)
     expect(store.load()?.townEvent?.state).toBe(hostile ? 'hostile' : undefined)
+  })
+})
+
+
+describe('Captain battlefield Career entry routing', () => {
+  it.each(['frontline', 'eagle'] as const)('%s reload resumes the actual Captain battle before constructing a Town scene', async kind => {
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
+      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
+    const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'resume-eagle')! : acceptCaptainFrontline(fresh, 'resume-frontline')!
+    expect(new CareerProfileStore(local).save(accepted)).toBe(true)
+    const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
+    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
+    await vi.waitFor(() => expect(launch).toHaveBeenCalledOnce())
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(launch.mock.calls[0][0]).toMatchObject(kind === 'eagle'
+      ? { type: 'captain-eagle', careerMissionId: 'resume-eagle', battle: { careerEagleMissionId: 'resume-eagle' } }
+      : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
+    expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+  })
+
+  it.each(['frontline', 'eagle'] as const)('%s claimed result returns to Town without replaying battle or merit', async kind => {
+    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
+      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
+    const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'claimed')! : acceptCaptainFrontline(fresh, 'claimed')!
+    const settled = claimCareerMission(accepted, 'claimed', 'victory', { damageDealt: 20, damageTaken: 0, kills: 1,
+      structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }).profile
+    const store = new CareerProfileStore(local); expect(store.save(settled)).toBe(true)
+    const start = vi.fn(), launch = vi.fn(async () => {})
+    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
+    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    expect(launch).not.toHaveBeenCalled()
+    expect(store.load()!.activeMission).toBeUndefined()
+    expect(store.load()!.totalMerit).toBe(settled.totalMerit)
+    expect(store.load()!.claimedBattleIds).toContain('claimed')
+    expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
   })
 })

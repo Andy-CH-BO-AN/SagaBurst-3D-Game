@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { vi } from 'vitest'
 import type { AIType, Faction, NPC } from '../../src/world/NPC'
+import type { CombatEventSink } from '../../src/combat/CombatAttribution'
 import type { EagleFlightSnapshot } from '../../src/movement/EagleFlightController'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import type { MountType } from '../../src/world/Mount'
@@ -47,6 +48,7 @@ export class RecordingNpc {
 
   get combatPosition(): THREE.Vector3 { return this.mount?.group.position ?? this.group.position }
   get isMounted(): boolean { return Boolean(this.mount) }
+  readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
   readonly setEagleFlightOrder = vi.fn()
   readonly setTownPeaceful = vi.fn()
   readonly configureBanditEncounter = vi.fn()
