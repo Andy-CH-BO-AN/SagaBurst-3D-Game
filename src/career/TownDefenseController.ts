@@ -1,6 +1,6 @@
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { followLocalOffset } from '../battle/FollowOrder'
-import { CAPTAIN_SIEGE_COMMAND_ID } from './CaptainMissionCatalog'
+import { CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL } from './CaptainMissionCatalog'
 import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
@@ -274,7 +274,8 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.phase === 'RESULT' || active.phase === 'RESET') { this.guide.hide(); return }
     if (this.blackCat.dead && this.ranger?.mount === this.blackCat) this.ranger.dismountFromMount()
-    const rally = this.anchorVector('playerRallyPoint')
+    const captainDefense = active.templateId === CAPTAIN_GATE_DEFENSE_ID
+    const rally = captainDefense ? this.withTerrain(siegePoint(CAPTAIN_DEFENSE_GATE, 0, 12)) : this.anchorVector('playerRallyPoint')
     this.checkpoint.advance(dt)
     if (active.phase === 'PREPARING') {
       this.preparationElapsed = Math.min(SIEGE_PREPARATION_SECONDS, this.preparationElapsed + dt)
@@ -288,7 +289,7 @@ export class TownDefenseController {
     }
     if (this.phase !== 'PREPARING') { this.updateSiegeAttackOrders(); this.updateGateDefenseOrders() }
     this.persistRuntimeProgress()
-    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining)
+    if (!this.assault) this.guide.updateTownDefense(this.phase ?? active.phase, this.player().combatPosition, cameraYaw, rally, this.remainingEnemies, this.civilianDeaths, this.preparationRemaining, captainDefense ? CAPTAIN_DEFENSE_GATE_LABEL : undefined)
   }
 
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
@@ -384,7 +385,10 @@ export class TownDefenseController {
   private order(npc: NPC, point: THREE.Vector3): void {
     if (npc.dead || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
     const prior = this.orders.get(npc)
-    if (prior && Math.hypot(prior.x - point.x, prior.z - point.z) < .5 && npc.missionMovement) return
+    // Combat preparation can clear the native formation even when the cached
+    // destination is unchanged. Only reuse a still-active scripted formation.
+    if (prior && Math.hypot(prior.x - point.x, prior.z - point.z) < .5 && npc.missionMovement
+      && npc.tacticalOrder === 'formation' && npc.formationCommandId != null) return
     npc.assignSiegeObstacle(null)
     npc.missionMovement = true
     // Use native movement speed so urgent mission travel can sprint without patrol speed caps.

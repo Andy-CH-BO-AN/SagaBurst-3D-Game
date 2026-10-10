@@ -3,14 +3,14 @@ import { CombatEventStream } from '../../src/combat/CombatAttribution'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import type { Player } from '../../src/player/Player'
 import { describe, expect, it } from 'vitest'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, captainGateDefenseBriefing, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
 import { availableCareerMissionsForPage, careerMissionPage, defaultCareerMissionPage } from '../../src/career/CareerMissionCatalog'
 import { acceptCaptainCavalryCommand } from '../../src/career/CavalrySweep'
 import { acceptCaptainSiegeCommand, acceptEnemyTownAssault } from '../../src/career/EnemyTownAssault'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
@@ -43,10 +43,11 @@ describe('Captain mission eligibility and official roster policy without actor m
     expect(acceptCaptainEagle(owned)!.selectedMountId).toBe('xongkoro')
   })
   it('uses existing North gate infantry and excludes unavailable residents without filling missing slots', () => {
-    const residents = townRoster()
+    const residents = withTownCommandSquadRoster('roman', townRoster())
     const ids = captainGateDefenseActorIds(residents)
-    expect(ids.length).toBeGreaterThan(0)
-    expect(ids.length).toBeLessThanOrEqual(30)
+    expect(ids).toHaveLength(19)
+    expect(captainGateDefenseBriefing(residents)).toContain('北門 19 名')
+    expect(captainGateDefenseBriefing(residents, new Set(ids.slice(0, 2)))).toContain('北門 17 名')
     expect(ids.filter(id => id.startsWith('gate:'))).toEqual(Array.from({ length: 10 }, (_, index) => `gate:north:${index}`))
     expect(captainGateDefenseActorIds(residents, new Set(ids))).toEqual([])
     expect(captainGateDefenseActorIds(residents.filter(actor => actor.id === 'gate:north:0'))).toEqual(['gate:north:0'])

@@ -459,6 +459,46 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(f.controller.releasedEnemies).toHaveLength(2)
   })
 
+  it('keeps North cavalry at its reserve after an enemy breaches West, until North is enemy-breached', () => {
+    // One mounted reserve and one threat exercise native combat movement, not just order flags.
+    const f = siegeFixture({ assault: false, residentIds: ['captain'], attackerSlots: [2], includeRanger: false, freshDeployment: true })
+    const guard = f.controller.captain!
+    let enemy = f.controller.enemies[0]
+    const mount = new Mount(f.scene, MountType.CORGI, guard.combatPosition.x, guard.combatPosition.z)
+    onTestFinished(() => mount.dispose())
+    guard.mountVehicle(mount)
+    f.controller.updateFlow(10, 0)
+    const start = guard.combatPosition.clone()
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    damageObstacle(f.gates.get('west')!.damageable, 99999, { source: createNpcCombatActorRef(enemy), method: 'siege', emit: f.controller.events.emit })
+    const advanceGuard = () => {
+      for (let frame = 0; frame < 40; frame++) guard.update(.025, f.player, [enemy], [], f.obstacles, null as never, () => {}, () => {}, false, 0, null, undefined, f.navigation)
+    }
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeLessThan(.1)
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    enemy = f.controller.enemies[0]
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeLessThan(.1)
+    damageObstacle(f.gates.get('north')!.damageable, 99999, { source: createNpcCombatActorRef(f.controller.enemies[0]), method: 'siege', emit: f.controller.events.emit })
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeGreaterThan(1)
+  })
+
+  it('points Captain defense preparation at the same North gate as the official command roster', () => {
+    const f = siegeFixture({ assault: false, captain: true, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    f.controller.updateFlow(.1, 0)
+    expect(f.controller.guide.updateTownDefense).toHaveBeenCalledWith('PREPARING', f.player.combatPosition, 0,
+      expect.objectContaining({ x: expect.closeTo(0, 5), z: -103 }), 1, 0, 9.9, '北門')
+  })
+
   it('frees breached gate infantry and cavalry to pursue threats across gate sectors', () => {
     const gateId: TownGateId = 'north'
     // Representative native placement belongs to the preceding deployment owner.
