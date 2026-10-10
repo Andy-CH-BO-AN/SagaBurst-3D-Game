@@ -1,5 +1,5 @@
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { AIType, Faction } from '../world/NPC'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -468,7 +468,9 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
   const presetId = unitSpec.presetId
   const hero = unitSpec.tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
   const ranged = unitSpec.heroRole === 'ranger' || presetId.endsWith('_archer') || presetId.endsWith('_horse_archer')
-  const loadout = { ...UNIT_PRESETS[presetId].tierLoadouts[3] }
+  const loadout = { ...(unitSpec.heroRole === 'ranger'
+    ? resolveT4UnitLoadout(`${characterFaction}_archer`)
+    : hero ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[3]) }
   if (unitSpec.mounted) loadout.mountId = unitSpec.heroRole === 'ranger' ? 'black-cat' : hero?.mountOverride ?? loadout.mountId ?? 'horse'
   else loadout.mountId = null
   return {

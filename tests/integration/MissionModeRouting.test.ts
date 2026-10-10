@@ -1,3 +1,4 @@
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { describe, expect, it, vi } from 'vitest'
 import { Game } from '../../src/Game'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -22,9 +23,9 @@ function harness(career = true) {
     defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime(config.capabilities),
     defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
     careerStore: store, careerProfile: profile, careerMeritAwarded: 0,
-    battleStats: { snapshot: () => snapshot, freeze: vi.fn() }, npcs: [], mounts: [], player: { dead: false }, controlMode: 'player',
+    battleStats: { snapshot: () => snapshot, checkpoint: () => snapshot.player, freeze: vi.fn() }, npcs: [], mounts: [], player: careerCheckpointPlayer(), controlMode: 'player',
     campaignOriginalDefenders: Array.from({ length: 80 }, () => ({ dead: false })),
-    campaignSpawnWave: null, campaignSpawnQueue: [], campaignReinforcementSpawned: false,
+    campaignSpawnQueueIndex: 0, personalCheckpointElapsed: 0, campaignSpawnWave: null, campaignSpawnQueue: [], campaignReinforcementSpawned: false,
     careerVeteranActorMounts: new Map(),
     campaignAttackersStarted: true,
     _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(), _showNotify: vi.fn(),

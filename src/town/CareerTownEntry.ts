@@ -1,13 +1,17 @@
 import { installTownStyles, starterThumbnails } from './TownUI'
 import { createCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
-import type { DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
+import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
+import { clearCareerMission } from '../career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
+import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
-export function enterCareerTown(container: HTMLElement, launchCampaign: (config: DefenseCampaignLaunchConfig) => Promise<void>, home: () => void): void {
+export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void): void {
   installTownStyles()
   const store = new CareerProfileStore(), loaded = store.loadChecked()
   const form = document.createElement('div'); form.id = 'career-entry'; form.className = 'town-entry'
@@ -17,12 +21,38 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
   button('返回主選單', () => { form.remove(); home() })
   if (loaded.error) { status.textContent = loaded.error; return }
   const start = async (profile: CareerProfile): Promise<void> => {
+    const active = profile.activeMission
+    const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
+      ? () => createCaptainFrontlineLaunch(profile)
+      : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile) : null
+    if (active && captainLaunch) {
+      if (profile.claimedBattleIds.includes(active.id)) {
+        const cleared = clearCareerMission(profile, active.id)
+        if (!store.save(cleared)) { status.textContent = '無法保存 Captain 任務返回狀態，請重試。'; return }
+        profile = cleared
+      } else {
+        form.remove()
+        sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, active.id)
+        sessionStorage.removeItem(TOWN_ENTRY_KEY)
+        await launchCampaign(captainLaunch())
+        return
+      }
+    }
     // Request inside the entry button gesture, before asynchronous loading consumes it.
     if (!location.search.includes('nolock') && navigator.userActivation?.isActive) {
       try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries pointer lock after loading. */ }
     }
     form.remove()
     const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
+    const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
+      const next = refitTownCommandForSceneChange(value)
+      if (deathReturn) delete next.playerAerialState
+      if (store.save(next)) { proceed(next); return }
+      loading.textContent = '無法保存城防整補，尚未轉場。'
+      document.body.append(loading)
+      const retry = document.createElement('button'); retry.textContent = '重試轉場'
+      retry.onclick = () => transition(value, proceed, deathReturn); loading.append(retry)
+    }
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
       sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
@@ -32,10 +62,18 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         if (!location.search.includes('nolock')) {
           try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries if denied. */ }
         }
-        sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, config.careerMissionId)
-        sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        void launchCampaign(config)
-      }, p => { void start(p) }, () => {
+        const missionId = config.careerMissionId
+        transition(store.loadChecked().profile ?? profile, () => {
+          sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, missionId)
+          sessionStorage.removeItem(TOWN_ENTRY_KEY)
+          void launchCampaign(config)
+        })
+      }, (p, reason) => {
+        const before = resolveCareerTownSceneContext(profile), after = resolveCareerTownSceneContext(p)
+        if (reason === 'death-return' || before.worldFaction !== after.worldFaction) {
+          transition(p, next => { void start(next) }, reason === 'death-return')
+        } else void start(p)
+      }, () => {
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         home()
       }, message => { loading.textContent = message })

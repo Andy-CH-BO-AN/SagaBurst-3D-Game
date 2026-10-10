@@ -1,6 +1,11 @@
+import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
+import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
+import { XONGKORO_LANDING } from '../world/EagleLanding'
+import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
+import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -16,8 +21,12 @@ export class TownWorld {
   readonly root = new THREE.Group()
   readonly roads: TownRoad[] = []
   readonly hr: TownHRLayout
+  readonly eagleGarrison: TownEagleGarrisonLayout
+  readonly eagleTraining: TownEagleTrainingGround
   readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
+  /** Rendered roofs/crowns/boards supplement body colliders for flight clearance. */
+  readonly airspaceObstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
   readonly fortifications: ReturnType<typeof createTownFortifications>
@@ -55,13 +64,11 @@ export class TownWorld {
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.computeVertexNormals()
     const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land); this.terrainMesh = land
-    this.road(-57, 0, 85, 0, 8); this.road(0, -23, 0, 36, 12); this.road(25, -50, 25, 30, 7)
-    this.road(-35, -18, -27, 32, 6); this.road(0, 10, 0, 30, 12); this.road(-25, 20, 10, 20, 8); this.road(-22, -10, 0, -10, 7)
-    for (let z = -10; z <= 10; z += 2) this.road(-17, z, 18, z, 2.1)
-    this.building('hall', '', faction === 'roman' ? 0 : -3, -34, faction === 'roman' ? 18 : 14, faction === 'roman' ? 14 : 24, 6, 'hall')
+    this.road(25, -50, 25, 30, 7)
     this.building('weapons', '武器店 · ARMOURY', TOWN_SITES.weapons.x, TOWN_SITES.weapons.z, 11, 10, 3.6, 'shop', TOWN_SITES.weapons.yaw)
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
-    for (let i = 0; i < 5; i++) this.building('home-' + i, '住宅', i > 2 ? (i === 3 ? -54 : -12) : -52, i > 2 ? 52 : -28 + i * 23, 9, faction === 'roman' ? 8 : 12, 3.4, 'home')
+    for (const [i, [x, z]] of [[96, 70], [116, 70], [136, 70], [106, 88], [128, 88]].entries())
+      this.building('home-' + i, '住宅', x, z, 9, faction === 'roman' ? 8 : 12, 3.4, 'home')
     this.trainingEntrance()
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
     this.cavalryTrainingGround()
@@ -69,7 +76,6 @@ export class TownWorld {
     this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
-    this.building('barracks', '', 34, 30, 7, 7, 3, 'home', TOWN_SITES.barracks.yaw)
     this.road(10, 20, 33, 16, 5)
     for (const [x, z] of [[43, -41, '近戰步兵'], [70, -41, '遠程步兵'], [43, 2, '遠程步兵'], [70, 2, '近戰步兵']] as const) {
       for (let row = 0; row < (z < -10 ? 2 : 4); row++) this.road(x - 11, z + 3 + row * 7, x + 11, z + 3 + row * 7, 5)
@@ -82,13 +88,7 @@ export class TownWorld {
       this.cube(this.root, x, y + .7, z, .2, 1.4, .2, this.wood); this.cube(this.root, x, y + 1, z, .18, .18, 6, this.wood)
       if (faction === 'viking') this.cube(this.root, x, y + 1.15, z, .24, .12, 6, this.snow)
     }
-    for (const [x, z] of [[-12, 24], [11, 23], [-18, -19]]) {
-      const y = getTerrainHeight(x, z)
-      this.solid(x, z, 3.5, 1, 1.5)
-      for (const dx of [-1.7, 1.7]) this.cube(this.root, x + dx, y + 1.25, z, .12, 2.5, .12, this.wood)
-      this.cube(this.root, x, y + 2.5, z, 4, .15, 2.7, this.canvas); this.cube(this.root, x, y + .8, z, 3.5, .2, 1.5, this.wood)
-    }
-    for (const [x, z] of [[-10, -19], [10, -19], [20, 30], [-22, 22]]) this.campfire(x, z)
+    for (const [x, z] of [[98, 36], [130, 35]]) this.campfire(x, z)
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
       const { x, z } = townSceneryPoint(i, 110, 7), y = getTerrainHeight(x, z)
@@ -114,17 +114,56 @@ export class TownWorld {
     this.trackOwned(tree)
     for (let i = 0; i < 90; i++) {
       const { x, z, angle } = townSceneryPoint(i, 112, 13)
-      if (townSceneryExcluded(x, z, 7) || nearTownBanditCamp(x, z, 26)) continue
+      if (townSceneryExcluded(x, z, 12) || nearTownBanditCamp(x, z, 26)) continue
       if (this.camps.some(c => c.spawnPoints.some(p => Math.hypot(p.x - x, p.z - z) < 18))) continue
       const copy = tree.clone(true), scale = .8 + i % 5 * .13
       copy.position.set(x, getTerrainHeight(x, z), z); copy.scale.setScalar(scale); copy.rotation.y = angle
       this.root.add(copy); this.solid(x, z, .6, 5, .6)
+      this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(copy), isBarricade: false })
     }
     this.hr = resolveTownHRLayout(faction, this.obstacles, this.roads)
     this.building('hr-center', '人力資源中心', this.hr.site.x, this.hr.site.z, this.hr.width, this.hr.depth, 5.5, 'hall', this.hr.site.yaw)
     const hrRoot = this.buildings.find(building => building.id === 'hr-center')!.hp.root as THREE.Group
     this.sign(hrRoot, 'HR CENTER', 0, 6.5, this.hr.depth / 2 + .5, 9)
+    this.eagleTraining = resolveTownEagleTrainingGround(this.obstacles, this.roads, this.hr)
+    this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
+    this.eagleTrainingGround()
+    this.airspaceObstacles.push(...this.obstacles)
+    this.validateAirfield()
     this.batch(this.root)
+  }
+
+  private eagleTrainingGround(): void {
+    const { trainer } = this.eagleTraining
+    // Leave the first landing pad and the nearby diagonal road clear after turning the frame.
+    const x = trainer.x - 4.5, z = trainer.z + 3.5
+    const yaw = Math.atan2(this.hr.officer.x - x, this.hr.officer.z - z)
+    // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
+    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 12, yaw, 2.6)
+    // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
+    for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
+      for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
+        const x = site.x + dx, z = site.z + dz
+        this.cube(this.root, x, getTerrainHeight(x, z) + .2, z, .3, .4, .3, this.stone)
+      }
+    }
+    this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), -65, -8, 12)
+  }
+
+  private validateAirfield(): void {
+    const pads = [...this.eagleTraining.pads, ...this.eagleGarrison.pads]
+    const muster = new THREE.Box3().setFromPoints(this.hr.muster.map(slot => new THREE.Vector3(slot.x, 0, slot.z)))
+      .expandByVector(new THREE.Vector3(3, 100, 3))
+    for (const pad of pads) {
+      const footprint = eagleLandingFootprint(pad)
+      if (footprint.min.x < TOWN_CITY.minX || footprint.max.x > TOWN_CITY.maxX
+        || footprint.min.z < TOWN_CITY.minZ || footprint.max.z > TOWN_CITY.maxZ
+        || footprint.intersectsBox(muster) || this.roads.some(road => townRoadIntersectsBox(road, footprint, 2))
+        || !isEagleLandingClear(pad, this.airspaceObstacles, pads.filter(other => other !== pad), TOWN_PLAYABLE_WORLD_BOUND)
+        || !isEagleApproachClear(pad, this.airspaceObstacles, pads.filter(other => other !== pad), TOWN_PLAYABLE_WORLD_BOUND)) {
+        throw new Error(`Blocked Town eagle footprint or authored approach: ${pad.id}`)
+      }
+    }
   }
 
   private roadSurface?: THREE.MeshStandardMaterial
@@ -181,6 +220,7 @@ export class TownWorld {
       this.cube(this.root, point.x, y + 1, point.z, .18, .16, 2.2, this.wood); this.solid(point.x, point.z, .25, 1.3, 2.2)
     }
     this.batch(root)
+    this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
   }
   private cavalryTrainingGround(): void {
     const field = TOWN_CAVALRY_FIELD
@@ -189,11 +229,7 @@ export class TownWorld {
     // cut through actors on the undulating terrain.
     for (const x of [35, 70, 105]) {
       this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
-      const sign = new THREE.Group(); sign.position.set(x + 12, getTerrainHeight(x + 12, -101), -101)
-      this.root.add(sign)
-      for (const side of [-1, 1]) { this.cube(sign, side * 5, 1.8, 0, .2, 3.6, .2, this.wood); this.solid(x + 12 + side * 5, -101, .25, 3.6, .25) }
-      this.sign(sign, x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS', 0, 3, 0, 10)
-      this.batch(sign)
+      this.groundedTrainingSign([x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS'], x + 12, -101, 10)
     }
     // Wide south-facing entrance connects to the internal mounted road.
     const entrance = new THREE.Group(); entrance.position.set((field.minX + field.maxX) / 2, getTerrainHeight(82, -53), -53)
@@ -203,6 +239,38 @@ export class TownWorld {
       this.solid(82 + side * 8, -53, .25, 4.4, .25)
     }
     this.batch(entrance)
+  }
+  /** The cavalry-style timber board shares one level top; each post reaches its own terrain sample. */
+  private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number, yaw = 0, minimumHeadroom = 0): void {
+    const root = new THREE.Group(), ground = getTerrainHeight(x, z)
+    root.position.set(x, ground, z); root.rotation.y = yaw; this.root.add(root)
+    const halfWidth = width / 2, cos = Math.cos(yaw), sin = Math.sin(yaw)
+    const point = (side: number, front = 0) => ({ x: x + cos * side + sin * front, z: z - sin * side + cos * front })
+    const posts = [-1, 1].map(side => {
+      const position = point(side * halfWidth)
+      return { side, ...position, ground: getTerrainHeight(position.x, position.z) }
+    })
+    const collisionSpan = .25 * (Math.abs(cos) + Math.abs(sin))
+    let top = Math.max(ground, ...posts.map(post => post.ground)) + 3.6
+    if (minimumHeadroom > 0) {
+      // Include the front-mounted board and a walking body's depth, not just its two feet.
+      let passageGround = ground
+      for (let side = -halfWidth; side <= halfWidth; side += .5) for (const front of [-.6, 0, .3, .9]) {
+        const sample = point(side, front)
+        passageGround = Math.max(passageGround, getTerrainHeight(sample.x, sample.z))
+      }
+      top = Math.max(top, passageGround + minimumHeadroom + .6 + (width / 6.4 + .15) / 2)
+    }
+    for (const post of posts) {
+      const { side, ground: postGround } = post, height = top - postGround
+      this.cube(root, side * halfWidth, postGround - ground + height / 2, 0, .2, height, .2, this.wood)
+      this.solid(post.x, post.z, collisionSpan, height, collisionSpan)
+    }
+    this.cube(root, 0, top - ground - .2, 0, width + .4, .2, .25, this.wood)
+    // The label faces local +Z; mount its .16m backing against the timber's front face.
+    this.sign(root, lines.join('\n'), 0, top - ground - .6, .25 / 2 + .16, width, false)
+    this.batch(root)
+    this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
   }
   private medievalFrame(root: THREE.Group, w: number, d: number, h: number, roman: boolean): void {
     for (const side of [-1, 1]) {
@@ -326,6 +394,7 @@ export class TownWorld {
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-w / 2 - .2, -100, -d / 2 - .2), new THREE.Vector3(w / 2 + .2, h + 3, d / 2 + .2)).applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }
     const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }))]
     this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : this.ownerAllegiance, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
+    this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
     hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })
   }
   refreshDamage(): void { for (const b of this.buildings) if (!b.damaged && b.hp.hpRatio <= .6 && !b.hp.destroyed) { b.damaged = true; b.roof.rotation.z = .14; b.roof.position.y -= 1; b.roof.children.slice(0, 2).forEach(c => c.visible = false) } }
@@ -359,12 +428,14 @@ export class TownWorld {
     for (let y = 8; y < 160; y += 8) { ctx.strokeStyle = y % 16 ? '#4b3825' : '#291d13'; ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(300, y - 4, 650, y + 5, 1024, y); ctx.stroke() }
     ctx.strokeStyle = '#917044'; ctx.lineWidth = 6; ctx.strokeRect(8, 8, 1008, 144)
     for (const x of [28, 996]) for (const y of [28, 132]) { ctx.fillStyle = '#201b17'; ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill() }
-    ctx.fillStyle = '#f3dfab'; ctx.font = 'bold 78px Georgia, serif'; ctx.textAlign = 'center'; ctx.fillText(text, 512, 112)
+    const lines = text.split('\n')
+    ctx.fillStyle = '#f3dfab'; ctx.font = `bold ${lines.length > 1 ? 48 : 78}px Georgia, serif`; ctx.textAlign = 'center'
+    lines.forEach((line, index) => ctx.fillText(line, 512, lines.length > 1 ? 65 + index * 62 : 112, 940))
     const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; this.textures.add(map); return map
   }
-  private sign(parent: THREE.Object3D, text: string, x: number, y: number, z: number, width: number): void {
+  private sign(parent: THREE.Object3D, text: string, x: number, y: number, z: number, width: number, hanging = true): void {
     this.cube(parent, x, y, z - .08, width + .18, width / 6.4 + .15, .16, this.dark)
-    for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
+    if (hanging) for (const side of [-1, 1]) this.cube(parent, x + side * width * .36, y + width / 10, z - .08, .06, .7, .06, this.dark)
     const material = new THREE.MeshBasicMaterial({ map: this.textTexture(text) }); this.materials.add(material)
     const sign = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(width, width / 6.4)), material)
     sign.name = 'town-shop-sign'; sign.position.set(x, y, z + .02); parent.add(sign)

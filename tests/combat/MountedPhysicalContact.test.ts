@@ -4,6 +4,9 @@ import { ShieldCollider, WeaponSweep, traceCombatSegment, type CombatContact } f
 import { MountType } from '../../src/world/Mount'
 
 import { createMountedCombatActors } from '../helpers/mountedCombatActors'
+vi.mock('../../src/world/XongkoroVisual', async () => ({
+  XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble,
+}))
 function fixture(type = MountType.HORSE) {
   return createMountedCombatActors(type, resource => onTestFinished(() => resource.dispose()))
 }
@@ -44,6 +47,29 @@ describe('Mounted physical first contact', () => {
     expect(traceCombatSegment(mount, local(0, .8, 3), local(0, .8, -3), contact)).toBe(true)
     expect(contact.time).toBeCloseTo(.3); expect(contact.kind).toBe('mount')
     expect(traceCombatSegment(mount, local(.7, .8, 3), local(.7, .8, -3), contact)).toBe(false)
+  })
+
+  it('xongkoro torso and head contacts follow posed anatomy while wing-envelope air remains empty', () => {
+    const { mount } = fixture(MountType.XONGKORO)
+    mount.group.rotation.set(-.4, .7, .3, 'YXZ')
+    const head = mount.aimColliders[1]
+    const direction = new THREE.Vector3(1, 0, 0).applyQuaternion(mount.group.quaternion)
+    const contact: CombatContact = { kind: 'body', time: Infinity }
+    const oldTorso = mount.aimCollider.getWorldPosition(new THREE.Vector3())
+    mount.eagleVisual!.torsoSocket.position.y += 3
+    const posedTorso = oldTorso.clone().add(new THREE.Vector3(0, 3, 0).applyQuaternion(mount.group.quaternion))
+    expect(traceCombatSegment(mount, posedTorso.clone().addScaledVector(direction, -2), posedTorso.clone().addScaledVector(direction, 2), contact)).toBe(true)
+    expect(contact.kind).toBe('mount')
+    expect(traceCombatSegment(mount, oldTorso.clone().addScaledVector(direction, -2), oldTorso.clone().addScaledVector(direction, 2), contact)).toBe(false)
+    for (const extension of [0, 1.5]) {
+      mount.eagleVisual!.headAttackSocket.position.z += extension
+      const center = head.getWorldPosition(new THREE.Vector3())
+      expect(traceCombatSegment(mount, center.clone().addScaledVector(direction, -2), center.clone().addScaledVector(direction, 2), contact)).toBe(true)
+      expect(contact.kind).toBe('mount')
+      expect(contact.mount).toBe(mount)
+    }
+    const emptyWingSpace = mount.group.localToWorld(new THREE.Vector3(7, 1.8, 1.7))
+    expect(traceCombatSegment(mount, emptyWingSpace.clone().addScaledVector(direction, -.5), emptyWingSpace.clone().addScaledVector(direction, .5), contact)).toBe(false)
   })
 
   it('compares shield, rider and mount rather than giving shield implicit priority', () => {

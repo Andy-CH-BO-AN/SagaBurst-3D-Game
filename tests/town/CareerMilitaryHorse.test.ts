@@ -15,7 +15,7 @@ import {
   careerMountTier,
   ownedCareerMountIds,
 } from '../../src/career/CareerMountController'
-import { productStatus, purchaseTownHorse, sellTownProduct, TOWN_PRODUCTS } from '../../src/town/TownRules'
+import { productStatus, purchaseTownHorse, sellTownProduct, TOWN_PRODUCTS, townShopProducts } from '../../src/town/TownRules'
 import type { Player } from '../../src/player/Player'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
@@ -63,7 +63,7 @@ describe('Military warhorse quantity purchases', () => {
     expect(purchaseTownHorse(profile, 'horse')).not.toBeNull()
   })
   it('offers one military warhorse without retired tier products', () => {
-    const horses = TOWN_PRODUCTS.filter(item => item.category === 'mount' && item.id !== 'black-cat' && item.id !== 'corgi')
+    const horses = townShopProducts('ranger').filter(item => item.category === 'mount' && item.id !== 'black-cat' && item.id !== 'corgi')
     expect(horses).toEqual([{ id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 }])
   })
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
-import { applyHeroIncomingDamage } from '../battle/T4HeroCatalog'
+import { applyHeroIncomingDamage, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
@@ -26,6 +26,12 @@ export interface CareerDuelRoster {
   mount: Mount | null
 }
 
+/** Duel mounts follow the requested archetype; residents retain their own physical mount. */
+function duelLoadout(presetId: UnitPresetId, tier: UnitTier): UnitLoadout {
+  const base = UNIT_PRESETS[presetId].tierLoadouts[tier === 4 ? 3 : tier]
+  return tier === 4 ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : base
+}
+
 /** Selection changes equipment on existing residents, rather than creating a second Town roster. */
 export function selectCareerDuelRoster(residents: readonly CareerDuelResident[], blackCat: Mount, presetId: UnitPresetId, tier: UnitTier): CareerDuelRoster | null {
   if (!isCareerDuelPresetId(presetId) || !isCareerDuelTier(tier)) return null
@@ -34,7 +40,7 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
   const ranger = residents.find(resident => resident.spec.role === 'ranger')
   if (!preset || !captain || captain.npc.dead) return null
   const archery = preset.traits.includes('bow_fire')
-  const loadout = preset.tierLoadouts[tier === 4 ? 3 : tier]
+  const loadout = duelLoadout(presetId, tier)
   let opponent: CareerDuelResident | undefined
   if (tier === 4) opponent = archery ? ranger : captain
   else {
@@ -150,7 +156,7 @@ export class CareerDuelController {
       return [actor.mount, resident?.homeMount].filter((mount): mount is Mount => Boolean(mount))
     }))]
     for (const actor of this.actors) { actor.setDuelHostility(false); actor.respawnEnabled = false }
-    const selected = UNIT_PRESETS[active.duelPresetId].tierLoadouts[active.duelTier === 4 ? 3 : active.duelTier]
+    const selected = duelLoadout(active.duelPresetId, active.duelTier)
     const ranger = active.duelTier === 4 && UNIT_PRESETS[active.duelPresetId].traits.includes('bow_fire')
     opponent.npc.applyTemporaryCombatLoadout(ranger ? { ...opponent.npc.loadout } : selected)
     if (active.duelOpponentAmmo !== undefined) opponent.npc.restoreCombatAmmo(active.duelOpponentAmmo)

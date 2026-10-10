@@ -7,6 +7,7 @@ import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
 import { weaponShieldImpact } from './ShieldBlocking'
+import type { DamageReceiver } from './DamageReceiver'
 import type {
   DamageableObstacle,
   DamageableObstacleHitResult,
@@ -21,6 +22,7 @@ import {
   createStructureCombatTargetRef,
   emitActorKilled,
   emitDamageApplied,
+  emitHitBlocked,
   emitStructureDamage,
   type CombatDamageContext,
 } from './CombatAttribution'
@@ -48,12 +50,24 @@ export interface DamageResult {
   mountDied: boolean
 }
 
+/** Receiver owns its lifetime; combat callers retain their existing damage formulas. */
+export function damageReceiver(target: DamageReceiver, damage: number, context?: CombatDamageContext): DamageResult {
+  const appliedDamage = target.receiveDamage(damage)
+  emitDamageApplied(context, target.damageTarget, damage, appliedDamage)
+  return {
+    hitSuccess: appliedDamage > 0, requestedDamage: damage, appliedDamage, blockedImpact: 0,
+    targetId: target.damageTarget.targetId, targetName: target.damageTarget.name,
+    killed: false, hpRatio: 1, isMountHit: false, mountDied: false,
+  }
+}
+
 /** Only an authoritative geometric SHIELD_HIT can consume durability. */
 function shieldDamage(target: NPC | Player, damage: number, context?: CombatDamageContext): { damage: number; blockedImpact: number } {
   if (target.dead || context?.contact?.kind !== 'shield'
     || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return { damage, blockedImpact: 0 }
   const player = 'blockingLevel' in target ? target : null
-  const result = target.shield.absorb(damage, context.method === 'projectile' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0)
+  const result = target.shield.absorb(damage, context.method === 'projectile' || (context.attackSource ?? context.contact?.attackSource) === 'xongkoro' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0)
+  emitHitBlocked(context, player ? createPlayerCombatTargetRef(player) : createNpcCombatTargetRef(target as NPC), result.blockedImpact)
   target.shieldCollider?.refreshVisibility()
   const hostile = context.hostileToTarget ?? context.source.allegiance === 'ENEMY'
   if (player && !player.spectatorOnly && hostile && context.source.actorType !== 'player' && result.blockedImpact > 0) {
@@ -74,6 +88,9 @@ function routedMount(attached: Mount | null, context?: CombatDamageContext): Mou
 export function damageMount(mount: Mount, damage: number, context?: CombatDamageContext, owner: CombatActorRef | undefined = mount.combatOwner): DamageResult {
   const target = createMountCombatTargetRef(mount, owner)
   const beforeHp = mount.currentHp, wasDead = mount.dead
+  // Capture the original attacker before Mount releases its rider. The later
+  // landing is a distinct environmental event, never another projectile hit.
+  if (!wasDead && mount.isFlyingMount && damage >= beforeHp) mount.knockdownContext = context
   const hitSuccess = mount.takeDamage(damage)
   const appliedDamage = Math.max(0, beforeHp - mount.currentHp)
   const mountDied = !wasDead && mount.dead
@@ -104,7 +121,7 @@ export function damageNpc(
   const target = createNpcCombatTargetRef(npc)
   const beforeHp = npc.hp
   const wasDead = npc.dead
-  const hitSuccess = finalDamage === 0 ? !npc.dead : npc.takeDamage(finalDamage)
+  const hitSuccess = finalDamage === 0 ? !npc.dead : context?.method === 'fall' ? npc.takeFallDamage(finalDamage) : npc.takeDamage(finalDamage)
   const appliedDamage = Math.max(0, beforeHp - npc.hp)
   const killed = !wasDead && npc.dead
 
@@ -129,7 +146,7 @@ export function damageNpc(
 export function damagePlayer(
   player: Player,
   damage: number,
-  hpBar: HpBar,
+  hpBar: Pick<HpBar, 'setFill'>,
   _equippedShieldId: string | null,
   context?: CombatDamageContext,
 ): DamageResult {
@@ -162,7 +179,7 @@ export function damagePlayer(
   const target = createPlayerCombatTargetRef(player)
   const beforeHp = player.hp
   const wasDead = player.dead
-  const hitSuccess = finalDamage === 0 ? !player.dead : player.takeDamage(finalDamage, hpBar, Boolean(shieldHit))
+  const hitSuccess = finalDamage === 0 ? !player.dead : context?.method === 'fall' ? player.takeFallDamage(finalDamage, hpBar) : player.takeDamage(finalDamage, hpBar, Boolean(shieldHit))
   const appliedDamage = Math.max(0, beforeHp - player.hp)
   const killed = !wasDead && player.dead
 

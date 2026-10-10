@@ -34,7 +34,7 @@ describe('NPC bow material ranges', () => {
     it(`${id}: draw/release transforms and launch trajectory remain identical`, () => {
       const create = (compact: boolean) => {
         const action = new THREE.Group(), grip = new THREE.Group(); action.add(grip)
-        const bow = new CharacterBowVisual(action, grip); bow.rebuild(id, compact)
+        const bow = new CharacterBowVisual(action, grip, action); bow.rebuild(id, compact)
         return { action, grip, bow }
       }
       const a = create(false), b = create(true)
@@ -56,7 +56,7 @@ describe('NPC bow material ranges', () => {
   }
 
   it('opts in NPC Viking archers across tiers; shared builders stay unchanged', () => {
-    for (const tier of [1, 2, 3]) {
+    for (const tier of [1, 2, 3] as const) {
       const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.RANGED, 'bow', tier, false)
       expect(stave(npc.group).geometry.groups).toHaveLength(3)
     }

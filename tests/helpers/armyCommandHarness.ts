@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
-import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
+import { ArmyCommandController, type ArmyCommandAuthority } from '../../src/battle/ArmyCommandController'
+import type { ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
+import type { ArmyCommandTarget } from '../../src/battle/CommandTarget'
 import type { NPC, Faction } from '../../src/world/NPC'
 import type { PlayerInput } from '../../src/player/PlayerInput'
 import type { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
@@ -10,6 +12,7 @@ import type { InventoryManager } from '../../src/rpg/InventoryManager'
 /** Dispatch-only records; these do not stand in for real actor AI, HP or movement. */
 export interface CommandRecipientFixture {
   faction?: Faction
+  combatantId?: string
   presetId?: string
   squadId?: number | string
   dead?: boolean
@@ -30,6 +33,9 @@ export function createArmyCommandHarness(
   grouping: 'preset' | 'squad' = 'preset',
   commandsEnabled = true,
   personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
+  authority?: ArmyCommandAuthority,
+  hudRoster?: () => ArmyHudRoster | undefined,
+  onCommandIssued: ((order: TacticalOrder, target?: ArmyCommandTarget) => void) | null = null,
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -42,6 +48,7 @@ export function createArmyCommandHarness(
     consumeKeyPress: consume,
     consumeKeyE: () => consume('KeyE'),
     consumeLeftClick: () => consume('MouseLeft'),
+    consumeLeftGesture: () => { pressed.delete('MouseLeft') },
     consumeMiddleClick: () => consume('MouseMiddle'),
     consumeWheelStep: (): -1 | 0 | 1 => {
       if (wheelSteps > 0) {
@@ -75,13 +82,15 @@ export function createArmyCommandHarness(
     input as unknown as PlayerInput,
     ui as unknown as ArmyCommandUI,
     formation as FormationController | null,
-    null,
+    onCommandIssued,
     'attack',
     canIssueOrder,
     inventory,
     grouping,
     commandsEnabled,
     personalCommands,
+    authority,
+    hudRoster,
   )
   return { controller, input, ui }
 }

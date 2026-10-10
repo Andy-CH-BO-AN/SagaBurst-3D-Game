@@ -3,11 +3,12 @@ import { afterEach, beforeEach, vi } from 'vitest'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
-import { townActorCaptainProfile, townMilitaryEquipment, townRoster, type TownPatrolId } from '../../src/town/TownRules'
+import { townActorHeroProfile, townMilitaryEquipment, townRoster, type TownPatrolId } from '../../src/town/TownRules'
 import { TownWorld } from '../../src/town/TownWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../../src/world/Mount'
 import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
 import { advanceUntil, type AdvanceUntilOptions } from './simulation'
 import { createThreeTestScene, installFakeCanvasEnvironment } from './threeTestEnvironment'
 
@@ -35,6 +36,7 @@ export function installTownPatrolFixtureEnvironment() {
   // Substitute rendering only: travel, mount physics, collision and navigation remain real.
   // Per-test spies also work when another import has already loaded the registry.
   beforeEach(() => {
+    vi.spyOn(PaladinEquipment, 'createPaladinEquipment').mockImplementation(() => new THREE.Group())
     vi.spyOn(HorseAssetRegistry, 'ready', 'get').mockReturnValue(true)
     vi.spyOn(HorseAssetRegistry, 'createInstance').mockImplementation(() => {
       const root = new THREE.Group(), saddleSeat = new THREE.Object3D()
@@ -92,7 +94,7 @@ export function installTownPatrolFixtureEnvironment() {
         const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, faction, AIType.MELEE, spec.id,
           equipment.level, true, equipment.loadout, equipment.presetId, undefined, spec.id)
         cleanup.push(() => npc.dispose())
-        const captain = townActorCaptainProfile(faction, spec)
+        const captain = townActorHeroProfile(faction, spec)
         const homeMount = new Mount(scene, captain ? mountTypeFromId(captain.mountOverride) : MountType.HORSE, spec.x, spec.z)
         cleanup.push(() => homeMount.dispose())
         homeMount.group.rotation.y = spec.yaw!; npc.mountVehicle(homeMount); npc.setTownPeaceful()

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import { type NPC } from '../world/NPC'
+import { combatAllegiancesHostile } from '../combat/CombatFaction'
 
 export const CHASE_GROUP_SIZE = 4
 export const CHASE_GROUP_TARGET_TTL_FRAMES = 8
@@ -29,12 +30,13 @@ export class ChaseTargetCoordinator {
   findGroupTarget(
     npc: NPC,
     hostileNpcGrid: SpatialGrid<NPC> | null,
+    groundOnly = false,
   ): NPC | null {
     if (!hostileNpcGrid) return null
 
     const groupX = Math.floor(npc.combatPosition.x / CHASE_GROUP_SIZE)
     const groupZ = Math.floor(npc.combatPosition.z / CHASE_GROUP_SIZE)
-    const key = `${npc.faction}:${groupX}:${groupZ}`
+    const key = `${npc.faction}:${groupX}:${groupZ}:${groundOnly}`
 
     const cached = this.cache.get(key)
     if (
@@ -42,7 +44,8 @@ export class ChaseTargetCoordinator {
       && cached.expiresFrame >= this.frame
       && (
         cached.target === null
-        || (!cached.target.dead && cached.target.faction !== npc.faction)
+        || (!cached.target.dead && combatAllegiancesHostile(npc, cached.target)
+          && (!groundOnly || !cached.target.mount?.isFlyingMount))
       )
     ) {
       return cached.target
@@ -56,7 +59,8 @@ export class ChaseTargetCoordinator {
 
     const target = hostileNpcGrid.findNearest(
       this._groupCenter,
-      candidate => !candidate.dead && candidate.faction !== npc.faction,
+      candidate => !candidate.dead && combatAllegiancesHostile(npc, candidate)
+        && (!groundOnly || !candidate.mount?.isFlyingMount),
     )
 
     this.cache.set(key, {

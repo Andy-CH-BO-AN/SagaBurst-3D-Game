@@ -4,6 +4,9 @@ import { followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrde
 import { FollowTrail } from '../battle/FollowTrail'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CareerProfile } from '../career/CareerProfile'
+import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { parseOfficialCommandAuthority } from '../career/CareerCommandAuthority'
+import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -35,9 +38,36 @@ export interface OutskirtsSquad {
   commandedWaypoint: THREE.Vector3 | null
   respawnRemaining?: number
 }
+export interface SiegeCavalryClaim {
+  actors: NPC[]
+  mounts: Mount[]
+  squadIds: string[]
+  /** Confirm in the same synchronous transaction, after the mission roster is saved. */
+  claim(): void
+}
 export interface OutskirtsFactories {
   createNpc(spec: NpcSpawnSpec): NPC
   createMount(x: number, z: number): Mount
+}
+export interface TownOutskirtsCheckpoint {
+  squads: { id: string; generation: number; state: OutskirtsSquadState; waypoint: number; respawnRemaining?: number;
+    members: Record<string, PersonalActorCheckpoint> }[]
+}
+export function parseTownOutskirtsCheckpoint(value: unknown): TownOutskirtsCheckpoint | undefined {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as TownOutskirtsCheckpoint).squads)) return undefined
+  const known = new Set(outskirtsSquadSpecs().map(spec => spec.id))
+  const states: OutskirtsSquadState[] = ['SPAWNING', 'PATROLLING', 'ENGAGING', 'REGROUPING', 'ENTERING', 'RESPAWN_COOLDOWN', 'SIEGE_OWNED']
+  const squads: TownOutskirtsCheckpoint['squads'] = []
+  for (const raw of (value as TownOutskirtsCheckpoint).squads) {
+    if (!raw || !known.has(raw.id) || squads.some(s => s.id === raw.id) || !Number.isSafeInteger(raw.generation) || raw.generation < 0
+      || !Number.isSafeInteger(raw.waypoint) || raw.waypoint < 0 || !states.includes(raw.state)) continue
+    const spec = outskirtsSquadSpecs().find(s => s.id === raw.id)!
+    const ids = Array.from({ length: spec.size }, (_, index) => outskirtsActorId(raw.id, index, raw.generation))
+    const authority = parseOfficialCommandAuthority({ type: 'mission-official', townFaction: 'roman', squadId: 1, actorIds: ids, members: raw.members })!
+    squads.push({ id: raw.id, generation: raw.generation, state: raw.state, waypoint: raw.waypoint,
+      members: authority.members ?? {}, ...(Number.isFinite(raw.respawnRemaining) ? { respawnRemaining: Math.max(0, raw.respawnRemaining!) } : {}) })
+  }
+  return { squads }
 }
 
 const TRAVEL_COMMAND = -5
@@ -56,6 +86,7 @@ export class TownOutskirtsWarfareController {
   private enabled = false
   private spawnFailure?: NpcSpawnBatch
   private readonly spawnBatches = new Map<string, NpcSpawnBatch>()
+  private restoredCheckpoint?: TownOutskirtsCheckpoint
   get batches(): readonly NpcSpawnBatch[] { return [...this.spawnBatches.values(), ...(this.spawnFailure ? [this.spawnFailure] : [])] }
 
   constructor(
@@ -67,6 +98,7 @@ export class TownOutskirtsWarfareController {
     private readonly factories?: OutskirtsFactories,
     private readonly siegeClaimedSquads: readonly string[] = [],
     private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
+    private readonly siegeClaimedActorIds: readonly string[] = [],
   ) {
     this.synchronizeRank()
   }
@@ -82,6 +114,39 @@ export class TownOutskirtsWarfareController {
   combatEnabled(npc: NPC): boolean {
     const squad = this.squadForActor.get(npc)
     return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
+  }
+
+  checkpoint(): TownOutskirtsCheckpoint {
+    return { squads: this.squads.map(squad => ({ id: squad.id, generation: squad.generation, state: squad.state,
+      waypoint: squad.waypoint, ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}),
+      members: Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc)])) })) }
+  }
+  /** Ordinary Town saves need timers and generations, not a materialized roaming roster. */
+  cooldownCheckpoint(): TownOutskirtsCheckpoint {
+    return { squads: this.squads.filter(squad => squad.spec.kind === 'bandit'
+      || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY)
+      .map(squad => ({ id: squad.id, generation: squad.generation, state: squad.state, waypoint: squad.waypoint,
+        ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}), members: {} })) }
+  }
+  /** Call before advancing spawn queues. Generation IDs, surviving HP and cooldown survive reload. */
+  restoreCheckpoint(value: TownOutskirtsCheckpoint | undefined): void {
+    if (!value) return
+    this.restoredCheckpoint = value
+    for (const squad of this.squads) {
+      const saved = value.squads.find(s => s.id === squad.id)
+      if (!saved || squad.state === 'SIEGE_OWNED') continue
+      this.spawnBatches.get(squad.id)?.cancel()
+      for (const npc of squad.members) { this.squadForActor.delete(npc); this.allActors.splice(this.allActors.indexOf(npc), 1); npc.dispose() }
+      for (const mount of squad.mounts) { this.allMounts.splice(this.allMounts.indexOf(mount), 1); mount.dispose() }
+      squad.members = []; squad.mounts = []; squad.generation = saved.generation; squad.waypoint = saved.waypoint % squad.route.length
+      squad.respawnRemaining = saved.respawnRemaining
+      if (saved.state === 'RESPAWN_COOLDOWN') {
+        squad.state = 'RESPAWN_COOLDOWN'; squad.leader = null
+        squad.engagementOrigin = null; squad.commandedWaypoint = null
+        continue
+      }
+      this.spawnSquad(squad, saved.state === 'ENTERING')
+    }
   }
 
   private disposed = false
@@ -112,9 +177,10 @@ export class TownOutskirtsWarfareController {
         if (squad.respawnRemaining > 0) continue
         squad.generation++
         this.spawnSquad(squad, true)
+        continue
       }
       if (squad.members.length > 0 && squad.members.every(member => member.dead)) {
-        if (squad.spec.kind === 'bandit') {
+        if (squad.spec.kind === 'bandit' || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY) {
           squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
           continue
         }
@@ -180,32 +246,64 @@ export class TownOutskirtsWarfareController {
 
   dispose(): void { this.disposed = true; this.enabled = false; this.clearEntities() }
 
-  /** Transfer both command and lifetime ownership, including the original rider/mount objects. */
-  claimCavalryForSiege(attackingFaction: CharacterFaction): { actors: NPC[]; mounts: Mount[]; squadIds: string[] } {
-    const result: { actors: NPC[]; mounts: Mount[]; squadIds: string[] } = { actors: [], mounts: [], squadIds: [] }
-    if (outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).characterFaction !== attackingFaction) return result
-    for (const squad of this.squads) {
-      if (squad.spec.kind !== 'cavalry' || squad.state === 'SIEGE_OWNED') continue
-      this.spawnBatches.get(squad.id)?.cancel()
-      squad.state = 'SIEGE_OWNED'; squad.commandedWaypoint = null; squad.leader = null
-      result.squadIds.push(squad.id)
-      for (const npc of squad.members) {
-        this.squadForActor.delete(npc)
-        if (npc.dead) continue
-        npc.clearEncounter()
-        result.actors.push(npc)
-        this.allActors.splice(this.allActors.indexOf(npc), 1)
-        if (npc.mount) {
-          const mount = npc.mount
-          result.mounts.push(mount)
-          const index = this.allMounts.indexOf(mount)
-          if (index >= 0) this.allMounts.splice(index, 1)
-          this.retiredMounts.delete(mount)
+  /** Resolve identities without changing roaming ownership or cancelling its pending generation. */
+  prepareCavalryForSiege(attackingFaction: CharacterFaction, selectedActorIds?: readonly string[]): SiegeCavalryClaim {
+    const eligible = outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).characterFaction === attackingFaction
+    const selected = selectedActorIds ? new Set(selectedActorIds) : undefined
+    const squads = eligible ? this.squads.filter(squad => squad.spec.kind === 'cavalry' && squad.state !== 'SIEGE_OWNED'
+      && (!selected || squad.members.some(npc => selected.has(npc.combatantId)))) : []
+    // A retry observes selected casualties too, so their IDs can be saved without replacing them.
+    const actors = squads.flatMap(squad => squad.members.filter(npc => selected ? selected.has(npc.combatantId) : !npc.dead))
+    const ownsWholeSquad = (squad: OutskirtsSquad): boolean => !selected
+      || !squad.members.some(npc => !npc.dead && !selected.has(npc.combatantId)) && this.spawnBatches.get(squad.id)?.status !== 'pending'
+    let claimed = false
+    return { actors, mounts: actors.flatMap(npc => npc.mount ? [npc.mount] : []), squadIds: squads.filter(ownsWholeSquad).map(squad => squad.id),
+      claim: () => {
+        if (claimed || this.disposed) return
+        claimed = true
+        for (const squad of squads) {
+          const transferred = squad.members.filter(npc => !npc.dead && (!selected || selected.has(npc.combatantId)))
+          const remaining = squad.members.filter(npc => !transferred.includes(npc))
+          const batch = this.spawnBatches.get(squad.id)
+          // Fresh claims take the entire generation. A retried saved selection
+          // leaves later arrivals and their pending jobs with the roaming owner.
+          const wholeSquad = ownsWholeSquad(squad)
+          if (wholeSquad) {
+            batch?.cancel()
+            squad.state = 'SIEGE_OWNED'; squad.commandedWaypoint = null; squad.leader = null
+          } else if (squad.leader && transferred.includes(squad.leader)) {
+            squad.leader = remaining.find(npc => !npc.dead) ?? null
+            squad.commandedWaypoint = null
+            if (squad.leader) squad.trail.rebase(squad.leader.combatPosition, squad.leader.group.rotation.y)
+          }
+          for (const npc of transferred) {
+            this.squadForActor.delete(npc)
+            npc.clearEncounter()
+            const actorIndex = this.allActors.indexOf(npc)
+            if (actorIndex >= 0) this.allActors.splice(actorIndex, 1)
+            if (npc.mount) {
+              const index = this.allMounts.indexOf(npc.mount)
+              if (index >= 0) this.allMounts.splice(index, 1)
+              this.retiredMounts.delete(npc.mount)
+            }
+          }
+          if (wholeSquad) {
+            // Retained corpses remain presented by this controller, as before.
+            for (const npc of remaining) this.squadForActor.delete(npc)
+            squad.members = []; squad.mounts = []
+          } else {
+            squad.members = remaining
+            squad.mounts = squad.mounts.filter(mount => !transferred.some(npc => npc.mount === mount))
+          }
         }
-      }
-      squad.members = []; squad.mounts = []
-    }
-    return result
+      } }
+  }
+
+  /** Transfer both command and lifetime ownership, including the original rider/mount objects. */
+  claimCavalryForSiege(attackingFaction: CharacterFaction): SiegeCavalryClaim {
+    const claim = this.prepareCavalryForSiege(attackingFaction)
+    claim.claim()
+    return claim
   }
 
   releaseSiegeOwnership(): void {
@@ -283,6 +381,7 @@ export class TownOutskirtsWarfareController {
   }
 
   private spawnSquad(squad: OutskirtsSquad, edge: boolean): void {
+    squad.respawnRemaining = undefined
     for (const mount of squad.mounts) this.retiredMounts.add(mount)
     squad.mounts = []
     const army = outskirtsCavalryFaction(this.townFaction, this.readProfile().faction)
@@ -304,6 +403,8 @@ export class TownOutskirtsWarfareController {
         : this.safePoint(nominal, cavalry ? 1.3 : .65, occupied)
       occupied.push(point)
       const actorId = outskirtsActorId(squad.id, index, squad.generation)
+      // A partial saved Siege roster owns exact actors, while the rest of its generation still roams.
+      if (this.siegeClaimedActorIds.includes(actorId)) continue
       const spec: NpcSpawnSpec = { actorId, x: point.x, z: point.z,
         faction: cavalry ? army.faction : Faction.BANDIT, characterFaction: cavalry ? army.characterFaction : 'viking',
         aiType: AIType.MELEE, name: cavalry ? army.characterFaction === 'roman' ? 'Sword Cavalry' : 'Axe Cavalry' : 'Bandit',
@@ -324,6 +425,8 @@ export class TownOutskirtsWarfareController {
           this.allMounts.push(mount)
           squad.mounts.push(mount)
         }
+        const restored = this.restoredCheckpoint?.squads.find(s => s.id === squad.id && s.generation === squad.generation)?.members[actorId]
+        if (restored) restoreCommandActor(npc, restored, npc.mount ?? undefined)
         npc.configureBanditEncounter(npc.combatPosition, [npc.combatPosition], OUTSKIRTS_ENCOUNTER_LEASH)
         this.allActors.push(npc)
         this.squadForActor.set(npc, squad)
@@ -331,11 +434,12 @@ export class TownOutskirtsWarfareController {
       })
     }
     batch.seal(() => {
-      squad.leader = squad.members[0]
-      squad.state = edge ? 'ENTERING' : 'PATROLLING'
+      squad.leader = squad.members.find(npc => !npc.dead) ?? squad.members[0] ?? null
+      const restored = this.restoredCheckpoint?.squads.find(s => s.id === squad.id && s.generation === squad.generation)
+      squad.state = restored?.state === 'RESPAWN_COOLDOWN' ? 'RESPAWN_COOLDOWN' : edge ? 'ENTERING' : 'PATROLLING'
       squad.engagementOrigin = null
       squad.commandedWaypoint = null
-      squad.trail.reset(squad.leader.combatPosition, yaw)
+      if (squad.leader) squad.trail.reset(squad.leader.combatPosition, yaw)
     })
   }
 

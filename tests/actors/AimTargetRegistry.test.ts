@@ -11,6 +11,24 @@ vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
 }))
 
 describe('AimTargetRegistry', () => {
+  it('owns every eagle anatomical proxy through registration, death and cleanup with one subscription', () => {
+    const registry = new AimTargetRegistry()
+    const mount = { aimColliders: [new THREE.Mesh(), new THREE.Mesh()], dead: false, onDeathCallbacks: [] as Array<() => void> }
+    onTestFinished(() => { registry.clear(); for (const proxy of mount.aimColliders) { proxy.geometry.dispose(); (proxy.material as THREE.Material).dispose() } })
+    registry.registerMount(mount)
+    registry.registerMount(mount)
+    expect(registry.targets).toEqual(mount.aimColliders)
+    expect(mount.onDeathCallbacks).toHaveLength(1)
+    mount.onDeathCallbacks[0]()
+    expect(registry.targets).toHaveLength(0)
+    registry.unregisterMount(mount)
+    expect(mount.onDeathCallbacks).toHaveLength(0)
+    registry.registerMount(mount)
+    registry.clear()
+    expect(registry.targets).toHaveLength(0)
+    expect(mount.onDeathCallbacks).toHaveLength(0)
+  })
+
   it('registers and unregisters NPC aim proxy cleanly without duplicates', () => {
     const registry = new AimTargetRegistry()
     const scene = new THREE.Scene()

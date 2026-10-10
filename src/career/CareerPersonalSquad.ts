@@ -1,3 +1,4 @@
+import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { addCareerItem, initialPersonalEquipment, normalizeCareerInventory, availableCareerItem, validPersonalEquipment, type PersonalEquipment, type PersonalEquipmentSlot } from './CareerInventory'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -95,8 +96,8 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   if (!['melee', 'ranged', 'shield', 'mount'].includes(slot)) return fail('invalid-item')
   if (id !== null && (typeof id !== 'string' || !id)) return fail('invalid-item')
   const item = id ? WEAPONS[id] ?? ARMORS[id] : undefined
-  if (id && (slot === 'mount' ? !['horse', 'black-cat', 'corgi'].includes(id) :
-    !item || item.type !== (slot === 'shield' ? 'shield' : slot) || id.startsWith('maki-ranger-bow'))) return fail('invalid-item')
+  if (id && (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(id) :
+    !item || item.type !== (slot === 'shield' ? 'shield' : slot) || id === 'maki-ranger-bow')) return fail('invalid-item')
   const next = cloneCareerProfile(current)
   normalizeCareerInventory(next)
   const member = next.personalSquad!.members.find(member => member.id === memberId)!

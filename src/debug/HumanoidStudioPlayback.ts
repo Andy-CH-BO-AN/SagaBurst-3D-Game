@@ -1,7 +1,7 @@
 import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import * as THREE from 'three'
 import type { HumanoidCharacterInstance } from '../world/HumanoidAssetRegistry'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale } from '../world/CharacterCombatAnimator'
 import { CharacterBowVisual } from '../world/CharacterBowVisual'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { applySwordAttachment } from '../world/SwordAttachmentContract'
@@ -24,6 +24,7 @@ export class HumanoidStudioPlayback {
   private readonly axeModel = new THREE.Group()
   private equipmentLoadout: 'none' | 'sword' | 'axe' | 'lance' | 'bow' | null = null
   private hasShield = false
+  shieldRaised = false
   private readonly animator: CharacterCombatAnimator
   private readonly bowVisual: CharacterBowVisual
   private readonly target = new THREE.Vector3()
@@ -39,12 +40,12 @@ export class HumanoidStudioPlayback {
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset, meleeAnimation: 'axeAttack2H' }) {
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', readonly mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset, meleeAnimation: 'axeAttack2H' }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string }) {
     this.customBowPreview = !!assets
     this.bowMeleeAction = assets?.meleeAnimation
     this.lance.add(this.lanceModel)
     WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
-    WeaponMeshFactory.buildShield(faction === 'roman' ? 'scutum_t2' : 'round_shield_t2', this.shield)
+    WeaponMeshFactory.buildShield(equipment?.shieldId ?? (faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'), this.shield)
     instance.rig.right.handSocket.add(this.lance)
     instance.rig.left.handSocket.add(this.shield)
     const frames = instance.rig.equipmentGripFrames
@@ -55,9 +56,9 @@ export class HumanoidStudioPlayback {
     this.lance.visible = this.shield.visible = false
     const grip = this.swordModel
     this.sword.add(grip, this.axeModel)
-    WeaponMeshFactory.buildMelee('viking_axe_t2', this.axeModel)
+    WeaponMeshFactory.buildMelee(equipment?.axeId ?? 'viking_axe_t2', this.axeModel)
     this.axeModel.visible = false
-    WeaponMeshFactory.buildNpcMelee(faction, 2, false, grip)
+    WeaponMeshFactory.buildNpcMelee(faction, 2, false, grip, equipment?.swordId)
     applySwordAttachment(instance.rig.right.handSocket, this.sword, grip, instance.rig.swordGripFrame!, instance.rig.equipmentGripFrames?.lanceRight.modelRotationLocal, instance.rig.equipmentGripFrames?.lanceRight.axeMountedRotationLocal)
     instance.rig.right.handSocket.add(this.sword, this.pilum)
     WeaponMeshFactory.buildNpcRanged('roman', 2, this.pilum)
@@ -65,7 +66,7 @@ export class HumanoidStudioPlayback {
     this.bow.add(bowGrip)
     applyBowAttachment(instance.rig.left.handSocket, this.bow)
     instance.rig.left.handSocket.add(this.bow)
-    this.bowVisual = new CharacterBowVisual(this.bow, bowGrip)
+    this.bowVisual = new CharacterBowVisual(this.bow, bowGrip, instance.root)
     if (assets) this.bowVisual.rebuildFromAsset(assets.bow.model, assets.bow.profile, assets.bow.topTip, assets.bow.bottomTip)
     else this.bowVisual.rebuild('recurve_longbow')
     this.animator = new CharacterCombatAnimator(instance.rig, this.sword, state === 'pilumThrow' ? this.pilum : this.bow)
@@ -162,7 +163,14 @@ export class HumanoidStudioPlayback {
   }
 
   attackEquipment(): void {
-    this.animator.start(this.equipmentAction(this.state === 'mounted' || this.state === 'mountedLance'))
+    this.startEquipmentAttack(this.state === 'mounted' || this.state === 'mountedLance')
+  }
+
+  private startEquipmentAttack(mounted: boolean): void {
+    const action = this.equipmentAction(mounted)
+    const id = this.equipmentLoadout === 'axe' ? this.equipment?.axeId
+      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
+    this.animator.start(action, meleeActionTimeScale(action, WEAPONS[id ?? '']))
   }
 
   private equipmentAction(mounted: boolean): 'mountedLance' | 'lanceThrust' | 'axeAttack1H' | 'axeAttack2H' | 'swordSlash' {
@@ -187,7 +195,8 @@ export class HumanoidStudioPlayback {
       if (this.equipmentLoadout === 'bow') this.bowVisual.update(0, undefined, false)
       return
     }
-    if (attack) this.animator.start(this.equipmentAction(mounted))
+    this.animator.setShieldRaised(this.shieldRaised)
+    if (attack) this.startEquipmentAttack(mounted)
     const duration = attack ? this.equipmentLoadout === 'lance' ? mounted ? 0.42 : 0.70 : 0.48 : 1
     const end = time * Math.round((sampleDuration ?? duration) * 1e6) / 1e6
     for (let elapsed = 0; elapsed < end - 1e-9;) {
@@ -223,6 +232,7 @@ export class HumanoidStudioPlayback {
       this.bow.visible = this.equipped && alive && this.equipmentLoadout === 'bow'
       this.pilum.visible = false
       this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
+      this.animator.setShieldRaised(this.shieldRaised)
     }
     this.instance.rig.animation!.setSwordHandShape?.(this.sword.visible || this.lance.visible)
   }
@@ -233,9 +243,10 @@ export class HumanoidStudioPlayback {
     if (this.equipped && this.equipmentLoadout !== null && !this.state.startsWith('bow')) {
       const mounted = this.state === 'mounted' || this.state === 'mountedLance'
       this.animator.setEquipment(this.lance.visible, this.shield.visible, this.mountKind)
+      this.animator.setShieldRaised(this.shieldRaised)
       this.animator.setLocomotion(this.state === 'walk' ? 2 : this.state === 'run' ? 4 : 0, mounted, this.state === 'run')
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash' || this.state === 'axeAttack1H' || this.state === 'axeAttack2H') && !this.animator.busy) {
-        this.animator.start(this.equipmentAction(mounted))
+        this.startEquipmentAttack(mounted)
       }
       this.animator.update(dt)
     } else if (!this.equipped) {

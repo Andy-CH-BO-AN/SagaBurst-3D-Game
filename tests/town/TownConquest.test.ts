@@ -61,7 +61,7 @@ describe('canonical free Town conquest population', () => {
       const profile = createCareerProfile(faction), roster = townConquestRoster(world.hr)
       const entries = careerTownSceneRoster(profile, roster), event = new TownEvent(roster)
       expect(roster).toHaveLength(townRoster().length + 1)
-      expect(roster).toHaveLength(226) // Current composition check only; runtime never uses this number.
+      expect(roster).toHaveLength(231) // Current composition check only; runtime never uses this number.
       expect(new Set(roster.map(spec => spec.id)).size).toBe(roster.length)
       expect(roster.find(spec => spec.id === 'hr-officer')).toMatchObject(world.hr.officer)
       expect(entries.filter(entry => entry.spec.id === 'hr-officer')).toHaveLength(1)
@@ -196,7 +196,7 @@ describe('hostile save migration and settlement retries', () => {
     expect(next.claimedBattleIds).toEqual(['historical-battle'])
     if (result === 'town_defeated') { expect(next.rank).toBe('recruit'); expect(enlistmentMerit(next)).toBe(0) }
     town.finish(result); expect(save).toHaveBeenCalledTimes(2)
-    restartButtons.shift()!(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
+    restartButtons.shift()!(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile, result === 'player_defeated' ? 'death-return' : undefined)
     expect(town.dispose).toHaveBeenCalledOnce()
     town.restoreTownCasualties(); expect([...town.event.actors.values()].every(actor => !actor.dead)).toBe(true)
   })

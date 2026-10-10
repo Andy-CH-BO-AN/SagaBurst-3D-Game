@@ -10,12 +10,17 @@ export interface ArmorData {
   id: string
   name: string
   type: ArmorType
-  tier: 1 | 2 | 3
+  tier: 1 | 2 | 3 | 4
   shieldImpactMax: number
   description: string
 }
 
 export const ARMORS: Record<string, ArmorData> = {
+  paladin_shield_t4: {
+    id: 'paladin_shield_t4', name: '聖騎士盾牌 Paladin Shield', type: 'shield', tier: 4,
+    shieldImpactMax: 48,
+    description: '羅馬與維京 T4 共用實體盾牌。48 衝擊耐久；僅實際命中盾面才格擋。',
+  },
   // ── Roman Scutums ──
   scutum_t1: {
     id: 'scutum_t1',
@@ -69,8 +74,9 @@ export const ARMORS: Record<string, ArmorData> = {
   },
 }
 
-export function getArmorTierColor(tier: 1 | 2 | 3): string {
+export function getArmorTierColor(tier: 1 | 2 | 3 | 4): string {
   switch (tier) {
+    case 4: return '#b27aff'
     case 3: return '#ffaa00'
     case 2: return '#00aaff'
     case 1: default: return '#cccccc'

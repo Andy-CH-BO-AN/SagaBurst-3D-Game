@@ -1,4 +1,13 @@
-import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { TownScene } from '../../src/town/TownScene'
+import { TownCommandSquadController } from '../../src/town/TownCommandSquadController'
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
+import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
+import { FormationController } from '../../src/battle/FormationController'
+import type { PlayerInput } from '../../src/player/PlayerInput'
+import type { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
+import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_SIEGE_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { completeNpcDeployment, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { siegeRoster, siegeDefensePlans, siegePoint, siegeNearestGate, siegeOutward } from '../../src/career/TownSiege'
@@ -6,19 +15,22 @@ import { townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi, onTestFinished } from 'vitest'
-import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
+import { acceptCaptainSiegeCommand, createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { CAREER_RANK_THRESHOLDS, claimCareerMission, createCareerProfile, clearCareerMission } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { townCaptainProfile, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
 import { TOWN_GATES, type TownGateId } from '../../src/town/TownLayout'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
+import type { CombatEvent, CombatEventSink } from '../../src/combat/CombatAttribution'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
-import { TownDefenseController } from '../../src/career/TownDefenseController'
+import { TownDefenseController, type TownDefenseResident } from '../../src/career/TownDefenseController'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
-import { damageNpc } from '../../src/combat/DamageRouter'
+import { damageNpc, damageObstacle } from '../../src/combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef } from '../../src/combat/CombatAttribution'
 import { calculateMerit } from '../../src/career/MeritCalculator'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
@@ -26,6 +38,9 @@ import { combatFixture } from '../helpers/townMissionCombat'
 import { CampaignGateController } from '../../src/campaign/CampaignGate'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+
+// Equipment GLB parsing has its own asset owner; Siege keeps real combat and movement.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
@@ -75,6 +90,10 @@ interface CheckpointFixtureOptions {
   includeRanger?: boolean
   includeOfficerAttackers?: boolean
   freshDeployment?: boolean
+  beforeDeployment?: (controller: TownDefenseController, residents: TownDefenseResident[], player: Player) => void
+  captain?: boolean
+  /** Persisted borrowed IDs exercise reload identity without materializing its former roaming squad. */
+  attackerIds?: Readonly<Record<number, string>>
 }
 
 /** Real movement/damage/mount cases supply only the roles they observe.
@@ -83,8 +102,8 @@ interface CheckpointFixtureOptions {
  * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  freshDeployment = false }: CheckpointFixtureOptions = {}) {
-  const rank = 'veteran', templateId = VETERAN_TOWN_DEFENSE_TEMPLATE_ID
+  freshDeployment = false, captain = false, attackerIds, beforeDeployment }: CheckpointFixtureOptions = {}) {
+  const rank = captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
   profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
@@ -116,13 +135,14 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const patrol = new TownCavalryPatrolController(residents)
-  profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
+  if (assault && captain) profile = acceptCaptainSiegeCommand(profile, 'assault-test')!
+  else profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
   if (assault) profile.activeMission!.targetActorIds = townAssaultObjectiveRoster(roster).map(spec => spec.id)
   const active = profile.activeMission!, siege = active.siege!
   const attackers = siegeRoster(assault ? faction : townFaction === 'roman' ? 'viking' : 'roman', assault)
   siege.rosterCreated = !freshDeployment
-  siege.attackerIds = attackers.map((_, index) => `${active.id}:siege:${index}`)
+  siege.attackerIds = attackers.map((_, index) => attackerIds?.[index] ?? `${active.id}:siege:${index}`)
   const survivors = new Set(attackers.flatMap(({ spec }, index) =>
     attackerSlots.includes(index) || includeRanger && spec.combatProfileId === 'ranger' || includeOfficerAttackers && spec.tier === 4 ? [index] : []))
   const casualties = siege.attackerIds.filter((_, index) => !survivors.has(index))
@@ -133,10 +153,15 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
     cavalry: plan.cavalry.filter(id => sampledIds.has(id)),
     leaderId: plan.leaderId && sampledIds.has(plan.leaderId) ? plan.leaderId : undefined,
   }))
+  if (captain && !assault) {
+    active.templateId = CAPTAIN_GATE_DEFENSE_ID
+    active.officialSquad = { type: 'mission-official', missionId: active.id, townFaction: faction, squadId: 1,
+      actorIds: assault ? siege.attackerIds.slice(0, 29) : residents.filter(r => r.spec.gateId === 'north').map(r => r.spec.id), contribution: emptyPersonalContribution() }
+  }
   const attackerCount = survivors.size
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
   onTestFinished(() => controller.dispose())
-  completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
+  completeNpcDeployment(() => { const started = controller.startActiveMission(); beforeDeployment?.(controller, residents, player); return started }, gameplayNpcSpawnDriver)
   return { controller, player, cat, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
@@ -184,6 +209,47 @@ describe('Siege faction and role wiring', () => {
 
 describe('shared four-gate Siege runtime', () => {
   const faction = 'roman' as const
+  it('places a fresh resident directly at its defense slot and resumes saved position, HP and Player order', () => {
+    // One real resident and one pending attacker verify initial placement before readiness.
+    const f = checkpointFixture({ assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false, freshDeployment: true, captain: true,
+      beforeDeployment: (controller, residents) => {
+        expect(controller.ready).toBe(false)
+        const npc = residents[0].npc, slot = siegePoint('north', -3 * 2.6, 12)
+        expect(npc.combatPosition.distanceTo(new THREE.Vector3(slot.x, npc.combatPosition.y, slot.z))).toBeLessThan(3)
+        controller.persistRuntimeProgress(true)
+        expect(controller.active?.actorPositions?.[npc.combatantId]).toMatchObject({ x: npc.combatPosition.x, z: npc.combatPosition.z })
+        expect(controller.active?.actorPositions?.['defense-test:siege:2']).toBeUndefined()
+      } })
+    const guard = f.residents[0].npc
+    const slot = siegePoint('north', -3 * 2.6, 12)
+    expect(guard.combatPosition.distanceTo(new THREE.Vector3(slot.x, guard.combatPosition.y, slot.z))).toBeLessThan(3)
+    expect(guard.missionMovement).toBe(false); expect(guard.tacticalOrder).toBe('defend')
+    guard.group.position.set(90, guard.group.position.y, 80); guard.restoreCombatHealth(37); guard.setTacticalOrder('follow')
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(guard.combatPosition.x).toBe(90); expect(guard.combatPosition.z).toBe(80)
+    expect(guard.hp).toBe(37); expect(guard.tacticalOrder).toBe('follow'); expect(guard.missionMovement).toBe(false)
+  })
+
+  it.each(['player', 'resident', 'unattributed'] as const)('keeps %s-destroyed gates locked across reload and releases only the enemy-breached gate', source => {
+    const f = siegeFixture({ assault: false, residentIds: ['gate:north:0', 'gate:west:0'], attackerSlots: [2], includeRanger: false })
+    f.controller.updateFlow(10, 0)
+    if (source === 'unattributed') f.gates.get('north')!.destroy()
+    else damageObstacle(f.gates.get('north')!.damageable, 99999, { source: source === 'player' ? createPlayerCombatActorRef(f.player) : createNpcCombatActorRef(f.residents[0].npc), method: 'siege', emit: f.controller.events.emit })
+    expect(f.controller.military.every(npc => npc.missionMovement)).toBe(true)
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(f.gates.get('north')!.state).toBe('destroyed')
+    expect(f.controller.military.every(npc => npc.missionMovement)).toBe(true)
+    damageObstacle(f.gates.get('west')!.damageable, 99999, { source: createNpcCombatActorRef(f.controller.enemies[0]), method: 'siege', emit: f.controller.events.emit })
+    expect(f.residents.find(r => r.spec.id === 'gate:north:0')!.npc.missionMovement).toBe(true)
+    expect(f.residents.find(r => r.spec.id === 'gate:west:0')!.npc.missionMovement).toBe(false)
+    f.controller.persistRuntimeProgress(true)
+    expect(f.profile().activeMission!.siege!.releasedReserveGateIds).toEqual(['west'])
+  })
+
   it.each([true, false])('resumes the remaining countdown without repositioning or reinforcing, assault=%s', assault => {
     const f = checkpointFixture({ faction, assault, residentIds: ['gate:north:0'], attackerSlots: [2, 3], includeRanger: false })
     // Separate allegiance from character appearance: Assault attackers are allies,
@@ -263,7 +329,7 @@ describe('shared four-gate Siege runtime', () => {
     const context = (f.controller as any).siegeContext
     context.ambientEnemies = () => [bandit]
     f.controller.updateFlow(10, 0)
-    f.gates.get('east')!.destroy()
+    damageObstacle(f.gates.get('east')!.damageable, 99999, { source: createNpcCombatActorRef(bandit), method: 'siege', emit: f.controller.events.emit })
     const guard = f.controller.groups.find(g => g.id === 'east')!.cavalry[0]
     expect((guard as any)._getTarget(.05, f.player, [bandit])?.npc).toBe(bandit)
   })
@@ -274,15 +340,15 @@ describe('shared four-gate Siege runtime', () => {
     expect(f.controller.phase).toBe('ATTACKING')
     f.controller.noteEffectiveFriendlyDamage(f.controller.military[0])
     expect(f.controller.reserveHasCharged).toBe(false)
-    f.gates.get('north')!.destroy(); f.gates.get('west')!.destroy()
+    for (const id of ['north', 'west'] as const) damageObstacle(f.gates.get(id)!.damageable, 99999, { source: createPlayerCombatActorRef(f.player), method: 'siege', emit: f.controller.events.emit })
     const assertBreachOrders = () => {
       for (const group of (f.controller as any).groups) {
         const released = group.id === 'north' || group.id === 'west'
         for (const npc of [...group.members, ...group.cavalry] as NPC[]) {
           if (npc.dead) continue
-          expect(npc.missionMovement).toBe(true)
-          expect(npc.tacticalOrder).toBe('formation')
-          if (released) expect((npc as any).missionCombatTarget).toBeNull()
+          expect(npc.missionMovement).toBe(!released)
+          expect(npc.tacticalOrder).toBe(released ? 'charge' : 'formation')
+          if (released) expect((npc as any).missionCombatTarget).toBeUndefined()
         }
       }
     }
@@ -393,7 +459,47 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(f.controller.releasedEnemies).toHaveLength(2)
   })
 
-  it('wires representative infantry and cavalry into their own breach relief', () => {
+  it('keeps North cavalry at its reserve after an enemy breaches West, until North is enemy-breached', () => {
+    // One mounted reserve and one threat exercise native combat movement, not just order flags.
+    const f = siegeFixture({ assault: false, residentIds: ['captain'], attackerSlots: [2], includeRanger: false, freshDeployment: true })
+    const guard = f.controller.captain!
+    let enemy = f.controller.enemies[0]
+    const mount = new Mount(f.scene, MountType.CORGI, guard.combatPosition.x, guard.combatPosition.z)
+    onTestFinished(() => mount.dispose())
+    guard.mountVehicle(mount)
+    f.controller.updateFlow(10, 0)
+    const start = guard.combatPosition.clone()
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    damageObstacle(f.gates.get('west')!.damageable, 99999, { source: createNpcCombatActorRef(enemy), method: 'siege', emit: f.controller.events.emit })
+    const advanceGuard = () => {
+      for (let frame = 0; frame < 40; frame++) guard.update(.025, f.player, [enemy], [], f.obstacles, null as never, () => {}, () => {}, false, 0, null, undefined, f.navigation)
+    }
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeLessThan(.1)
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    enemy = f.controller.enemies[0]
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeLessThan(.1)
+    damageObstacle(f.gates.get('north')!.damageable, 99999, { source: createNpcCombatActorRef(f.controller.enemies[0]), method: 'siege', emit: f.controller.events.emit })
+    enemy.group.position.copy(start).add(new THREE.Vector3(0, 0, 15))
+    enemy.mount?.group.position.copy(enemy.group.position)
+    advanceGuard()
+    expect(Math.hypot(guard.combatPosition.x - start.x, guard.combatPosition.z - start.z)).toBeGreaterThan(1)
+  })
+
+  it('points Captain defense preparation at the same North gate as the official command roster', () => {
+    const f = siegeFixture({ assault: false, captain: true, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    f.controller.updateFlow(.1, 0)
+    expect(f.controller.guide.updateTownDefense).toHaveBeenCalledWith('PREPARING', f.player.combatPosition, 0,
+      expect.objectContaining({ x: expect.closeTo(0, 5), z: -103 }), 1, 0, 9.9, '北門')
+  })
+
+  it('frees breached gate infantry and cavalry to pursue threats across gate sectors', () => {
     const gateId: TownGateId = 'north'
     // Representative native placement belongs to the preceding deployment owner.
     // North leader + infantry, West defender, two independently placed threats.
@@ -416,7 +522,7 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(group.members[0].isMounted).toBe(false)
     expect(guard.isMounted).toBe(true)
     const west = f.controller.groups.find(g => g.id === otherGate)!
-    f.gates.get(gateId)!.destroy()
+    damageObstacle(f.gates.get(gateId)!.damageable, 99999, { source: createNpcCombatActorRef(enemy), method: 'siege', emit: f.controller.events.emit })
     f.controller.persistRuntimeProgress(true)
     expect(f.profile().activeMission!.siege!.releasedReserveGateIds).toEqual(['north'])
     expect(west.members[0].missionMovement).toBe(true)
@@ -425,19 +531,19 @@ describe('Siege deployment and shared rule ownership', () => {
       expect(npc.missionMovement).toBe(false)
       expect(npc.tacticalOrder).toBe('charge')
       expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
-      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
     }
     const start = guard.combatPosition.clone()
     guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
     expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
     place(enemy, siegePoint(otherGate, 0, 5))
     f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
-    expect(guard.missionMovement).toBe(true)
-    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
+    expect((guard as any)._findTarget(f.player, [enemy, distraction])).not.toBeNull()
+    expect(guard.missionMovement).toBe(false)
+    expect(guard.tacticalOrder).toBe('charge')
+    expect((f.controller as any).orders.has(guard)).toBe(false)
     f.player.group.position.copy(siegePoint(gateId, 0, 5))
     f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
+    expect((guard as any)._findTarget(f.player, [])?.isPlayer).toBe(true)
     f.controller.cleanupMission()
     expect((guard as any).missionCombatTarget).toBeUndefined()
   })
@@ -563,4 +669,320 @@ describe('Siege retained combat and settlement contracts', () => {
     player.takeDamage(999999, town.hp)
     town.key(key('Tab')); expect(town.equipment.open).not.toHaveBeenCalled()
   })
+})
+
+
+describe('Captain Siege command ownership caller', () => {
+  it.each(['formation', 'follow'] as const)('moves the guard on %s while attackers are pending and retains the command after deployment', order => {
+    // One resident and one queued attacker isolate the late deployment finalizer.
+    const f = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false,
+      beforeDeployment: (defense, residents, player) => {
+        expect(defense.ready).toBe(false)
+        const guard = residents[0].npc
+        defense.releasePlayerCommand(guard)
+        guard.group.position.set(0, getTerrainHeight(0, 0), 0)
+        if (order === 'formation') guard.assignFormationTarget(17, new THREE.Vector3(0, getTerrainHeight(0, 15), 15), new THREE.Vector3(0, 0, 1))
+        else { player.group.position.set(0, getTerrainHeight(0, 25) + .9, 25); guard.assignFollowTarget(player, 0) }
+        const initial = guard.combatPosition.clone()
+        const combat = combatFixture({ controllers: { defense }, simulation: {
+          player: () => player, residents: residents.map(r => ({ ...r, cycle: -1, walkTime: 0 })),
+        } }).combat
+        for (let frame = 0; frame < 30; frame++) combat.updateCommandTravel(.02, [guard])
+        expect(guard.combatPosition.distanceTo(initial)).toBeGreaterThan(1)
+        expect(defense.ready).toBe(false)
+        expect(defense.preparationRemaining).toBe(10)
+      } })
+    const guard = f.residents[0].npc
+    expect(f.controller.ready).toBe(true)
+    expect(guard.tacticalOrder).toBe(order)
+    if (order === 'formation') expect(guard.formationCommandId).toBe(17)
+    expect(guard.combatPosition.z).toBeGreaterThan(1)
+    expect(guard.missionMovement).toBe(false)
+    expect(f.profile().activeMission?.officialSquad?.members?.[guard.combatantId]?.order).toBe(order)
+  })
+
+  it('moves the Captain guard to the confirmed Formation slot during preparation and completes into Defend', () => {
+    // One real guard and one distant attacker; actual picking, scene callback and NPC locomotion.
+    const f = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    const guard = f.residents[0].npc
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: f.profile(), player: f.player, commandActors: [guard], defense: f.controller,
+    }) as { onPlayerCommandIssued: (order: 'formation', target: 'squad:1') => void;
+      issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean }
+    guard.group.position.set(0, getTerrainHeight(0, 0), 0)
+    const camera = new THREE.PerspectiveCamera(58, 1, .1, 400)
+    camera.position.set(0, 20, 25); camera.lookAt(0, 0, 15)
+    camera.updateMatrixWorld(true)
+    const terrain = new THREE.Mesh(new THREE.PlaneGeometry(100, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial())
+    terrain.updateMatrixWorld(true)
+    onTestFinished(() => { terrain.geometry.dispose(); terrain.material.dispose() })
+    const formation = new FormationController(f.scene, camera, [guard], terrain, f.obstacles, f.navigation, TOWN_NAVIGATION_BOUNDS)
+    onTestFinished(() => formation.cancelPlacement())
+    const h = createArmyCommandHarness([guard])
+    const command = new ArmyCommandController([guard], 'roman', h.input as unknown as PlayerInput, h.ui as unknown as ArmyCommandUI,
+      formation, (order, target) => town.onPlayerCommandIssued(order as 'formation', target as 'squad:1'), 'defend', null, null, 'squad', true,
+      undefined, { enabled: () => true, accepts: npc => f.controller.active!.officialSquad!.actorIds.includes(npc.combatantId),
+        issue: (order, target) => town.issuePartyOrder(order as 'follow', target as 'squad:1') })
+    const combat = combatFixture({ controllers: { defense: f.controller }, simulation: {
+      player: () => f.player, residents: f.residents.map(r => ({ ...r, cycle: -1, walkTime: 0 })),
+      navigation: f.navigation, obstacles: f.obstacles,
+    } }).combat
+    h.input.press('1'); command.update(); h.input.press('5'); command.update()
+    h.input.press('1'); command.update(); h.input.press('4'); command.update(); h.input.pressE(); command.update()
+    expect(guard.tacticalOrder).toBe('formation')
+    const slot = guard.combatFormationCheckpoint!.position
+    expect(slot.z).toBeCloseTo(15)
+    for (let frame = 0; frame < 200 && guard.tacticalOrder === 'formation'; frame++) {
+      combat.update(.02, 0, frame * .02); command.postUpdate()
+    }
+    expect(guard.combatPosition.distanceTo(new THREE.Vector3(slot.x, guard.combatPosition.y, slot.z))).toBeLessThan(1)
+    expect(guard.tacticalOrder).toBe('defend')
+    expect(f.controller.phase).toBe('PREPARING')
+  })
+
+  it('executes Follow and Attack through Town commands during preparation and retains squad authority after a Town checkpoint', () => {
+    // One real guard + one enemy; real scene command callbacks, command UI and combat locomotion.
+    const f = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    const guard = f.residents[0].npc, enemy = f.controller.enemies[0]
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: f.profile(), player: f.player, commandActors: [guard], defense: f.controller,
+    }) as { profile: ReturnType<typeof f.profile>; issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean;
+      onPlayerCommandIssued: (order: 'attack', target: 'squad:1') => void }
+    const owner = new TownCommandSquadController(f.residents, () => f.player, () => town.profile, () => true)
+    town.profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1, actorIds: [guard.combatantId],
+      authorized: false, sceneKey: 'town-home', state: 'TRAINING', contribution: emptyPersonalContribution(),
+      members: { [guard.combatantId]: { status: 'reserve', hp: 100, order: 'defend' } } }
+    owner.applySavedState(town.profile.townCommandSquad)
+    expect(guard.squadId).toBe(1)
+    const h = createArmyCommandHarness([guard])
+    const command = new ArmyCommandController([guard], 'roman', h.input as unknown as PlayerInput, h.ui as unknown as ArmyCommandUI,
+      null, (order, target) => town.onPlayerCommandIssued(order as 'attack', target as 'squad:1'), 'defend', null, null, 'squad', true,
+      undefined, { enabled: () => true, accepts: npc => f.controller.active!.officialSquad!.actorIds.includes(npc.combatantId),
+        issue: (order, target) => town.issuePartyOrder(order as 'follow', target as 'squad:1') })
+    const combat = combatFixture({ controllers: { defense: f.controller }, simulation: {
+      player: () => f.player, residents: f.residents.map(r => ({ ...r, cycle: -1, walkTime: 0 })),
+      navigation: f.navigation, obstacles: f.obstacles,
+    } }).combat
+    guard.group.position.set(0, guard.combatPosition.y, 0)
+    f.player.group.position.copy(guard.combatPosition).z += 25
+    const initial = guard.combatPosition.clone()
+    h.input.press('1'); command.update(); h.input.press('5'); command.update()
+    for (let frame = 0; frame < 30; frame++) combat.update(.02, 0, frame * .02)
+    expect(guard.tacticalOrder).toBe('follow')
+    expect(guard.combatPosition.distanceTo(initial)).toBeGreaterThan(1)
+    enemy.group.position.copy(guard.combatPosition).z += 18
+    enemy.mount?.group.position.copy(enemy.group.position)
+    enemy.setTacticalOrder('defend'); enemy.missionMovement = false
+    const attackStart = guard.combatPosition.clone()
+    h.input.press('1'); command.update(); h.input.press('1'); command.update()
+    for (let frame = 0; frame < 60; frame++) combat.update(.02, 0, frame * .02)
+    expect(f.controller.phase).toBe('PREPARING')
+    expect(guard.tacticalOrder).toBe('attack')
+    expect(guard.combatPosition.distanceTo(attackStart)).toBeGreaterThan(1)
+    expect(guard.combatPosition.z).toBeGreaterThan(attackStart.z)
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    const restoredEnemy = f.controller.enemies[0]
+    restoredEnemy.group.position.copy(guard.combatPosition).z += 18
+    restoredEnemy.mount?.group.position.copy(restoredEnemy.group.position)
+    restoredEnemy.setTacticalOrder('defend'); restoredEnemy.missionMovement = false
+    const restoredStart = guard.combatPosition.clone()
+    for (let frame = 0; frame < 60; frame++) combat.update(.02, 0, frame * .02)
+    expect(f.controller.phase).toBe('PREPARING')
+    expect(guard.tacticalOrder).toBe('attack')
+    expect(guard.combatPosition.z).toBeGreaterThan(restoredStart.z + 1)
+  })
+
+  it.each([
+    { identity: 'new temporary roster', freshDeployment: true, attackerIds: undefined, expectedNorthId: 'assault-test:siege:2' },
+    { identity: 'saved borrowed roster', freshDeployment: false, attackerIds: { 2: 'outskirts:roman:a:2' }, expectedNorthId: 'outskirts:roman:a:2' },
+  ])('credits actual North damage and kills for $identity while excluding South and preserving reload totals', ({ freshDeployment, attackerIds, expectedNorthId }) => {
+    // Four real NPCs: one source per army, one target per source. Other roster slots are saved casualties.
+    const h = siegeFixture({ captain: true, assault: true, freshDeployment, attackerIds,
+      residentIds: ['gate:north:0', 'gate:south:0'], attackerSlots: [2, 30], includeRanger: false })
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const south = h.controller.enemies.find(npc => npc.squadId === 2)!
+    const [northTarget, southTarget] = h.controller.military
+    northTarget.restoreCombatHealth(70); southTarget.restoreCombatHealth(70)
+    expect(h.profile().activeMission!.templateId).toBe(CAPTAIN_SIEGE_COMMAND_ID)
+    expect(north.combatantId).toBe(expectedNorthId)
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toContain(expectedNorthId)
+    damageNpc(southTarget, 70, { source: createNpcCombatActorRef(south), method: 'melee', emit: h.controller.events.emit })
+    expect(h.controller.snapshot().meritPlayer).toMatchObject({ damageDealt: 0, kills: 0 })
+    damageNpc(northTarget, 20, { source: createNpcCombatActorRef(north), method: 'melee', emit: h.controller.events.emit })
+    damageNpc(northTarget, 50, { source: createNpcCombatActorRef(north), method: 'melee', emit: h.controller.events.emit })
+    const stats = h.controller.snapshot()
+    expect(stats.player).toMatchObject({ damageDealt: 0, kills: 0 })
+    expect(stats.meritPlayer).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(stats.squads.find(squad => squad.squadId === 1)).toMatchObject({ damageDealt: 70, kills: 1 })
+    h.controller.persistRuntimeProgress(true)
+    h.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(h.profile())))!)
+    completeNpcDeployment(() => h.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(h.controller.snapshot().meritPlayer).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(h.controller.officialContribution).toMatchObject({ damageDealt: 70, kills: 1 })
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toContain(expectedNorthId)
+  })
+  it('releases the nearby closed gate when Player replaces Charge with Defend', () => {
+    const h = siegeFixture({ captain: true, assault: true, residentIds: [], attackerSlots: [2], includeRanger: false })
+    h.profile().activeMission!.phase = 'ATTACKING'
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const approach = siegePoint('north', 0, -12)
+    north.group.position.copy(approach)
+    north.mount?.group.position.copy(approach)
+    north.setTacticalOrder('charge')
+    h.controller.updateFlow(.1, 0)
+    expect(north.hasSiegeObstacle).toBe(true)
+    north.setTacticalOrder('defend')
+    h.controller.updateFlow(.1, 0)
+    expect(north.hasSiegeObstacle).toBe(false)
+    expect(north.tacticalOrder).toBe('defend')
+    expect(h.gates.get('north')!.state).toBe('closed')
+  })
+  it('leaves North attack formation intact across a breach while South still receives automatic attack orders', () => {
+    const h = siegeFixture({ captain: true, assault: true, residentIds: [], attackerSlots: [2, 30], includeRanger: false })
+    h.profile().activeMission!.phase = 'ATTACKING'
+    const north = h.controller.enemies.find(npc => npc.squadId === 1)!
+    const south = h.controller.enemies.find(npc => npc.squadId === 2)!
+    const desired = siegePoint('north', 8, 24)
+    north.assignFormationTarget(765, desired, new THREE.Vector3(0, 0, 1))
+    h.gates.get('north')!.destroy()
+    h.controller.updateFlow(.1, 0)
+    expect(north.formationCommandId).toBe(765)
+    expect(north.tacticalOrder).toBe('formation')
+    expect(south.formationCommandId).not.toBeNull()
+    expect(south.tacticalOrder).toBe('formation')
+    expect(h.profile().activeMission!.officialSquad!.actorIds).toHaveLength(29)
+  })
+  it('expands a saved partial Captain roster to the complete saved North plan without healing or overriding existing orders', () => {
+    // Four real residents (North melee/ranged/officer and South guard), one queued foot enemy,
+    // one cat, no TownWorld/GLB. Full census and role matrix stay in the data policy owner.
+    const f = siegeFixture({ captain: true, assault: false,
+      residentIds: ['gate:north:0', 'ranged_cavalry-2', 'deployment', 'gate:south:0'], attackerSlots: [20], includeRanger: false })
+    const guard = f.residents.find(r => r.spec.id === 'gate:north:0')!.npc
+    const ranged = f.residents.find(r => r.spec.id === 'ranged_cavalry-2')!.npc
+    const officer = f.residents.find(r => r.spec.id === 'deployment')!.npc
+    const south = f.residents.find(r => r.spec.id === 'gate:south:0')!.npc
+    // Reproduce a pre-fix saved roster: ranged infantry/officer were omitted.
+    f.profile().activeMission!.officialSquad!.actorIds = [guard.combatantId]
+    ranged.restoreCombatHealth(32)
+    officer.restoreCombatHealth(0)
+    f.controller.releasePlayerCommand(guard)
+    guard.assignFormationTarget(766, siegePoint('north', 8, 24), new THREE.Vector3(0, 0, 1))
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(f.profile().activeMission!.officialSquad!.actorIds).toEqual(['gate:north:0', 'ranged_cavalry-2', 'deployment'])
+    expect(guard.combatFormationCheckpoint?.commandId).toBe(766)
+    expect(guard.tacticalOrder).toBe('formation')
+    expect(ranged.hp).toBe(32)
+    expect(officer.dead).toBe(true)
+    expect(f.profile().activeMission!.deadFriendlyActorIds).toContain('deployment')
+    expect(ranged.squadId).toBe(1)
+    expect(ranged.missionMovement).toBe(false)
+    expect(south.missionMovement).toBe(true)
+    expect(south.tacticalOrder).toBe('formation')
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: f.profile(), player: f.player, commandActors: [guard, ranged], defense: f.controller,
+    }) as { issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean }
+    f.player.group.position.copy(ranged.combatPosition).z += 25
+    const start = ranged.combatPosition.clone()
+    expect(town.issuePartyOrder('follow', 'squad:1')).toBe(true)
+    const combat = combatFixture({ controllers: { defense: f.controller }, simulation: {
+      player: () => f.player, residents: f.residents.map(r => ({ ...r, cycle: -1, walkTime: 0 })),
+      navigation: f.navigation, obstacles: f.obstacles,
+    } }).combat
+    for (let frame = 0; frame < 30; frame++) combat.update(.02, 0, frame * .02)
+    expect(ranged.tacticalOrder).toBe('follow')
+    expect(ranged.combatPosition.distanceTo(start)).toBeGreaterThan(1)
+    expect(south.tacticalOrder).toBe('formation')
+    expect(f.gates.get('north')!.state).toBe('closed')
+  })
+  it('leaves the authorized North infantry formation intact after defense reserve release', () => {
+    const h = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
+    const guard = h.residents[0].npc
+    expect(guard.missionMovement).toBe(false)
+    expect(guard.tacticalOrder).toBe('defend')
+    h.profile().activeMission!.phase = 'ATTACKING'
+    guard.assignFormationTarget(766, siegePoint('north', 8, 24), new THREE.Vector3(0, 0, 1))
+    damageObstacle(h.gates.get('north')!.damageable, 99999, { source: createNpcCombatActorRef(h.controller.enemies[0]), method: 'siege', emit: h.controller.events.emit })
+    h.controller.updateFlow(.1, 0)
+    expect(guard.formationCommandId).toBe(766)
+    expect(guard.tacticalOrder).toBe('formation')
+    expect(guard.squadId).toBe(1)
+  })
+})
+
+it('counts a borrowed North cavalry real siege hit once, excludes South and releases the borrowed event lease', () => {
+  // Two real NPCs, three Mounts (two horses and the controller's cat), one Player, no TownWorld/GLB.
+  // All unrelated siege slots are saved casualties.
+  // Real NPC melee and damage routing remain intact, including the animation hit window.
+  const scene = new THREE.Scene(), obstacles: ObstacleData[] = []
+  const scheduler = new NpcSpawnScheduler(), driver = new NpcSpawnTestDriver(scheduler)
+  const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS), city = sampledGates('viking', obstacles)
+  scene.add(city.root); navigation.sync(obstacles)
+  const player = new Player(scene, 'roman'), cat = new Mount(scene, MountType.BLACK_CAT, -34, 20)
+  let profile = acceptCaptainSiegeCommand({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000 }, 'borrowed-events')!
+  const ids = Array.from({ length: 119 }, (_, index) => `borrowed-events:siege:${index}`)
+  profile.activeMission!.deadFriendlyActorIds = ids.filter(id => id !== ids[30])
+  const outskirts = new TownOutskirtsWarfareController(scene, 'viking', () => profile, obstacles, navigation,
+    undefined, [], scheduler)
+  const context = { gates: city.gates, obstacles, outskirts, patrol: new TownCavalryPatrolController([]), closureBodies: () => [] }
+  const controller = new TownDefenseController(scene, [], () => player, () => profile, next => { profile = next; return true },
+    cat, navigation, context, scheduler)
+  onTestFinished(() => { controller.cleanupMission(); controller.dispose(); outskirts.dispose(); player.dispose(); cat.dispose(); expect(scheduler.pending).toBe(0) })
+  for (const batch of outskirts.batches) if (!batch.actors.has('outskirts:cavalry:a:0')) batch.cancel()
+  driver.advanceFrame()
+  const north = outskirts.actors[0], horse = north.mount!
+  const previousSink = vi.fn<CombatEventSink>(), releasePrevious = north.bindCombatEventSink(previousSink)
+  const bind = north.bindCombatEventSink.bind(north), releases: ReturnType<typeof vi.fn>[] = []
+  vi.spyOn(north, 'bindCombatEventSink').mockImplementation(sink => {
+    const release = vi.fn(bind(sink)); releases.push(release); return release
+  })
+  const dispose = vi.spyOn(north, 'dispose')
+  const position = north.combatPosition.clone()
+  expect(controller.startActiveMission()).toBe(true)
+  driver.drain()
+  expect(controller.ready).toBe(true)
+  expect(outskirts.owns(north)).toBe(false)
+  expect(north.mount).toBe(horse)
+  expect(north.combatPosition).toEqual(position)
+  expect(controller.enemies.map(npc => npc.combatantId)).toEqual(['outskirts:cavalry:a:0', ids[30]])
+  expect(profile.activeMission!.officialSquad!.actorIds).toContain(north.combatantId)
+  expect(profile.activeMission!.officialSquad!.actorIds).not.toContain(ids[30])
+  controller.updateFlow(10, 0)
+  const emitted: CombatEvent[] = [], unsubscribe = controller.events.subscribe(event => emitted.push(event))
+  onTestFinished(unsubscribe)
+
+  const hitGate = (npc: NPC, gateId: TownGateId) => {
+    const gate = city.gates.get(gateId)!
+    // Arrange 17 remaining gate HP; the tested damage is exclusively produced by NPC.update.
+    gate.damageable.takeDamage(gate.damageable.currentHp - 17)
+    const point = siegePoint(gateId, 0, -1.5); point.y = getTerrainHeight(point.x, point.z)
+    npc.group.position.copy(point); npc.mount!.group.position.copy(point)
+    npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.assignSiegeObstacle(gate.siegeObstacle)
+    for (let frame = 0; frame < 80 && !gate.damageable.destroyed; frame++) {
+      npc.update(.05, player, controller.enemies, [], obstacles, { setFill() {} }, vi.fn(), vi.fn(), true)
+    }
+    expect(gate.damageable.destroyed, `${npc.combatantId} must hit ${gateId} within 4 simulated seconds`).toBe(true)
+    npc.update(.05, player, controller.enemies, [], obstacles, { setFill() {} }, vi.fn(), vi.fn(), true)
+  }
+  hitGate(north, 'north')
+  expect(controller.snapshot().meritPlayer).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  expect(emitted.filter(event => event.source.actorId === north.combatantId).map(event => event.type)).toEqual(['structure_damaged', 'structure_destroyed'])
+  expect(previousSink).not.toHaveBeenCalled()
+  expect(controller.snapshot().player).toMatchObject({ structureDamage: 0, gateBreaches: 0 })
+  expect(controller.officialContribution).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  hitGate(controller.enemies[1], 'south')
+  expect(emitted.filter(event => event.source.actorId === ids[30]).map(event => event.type)).toEqual(['structure_damaged', 'structure_destroyed'])
+  expect(controller.snapshot().meritPlayer).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  controller.persistRuntimeProgress(true)
+  const saved = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+  expect(saved.activeMission!.officialSquad!.contribution).toMatchObject({ structureDamage: 17, gateBreaches: 1 })
+  controller.cleanupMission()
+  expect(releases).toHaveLength(1)
+  expect(releases[0]).toHaveBeenCalledOnce()
+  expect(dispose).toHaveBeenCalledOnce()
+  expect(releases[0].mock.invocationCallOrder[0]).toBeLessThan(dispose.mock.invocationCallOrder[0])
+  releasePrevious()
 })

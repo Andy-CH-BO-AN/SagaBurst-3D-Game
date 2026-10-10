@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
-import { Faction } from '../../src/world/NPC'
+import { Faction, type NPC } from '../../src/world/NPC'
 import { FormationController } from '../../src/battle/FormationController'
 import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../../src/world/Terrain'
 
@@ -12,6 +12,58 @@ function placementHarness(...args: Parameters<typeof createFormationPlacementHar
 }
 
 describe('Formation placement and confirmation', () => {
+  it('uses explicit authority for mixed Town and flying members, placing only the flyer at cruise height', () => {
+    const foot = { ...placementParticipant('official', -10), faction: Faction.TOWN }
+    const flyer = { ...placementParticipant('personal', 10, true), mount: { isFlyingMount: true } }
+    const bystander = placementParticipant('bystander', 20)
+    const formation = new FormationController(new THREE.Scene(), new THREE.PerspectiveCamera(),
+      [foot, flyer, bystander] as unknown as NPC[], new THREE.Object3D(), [])
+    onTestFinished(() => formation.cancelPlacement())
+    formation.setParticipantPolicy(npc => npc.name === 'official' || npc.name === 'personal')
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: new THREE.Vector3(0, getTerrainHeight(0, 0), 0) }])
+    formation.beginPlacement('all')
+    expect(formation.confirmPlacement().count).toBe(2)
+    const groundSlot = foot.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
+    const airSlot = flyer.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
+    expect(groundSlot.y).toBe(getTerrainHeight(groundSlot.x, groundSlot.z))
+    expect(airSlot.y).toBe(getTerrainHeight(airSlot.x, airSlot.z) + 30)
+    expect(bystander.assignFormationTarget).not.toHaveBeenCalled()
+  })
+
+  it('joins a refitted actor in a free slot without moving existing members and waits for its arrival', () => {
+    // Two recording actors, no real NPC/Mount/world: this protects formation handover/completion wiring.
+    const member = (name: string, x: number) => {
+      let saved: NPC['combatFormationCheckpoint']
+      const actor = { name, dead: false, isMounted: false, combatPosition: new THREE.Vector3(x, 0, 0),
+        get formationCommandId() { return saved?.commandId ?? null },
+        get combatFormationCheckpoint() { return saved },
+        assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => {
+          saved = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false }
+        }),
+        isFormationTargetReached: vi.fn(() => false),
+      }
+      return { actor, npc: actor as unknown as NPC }
+    }
+    const reference = member('reference', 100), joining = member('joining', 0)
+    reference.npc.assignFormationTarget(7, new THREE.Vector3(100, 0, 100), new THREE.Vector3(0, 0, 1))
+    reference.actor.isFormationTargetReached.mockReturnValue(true)
+    const saved = reference.npc.combatFormationCheckpoint
+    const formation = new FormationController(new THREE.Scene(), new THREE.PerspectiveCamera(),
+      [reference.npc, joining.npc], new THREE.Object3D(), [blockingBox(97, 101, 97, 103)])
+    onTestFinished(() => formation.cancelPlacement())
+    const completed = vi.fn(); formation.setCompletionHandler(completed)
+    expect(formation.joinCommand(joining.npc, reference.npc)).toBe(true)
+    const slot = joining.actor.assignFormationTarget.mock.calls[0][1]
+    expect(joining.npc.formationCommandId).toBe(7)
+    expect(slot.distanceTo(new THREE.Vector3(100, slot.y, 100))).toBeGreaterThanOrEqual(1)
+    expect(slot.x < 96.5 || slot.x > 101.5 || slot.z < 96.5 || slot.z > 103.5).toBe(true)
+    expect(reference.npc.combatFormationCheckpoint).toEqual(saved)
+    expect(reference.actor.assignFormationTarget).toHaveBeenCalledOnce()
+    formation.updateCompletion(); expect(completed).not.toHaveBeenCalled()
+    joining.actor.isFormationTargetReached.mockReturnValue(true)
+    formation.updateCompletion(); expect(completed).toHaveBeenCalledOnce()
+  })
+
   it('keeps every ideal slot when no obstacle blocks it', () => {
     const center = new THREE.Vector3(12, getTerrainHeight(12, -8), -8)
     const participants = [placementParticipant('left', -1), placementParticipant('right', 1)]

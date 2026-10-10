@@ -11,7 +11,8 @@ import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownP
 import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
 import { townWartimeHostile } from './TownWartime'
 
-interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
+export interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
+export interface AvailableTownPatrolSquad { patrolId: TownPatrolId; actorIds: string[] }
 export type TownPatrolState = 'BARRACKS' | 'MOVING_TO_ROUTE' | 'PATROLLING' | 'PAUSED' | 'ENGAGING' | 'RETURN_TO_BARRACKS'
 export type TownPatrolReturnState = 'RETURN_TO_BARRACKS' | 'REFIT' | 'REJOIN_PATROL'
 interface PatrolReturn {
@@ -108,6 +109,82 @@ export class TownCavalryPatrolController {
     })
   }
 
+  /** Captain borrows permanent identities, including casualties; readiness is not health or combat. */
+  selectAvailableSquad(): AvailableTownPatrolSquad | null {
+    if (this.hostile || this.siegeOwned) return null
+    for (const squad of this.squads) {
+      if (!this.validSquad(squad) || this.squadUnavailableReason(squad)) continue
+      return { patrolId: squad.id, actorIds: [...squad.members]
+        .sort((a, b) => Number(Boolean(b.spec.patrolLeader)) - Number(Boolean(a.spec.patrolLeader)) || a.spec.index - b.spec.index)
+        .map(resident => resident.spec.id) }
+    }
+    return null
+  }
+
+  private validSquad(squad: PatrolSquad): boolean {
+    return (squad.id === 'A' || squad.id === 'B') && squad.members.length === 20
+      && new Set(squad.members.map(r => r.spec.id)).size === 20
+      && squad.members.some(r => r.spec.patrolLeader)
+      && squad.members.every(r => Boolean(r.spec.id) && r.npc.combatantId === r.spec.id && this.residents.get(r.spec.id) === r)
+  }
+
+  private squadUnavailableReason(squad: PatrolSquad): 'owned' | 'returning' | null {
+    if (squad.members.some(r => this.relinquished.has(r.spec.id) || this.excluded.has(r.npc) || r.npc.combatOwnership)) return 'owned'
+    if (squad.members.every(r => this.isRefitting(r.spec.id))
+      || squad.state === 'RETURN_TO_BARRACKS' && squad.members.some(r => this.isRefitting(r.spec.id))) return 'returning'
+    return null
+  }
+
+  get unavailableReason(): string {
+    if (this.siegeOwned) return '巡邏隊已由 Siege 系統接管，請待攻城結束。'
+    if (this.hostile) return '城鎮處於敵對狀態，巡邏隊暫時不可接管。'
+    const squads = this.squads.filter(squad => this.validSquad(squad))
+    if (squads.length && squads.every(squad => this.squadUnavailableReason(squad) === 'returning')) return '巡邏隊正在返回兵營，請稍後再接受任務。'
+    if (squads.some(squad => this.squadUnavailableReason(squad) === 'owned')) return '巡邏隊已由其他任務接管，請待任務結束。'
+    return '巡邏隊正式編制尚未就緒，請稍後再接受任務。'
+  }
+
+  /** Atomic post-save handover. No member is released if the accepted roster is no longer available. */
+  relinquishSquad(actorIds: readonly string[]): boolean {
+    const available = this.selectAvailableSquad()
+    if (!available || !sameActorIds(available.actorIds, actorIds)) return false
+    return this.resumeSquad(actorIds)
+  }
+
+  /** Reload uses saved identities even after injuries; autonomous patrol must not take them back. */
+  resumeSquad(actorIds: readonly string[], preserveCombat = false): boolean {
+    if (this.hostile || this.siegeOwned) return false
+    const squad = this.squads.find(candidate => this.validSquad(candidate)
+      && sameActorIds(candidate.members.map(resident => resident.spec.id), actorIds))
+    if (!squad) return false
+    for (const resident of squad.members) {
+      // An individual casualty keeps its physical return owner while the rest can be commanded.
+      if (this.isRefitting(resident.spec.id)) continue
+      this.relinquished.add(resident.spec.id); this.available.delete(resident.spec.id); this.returning.delete(resident.spec.id)
+      if (!preserveCombat) resident.npc.clearEncounter()
+    }
+    squad.activeLeaderActorId = null; squad.participants.clear(); squad.threats.clear(); squad.engagementOrigin = null
+    return true
+  }
+
+  /** Restore saved travel ownership without repeating a completed refit. */
+  restoreMissionReturn(actorId: string, state: TownPatrolReturnState): void {
+    if (state !== 'REJOIN_PATROL') { this.beginMissionReturn(actorId); return }
+    const resident = this.residents.get(actorId)
+    if (!resident) return
+    const point = townPatrolRefitPoint(resident.spec)
+    this.relinquished.delete(actorId)
+    this.returning.set(actorId, { state, destination: new THREE.Vector3(point.x, 0, point.z), yaw: point.yaw, commandedMounted: null })
+  }
+
+  /** Reclaim hands survivors and casualties to the existing physical return/refit owner. */
+  returnSquad(actorIds: readonly string[]): boolean {
+    const known = actorIds.every(id => this.residents.has(id))
+    if (!known) return false
+    for (const id of actorIds) this.beginMissionReturn(id)
+    return true
+  }
+
   /** Call before the borrower issues any movement orders. The borrower owns travel to muster too. */
   relinquish(actorId: string): boolean {
     const resident = this.residents.get(actorId)
@@ -135,6 +212,10 @@ export class TownCavalryPatrolController {
   }
 
   returnStateFor(actorId: string): TownPatrolReturnState | null { return this.returning.get(actorId)?.state ?? null }
+  isRefitting(actorId: string): boolean {
+    const state = this.returnStateFor(actorId)
+    return state === 'RETURN_TO_BARRACKS' || state === 'REFIT'
+  }
 
   owns(npc: NPC): boolean {
     return !this.siegeOwned && !this.hostile && this.residents.get(npc.combatantId)?.npc === npc
@@ -220,7 +301,7 @@ export class TownCavalryPatrolController {
 
   beginPatrolReturn(actorId: string): boolean {
     const resident = this.residents.get(actorId)
-    if (!resident?.homeMount || this.hostile) return false
+    if (!resident || this.hostile) return false
     this.relinquished.delete(actorId)
     this.available.delete(actorId)
     const refitPoint = townPatrolRefitPoint(resident.spec)
@@ -346,8 +427,10 @@ export class TownCavalryPatrolController {
     const destination = { x: returning.destination.x, z: returning.destination.z, yaw: returning.yaw }
     resident.npc.dismountFromMount()
     resident.npc.restoreForTown(destination)
-    resident.homeMount!.restoreForTown(destination.x, destination.z, destination.yaw)
-    resident.npc.mountVehicle(resident.homeMount!)
+    if (resident.homeMount) {
+      resident.homeMount.restoreForTown(destination.x, destination.z, destination.yaw)
+      resident.npc.mountVehicle(resident.homeMount)
+    }
     returning.state = 'REJOIN_PATROL'
   }
 
@@ -376,4 +459,8 @@ export class TownCavalryPatrolController {
   }
 
   private distance(a: THREE.Vector3, b: THREE.Vector3): number { return Math.hypot(a.x - b.x, a.z - b.z) }
+}
+
+function sameActorIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && new Set(b).size === b.length && a.every(id => b.includes(id))
 }

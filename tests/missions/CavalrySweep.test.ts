@@ -1,3 +1,4 @@
+import { CAPTAIN_CAVALRY_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
 import { completeNpcDeployment, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from '../helpers/missionCheckpoint'
 import * as THREE from 'three'
@@ -21,6 +22,9 @@ import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { advanceUntil } from '../helpers/simulation'
 import type { Player } from '../../src/player/Player'
 import { TownScene } from '../../src/town/TownScene'
+
+// Rendering only: mission ownership, equipment IDs, damage and spawn remain real.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
@@ -83,7 +87,7 @@ function fixture({ borrowedSlots = [0], livingSlots = [0, 1], enemyCount = 0,
     camps: [{ id: 0, center: new THREE.Vector3(), ambient: [], mission: [] }], friendlies: [], cavalryMounts: [], temporaryCavalry: [], departingCavalry: [], commandId: 1,
     veteranSurvivalElapsed: 0, veteranTargetActorIds: new Set(), veteranFriendlyActorIds: new Set(), borrowedMissionActors: new Set(),
     borrowedRespawnEnabled: new Map(), borrowedTemporaryMounts: [], fieldActorMounts: new Map(), veteranEnemies: [],
-    veteranEnemySquadList: [], veteranMusterPositions: new Map(), veteranSupportEntryPositions: new Map(), veteranEnemyTownActorIds: new Set(),
+    plannedFriendlyPositions: [], veteranEnemySquadList: [], veteranMusterPositions: new Map(), veteranSupportEntryPositions: new Map(), veteranEnemyTownActorIds: new Set(),
     veteranEnemySquadByActorId: new Map(), veteranDamageActivationUnsubscribe: null,
     guide: { hide: vi.fn(), update: vi.fn(), dispose: vi.fn() }, events: new CombatEventStream(), tracker: null, route: [], routeIndex: 0,
     onMarchStarted: vi.fn(), onSweepCharge: vi.fn(), mountedMarch: null, veteranFieldFactories: {},
@@ -104,6 +108,26 @@ function fixture({ borrowedSlots = [0], livingSlots = [0, 1], enemyCount = 0,
   if (joinAssembly) assemble()
   return { controller, player, residents, assemble, driver, profile: () => profile, reload: () => { controller.dispose(); profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; completeNpcDeployment(() => controller.startActiveMission(), driver) } }
 }
+
+describe('Cavalry Sweep guide routing', () => {
+  it.each([CAVALRY_SWEEP_ID, CAPTAIN_CAVALRY_COMMAND_ID])('%s routes marching guidance to its correct objective', templateId => {
+    // Guide caller only: 0 real actors/mounts/world; movement and persistence are independent boundaries.
+    const profile = ready(); profile.activeMission = createCavalrySweepMission('guide')
+    profile.activeMission.templateId = templateId; profile.activeMission.phase = 'MARCHING'
+    const update = vi.fn(), leaderPosition = new THREE.Vector3(25, 0, -80)
+    const c = Object.assign(Object.create(BanditMissionController.prototype), {
+      readProfile: () => profile, player: () => ({ dead: false, combatPosition: new THREE.Vector3() }),
+      checkpoint: { advance: vi.fn() }, friendlies: [], camps: [],
+      travelEncounter: { active: false }, ensureLivingLeader: () => false,
+      leader: { combatPosition: leaderPosition }, persistRuntimeProgress: vi.fn(),
+      guide: { update },
+    }) as { updateSweep(dt: number, cameraYaw: number): void }
+    c.updateSweep(.016, 0)
+    expect(update).toHaveBeenCalledExactlyOnceWith('MARCHING', new THREE.Vector3(), 0,
+      templateId === CAPTAIN_CAVALRY_COMMAND_ID ? SWEEP_CENTER : leaderPosition, 0, false, false,
+      templateId === CAPTAIN_CAVALRY_COMMAND_ID ? 'captain-sweep' : undefined)
+  })
+})
 
 describe('Cavalry Sweep eligibility', () => {
   it.each(CAREER_RANKS)('%s needs only a usable owned mount', rank => {
@@ -139,7 +163,9 @@ describe.each(['roman', 'viking'] as const)('%s sweep roster', faction => {
     expect(roster.filter(s => s.squadId === 1 && s.tier !== 4)).toHaveLength(28)
     expect(roster.filter(s => s.squadId === 2 && s.tier !== 4)).toHaveLength(29)
     expect(roster.every(s => s.cavalry && s.loadout?.mountId && s.characterFaction === faction)).toBe(true)
-    expect(roster.find(s => s.name === 'Captain')).toMatchObject({ tier: 4, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4' })
+    expect(roster.find(s => s.name === 'Captain')).toMatchObject({ tier: 4, visualAssetId: faction === 'roman' ? 'roman-hero-t4' : 'viking-hero-t4',
+      loadout: { meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: faction === 'roman' ? 'corgi' : 'black-cat' } })
     expect(roster.find(s => s.name === 'Maki')).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', loadout: { mountId: 'black-cat' } })
     const positions = [...roster.map(s => new THREE.Vector3(s.x, 0, s.z)), sweepPlayerSpawn()]
     for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) expect(positions[i].distanceTo(positions[j])).toBeGreaterThan(2)

@@ -1,3 +1,4 @@
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import * as THREE from 'three'
@@ -6,7 +7,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, enlistmentMerit, promoteCareer } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { TownEvent, townRoster, townMilitaryEquipment, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
+import { TownEvent, townRoster, townMilitaryEquipment, settleTown, grantStarter, TOWN_PRODUCTS, productStatus, updateRangerMount, townCampaignTarget, townCaptainProfile, townActorHeroProfile, stableHorsePositions, TOWN_SITES } from '../../src/town/TownRules'
 import { TownEquipment, canUseCareerEquipment } from '../../src/town/TownEquipment'
 import { NPC, AIType, Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
@@ -23,6 +24,9 @@ vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
   CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
 }))
+
+// Routing fixtures must fly above the actual terrain now that Town sweeps terrain contacts.
+const townShotHeight = getTerrainHeight(0, 1) + 1
 
 function memory() {
   const data = new Map<string, string>()
@@ -55,9 +59,9 @@ describe('Town population and civilian combat', () => {
     expect(townCaptainProfile('roman')).toMatchObject({ visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', mountOverride: 'corgi' })
     expect(townCaptainProfile('viking')).toMatchObject({ visualAssetId: 'viking-hero-t4', combatProfileId: 'varangian', mountOverride: 'black-cat' })
     const stalls = stableHorsePositions(); expect(stalls).toHaveLength(5); expect(new Set(stalls.map(s => s.variant)).size).toBe(3)
-    expect(stalls.every(s => s.x > -39.5 && s.x < -28.5 && s.z > 13 && s.z < 27)).toBe(true)
+    expect(stalls.every(s => s.x > -10.5 && s.x < .5 && s.z > -46 && s.z < -32)).toBe(true)
     for (const site of Object.values(TOWN_SITES)) expect(Math.sin(site.yaw) * -site.x + Math.cos(site.yaw) * -site.z).toBeGreaterThan(0)
-    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: -21.5, yaw: Math.PI / 2 })
+    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: 1.5, z: -17, yaw: Math.PI / 2 })
   })
   it('keeps Viking civilian wool/trousers and armor hiding consistent across LODs without changing shared Roman materials', () => {
     const cloth = new THREE.MeshStandardMaterial({ color: 0xff2222 }), skin = new THREE.MeshStandardMaterial({ color: 0xffccaa })
@@ -78,24 +82,40 @@ describe('Town population and civilian combat', () => {
   })
   it('registers every formal resident rather than selecting settlement principals', () => {
     const roster = townRoster(), counts = Object.fromEntries([...new Set(roster.map(r => r.role))].map(role => [role, roster.filter(r => r.role === role).length]))
-    expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 12, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
+    expect(counts).toMatchObject({ melee_cavalry: 60, lancer_cavalry: 20, ranged_cavalry: 20, ranged_infantry: 30, melee_infantry: 31, spearman_infantry: 27, archer_infantry: 17, civilian: 20, merchant: 1, cat: 1, ranger: 1, captain: 1, deployment: 1 })
     const e = new TownEvent(townRoster()); roster.forEach(r => e.register(r.id, { dead: false })); e.complete(); expect(e.actors.size).toBe(roster.length)
     expect(() => e.register('cat', { dead: false })).toThrow()
     expect(Object.keys(UNIT_PRESETS).some(p => p.includes('civilian'))).toBe(false)
     expect(TOWN_PRODUCTS.some(p => p.id.includes('civilian'))).toBe(false)
   })
-  it('uses faction T2 presets for peaceful garrison and a foot T3 melee profile for the sergeant', () => {
+  it('uses faction T2 presets for peaceful garrison and a foot T4 hero profile for the sergeant', () => {
     for (const faction of ['roman', 'viking'] as const) {
       const sword = townMilitaryEquipment(faction, 'melee_cavalry')
       const lancer = townMilitaryEquipment(faction, 'lancer_cavalry')
       const spear = townMilitaryEquipment(faction, 'spearman_infantry')
-      const sergeant = townMilitaryEquipment(faction, 'deployment')
+      const spec = townRoster().find(actor => actor.id === 'deployment')!
+      const sergeant = townMilitaryEquipment(faction, spec)
       expect(sword).toMatchObject({ presetId: `${faction}_sword_cavalry`, tier: 2, level: 2 })
       expect(lancer).toMatchObject({ presetId: `${faction}_lancer`, tier: 2, level: 2 })
       expect(spear).toMatchObject({ presetId: `${faction}_spearman`, tier: 2, level: 2 })
-      expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 3 })
-      expect(sergeant.loadout).toEqual(UNIT_PRESETS[sergeant.presetId].tierLoadouts[3])
+      expect(sergeant).toMatchObject({ presetId: `${faction}_${faction === 'roman' ? 'heavy_infantry' : 'berserker'}`, tier: 3, level: 4 })
+      expect(sergeant.loadout).toEqual({ meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null })
       expect(sergeant.loadout.mountId).toBeNull()
+      expect(spec).toMatchObject({ tier: 4, mounted: false, duty: 'service', unitKind: 'melee' })
+      expect(townMilitaryEquipment(faction, 'deployment')).toEqual(sergeant)
+      expect(townActorHeroProfile(faction, spec)).toEqual({
+        visualAssetId: `${faction}-hero-t4`, combatProfileId: faction === 'roman' ? 'praetorian' : 'varangian',
+        baseLoadoutTier: 3, mountOverride: null,
+      })
+    }
+  })
+  it.each(['roman', 'viking'] as const)('%s Town Captain and HR Officer use T4 weapons and shields', faction => {
+    for (const role of ['captain', 'hr-officer'] as const) {
+      expect(townMilitaryEquipment(faction, role)).toMatchObject({ level: 4, loadout: {
+        meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+        rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'horse',
+      } })
     }
   })
   it('uses HP 50, no squad or weapon in peace; arms once with catalog gladius after hostility', () => {
@@ -367,7 +387,7 @@ describe('Town orchestration transitions', () => {
     const source = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Town javelin', 2, false, { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
     source.setTownPeaceful()
     const town = createTownCombatFixture() as any
-    town.player = new Player(scene, 'roman'); town.player.setPosition(0, 1, 1)
+    town.player = new Player(scene, 'roman'); town.player.setPosition(0, townShotHeight, 1)
     town.world = { buildings: [], targets: [], obstacles: [] }
     town.mission = { ambientBandits: [], missionBandits: [], friendlies: [], combatPeersFor: vi.fn(() => []), events: { emit: vi.fn() } }
     town.defense = { active: false, playerEnemies: [], releasedEnemies: [] }
@@ -377,8 +397,8 @@ describe('Town orchestration transitions', () => {
     const shot = () => {
       let alive = true
       const arrow = {
-        mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 10,
-        update: vi.fn(function (this: any) { this.mesh.position.set(0, 1, 2) }),
+        mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 10,
+        update: vi.fn(function (this: any) { this.mesh.position.set(0, townShotHeight, 2) }),
         destroy: vi.fn(() => { alive = false }),
         get isAlive() { return alive },
       }
@@ -424,8 +444,8 @@ describe('Town orchestration transitions', () => {
 
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }
@@ -505,8 +525,8 @@ describe('Town orchestration transitions', () => {
 
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 12,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 12,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }
@@ -590,7 +610,7 @@ describe('Town orchestration transitions', () => {
     town.defense = { active: true, playerEnemies: [], releasedEnemies: [], peersFor: vi.fn(() => []) }
     town.player = { position: new THREE.Vector3(30, 1, 30), group: { position: new THREE.Vector3(30, 1, 30) }, dead: false }
     const cat = { dead: false, group: new THREE.Group(), takeDamage: vi.fn(function (this: any) { this.dead = true }) }
-    cat.group.position.set(0, 0, 1)
+    cat.group.position.set(0, townShotHeight - 1, 1)
     town.runtimeCombatActors = () => []
     town.combatMounts = [cat]
     town.canHitTownMount = () => true
@@ -601,8 +621,8 @@ describe('Town orchestration transitions', () => {
     const source = { faction: Faction.ENEMY }
     let alive = true
     const arrow = {
-      mesh: { position: new THREE.Vector3(0, 1, 0) }, damage: 200,
-      update() { this.mesh.position.set(0, 1, 2) },
+      mesh: { position: new THREE.Vector3(0, townShotHeight, 0) }, damage: 200,
+      update() { this.mesh.position.set(0, townShotHeight, 2) },
       destroy() { alive = false },
       get isAlive() { return alive },
     }

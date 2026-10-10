@@ -1,14 +1,15 @@
 import { careerItemTotal, addCareerItem } from '../../src/career/CareerInventory'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createCareerProfile, getCareerPurchaseTier, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { createCareerProfile, getCareerPurchaseTier, purchaseCareerContent, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import * as THREE from 'three'
+import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { CareerMountController } from '../../src/career/CareerMountController'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { TownScene } from '../../src/town/TownScene'
 import { TownEquipment } from '../../src/town/TownEquipment'
-import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS } from '../../src/town/TownRules'
+import { grantStarter, purchaseTownEquipment, purchaseTownHorse, purchaseTownMount, sellTownProduct, townSaleStatus, TOWN_PRODUCTS, townShopProducts } from '../../src/town/TownRules'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -24,6 +25,13 @@ describe('Career weapon shop canonical purchases', () => {
     ['recruit', 'rusty_dagger', true], ['recruit', 'steel_sword', false],
     ['soldier', 'steel_sword', true], ['soldier', 'runic_greatsword', false],
     ['veteran', 'runic_greatsword', true],
+    ['veteran', 'paladin_sword_t4', false], ['veteran', 'paladin_mace_t4', false], ['veteran', 'paladin_shield_t4', false],
+    ['recruit', 'paladin_sword_t4', false], ['recruit', 'paladin_mace_t4', false], ['recruit', 'paladin_shield_t4', false],
+    ['soldier', 'paladin_sword_t4', false], ['soldier', 'paladin_mace_t4', false], ['soldier', 'paladin_shield_t4', false],
+    ['captain', 'paladin_sword_t4', true], ['captain', 'paladin_mace_t4', true], ['captain', 'paladin_shield_t4', true],
+    ['commander', 'paladin_sword_t4', true], ['commander', 'paladin_mace_t4', true], ['commander', 'paladin_shield_t4', true],
+    ['recruit', T4_RANGER_BOW_RANGED_ID, false], ['soldier', T4_RANGER_BOW_RANGED_ID, false], ['veteran', T4_RANGER_BOW_RANGED_ID, false],
+    ['captain', T4_RANGER_BOW_RANGED_ID, true], ['commander', T4_RANGER_BOW_RANGED_ID, true],
   ] as const)('%s purchases %s: %s', (rank, id, allowed) => {
     const current = { ...profile(rank), availableMerit: 2000 }
     const result = purchaseTownEquipment(current, id)
@@ -58,12 +66,16 @@ describe('Career weapon shop canonical purchases', () => {
     expect(canonical.spentMerit).toBe(400); expect(canonical.profile.ownedArmors).toEqual([])
     expect(canonical.profile.ownedWeapons).toContain('steel_sword')
   })
-  it.each(['maki-ranger-bow', T4_RANGER_BOW_RANGED_ID])('excludes Hero-only %s from catalog and purchase', id => {
+  it('excludes Maki fixed melee weapon from catalog and purchase', () => {
+    const id = 'maki-ranger-bow'
     expect(TOWN_PRODUCTS.some(p => p.id === id)).toBe(false)
     const current = profile('commander')
     expect(purchaseTownEquipment(current, id)).toMatchObject({ purchased: false, profile: current, reason: 'invalid-id' })
   })
   it('keeps weapon and shield catalog prices and faction independent collection', () => {
+    expect(TOWN_PRODUCTS.filter(item => item.id === T4_RANGER_BOW_RANGED_ID)).toEqual([
+      { id: T4_RANGER_BOW_RANGED_ID, name: 'T4 遊俠弓 Ranger Bow', category: 'weapon', tier: 4, price: 1600 },
+    ])
     for (const item of TOWN_PRODUCTS.filter(p => p.category !== 'mount')) expect(item.price).toBe(item.tier ** 2 * (item.category === 'weapon' ? 100 : 90))
     expect(purchaseTownEquipment(profile(), 'viking_axe_t2').purchased).toBe(true)
     expect(purchaseTownEquipment({ ...profile(), faction: 'viking' }, 'pilum_standard').purchased).toBe(true)
@@ -115,6 +127,38 @@ describe('Career purchased inventory and persistence', () => {
     const relief = acceptCareerOutpostRelief({ ...reloaded, completedOutpostStages: [1, 2, 3], ownedMounts: ['horse'], ownedHorseTiers: [1], selectedMountId: 'horse-t1' }, 'shop-relief')!
     expect(createCareerOutpostLaunch(relief).playerLoadout).toMatchObject(expected)
   })
+  it.each(['roman', 'viking'] as const)('%s captain purchases, equips and reloads shared T4 equipment', faction => {
+    const store = new CareerProfileStore(new MemoryStorage())
+    let current = { ...profile('captain'), faction, totalMerit: 10000, availableMerit: 10000 }
+    const inventory = new TownEquipment(() => current, next => { current = next; return store.save(next) })
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4', T4_RANGER_BOW_RANGED_ID]) {
+      const purchase = purchaseTownEquipment(current, id)
+      expect(purchase.purchased).toBe(true)
+      current = purchase.profile
+      expect(inventory.equipWeapon(id)).toBe(true)
+    }
+    const loaded = store.load()!
+    expect(loaded.equipment).toMatchObject({ melee: 'paladin_mace_t4', ranged: T4_RANGER_BOW_RANGED_ID, shield: null })
+    expect(loaded.ownedWeapons).toEqual(expect.arrayContaining(['paladin_sword_t4', 'paladin_mace_t4', T4_RANGER_BOW_RANGED_ID]))
+    expect(loaded.ownedArmors).toContain('paladin_shield_t4')
+    expect(loaded.availableMerit).toBe(3760)
+    const outpost = acceptCareerOutpost(loaded, 1, 't4-shop-outpost')!
+    expect(createCareerOutpostLaunch(outpost).playerLoadout.rangedWeaponId).toBe(T4_RANGER_BOW_RANGED_ID)
+    const returned = new TownEquipment(() => loaded, () => true)
+    returned.prepareForCombat()
+    expect(returned.equippedRanged.id).toBe(T4_RANGER_BOW_RANGED_ID)
+    expect(returned.rangedEnabled).toBe(true)
+    expect(returned.shieldEnabled).toBe(false)
+    expect(inventory.equipWeapon('paladin_shield_t4')).toBe(true)
+    expect(inventory.rangedEnabled).toBe(false)
+    expect(current.ownedWeapons).toContain(T4_RANGER_BOW_RANGED_ID)
+    expect(current.equipment?.ranged).toBeUndefined()
+    expect(inventory.equipWeapon(T4_RANGER_BOW_RANGED_ID)).toBe(true)
+    expect(inventory.shieldEnabled).toBe(false)
+    const foreign = { ...store.load()!, faction: faction === 'roman' ? 'viking' as const : 'roman' as const }
+    expect(store.save(foreign)).toBe(true)
+    expect(store.load()?.equipment?.ranged).toBe(T4_RANGER_BOW_RANGED_ID)
+  })
   it('buys repeated military horses alongside equipment', () => {
     const current = { ...profile('veteran'), availableMerit: 2500 }
     expect(purchaseTownHorse(current, 'horse-t2')).toBeNull()
@@ -142,7 +186,7 @@ class PanelElement {
 }
 function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
-  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat']
+  const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat', 'roman:eagle-trainer']
   const store = new CareerProfileStore(new MemoryStorage()); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
@@ -254,13 +298,13 @@ describe('Merchant panel purchase integration', () => {
 describe('Career hero mount purchases', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-  it.each(['black-cat', 'corgi'] as const)('purchases %s at the catalog price and persists ownership and selection', id => {
+  it.each([['black-cat', 4000], ['corgi', 4000], ['xongkoro', 10000]] as const)('purchases %s at the catalog price and persists ownership and selection', (id, price) => {
     for (const faction of ['roman', 'viking'] as const) {
-      const current = { ...profile('captain'), faction, totalMerit: 5000, availableMerit: 4229 }
+      const current = { ...profile('captain'), faction, totalMerit: 15000, availableMerit: price + 229 }
       const before = structuredClone(current)
       const result = purchaseTownMount(current, id)
-      expect(result).toMatchObject({ purchased: true, spentMerit: 4000, profile: {
-        totalMerit: 5000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
+      expect(result).toMatchObject({ purchased: true, spentMerit: price, profile: {
+        totalMerit: 15000, availableMerit: 229, rank: 'captain', ownedMounts: [id], selectedMountId: id,
       } })
       expect(current).toEqual(before)
       const store = new CareerProfileStore(new MemoryStorage())
@@ -275,16 +319,46 @@ describe('Career hero mount purchases', () => {
     }
   })
 
-  it.each(['black-cat', 'corgi'] as const)('enforces %s rank and balance without altering the profile', id => {
+  it.each([['black-cat', 4000], ['corgi', 4000], ['xongkoro', 10000]] as const)('enforces %s rank and balance without altering the profile', (id, price) => {
     for (const rank of ['recruit', 'soldier', 'veteran'] as const) {
       const current = { ...profile(rank), availableMerit: 8000 }
       expect(purchaseTownMount(current, id)).toMatchObject({ purchased: false, reason: 'tier-locked', spentMerit: 0, profile: current })
     }
-    const insufficient = { ...profile('captain'), totalMerit: 5000, availableMerit: 3999, selectedMountId: 'horse' as const }
+    const insufficient = { ...profile('captain'), totalMerit: 15000, availableMerit: price - 1, selectedMountId: 'horse' as const }
     expect(purchaseTownMount(insufficient, id)).toMatchObject({ purchased: false, reason: 'insufficient-merit', spentMerit: 0, profile: insufficient })
-    const exact = purchaseTownMount({ ...insufficient, rank: 'commander', availableMerit: 4000 }, id)
+    const exact = purchaseTownMount({ ...insufficient, rank: 'commander', availableMerit: price }, id)
     expect(exact.purchased).toBe(true)
     expect(exact.profile.availableMerit).toBe(0)
+  })
+
+  it.each([0, 1, 2, 3, 4])('enforces the canonical concurrent eagle cap with %i owned, retaining legacy excess through storage', count => {
+    const current = { ...profile('captain'), availableMerit: 50000,
+      inventory: { version: 1 as const, quantities: { gladius_rusty: 1, ...(count ? { xongkoro: count } : {}) } },
+      ownedMounts: count ? ['xongkoro' as const] : [] }
+    const before = structuredClone(current), result = purchaseTownMount(current, 'xongkoro')
+    expect(result.purchased).toBe(count < 3)
+    expect(result.spentMerit).toBe(count < 3 ? 10000 : 0)
+    expect(result.profile.availableMerit).toBe(count < 3 ? 40000 : 50000)
+    expect(careerItemTotal(result.profile, 'xongkoro')).toBe(count < 3 ? count + 1 : count)
+    expect(current).toEqual(before)
+    if (count >= 3) {
+      expect(result.reason).toBe('ownership-limit'); expect(result.profile.selectedMountId).toBeUndefined()
+      expect(purchaseCareerContent(current, { id: 'xongkoro', kind: 'mount', requiredTier: 4, cost: 10000 })).toMatchObject({ purchased: false, spentMerit: 0, reason: 'ownership-limit' })
+    }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(result.profile)).toBe(true)
+    expect(careerItemTotal(store.load()!, 'xongkoro')).toBe(count < 3 ? count + 1 : count)
+  })
+
+  it('allows buying again only after legal sales lower legacy eagle ownership below three', () => {
+    const current = { ...profile('captain'), availableMerit: 50000,
+      inventory: { version: 1 as const, quantities: { gladius_rusty: 1, xongkoro: 4 } }, ownedMounts: ['xongkoro' as const] }
+    const three = sellTownProduct(current, 'xongkoro')
+    expect(three.sold).toBe(true); expect(purchaseTownMount(three.profile, 'xongkoro').reason).toBe('ownership-limit')
+    const two = sellTownProduct(three.profile, 'xongkoro')
+    expect(two.sold).toBe(true)
+    const bought = purchaseTownMount(two.profile, 'xongkoro')
+    expect(bought.purchased).toBe(true); expect(careerItemTotal(bought.profile, 'xongkoro')).toBe(3)
   })
 
   it('rejects non-mount products and preserves legacy horse ownership', () => {
@@ -317,6 +391,16 @@ describe('Career hero mount purchases', () => {
     }
   })
 
+  it('sells xongkoro only through the ranger at the eagle training ground', () => {
+    for (const shop of ['ranger', 'cat', 'merchant']) expect(townShopProducts(shop).map(item => item.id)).not.toContain('xongkoro')
+    expect(townShopProducts('eagle-trainer').map(item => item.id)).toEqual(['xongkoro'])
+    const { town, store, row } = merchantHarness(false, { ...profile('captain'), totalMerit: 25000, availableMerit: 20229 }, 'eagle-trainer')
+    row('xongkoro').children[2].onclick!()
+    row('xongkoro').children[2].onclick!()
+    expect(store.load()).toMatchObject({ availableMerit: 229, totalMerit: 25000, rank: 'captain', ownedMounts: ['xongkoro'], inventory: { quantities: { xongkoro: 2 } } })
+    expect(town.message).toContain('xongkoro')
+  })
+
   it('shows locked and unaffordable mount buttons, and rejects stale purchase clicks', () => {
     const locked = merchantHarness(false, { ...profile('veteran'), totalMerit: 5000, availableMerit: 8000 }, 'ranger')
     expect(locked.row('黑貓英雄坐騎').children[2]).toMatchObject({ textContent: '軍階未解鎖', disabled: true })
@@ -332,12 +416,17 @@ describe('Career hero mount purchases', () => {
     expect(ready.town.message).toBe('可用軍功不足')
   })
 
-  it.each(['黑貓英雄坐騎', '柯基英雄坐騎'])('keeps balance and ownership unchanged when saving %s fails', name => {
-    const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 5000, availableMerit: 4229, ownedMounts: ['horse'], selectedMountId: 'horse' }, 'ranger')
+  it.each([['黑貓英雄坐騎', 'ranger', 4000], ['柯基英雄坐騎', 'ranger', 4000], ['xongkoro · 巨鷹英雄坐騎', 'eagle-trainer', 10000]] as const)('keeps balance and ownership unchanged when saving %s fails', (name, shop, price) => {
+    const { town, store, row } = merchantHarness(true, { ...profile('captain'), totalMerit: 15000, availableMerit: price + 229, ownedMounts: ['horse'], selectedMountId: 'horse' }, shop)
+    const pads = new EaglePadReservations([1, 2, 3].map(index => ({ id: `private-eagle-pad:${index}`, x: index * 30, z: 0, yaw: 0 })))
+    const scene = new THREE.Scene()
+    town.careerMounts = new CareerMountController(scene, () => town.player, () => town.profile, next => town.commit(next), () => [], () => [], () => 'town-home', { eaglePads: pads })
     const before = structuredClone(town.profile)
     row(name).children[2].onclick!()
     expect(town.profile).toEqual(before)
     expect(store.load()).toEqual(before)
+    expect(pads.get('player')).toBeUndefined(); expect(scene.children).toHaveLength(0)
+    expect(town.careerMounts.activeMount).toBeNull()
     expect(town.message).toContain('保存失敗')
     expect(row(name).children[2]).toMatchObject({ textContent: '購買', disabled: false })
   })

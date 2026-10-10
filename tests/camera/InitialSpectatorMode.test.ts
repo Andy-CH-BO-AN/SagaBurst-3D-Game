@@ -497,15 +497,16 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
     it('enemy projectile does not hit spectatorOnly Player and continues flight', () => {
       const scene = new THREE.Scene()
 
-      // Spectator Player at (0, 0, 10)
+      // Keep the full shot above terrain so only spectator eligibility decides contact.
+      const ground = Math.max(getTerrainHeight(0, 0), getTerrainHeight(0, 10))
       const player = new Player(scene)
-      player.group.position.set(0, 0, 10)
+      player.group.position.set(0, ground, 10)
       player.spectatorOnly = true
 
-      // Enemy arrow fired from (0, 1, 0) along +Z directly at player (0, 1, 10)
+      // Enemy arrow travels along +Z at chest height.
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, ground + 1, 0),
         new THREE.Vector3(0, 0, 1),
         50, // speed
         25, // damage
@@ -520,19 +521,20 @@ function parseHtmlIntoMock(container: MockElement, html: string) {
       // Must not hit spectator player
       expect(onHit).not.toHaveBeenCalled()
       expect(player.hp).toBe(200)
+      expect(arrow.isAlive).toBe(true)
     })
 
     it('enemy projectile hits normal Player when targetable is true', () => {
       const scene = new THREE.Scene()
 
-      // Normal Player at (0, 0, 10)
+      const ground = Math.max(getTerrainHeight(0, 0), getTerrainHeight(0, 10))
       const player = new Player(scene)
-      player.group.position.set(0, 0, 10)
+      player.group.position.set(0, ground, 10)
       expect(player.targetable).toBe(true)
 
       const arrow = new ArrowProjectile(
         scene,
-        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, ground + 1, 0),
         new THREE.Vector3(0, 0, 1),
         50,
         25,

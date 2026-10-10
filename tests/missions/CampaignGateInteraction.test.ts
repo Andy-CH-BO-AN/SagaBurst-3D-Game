@@ -10,6 +10,7 @@ function setup(faction: 'roman' | 'viking' = 'roman') {
   const away = new THREE.Vector3(0, 0, 140 * (faction === 'roman' ? -1 : 1))
   // Exercise the real keyboard/spawn methods without constructing a WebGL game.
   const game = Object.assign(Object.create(Game.prototype), {
+    sceneListeners: new AbortController(),
     spawnBatches: [], initializing: false, spawningStopped: false,
     previewCampaignGate: outpost.gateController,
     defenseCampaignConfig: { defenderFaction: faction },
@@ -24,6 +25,7 @@ function setup(faction: 'roman' | 'viking' = 'roman') {
     mounts: [], careerVeteranActorMounts: new Map(),
     _showNotify: vi.fn(),
   })
+  cleanup.push(() => game.sceneListeners.abort())
   game._spawnNpc = vi.fn(() => {
     const npc = { dead: false, combatPosition: away.clone(), setTacticalOrder: vi.fn() }
     game.npcs.push(npc)

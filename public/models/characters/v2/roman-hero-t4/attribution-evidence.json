@@ -1,67 +1,14 @@
 {
-  "schemaVersion": 1,
-  "capturedAt": "2026-07-20T03:21:22Z",
-  "modelUid": "61cd5cae148042c38048bff2bd206af3",
-  "publicPage": {
-    "url": "https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3",
-    "title": "Roman Soldier - T pose - free download",
-    "author": "Andy Woodhead",
-    "licenseLabel": "CC Attribution",
-    "licenseLink": "https://creativecommons.org/licenses/by/4.0/",
-    "authorUsageStatement": "As with all of my models that are free to download - you may use it in any way including commercially.",
-    "reportedTriangles": 280624,
-    "reportedVertices": 140782
+  "evidenceType": "Supplied GLB asset.extras metadata; original author/license strings retained",
+  "source": {
+    "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+    "source": "https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9",
+    "title": "Paladin",
+    "sourceSha256": "ea73c6eaea636f927197d400d9b8c4a778e9d4e6363efd500e250c6ed5bd7e63",
+    "sourceFile": "paladin.glb",
+    "bytes": 31441392
   },
-  "publicApi": {
-    "metadataEndpoint": "https://api.sketchfab.com/v3/models/61cd5cae148042c38048bff2bd206af3",
-    "metadataHttpStatus": 200,
-    "isDownloadable": true,
-    "license": {
-      "label": "CC Attribution",
-      "fullName": "Creative Commons Attribution",
-      "requirements": "Author must be credited. Commercial use is allowed.",
-      "url": "http://creativecommons.org/licenses/by/4.0/",
-      "slug": "by"
-    },
-    "downloadEndpoint": "https://api.sketchfab.com/v3/models/61cd5cae148042c38048bff2bd206af3/download",
-    "downloadHttpStatus": 401,
-    "downloadResponse": {
-      "detail": "Authentication credentials were not provided."
-    }
-  },
-  "authorizedSource": {
-    "suppliedByUser": true,
-    "receivedAt": "2026-07-20T03:49:30Z",
-    "file": "Old man head 12 FBX test.fbx",
-    "sourceSha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
-  },
-  "auditConclusion": "The authorized T-pose FBX and textures were later supplied by the user. The public model page and API license the model under CC BY 4.0 and explicitly allow commercial use with attribution. No separate third-party texture claim was found in the supplied package. Residual legal risk: CC BY grants only rights the licensor has authority to grant.",
-  "helmet": {
-    "title": "An ancient Roman helmet (Древнеримский шлем)",
-    "author": "stratovarius1980",
-    "url": "https://sketchfab.com/3d-models/an-ancient-roman-helmet-00be37c8062c430daad5686d4f17916f",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "b698b183e8fa260955f514a0e0c5e30f7d515c4f0b85171aaaa324c332ef7a6f",
-    "verifiedAt": "2026-09-28",
-    "licenseEvidence": "Sketchfab v3 model API and embedded GLB asset.extras both state CC BY 4.0",
-    "integratedCheekGuards": "Retained by explicit user clarification; old T4 generated face mask removed."
-  },
-  "footwear": {
-    "title": "Roman Centurion Armor",
-    "author": "Tactical_Beard (embedded credit: Tactical_Gamer)",
-    "url": "https://sketchfab.com/3d-models/roman-centurion-armor-d0c6de99f16c49f386a9f8d7c3120dec",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "4956bb60a97a0320c8abd17f9cd83825731b2452ad055082ca0013a072151de6",
-    "verifiedAt": "2026-09-28",
-    "licenseEvidence": "Sketchfab v3 API and embedded GLB asset.extras agree.",
-    "selectedSourceMeshes": [
-      "defaultMaterial_11",
-      "defaultMaterial_9",
-      "defaultMaterial_10",
-      "defaultMaterial_12",
-      "defaultMaterial_13"
-    ]
-  }
+  "animationSourceRevision": "ae06476",
+  "animationSourcePath": "public/models/characters/v2/roman-hero-t4/lod0.glb"
 }

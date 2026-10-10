@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import { vi } from 'vitest'
 import type { AIType, Faction, NPC } from '../../src/world/NPC'
+import type { CombatEventSink } from '../../src/combat/CombatAttribution'
+import type { EagleFlightSnapshot } from '../../src/movement/EagleFlightController'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import type { MountType } from '../../src/world/Mount'
 
 /** Constructor-boundary observations only: these actors do not simulate combat or locomotion.
@@ -23,6 +26,7 @@ export class RecordingNpc {
   dead = false
   respawnEnabled = false
   missionMovement = false
+  missionAerialDefense = false
   mount: RecordingMount | null = null
   tacticalOrder = 'defend'
   shield = { shieldImpactRemaining: 100, shieldImpactMax: 100 }
@@ -34,7 +38,7 @@ export class RecordingNpc {
   constructor(scene: THREE.Scene, x: number, z: number, readonly faction: Faction,
     readonly characterFaction: string, readonly aiType: AIType, readonly name: string,
     public tier: number, readonly mountedInput: boolean, public loadout: ConstructorParameters<typeof NPC>[9],
-    readonly presetId?: string, public squadId?: string | number, readonly combatantId = name,
+    public presetId?: string, public squadId?: string | number, readonly combatantId = name,
     readonly emit?: unknown, readonly visualAssetId?: string, readonly combatProfileId?: string,
     readonly specialCombatProfile?: string) {
     recording.npcs.push(this)
@@ -44,6 +48,8 @@ export class RecordingNpc {
 
   get combatPosition(): THREE.Vector3 { return this.mount?.group.position ?? this.group.position }
   get isMounted(): boolean { return Boolean(this.mount) }
+  readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
+  readonly setEagleFlightOrder = vi.fn()
   readonly setTownPeaceful = vi.fn()
   readonly configureBanditEncounter = vi.fn()
   readonly clearEncounter = vi.fn()
@@ -53,8 +59,8 @@ export class RecordingNpc {
   readonly beginExternalThreat = vi.fn()
   readonly endExternalThreat = vi.fn()
   readonly restoreCombatLoadout = vi.fn()
-  readonly applyTemporaryCombatLoadout = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number, squadId?: number) => {
-    this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId
+  readonly applyTemporaryCombatLoadout = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number, squadId?: number, presetId?: string) => {
+    this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId; if (presetId !== undefined) this.presetId = presetId
   })
   readonly setTacticalOrder = vi.fn((order: string) => { this.tacticalOrder = order })
   readonly assignFollowTarget = vi.fn((target: unknown) => { this.activeFollowTarget = target; this.tacticalOrder = 'follow' })
@@ -76,9 +82,15 @@ export class RecordingMount {
   maxHp = 100
   baseSpeed = 10
   dead = false
-  constructor(scene: THREE.Scene, readonly type: MountType, x: number, z: number) {
+  readonly onDeathCallbacks: Array<() => void> = []
+  private flightState: EagleFlightSnapshot = { phase: 'grounded', yaw: 0, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } }
+  get isFlyingMount(): boolean { return this.type === 'xongkoro' }
+  get flight() { return this.isFlyingMount ? this.recordedFlight : undefined }
+  private readonly recordedFlight = { snapshot: () => structuredClone(this.flightState),
+    restore: vi.fn((state: EagleFlightSnapshot) => { this.flightState = structuredClone(state) }) }
+  constructor(scene: THREE.Scene, readonly type: MountType, x: number, z: number, y = getTerrainHeight(x, z)) {
     recording.mounts.push(this)
-    this.group.position.set(x, 0, z)
+    this.group.position.set(x, y, z)
     scene.add(this.group)
   }
   readonly dispose = vi.fn(() => { this.group.removeFromParent() })

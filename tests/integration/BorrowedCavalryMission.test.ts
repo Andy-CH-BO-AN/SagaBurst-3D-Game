@@ -22,6 +22,9 @@ import { isObstaclePathClear, type ObstacleData } from '../../src/world/Terrain'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { advanceUntil } from '../helpers/simulation'
 
+// Rendering only: mission ownership, equipment IDs, damage and spawn remain real.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
+
 vi.mock('../../src/world/BlackCatVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/BlackCatVisual')>()),
   BlackCatVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
@@ -305,7 +308,7 @@ describe('Town cavalry mission and Patrol integration', () => {
       field: f.mission, duel: { actors: [], cleanupMission: vi.fn(), snapshot: () => f.mission.snapshot() },
       defense: { active: undefined, cleanupMission: vi.fn(), snapshot: () => f.mission.snapshot(), civilianSurvived: 0, civilianDeaths: 0 },
     }, {
-      residents: f.residents, player: f.player, cat: { restoreForTown: vi.fn(), catVisual: null },
+      residents: f.residents, player: { ...f.player, resetForScene: vi.fn() }, cat: { restoreForTown: vi.fn(), catVisual: null },
       world: f.world, navigation: f.navigation, inventory: f.town.inventory,
       releaseExternalThreat: vi.fn(), beginPatrolMissionReturn: id => { f.patrol.beginMissionReturn(id) },
       clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(),

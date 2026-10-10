@@ -1,3 +1,5 @@
+import { CAPTAIN_SIEGE_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
+import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { newTownSiegeState, siegeRoster } from './TownSiege'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -51,11 +53,24 @@ export function createEnemyTownAssaultMission(id = createCareerMissionId(ENEMY_T
     friendlyActorIds: Array.from({ length: 119 }, (_, index) => `${id}:assault:${index}`), acceptedAt: Date.now(),
   }
 }
-/** Player is one of the 120 combatants; four officers and 115 regular NPCs. */
+/** Player occupies a North lancer slot among 120 combatants; four officers and 115 regular NPCs. */
 export function createAssaultRoster(faction: CharacterFaction): NpcSpawnSpec[] {
   return siegeRoster(faction, true).map(slot => slot.spec)
 }
 export function resolveAssaultOutcome(playerDead: boolean, militaryAlive: number, assaultNpcAlive: number): 'victory' | 'failure' | null {
   if (militaryAlive === 0) return 'victory'
   return playerDead && assaultNpcAlive === 0 ? 'failure' : null
+}
+
+/** Captain Siege is independent of the original Soldier Relief prerequisite. */
+export function acceptCaptainSiegeCommand(current: CareerProfile, id = createCareerMissionId(CAPTAIN_SIEGE_COMMAND_ID)): CareerProfile | null {
+  if (!getCaptainMissionAvailability(current, CAPTAIN_SIEGE_COMMAND_ID).unlocked) return null
+  const profile = prepareEnemyTownAssaultEquipment(current)
+  const active = createEnemyTownAssaultMission(id)
+  active.templateId = CAPTAIN_SIEGE_COMMAND_ID
+  active.officialSquad = { type: 'mission-official', missionId: id, townFaction: current.faction, squadId: 1,
+    actorIds: active.friendlyActorIds.slice(0, 29), contribution: emptyPersonalContribution() }
+  active.personalSquad = snapshotPersonalMission(profile)
+  profile.activeMission = active
+  return profile
 }

@@ -31,6 +31,33 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     expect(defaultIds).toContain('round_shield_t3')
   })
 
+  it('round-trips xongkoro flight and HP, and a separate pending rider fall through JSON storage', () => {
+    const flight = { phase: 'cruise' as const, yaw: .7, pitch: .2, bank: -.3, speed: 13.333333333,
+      velocity: { x: 8, y: 2, z: 10 } }
+    expect(saveManager.save({ ...DEFAULT_SAVE, mountData: {
+      isMounted: true, type: 'xongkoro', hp: 83.5, position: { x: 40, y: 60, z: 20 }, flight,
+    } })).toBe(true)
+    const loaded = saveManager.load()
+    expect(loaded.mountData).toMatchObject({ type: 'xongkoro', hp: 83.5, flight })
+    const falling = { active: true, highestFeetY: 71.4, velocity: { x: 8, y: -10, z: 10 } }
+    expect(saveManager.save({ ...DEFAULT_SAVE, hp: 50, position: { x: 40, y: 60, z: 20 }, falling })).toBe(true)
+    expect(saveManager.load()).toMatchObject({ hp: 50, falling, mountData: undefined })
+  })
+
+  it('drops malformed optional aerial fields at the JSON boundary while retaining the existing save', () => {
+    mockStorage.setItem('wdyh_save_v1', JSON.stringify({
+      ...DEFAULT_SAVE, hp: 50, position: { x: 40, y: 60, z: 20 },
+      falling: { active: true, highestFeetY: 71.4 },
+      mountData: { isMounted: true, type: 'xongkoro', hp: '200',
+        flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 13 } },
+    }))
+    const loaded = saveManager.load()
+    expect(loaded).toMatchObject({ hp: 50, position: { x: 40, y: 60, z: 20 }, mountData: { isMounted: true, type: 'xongkoro' } })
+    expect(loaded.falling).toBeUndefined()
+    expect(loaded.mountData?.flight).toBeUndefined()
+    expect(loaded.mountData?.hp).toBeUndefined()
+  })
+
   it('contract: preserves full inventory items and equippedShieldId across save and load', () => {
     const inventory = new InventoryManager()
     const state = inventory.saveState

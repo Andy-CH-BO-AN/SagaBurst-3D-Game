@@ -46,6 +46,8 @@ export class PlayerInput {
   constructor() {
     window.addEventListener('keydown', (e) => {
       if (!this.isLocked) return
+      // A modal, death or focus change cancels held keys until a new physical press.
+      if (e.repeat && !this.keys[e.code]) return
       if (!this.keys[e.code]) this._keyPresses.add(e.code)
       if (e.code === 'Space') e.preventDefault()
       this.keys[e.code] = true
@@ -77,8 +79,9 @@ export class PlayerInput {
 
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) {
+        const wasDown = this.isLeftMouseDown
         this.isLeftMouseDown = false
-        if (this.isLocked) this._leftClickReleased = true
+        if (this.isLocked && wasDown) this._leftClickReleased = true
       }
       if (e.button === 2) {
         this.isRightMouseDown = false
@@ -125,6 +128,12 @@ export class PlayerInput {
     const val = this._leftClickReleased
     this._leftClickReleased = false
     return val
+  }
+
+  /** A UI owns the whole click, including its held state and later physical release. */
+  consumeLeftGesture(): void {
+    this.isLeftMouseDown = false
+    this._leftClickTriggered = this._leftClickReleased = false
   }
 
   /** Returns true once for a locked middle-click, then resets the flag. */

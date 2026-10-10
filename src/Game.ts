@@ -1,3 +1,9 @@
+import { refitTownCommandForSceneChange } from './career/SquadRefit'
+import { preloadPaladinEquipment } from './world/PaladinEquipment'
+import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
+import { AerialViewPolicy, usesAerialView } from './camera/AerialViewPolicy'
+import { findEagleLandingPosition } from './world/EagleLanding'
+import { captureCareerAerialState, restoreCareerAerialState } from './career/CareerAerialState'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from './world/NpcSpawnScheduler'
 /**
  * Game.ts
@@ -8,6 +14,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { BlackCatVisual } from './world/BlackCatVisual'
+import { XongkoroVisual } from './world/XongkoroVisual'
+import { XONGKORO } from './movement/XongkoroConfig'
 import { MountStudioSeatContact } from './debug/MountStudioSeatContact'
 import {
   createSky,
@@ -117,7 +125,7 @@ import {
   applyDevSimpleMaterials,
 } from './debug/RendererCostIsolation'
 import { BattleSpawner, VIKING_PLAYER_SPAWN, ROMAN_PLAYER_SPAWN, BattleSpawnPlan, NpcSpawnSpec } from './battle/BattleSpawner'
-import { HERO_ASSETS, type HeroAssetId } from './world/HeroAssetCatalog'
+import { HERO_ASSETS, type HeroAssetId, type PlayerHeroId } from './world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES, HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from './battle/T4HeroCatalog'
 import { preloadMakiRangerBow } from './world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from './rpg/WeaponDatabase'
@@ -136,7 +144,12 @@ import { SHIELD_CONFIG } from './combat/ShieldBlocking'
 import { resolveActivePlayerSkillProgressionAward, resolveCombatSkill, resolveSkillAdjustedMaxHp, skillStatesEqual } from './rpg/CombatSkillProgression'
 import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
-import { ArmyCommandController } from './battle/ArmyCommandController'
+import { ArmyCommandController, type ArmyCommandAuthority } from './battle/ArmyCommandController'
+import { matchesArmyCommandTarget } from './battle/CommandTarget'
+import { countArmyHudRoster } from './battle/ArmyCommandHudRoster'
+import { careerCommandHudRoster } from './career/CareerCommandHudRoster'
+import type { PersonalSquadMission } from './career/CareerPersonalSquadMission'
+import { officialFollowLocalOffset } from './battle/FollowOrder'
 import { FormationController } from './battle/FormationController'
 import {
   createCampaignOutpost,
@@ -164,6 +177,11 @@ import { personalMissionSourcePolicy } from './career/CareerPersonalSquadMission
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission } from './career/CareerMissionState'
+import { createCaptainFrontlineSpawnPlan, createCaptainEagleSpawnPlan } from './career/CaptainBattleLaunch'
+import { CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID } from './career/CaptainMissionCatalog'
+import { snapshotCommandActor, restoreCommandActor } from './career/CareerCommandActorCheckpoint'
+import type { CaptainEagleCheckpoint } from './career/CaptainEagleCheckpoint'
+import { CaptainEagleHUD } from './ui/CaptainEagleHUD'
 import {
   careerVeteranOutpostOwner,
   createCareerVeteranOutpostReinforcementPlan,
@@ -188,8 +206,8 @@ import {
 } from './campaign/CampaignConfig'
 import { DefenseCampaignHUD } from './ui/DefenseCampaignHUD'
 import { EquipmentUI } from './ui/EquipmentUI'
-import { HeroMountTrialUI } from './ui/HeroMountTrialUI'
 import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
+import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
   COMBAT_BALANCE,
@@ -264,7 +282,12 @@ export function resolveMountSpawnY(
 ): number | undefined {
   return saveData.mountData?.position ? saveData.mountData.position.y : undefined
 }
-import { damageMount, damageNpc, damageObstacle, damagePlayer } from './combat/DamageRouter'
+import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
+import { isDamageReceiver } from './combat/DamageReceiver'
+import { TrainingGround } from './training/TrainingGround'
+import { createTrainingGroundPlan, createTrainingInventory } from './training/TrainingGroundPlan'
+import { trainingDamageText } from './training/TrainingDamageDisplay'
+import { TrainingGroundUI } from './ui/TrainingGroundUI'
 import {
   CombatEventStream,
   createNpcCombatActorRef,
@@ -320,6 +343,7 @@ export class Game {
     battleConfig?: BattleConfig,
     campaignConfig?: DefenseCampaignLaunchConfig,
     progress: (text: string) => void = () => {},
+    trainingGround = false,
   ): Promise<Game | GameplayBowQAPanel> {
     const query = new URLSearchParams(window.location.search)
     const activeProbe = getActiveRenderProbe(query)
@@ -338,35 +362,40 @@ export class Game {
     renderer.toneMappingExposure = 1.16
     container.appendChild(renderer.domElement)
 
-    const legacyQa = import.meta.env.DEV && new URLSearchParams(window.location.search).has('legacyhumanoids')
-    const personalProfile = campaignConfig?.careerMissionId ? new CareerProfileStore().loadChecked().profile : undefined
+    const legacyQa = !trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('legacyhumanoids')
+    const personalProfile = campaignConfig?.careerMissionId || battleConfig?.careerEagleMissionId ? new CareerProfileStore().loadChecked().profile : undefined
     const personalIds = new Set((personalProfile?.activeMission ?? personalProfile?.activeOutpostMission)?.personalSquad?.memberIds ?? [])
     const personalMembers = personalProfile?.personalSquad?.members.filter(member => personalIds.has(member.id)) ?? []
     try {
-      if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('devbowqa')) {
-        await HumanoidAssetRegistry.preload()
+      if (!trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('devbowqa')) {
+        await Promise.all([HumanoidAssetRegistry.preload(), preloadPaladinEquipment()])
         const { GameplayBowQAPanel } = await import('./debug/GameplayBowQAPanel')
         return new GameplayBowQAPanel(renderer)
       }
       const usesPlayerT4Bow = (
         campaignConfig?.playerLoadout?.rangedWeaponId ?? battleConfig?.playerLoadout?.rangedWeaponId
       ) === T4_RANGER_BOW_RANGED_ID
-      const savedPlayerT4Bow = new SaveManager().load().inventory.equippedRangedId === T4_RANGER_BOW_RANGED_ID
+      const savedInventory = !trainingGround ? new SaveManager().load().inventory : undefined
+      const savedPlayerT4Bow = savedInventory?.equippedRangedId === T4_RANGER_BOW_RANGED_ID
+        || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
+      const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
+      const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
       if (legacyQa) {
         await Promise.all([
           HorseAssetRegistry.preload(renderer),
           BlackCatVisual.preload(),
           CorgiVisual.preload(),
-          ...(usesPlayerT4Bow || savedPlayerT4Bow || personalMembers.some(member => member.type === 'ranger') ? [preloadMakiRangerBow()] : []),
+          ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
-        const game = new Game(renderer, battleConfig, campaignConfig, progress)
+        const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
         await game.initialization
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload()])
+      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
+      if (trainingGround) heroAssets.add('maki-archer-t4')
       for (const member of personalMembers) {
         const hero = personalMemberLoadout(member, personalProfile!.faction).hero
         if (hero) heroAssets.add(hero.visualAssetId)
@@ -397,9 +426,9 @@ export class Game {
       }
       await Promise.all([
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
-        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow ? [preloadMakiRangerBow()] : []),
+        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
-      const game = new Game(renderer, battleConfig, campaignConfig, progress)
+      const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
       await game.initialization
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       game.clock.start(); requestAnimationFrame(game._loop)
@@ -413,6 +442,7 @@ export class Game {
 
   private scene!: THREE.Scene
   private renderer: THREE.WebGLRenderer
+  private readonly aerialView = new AerialViewPolicy()
   private camera!: THREE.PerspectiveCamera
   private clock!: THREE.Clock
 
@@ -490,6 +520,12 @@ export class Game {
   private personalCheckpointElapsed = 0
   private personalCriticalState = ''
   private careerResultStats?: BattleStatsSnapshot
+  private readonly captainEagleMissionId: string | null
+  private captainEagleSpawnBatch?: NpcSpawnBatch
+  private captainEagleHud?: CaptainEagleHUD
+  private captainResultPending?: 'victory' | 'failure'
+  private captainCheckpoint?: CareerMissionCheckpoint
+  private readonly flushCaptainOnPageHide = (): void => { this._persistCaptainMission(true) }
   private readonly flushPersonalOutpostOnPageHide = (): void => { this._persistPersonalOutpost(true) }
   private readonly careerVeteranActorMounts = new Map<string, Mount | null>()
   private damageNumbers!: DamageNumbers
@@ -519,7 +555,10 @@ export class Game {
   private weaponWheelUI = new WeaponWheelUI()
   private armyCommandController!: ArmyCommandController
   private equipmentUI!: EquipmentUI
-  private heroMountTrialUI: HeroMountTrialUI | null = null
+  private trainingGround: TrainingGround | null = null
+  private trainingUI: TrainingGroundUI | null = null
+  private trainingDamageUnsubscribe?: () => void
+  private readonly sceneListeners = new AbortController()
   private soundManager!: SoundManager
   private inventoryManager!: InventoryManager
   private combatTrajectoryDebugger: CombatTrajectoryDebugger | null = null
@@ -594,9 +633,8 @@ export class Game {
     target.copy(this._aimRaycaster.ray.origin).addScaledVector(this._tmpCameraDir, 100)
     this._aimRaycaster.far = 100
     const intersections = this._aimRaycaster.intersectObjects(this._aimTargetRegistry.targets, false)
-    if (intersections.length > 0) {
-      return target.copy(intersections[0].point)
-    }
+    const hit = intersections.find(hit => !this.player.currentMount?.aimColliders.some(collider => collider === hit.object))
+    if (hit) return target.copy(hit.point)
     return target
   }
 
@@ -624,14 +662,28 @@ export class Game {
     battleConfig?: BattleConfig,
     campaignConfig?: DefenseCampaignLaunchConfig,
     progress: (text: string) => void = () => {},
+    readonly isTrainingGround = false,
   ) {
     this.renderer = renderer
+    if (isTrainingGround && (battleConfig || campaignConfig)) throw new Error('Training Ground cannot use a battle or Career launch')
     this.defenseCampaignConfig = campaignConfig ?? null
-    if (campaignConfig?.careerMissionId) {
+    this.captainEagleMissionId = battleConfig?.careerEagleMissionId ?? null
+    if (campaignConfig?.careerMissionId || this.captainEagleMissionId) {
       this.careerProfile = this.careerStore.loadChecked().profile
-      if (campaignConfig.careerVeteranOutpost) {
+      if (this.captainEagleMissionId || campaignConfig?.careerMissionKind === 'captain-outpost-defense') {
         const mission = this.careerProfile?.activeMission
-        if (mission?.id !== campaignConfig.careerMissionId
+        const expectedId = this.captainEagleMissionId ?? campaignConfig?.careerMissionId
+        if (!mission || mission.id !== expectedId || mission.officialSquad?.type !== 'mission-official'
+          || mission.officialSquad.missionId !== mission.id || (this.captainEagleMissionId
+          ? mission.templateId !== CAPTAIN_EAGLE_BATTLE_ID || mission.kind !== 'captain-eagle-battle'
+          : mission.templateId !== CAPTAIN_FRONTLINE_COMMAND_ID || mission.kind !== 'captain-outpost-defense' || campaignConfig?.stageId !== 9)) {
+          throw new Error('Captain battlefield launch does not match saved mission')
+        }
+        this.captainCheckpoint = new CareerMissionCheckpoint(() => this.careerStore.loadChecked().profile ?? this.careerProfile!,
+          profile => this._commitCaptainMissionCheckpoint(profile))
+      } else if (campaignConfig?.careerVeteranOutpost) {
+        const mission = this.careerProfile?.activeMission
+        if (!mission || mission.id !== campaignConfig.careerMissionId
           || mission.templateId !== campaignConfig.careerVeteranOutpost.templateId
           || mission.kind !== campaignConfig.careerVeteranOutpost.missionKind) {
           throw new Error('Veteran Career Outpost launch does not match saved mission')
@@ -640,26 +692,28 @@ export class Game {
         this.veteranOutpostCheckpoint = new CareerMissionCheckpoint(
           () => this.careerStore.loadChecked().profile ?? this.careerProfile!,
           profile => {
+            if (this.player) profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${campaignConfig.careerMissionId}`)
             const saved = this.careerStore.save(profile)
             if (saved) this.careerProfile = profile
             return saved
           },
         )
-      } else if (this.careerProfile?.activeOutpostMission?.id !== campaignConfig.careerMissionId
+      } else if (!this.careerProfile?.activeOutpostMission || !campaignConfig
+        || this.careerProfile.activeOutpostMission.id !== campaignConfig.careerMissionId
         || this.careerProfile.activeOutpostMission.kind !== (campaignConfig.careerMissionKind ?? 'outpost-defense')) {
         throw new Error('Career Outpost launch does not match saved mission')
       }
     }
     // Defense Campaign player-side units are defenders, so structure damage / breach
     // is not a valid performance statistic for them. Custom Battle remains generic.
-    const veteranMission = campaignConfig?.careerVeteranOutpost ? this.careerProfile?.activeMission : undefined
+    const veteranMission = campaignConfig?.careerVeteranOutpost || this.captainCheckpoint ? this.careerProfile?.activeMission : undefined
     const outpostMission = this.careerProfile?.activeOutpostMission
     const trackStructureStats = !campaignConfig || campaignConfig.careerVeteranOutpost?.templateId === 'veteran-outpost-assault'
     this.battleStats = new BattleStatsTracker(
       this.combatEvents,
       trackStructureStats,
       veteranMission ? event => acceptsCareerMissionStat(this.careerProfile?.activeMission ?? veteranMission, event) : undefined,
-      veteranMission?.playerStats ?? outpostMission?.battle?.playerStats,
+      veteranMission?.playerStats ?? veteranMission?.battle?.playerStats ?? veteranMission?.eagleBattle?.playerStats ?? outpostMission?.battle?.playerStats,
       veteranMission ? careerMissionCommandMeritPolicy(veteranMission, () => this.careerProfile?.activeMission ?? veteranMission)
         : outpostMission?.personalSquad ? {
           acceptsSource: personalMissionSourcePolicy(outpostMission),
@@ -675,6 +729,12 @@ export class Game {
     )
 
     this.initialization = this.initialize(battleConfig, campaignConfig, progress).catch(error => {
+      this.trainingUI?.dispose()
+      this.trainingGround?.dispose()
+      this.trainingDamageUnsubscribe?.()
+      this.sceneListeners.abort()
+      this.input?.dispose()
+      this.player?.dispose()
       this._disposeCareerOutpostBattleActors()
       throw error
     })
@@ -699,10 +759,10 @@ export class Game {
 
     // ── World ──
     const startupQuery = new URLSearchParams(window.location.search)
-    const startupDevCombat = startupQuery.get('devcombat')?.toLowerCase() ?? null
+    const startupDevCombat = !this.isTrainingGround ? startupQuery.get('devcombat')?.toLowerCase() ?? null : null
     const isRomanDefenseDevScenario = import.meta.env.DEV
       && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
-    const previewOutpostQuery = import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
+    const previewOutpostQuery = !this.isTrainingGround && import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
     const previewOutpostFaction = campaignConfig
       ? careerVeteranOutpostOwner(campaignConfig)
       ?? (isRomanDefenseDevScenario
@@ -776,9 +836,9 @@ export class Game {
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
     const query = startupQuery
-    this.isDevCombat = query.has('devcombat')
+    this.isDevCombat = !this.isTrainingGround && query.has('devcombat')
     this.activeRenderProbe = getActiveRenderProbe(query)
-    const devModelsMode = query.get('devmodels')
+    const devModelsMode = this.isTrainingGround ? null : query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
     this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'corgi'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
@@ -795,7 +855,9 @@ export class Game {
     let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
-      if (campaignConfig.careerVeteranOutpost) {
+      if (campaignConfig.careerMissionKind === 'captain-outpost-defense') {
+        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig)
+      } else if (campaignConfig.careerVeteranOutpost) {
         battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial')
       } else {
         battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
@@ -803,6 +865,8 @@ export class Game {
         else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
         this._identifyPersonalOutpostWave(battlePlan, 'initial')
       }
+    } else if (this.captainEagleMissionId && this.careerProfile) {
+      battlePlan = createCaptainEagleSpawnPlan(this.careerProfile)
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -877,7 +941,7 @@ export class Game {
       this.camera.lookAt(0, initY, -1)
       this.spectatorController.initFromCamera(this.camera)
     } else {
-      const playerSpawn = battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
+      const playerSpawn = this.isTrainingGround ? createTrainingGroundPlan().playerSpawn : battlePlan?.playerSpawn ?? previewPlayerSpawn ?? (isRoman ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN)
       const terrainY = getTerrainHeight(playerSpawn.x, playerSpawn.z)
       this.player.group.position.set(playerSpawn.x, terrainY + 0.95, playerSpawn.z)
       this.player.spawnX = playerSpawn.x
@@ -937,7 +1001,7 @@ export class Game {
           reinforcementDelaySeconds: veteranOutpost.reinforcementDelaySeconds,
           initialSnapshot: veteranOutpost.runtimeState,
         } : {}),
-        ...(!veteranOutpost && this.careerProfile?.activeOutpostMission?.battle ? { initialSnapshot: this.careerProfile.activeOutpostMission.battle.runtime } : {}),
+        ...(!veteranOutpost && this._personalOutpostMission()?.battle ? { initialSnapshot: this._personalOutpostMission()!.battle!.runtime } : {}),
       })
       if (relief) {
         initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs)
@@ -979,6 +1043,7 @@ export class Game {
               ? 'Dread Outpost · 恐怖前哨防禦'
               : 'Outpost Assault · 強攻前哨',
           } : {}),
+          ...(campaignConfig.careerMissionKind === 'captain-outpost-defense' ? { veteranMission: true, missionTitle: 'Frontline Command · 前線指揮' } : {}),
         },
       )
     } else if (this.isDevCombat && battlePlan) {
@@ -1002,6 +1067,9 @@ export class Game {
       this._spawnHumanoidStudio()
     } else if (this.isMountStudio) {
       this._spawnMountStudio()
+    } else if (this.captainEagleMissionId && battlePlan) {
+      this.captainEagleHud = new CaptainEagleHUD()
+      this._declareCaptainEagleRoster(battlePlan)
     } else if (battleConfig && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
       this.battleController = new BattleController(
@@ -1014,6 +1082,7 @@ export class Game {
 
     if (
       !this.isModelStudio
+      && !this.isTrainingGround
       && (!previewPlayerSpawn || Boolean(campaignConfig))
       && shouldCreateStartingHorse(activeBattleConfig)
     ) {
@@ -1027,10 +1096,16 @@ export class Game {
         campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
+      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
+      const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
+      if (startingHorse.isFlyingMount) {
+        const landing = findEagleLandingPosition({ ...playerSpawn, yaw: mountHeading }, this.obstacles, [], 300, 140)
+        if (!landing) { startingHorse.dispose(); throw new Error('找不到 xongkoro 可安全起降的出生位置') }
+        startingHorse.group.position.copy(landing)
+      }
       this.mounts.push(startingHorse)
       this.player.faceDirection(0, isRoman ? 1 : -1)
-      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
-      this._mountPlayer(startingHorse, reliefHeading)
+      this._mountPlayer(startingHorse, startingHorse.isFlyingMount ? mountHeading : reliefHeading)
       if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isRoman ? 0 : Math.PI)
     }
     
@@ -1039,6 +1114,7 @@ export class Game {
     // ── RPG Systems & Inventory ──
     this.staminaBar       = new StaminaBar()
     this.hpBar            = new HpBar()
+    this.player.setDamageHud(this.hpBar)
     this.hpBar.setFill(this.player.hpRatio)
     this.quiverUI         = new QuiverUI()
     this.skillManager     = new SkillManager()
@@ -1047,8 +1123,11 @@ export class Game {
     this.player.onShieldBlock = impact => this._applyPlayerSkillAward({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
+    if (this.captainCheckpoint && this.careerProfile?.activeMission?.officialSquad) {
+      this.armyCommandUI.setOfficialSquadLabel('Mission Squad · 任務部隊')
+    }
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
+    this.inventoryManager = this.isTrainingGround ? createTrainingInventory() : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
     if (this.careerProfile) {
       const inventory = new TownEquipment(() => this.careerProfile!, profile => {
         if (!this.careerStore.save(profile)) return false
@@ -1064,7 +1143,7 @@ export class Game {
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     await this._restorePersonalOutpostBattle(progress)
     this._deployPersonalOutpost()
-    await this.personalSquad?.waitForSpawns()
+    if (!this.captainEagleMissionId) await this.personalSquad?.waitForSpawns()
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
@@ -1073,29 +1152,41 @@ export class Game {
       maxZ: Math.max(outpostPlacement.frontZ, outpostPlacement.backZ),
     } : null
     const formationController = new FormationController(
-      this.scene, this.camera, this.personalSquad?.actors ?? this.npcs, terrainMesh, obstacles, this.navigationWorld, this.personalSquad ? null : formationRegion,
+      this.scene, this.camera, this.captainCheckpoint ? this.npcs : this.personalSquad?.actors ?? this.npcs,
+      terrainMesh, obstacles, this.navigationWorld, this.personalSquad ? null : formationRegion,
     )
     this.armyCommandController = new ArmyCommandController(
-      this.personalSquad?.actors ?? this.npcs,
+      this.captainCheckpoint ? this.npcs : this.personalSquad?.actors ?? this.npcs,
       playerFaction,
       this.input,
       this.armyCommandUI,
       formationController,
-      (order) => { this.personalSquad?.resumeCommand(order); if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order) },
+      (order, target) => {
+        if (!this.captainCheckpoint || target === 'all' || target === 'squad:personal') this.personalSquad?.resumeCommand(order)
+        if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order)
+        if (this.captainCheckpoint) this._persistCaptainMission(true)
+      },
       campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
       (order) => {
+        if (this.captainCheckpoint && (this.player.dead || this.careerProfile?.activeMission?.result)) return false
         if (this.personalSquad) return !this.player.dead && this.controlMode !== 'spectator'
         if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true
         const attackerFaction = opposingCampaignFaction(campaignConfig.defenderFaction)
         return this._campaignFactionAlive(attackerFaction) > 0
       },
       this.inventoryManager,
-      this.personalSquad ? 'squad' : activeBattleConfig?.commandGrouping ?? 'preset',
-      Boolean(this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled,
+      this.captainCheckpoint || this.personalSquad ? 'squad' : activeBattleConfig?.commandGrouping ?? 'preset',
+      !this.isTrainingGround && (Boolean(this.captainCheckpoint || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
       this.personalSquad ? {
         enabled: () => !this.player.dead && this.controlMode !== 'spectator',
-        issue: order => order === 'follow' ? this.personalSquad!.follow() : this.personalSquad!.dismiss(),
+        issue: order => {
+          const accepted = order === 'follow' ? this.personalSquad!.follow() : this.personalSquad!.dismiss()
+          if (accepted) this.soundManager.playCareerMissionVoice(playerFaction, order === 'follow' ? 'follow' : 'dismiss')
+          return accepted
+        },
       } : undefined,
+      this.captainCheckpoint ? this._captainCommandAuthority() : undefined,
+      this.careerProfile && (this.captainCheckpoint || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
     )
 
 
@@ -1121,8 +1212,44 @@ export class Game {
       }
     }
 
+    this._bindPlayerCombatCallbacks(campaignConfig)
+
+    if (campaignConfig?.careerVeteranOutpost) this._restoreCareerVeteranPlayerStateAndShowTerminalResult()
+    else if (this.captainEagleMissionId) this._restoreCaptainEaglePlayer()
+    else this._restorePersonalOutpostPlayer()
+    this.initializing = false
+    this._persistPersonalOutpost(true)
+    if (this.captainCheckpoint) {
+      if (!this._persistCaptainMission(true)) throw new Error('Captain battlefield initial checkpoint could not be saved')
+      if (this.captainEagleMissionId && battlePlan) this._queueCaptainEagleRoster(battlePlan)
+      const terminal = this.careerProfile?.activeMission?.result
+      if (terminal) {
+        if (!this.captainEagleMissionId) this._showDefenseCampaignResult(terminal.outcome === 'victory' ? 'victory' : 'defeat')
+      }
+    }
+
+    if (isInitialSpectator) this._enterSpectatorMode('initial')
+
+    this._setupPointerLock()
+    this._setupResize()
+    this._setupShortcuts()
+    if (this.isTrainingGround) this._initializeTrainingGround()
+    if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
+    if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+    if (this.personalSquad) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    if (this.captainCheckpoint) window.addEventListener('pagehide', this.flushCaptainOnPageHide)
+
+    if (!isInitialSpectator) {
+      this.hpBar.setFill(this.player.hpRatio)
+      this.staminaBar.setFill(1)
+      this.quiverUI.setArrowCount(this.player.arrowCount)
+    }
+  }
+
+  private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {
     // Listen for arrow fire from Player
     this.player.onFireArrow = (evt) => {
+      if (this.captainEagleMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
       const arrow = new ArrowProjectile(
         this.scene,
         evt.origin,
@@ -1137,6 +1264,8 @@ export class Game {
           weaponId: this.inventoryManager.equippedRanged.id,
           emit: this.combatEvents.emit,
         },
+        evt.visualKind === 'arrow' && this.player.isMounted && this.player.currentMount?.isFlyingMount
+          ? playerEagleProjectileBudget(evt.origin, evt.direction, evt.speed) : undefined,
       )
       this.arrows.push(arrow)
       this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -1145,6 +1274,7 @@ export class Game {
     // Player Death notify & Spectator transition
     this.player.onPlayerDeath = () => {
       this._enterSpectatorMode('death')
+      if (this.captainCheckpoint) this._persistCaptainMission(true)
       if (campaignConfig?.careerVeteranOutpost) {
         const mission = this.careerProfile?.activeMission
         if (mission) mission.playerDead = true
@@ -1152,41 +1282,120 @@ export class Game {
       }
     }
 
-    if (campaignConfig?.careerVeteranOutpost) this._restoreCareerVeteranPlayerStateAndShowTerminalResult()
-    else this._restorePersonalOutpostPlayer()
-    this.initializing = false
-    this._persistPersonalOutpost(true)
+  }
 
-    if (isInitialSpectator) {
-      this._enterSpectatorMode('initial')
+  private _initializeTrainingGround(): void {
+    this.trainingGround = new TrainingGround(this.scene)
+    this.mounts.push(...this.trainingGround.mounts)
+    for (const mount of this.mounts) this._aimTargetRegistry.registerMount(mount)
+    for (const dummy of this.trainingGround.dummies) dummy.group.traverse(node => {
+      if (node instanceof THREE.Mesh) this._aimTargetRegistry.addStaticTarget(node)
+    })
+    this.controlsHint.textContent = 'WASD 移動 · Shift 加速 · Space 跳躍 · E 上下坐騎 · 左鍵近戰 · 右鍵瞄準／舉盾 · Tab 裝備 · Esc 訓練選單'
+    this.trainingUI = new TrainingGroundUI({
+      onEquipment: () => this._toggleEquipment(),
+      onRefill: () => this._refillTraining(), onReset: () => this._resetTraining(), onExit: () => this._exitTraining(),
+      onPause: () => { this.input.clear(); this.player.clearTownAction(); this.lockOverlay.style.display = 'none' },
+      onResume: () => {
+        this.input.clear()
+        if (!window.location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
+      },
+      equipmentVisible: () => this.equipmentUI.visible,
+      onCharacter: hero => this._changeTrainingCharacter(hero),
+    }, this.trainingGround.labels)
+    this.trainingDamageUnsubscribe = this.combatEvents.subscribe(event => {
+      const text = trainingDamageText(event, this.player.currentMount?.displayName)
+      if (text) this.trainingUI?.setDamage(text)
+    })
+    this._resetTraining()
+  }
+
+  private _refillTraining(): void {
+    if (!this.trainingGround) return
+    if (this.player.dead) { this._resetTraining(); return }
+    this.input.clear(); this.player.clearTownAction()
+    this.player.refillCombatSupplies()
+    const mount = this.player.currentMount
+    if (mount && !mount.dead) mount.currentHp = mount.maxHp
+    this.hpBar.setFill(this.player.hpRatio)
+    this.staminaBar.setFill(this.player.staminaRatio)
+    this.quiverUI.setArrowCount(this.player.arrowCount)
+    this._updateMountHud()
+  }
+
+  private _resetTraining(): void {
+    const ground = this.trainingGround
+    if (!ground) return
+    this.input.clear()
+    const { x, z } = ground.plan.playerSpawn
+    this.player.resetForScene(x, getTerrainHeight(x, z) + .95, z)
+    this.player.faceDirection(0, -1)
+    ground.resetMounts()
+    for (const mount of ground.mounts) {
+      this._aimTargetRegistry.unregisterMount(mount)
+      this._aimTargetRegistry.registerMount(mount)
     }
+    for (const arrow of this.arrows) arrow.destroy()
+    this.arrows.length = 0
+    this.controlMode = 'player'
+    this.player.spectatorOnly = false
+    this.player.group.visible = true
+    this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.player)
+    this.thirdPersonCamera.setYaw(0)
+    if (this.controlsHint) this.controlsHint.textContent = 'WASD 移動 · 滑鼠轉向 · 左鍵近戰 · 右鍵瞄準＋左鍵射擊 · E 騎乘／下馬 · Tab 裝備 · Esc 訓練選單'
+    this.thirdPersonCamera.update(this.input, 0, this.obstacles)
+    this.trainingUI?.setDamage(null)
+    this.trainingUI?.updateLabels(this.camera)
+    this.damageNumbers.clear()
+    this.enemyHud.classList.remove('visible')
+    this.mountHud.classList.remove('visible')
+    this.deathBanner?.classList.remove('visible')
+    this.spectatorBadge?.classList.remove('visible')
+    this.showDeathBannerOnNextSpectatorLock = false
+    if (this.deathBannerTimer !== null) { clearTimeout(this.deathBannerTimer); this.deathBannerTimer = null }
+    this._refillTraining()
+  }
 
-    this._setupPointerLock()
-    this._setupResize()
-    this._setupShortcuts()
-    if (query.get('freeride') === '1' && ['black-cat', 'corgi'].includes(query.get('mount') ?? '')) {
-      this.controlsHint.textContent += ' ｜ Esc 暫停／退出試騎'
-      this.heroMountTrialUI = new HeroMountTrialUI({
-        onPause: () => this.input.clear(),
-        onResume: () => {
-          this.input.clear()
-          if (!query.has('nolock')) this.input.requestPointerLock(this.renderer.domElement)
-        },
-        onExit: () => this._returnToHome(),
-        equipmentVisible: () => this.equipmentUI.visible,
-      })
-    }
-    if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
-    if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
-    if (this.personalSquad) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+  private _changeTrainingCharacter(heroId?: PlayerHeroId): void {
+    if (!this.trainingGround) return
+    this._resetTraining()
+    this.player.dispose()
+    this.player = new Player(this.scene, 'viking', heroId)
+    this.basePlayerMaxHp = heroId
+      ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[heroId])!.maxHp
+      : DEFAULT_PLAYER_MAX_HP
+    this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
+    this.player.setDamageHud(this.hpBar)
+    this.inventoryManager = createTrainingInventory(heroId)
+    this.armyCommandController.setInventory(this.inventoryManager)
+    this._bindPlayerCombatCallbacks()
+    this._resetTraining()
+  }
 
-    // Initialise bars
-    if (!isInitialSpectator) {
-      this.hpBar.setFill(this.player.hpRatio)
-      this.staminaBar.setFill(1)
-      this.quiverUI.setArrowCount(this.player.arrowCount)
-    }
-
+  private _exitTraining(): void {
+    if (!this.trainingGround) return
+    this.trainingDamageUnsubscribe?.()
+    this.trainingUI?.dispose()
+    this.sceneListeners.abort()
+    this.input.dispose()
+    this.equipmentUI.close()
+    this._disposeCareerOutpostBattleActors()
+    this.trainingGround.dispose()
+    this.player.dispose()
+    for (const arrow of this.arrows) arrow.destroy()
+    this.arrows.length = 0
+    this._aimTargetRegistry.clear()
+    this.damageNumbers.clear()
+    this.weaponWheelUI.dispose()
+    this.soundManager.updateHorseGallopLoops([])
+    for (const timer of [this.hintTimer, this.notifyTimer, this.enemyHudTimer, this.deathBannerTimer]) if (timer !== null) clearTimeout(timer)
+    this.scene.clear()
+    this.renderer.dispose()
+    this.renderer.forceContextLoss()
+    // A fresh document also releases terrain, audio and shared asset caches.
+    // Preserve all Career and battle session data; explicit menu bypass owns return.
+    if (document.pointerLockElement) document.exitPointerLock()
+    window.location.href = `${window.location.pathname}?menu=1${window.location.search.includes('nolock') ? '&nolock' : ''}`
   }
 
   private _spawnHumanoidStudio(): void {
@@ -1454,7 +1663,7 @@ export class Game {
         button.onclick = () => { this.camera.position.set(x, HUMANOID_STUDIO_FLOOR_Y + y, z); this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2); this.studioControls?.update() }
         toolbar.appendChild(button)
       }
-      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = `?freeride=1&mount=${isCorgi ? 'corgi' : 'black-cat'}&nolock`
+      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = '?training=1&nolock'
       ride.style.cssText = 'padding:10px 16px;background:#b99a66;color:#201b14;border-radius:5px;text-decoration:none'
       toolbar.appendChild(ride)
       if (isCorgi) {
@@ -1729,9 +1938,10 @@ export class Game {
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)
     }
-    if (this.defenseCampaignConfig?.careerMissionId) {
+    if (this.defenseCampaignConfig?.careerMissionId || this.captainEagleMissionId) {
       this.careerVeteranActorMounts.set(npc.combatantId, npc.mount)
     }
+    if (this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId)) npc.combatOwnership = 'mission-official'
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
@@ -1778,9 +1988,286 @@ export class Game {
     else this._showNotify('無法保存衝鋒進度；重新載入可能重播命令。')
   }
 
+  private _personalOutpostMission() {
+    return this.defenseCampaignConfig?.careerMissionKind === 'captain-outpost-defense'
+      ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
+  }
+
+  /** Only this battle's saved permission and actual NPCs contribute to command counts. */
+  private _careerCommandHudRoster() {
+    const profile = this.careerProfile
+    if (!profile) return undefined
+    const mission = profile.activeMission ?? profile.activeOutpostMission
+    const current = profile.activeMission
+    const official = current?.officialSquad?.type === 'mission-official'
+      && current.officialSquad.missionId === current.id ? current.officialSquad : undefined
+    const accepted = mission?.personalSquad
+    const live = this.personalSquad?.hudMission
+    const sameRoster = Boolean(accepted && live
+      && accepted.memberIds.length === live.memberIds.length
+      && accepted.memberIds.every((id, index) => id === live.memberIds[index]))
+    const personal: PersonalSquadMission | undefined = accepted
+      ? sameRoster ? { ...accepted, members: live!.members } : accepted : undefined
+    return careerCommandHudRoster({
+      sceneKey: this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
+      faction: profile.faction,
+      ...(mission ? { missionId: mission.id } : {}),
+      official,
+      officialPending: Boolean(official && this.captainEagleSpawnBatch && !this.captainEagleSpawnBatch.ready
+        && !this.spawningStopped),
+      personal,
+      personalPendingIds: this.personalSquad?.hudPendingIds,
+      personalReturningIds: this.personalSquad?.hudReturningIds,
+      actors: this.npcs,
+    })
+  }
+
+  private _captainCommandAuthority(): ArmyCommandAuthority {
+    return {
+      accepts: npc => this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) === true
+        || this.personalSquad?.owns(npc) === true,
+      enabled: () => !this.player.dead && this.controlMode === 'player' && !this.careerProfile?.activeMission?.result,
+      issue: (order, target) => {
+        let accepted = false
+        if ((target === 'all' || target === 'squad:personal') && this.personalSquad) {
+          accepted = order === 'follow' ? this.personalSquad.follow() : this.personalSquad.dismiss()
+        }
+        if (order === 'follow' && (target === 'all' || target === 'squad:1')) {
+          const ids = new Set(this.careerProfile?.activeMission?.officialSquad?.actorIds)
+          let slot = 0
+          for (const npc of this.npcs) {
+            if (npc.dead || !ids.has(npc.combatantId) || !matchesArmyCommandTarget(npc, target)) continue
+            npc.assignFollowTarget(this.player, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length))); slot++
+            accepted = true
+          }
+        }
+        if (accepted) {
+          this.soundManager.playCareerMissionVoice(this.careerProfile!.faction, order === 'follow' ? 'follow' : 'dismiss')
+          this._persistCaptainMission(true)
+        }
+        return accepted
+      },
+    }
+  }
+
+  /** Save the entire declaration before the first scheduled actor may materialize. */
+  private _declareCaptainEagleRoster(plan: BattleSpawnPlan): void {
+    const next = cloneCareerProfile(this.careerProfile!)
+    const mission = next.activeMission!
+    if (mission.eagleBattle) return
+    const actors: CaptainEagleCheckpoint['actors'] = {}
+    for (const spec of plan.npcSpecs) {
+      if (!spec.actorId) throw new Error('Captain Eagle actor is missing its saved identity')
+      actors[spec.actorId] = { status: 'reserve', position: { x: spec.x, y: getTerrainHeight(spec.x, spec.z), z: spec.z,
+        yaw: spec.characterFaction === 'roman' ? 0 : Math.PI } }
+    }
+    mission.eagleBattle = { actors, ready: false, playerStats: this.battleStats.checkpoint(), player: {
+      hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
+      position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z, yaw: this.player.group.rotation.y },
+      ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+      ...(mission.mountState?.hp.xongkoro !== undefined ? { mountHp: mission.mountState.hp.xongkoro } : {}),
+    } }
+    if (!this.careerStore.save(next)) throw new Error('Captain Eagle roster declaration could not be saved')
+    this.careerProfile = next
+  }
+
+  private _queueCaptainEagleRoster(plan: BattleSpawnPlan): void {
+    const mission = this.careerProfile!.activeMission!
+    const saved = mission.eagleBattle!
+    const batch = this._newSpawnBatch()
+    this.captainEagleSpawnBatch = batch
+    for (const spec of plan.npcSpecs) {
+      const actor = saved.actors[spec.actorId!]
+      if (actor?.status === 'dead' || actor?.hp === 0) continue
+      batch.enqueue(spec.actorId!, () => {
+        const npc = this._spawnNpc(spec)
+        npc.group.rotation.y = spec.characterFaction === 'roman' ? 0 : Math.PI
+        if (npc.mount) npc.mount.group.rotation.y = npc.group.rotation.y
+        npc.setTacticalOrder(npc.faction === Faction.PLAYER ? 'defend' : 'attack')
+        if (actor) restoreCommandActor(npc, actor, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
+        if (actor?.order === 'follow' && !this.player.dead) {
+          const index = mission.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
+          if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
+        }
+        if (!this._persistCaptainMission(true)) throw new Error('Captain Eagle actor checkpoint could not be saved')
+      })
+    }
+    batch.seal(() => {
+      if (!this._persistCaptainMission(true)) throw new Error('Captain Eagle deployment could not be saved')
+    })
+  }
+
+  private _buildCaptainMissionCheckpoint(): ActiveCareerMission | null {
+    const mission = cloneCareerProfile(this.careerProfile!).activeMission
+    if (!mission || !this.captainCheckpoint) return null
+    mission.playerStats = this.battleStats.checkpoint()
+    mission.playerDead = this.player.dead
+    mission.playerHp = this.player.hp
+    mission.playerStamina = this.player.staminaValue
+    const personal = this.personalSquad?.checkpoint()
+    if (personal) { personal.contribution = this.battleStats.commandCheckpoint(); mission.personalSquad = personal }
+    if (mission.officialSquad) {
+      mission.officialSquad.contribution = this.battleStats.officialCommandCheckpoint()
+      mission.officialSquad.members = { ...mission.officialSquad.members }
+      for (const npc of this.npcs) if (mission.officialSquad.actorIds.includes(npc.combatantId)) {
+        mission.officialSquad.members[npc.combatantId] = snapshotCommandActor(npc,
+          this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
+      }
+    }
+    const mount = this.startingHorse
+    if (mount) {
+      const id = this.captainEagleMissionId ? 'xongkoro' : this.defenseCampaignConfig?.playerLoadout.mountId
+      if (id) mission.mountState = { ...mission.mountState, hp: { ...mission.mountState?.hp, [id]: mount.dead ? 0 : mount.currentHp },
+        unavailable: [...new Set([...(mission.mountState?.unavailable ?? []), ...(mount.dead ? [id] : [])])],
+        ...(this.player.currentMount === mount ? { activeMountId: id } : {}) }
+    }
+    if (this.captainEagleMissionId) {
+      const previous = mission.eagleBattle!
+      const actors = { ...previous.actors }
+      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') actors[npc.combatantId] = snapshotCommandActor(npc,
+        this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
+      const ready = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+      mission.eagleBattle = { actors, ready, playerStats: mission.playerStats, player: {
+        hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
+        position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z, yaw: this.player.group.rotation.y },
+        ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+        ...(this.player.isFalling ? { fall: this.player.fallSnapshot } : {}),
+        ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp, mount: {
+          hp: mount.dead ? 0 : mount.currentHp, mounted: this.player.currentMount === mount,
+          position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
+          ...(mount.flight ? { flight: mount.flight.snapshot() } : {}),
+        } } : {}),
+      } }
+      if (!mission.result) mission.phase = ready ? 'ENGAGING' : 'ASSEMBLING'
+    } else {
+      const runtime = this.defenseCampaignRuntime?.getSnapshot()
+      if (!runtime) return null
+      const actors = { ...mission.battle?.actors }
+      for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') {
+        const ownedMount = this.careerVeteranActorMounts.get(npc.combatantId)
+        actors[npc.combatantId] = { hp: npc.hp, x: npc.combatPosition.x, z: npc.combatPosition.z,
+          yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
+          checkpoint: snapshotCommandActor(npc, ownedMount ?? undefined),
+          ...(ownedMount ? { mountHp: ownedMount.dead ? 0 : ownedMount.currentHp } : {}) }
+      }
+      mission.battle = { runtime, actors, player: {
+        hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
+        x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
+        ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
+        ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp, mounted: this.player.currentMount === mount,
+          mountPosition: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y } } : {}),
+      }, playerStats: mission.playerStats, wave: this.campaignSpawnWave, waveIndex: this.campaignSpawnQueueIndex,
+      attackersStarted: this.campaignAttackersStarted, reinforcementsSpawned: this.campaignReinforcementSpawned,
+      ...(this.previewCampaignGate ? { gate: { hp: this.previewCampaignGate.damageable.currentHp, state: this.previewCampaignGate.state } } : {}),
+      }
+      if (!mission.result) mission.phase = runtime.activePhase === 'deployment' ? 'PREPARING' : 'ENGAGING'
+    }
+    return mission
+  }
+
+  private _commitCaptainMissionCheckpoint(profile: CareerProfile): boolean {
+    if (!this.captainEagleMissionId && this.player) {
+      profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
+    }
+    const saved = this.careerStore.save(profile)
+    if (saved) this.careerProfile = profile
+    return saved
+  }
+
+  private _persistCaptainMission(force = false, dt = 0): boolean {
+    if (this.initializing || this.spawningStopped || !this.captainCheckpoint || !this.careerProfile) return !this.captainCheckpoint
+    this.captainCheckpoint.advance(dt)
+    return this.captainCheckpoint.persist(() => this._buildCaptainMissionCheckpoint() ?? this.careerProfile!.activeMission!,
+      { immediate: force, periodic: true }) || !force
+  }
+
+  private _restoreCaptainEaglePlayer(): void {
+    const saved = this.careerProfile?.activeMission?.eagleBattle?.player
+    if (!saved) return
+    const mount = this.startingHorse
+    if (mount) {
+      const hp = saved.mount?.hp ?? saved.mountHp ?? this.careerProfile?.activeMission?.mountState?.hp.xongkoro
+      if (hp !== undefined) {
+        if (hp <= 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
+        else mount.currentHp = Math.min(mount.maxHp, hp)
+      }
+      if (saved.mount) {
+        if (!saved.mount.mounted && this.player.currentMount === mount) this.player.dismountFromMount()
+        const p = saved.mount.position
+        mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); mount.group.rotation.y = p.yaw
+        if (saved.mount.flight && mount.flight && !mount.dead) {
+          mount.flight.restore(saved.mount.flight)
+          mount.group.rotation.set(-saved.mount.flight.pitch, saved.mount.flight.yaw, saved.mount.flight.bank, 'YXZ')
+        }
+      }
+    }
+    const p = saved.position
+    this.player.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z) + .95, p.z)
+    this.player.faceDirection(Math.sin(p.yaw), Math.cos(p.yaw))
+    this.player.setHp(saved.hp); this.player.setStamina(saved.stamina); this.player.setArrowCount(saved.ammo)
+    this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
+    if (saved.fall) { this.player.dismountFromMount(); this.player.restorePendingFall(saved.fall) }
+    if (saved.dead) { this.player.detachFromMountOnDeath(); this.player.takeDamage(this.player.maxHp * 100, this.hpBar) }
+  }
+
+  private _updateCaptainBattle(dt: number): void {
+    if (!this.captainCheckpoint) return
+    const mission = this.careerProfile!.activeMission!
+    if (this.player.dead) for (const npc of this.npcs) {
+      if (!npc.dead && npc.tacticalOrder === 'follow' && mission.officialSquad?.actorIds.includes(npc.combatantId)) {
+        const offset = npc.activeFollowLocalOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.group.rotation.y)
+        const target = this.player.combatPosition.clone().add(offset)
+        npc.assignFormationTarget(-900, target, new THREE.Vector3(Math.sin(this.player.group.rotation.y), 0, Math.cos(this.player.group.rotation.y)), undefined, 'defend')
+      }
+    }
+    if (!this.captainEagleMissionId) return
+    const officialIds = new Set(mission.officialSquad?.actorIds)
+    const enemyIds = new Set(mission.targetActorIds)
+    const officialAlive = this.npcs.filter(npc => !npc.dead && officialIds.has(npc.combatantId)).length
+    const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length
+    const pending = this.captainEagleSpawnBatch?.pending ?? 0
+    const ready = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
+    const roster = this._careerCommandHudRoster()
+    const officialCounts = roster && countArmyHudRoster(roster, 'squad:1')
+    const personalCounts = roster && countArmyHudRoster(roster, 'squad:personal')
+    this.captainEagleHud?.update(ready, officialCounts?.alive ?? officialAlive,
+      personalCounts?.alive ?? this.personalSquad?.aliveCombatants ?? 0, enemyAlive,
+      pending + (personalCounts?.pending ?? 0),
+      officialCounts && personalCounts ? { official: officialCounts, personal: personalCounts } : undefined)
+    if (!ready) return
+    if (this.captainResultPending) return
+    if (mission.result) {
+      if (!this.careerResultStats) this._showCaptainEagleResult(mission.result.outcome)
+      return
+    }
+    if (mission.phase !== 'ENGAGING') {
+      if (!this._persistCaptainMission(true)) return
+      for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialIds.has(npc.combatantId)) npc.setTacticalOrder('attack')
+    }
+    if (enemyAlive === 0) this._showCaptainEagleResult('victory')
+    else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showCaptainEagleResult('failure')
+    void dt
+  }
+
+  private _showCaptainEagleResult(outcome: 'victory' | 'failure'): void {
+    this.armyCommandUI?.setEnabled(false)
+    this.captainResultPending = outcome
+    this.battleStats.freeze()
+    const stats = this.careerResultStats ??= this.battleStats.snapshot(this.npcs, this.player)
+    const retry = () => this.captainEagleHud?.showSaveRetry(() => this._showCaptainEagleResult(outcome))
+    if (!this._flushCareerSkillProgression() || !this._persistCaptainMission(true)) { retry(); return }
+    const fresh = this.careerStore.loadChecked().profile
+    if (!fresh) { retry(); return }
+    const claim = claimCareerMission(fresh, this.captainEagleMissionId!, outcome, stats.player, stats.meritPlayer)
+    if (!this.careerStore.save(claim.profile)) { retry(); return }
+    this.careerProfile = claim.profile
+    this.captainResultPending = undefined
+    this.captainEagleHud?.showResult(outcome, claim.profile.activeMission!.result!.merit.total, stats, () => this._returnToCareerTown())
+  }
+
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {
-    const mission = this.careerProfile?.activeOutpostMission
-    if (!mission?.personalSquad) return
+    const mission = this._personalOutpostMission()
+    if (!mission) return
     plan.npcSpecs.forEach((spec, index) => { spec.actorId = `${mission.id}:${wave}:${index}` })
   }
 
@@ -1794,9 +2281,18 @@ export class Game {
   }
 
   private _restorePersonalOutpostNpc(npc: NPC): void {
-    const saved = this.careerProfile?.activeOutpostMission?.battle?.actors[npc.combatantId]
+    const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
     if (!saved) return
     const mount = this.careerVeteranActorMounts.get(npc.combatantId)
+    const command = saved.checkpoint ?? this.careerProfile?.activeMission?.officialSquad?.members?.[npc.combatantId]
+    if (command) {
+      restoreCommandActor(npc, command, mount ?? undefined)
+      if (!npc.dead && command.order === 'follow') {
+        const index = this.careerProfile?.activeMission?.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
+        if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
+      }
+      return
+    }
     if (mount) {
       mount.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z)
       mount.group.rotation.y = saved.yaw
@@ -1814,8 +2310,8 @@ export class Game {
   }
 
   private async _restorePersonalOutpostActors(progress: (text: string) => void): Promise<void> {
-    const mission = this.careerProfile?.activeOutpostMission, saved = mission?.battle
-    if (!mission?.personalSquad || !saved) return
+    const mission = this._personalOutpostMission(), saved = mission?.battle
+    if (!mission || !saved) return
     this.campaignAttackersStarted = saved.attackersStarted
     this.campaignReinforcementSpawned = saved.reinforcementsSpawned
     const gate = this.previewCampaignGate
@@ -1850,25 +2346,28 @@ export class Game {
 
   private _deployPersonalOutpost(): void {
     const campaign = this.defenseCampaignConfig
-    const mission = campaign?.careerVeteranOutpost ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
+    const mission = campaign?.careerVeteranOutpost || this.captainCheckpoint ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
     const saved = mission?.personalSquad
-    if (!campaign?.careerMissionId || !this.careerProfile || !saved?.memberIds.length) return
-    const sceneKey = `outpost:${campaign.careerMissionId}`
+    if ((!campaign?.careerMissionId && !this.captainEagleMissionId) || !this.careerProfile || !saved?.memberIds.length) return
+    const sceneKey = this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${campaign!.careerMissionId}`
     const changedScene = saved.sceneKey !== sceneKey
-    const placement = getCampaignOutpostPlacement(careerVeteranOutpostOwner(campaign))
-    const outside = campaign.careerMissionKind === 'outpost-relief' || campaign.careerMissionKind === 'veteran-outpost-assault'
-    const yaw = getCampaignDefenderFacingYaw(campaign.defenderFaction) + (outside ? Math.PI : 0)
+    const placement = campaign ? getCampaignOutpostPlacement(careerVeteranOutpostOwner(campaign)) : null
+    const outside = !campaign || campaign.careerMissionKind === 'outpost-relief' || campaign.careerMissionKind === 'veteran-outpost-assault'
+    const yaw = campaign ? getCampaignDefenderFacingYaw(campaign.defenderFaction) + (outside ? Math.PI : 0) : this.player.group.rotation.y
     const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw }
     const bounds = outside ? this.navigationWorld.grid : {
-      minX: placement.centerX - placement.halfWidth, maxX: placement.centerX + placement.halfWidth,
-      minZ: Math.min(placement.frontZ, placement.backZ), maxZ: Math.max(placement.frontZ, placement.backZ),
+      minX: placement!.centerX - placement!.halfWidth, maxX: placement!.centerX + placement!.halfWidth,
+      minZ: Math.min(placement!.frontZ, placement!.backZ), maxZ: Math.max(placement!.frontZ, placement!.backZ),
     }
     const slots = changedScene ? personalRearDeployment(anchor,
       this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition),
       saved.memberIds.length + 1, bounds, this.obstacles, this.navigationWorld, true)
       : [anchor, ...saved.memberIds.map(id => saved.members[id]?.position ?? anchor)]
     if (changedScene) {
-      const point = slots[0]
+      const point = this.player.currentMount?.isFlyingMount
+        ? findEagleLandingPosition({ ...slots[0], yaw }, this.obstacles, this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), 300, 150)
+        : slots[0]
+      if (!point) throw new Error('No clear xongkoro player deployment area near the Outpost')
       if (this.player.currentMount) {
         this.player.currentMount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
         this.player.currentMount.group.rotation.y = yaw
@@ -1878,8 +2377,19 @@ export class Game {
       this.player.spawnX = point.x; this.player.spawnZ = point.z
       this.thirdPersonCamera.setYaw(yaw + Math.PI)
     }
-    this.personalSquad = new PersonalSquadRuntime(this.scene, slots.slice(1), () => this.careerProfile!, () => this.player, undefined, {
-      sceneKey, hasHR: false,
+    const regularMuster = slots.slice(1)
+    const eagleMuster: Array<{ x: number; z: number; yaw: number }> = []
+    const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
+    const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), this.player.combatPosition]
+    for (const [index, id] of saved.memberIds.entries()) {
+      if (owned.get(id)?.equipment?.mount !== 'xongkoro') continue
+      const position = findEagleLandingPosition({ ...(regularMuster[index] ?? anchor), yaw }, this.obstacles, occupied, 300, 150)
+      if (!position) throw new Error('No clear xongkoro deployment area near the Outpost')
+      eagleMuster.push({ x: position.x, z: position.z, yaw })
+      occupied.push(position)
+    }
+    this.personalSquad = new PersonalSquadRuntime(this.scene, regularMuster, () => this.careerProfile!, () => this.player, undefined, {
+      sceneKey, hasHR: false, eagleMuster,
       formationSlots: (anchor, occupied, count) => personalRearDeployment(anchor, occupied, count,
         this.navigationWorld.grid, this.obstacles, this.navigationWorld),
       emit: this.combatEvents.emit,
@@ -1897,30 +2407,37 @@ export class Game {
   }
 
   private _restorePersonalOutpostPlayer(): void {
-    const saved = this.careerProfile?.activeOutpostMission?.battle?.player
+    const saved = this._personalOutpostMission()?.battle?.player
     if (!saved) return
     this.player.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z) + .95, saved.z)
     this.player.faceDirection(Math.sin(saved.yaw), Math.cos(saved.yaw))
     const mount = this.startingHorse
     if (mount) {
-      mount.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z); mount.group.rotation.y = saved.yaw
+      const parked = saved.mountPosition
+      mount.group.position.set(parked?.x ?? saved.x, parked?.y ?? getTerrainHeight(parked?.x ?? saved.x, parked?.z ?? saved.z), parked?.z ?? saved.z)
+      mount.group.rotation.y = parked?.yaw ?? saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
-      else if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+      else {
+        if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+        if (saved.mounted === false && this.player.currentMount === mount) this.player.dismountFromMount()
+        else if (saved.mounted === true && !saved.dead && !mount.dead && this.player.currentMount !== mount) this.player.mountVehicle(mount)
+      }
     }
     this.player.setHp(saved.hp); this.player.setStamina(saved.stamina)
     if (saved.ammo !== undefined) this.player.setArrowCount(saved.ammo)
     if (saved.shieldImpact !== undefined) this.player.shield.shieldImpactRemaining = Math.min(this.player.shield.shieldImpactMax, saved.shieldImpact)
     if (saved.dead) { this.player.detachFromMountOnDeath(); this.player.takeDamage(this.player.maxHp * 100, this.hpBar) }
+    restoreCareerAerialState(this.player, this.startingHorse, this.careerProfile?.playerAerialState, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
   }
 
   private _persistPersonalOutpost(force = false, dt = 0): boolean {
     if (this.initializing || this.spawningStopped) return true
-    if (!this.personalSquad || !this.careerProfile) return true
-    const personal = this.personalSquad.checkpoint()
-    if (!personal) return true
+    if (this.captainCheckpoint) return this._persistCaptainMission(force, dt)
+    if (!this.careerProfile || !this.defenseCampaignConfig?.careerMissionId) return true
+    const personal = this.personalSquad?.checkpoint()
     this.personalCheckpointElapsed += dt
-    const critical = JSON.stringify([personal.state, this.player.dead, this.campaignSpawnWave,
-      this.defenseCampaignRuntime?.getSnapshot().phase, personal.memberIds.map(id => {
+    const critical = JSON.stringify([personal?.state, this.player.dead, this.player.isFalling, this.player.currentMount?.dead, this.campaignSpawnWave,
+      this.defenseCampaignRuntime?.getSnapshot().phase, personal?.memberIds.map(id => {
         const actor = personal.members[id]
         return [actor.status, actor.order, actor.mount?.hp === 0, actor.formation?.commandId]
       })])
@@ -1933,8 +2450,9 @@ export class Game {
     const next = this.careerStore.loadChecked().profile
     const mission = next?.activeOutpostMission, runtime = this.defenseCampaignRuntime?.getSnapshot()
     if (!next || !mission || mission.id !== this.defenseCampaignConfig?.careerMissionId || !runtime) return false
-    personal.contribution = this.battleStats.commandCheckpoint()
+    if (personal) personal.contribution = this.battleStats.commandCheckpoint()
     mission.personalSquad = personal
+    next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
       runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
@@ -1963,7 +2481,8 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
-    const result = applyCampaignBreachOrders(this.npcs, attackerFaction)
+    const officialIds = new Set(this.captainCheckpoint ? this.careerProfile?.activeMission?.officialSquad?.actorIds : [])
+    const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialIds.has(npc.combatantId)), attackerFaction)
     if (this.restoringCareerOutpostGate) return
     this.soundManager.playCommanderCommand(attackerFaction, 'charge')
     this._showNotify(
@@ -2194,6 +2713,7 @@ export class Game {
       this.player.detachFromMountOnDeath()
       this.player.takeDamage(this.player.maxHp * 100, this.hpBar)
     }
+    restoreCareerAerialState(this.player, this.startingHorse, this.careerProfile?.playerAerialState, `outpost:${campaign.careerMissionId}`)
     this.hpBar.setFill(this.player.hpRatio)
     this.staminaBar.setFill(this.player.staminaRatio)
   }
@@ -2280,6 +2800,7 @@ export class Game {
     allowObserve = false,
   ): void {
     if (!this.defenseCampaignHud) return
+    if (this.defenseCampaignConfig?.careerMissionId) this.armyCommandUI?.setEnabled(false)
     const campaign = this.defenseCampaignConfig
     const onNext = result === 'victory' && campaign && !campaign.careerMissionId && campaign.stageId < 9
       ? () => this._returnToNextDefenseCampaignSetup()
@@ -2297,15 +2818,15 @@ export class Game {
         this._showCareerOutpostSaveRetry(result)
         return
       }
-      if (!campaign.careerVeteranOutpost && this.personalSquad && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
+      if (!campaign.careerVeteranOutpost && !this._persistPersonalOutpost(true)) { this._showCareerOutpostSaveRetry(result); return }
       const fresh = this.careerStore.loadChecked().profile
       if (!fresh) { this._showCareerOutpostSaveRetry(result); return }
-      const claim = campaign.careerVeteranOutpost
+      const claim = campaign.careerVeteranOutpost || this.captainCheckpoint
         ? claimCareerMission(fresh, campaign.careerMissionId, result === 'victory' ? 'victory' : 'failure', stats.player, stats.meritPlayer)
         : claimCareerOutpost(fresh, campaign.careerMissionId, result, stats)
       if (!this.careerStore.save(claim.profile)) { this._showCareerOutpostSaveRetry(result); return }
       this.careerProfile = claim.profile
-      this.careerMeritAwarded = campaign.careerVeteranOutpost
+      this.careerMeritAwarded = campaign.careerVeteranOutpost || this.captainCheckpoint
         ? claim.profile.activeMission?.result?.merit.total ?? 0
         : claim.profile.outpostBattleRecords?.find(record => record.id === campaign.careerMissionId)?.merit.total ?? 0
     }
@@ -2336,15 +2857,17 @@ export class Game {
   private _returnToCareerTown(): void {
     if (!this._flushCareerSkillProgression()) { this._showNotify('無法保存技能進度，請重試'); return }
     const profile = this.careerStore.loadChecked().profile
-    const next = this.defenseCampaignConfig?.careerVeteranOutpost
-      ? profile?.activeMission ? clearCareerMission(profile, this.defenseCampaignConfig.careerVeteranOutpost.missionId) : profile
+    const activeMissionId = this.captainEagleMissionId ?? (this.captainCheckpoint ? this.defenseCampaignConfig?.careerMissionId : this.defenseCampaignConfig?.careerVeteranOutpost?.missionId)
+    const next = activeMissionId
+      ? profile?.activeMission ? clearCareerMission(profile, activeMissionId) : profile
       : profile ? clearCareerOutpost(profile) : null
-    if (!next || !this.careerStore.save(next)) { this._showNotify('無法保存返回狀態，請重試'); return }
+    if (!next || !this.careerStore.save(refitTownCommandForSceneChange(next))) { this._showNotify('無法保存返回狀態，請重試'); return }
     this.personalSquad?.endMission(true)
     this._disposeCareerOutpostBattleActors()
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCaptainOnPageHide)
     sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
     sessionStorage.removeItem('sagaburst_campaign_config')
     sessionStorage.removeItem('sagaburst_battle_config')
@@ -2354,6 +2877,7 @@ export class Game {
 
   private _disposeCareerOutpostBattleActors(): void {
     this.spawningStopped = true
+    this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cleanup()
     for (const npc of this.npcs) { this._aimTargetRegistry?.unregisterNpc?.(npc); npc.dispose() }
@@ -2369,6 +2893,7 @@ export class Game {
     this.careerOutpostDefenseGuide = null
     this.careerVeteranActorMounts.clear()
     this.defenseCampaignHud?.destroy()
+    this.captainEagleHud?.destroy()
   }
 
   private _returnToNextDefenseCampaignSetup(): void {
@@ -2578,9 +3103,9 @@ export class Game {
     const unlockAudio = (): void => {
       this.soundManager.unlockAudio()
     }
-    this.lockOverlay.addEventListener('click', unlockAudio)
-    this.renderer.domElement.addEventListener('click', unlockAudio)
-    window.addEventListener('pointerdown', unlockAudio, { once: true })
+    this.lockOverlay.addEventListener('click', unlockAudio, { signal: this.sceneListeners.signal })
+    this.renderer.domElement.addEventListener('click', unlockAudio, { signal: this.sceneListeners.signal })
+    window.addEventListener('pointerdown', unlockAudio, { once: true, signal: this.sceneListeners.signal })
 
     if (this.isModelStudio || isNoLock) {
       this.lockOverlay.style.display = 'none'
@@ -2601,12 +3126,12 @@ export class Game {
         this.lockOverlay.classList.add('hidden')
         this.input.requestPointerLock(this.renderer.domElement)
       }
-    })
+    }, { signal: this.sceneListeners.signal })
     this.renderer.domElement.addEventListener('click', () => {
       if (!document.pointerLockElement && !this.equipmentUI?.visible && !this.isModelStudio && !isNoLock) {
         this.input.requestPointerLock(this.renderer.domElement)
       }
-    })
+    }, { signal: this.sceneListeners.signal })
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement || isNoLock || this.isModelStudio) {
         this.lockOverlay.style.display = 'none'
@@ -2622,7 +3147,7 @@ export class Game {
         this.controlsHint.classList.remove('hidden')
         if (this.hintTimer !== null) clearTimeout(this.hintTimer)
       }
-    })
+    }, { signal: this.sceneListeners.signal })
   }
 
   private _scheduleHintHide(): void {
@@ -2662,6 +3187,32 @@ export class Game {
   }
 
   // ── Keyboard Shortcuts ──
+  private _toggleEquipment(): void {
+    if (this.player.dead || this.controlMode === 'spectator') return
+    this.input.clear()
+    this.player.clearTownAction()
+    this.armyCommandController.close()
+    this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
+      this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
+    })
+    if (this.equipmentUI.visible) {
+      if (document.pointerLockElement) document.exitPointerLock()
+    } else if (!window.location.search.includes('nolock') && !this.trainingUI?.paused) this.input.requestPointerLock()
+  }
+
+  private _updatePlayerInputOwnership(): void {
+    const careerEnded = Boolean(this.captainResultPending || this.careerProfile?.activeMission?.result
+      || this.defenseCampaignConfig?.careerMissionId && this.defenseCampaignRuntime?.getSnapshot().battleFinished)
+    if (this.player.dead || this.controlMode !== 'player' || careerEnded) this.armyCommandUI?.setEnabled(false)
+    if (this.equipmentUI.visible) {
+      this.input.clear()
+      this.player.clearTownAction()
+      return
+    }
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !careerEnded
+      && this.armyCommandController.update()) this.player.clearTownAction()
+  }
+
   private _setupShortcuts(): void {
     window.addEventListener('keydown', (e) => {
       if (this.previewCampaignGate && e.code === 'KeyG'
@@ -2673,26 +3224,19 @@ export class Game {
 
       if (e.code === 'Tab' || e.code === 'KeyI') {
         e.preventDefault()
-        if (this.player.dead || this.controlMode === 'spectator') return
-        this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
-          this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
-        })
-        if (this.equipmentUI.visible) {
-          if (document.pointerLockElement) {
-            document.exitPointerLock()
-          }
-        } else {
-          this.input.requestPointerLock()
-        }
+        if (e.repeat || this.player.dead || this.controlMode === 'spectator') return
+        this._toggleEquipment()
       }
       if (e.code === 'Escape') {
         if (this.equipmentUI.visible) {
           e.preventDefault()
+          this.input.clear()
+          this.player.clearTownAction()
           this.equipmentUI.close()
-          this.input.requestPointerLock()
+          if (!window.location.search.includes('nolock') && !this.trainingUI?.paused) this.input.requestPointerLock()
         }
       }
-    })
+    }, { signal: this.sceneListeners.signal })
   }
 
   private _scheduleCareerSkillProgressionFlush(): void {
@@ -2721,6 +3265,7 @@ export class Game {
   }
 
   private _awardPlayerSkillXpFromEvent(event: CombatEvent): void {
+    if (this.isTrainingGround) return
     const meleeWeapon = event.type === 'damage_applied' && event.weaponId
       ? WEAPONS[event.weaponId] ?? this.inventoryManager.equippedMelee
       : this.inventoryManager.equippedMelee
@@ -2740,6 +3285,7 @@ export class Game {
   }
 
   private _applyPlayerSkillAward(award: import('./rpg/CombatSkillProgression').SkillProgressionAward): void {
+    if (this.isTrainingGround) return
     if (this.player.dead || this.player.spectatorOnly || this.controlMode !== 'player') return
 
     const before = this.skillManager.skillState
@@ -2769,13 +3315,15 @@ export class Game {
   }
 
   _saveGame(): void {
-    if (this.defenseCampaignConfig?.careerMissionId) return
+    if (this.isTrainingGround) return
+    if (this.defenseCampaignConfig?.careerMissionId || this.captainEagleMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
     const skills = this.skillManager.skillState
     const inv = this.inventoryManager.saveState
 
     const ok = this.saveManager.save({
+      falling: this.player.isFalling ? this.player.fallSnapshot : undefined,
       position: { x: pos.x, y: pos.y, z: pos.z },
       hp: this.player.hp,
       stamina: this.player.staminaValue,
@@ -2791,6 +3339,8 @@ export class Game {
       mountData: this.player.isMounted && this.player.currentMount ? {
         isMounted: true,
         type: this.player.currentMount.type,
+        hp: this.player.currentMount.currentHp,
+        flight: this.player.currentMount.flight?.snapshot(),
         appearanceVariant: this.player.currentMount.type === MountType.HORSE
           ? this.player.currentMount.appearanceVariant
           : undefined,
@@ -2805,8 +3355,13 @@ export class Game {
   }
 
   _loadGame(): void {
-    if (this.defenseCampaignConfig?.careerMissionId) return
+    if (this.isTrainingGround) return
+    if (this.defenseCampaignConfig?.careerMissionId || this.captainEagleMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
+    if (this.player.isFalling || this.player.currentMount?.isAirborne) {
+      this._showNotify('請先安全降落再讀檔。')
+      return
+    }
     if (!this.saveManager.hasSave()) {
       this._showNotify('⚠️ 沒有存檔')
       return
@@ -2857,16 +3412,26 @@ export class Game {
 
     if (newMountToLoad) {
       this._mountPlayer(newMountToLoad)
+      if (data.mountData?.hp !== undefined) newMountToLoad.currentHp = Math.max(0, Math.min(newMountToLoad.maxHp, data.mountData.hp))
+      if (data.mountData?.flight && newMountToLoad.flight) {
+        newMountToLoad.flight.restore(data.mountData.flight)
+        newMountToLoad.group.rotation.set(-newMountToLoad.flight.pitch, newMountToLoad.flight.yaw, newMountToLoad.flight.bank, 'YXZ')
+        this.player.syncMountTransform()
+      }
     } else {
       this.mountHud.classList.remove('visible')
     }
+    if (data.falling) this.player.restorePendingFall(data.falling)
 
     this._showNotify('📂 讀檔成功（還原背包與裝備）')
   }
 
   private _mountPlayer(mount: Mount, initialHeading?: number): void {
-    this._aimTargetRegistry.unregisterMount(mount)
     this.player.mountVehicle(mount, initialHeading)
+    if (!this.player.isMounted || this.player.currentMount !== mount) return
+    if (this.isTrainingGround) mount.visualHold = false
+    this._aimTargetRegistry.unregisterMount(mount)
+    if (mount.isFlyingMount && this.controlsHint) this.controlsHint.textContent = 'xongkoro · 滑鼠轉向 · W 起飛 · S 減速／低空降落 · A/D 側傾轉彎 · Shift 衝刺 · 左鍵鷹擊 · 右鍵遠程瞄準 · E 卸乘'
 
     this.mountNameEl.textContent = `坐騎：${mount.displayName}`
     this.mountHpFill.style.width = `${Math.max(0, (mount.currentHp / mount.maxHp) * 100)}%`
@@ -2894,6 +3459,10 @@ export class Game {
 
   private _enterSpectatorMode(reason: 'death' | 'initial' = 'death'): void {
     if (this.controlMode === 'spectator') return
+    this.input.clear()
+    this.player.clearTownAction()
+    this.armyCommandController.close()
+    this.armyCommandUI?.setEnabled(false)
     this.controlMode = 'spectator'
     this._spectatorReason = reason
     this.careerOutpostDefenseGuide?.hide()
@@ -3025,6 +3594,25 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
+    if (this.captainEagleMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
+    const eagle = this.player.currentMount
+    if (eagle?.isFlyingMount && !this.player.dead) {
+      if (!eagle.eagleAttack?.active) return
+      const targets = [...this.npcs.filter(npc => !npc.dead && npc.faction !== this.player.faction), ...this.trainingGround?.dummies ?? []]
+      for (const contact of eagle.traceEagleAttack(targets, this.mounts, this.obstacles)) {
+        const target = contact.target as NPC | Mount | import('./combat/DamageReceiver').DamageReceiver
+        const context = { source: createPlayerCombatActorRef(this.player), method: 'melee' as const,
+          attackSource: 'xongkoro' as const, contact, emit: this.combatEvents.emit }
+        const amount = XONGKORO.attackDamage * this.skillManager.getMountedImpactMultiplier()
+        const result = contact.kind === 'mount' && contact.mount
+          ? damageMount(contact.mount, amount, context) : isDamageReceiver(target) ? damageReceiver(target, amount, context) : damageNpc(target as NPC, amount, context)
+        if (result.hitSuccess) {
+          this.damageNumbers.spawn(result.appliedDamage, target.group.position)
+          this._showEnemyHud(result.targetName, result.hpRatio)
+        }
+      }
+      return
+    }
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) return
     const equippedMelee = this.inventoryManager.equippedMelee
     if (!this.player.isHitFrame(equippedMelee)) {
@@ -3049,19 +3637,19 @@ export class Game {
       heroAssetId: this.player.heroAssetId ?? undefined,
     })
 
-    const targets = this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)
-      .filter(npc => !npc.dead && npc.faction === Faction.ENEMY)
+    const targets = [...this.npcGrid.getNearbyInto(this.player.combatPosition, 8, this._nearbyNpcBuffer)
+      .filter(npc => !npc.dead && npc.faction === Faction.ENEMY), ...this.trainingGround?.dummies ?? []]
     const mounts = this.combatMountGrid.getNearbyInto(this.player.combatPosition, 8, this.meleeMountCandidates)
     const contact = this.player.weaponSweep.traceFirst(targets, mounts, this.player.currentMount)
     if (contact) {
       this.player.markHitProcessed()
-      const target = contact.target as NPC | Mount
+      const target = contact.target as NPC | Mount | import('./combat/DamageReceiver').DamageReceiver
       const cavalryTarget = contact.kind === 'mount' || target.isMounted
       const finalDamage = Math.round(damage * getAntiCavalryMultiplier(combatKind, this.player.isMounted, cavalryTarget))
       const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const,
         weaponId: equippedMelee.id, emit: this.combatEvents.emit }
       const result = contact.kind === 'mount' && contact.mount
-        ? damageMount(contact.mount, finalDamage, context) : damageNpc(target as NPC, finalDamage, context)
+        ? damageMount(contact.mount, finalDamage, context) : isDamageReceiver(target) ? damageReceiver(target, finalDamage, context) : damageNpc(target as NPC, finalDamage, context)
       if (result.hitSuccess) {
         if (isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
         if (combatKind === 'lance') this.soundManager.playLanceImpact(0, true)
@@ -3080,6 +3668,7 @@ export class Game {
     // Update Mounts and select a bounded set of audible gallop loops.
     const gallopCandidates: HorseGallopCandidate[] = []
     for (const mount of this.mounts) {
+      if (this.isTrainingGround && !mount.riderPlayer && !mount.isAirborne && !mount.dead) mount.visualHold = true
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
       mount.update(dt, this.obstacles)
       gallopCandidates.push({
@@ -3094,6 +3683,7 @@ export class Game {
       })
     }
     this.soundManager.updateHorseGallopLoops(gallopCandidates)
+    updateEagleWingbeatAudio(this.soundManager, this.mounts, this.camera.position, this.player.currentMount)
 
     if (this.player.dead || this.controlMode === 'spectator' || this.player.spectatorOnly) {
       this.pickupPromptEl.classList.remove('visible')
@@ -3181,7 +3771,7 @@ export class Game {
     const bodies: EntityCollisionBody[] = []
     const controlledMount = this.player.isMounted ? this.player.currentMount : null
 
-    if (this.player.spectatorOnly) {
+    if (this.player.spectatorOnly || this.player.isFalling || controlledMount?.isFlyingMount) {
       // Exclude non-participant spectator player from physical collision
     } else if (controlledMount) {
       bodies.push({
@@ -3201,7 +3791,7 @@ export class Game {
     }
 
     for (const npc of this.npcs) {
-      if (npc.dead) continue
+      if (npc.dead || npc.isFalling) continue
       if (npc.isMounted) continue
       bodies.push({
         position: npc.position,
@@ -3212,7 +3802,7 @@ export class Game {
     }
 
     for (const mount of this.mounts) {
-      if (mount === controlledMount) continue
+      if (mount === controlledMount || mount.isFlyingMount) continue
       bodies.push({
         position: mount.group.position,
         radius: 1.0,
@@ -3246,6 +3836,12 @@ export class Game {
       this.npcs,
       now,
       {
+        receivers: this.trainingGround?.dummies,
+        onPlayerMountHitReceiver: (target, result) => {
+          this.damageNumbers.spawn(result.appliedDamage, target.combatPosition)
+          this._showEnemyHud(result.targetName, result.hpRatio)
+          this.soundManager.playHorseImpact(this.player.currentMount?.currentLod ?? 0, true)
+        },
         npcGrid: this.npcGrid,
         candidateBuffer: this._impactCandidates,
         onDamagePlayer: (damage, context) => damagePlayer(
@@ -3281,7 +3877,7 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight
       this.camera.updateProjectionMatrix()
       this.renderer.setSize(window.innerWidth, window.innerHeight)
-    })
+    }, { signal: this.sceneListeners.signal })
   }
 
   // ── Main loop ──
@@ -3295,13 +3891,16 @@ export class Game {
     let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
 
-    if (this.heroMountTrialUI?.visible) {
+    if (this.trainingUI?.paused || this.isTrainingGround && this.equipmentUI.visible) {
+      this.soundManager.updateEagleWingbeats([])
       this.input.clear()
+      this.player.clearTownAction()
       this.renderer.render(this.scene, this.camera)
       return
     }
 
     if (import.meta.env.DEV && this._isSimulationFrozen) {
+      this.soundManager.updateEagleWingbeats([])
       if (profile) t0 = performance.now()
       this.renderer.render(this.scene, this.camera)
       const renderSubmitMs = profile ? performance.now() - t0 : 0
@@ -3336,6 +3935,9 @@ export class Game {
       } else instance.update(dt, instance.root.position.distanceTo(this.camera.position))
     }
 
+    // UI owns complete gestures before camera/player consume this frame's input.
+    this._updatePlayerInputOwnership()
+
     // Camera update based on controlMode / studio
     if (this.studioControls) {
       this.studioControls.update()
@@ -3344,6 +3946,12 @@ export class Game {
     } else {
       this.thirdPersonCamera.update(this.input, dt, this.obstacles)
     }
+
+    this.aerialView.update(this.camera, this.scene, usesAerialView(
+      Boolean(this.player.isMounted && this.player.currentMount?.isFlyingMount),
+      this.controlMode === 'spectator',
+      this.camera.position.y - getTerrainHeight(this.camera.position.x, this.camera.position.z),
+    ))
 
     const currentYaw = this.controlMode === 'spectator'
       ? this.spectatorController.cameraYaw
@@ -3354,9 +3962,6 @@ export class Game {
       : this._getCameraAimPoint(this._tmpHitPos)
     this._debugAimPoint.copy(cameraAimPoint)
 
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible) {
-      this.armyCommandController.update()
-    }
     this.weaponWheelUI.update(this.inventoryManager, !this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !this.equipmentUI.visible, this.armyCommandController.wheelMode)
 
     // Update Player logic (Player handles dead state internally without processing inputs)
@@ -3375,6 +3980,7 @@ export class Game {
 
     this.personalSquad?.updateLifecycle()
     this._updateDefenseCampaign(dt)
+    this._updateCaptainBattle(dt)
     this.battleController?.update(this.npcs)
 
     // Keep A* topology in sync with destroyed/opened/closed world obstacles.
@@ -3425,7 +4031,8 @@ export class Game {
         npcLoopIndex++
         continue
       }
-      if (npc.combatOwnership === 'player-personal' && this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment') {
+      if (this.captainEagleMissionId && (this.captainEagleSpawnBatch?.ready !== true || this.personalSquad && !this.personalSquad.ready || this.careerProfile?.activeMission?.result)
+        || npc.combatOwnership === 'player-personal' && this.defenseCampaignRuntime?.getSnapshot().activePhase === 'deployment') {
         npc.updateTownTravel(dt, cameraDistance, this.npcGrid.getNearbyInto(npc.combatPosition, 8, this._nearbyNpcBuffer), this.obstacles, this.navigationWorld)
         npcLoopIndex++
         continue
@@ -3507,7 +4114,7 @@ export class Game {
             }
           }
         },
-        (origin, direction, visualKind) => {
+        (origin, direction, visualKind, lifecycle) => {
           // Ranged Fire Callback
           const arrow = new ArrowProjectile(
             this.scene,
@@ -3523,6 +4130,7 @@ export class Game {
               weaponId: npc.rangedWeaponId,
               emit: this.combatEvents.emit,
             },
+            lifecycle,
           )
           this.arrows.push(arrow)
           if (visualKind === 'arrow') this.soundManager.playBowRelease(npc.currentLod, false, cameraDistance)
@@ -3615,7 +4223,7 @@ export class Game {
         this.damageNumbers.spawn(Math.round(damage), hitPos)
         this._showEnemyHud(obstacle.displayName, hpRatio)
       },
-      false, this.mounts,
+      false, this.mounts, this.trainingGround?.dummies,
     )
 
       if (!arrow.isAlive) {
@@ -3638,6 +4246,7 @@ export class Game {
     // Update Floating Damage numbers
     this._updateMountHud()
     this.damageNumbers.update(dt, this.camera)
+    this.trainingUI?.updateLabels(this.camera)
 
     this.combatTrajectoryDebugger?.update(this.player, this.npcs, this.arrows, this._debugAimPoint)
 

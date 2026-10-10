@@ -9,9 +9,10 @@ import { TownEquipment } from '../../src/town/TownEquipment'
 import { canUseCareerMount } from '../../src/career/CareerMountController'
 import { personalMemberLoadout } from '../../src/town/TownPersonalSquadController'
 import { prepareEnemyTownAssaultEquipment } from '../../src/career/EnemyTownAssault'
+import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 
-function harness(rank: CareerRank = 'captain') {
-  let profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit: 60000, availableMerit: 60000 }
+function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction'] = 'roman') {
+  let profile: CareerProfile = { ...createCareerProfile(faction), rank, totalMerit: 60000, availableMerit: 60000 }
   const storage = new MemoryStorage()
   const store = new CareerProfileStore(storage)
   const authority: PersonalSquadAuthority = { state: 'RESERVE' }
@@ -19,7 +20,7 @@ function harness(rank: CareerRank = 'captain') {
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
   return { read, save, store, authority, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
     hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
-    buy(id: string) { const result = ['horse', 'corgi', 'black-cat'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
+    buy(id: string) { const result = ['horse', 'corgi', 'black-cat', 'xongkoro'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
     change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
     sell(id: string) { return sellPersonalSquadMember(read, authority, id, save) },
     sellMany(ids: string[]) { return sellPersonalSquadMembers(read, authority, ids, save) },
@@ -52,6 +53,71 @@ describe('Personal squad native faction loadouts', () => {
   })
 })
 describe('Shared Career quantity inventory and personal equipment', () => {
+  it.each(['roman', 'viking'] as const)('%s purchased Ranger Bow copies stay separate from fixed Maki gear through allocation, release and resale', faction => {
+    const h = harness('captain', faction), soldier = h.hire(), captain = h.hire('captain'), maki = h.hire('ranger')
+    const bow = T4_RANGER_BOW_RANGED_ID
+    expect(careerItemTotal(h.read(), bow)).toBe(0)
+    expect(h.change(soldier, 'ranged', bow).reason).toBe('no-available-item')
+    expect(h.change(soldier, 'melee', 'maki-ranger-bow').reason).toBe('invalid-item')
+    h.buy(bow); h.buy(bow)
+    expect(h.change(soldier, 'ranged', bow).changed).toBe(true)
+    expect(h.change(captain, 'ranged', bow).changed).toBe(true)
+    expect(h.change(maki, 'ranged', bow).reason).toBe('fixed-equipment')
+    expect(availableCareerItem(h.read(), bow)).toBe(0)
+    expect(new TownEquipment(h.read, h.save).equipWeapon(bow)).toBe(false)
+    expect(sellTownProduct(h.read(), bow).reason).toBe('allocated')
+    const loaded = h.store.load()!
+    for (const member of loaded.personalSquad!.members.slice(0, 2)) expect(personalMemberLoadout(member, faction).loadout).toMatchObject({ rangedWeaponId: bow, shieldId: null })
+    expect(loaded.personalSquad!.members[2].equipment).toMatchObject({ melee: null, ranged: null, shield: null })
+    expect(h.save(loaded)).toBe(true)
+    expect(changePersonalEquipment(h.read, { state: 'ACTIVE' }, soldier, 'ranged', null, h.save).reason).toBe('not-reserve')
+    expect(h.change(soldier, 'ranged', null).changed).toBe(true)
+    expect(availableCareerItem(h.read(), bow)).toBe(1)
+    expect(h.change(soldier, 'ranged', bow).changed).toBe(true)
+    expect(h.change(captain, 'ranged', null).changed).toBe(true)
+    expect(h.sell(maki).sold).toBe(true)
+    expect(careerItemTotal(h.read(), bow)).toBe(2)
+    const sale = sellTownProduct(h.read(), bow)
+    expect(sale).toMatchObject({ sold: true, earnedMerit: 1280 })
+    expect(h.save(sale.profile)).toBe(true)
+    expect(careerItemTotal(h.store.load()!, bow)).toBe(1)
+    expect(availableCareerItem(h.read(), bow)).toBe(0)
+    balanced(h.read())
+  })
+  it.each([
+    ['roman', 'paladin_sword_t4', 'centurion_blade', 'scutum_t3'],
+    ['roman', 'paladin_mace_t4', 'centurion_blade', 'scutum_t3'],
+    ['viking', 'paladin_sword_t4', 'viking_axe_t3', 'round_shield_t3'],
+    ['viking', 'paladin_mace_t4', 'viking_axe_t3', 'round_shield_t3'],
+  ] as const)('%s HR Captain keeps issued T3 gear until purchased %s and T4 Shield are allocated, surviving reload', (faction, weapon, issuedWeapon, issuedShield) => {
+    const h = harness('captain', faction), a = h.hire('captain'), b = h.hire('captain')
+    expect(h.read().availableMerit).toBe(59000)
+    for (const member of h.read().personalSquad!.members) expect(personalMemberLoadout(member, faction)).toMatchObject({
+      tier: 4, loadout: { meleeWeaponId: issuedWeapon, shieldId: issuedShield, mountId: 'horse' },
+    })
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4']) expect(careerItemTotal(h.read(), id)).toBe(0)
+    expect(h.change(a, 'melee', weapon).reason).toBe('no-available-item')
+    h.buy(weapon); h.buy('paladin_shield_t4')
+    expect(h.change(a, 'melee', weapon).changed).toBe(true)
+    expect(h.change(a, 'shield', 'paladin_shield_t4').changed).toBe(true)
+    expect(h.change(b, 'melee', weapon).reason).toBe('no-available-item')
+    expect(h.change(b, 'shield', 'paladin_shield_t4').reason).toBe('no-available-item')
+    expect(sellTownProduct(h.read(), weapon).reason).toBe('allocated')
+    const loaded = h.store.load()!
+    const before = cloneCareerProfile(loaded)
+    expect(personalMemberLoadout(loaded.personalSquad!.members[0], faction)).toMatchObject({
+      tier: 4, loadout: { meleeWeaponId: weapon, rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'horse' },
+    })
+    expect(personalMemberLoadout(loaded.personalSquad!.members[1], faction).loadout).toMatchObject({ meleeWeaponId: issuedWeapon, shieldId: issuedShield })
+    expect(loaded).toEqual(before)
+    expect(h.save(loaded)).toBe(true)
+    h.buy(weapon)
+    expect(h.change(b, 'melee', weapon).changed).toBe(true)
+    expect(careerItemTotal(h.read(), weapon)).toBe(2)
+    expect(availableCareerItem(h.read(), weapon)).toBe(0)
+    expect(careerItemTotal(h.read(), 'paladin_shield_t4')).toBe(1)
+    balanced(h.read())
+  })
   it.each(['soldier', 'captain', 'ranger'] as const)('grants %s equipment once, allocated immediately; reload never grants again', type => {
     const h = harness(); h.hire(type)
     const before = cloneCareerProfile(h.read())
@@ -96,12 +162,34 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(equipment.unequipWeapon('heavy_lance')).toBe(true); expect(h.change(c, 'melee', 'heavy_lance').changed).toBe(true)
     expect(equipment.equipWeapon('heavy_lance')).toBe(false); balanced(h.read())
   })
-  it('shares two Black Cats between Player and a member, rejecting a third allocation', () => {
+  it.each(['black-cat', 'xongkoro'] as const)('shares two %s between Player and a Captain, rejecting a third Maki allocation', mountId => {
     const h = harness(), a = h.hire('captain'), b = h.hire('ranger')
-    h.buy('black-cat'); h.buy('black-cat'); expect(h.change(a, 'mount', 'black-cat').changed).toBe(true)
-    expect(h.change(b, 'mount', 'black-cat').reason).toBe('no-available-item')
-    expect(canUseCareerMount(h.read(), 'black-cat')).toBe(true)
+    h.buy(mountId); h.buy(mountId); expect(h.change(a, 'mount', mountId).changed).toBe(true)
+    expect(h.change(b, 'mount', mountId).reason).toBe('no-available-item')
+    expect(canUseCareerMount(h.read(), mountId)).toBe(true)
     expect(availableCareerItem(h.read(), 'horse')).toBe(1); balanced(h.read())
+  })
+  it.each([true, false])('counts Player allocation=%s and actual private owners in the three-eagle cap, including casualties and reserves', playerOwns => {
+    const h = harness(), ids = [h.hire('captain'), h.hire('ranger'), h.hire('ranger')]
+    for (let count = 0; count < 3; count++) h.buy('xongkoro')
+    if (!playerOwns) { const next = cloneCareerProfile(h.read()); delete next.selectedMountId; h.save(next) }
+    for (const id of ids.slice(0, playerOwns ? 2 : 3)) expect(h.change(id, 'mount', 'xongkoro').changed).toBe(true)
+    expect(careerItemAllocated(h.read(), 'xongkoro')).toBe(3)
+    const before = cloneCareerProfile(h.read())
+    expect(purchaseTownMount(before, 'xongkoro')).toMatchObject({ purchased: false, spentMerit: 0, reason: 'ownership-limit' })
+    expect(h.read()).toEqual(before)
+    expect(h.store.load()!.inventory?.quantities.xongkoro).toBe(3)
+  })
+
+  it('assigns xongkoro to Maki without changing her fixed bow and preserves it through storage', () => {
+    const h = harness(), ranger = h.hire('ranger')
+    h.buy('xongkoro')
+    const released = cloneCareerProfile(h.read()); delete released.selectedMountId; h.save(released)
+    expect(h.change(ranger, 'mount', 'xongkoro').changed).toBe(true)
+    const loaded = h.store.load()!, spec = personalMemberLoadout(loaded.personalSquad!.members[0], loaded.faction)
+    expect(spec).toMatchObject({ tier: 4, mounted: true, loadout: { mountId: 'xongkoro', meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null } })
+    expect(availableCareerItem(loaded, 'xongkoro')).toBe(0)
+    expect(canUseCareerMount(loaded, 'xongkoro')).toBe(false)
   })
   it('respects shared allocations when preparing existing enemy-town equipment, releasing an incompatible bow', () => {
     const h = harness(); h.hire(); h.buy('recurve_longbow')
@@ -302,11 +390,13 @@ describe('Batch shop and HR resale', () => {
 })
 describe('Inventory migration and normalization', () => {
   it('migrates legacy ownership and HR gear once, deduplicating Horse aliases', () => {
-    const legacy = { ...createCareerProfile('roman'), totalMerit: 6000, rank: 'captain', ownedWeapons: ['gladius_standard', 'gladius_standard'],
+    const legacy = { ...createCareerProfile('roman'), totalMerit: 6000, rank: 'captain', ownedWeapons: ['gladius_standard', 'gladius_standard', T4_RANGER_BOW_RANGED_ID],
       ownedMounts: ['horse', 'horse-t1', 'horse-t2'], ownedHorseTiers: [1, 2, 3], equipment: { melee: 'gladius_standard' },
       personalSquad: { members: [{ id: 'personal:s', type: 'soldier' }, { id: 'personal:c', type: 'captain' }, { id: 'personal:r', type: 'ranger' }] } }
     const loaded = parseCareerProfile(legacy)!
     expect(careerItemTotal(loaded, 'gladius_standard')).toBe(2); expect(availableCareerItem(loaded, 'gladius_standard')).toBe(0)
+    expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(1)
+    expect(availableCareerItem(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(1)
     expect(careerItemTotal(loaded, 'horse')).toBe(3); expect(loaded.personalSquad!.members.map(member => member.originalHirePrice)).toEqual([50, 500, 500])
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded); balanced(loaded)
   })

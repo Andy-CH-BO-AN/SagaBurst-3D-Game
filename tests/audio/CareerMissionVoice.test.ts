@@ -2,6 +2,7 @@ import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { withMissionCheckpoint } from '../helpers/missionCheckpoint'
 import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Game } from '../../src/Game'
 import { TownScene } from '../../src/town/TownScene'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { createCareerProfile } from '../../src/career/CareerProfile'
@@ -47,6 +48,44 @@ beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); audio.playTownAlarm.m
 afterEach(() => vi.useRealTimers())
 
 describe('Career mission voice events', () => {
+  it.each(['roman', 'viking'] as const)('routes all four successful Town tactical commands to %s audio', faction => {
+    const town = townHarness(faction)
+    town.playMissionVoice('missionAccepted') // Initializes the scene's shared audio boundary.
+    town.commandActors = []
+    for (const order of ['attack', 'charge', 'defend', 'formation'] as const) town.onPlayerCommandIssued(order, 'all')
+    expect(audio.playCommanderCommand.mock.calls).toEqual([
+      [faction, 'attack'], [faction, 'charge'], [faction, 'defend'], [faction, 'formation'],
+    ])
+  })
+
+  it.each(['follow', 'dismiss'] as const)('voices Town %s only when its party owner accepts', order => {
+    const town = townHarness('viking')
+    town.commandActors = []
+    town.personalSquad = { follow: vi.fn(() => true), dismiss: vi.fn(() => true) }
+    expect(town.issuePartyOrder(order, 'squad:personal')).toBe(true)
+    expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('viking', order === 'follow' ? 'follow' : 'dismiss')
+    audio.playCareerMissionVoice.mockClear()
+    town.personalSquad[order === 'follow' ? 'follow' : 'dismiss'].mockReturnValue(false)
+    expect(town.issuePartyOrder(order, 'squad:personal')).toBe(false)
+    expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+  })
+
+  it.each(['follow', 'dismiss'] as const)('voices Captain battlefield %s only when accepted', order => {
+    // Real command authority, zero actor/world constructors; audio is the external boundary.
+    const game = Object.assign(Object.create(Game.prototype), {
+      careerProfile: createCareerProfile('roman'), npcs: [],
+      personalSquad: { follow: vi.fn(() => true), dismiss: vi.fn(() => true) },
+      soundManager: { playCareerMissionVoice: audio.playCareerMissionVoice }, _persistCaptainMission: vi.fn(),
+    }) as { _captainCommandAuthority(): { issue(order: 'follow' | 'dismiss', target: 'squad:personal'): boolean }; personalSquad: { follow: ReturnType<typeof vi.fn>; dismiss: ReturnType<typeof vi.fn> } }
+    const authority = game._captainCommandAuthority()
+    expect(authority.issue(order, 'squad:personal')).toBe(true)
+    expect(audio.playCareerMissionVoice).toHaveBeenCalledExactlyOnceWith('roman', order === 'follow' ? 'follow' : 'dismiss')
+    audio.playCareerMissionVoice.mockClear()
+    game.personalSquad[order === 'follow' ? 'follow' : 'dismiss'].mockReturnValue(false)
+    expect(authority.issue(order, 'squad:personal')).toBe(false)
+    expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()
+  })
+
   it.each(['veteran-scout-hunters', 'veteran-village-intercept', 'veteran-spear-line-hunt', 'veteran-tragedy-of-the-scouts'])('leaves persisted mounted leader cues to the mission controller for %s', templateId => {
     const town = townHarness()
     town.playMissionVoice('missionAccepted')

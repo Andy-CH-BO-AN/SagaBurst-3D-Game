@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/world/NPC'
+import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import type { PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 
@@ -51,5 +54,32 @@ describe('Personal Squad command lifecycle routing', () => {
     expect(issue).toHaveBeenCalledTimes(2)
     expect(ui.showFeedback).not.toHaveBeenCalled()
     expect(controller.isSubmenuOpen).toBe(false)
+  })
+
+  it('lets a reserve-only HR squad receive Follow without treating reserves as deployed troops', () => {
+    const saved: PersonalSquadMission = {
+      squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
+      memberIds: ['personal:eagle', 'personal:foot'],
+      members: { 'personal:eagle': { status: 'reserve' }, 'personal:foot': { status: 'reserve' } },
+      contribution: emptyPersonalContribution(),
+    }
+    let pending: string[] = []
+    const issue = vi.fn((order: string, target: string) => {
+      if (order !== 'follow' || target !== 'squad:personal') return false
+      pending = ['personal:eagle']; return true
+    })
+    const provider = () => careerCommandHudRoster({
+      sceneKey: 'town:roman', faction: 'roman', personal: saved, personalPendingIds: pending, actors: [],
+    })
+    const { controller, input, ui } = controllerHarness([], null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => false, enabled: () => true, issue }, provider)
+    expect(ui.render.mock.lastCall![0].map(entry => [entry.target, entry.summary])).toEqual([
+      ['squad:personal', '0/0 · 待命 2'], ['all', '0/0'],
+    ])
+    input.press('9'); controller.update(); input.press('5'); controller.update()
+    expect(issue).toHaveBeenCalledWith('follow', 'squad:personal')
+    expect(ui.render.mock.lastCall![0].map(entry => [entry.target, entry.summary])).toEqual([
+      ['squad:personal', '0/1 · 部署中 1 · 待命 1'], ['all', '0/1 · 部署中 1'],
+    ])
   })
 })

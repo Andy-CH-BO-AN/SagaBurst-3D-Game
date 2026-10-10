@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { preloadTinyRangerBow } from '../helpers/rangerBowVisual'
+import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
+import { createSweepRoster } from '../../src/career/CavalrySweep'
+import { siegeRoster } from '../../src/career/TownSiege'
+import { createVeteranSpawnSpec } from '../../src/career/VeteranMission'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
   calculateArmyTotal,
@@ -15,6 +20,7 @@ import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { getRangedDamageMultiplier } from '../../src/combat/CombatBalance'
+import { InventoryManager } from '../../src/rpg/InventoryManager'
 
 function battle() {
   const config = createEmptyBattleConfig()
@@ -24,6 +30,39 @@ function battle() {
 }
 
 describe('T4 Hero Custom Battle domain', () => {
+  it('upgrades shared T4 melee and shields while retaining unit roles and immutable T1–T3 presets', () => {
+    const before = JSON.stringify(UNIT_PRESETS)
+    for (const [id, melee, ranged, shield] of [
+      ['roman_heavy_infantry', 'paladin_sword_t4', null, 'paladin_shield_t4'],
+      ['roman_sword_cavalry', 'paladin_sword_t4', null, 'paladin_shield_t4'],
+      ['viking_berserker', 'paladin_mace_t4', null, 'paladin_shield_t4'],
+      ['viking_sword_cavalry', 'paladin_mace_t4', null, 'paladin_shield_t4'],
+      ['roman_lancer', 'heavy_lance', null, null],
+      ['viking_lancer', 'heavy_lance', null, null],
+      ['roman_spearman', 'heavy_lance', null, null],
+      ['viking_spearman', 'heavy_lance', null, null],
+      ['roman_javelin_infantry', 'paladin_sword_t4', 'legionary_pilum', null],
+    ] as const) expect(resolveT4UnitLoadout(id)).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged, shieldId: shield })
+    expect(resolveT4UnitLoadout('viking_spearman').secondaryMeleeWeaponId).toBe('paladin_sword_t4')
+    expect(JSON.stringify(UNIT_PRESETS)).toBe(before)
+  })
+  it.each(['roman-hero-t4', 'viking-hero-t4', 'maki-archer-t4'] as const)('%s preserves its equipment policy for all shared T4 items', hero => {
+    const inventory = new InventoryManager(undefined, hero)
+    for (const id of ['paladin_sword_t4', 'paladin_mace_t4', 'paladin_shield_t4']) {
+      inventory.addWeapon(id)
+      expect(inventory.equipWeapon(id)).toBe(hero !== 'maki-archer-t4')
+    }
+    if (hero === 'maki-archer-t4') expect(inventory.equippedMelee.id).toBe('maki-ranger-bow')
+  })
+  it('Custom Battle accepts shared T4 items for either hero and rejects an ordinary player', () => {
+    const config = battle()
+    config.playerLoadout = { meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: 'elven_runebow', shieldId: 'paladin_shield_t4', startMounted: false }
+    expect(validateBattleConfig(config).valid).toBe(false)
+    for (const hero of ['roman-hero-t4', 'viking-hero-t4'] as const) {
+      config.playerHeroId = hero
+      expect(validateBattleConfig(config).valid).toBe(true)
+    }
+  })
   it('keeps Campaign tiers separate and counts T4 toward the army total', () => {
     expect(BASE_UNIT_TIERS).toEqual([1, 2, 3])
     expect(CUSTOM_BATTLE_UNIT_TIERS).toEqual([1, 2, 3, 4])
@@ -60,7 +99,7 @@ describe('T4 Hero Custom Battle domain', () => {
     expect(validateBattleConfig(config).valid).toBe(false)
   })
 
-  it('maps every preset to the expected Hero and mount without changing allegiance or T3 loadout', () => {
+  it('maps every preset to its Hero and mount; only Ranger receives the canonical T4 bow', () => {
     const expected = {
       viking_berserker: ['viking-hero-t4', null],
       viking_spearman: ['viking-hero-t4', null],
@@ -88,6 +127,8 @@ describe('T4 Hero Custom Battle domain', () => {
       expect(spec.combatProfileId).toBe(profile.combatProfileId)
       expect(spec.loadout).toMatchObject({ mountId: profile.mountOverride })
       expect(spec.cavalry).toBe(Boolean(UNIT_PRESETS[presetId].tierLoadouts[3].mountId))
+      expect(spec.loadout?.rangedWeaponId).toBe(profile.combatProfileId === 'ranger'
+        ? 'maki-ranger-bow-ranged' : UNIT_PRESETS[presetId].tierLoadouts[3].rangedWeaponId)
       config[faction][presetId as keyof typeof config[typeof faction]]![4] = 0
     }
     const ordinary = BattleSpawner.createSpawnPlan(config).npcSpecs
@@ -170,4 +211,29 @@ describe('T4 Hero Custom Battle domain', () => {
     expect(validateDefenseCampaignLaunchConfig({ ...launch, defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0, 4: 1 } } }).valid).toBe(true)
     expect(validateDefenseCampaignLaunchConfig({ ...launch, playerHeroId: 'invalid' }).valid).toBe(false)
   })
+})
+
+
+it.each(['roman', 'viking'] as const)('%s Career mission Rangers use the real T4 bow in every roster producer', faction => {
+  const sweep = createSweepRoster(faction).filter(spec => spec.specialCombatProfile === 'maki-ranger')
+  const siege = siegeRoster(faction, false).map(slot => slot.spec).filter(spec => spec.specialCombatProfile === 'maki-ranger')
+  const veteran = createVeteranSpawnSpec({ actorId: 'ranger', source: 'temporary', squadId: 1, presetId: `${faction}_horse_archer`, tier: 4, mounted: true, heroRole: 'ranger', leader: true }, faction)
+  expect(sweep).toHaveLength(1)
+  expect(siege).toHaveLength(1)
+  for (const spec of [...sweep, ...siege, veteran]) expect(spec.loadout?.rangedWeaponId).toBe('maki-ranger-bow-ranged')
+})
+
+it('canonical and legacy constructor Ranger paths consume the T4 weapon while preserving hero range and ammo', async () => {
+  const bow = await preloadTinyRangerBow()
+  onTestFinished(() => bow.dispose())
+  for (const loadout of [resolveT4UnitLoadout('roman_archer'), undefined]) {
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.RANGED, 'Ranger', 4, false,
+      loadout, 'roman_archer', undefined, undefined, undefined, undefined, 'ranger', 'maki-ranger')
+    onTestFinished(() => npc.dispose())
+    expect(npc.rangedWeaponId).toBe('maki-ranger-bow-ranged')
+    expect(npc.rangedProjectileSpeed).toBe(110)
+    expect(npc.rangedDamage).toBe(91)
+    expect(npc.maxRangedAttackDistance).toBe(100)
+    expect(npc.combatAmmo).toBe(30)
+  }
 })

@@ -1,3 +1,8 @@
+import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
+import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
+import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
+import { parseTownEagleGarrisons } from '../town/TownEagleGarrisonState'
+import { parseCareerAerialState } from './CareerAerialState'
 import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
@@ -69,7 +74,7 @@ function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerSta
 }
 
 const MISSION_PHASES: CareerMissionPhase[] = ['ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
-const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi', 'xongkoro']
 
 function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
   if (!value || typeof value !== 'object') return undefined
@@ -159,6 +164,7 @@ function parseSiege(value: unknown): ActiveCareerMission['siege'] {
   const health = raw.gateHealth && typeof raw.gateHealth === 'object' ? raw.gateHealth as Record<string, unknown> : {}
   return {
     version: 1, rosterCreated: raw.rosterCreated === true,
+    rosterVersion: raw.rosterCreated === true && raw.rosterVersion !== 2 ? 1 : 2,
     attackerIds: uniqueStrings(raw.attackerIds), claimedSquadIds: uniqueStrings(raw.claimedSquadIds).filter(id => /^outskirts:cavalry:[abc]$/.test(id)),
     destroyedGateIds: gates(raw.destroyedGateIds), releasedReserveGateIds: gates(raw.releasedReserveGateIds),
     crossedActorIds: uniqueStrings(raw.crossedActorIds).filter(id => uniqueStrings(raw.attackerIds).includes(id)),
@@ -186,11 +192,12 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   const duelRefereeActorId = typeof raw.duelRefereeActorId === 'string' ? raw.duelRefereeActorId.trim() : duelCaptainActorId
   if (duel && (!isCareerDuelTier(raw.duelTier) || !isCareerDuelPresetId(raw.duelPresetId)
     || UNIT_PRESETS[raw.duelPresetId].faction !== faction || !duelOpponentActorId || !duelCaptainActorId || !duelRefereeActorId)) return undefined
-  const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault'
+  const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault' || template?.kind === 'captain-outpost-defense'
+  const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel)
-    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission)
+    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
@@ -201,7 +208,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   const allFriendlyActorIds = [...new Set([...friendlyActorIds, ...reinforcementActorIds])]
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('ranger')) friendlyActorIds.push('ranger')
   if (template?.kind === 'town-defense' && !friendlyActorIds.includes('deployment')) friendlyActorIds.push('deployment')
-  if (targetActorIds.length === 0 || (!duel && friendlyActorIds.length === 0)) return undefined
+  if ((targetActorIds.length === 0 && template?.kind !== 'captain-patrol-command') || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
   const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds, ...(siege ? uniqueStrings(raw.civilianActorIds) : [])])
@@ -209,6 +216,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
+  const officialSquad = parseOfficialCommandAuthority(raw.officialSquad)
+  const battle = parseCareerOutpostCheckpoint(raw.battle)
+  const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
@@ -216,6 +226,18 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   const mission: ActiveCareerMission = {
     ...(siege ? { siege } : {}),
     id: raw.id,
+    ...(officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id && officialSquad.townFaction === faction
+      && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? { officialSquad } : {}),
+    ...(template?.kind === 'captain-patrol-command' ? { patrolKilledActorIds: uniqueStrings(raw.patrolKilledActorIds),
+      ...(raw.patrolReturnStates && typeof raw.patrolReturnStates === 'object' ? { patrolReturnStates: Object.fromEntries(
+        Object.entries(raw.patrolReturnStates).filter(([id, state]) => officialSquad?.actorIds.includes(id)
+          && (state === 'RETURN_TO_BARRACKS' || state === 'REFIT' || state === 'REJOIN_PATROL')),
+      ) as ActiveCareerMission['patrolReturnStates'] } : {}),
+      ...(parseTownOutskirtsCheckpoint(raw.patrolOutskirts) ? { patrolOutskirts: parseTownOutskirtsCheckpoint(raw.patrolOutskirts) } : {}),
+      ...(parseOfficialCommandAuthority(raw.patrolAmbient) ? { patrolAmbient: parseOfficialCommandAuthority(raw.patrolAmbient) } : {}),
+    } : {}),
+    ...(battle && template?.kind === 'captain-outpost-defense' ? { battle } : {}),
+    ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
     kind: duel ? 'duel' : template!.kind,
     targetCampId: raw.targetCampId as number,
@@ -381,6 +403,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const activeMission = parseActiveMission(raw.activeMission, raw.faction)
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission)
   const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
+  const townCommandSquad = parseTownCommandSquad(raw.townCommandSquad)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
@@ -394,6 +417,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     rank,
     ...(personalSquad ? { personalSquad } : {}),
     ...(personalSquadRuntime ? { personalSquadRuntime } : {}),
+    ...(townCommandSquad && townCommandSquad.townFaction === raw.faction ? { townCommandSquad } : {}),
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
     ...(equipment ? { equipment: {
@@ -403,8 +427,15 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     } } : {}),
     ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
       ? { starterWeaponId: raw.starterWeaponId } : {}),
-    ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
-    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
+    ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.authorizedTownCommandActorIds ? { authorizedTownCommandActorIds: uniqueStrings(townEvent.authorizedTownCommandActorIds) } : {}), ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
+    ...(parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) ? { townEagleGarrisons: parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) } : {}),
+    ...(parseCareerAerialState(raw.playerAerialState) ? { playerAerialState: parseCareerAerialState(raw.playerAerialState) } : {}),
+    ...(raw.townOutskirts && typeof raw.townOutskirts === 'object' ? { townOutskirts: Object.fromEntries(
+      (['roman', 'viking'] as const).flatMap(faction => {
+        const saved = parseTownOutskirtsCheckpoint((raw.townOutskirts as CareerProfile['townOutskirts'])?.[faction])
+        return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: {} })) }]] : []
+      })) } : {}),
+    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(activeMission ? { activeMission } : {}),
@@ -418,6 +449,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         1: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[1]),
         2: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[2]),
         3: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[3]),
+        ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4] !== undefined ? { 4: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4]) } : {}),
       } } : {}),
     ...(raw.duelHighestDefeatedTierByPreset && typeof raw.duelHighestDefeatedTierByPreset === 'object'
       ? { duelHighestDefeatedTierByPreset: Object.fromEntries(Object.entries(raw.duelHighestDefeatedTierByPreset)

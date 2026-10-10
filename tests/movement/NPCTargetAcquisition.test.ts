@@ -12,6 +12,7 @@ import {
 } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { Mount, MountType } from '../../src/world/Mount'
+import { ChaseTargetCoordinator } from '../../src/navigation/ChaseTargetCoordinator'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
@@ -422,5 +423,102 @@ describe('NPC Target Acquisition Caching & Frame-based AI LOD', () => {
     const expectedB = 1 + Math.floor((npcB as any)._initialStaggerPhase * TARGET_REACQUIRE_FAR_FRAMES)
     expect((npcA as any)._targetReacquireFramesRemaining).toBe(expectedA)
     expect((npcB as any)._targetReacquireFramesRemaining).toBe(expectedB)
+  })
+})
+
+interface EagleSensorProbe {
+  _findTarget(player: Player, actors: NPC[], grid: SpatialGrid<NPC>): { npc?: NPC } | null
+}
+/** Target policy adapter: zero actor constructors; only fields read by the real acquisition owner. */
+function sensorActor(faction: Faction, x: number, y: number, z: number, eagle = false): NPC {
+  const actor = Object.create(NPC.prototype) as NPC
+  const group = new THREE.Group(); group.position.set(x, y, z)
+  Object.defineProperty(actor, 'faction', { value: faction })
+  Object.assign(actor, {
+    group, rangedWeaponId: 'maki-ranger-bow-ranged', rangedActive: true, arrows: 30, shieldId: null,
+    mount: eagle ? { type: MountType.XONGKORO, isFlyingMount: true, dead: false } as Mount : null,
+    playableWorldBound: 350, eagleRangedCandidates: [], _tmpTargetPosition: new THREE.Vector3(),
+  })
+  return actor
+}
+
+describe('eagle bounded legal target acquisition', () => {
+  it('uses the grid to acquire a legal 490m hostile without changing the global nearest search', () => {
+    const shooter = sensorActor(Faction.PLAYER, -200, 30, 0, true)
+    const friend = sensorActor(Faction.PLAYER, -195, 30, 0)
+    const hostile = sensorActor(Faction.ENEMY, 290, 30, 0)
+    const grid = new SpatialGrid<NPC>(); grid.insert(friend); grid.insert(hostile)
+    const bounded = vi.spyOn(grid, 'getNearbyInto'), unbounded = vi.spyOn(grid, 'findNearest')
+    const probe = shooter as unknown as EagleSensorProbe
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(hostile)
+    expect(bounded).toHaveBeenCalledWith(shooter.combatPosition, 500, expect.any(Array))
+    expect(unbounded).not.toHaveBeenCalled()
+  })
+  it('rejects vertical-range overflow, out-of-map targets, dead actors and mission protection', () => {
+    const shooter = sensorActor(Faction.PLAYER, -200, 30, 0, true)
+    const above = sensorActor(Faction.ENEMY, 290, 180, 0)
+    const outside = sensorActor(Faction.ENEMY, -351, 30, 0)
+    const dead = sensorActor(Faction.ENEMY, -180, 30, 0)
+    Object.defineProperty(dead, 'dead', { value: true })
+    const grid = new SpatialGrid<NPC>(); grid.insert(above); grid.insert(outside); grid.insert(dead)
+    const probe = shooter as unknown as EagleSensorProbe
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    expect(probe._findTarget(player, [], grid)).toBeNull()
+    const legal = sensorActor(Faction.ENEMY, 290, 30, 0); grid.insert(legal)
+    Object.assign(shooter, { missionCombatTarget: null })
+    expect(probe._findTarget(player, [], grid)).toBeNull()
+    Object.assign(shooter, { missionCombatTarget: legal })
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(legal)
+  })
+})
+
+interface GroundSensorProbe {
+  _findTarget(player: Player, actors: NPC[], grid?: SpatialGrid<NPC> | null, coordinator?: ChaseTargetCoordinator):
+    { npc?: NPC; isPlayer: boolean } | null
+}
+describe('ground melee target priority', () => {
+  it.each(['array', 'grid', 'shared-grid'] as const)('%s selects a farther ground enemy before an eagle and falls back after ground death', mode => {
+    const melee = sensorActor(Faction.PLAYER, 0, 0, 0)
+    Object.assign(melee, { rangedActive: false })
+    const eagle = sensorActor(Faction.ENEMY, 0, 8, 0, true)
+    const ground = sensorActor(Faction.ENEMY, 80, 0, 0)
+    const grid = new SpatialGrid<NPC>(); grid.insert(eagle); grid.insert(ground)
+    const coordinator = mode === 'shared-grid' ? new ChaseTargetCoordinator() : undefined
+    const probe = melee as unknown as GroundSensorProbe
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    const find = () => probe._findTarget(player, [eagle, ground], mode === 'array' ? null : grid, coordinator)
+    expect(find()?.npc).toBe(ground)
+    Object.defineProperty(ground, 'dead', { value: true })
+    expect(find()?.npc).toBe(eagle)
+  })
+
+  it.each(['player-eagle', 'npc-eagle'] as const)('keeps ground people first when the nearer %s exchanges places with Player', mode => {
+    const melee = sensorActor(Faction.ENEMY, 0, 0, 0)
+    Object.assign(melee, { rangedActive: false, playerHitFocus: 2 })
+    const playerGroup = new THREE.Group(); playerGroup.position.set(0, mode === 'player-eagle' ? 8 : 0, mode === 'player-eagle' ? 0 : 80)
+    const player = { group: playerGroup, targetable: true, dead: false,
+      currentMount: mode === 'player-eagle' ? { isFlyingMount: true } : null } as Player
+    const hostile = sensorActor(Faction.PLAYER, mode === 'player-eagle' ? 80 : 0, mode === 'player-eagle' ? 0 : 8, 0, mode === 'npc-eagle')
+    const grid = new SpatialGrid<NPC>(); grid.insert(hostile)
+    const probe = melee as unknown as GroundSensorProbe
+    const result = probe._findTarget(player, [hostile], grid, new ChaseTargetCoordinator())
+    if (mode === 'player-eagle') expect(result?.npc).toBe(hostile)
+    else expect(result?.isPlayer).toBe(true)
+    if (mode === 'player-eagle') {
+      Object.defineProperty(hostile, 'dead', { value: true })
+      expect(probe._findTarget(player, [hostile], grid)?.isPlayer).toBe(true)
+    }
+  })
+
+  it('keeps ranged nearest-target selection and explicit mission targets', () => {
+    const ranged = sensorActor(Faction.PLAYER, 0, 0, 0)
+    const eagle = sensorActor(Faction.ENEMY, 0, 8, 0, true)
+    const ground = sensorActor(Faction.ENEMY, 80, 0, 0)
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    const probe = ranged as unknown as GroundSensorProbe
+    expect(probe._findTarget(player, [eagle, ground])?.npc).toBe(eagle)
+    Object.assign(ranged, { rangedActive: false, missionCombatTarget: eagle })
+    expect(probe._findTarget(player, [eagle, ground])?.npc).toBe(eagle)
   })
 })

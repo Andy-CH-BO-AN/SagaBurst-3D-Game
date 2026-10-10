@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import type { Player } from '../player/Player'
 import type { PlayerInput } from '../player/PlayerInput'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { EagleFlightAim, EAGLE_AIM } from '../player/EagleFlightAim'
 
 const MOUSE_SENSITIVITY = 0.002   // radians per pixel
 const MIN_PITCH = -0.4            // ~-23 deg
@@ -13,6 +14,8 @@ const MAX_PITCH = 1.1             // ~+63 deg
 const CAMERA_DISTANCE = 6
 // The imported helmet and bow intersect the view at shorter offsets.
 const FIRST_PERSON_FORWARD_OFFSET = 0.55
+// The captain's larger head/helmet needs additional clearance during aim poses.
+const CAPTAIN_FIRST_PERSON_FORWARD_OFFSET = 1.1
 const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 const CAMERA_COLLISION_MARGIN = 0.28
@@ -107,6 +110,7 @@ export class ThirdPersonCamera {
   private readonly lookTarget = new THREE.Vector3()
   private aimViewBlend = 0
   private thirdPersonDistance = CAMERA_DISTANCE
+  private readonly flightAim = new EagleFlightAim()
 
   constructor(private camera: THREE.PerspectiveCamera, private player: Player) {
     this.yaw = (player.facingYaw ?? 0) + Math.PI
@@ -148,15 +152,26 @@ export class ThirdPersonCamera {
     ).normalize()
   }
 
-  update(input: PlayerInput, dt = 0.016, obstacles: readonly ObstacleData[] = []): void {
+  update(input: Pick<PlayerInput, 'keys' | 'isRightMouseDown' | 'consumeMouseDelta'>, dt = 0.016, obstacles: readonly ObstacleData[] = []): void {
     // Consume mouse delta
     const { dx, dy } = input.consumeMouseDelta()
-    this.yaw -= dx * MOUSE_SENSITIVITY
-    this.pitch = THREE.MathUtils.clamp(
+    const flight = this.player.currentMount?.flight
+    if (flight) {
+      this.flightAim.update(dx, dy, input.isRightMouseDown, flight, dt,
+        Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])))
+      this.player.setFlightSteering(this.flightAim.steering)
+      this.player.setFlightRiderAim(input.isRightMouseDown ? this.flightAim.aim.yaw : null)
+      this.yaw = this.flightAim.aim.yaw - Math.PI
+      this.pitch = LEVEL_AIM_PITCH - this.flightAim.aim.pitch + EAGLE_AIM.followDownPitch * (1 - this.aimViewBlend)
+    } else {
+      this.flightAim.reset()
+      this.yaw -= dx * MOUSE_SENSITIVITY
+      this.pitch = THREE.MathUtils.clamp(
       this.pitch + dy * MOUSE_SENSITIVITY,
       MIN_PITCH,
       MAX_PITCH
-    )
+      )
+    }
 
     const targetBlend = this.player.isRangedAimViewActive ? 1 : 0
     const alpha = 1 - Math.exp(-18 * dt)
@@ -169,12 +184,14 @@ export class ThirdPersonCamera {
     // arrows used a separate direction.
     this._updateAimDirection()
     this.cameraTarget.copy(this.player.position)
-    this.cameraTarget.y += this.player.isMounted ? MOUNTED_CAMERA_HEIGHT_OFFSET : CAMERA_HEIGHT_OFFSET
+    this.cameraTarget.y += flight
+      ? THREE.MathUtils.lerp(EAGLE_AIM.followHeight, EAGLE_AIM.aimHeight, this.aimViewBlend)
+      : this.player.isMounted ? MOUNTED_CAMERA_HEIGHT_OFFSET : CAMERA_HEIGHT_OFFSET
 
     const safeThirdPersonDistance = resolveCameraDistance(
       this.cameraTarget,
       this.cameraBackward.copy(this.aimDirection).multiplyScalar(-1),
-      CAMERA_DISTANCE,
+      flight ? EAGLE_AIM.followDistance : CAMERA_DISTANCE,
       obstacles,
       {
         obstacleMargin: CAMERA_COLLISION_MARGIN,
@@ -194,7 +211,7 @@ export class ThirdPersonCamera {
     const safeFirstPersonDistance = resolveCameraDistance(
       this.cameraTarget,
       this.aimDirection,
-      FIRST_PERSON_FORWARD_OFFSET,
+      this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
       obstacles,
       { obstacleMargin: FIRST_PERSON_COLLISION_MARGIN },
     )

@@ -15,6 +15,7 @@ import { resolveFormationSlots } from './FormationPlacement'
 import type { FormationPlacement } from './FormationPlacement'
 import { FormationPreview } from '../ui/FormationPreview'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import { XONGKORO } from '../movement/XongkoroConfig'
 
 export interface FormationCommandResult {
   accepted: boolean
@@ -72,6 +73,7 @@ export class FormationController {
   private nextCommandId = 1
   private activeCommands: FormationCommand[] = []
   private completionHandler: FormationCompletionHandler | null = null
+  private participantPolicy: ((npc: NPC) => boolean) | null = null
 
   constructor(
     scene: THREE.Scene,
@@ -89,6 +91,8 @@ export class FormationController {
   setCompletionHandler(handler: FormationCompletionHandler): void {
     this.completionHandler = handler
   }
+
+  setParticipantPolicy(policy: (npc: NPC) => boolean): void { this.participantPolicy = policy }
 
   get isPlacementMode(): boolean { return this.placementTarget !== null }
 
@@ -185,11 +189,45 @@ export class FormationController {
       snapshot.columns,
     )
     for (const assignment of assignments) {
-      assignment.unit.npc.assignFormationTarget(commandId, assignment.slot, snapshot.forward)
+      const npc = assignment.unit.npc
+      const slot = assignment.slot.clone()
+      if (npc.mount?.isFlyingMount) slot.y = getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight
+      npc.assignFormationTarget(commandId, slot, snapshot.forward)
     }
     this.activeCommands.push({ id: commandId, target: this.placementTarget, participants: snapshot.participants })
     this.cancelPlacement()
     return { accepted: true, count: assignments.length, commandId, participants: snapshot.participants }
+  }
+
+  /** Add a newly commandable member without moving soldiers already assigned to this formation. */
+  joinCommand(npc: NPC, reference: NPC): boolean {
+    const saved = reference.combatFormationCheckpoint
+    if (!saved || npc.dead || this.participantPolicy && !this.participantPolicy(npc)) return false
+    this.navigationWorld?.sync(this.obstacles)
+    const participants = this.npcs.filter(actor => actor !== npc && !actor.dead && actor.formationCommandId === saved.commandId)
+    const point = new THREE.Vector3(saved.position.x, getTerrainHeight(saved.position.x, saved.position.z), saved.position.z)
+    const forward = new THREE.Vector3(Math.sin(saved.position.yaw), 0, Math.cos(saved.position.yaw))
+    const component = this.getFormationComponent([reference, npc]), inside = this.getFormationRegionSide(point, [reference])
+    const radius = npc.isMounted ? 1 : .5
+    const slots = resolveFormationSlots([point], forward, [npc], () => radius, slot => {
+      if (Math.abs(slot.x) > PLAYABLE_WORLD_BOUND || Math.abs(slot.z) > PLAYABLE_WORLD_BOUND
+        || this.isSlotBlocked(slot, npc) || !npc.mount?.isFlyingMount && !this.isInFormationComponent(slot, component)
+        || !this.isInFormationRegion(slot, inside)) return false
+      return participants.every(actor => {
+        const p = actor.combatFormationCheckpoint?.position
+        if (!p) return true
+        return (slot.x - p.x) ** 2 + (slot.z - p.z) ** 2 >= (radius + (actor.isMounted ? 1 : .5)) ** 2
+      })
+    }, getTerrainHeight, PLAYABLE_WORLD_BOUND)
+    if (!slots) return false
+    const slot = slots[0]
+    if (npc.mount?.isFlyingMount) slot.y = getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight
+    npc.assignFormationTarget(saved.commandId, slot, forward, saved.speedLimit, saved.arrivalOrder)
+    this.nextCommandId = Math.max(this.nextCommandId, saved.commandId + 1)
+    const command = this.activeCommands.find(command => command.id === saved.commandId)
+    if (command) { if (!command.participants.includes(npc)) command.participants.push(npc) }
+    else this.activeCommands.push({ id: saved.commandId, target: 'all', participants: [...participants, npc] })
+    return true
   }
 
   /** Call after NPC updates so arrival is observed without adding work to every NPC frame. */
@@ -213,7 +251,7 @@ export class FormationController {
 
   private resolveParticipants(target: ArmyCommandTarget): NPC[] {
     return this.npcs.filter(npc => (
-      npc.faction === Faction.PLAYER
+      (this.participantPolicy ? this.participantPolicy(npc) : npc.faction === Faction.PLAYER)
       && !npc.dead
       && matchesArmyCommandTarget(npc, target)
     ))
@@ -270,7 +308,7 @@ export class FormationController {
         assignments.map(assignment => assignment.unit.npc),
         npc => npc.isMounted ? 1 : 0.5,
         (slot, npc) => !this.isSlotBlocked(slot, npc)
-          && this.isInFormationComponent(slot, component)
+          && (npc.mount?.isFlyingMount || this.isInFormationComponent(slot, component))
           && this.isInFormationRegion(slot, inside),
         getTerrainHeight,
         PLAYABLE_WORLD_BOUND,
@@ -313,7 +351,7 @@ export class FormationController {
     for (let index = 0; index < assignments.length; index++) {
       const { slot, unit } = assignments[index]
       if (Math.abs(slot.x) > PLAYABLE_WORLD_BOUND || Math.abs(slot.z) > PLAYABLE_WORLD_BOUND
-        || this.isSlotBlocked(slot, unit.npc) || !this.isInFormationComponent(slot, component)
+        || this.isSlotBlocked(slot, unit.npc) || !unit.npc.mount?.isFlyingMount && !this.isInFormationComponent(slot, component)
         || !this.isInFormationRegion(slot, inside)) return false
       const radius = unit.npc.isMounted ? 1 : 0.5
       for (let other = 0; other < index; other++) {
@@ -332,6 +370,7 @@ export class FormationController {
     let chosen = -1
     let most = 0
     for (const npc of participants) {
+      if (npc.mount?.isFlyingMount) continue
       const component = this.navigationWorld.componentAt(npc.combatPosition)
       if (component < 0) continue
       const count = (counts.get(component) ?? 0) + 1
@@ -379,7 +418,8 @@ export class FormationController {
   private isSlotBlocked(slot: THREE.Vector3, npcOrMounted: NPC | boolean): boolean {
     const mounted = typeof npcOrMounted === 'boolean' ? npcOrMounted : npcOrMounted.isMounted
     const radius = mounted ? 1 : 0.5
-    const bottom = slot.y
+    const bottom = typeof npcOrMounted !== 'boolean' && npcOrMounted.mount?.isFlyingMount
+      ? getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight : slot.y
     const top = bottom + (mounted ? 2.6 : 2.3)
     return this.obstacles.some(obstacle => {
       const box = obstacle.box

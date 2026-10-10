@@ -150,6 +150,15 @@ describe('Veteran Career mission catalog and progression', () => {
     expect(countPreset(one.reinforcements, 'roman_lancer', 3)).toBe(48)
     expect(one.reinforcements.filter(unit => unit.tier === 4).length).toBe(2)
     expect(one.reinforcements.filter(unit => unit.tier === 4 && unit.heroRole === 'ranger').length).toBe(1)
+    for (const unit of [...one.enemy, ...two.enemy].filter(unit => unit.heroRole === 'captain')) {
+      expect(createVeteranSpawnSpec(unit, 'roman', 'enemy').loadout).toEqual({
+        meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, mountId: 'black-cat',
+      })
+    }
+    const reinforcementCaptain = one.reinforcements.find(unit => unit.heroRole === 'captain')!
+    expect(createVeteranSpawnSpec(reinforcementCaptain, 'roman').loadout).toEqual({
+      meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi',
+    })
     for (const unit of [...one.friendly, ...two.friendly, ...two.enemy]) {
       if (unit.tier === 3) expect(createVeteranSpawnSpec(unit, 'roman').loadout).toEqual(UNIT_PRESETS[unit.presetId].tierLoadouts[3])
       else expect(T4_UNIT_PROFILES[unit.presetId]).toBeDefined()
@@ -180,18 +189,20 @@ describe('Veteran Career mission catalog and progression', () => {
 
     const captain = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'captain')!, 'roman')
     expect(captain).toMatchObject({ tier: 4, visualAssetId: T4_UNIT_PROFILES.roman_sword_cavalry.visualAssetId, combatProfileId: T4_UNIT_PROFILES.roman_sword_cavalry.combatProfileId, cavalry: true })
-    expect(captain.loadout).toEqual({ ...UNIT_PRESETS.roman_sword_cavalry.tierLoadouts[3], mountId: T4_UNIT_PROFILES.roman_sword_cavalry.mountOverride })
+    expect(captain.loadout).toEqual({ meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi' })
     const ranger = createVeteranSpawnSpec(roster.friendly.find(unit => unit.heroRole === 'ranger')!, 'roman')
     expect(ranger).toMatchObject({ tier: 4, visualAssetId: 'maki-archer-t4', combatProfileId: 'ranger', specialCombatProfile: 'maki-ranger', cavalry: true, loadout: { mountId: 'black-cat' } })
     for (const unit of roster.friendly) {
       const spec = createVeteranSpawnSpec(unit, 'roman')
       const t4Profile = T4_UNIT_PROFILES[unit.presetId]
       expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
-      const expectedTier3Loadout = { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3] }
+      const expectedLoadout = unit.heroRole === 'ranger'
+        ? { ...UNIT_PRESETS[unit.presetId].tierLoadouts[3], rangedWeaponId: 'maki-ranger-bow-ranged' }
+        : { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'corgi' }
       const spawnLoadout = { ...spec.loadout! }
-      delete expectedTier3Loadout.mountId
+      delete expectedLoadout.mountId
       delete spawnLoadout.mountId
-      expect(spawnLoadout).toEqual(expectedTier3Loadout)
+      expect(spawnLoadout).toEqual(expectedLoadout)
       expect(spec.loadout!.mountId).toBe(unit.heroRole === 'ranger' ? 'black-cat' : t4Profile.mountOverride)
       if (unit.heroRole === 'ranger') expect(spec).toMatchObject({ specialCombatProfile: 'maki-ranger', cavalry: true })
     }
@@ -200,6 +211,9 @@ describe('Veteran Career mission catalog and progression', () => {
       const spec = createVeteranSpawnSpec(unit, 'viking')
       const t4Profile = T4_UNIT_PROFILES[unit.presetId]
       expect(spec).toMatchObject({ tier: 4, visualAssetId: t4Profile.visualAssetId, combatProfileId: t4Profile.combatProfileId })
+      if (unit.heroRole === 'captain') expect(spec.loadout).toEqual({
+        meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'black-cat',
+      })
     }
 
     const legacy = createVeteranRoster(vi, 'roman', 'legacy-vi', 1)

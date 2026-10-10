@@ -1,9 +1,11 @@
+import { CAPTAIN_CAVALRY_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
+import { emptyPersonalContribution } from '../combat/CommandMerit'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
 import { returnFollowLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
 import { townCaptainProfile } from '../town/TownRules'
@@ -64,10 +66,22 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
         x: position.x, z: position.z, faction: Faction.TOWN, characterFaction: faction, aiType: leader && squadId === 2 ? AIType.RANGED : AIType.MELEE,
         name: leader ? squadId === 1 ? 'Captain' : 'Maki' : `Cavalry ${squadId}-${index}`,
         tier: leader ? 4 : 1, cavalry: true, respawnEnabled: false, presetId, squadId,
-        loadout: { ...UNIT_PRESETS[presetId].tierLoadouts[hero?.baseLoadoutTier ?? 1], mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
+        loadout: { ...(hero ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[1]), mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
         ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
       })
     }
   }
   return specs
+}
+
+/** Captain borrows the same 59 riders; only Squad A's 29 NPCs are authorized. */
+export function acceptCaptainCavalryCommand(current: CareerProfile, id = createCareerMissionId(CAPTAIN_CAVALRY_COMMAND_ID), garrisonActorIds: SweepGarrisonActorIds = []): CareerProfile | null {
+  if (!getCaptainMissionAvailability(current, CAPTAIN_CAVALRY_COMMAND_ID).unlocked) return null
+  const profile = acceptCavalrySweep(current, id, garrisonActorIds)
+  if (!profile?.activeMission) return null
+  const active = profile.activeMission
+  active.templateId = CAPTAIN_CAVALRY_COMMAND_ID
+  active.officialSquad = { type: 'mission-official', missionId: id, townFaction: current.faction, squadId: 1,
+    actorIds: active.friendlyActorIds.slice(0, 29), contribution: emptyPersonalContribution() }
+  return profile
 }

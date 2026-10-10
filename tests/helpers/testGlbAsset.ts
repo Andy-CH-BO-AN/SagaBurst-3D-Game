@@ -10,8 +10,8 @@ interface GlbJson {
   [key: string]: unknown
 }
 
-/** Parse a shipped GLB while omitting image/material payloads unavailable in node tests. */
-export async function loadTestGlbAsset(assetPath: string): Promise<GLTF> {
+/** Parse shipped skin/animation data; optionally retain material flags without DOM texture decoding. */
+export async function loadTestGlbAsset(assetPath: string, options: { keepMaterialProperties?: boolean } = {}): Promise<GLTF> {
   const bytes = readFileSync(assetPath)
   if (bytes.toString('utf8', 0, 4) !== 'glTF' || bytes.readUInt32LE(4) !== 2) {
     throw new Error(`Expected a GLB 2.0 asset at ${assetPath}`)
@@ -20,9 +20,20 @@ export async function loadTestGlbAsset(assetPath: string): Promise<GLTF> {
   const document = JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength)) as GlbJson
   delete document.images
   delete document.textures
-  delete document.materials
-  for (const mesh of document.meshes ?? []) {
-    for (const primitive of mesh.primitives) delete primitive.material
+  if (options.keepMaterialProperties) {
+    const removeTextureReferences = (value: unknown): void => {
+      if (!value || typeof value !== 'object') return
+      for (const [key, child] of Object.entries(value)) {
+        if (key.endsWith('Texture')) delete (value as Record<string, unknown>)[key]
+        else removeTextureReferences(child)
+      }
+    }
+    removeTextureReferences(document.materials)
+  } else {
+    delete document.materials
+    for (const mesh of document.meshes ?? []) {
+      for (const primitive of mesh.primitives) delete primitive.material
+    }
   }
 
   const text = Buffer.from(JSON.stringify(document))

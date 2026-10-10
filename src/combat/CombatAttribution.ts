@@ -5,10 +5,12 @@ import type { DamageableObstacle, DamageableObstacleKind } from '../world/Damage
 import type { Mount } from '../world/Mount'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { Faction, NPC } from '../world/NPC'
+import type { CombatOwnership } from './CombatFaction'
 
 export type CombatActorType = 'player' | 'npc'
-export type CombatTargetType = CombatActorType | 'mount' | 'structure'
-export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege'
+export type CombatTargetType = CombatActorType | 'mount' | 'structure' | 'training'
+export type CombatDamageMethod = 'melee' | 'projectile' | 'mount-impact' | 'siege' | 'fall'
+export type CombatAttackSource = 'xongkoro'
 
 export interface CombatActorRef {
   actorId: string
@@ -17,7 +19,7 @@ export interface CombatActorRef {
   characterFaction: CharacterFaction
   presetId?: UnitPresetId
   squadId?: SquadIdentity
-  ownership?: 'player-personal'
+  ownership?: CombatOwnership
   /** Riding state when this source reference was captured, including melee hit time. */
   isMounted?: boolean
 }
@@ -35,6 +37,7 @@ export interface CombatTargetRef {
 }
 
 export interface CombatDamageContext {
+  attackSource?: CombatAttackSource
   contact?: import('./ShieldBlocking').CombatContact
   hostileToTarget?: boolean
   source: CombatActorRef
@@ -44,6 +47,8 @@ export interface CombatDamageContext {
 }
 
 export interface DamageAppliedEvent {
+  contactKind?: import('./ShieldBlocking').CombatContact['kind']
+  attackSource?: CombatAttackSource
   type: 'damage_applied'
   source: CombatActorRef
   target: CombatTargetRef
@@ -53,7 +58,18 @@ export interface DamageAppliedEvent {
   appliedDamage: number
 }
 
+/** A real shield contact, independent of HP damage and progression attribution. */
+export interface HitBlockedEvent {
+  type: 'hit_blocked'
+  source: CombatActorRef
+  target: CombatTargetRef
+  method: CombatDamageMethod
+  weaponId?: string
+  blockedImpact: number
+}
+
 export interface ActorKilledEvent {
+  attackSource?: CombatAttackSource
   type: 'actor_killed'
   source: CombatActorRef
   target: CombatTargetRef
@@ -82,6 +98,7 @@ export interface StructureDestroyedEvent {
 
 export type CombatEvent =
   | DamageAppliedEvent
+  | HitBlockedEvent
   | ActorKilledEvent
   | StructureDamagedEvent
   | StructureDestroyedEvent
@@ -183,6 +200,8 @@ export function emitDamageApplied(
   if (!context?.emit || appliedDamage <= 0) return
   context.emit({
     type: 'damage_applied',
+    ...(context.contact ? { contactKind: context.contact.kind } : {}),
+    ...((context.attackSource ?? context.contact?.attackSource) ? { attackSource: context.attackSource ?? context.contact?.attackSource } : {}),
     source: context.source,
     target,
     method: context.method,
@@ -192,6 +211,12 @@ export function emitDamageApplied(
   })
 }
 
+export function emitHitBlocked(context: CombatDamageContext | undefined, target: CombatTargetRef, blockedImpact: number): void {
+  if (!context?.emit || blockedImpact <= 0) return
+  context.emit({ type: 'hit_blocked', source: context.source, target, method: context.method,
+    weaponId: context.weaponId, blockedImpact })
+}
+
 export function emitActorKilled(
   context: CombatDamageContext | undefined,
   target: CombatTargetRef,
@@ -199,6 +224,7 @@ export function emitActorKilled(
   if (!context?.emit || (target.targetType !== 'player' && target.targetType !== 'npc')) return
   context.emit({
     type: 'actor_killed',
+    ...((context.attackSource ?? context.contact?.attackSource) ? { attackSource: context.attackSource ?? context.contact?.attackSource } : {}),
     source: context.source,
     target,
     method: context.method,

@@ -1,0 +1,57 @@
+{
+  "id": "xongkoro",
+  "status": "ready",
+  "file": "xongkoro.glb",
+  "forward": "+Z",
+  "bodyLengthMeters": 10,
+  "source": {
+    "title": "White Eagle Animation Fast Fly",
+    "author": "GremorySaiyan",
+    "url": "https://sketchfab.com/3d-models/white-eagle-animation-fast-fly-30203bf39e5145f19c79e83c550139d3",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "archiveSha256": "cf400656ef61016ee946b5c987832dd269edc445e870e91ad47f2c7308ed3b86",
+    "fbxSha256": "f6d5848192e8dee92a56832867a2accf01a3d7f556c04537d8b786041ed4538b"
+  },
+  "measurement": {
+    "reference": "FBX fast-flight frame 1 at 30 fps; >0.5 cumulative head/neck/spine/pelvis/tail vertex influence; longitudinal +X projection, excludes wings and legs",
+    "sourceMinX": -0.18535254895687103,
+    "sourceMaxX": 0.15107104182243347,
+    "uniformScale": 29.724431562113754,
+    "fullCycleWingspanMeters": 18.591856956481934,
+    "fullCycleHeightMeters": 11.607138339430094,
+    "standingSocketReferenceMeters": [
+      -1.4901161193847656e-08,
+      2.79131817817688,
+      1.6984763145446777
+    ]
+  },
+  "lodTriangles": [
+    3128,
+    2032,
+    1094
+  ],
+  "animations": {
+    "fly": {
+      "sourceTake": "Armature|CINEMA_4D_Principal|Layer0",
+      "sourceFrames": [
+        1,
+        19
+      ],
+      "fps": 30
+    }
+  },
+  "missingSourceClips": [
+    "attack",
+    "takeoff",
+    "landing",
+    "death"
+  ],
+  "procedural": "Grounded pose plants both feet using the source leg chains while retaining the spread wings; takeoff and landing blend with the source flight sample. Attack extends neck/head and legs over the current base pose. Death holds that base pose; translation and corpse descent belong to gameplay.",
+  "sockets": {
+    "standing": "socket_rider_standing",
+    "head": "socket_attack_head",
+    "clawLeft": "socket_attack_claw_left",
+    "clawRight": "socket_attack_claw_right"
+  }
+}

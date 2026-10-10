@@ -10,6 +10,7 @@ export const SHIELD_CONFIG = {
 } as const
 export function weaponShieldImpact(id?: string, isMounted = false): number {
   const weapon = WEAPONS[id ?? '']
+  if (weapon?.shieldImpact !== undefined) return weapon.shieldImpact
   if (!weapon || weapon.tier === 4) return 1
   if (weapon.animationKind === 'axe') return SHIELD_CONFIG.axeImpactByTier[weapon.tier]
   if (isMounted && weapon.combatKind === 'lance') return SHIELD_CONFIG.mountedLanceImpactByTier[weapon.tier]
@@ -78,15 +79,26 @@ export class LocalBoxCollider {
   }
 }
 
+// Measured 1.10m shield face, tapered bands exclude the pointed corners and rear grip.
+const PALADIN_BANDS = [
+  [-.54, -.45, .07], [-.45, -.35, .13], [-.35, -.25, .19], [-.25, -.15, .215],
+  [-.15, -.05, .25], [-.05, .05, .255], [.05, .15, .26], [.15, .25, .295],
+  [.25, .35, .31], [.35, .45, .195], [.45, .53, .055],
+].map(([bottom, top, halfWidth]) => new THREE.Box3(
+  new THREE.Vector3(-halfWidth, bottom, .13), new THREE.Vector3(halfWidth, top, .30)))
+
 /** OBB in shield model space. Never reads triangles or traverses meshes. */
 export class ShieldCollider {
   private readonly inverse = new THREE.Matrix4()
   private readonly a = new THREE.Vector3()
   private readonly b = new THREE.Vector3()
   private readonly box = new THREE.Box3()
+  private paladin = false
   constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState) {}
   setModel(id: string | null): void {
-    if (id?.startsWith('scutum')) this.box.set(this.a.set(-.31, -.51, -.01), this.b.set(.31, .51, .25))
+    this.paladin = id === 'paladin_shield_t4'
+    if (this.paladin) this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
+    else if (id?.startsWith('scutum')) this.box.set(this.a.set(-.31, -.51, -.01), this.b.set(.31, .51, .25))
     else this.box.set(this.a.set(-.43, -.43, .12), this.b.set(.43, .43, .28))
   }
   time(from: THREE.Vector3, to: THREE.Vector3): number {
@@ -102,7 +114,11 @@ export class ShieldCollider {
   preparedTime(from: THREE.Vector3, to: THREE.Vector3): number {
     if (!this.state.active) return Infinity
     this.a.copy(from).applyMatrix4(this.inverse); this.b.copy(to).applyMatrix4(this.inverse)
-    return segmentBoxTime(this.a, this.b, this.box)
+    const broad = segmentBoxTime(this.a, this.b, this.box)
+    if (!this.paladin || !Number.isFinite(broad)) return broad
+    let contact = Infinity
+    for (const band of PALADIN_BANDS) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
+    return contact
   }
   refreshVisibility(): void { this.pivot.visible = !this.state.shieldBroken }
 }
@@ -119,8 +135,11 @@ export interface PhysicalCombatTarget {
   currentMount?: Mount | null
   mountCollider?: LocalBoxCollider
 }
-export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget }
+export interface CombatContact { kind: 'shield' | 'body' | 'mount'; time: number; mount?: Mount; target?: PhysicalCombatTarget; attackSource?: 'xongkoro' }
 const bodyBox = new THREE.Box3()
+const bodyInverse = new THREE.Matrix4()
+const bodyFrom = new THREE.Vector3()
+const bodyTo = new THREE.Vector3()
 // Shared synchronous scratch: sampled once per target query, not once per blade point.
 const limbCenters = Array.from({ length: 6 }, () => new THREE.Vector3())
 let limbCount = 0
@@ -149,9 +168,18 @@ function segmentSphereTime(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3,
 function bodyTime(target: PhysicalCombatTarget, from: THREE.Vector3, to: THREE.Vector3): number {
   if (target.mountCollider) return Infinity
   const p = target.group.position, base = p.y + (target.bodyBaseOffset ?? 0)
-  bodyBox.min.set(p.x - .3, base + .06, p.z - .3)
-  bodyBox.max.set(p.x + .3, base + 1.8, p.z + .3)
-  let time = segmentBoxTime(from, to, bodyBox)
+  let time: number
+  if ((target.mount ?? target.currentMount)?.isFlyingMount) {
+    target.group.updateWorldMatrix(true, false)
+    bodyInverse.copy(target.group.matrixWorld).invert()
+    bodyBox.min.set(-.3, (target.bodyBaseOffset ?? 0) + .06, -.3)
+    bodyBox.max.set(.3, (target.bodyBaseOffset ?? 0) + 1.8, .3)
+    time = segmentBoxTime(bodyFrom.copy(from).applyMatrix4(bodyInverse), bodyTo.copy(to).applyMatrix4(bodyInverse), bodyBox)
+  } else {
+    bodyBox.min.set(p.x - .3, base + .06, p.z - .3)
+    bodyBox.max.set(p.x + .3, base + 1.8, p.z + .3)
+    time = segmentBoxTime(from, to, bodyBox)
+  }
   // Small bone-following primitives include outstretched arms/hands and moving feet.
   for (let i = 0; i < limbCount; i++) time = Math.min(time, segmentSphereTime(from, to, limbCenters[i], .12))
   return time
@@ -165,6 +193,7 @@ export function traceCombatSegment(target: PhysicalCombatTarget, from: THREE.Vec
   out.kind = mount < body && mount <= shield ? 'mount' : shield < body ? 'shield' : 'body'
   out.mount = out.kind === 'mount' ? preparedMount ?? undefined : undefined
   out.target = target
+  out.attackSource = undefined
   return Number.isFinite(out.time)
 }
 

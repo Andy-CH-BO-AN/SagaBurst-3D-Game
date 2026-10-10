@@ -11,7 +11,8 @@ import { Mount, MountState } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
 import { COMBAT_BALANCE, calculateMountImpactDamage } from './CombatBalance'
-import { damageNpc, type DamageResult } from './DamageRouter'
+import { damageNpc, damageReceiver, type DamageResult } from './DamageRouter'
+import type { DamageReceiver } from './DamageReceiver'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import {
   createNpcCombatActorRef,
@@ -22,7 +23,7 @@ import {
 
 /** Swept line-segment collision check between mount trajectory and a target sphere. */
 export function checkMountImpact(mount: Mount, targetPos: THREE.Vector3, targetRadius: number): boolean {
-  if (mount.skipImpactThisFrame) return false
+  if (mount.isFlyingMount || mount.skipImpactThisFrame) return false
   const dx = mount.group.position.x - mount.previousPosition.x
   const dz = mount.group.position.z - mount.previousPosition.z
   const px = targetPos.x - mount.previousPosition.x
@@ -45,6 +46,7 @@ export function applyMountImpactDamage(
   now: number,
   onHit: (damage: number) => void
 ): boolean {
+  if (mount.isFlyingMount) return false
   if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return false
   if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
     const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
@@ -57,6 +59,8 @@ export function applyMountImpactDamage(
 }
 
 export interface MountImpactOptions {
+  receivers?: readonly DamageReceiver[]
+  onPlayerMountHitReceiver?: (target: DamageReceiver, result: DamageResult) => void
   /** Optional spatial grid for bounding nearby candidate queries to avoid O(M x N) scans. */
   npcGrid?: SpatialGrid<NPC>
   /** Reusable candidate array to prevent per-frame garbage collection. */
@@ -94,7 +98,7 @@ export function resolveMountImpacts(
   const candidateBuffer = options.candidateBuffer ?? []
 
   for (const mount of mounts) {
-    if (mount.state !== MountState.CONTROLLED || mount.dead) continue
+    if (mount.isFlyingMount || mount.state !== MountState.CONTROLLED || mount.dead) continue
     if (mount.skipImpactThisFrame) continue
     if (mount.movementSpeed <= COMBAT_BALANCE.mountImpact.minSpeed) continue
 
@@ -126,6 +130,15 @@ export function resolveMountImpacts(
             }
           })
         }
+      }
+      for (const target of options.receivers ?? []) {
+        if (!checkMountImpact(mount, target.combatPosition, 0.5)) continue
+        applyMountImpactDamage(mount, target, target.combatPosition, now, damage => {
+          const result = damageReceiver(target, Math.round(damage * Math.max(0, options.playerDamageMultiplier ?? 1)), {
+            source: createPlayerCombatActorRef(player), method: 'mount-impact', emit: options.combatEvents,
+          })
+          if (result.hitSuccess) options.onPlayerMountHitReceiver?.(target, result)
+        })
       }
       continue
     }

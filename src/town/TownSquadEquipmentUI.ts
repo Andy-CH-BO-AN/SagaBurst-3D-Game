@@ -1,4 +1,5 @@
 import type { CareerProfile } from '../career/CareerProfile'
+import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { availableCareerItem, careerItemTotal, careerItemTotals, initialPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { canRecruitPersonalSquad, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -19,8 +20,15 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
     }
     const heading = document.createElement('div'); heading.className = 'modal-section-title inventory-wide'
     heading.textContent = `Personal Squad · ${profile.personalSquad?.members.length ?? 0}/30 · ${currentState}`; container.append(heading)
+    const missionActive = Boolean(profile.activeMission || profile.activeOutpostMission)
+    const canChange = currentState === 'RESERVE' && !missionActive
+    const lockNotice = missionActive
+      ? profile.activeMission?.kind === 'duel' && profile.activeMission.phase === 'RETURNING'
+        ? '單挑尚未結算。請先關閉面板，跟隨裁判回營完成結算後，再替小隊換裝。'
+        : '任務尚未結算。請先關閉面板，完成任務並返回小鎮結算後，再替小隊換裝。'
+      : '全隊回到 HR、進入 RESERVE 後才能換裝。'
     const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
-    notice.textContent = message || (currentState === 'RESERVE' ? '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : '全隊回到 HR、進入 RESERVE 後才能換裝。')
+    notice.textContent = canChange ? message || '換裝只使用背包可用份數。裝備遠程會退回盾牌；裝備盾牌會退回遠程武器。' : lockNotice
     container.append(notice)
     if (!profile.personalSquad?.members.length) {
       const empty = document.createElement('p'); empty.className = 'inv-item-desc inventory-wide'
@@ -42,12 +50,12 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
         if (canRemove || !equipment[slot]) select.add(new Option('None', ''))
         for (const id of Object.keys(careerItemTotals(profile))) {
           const item = WEAPONS[id] ?? ARMORS[id]
-          const fits = slot === 'mount' ? ['horse', 'black-cat', 'corgi'].includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
+          const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
           if (!fits || !availableCareerItem(profile, id) && equipment[slot] !== id) continue
-          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat' } as Record<string, string>)[id]
+          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat', xongkoro: 'xongkoro' } as Record<string, string>)[id]
           select.add(new Option(`${name} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}`, id))
         }
-        select.value = equipment[slot] ?? ''; select.disabled = currentState !== 'RESERVE'
+        select.value = equipment[slot] ?? ''; select.disabled = !canChange
         select.onchange = () => { message = change(member.id, slot, select.value || null); refresh() }
         label.append(select); card.append(label)
       }

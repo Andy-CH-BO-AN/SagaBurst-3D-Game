@@ -1,24 +1,27 @@
-# 羅馬禁衛軍 T4
+# Paladin — Roman T4 appearance
 
-Roman Soldier - T pose - free download by Andy Woodhead, licensed under CC BY 4.0.
+[Paladin](https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9) by [DJMaesen](https://sketchfab.com/bumstrum), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-Source: https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3
-License: https://creativecommons.org/licenses/by/4.0/
+Credit and license are preserved from the supplied `paladin.glb` asset.extras metadata. The source SHA-256 and exact embedded credit are in attribution-evidence.json. The original download is not shipped.
 
-All three repository Roman GLBs are the immutable input. Actual input hashes and original animation licensing/provenance are in manifest.json. Hero modifications: independent texture recolouring, uniform anatomical scaling and local covered shoulder/thigh/lining clearance repairs. No reference-image pixels are embedded. Kevin Iglesias animation license: Unity Asset Store EULA; Quaternius: CC0. Original licensed FBX files are not redistributed. Rebuild with tools/build-roman-hero.mjs.
+Changes: original weighted body and clothing retained; arms normalized offline to the project rest pose and bone axes; metre scale (1.95 m overall including helmet horns); source swords and scabbards removed; original bastard sword extracted as independent equipment. Source finger curl is baked; static digit weights are collapsed to the hand joints, leaving 31 joints per LOD. Existing Roman T4 animations are retargeted offline with grounded root translations, matching clip names and gameplay events. Three simplified LODs and compressed/resized source textures are exported.
 
-## Replacement helmet
+## Existing animation credits
 
-An ancient Roman helmet (Древнеримский шлем) by stratovarius1980. https://sketchfab.com/3d-models/an-ancient-roman-helmet-00be37c8062c430daad5686d4f17916f
+- Kevin Iglesias — Human Archer Animations FREE; Unity Asset Store EULA. Source package hash is retained in manifest.json.
+- Kevin Iglesias — Human Melee Animations 2.0 FREE; Standard Asset Store EULA. Existing source URL, package hash and license evidence remain in manifest.axeAttackBuild.
+- Quaternius — Universal Animation Library 2; CC0 1.0. Source package hash is retained in manifest.json.
+- SagaBurst — existing mounted pose layers, lance, hit response and death adaptation.
 
-License: CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/). Source SHA-256: b698b183e8fa260955f514a0e0c5e30f7d515c4f0b85171aaaa324c332ef7a6f.
+The retarget input is the previously integrated Roman T4 GLB at commit ae06476, originally derived from Roman Soldier by Andy Woodhead (CC BY 4.0). Its original body, helmet and boots are not included in this Paladin. No original FBX or separate animation-only package is redistributed.
 
-Changes: source-derived LOD simplification, head fitting, torso-matched recoloring and rigid head attachment. Original integrated face/cheek guards and source decoration retained with user approval. No new decorative geometry. Rebuild using tools/replace-roman-helmet.mjs after preparing the T4 body.
+## Rebuild
 
-## Replacement footwear
+From the repository root with Blender 5.2 and the three user-supplied GLBs in one source directory:
 
-Roman Centurion Armor by Tactical_Beard (embedded credit: Tactical_Gamer). https://sketchfab.com/3d-models/roman-centurion-armor-d0c6de99f16c49f386a9f8d7c3120dec
+```sh
+blender -b --python tools/build-paladin.py -- /path/to/source-directory
+node tools/retarget-paladin.mjs
+```
 
-License: CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/). Source SHA-256: 4956bb60a97a0320c8abd17f9cd83825731b2452ad055082ca0013a072151de6.
-
-Changes: extract original lower-leg components, subdivide/simplify original surface, fit feet and calves, transfer skin weights, recolor steel/leather and resize original normal atlas. No source upper-body armor is used. Rebuild using tools/replace-roman-greaves.mjs after the helmet replacement.
+The retarget step requires Git history containing ae06476. It reads that pinned GLB into ignored output/paladin-build, then emits runtime clips, manifest and audit. See weapons/paladin/ATTRIBUTION.md for the separate equipment credits.

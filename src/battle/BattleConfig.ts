@@ -69,6 +69,7 @@ export type PlayerMeleeWeaponId =
   | 'viking_axe_t1' | 'viking_axe_t2' | 'viking_axe_t3'
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
   | 'hunting_spear' | 'steel_lance' | 'heavy_lance'
+  | 'paladin_sword_t4' | 'paladin_mace_t4'
 export type PlayerRangedWeaponId =
   | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
   | typeof T4_RANGER_BOW_RANGED_ID
@@ -76,7 +77,8 @@ export type PlayerRangedWeaponId =
 export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
   | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
-export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'corgi'] as const
+  | 'paladin_shield_t4'
+export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'corgi', 'xongkoro'] as const
 export type PlayerMountId = typeof PLAYER_MOUNT_IDS[number]
 
 export interface PlayerLoadoutConfig {
@@ -100,12 +102,14 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance',
+  'paladin_sword_t4', 'paladin_mace_t4',
 ]
 /** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance',
+  'paladin_sword_t4', 'paladin_mace_t4',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
   'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID,
@@ -114,9 +118,12 @@ export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
 export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
   'round_shield_t1', 'round_shield_t2', 'round_shield_t3',
   'scutum_t1', 'scutum_t2', 'scutum_t3',
+  'paladin_shield_t4',
 ]
 
 export interface BattleConfig {
+  /** Trusted Career launch identity; never accepted from a free battle session. */
+  careerEagleMissionId?: string
   mode?: BattleMode
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
@@ -387,6 +394,7 @@ function validateBattleConfigWithArmyLimit(
     if (!loadout || typeof loadout !== 'object') {
       errors.push('playerLoadout must be an object')
     } else {
+      if (!c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
       if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
       if (c.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {

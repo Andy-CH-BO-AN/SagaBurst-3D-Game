@@ -57,6 +57,17 @@ describe('Mounted lance shield impact', () => {
   })
 
   describe.each(['player', 'npc'] as const)('%s attacker', side => {
+    it('eagle active contacts consume one shield impact regardless of the rider sword, lance or empty hand', () => {
+      const f = fixture(side, 'scutum_t3')
+      for (const weaponId of ['steel_sword', 'heavy_lance', '']) {
+        f.target.shield.reset()
+        const result = f.hit(60, { ...f.context(weaponId), contact: { kind: 'shield', time: .2, attackSource: 'xongkoro' } })
+        expect(result.blockedImpact, weaponId).toBe(1)
+        expect(result.appliedDamage, weaponId).toBe(0)
+        expect(f.target.shield.shieldImpactRemaining, weaponId).toBe(29)
+      }
+    })
+
     it.each(lances)('%s breaks a same-tier Roman shield with 25% overflow at zero speed', weaponId => {
       const tier = lances.indexOf(weaponId) + 1
       const f = fixture(side, `scutum_t${tier}`)

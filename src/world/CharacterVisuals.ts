@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { proceduralMaterial } from './ProceduralMaterials'
+import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 
 export type CharacterFaction = 'viking' | 'roman'
-export type MountedPoseKind = 'BLACK_CAT' | 'CORGI' | 'HORSE'
+export type MountedPoseKind = 'BLACK_CAT' | 'CORGI' | 'HORSE' | 'xongkoro'
 
 export interface CharacterVisualConfig {
   faction: CharacterFaction
@@ -210,6 +211,13 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       setRigRotation(leg.hip, 0, 0, 0)
       setRigRotation(leg.knee, 0, 0, 0)
       setRigRotation(leg.ankle, 0, 0, 0)
+      continue
+    }
+    if (kind === 'xongkoro') {
+      // Feet brace on a dorsal standing socket; there is no straddled pelvis seat.
+      setRigRotation(leg.hip, XONGKORO_VISUAL.standingHipPitch * leg.forwardBendSign, 0, leg.side * XONGKORO_VISUAL.standingSpread)
+      setRigRotation(leg.knee, XONGKORO_VISUAL.standingKneePitch * leg.forwardBendSign, 0, 0)
+      setRigRotation(leg.ankle, XONGKORO_VISUAL.standingAnklePitch * leg.forwardBendSign, 0, -leg.side * XONGKORO_VISUAL.standingSpread)
       continue
     }
     // Follow each animal barrel and keep the soles upright. The source corgi

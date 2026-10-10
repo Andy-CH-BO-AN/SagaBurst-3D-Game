@@ -1,4 +1,5 @@
-import type { UnitPresetId, UnitLoadout } from './UnitPresetCatalog'
+import { resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 
 export type T4CombatProfileId = 'varangian' | 'praetorian' | 'ranger'
@@ -63,4 +64,23 @@ export function applyHeroOutgoingDamage(damage: number, id?: T4CombatProfileId |
 
 export function applyHeroIncomingDamage(damage: number, id?: T4CombatProfileId | null): number {
   return damage * (getT4HeroCombatModifiers(id)?.damageTakenMultiplier ?? 1)
+}
+
+/** Canonical hero equipment. Explicit runtime weapon swaps are never upgraded by character tier. */
+export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
+  const profile = T4_UNIT_PROFILES[presetId]
+  const base = { ...resolveUnitLoadout(presetId, profile.baseLoadoutTier) }
+  if (profile.specialCombatProfile !== 'maki-ranger') {
+    for (const slot of ['meleeWeaponId', 'secondaryMeleeWeaponId'] as const) {
+      const weapon = WEAPONS[base[slot] ?? '']
+      if (weapon?.animationKind === 'sword' || weapon?.animationKind === 'axe') {
+        base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
+      }
+    }
+    if (base.shieldId) base.shieldId = 'paladin_shield_t4'
+  }
+  return { ...base, mountId: profile.mountOverride,
+    ...(profile.specialCombatProfile === 'maki-ranger'
+      ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}),
+  }
 }

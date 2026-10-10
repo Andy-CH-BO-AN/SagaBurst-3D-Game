@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { townActorCaptainProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../../src/town/TownRules'
+import { townActorHeroProfile, townCaptainProfile, townRoster, townMilitaryEquipment, townAssaultObjectiveRoster } from '../../src/town/TownRules'
 import { townConquestRoster, resolveTownHRLayout } from '../../src/town/TownHRLayout'
 import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
@@ -8,8 +8,8 @@ import type { NPC } from '../../src/world/NPC'
 describe('Town patrol roster contracts', () => {
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
-    expect(roster).toHaveLength(225); expect(patrol).toHaveLength(40)
-    expect(new Set(roster.map(s => s.id)).size).toBe(225); expect(townRoster()).toEqual(roster)
+    expect(roster).toHaveLength(230); expect(patrol).toHaveLength(40)
+    expect(new Set(roster.map(s => s.id)).size).toBe(230); expect(townRoster()).toEqual(roster)
     expect(roster.filter(s => s.role === 'captain')).toHaveLength(1)
     for (const id of ['A', 'B']) {
       const members = patrol.filter(s => s.patrolId === id)
@@ -26,9 +26,9 @@ describe('Town patrol roster contracts', () => {
 
   // Faction is a policy axis; no actors, world or movement state machine are created here.
   it.each([
-    { faction: 'roman', presetId: 'roman_sword_cavalry', officerWeapon: 'centurion_blade', weapon: 'gladius_standard',
+    { faction: 'roman', presetId: 'roman_sword_cavalry', officerWeapon: 'paladin_sword_t4', weapon: 'gladius_standard',
       shield: 'scutum_t2', hero: { visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', baseLoadoutTier: 3, mountOverride: 'corgi' } },
-    { faction: 'viking', presetId: 'viking_sword_cavalry', officerWeapon: 'viking_axe_t3', weapon: 'viking_axe_t2',
+    { faction: 'viking', presetId: 'viking_sword_cavalry', officerWeapon: 'paladin_mace_t4', weapon: 'viking_axe_t2',
       shield: 'round_shield_t2', hero: { visualAssetId: 'viking-hero-t4', combatProfileId: 'varangian', baseLoadoutTier: 3, mountOverride: 'black-cat' } },
   ] as const)('equips $faction patrol officers with the canonical T4 hero profile and ordinary riders with T2 weapons', ({ faction, presetId, officerWeapon, weapon, shield, hero }) => {
     expect(townCaptainProfile(faction)).toEqual(hero)
@@ -37,12 +37,12 @@ describe('Town patrol roster contracts', () => {
       expect(equipment.presetId).toBe(presetId)
       expect(equipment.loadout.mountId).toBe('horse')
       if (spec.patrolLeader) {
-        expect(townActorCaptainProfile(faction, spec)).toEqual(hero)
-        expect(equipment).toMatchObject({ tier: 3, level: 4, loadout: { meleeWeaponId: officerWeapon } })
+        expect(townActorHeroProfile(faction, spec)).toEqual(hero)
+        expect(equipment).toMatchObject({ tier: 3, level: 4, loadout: { meleeWeaponId: officerWeapon, shieldId: 'paladin_shield_t4' } })
       } else {
         expect(equipment).toMatchObject({ tier: 2, level: 2,
           loadout: { meleeWeaponId: weapon, rangedWeaponId: null, shieldId: shield, mountId: 'horse' } })
-        expect(townActorCaptainProfile(faction, spec)).toBeUndefined()
+        expect(townActorHeroProfile(faction, spec)).toBeUndefined()
       }
     }
   })
@@ -50,7 +50,7 @@ describe('Town patrol roster contracts', () => {
   it.each(['roman', 'viking'] as const)('includes patrols in the %s conquest population while preserving assault objective membership', faction => {
     const roster = townRoster()
     expect(townConquestRoster(resolveTownHRLayout(faction, [], []))).toHaveLength(roster.length + 1)
-    expect(townAssaultObjectiveRoster()).toHaveLength(203)
+    expect(townAssaultObjectiveRoster()).toHaveLength(208)
   })
 
   it('keeps patrol cavalry in the siege defense plans', () => {

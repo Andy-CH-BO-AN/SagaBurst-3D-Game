@@ -15,6 +15,7 @@ import { resolveTownDefenseOutcome } from '../../src/career/TownDefenseState'
 import { claimCareerMission, createCareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { TownScene } from '../../src/town/TownScene'
+import { AerialViewPolicy } from '../../src/camera/AerialViewPolicy'
 import { SpectatorCameraController } from '../../src/camera/SpectatorCameraController'
 import { Player } from '../../src/player/Player'
 import { combatFixture } from '../helpers/townMissionCombat'
@@ -179,7 +180,7 @@ function townFixture() {
   const profile = createCareerProfile('roman')
   profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0, 'observer', 'bandit', 'captain')
   Object.assign(town, {
-    profile, player, camera: new THREE.PerspectiveCamera(58, 1, .1, 400), spectator: null,
+    profile, player, camera: new THREE.PerspectiveCamera(58, 1, .1, 400), spectator: null, aerialView: new AerialViewPolicy(),
     event: { hostile: false, evaluate: vi.fn(() => null) }, input: { consumeWheelStep: () => 0, clear: vi.fn(), keys: {}, consumeMouseDelta: () => ({ dx: 0, dy: 0 }), consumeLeftClick: vi.fn(), consumeLeftClickRelease: vi.fn(), consumeKeyE: vi.fn() },
     equipment: { close: vi.fn(), open: vi.fn(), visible: false }, target: 'merchant', hasPreviousTip: true,
     commit: vi.fn((next: typeof profile) => { town.profile = next; return true }),

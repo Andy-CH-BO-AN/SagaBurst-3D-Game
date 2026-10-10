@@ -2,9 +2,16 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { drainNpcSpawns, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { advanceUntil } from '../helpers/simulation'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import type { NpcSpawnSpec } from '../../src/battle/BattleSpawner'
-import type { CareerProfile, CareerRank } from '../../src/career/CareerProfile'
+import { createCareerProfile, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
+import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
 import type { CharacterFaction } from '../../src/world/CharacterVisuals'
@@ -15,7 +22,7 @@ import type { HpBar } from '../../src/ui/HpBar'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { OUTSKIRTS_ENCOUNTER_LEASH, outskirtsActorId, outskirtsCavalryFaction, outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
-import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
+import { TownOutskirtsWarfareController, parseTownOutskirtsCheckpoint } from '../../src/town/TownOutskirtsWarfareController'
 import { TownWorld } from '../../src/town/TownWorld'
 
 class TestMount {
@@ -33,6 +40,9 @@ class TestNpc {
   deathPresentationComplete = false
   private readonly deathPresentation = new DeathFadeController()
   respawnEnabled = true
+  hp = 100
+  combatAmmo = 0
+  shield = { shieldImpactRemaining: 0 }
   mount: TestMount | null = null
   encounterAggroState: BanditAggroState = 'idle'
   formationCommandId: number | null = null
@@ -74,7 +84,7 @@ class TestNpc {
   updateDeathPresentation(dt: number): void { this.deathPresentationComplete = this.deathPresentation.update(this.group, dt) }
 }
 
-function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'roman', playerFaction: CharacterFaction = 'roman', obstacles: ObstacleData[] = [], scheduler?: NpcSpawnScheduler) {
+function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'roman', playerFaction: CharacterFaction = 'roman', obstacles: ObstacleData[] = [], scheduler?: NpcSpawnScheduler, claimedSquads: readonly string[] = [], claimedActorIds: readonly string[] = []) {
   let profile: Pick<CareerProfile, 'rank' | 'faction'> = { rank, faction: playerFaction }
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.rebuild(obstacles)
@@ -82,7 +92,7 @@ function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'ro
   const controller = new TownOutskirtsWarfareController(new THREE.Scene(), townFaction, () => profile, obstacles, navigation, {
     createNpc(spec) { const npc = new TestNpc(spec); created.push(npc); return npc as unknown as NPC },
     createMount(x, z) { const mount = new TestMount(); mount.group.position.set(x, 0, z); horses.push(mount); return mount as unknown as Mount },
-  }, [], scheduler)
+  }, claimedSquads, scheduler, claimedActorIds)
   if (!scheduler) drainNpcSpawns(gameplayNpcSpawnDriver)
   const player = { targetable: true, dead: false, combatPosition: new THREE.Vector3(10000, 0, 10000) } as unknown as Player
   const frame = (dt = .4, peers: NPC[] = []) => { controller.prepareFrame(dt, [...controller.actors, ...peers], player); drainNpcSpawns(gameplayNpcSpawnDriver) }
@@ -93,6 +103,44 @@ function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'ro
 const asTest = (npc: NPC) => npc as unknown as TestNpc
 
 describe('Town outskirts runtime', () => {
+  it.each(['no mission', 'completed Captain I'] as const)('persists ordinary Town cooldown through real save/reload with %s and no actor roster', scenario => {
+    const scheduler = new NpcSpawnScheduler(), test = setup('captain', 'roman', 'roman', [], scheduler)
+    onTestFinished(() => test.controller.dispose())
+    test.controller.restoreCheckpoint({ squads: [{ id: 'outskirts:cavalry:a', generation: 3,
+      state: 'RESPAWN_COOLDOWN', waypoint: 0, respawnRemaining: 60, members: {} }] })
+    test.controller.prepareFrame(25, [], test.player)
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    if (scenario === 'completed Captain I') {
+      profile.activeMission = createCaptainPatrolCommandMission(profile, ['town-patrol:a:captain'], 'clear')
+      profile = claimCareerMission(profile, 'clear', 'victory', { damageDealt: 0, damageTaken: 0, kills: 30,
+        structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }).profile
+    }
+    const store = new CareerProfileStore(new MemoryStorage()), town = townProfileCheckpoint(profile, store)
+    town.outskirts = test.controller
+    town.persistPersonalSquad(0, true)
+    if (scenario === 'completed Captain I') {
+      const next = clearCareerMission(town.profile, 'clear')
+      expect(town.commit(next, { groundedTownReturn: true })).toBe(true)
+    }
+    const loaded = store.load()!
+    expect(loaded.activeMission).toBeUndefined()
+    const saved = loaded.townOutskirts!.roman!.squads.find(s => s.id === 'outskirts:cavalry:a')!
+    expect(saved).toMatchObject({ generation: 3, respawnRemaining: 35 })
+    expect(loaded.townOutskirts!.roman!.squads.every(s => Object.keys(s.members).length === 0)).toBe(true)
+    const restored = setup('captain', 'roman', 'roman', [], new NpcSpawnScheduler())
+    onTestFinished(() => restored.controller.dispose())
+    const reloadedTown = townProfileCheckpoint(loaded, store); reloadedTown.outskirts = restored.controller
+    reloadedTown.restoreOutskirtsCheckpoint()
+    const squad = restored.controller.squads.find(s => s.id === 'outskirts:cavalry:a')!
+    expect(squad).toMatchObject({ generation: 3, state: 'RESPAWN_COOLDOWN', respawnRemaining: 35, members: [] })
+    restored.controller.prepareFrame(34, [], restored.player)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.respawnRemaining).toBe(1)
+    expect(restored.controller.batches.filter(b => b.status === 'pending')).toHaveLength(8)
+    expect(restored.created).toHaveLength(0)
+    restored.controller.prepareFrame(1, [], restored.player)
+    expect(squad).toMatchObject({ generation: 4, state: 'SPAWNING', members: [] })
+    expect(restored.controller.batches.filter(b => b.status === 'pending')).toHaveLength(9)
+  })
   it.each(['recruit', 'soldier', 'veteran'] as const)('creates no warfare actors at %s rank and unlocks on promotion', rank => {
     const test = setup(rank)
     expect(test.controller.actors).toHaveLength(0)
@@ -144,9 +192,10 @@ describe('Town outskirts runtime', () => {
     test.controller.dispose()
   })
 
-  it('starts each bandit squad cooldown at its own full wipe and waits exactly 60 seconds', () => {
+  it.each([['bandit', 0], ['enemy cavalry', 6]] as const)('starts each %s squad cooldown at its own full wipe and waits exactly 60 simulated seconds', (_kind, offset) => {
     const test = setup(); test.isolate()
-    const [a, b] = test.controller.squads
+    onTestFinished(() => test.controller.dispose())
+    const [a, b] = test.controller.squads.slice(offset)
     a.members.forEach(n => asTest(n).die()); test.frame()
     test.frame(30)
     b.members.forEach(n => asTest(n).die()); test.frame(0)
@@ -158,6 +207,37 @@ describe('Town outskirts runtime', () => {
     test.frame(30)
     expect(b.members.every(n => !n.dead)).toBe(true)
     test.controller.dispose()
+  })
+
+  it('restores the remaining enemy cavalry cooldown through serialization without enqueueing its dead generation', () => {
+    const test = setup(); test.isolate()
+    onTestFinished(() => test.controller.dispose())
+    const squad = test.controller.squads[6]
+    squad.members.forEach(npc => asTest(npc).die()); test.frame(0); test.frame(25)
+    const checkpoint = parseTownOutskirtsCheckpoint(JSON.parse(JSON.stringify({ squads: [test.controller.checkpoint().squads[6]] })))!
+    expect(checkpoint.squads[0].respawnRemaining).toBe(35)
+    const created = test.created.length
+    test.controller.restoreCheckpoint(checkpoint)
+    drainNpcSpawns(gameplayNpcSpawnDriver)
+    expect(test.created).toHaveLength(created)
+    expect(squad.members).toEqual([])
+    test.frame(34)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.generation).toBe(0)
+    test.controller.prepareFrame(1, test.controller.actors, test.player)
+    expect(squad.state).toBe('SPAWNING'); expect(squad.generation).toBe(1)
+    expect(squad.members).toEqual([])
+    drainNpcSpawns(gameplayNpcSpawnDriver)
+    expect(squad.state).toBe('ENTERING'); expect(squad.members).toHaveLength(10)
+  })
+
+  it('retains allied cavalry immediate reinforcement rather than applying enemy cooldown', () => {
+    const test = setup('captain', 'viking', 'roman'); test.isolate()
+    onTestFinished(() => test.controller.dispose())
+    const squad = test.controller.squads[6]
+    expect(squad.members[0].faction).toBe(Faction.TOWN)
+    squad.members.forEach(npc => asTest(npc).die()); test.frame(0)
+    expect(squad.state).toBe('ENTERING'); expect(squad.generation).toBe(1)
+    expect(squad.members.every(npc => !npc.dead)).toBe(true)
   })
 
   it('reloads a deterministic complete roster with independent routes and identities', () => {
@@ -283,7 +363,11 @@ describe('Town outskirts runtime', () => {
     const oldHorse = test.horses[0]
     oldHorse.riderPlayer = {}
     asTest(initial[initial.length - 1]).die()
-    test.frame()
+    test.frame(0)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.generation).toBe(0)
+    test.frame(59)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(test.created).toHaveLength(60)
+    test.frame(1)
     expect(squad.members).toHaveLength(10)
     expect(squad.state).toBe('ENTERING')
     expect(squad.generation).toBe(1)
@@ -356,6 +440,7 @@ describe('Town outskirts runtime', () => {
     expect(old.slice(0, -1).every(npc => test.controller.owns(npc) && !asTest(npc).disposed)).toBe(true)
     asTest(old[old.length - 1]).die()
     test.frame()
+    test.frame(60)
     expect(test.controller.actors).toHaveLength(61)
     expect(old.slice(0, -1).every(npc => !test.controller.owns(npc) && !test.controller.combatEnabled(npc))).toBe(true)
     expect(old.slice(0, -1).every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)
@@ -501,6 +586,75 @@ describe('Town outskirts runtime', () => {
 
 
 describe('Outskirts pending generations', () => {
+  it('previews ownership without cancellation and claims only saved retry IDs while later arrivals remain roaming', () => {
+    // Recording actors exercise ownership and queue protocol; no real NPC, Mount or TownWorld.
+    const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
+    onTestFinished(() => h.controller.dispose())
+    advanceUntil(() => h.horses.length === 1, () => driver.advanceFrame(), {
+      maxFrames: 32, failureMessage: 'claim preview needs the first cavalry rider',
+    })
+    const rider = h.created[30], horse = rider.mount, position = rider.combatPosition.clone()
+    const preview = h.controller.prepareCavalryForSiege('viking')
+    expect(preview.actors).toEqual([rider])
+    expect(h.controller.owns(rider as unknown as NPC)).toBe(true)
+    expect(rider.clearEncounter).not.toHaveBeenCalled()
+    expect(h.controller.squads.filter(s => s.spec.kind === 'cavalry').every(s => s.state === 'SPAWNING')).toBe(true)
+    expect(h.created).toHaveLength(31)
+    driver.advanceFrame()
+    const arrival = h.created[31]
+    expect(h.controller.owns(arrival as unknown as NPC)).toBe(true)
+    const retry = h.controller.prepareCavalryForSiege('viking', [rider.combatantId])
+    expect(retry.actors).toEqual([rider])
+    expect(retry.squadIds).toEqual([])
+    retry.claim(); retry.claim()
+    expect(rider.clearEncounter).toHaveBeenCalledOnce()
+    expect(h.controller.owns(rider as unknown as NPC)).toBe(false)
+    expect(h.controller.owns(arrival as unknown as NPC)).toBe(true)
+    expect(rider.combatPosition).toEqual(position)
+    expect(rider.mount).toBe(horse)
+    expect(rider.disposed).toBe(false); expect(horse?.disposed).toBe(false)
+    driver.drain()
+    expect(h.created).toHaveLength(60)
+    expect(h.controller.actors.filter(npc => npc.faction !== Faction.BANDIT)).toHaveLength(29)
+    expect(h.controller.squads.filter(s => s.spec.kind === 'cavalry').every(s => s.state === 'PATROLLING')).toBe(true)
+    const profile = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000,
+      activeMission: createEnemyTownAssaultMission('partial-retry') }
+    profile.activeMission.siege!.rosterCreated = true
+    profile.activeMission.siege!.attackerIds = [rider.combatantId]
+    profile.activeMission.siege!.claimedSquadIds = retry.squadIds
+    const reloaded = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    const reloadDriver = new NpcSpawnTestDriver()
+    const restored = setup(reloaded.rank, 'roman', reloaded.faction, [], reloadDriver.scheduler,
+      reloaded.activeMission!.siege!.claimedSquadIds, reloaded.activeMission!.siege!.attackerIds)
+    onTestFinished(() => restored.controller.dispose())
+    reloadDriver.drain()
+    const roamingIds = restored.controller.actors.filter(npc => npc.faction !== Faction.BANDIT).map(npc => npc.combatantId)
+    expect(roamingIds).toHaveLength(29)
+    expect(roamingIds).not.toContain(rider.combatantId)
+    expect(roamingIds).toContain(arrival.combatantId)
+    expect(new Set(roamingIds).size).toBe(29)
+    expect(restored.created).toHaveLength(59)
+    expect(restored.horses).toHaveLength(29)
+    // The receiving owner owns the transferred original objects' lifetime.
+    onTestFinished(() => { rider.dispose(); horse?.dispose() })
+  })
+
+  it('completes an entirely excluded saved generation without constructing borrowed actors', () => {
+    // Recording queue boundary only: no real NPC, Mount or TownWorld.
+    const driver = new NpcSpawnTestDriver()
+    const excluded = Array.from({ length: 10 }, (_, index) => `outskirts:cavalry:a:${index}`)
+    const h = setup('captain', 'roman', 'roman', [], driver.scheduler, [], excluded)
+    onTestFinished(() => h.controller.dispose())
+    driver.drain()
+    const squad = h.controller.squads.find(candidate => candidate.id === 'outskirts:cavalry:a')!
+    expect(squad.members).toEqual([])
+    expect(squad.leader).toBeNull()
+    expect(squad.state).toBe('PATROLLING')
+    expect(h.controller.batches.every(batch => batch.ready)).toBe(true)
+    expect(h.created).toHaveLength(50)
+    expect(h.horses).toHaveLength(20)
+  })
+
   it('transfers existing partial cavalry unchanged, cancels its remaining generation and replenishes only on release', () => {
     const driver = new NpcSpawnTestDriver(), h = setup('captain', 'roman', 'roman', [], driver.scheduler)
     advanceUntil(() => h.horses.length === 1, () => driver.advanceFrame(), {
