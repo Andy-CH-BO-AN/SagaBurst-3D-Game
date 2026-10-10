@@ -6,6 +6,7 @@ import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissi
 import { CaptainPatrolCommandController, resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from '../../src/town/TownCommandSquadController'
 import { TownScene } from '../../src/town/TownScene'
+import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 import { countArmyHudRoster, armyHudCountSummary, type ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
@@ -340,7 +341,7 @@ describe('Captain Patrol actual combat objective and handover', () => {
     expect(invalid.unavailableReason).toContain('編制')
   })
 
-  it('accepts nineteen fighters while preserving one individual return owner through acceptance, reload and refit completion', () => {
+  it.each(['active', 'walk-home'] as const)('preserves one return owner through Follow, Home and reload, then respects the %s mission at refit completion', completion => {
     const residents = townRoster().filter(spec => spec.patrolId === 'A').map(resident)
     const patrol = new TownCavalryPatrolController(residents), p = careerCheckpointPlayer() as Player, returning = residents[0]
     patrol.beginMissionReturn(returning.spec.id)
@@ -410,6 +411,58 @@ describe('Captain Patrol actual combat objective and handover', () => {
     expect(restoredPatrol.returnStateFor(returning.spec.id)).toBe('RETURN_TO_BARRACKS')
     expect(restored.accepts(returning.npc)).toBe(false)
     expect(returning.npc.combatFormationCheckpoint).toEqual(formation)
+    town.captainPatrol = restored
+    if (completion === 'walk-home') {
+      expect(commit(claimCareerMission(profile, 'mixed', 'victory', {
+        damageDealt: 200, damageTaken: 0, kills: 30, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true,
+      }).profile)).toBe(true)
+      expect(restored.startReturning()).toBe(true)
+      const settledMerit = profile.totalMerit
+      const relinquish = vi.spyOn(restoredPatrol, 'relinquish')
+      onTestFinished(() => relinquish.mockRestore())
+      restoredPatrol.restoreMissionReturn(returning.spec.id, 'REJOIN_PATROL')
+      const formationCalls = returning.actor.assignFormationTarget.mock.calls.length
+      const followCalls = returning.actor.assignFollowTarget.mock.calls.length
+      const returnOrder = returning.npc.tacticalOrder, destination = returning.npc.combatFormationCheckpoint
+      restored.update(1)
+      expect(relinquish).not.toHaveBeenCalled()
+      expect(returning.npc.combatOwnership).toBeUndefined()
+      expect(returning.actor.assignFollowTarget).toHaveBeenCalledTimes(followCalls)
+      expect(returning.actor.assignFormationTarget).toHaveBeenCalledTimes(formationCalls)
+      expect(returning.npc.tacticalOrder).toBe(returnOrder)
+      expect(returning.npc.combatFormationCheckpoint).toEqual(destination)
+      expect(restoredPatrol.owns(returning.npc)).toBe(true)
+      // RETURNING still persists the real owner state through storage after completed refit.
+      expect(store.load()?.activeMission).toMatchObject({ phase: 'RETURNING', patrolReturnStates: { [returning.spec.id]: 'REJOIN_PATROL' } })
+      expect(profile.totalMerit).toBe(settledMerit)
+      const point = townSitePoint('barracks', 0, 15)
+      p.combatPosition.set(point.x, getTerrainHeight(point.x, point.z), point.z)
+      expect(restored.returnComplete).toBe(true)
+      // Data-only scene boundaries; the real settlement clears storage and calls the real Captain release.
+      const snapshot = () => { throw new Error('Captain settlement must use its own stats') }
+      const cleanupMission = vi.fn()
+      const settlement = new TownMissionSettlement({ read: () => profile, commit }, {
+        field: { friendlies: [], snapshot, cleanupMission }, duel: { actors: [], snapshot, cleanupMission },
+        defense: { active: undefined, snapshot, cleanupMission, civilianSurvived: 0, civilianDeaths: 0 }, patrol: restored,
+      }, {
+        residents: residents.map(r => ({ ...r, cycle: 0, walkTime: 0 })),
+        cat: { restoreForTown: vi.fn(), catVisual: null },
+        world: { obstacles: [], restoreTownDamage: vi.fn() }, navigation: { sync: () => false },
+        inventory: { sheathAll: vi.fn() }, player: { group: p.group, resetForScene: vi.fn() },
+        releaseExternalThreat: vi.fn(), clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(),
+      })
+      expect(settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
+      restored.update(1)
+      expect(store.load()?.activeMission).toBeUndefined()
+      expect(store.load()?.totalMerit).toBe(settledMerit)
+      expect(restored.actors).toEqual([])
+      expect(restoredPatrol.owns(returning.npc)).toBe(true)
+      expect(returning.npc.combatOwnership).toBeUndefined()
+      expect(returning.npc.tacticalOrder).toBe(returnOrder)
+      expect(relinquish).not.toHaveBeenCalled()
+      expect(returning.actor.refitCombat).not.toHaveBeenCalled()
+      return
+    }
     // The patrol owner's completed-refit boundary releases the individual; no new refit is requested by Captain.
     restoredPatrol.restoreMissionReturn(returning.spec.id, 'REJOIN_PATROL')
     restored.update(1)

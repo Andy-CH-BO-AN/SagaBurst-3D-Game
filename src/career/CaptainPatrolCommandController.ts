@@ -187,16 +187,20 @@ export class CaptainPatrolCommandController {
   }
 
   update(dt: number): void {
-    if (!this.ready || this.active?.result && this.active.phase !== 'RETURNING') return
-    for (const id of this.refittingActors) {
-      if (this.patrol.isRefitting(id)) continue
-      const npc = this.residentsById.get(id)!.npc
-      if (!this.patrol.relinquish(id)) continue
-      const peers = this.fieldNpcs.filter(actor => !actor.dead)
-      this.refittingActors.delete(id)
-      npc.combatOwnership = 'mission-official'; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(1)
-      npc.respawnEnabled = false
-      this.resumeSquadOrder(npc, peers)
+    const active = this.active
+    if (!this.ready || !active || active.result && active.phase !== 'RETURNING') return
+    // RETURNING keeps checkpoint updates, but Patrol owns every subsequent return/refit handover.
+    if (active.phase === 'ENGAGING' && !active.result) {
+      for (const id of this.refittingActors) {
+        if (this.patrol.isRefitting(id)) continue
+        const npc = this.residentsById.get(id)!.npc
+        if (!this.patrol.relinquish(id)) continue
+        const peers = this.fieldNpcs.filter(actor => !actor.dead)
+        this.refittingActors.delete(id)
+        npc.combatOwnership = 'mission-official'; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(1)
+        npc.respawnEnabled = false
+        this.resumeSquadOrder(npc, peers)
+      }
     }
     this.saveElapsed += Math.max(0, dt)
     if (this.saveElapsed >= 1) { this.saveElapsed = 0; this.persist() }
