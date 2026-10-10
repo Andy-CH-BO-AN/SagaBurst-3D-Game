@@ -1,8 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { EagleFlightAim } from '../../src/player/EagleFlightAim'
+import * as THREE from 'three'
+import { EagleFlightAim, eagleRiderAimYaw } from '../../src/player/EagleFlightAim'
 
 // Flight dynamics owns speed/turn/collision. This suite owns mouse intent only.
 describe('eagle free aim and flight steering', () => {
+  it.each([1, -1])('standing turn follows heading across the ±π boundary, direction %s', sign => {
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sign * (Math.PI - .02), 0, 'YXZ'))
+    expect(eagleRiderAimYaw(rotation, -sign * (Math.PI - .03))).toBeCloseTo(sign * .05)
+  })
+
+  it.each([.4, -.4])('standing turn preserves the eagle up axis and reticle heading with pitch/bank, yaw %s', yaw => {
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-.6, 1, .5, 'YXZ'))
+    const rider = rotation.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), eagleRiderAimYaw(rotation, 1 + yaw)))
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(rider)
+    expect(Math.atan2(forward.x, forward.z)).toBeCloseTo(1 + yaw)
+    expect(new THREE.Vector3(0, 1, 0).applyQuaternion(rider).distanceTo(new THREE.Vector3(0, 1, 0).applyQuaternion(rotation))).toBeLessThan(1e-8)
+  })
+
+  it('continued mouse input stays within the existing 1.25 radian arc while edge steering advances', () => {
+    const controls = new EagleFlightAim()
+    const flight = { yaw: Math.PI - .1, pitch: 0 }
+    for (let frame = 0; frame < 120; frame++) {
+      controls.update(-100, 0, true, flight, 1 / 60)
+      expect(controls.aim.yaw - flight.yaw).toBeLessThanOrEqual(1.25 + 1e-12)
+    }
+    expect(controls.aim.yaw - flight.yaw).toBeCloseTo(1.25)
+    expect(controls.steering.yaw).toBeGreaterThan(flight.yaw)
+  })
+
   it('enters aim on a climbing heading and keeps small reticle movement inside the free zone', () => {
     const controls = new EagleFlightAim()
     const flight = { yaw: 1.2, pitch: .4 }

@@ -158,6 +158,7 @@ export class ThirdPersonCamera {
       this.flightAim.update(dx, dy, input.isRightMouseDown, flight, dt,
         Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])))
       this.player.setFlightSteering(this.flightAim.steering)
+      this.player.setFlightRiderAim(input.isRightMouseDown ? this.flightAim.aim.yaw : null)
       this.yaw = this.flightAim.aim.yaw - Math.PI
       this.pitch = LEVEL_AIM_PITCH - this.flightAim.aim.pitch + EAGLE_AIM.followDownPitch * (1 - this.aimViewBlend)
     } else {

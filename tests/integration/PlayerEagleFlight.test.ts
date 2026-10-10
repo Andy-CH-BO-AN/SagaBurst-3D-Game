@@ -13,12 +13,13 @@ import { ThirdPersonCamera } from '../../src/camera/ThirdPersonCamera'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import type { HeroAssetId } from '../../src/world/HeroAssetCatalog'
 import { fitStandingRider } from '../../src/world/StandingRider'
+import type { CharacterRig } from '../../src/world/CharacterVisuals'
 
 vi.mock('../../src/world/XongkoroVisual', async () => {
   return { XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble }
 })
 
-function controls(values: Partial<Pick<PlayerInput, 'keys' | 'isRightMouseDown' | 'isLeftMouseDown' | 'consumeLeftClick' | 'consumeLeftClickRelease'>> = {}) {
+function controls(values: Partial<Pick<PlayerInput, 'keys' | 'isRightMouseDown' | 'isLeftMouseDown' | 'consumeLeftClick' | 'consumeLeftClickRelease' | 'consumeMouseDelta'>> = {}) {
   // Only the public input boundary is replaced; Player owns attacks and locomotion.
   return { keys: {}, isLeftMouseDown: false, isRightMouseDown: false,
     consumeLeftClick: () => false, consumeLeftClickRelease: () => false,
@@ -48,7 +49,7 @@ function harness(height = 40, hero?: HeroAssetId) {
   const sound = { playBowRelease() {} }
   const update = (input = controls(), dt = 1 / 60, combatEnabled = true) => {
     orbit.update(input, dt)
-    player.update(dt, input, orbit.cameraYaw, new THREE.Vector3(0, 1, 100), [], stamina, quiver, sound, inventory, 1, combatEnabled)
+    player.update(dt, input, orbit.cameraYaw, orbit.getAimPoint(new THREE.Vector3()), [], stamina, quiver, sound, inventory, 1, combatEnabled)
   }
   return { player, mount, hud, inventory, orbit, update }
 }
@@ -66,6 +67,95 @@ function fitOffsetSoles(h: ReturnType<typeof harness>): THREE.Group {
 }
 
 describe('Player eagle production wiring', () => {
+  it.each([{ dx: 200, yaw: -.4 }, { dx: -200, yaw: .4 }])('RMB mouse dx=$dx turns the rider toward the reticle without turning the eagle', ({ dx, yaw }) => {
+    const h = harness()
+    const before = h.mount.group.quaternion.clone()
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx, dy: 0 }) }))
+    for (let frame = 0; frame < 40; frame++) h.update(controls({ isRightMouseDown: true }))
+    // Procedural test visuals face -Z; Euler.rotation.y is ambiguous near π.
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(h.player.group.quaternion)
+    const heading = Math.atan2(forward.x, forward.z)
+    expect(heading).toBeCloseTo(yaw, 4)
+    const ray = h.orbit.getAimDirection(new THREE.Vector3())
+    expect(heading).toBeCloseTo(Math.atan2(ray.x, ray.z), 4)
+    expect(h.mount.flight!.yaw).toBe(0)
+    expect(h.mount.group.quaternion.angleTo(before)).toBeLessThan(1e-8)
+  })
+
+  it('RMB release returns smoothly, re-entry has no snap, and remount clears the rider turn', () => {
+    const h = harness()
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -250, dy: 0 }) }))
+    for (let frame = 0; frame < 40; frame++) h.update(controls({ isRightMouseDown: true }))
+    const relativeYaw = () => {
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(h.player.group.quaternion)
+        .applyQuaternion(h.mount.group.quaternion.clone().invert())
+      return Math.atan2(forward.x, forward.z)
+    }
+    const before = relativeYaw()
+    h.update()
+    expect(relativeYaw()).toBeGreaterThan(0)
+    expect(relativeYaw()).toBeLessThan(before)
+    expect(before - relativeYaw()).toBeLessThan(.03)
+    const released = relativeYaw()
+    h.update(controls({ isRightMouseDown: true }))
+    expect(Math.abs(relativeYaw() - released)).toBeLessThan(.03)
+    for (let frame = 0; frame < 200; frame++) h.update()
+    expect(relativeYaw()).toBeCloseTo(0, 4)
+    h.mount.flight!.phase = 'grounded'
+    h.mount.group.position.y = getTerrainHeight(0, 0)
+    h.player.dismountFromMount()
+    h.player.mountVehicle(h.mount, -1)
+    const remounted = new THREE.Vector3(0, 0, -1).applyQuaternion(h.player.group.quaternion)
+    expect(Math.atan2(remounted.x, remounted.z)).toBeCloseTo(-1)
+  })
+
+  it('turned rider soles stay on the standing socket through pitch/bank and repeated sync', () => {
+    const h = harness()
+    h.update() // Let the equipped tier rebuild the visual before adding sockets.
+    // Typed visual boundary: no GLB; real Player must fit these offset sockets
+    // after its final orientation and animation, rather than before the turn.
+    const { characterVisualGroup: visual, rig } = h.player as unknown as { characterVisualGroup: THREE.Group; rig: CharacterRig }
+    const leftFootSocket = new THREE.Object3D(), rightFootSocket = new THREE.Object3D()
+    leftFootSocket.position.set(-.15, -.8, .2); rightFootSocket.position.set(.15, -.8, .2)
+    visual.add(leftFootSocket, rightFootSocket)
+    Object.assign(rig, { leftFootSocket, rightFootSocket })
+    h.mount.flight!.pitch = .5; h.mount.flight!.bank = -.4
+    h.mount.group.rotation.set(-.5, 0, -.4, 'YXZ')
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -250, dy: 0 }) }))
+    for (let frame = 0; frame < 40; frame++) {
+      h.update(controls({ isRightMouseDown: true, keys: { KeyA: true } }))
+      const midpoint = leftFootSocket.getWorldPosition(new THREE.Vector3()).add(rightFootSocket.getWorldPosition(new THREE.Vector3())).multiplyScalar(.5)
+      expect(midpoint.distanceTo(h.mount.getRiderStandingSeatWorld(new THREE.Vector3()))).toBeLessThan(1e-8)
+      const up = new THREE.Vector3(0, 1, 0)
+      expect(up.clone().applyQuaternion(h.player.group.quaternion).distanceTo(up.applyQuaternion(h.mount.group.quaternion))).toBeLessThan(1e-8)
+      const position = h.player.position.clone(), rotation = h.player.group.quaternion.clone()
+      h.player.syncMountTransform()
+      expect(h.player.position.distanceTo(position)).toBeLessThan(1e-8)
+      expect(h.player.group.quaternion.angleTo(rotation)).toBeLessThan(1e-7)
+    }
+    expect(h.mount.flight!.pitch).toBeGreaterThan(.3)
+    expect(Math.abs(h.mount.flight!.bank)).toBeGreaterThan(.1)
+    const heading = new THREE.Vector3(0, 0, -1).applyQuaternion(h.player.group.quaternion)
+    const reticle = h.orbit.getAimDirection(new THREE.Vector3())
+    expect(Math.atan2(heading.x, heading.z)).toBeCloseTo(Math.atan2(reticle.x, reticle.z), 1)
+  })
+
+  it('aim crossing +π to -π takes a small rider turn while edge steering remains gradual', () => {
+    const h = harness()
+    h.mount.flight!.yaw = Math.PI - .02
+    h.mount.group.rotation.set(0, Math.PI - .02, 0, 'YXZ')
+    h.player.syncMountTransform()
+    const before = h.player.group.quaternion.clone()
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -25, dy: 0 }) }))
+    expect(h.player.group.quaternion.angleTo(before)).toBeGreaterThan(.005)
+    expect(h.player.group.quaternion.angleTo(before)).toBeLessThan(.05)
+    for (let frame = 0; frame < 90; frame++) h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -100, dy: 0 }) }))
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(h.player.group.quaternion)
+    const delta = Math.atan2(forward.x, forward.z) - h.mount.flight!.yaw
+    expect(Math.abs(Math.atan2(Math.sin(delta), Math.cos(delta)))).toBeLessThanOrEqual(1.25)
+    expect(h.mount.flight!.yaw).toBeGreaterThan(Math.PI + .2)
+  })
+
   it('grounded boarding synchronizes the first camera flight heading and dismount finds an unobstructed supported spot', () => {
     const h = harness()
     h.mount.flight!.phase = 'grounded'
@@ -207,16 +297,20 @@ describe('Player eagle production wiring', () => {
     h.inventory.equipWeapon(weapon)
     const shots: ArrowLaunchEvent[] = []
     h.player.onFireArrow = shot => shots.push(shot)
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -200, dy: 0 }) }))
     if (weapon === 'elven_runebow') {
       for (let i = 0; i < 30; i++) h.update(controls({ isRightMouseDown: true, isLeftMouseDown: true }))
       expect(shots).toHaveLength(0)
       h.update(controls({ isRightMouseDown: true, consumeLeftClickRelease: () => true }))
     } else h.update(controls({ isRightMouseDown: true, consumeLeftClick: () => true }))
+    const target = h.orbit.getAimPoint(new THREE.Vector3())
     const z = h.mount.group.position.z
     for (let i = 0; i < 90; i++) h.update(controls({ isRightMouseDown: true }))
     expect(shots).toHaveLength(1)
     expect(shots[0].origin.y).toBeGreaterThan(30)
     expect(shots[0].direction.length()).toBeCloseTo(1)
+    expect(shots[0].direction.angleTo(target.sub(shots[0].origin))).toBeLessThan(1e-7)
+    expect(shots[0].direction.x).toBeGreaterThan(.2)
     expect(h.player.arrowCount).toBe(29)
     expect(h.mount.group.position.z).toBeGreaterThan(z + 15)
   })

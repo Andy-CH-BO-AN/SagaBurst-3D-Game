@@ -1,4 +1,4 @@
-import { MathUtils } from 'three'
+import { MathUtils, Quaternion, Vector3 } from 'three'
 import { XONGKORO } from '../movement/XongkoroConfig'
 
 /** Camera/input tuning is independent from flight speed, lift and collision. */
@@ -20,6 +20,20 @@ export const EAGLE_AIM = Object.freeze({
 
 export interface EagleAimHeading { yaw: number; pitch: number }
 const angleDelta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from))
+const riderUp = new Vector3()
+const riderForward = new Vector3()
+const mountInverse = new Quaternion()
+
+/** Local standing-axis turn whose world horizontal heading matches the reticle. */
+export function eagleRiderAimYaw(mountRotation: Quaternion, aimYaw: number): number {
+  riderUp.set(0, 1, 0).applyQuaternion(mountRotation)
+  riderForward.set(Math.sin(aimYaw), 0, Math.cos(aimYaw))
+  // Flight pitch/bank keep up.y positive. Lift the horizontal heading onto the
+  // eagle's standing plane before converting it to local space.
+  riderForward.y = -riderUp.dot(riderForward) / riderUp.y
+  riderForward.applyQuaternion(mountInverse.copy(mountRotation).invert())
+  return Math.atan2(riderForward.x, riderForward.z)
+}
 const edge = (offset: number, arc: number) => {
   const ratio = Math.abs(offset) / arc
   return Math.sign(offset) * MathUtils.clamp((ratio - EAGLE_AIM.freeZone) / (1 - EAGLE_AIM.freeZone), 0, 1)
