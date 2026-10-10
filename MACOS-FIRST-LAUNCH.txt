@@ -17,7 +17,7 @@ This build has valid ad-hoc signatures, but is not Apple-notarized.
 This removes the download quarantine attribute from this app only.
 
 官方下載 / Official release:
-https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases/tag/v1.0.0
+https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/releases/latest
 
 遊戲存檔不會因替換 App 而刪除。
 Replacing the app preserves existing game saves.
