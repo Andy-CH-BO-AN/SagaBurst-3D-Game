@@ -5,7 +5,7 @@ import { veteranPlayerSpawn, veteranPlayerYaw } from '../../src/career/BanditMis
 import { TownScene } from '../../src/town/TownScene'
 import { Player } from '../../src/player/Player'
 import { createCareerProfile, type CareerRank } from '../../src/career/CareerProfile'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 
 class Element {
@@ -32,6 +32,8 @@ function board(rank: CareerRank, page?: string, completed: string[] = [], tierCo
   const town = createTownCombatFixture() as any
   Object.assign(town, {
     profile, player: { arrowCount: 30 }, deploymentPage: page,
+    // Mission board observes population data only; no actor construction or simulation.
+    residents: withTownCommandSquadRoster('roman', townRoster()).map(spec => ({ spec, npc: { combatantId: spec.id } })),
     skills: { skillState: profile.skills }, careerSkillSaveTimer: null,
     openPanel: () => panel,
     button: (parent: Element, label: string, onclick: () => void) => {
@@ -59,6 +61,7 @@ describe('Veteran mission board integration', () => {
     const expectedTab = rank === 'veteran' ? '老兵任務' : '隊長任務'
     expect(town.deploymentPage).toBe(expectedPage)
     expect(elements.find(element => element.textContent === expectedTab)!.attributes['aria-pressed']).toBe('true')
+    if (rank !== 'veteran') expect(elements.some(element => element.textContent.includes('指揮北門 26 名'))).toBe(true)
     expect(board(rank, 'recruit').town.deploymentPage).toBe('recruit')
     expect(board(rank, 'soldier').town.deploymentPage).toBe('soldier')
     expect(board(rank, 'veteran').town.deploymentPage).toBe('veteran')

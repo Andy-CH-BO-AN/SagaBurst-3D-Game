@@ -290,6 +290,23 @@ describe('Outskirts participants alongside existing Town missions', () => {
     expect(h.defense.fieldNpcs).toEqual([defender])
   })
 
+  it.each(['formation', 'follow', 'defend'] as const)('preserves player-owned gate defenders %s while enemies are nearby', order => {
+    // Recording update boundary verifies the caller never substitutes Attack for the accepted command.
+    const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT), defender = combatActor('friendly')
+    bandit.group.position.x = 6; defender.tacticalOrder = order
+    const h = warfareFixture([bandit])
+    h.defense.active = { ...veteranMission(), kind: 'town-defense', phase: 'ATTACKING', officialSquad: {
+      type: 'mission-official', townFaction: 'roman', squadId: 1, actorIds: ['friendly'],
+      contribution: { damageDealt: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+    } }
+    h.defense.phase = 'ATTACKING'; h.defense.fieldNpcs = [defender]
+    h.simulation.residents = [combatResident(defender)]
+    defender.update.mockImplementation(() => { expect(defender.tacticalOrder).toBe(order) })
+    h.combat.update(.02, 0, 1)
+    expect(defender.update).toHaveBeenCalledOnce()
+    expect(defender.tacticalOrder).toBe(order)
+  })
+
   it('lets an arriving home defender pursue its roaming Bandit attacker without losing its defend deployment', () => {
     const scene = new THREE.Scene(), player = new Player(scene)
     const defender = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Defender', 1, false)

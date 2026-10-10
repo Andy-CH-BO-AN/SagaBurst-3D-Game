@@ -36,12 +36,17 @@ export class MissionGuide {
     remainingEnemies: number,
     lagging = false,
     patrol = false,
-    context?: 'mounted-field' | 'travel-encounter',
+    context?: 'mounted-field' | 'travel-encounter' | 'captain-sweep',
   ): void {
     this.root.hidden = false
     if (context === 'travel-encounter' && target) {
       this.pointAt(playerPosition, cameraYaw, target)
       this.label.textContent = `途中遭遇敵軍 · 支援隊伍 · 剩餘 ${remainingEnemies}`
+      return
+    }
+    if (context === 'captain-sweep' && target && (phase === 'ASSEMBLING' || phase === 'MARCHING' || phase === 'ENGAGING')) {
+      const distance = this.pointAt(playerPosition, cameraYaw, target)
+      this.label.textContent = `前往 Bandits 所在位置 · ${Math.round(distance)}m · 剩餘 ${remainingEnemies}`
       return
     }
     if (phase === 'ENGAGING') {
@@ -83,6 +88,7 @@ export class MissionGuide {
     remainingEnemies: number,
     civilianDeaths: number,
     preparationRemaining = 0,
+    gateLabel?: string,
   ): void {
     this.root.hidden = false
     if (phase === 'PREPARING') {
@@ -92,17 +98,17 @@ export class MissionGuide {
       if (distance > 8) {
         this.arrow.style.opacity = '.58'
         this.arrow.style.transform = `rotate(${missionGuideArrowAngle(dx, dz, cameraYaw)}rad)`
-        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · 防守位置 ${Math.round(distance)}m`
+        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · ${gateLabel ?? '防守位置'} ${Math.round(distance)}m`
       } else {
         this.arrow.style.opacity = '.18'
         this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · 準備迎戰`
+        this.label.textContent = `開戰倒數 ${Math.ceil(preparationRemaining)} 秒 · ${gateLabel ? `${gateLabel} · ` : ''}準備迎戰`
       }
       return
     }
     this.arrow.style.opacity = '.18'
     this.arrow.style.transform = 'rotate(-90deg) scale(.7)'
-    this.label.textContent = `TOWN DEFENSE · 敵軍剩餘 ${remainingEnemies} · 平民死亡 ${civilianDeaths}/10`
+    this.label.textContent = `TOWN DEFENSE${gateLabel ? ` · ${gateLabel}` : ''} · 敵軍剩餘 ${remainingEnemies} · 平民死亡 ${civilianDeaths}/10`
   }
 
   /** Reuses the mission arrow for Career battles at the real Campaign Outpost. */

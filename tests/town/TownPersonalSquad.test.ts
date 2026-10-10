@@ -32,7 +32,8 @@ import type { Player } from '../../src/player/Player'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { careerMissionCommandMeritPolicy, createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
+import { parsePersonalMission, snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
 
@@ -42,7 +43,7 @@ vi.mock('../../src/world/XongkoroVisual', async () => ({ XongkoroVisual: (await 
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({ ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()), HorseAssetRegistry: {
   ready: true, createInstance: () => {
     const root = new THREE.Group(), saddleSeat = new THREE.Object3D(); saddleSeat.position.y = 1.7; root.add(saddleSeat)
-    return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null, setLocomotion() {}, setAppearanceVariant() {}, playOnce() {}, playDeath() {}, update() {}, dispose() {} }
+    return { root, saddleSeat, lod: new THREE.LOD(), skeleton: null, setLocomotion() {}, setAppearanceVariant() {}, playOnce() {}, playStudioClip() {}, playDeath() {}, update() {}, dispose() {} }
   },
 } }))
 vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({ ...(await importOriginal<typeof import('../../src/world/MakiRangerEquipment')>()), createMakiRangerBowInstance: () => ({
@@ -100,6 +101,29 @@ function crossesPadCorridor(footprint: THREE.Box3, start: THREE.Vector3, end: TH
   return contact !== null && start.distanceTo(contact) <= length
 }
 describe('HR Center and personal runtime', () => {
+  it('HR refit persists first, revives soldiers and mounts, replenishes equipment and keeps Follow', () => {
+    // Two real members and one owned mount exercise the shared revival lifecycle without a TownWorld.
+    const { controller, profile } = harness('roman', 2)
+    completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
+    const [soldier, captain] = controller.actors, mount = captain.mount!
+    soldier.takeDamage(99999); mount.takeDamage(99999)
+    captain.restoreCombatAmmo(0); captain.shield.shieldImpactRemaining = 0
+    expect(controller.refit(() => false)).toBe(false)
+    expect(soldier.dead).toBe(true); expect(mount.dead).toBe(true)
+    expect(controller.refit(next => { Object.assign(profile, next); return true })).toBe(true)
+    expect(soldier.dead).toBe(false); expect(soldier.hp).toBe(soldier.maxHp)
+    expect(mount.dead).toBe(false); expect(mount.currentHp).toBe(mount.maxHp)
+    expect(captain.mount).toBe(mount); expect(mount.riderNpc).toBe(captain)
+    expect(captain.isFalling).toBe(false)
+    expect(captain.shield.shieldImpactRemaining).toBe(captain.shield.shieldImpactMax)
+    expect(controller.actors.every(actor => actor.tacticalOrder === 'follow')).toBe(true)
+    const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    expect(restored.personalSquadRuntime?.members[soldier.combatantId]).toMatchObject({ status: 'deployed', hp: soldier.maxHp, order: 'follow' })
+    controller.resumeCommand('charge'); captain.setTacticalOrder('charge')
+    const save = vi.fn(() => true)
+    expect(controller.refit(save)).toBe(false); expect(save).not.toHaveBeenCalled()
+  })
+
   it('keeps shared Player and actual eagle-owner pad identities across roster reordering and releases reassigned owners', () => {
     const profile = { ...createCareerProfile('roman'), selectedMountId: 'xongkoro' as const, personalSquad: { members: [
       { id: 'personal:foot', type: 'soldier' as const },
@@ -146,6 +170,29 @@ describe('HR Center and personal runtime', () => {
     expect(mountVehicle).toHaveBeenCalledOnce()
     controller.release('xongkoro')
     expect(pads.get('player')).toBeUndefined(); expect(controller.activeMount).toBeNull()
+  })
+
+  it('carries unmaterialized private casualties and wounded eagle reserves into a new mission without refitting them', () => {
+    // No NPC, Mount, world or assets: both checkpoints deliberately remain unmaterialized.
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', personalSquad: { members: [
+      { id: 'personal:dead', type: 'soldier' }, { id: 'personal:reserve', type: 'captain',
+        equipment: { melee: 'centurion_blade', ranged: null, shield: null, mount: 'xongkoro' } },
+    ] } }
+    const saved = snapshotPersonalMission(profile)!
+    saved.members['personal:dead'] = { status: 'dead', hp: 0, ammo: 0 }
+    saved.members['personal:reserve'] = { status: 'reserve', hp: 37, eaglePadId: 'private-eagle-pad:2',
+      mount: { hp: 0, mounted: false, position: { x: 60, z: 60, yaw: .4 } } }
+    const player = { group: new THREE.Group(), combatPosition: new THREE.Vector3(), dead: false } as unknown as Player
+    const runtime = new PersonalSquadRuntime(new THREE.Scene(), [], () => profile, () => player)
+    cleanups.push(() => runtime.cleanup())
+    runtime.restoreMission(saved)
+    const before = runtime.checkpoint()!
+    const captured = runtime.captureForMission(snapshotPersonalMission(profile)!)
+    expect(captured.memberIds).toEqual(['personal:dead', 'personal:reserve'])
+    expect(captured.members).toEqual(before.members)
+    expect(runtime.actors).toHaveLength(0); expect(runtime.mounts).toHaveLength(0)
+    expect(runtime.checkpoint()).toEqual(before)
+    expect(parsePersonalMission(JSON.parse(JSON.stringify(captured)))?.members).toEqual(before.members)
   })
 
   it('restores an already-saved legacy Player eagle when three squad home pads are reserved', () => {

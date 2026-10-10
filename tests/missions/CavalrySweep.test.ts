@@ -1,3 +1,4 @@
+import { CAPTAIN_CAVALRY_COMMAND_ID } from '../../src/career/CaptainMissionCatalog'
 import { completeNpcDeployment, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { withMissionCheckpoint } from '../helpers/missionCheckpoint'
 import * as THREE from 'three'
@@ -107,6 +108,26 @@ function fixture({ borrowedSlots = [0], livingSlots = [0, 1], enemyCount = 0,
   if (joinAssembly) assemble()
   return { controller, player, residents, assemble, driver, profile: () => profile, reload: () => { controller.dispose(); profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!; completeNpcDeployment(() => controller.startActiveMission(), driver) } }
 }
+
+describe('Cavalry Sweep guide routing', () => {
+  it.each([CAVALRY_SWEEP_ID, CAPTAIN_CAVALRY_COMMAND_ID])('%s routes marching guidance to its correct objective', templateId => {
+    // Guide caller only: 0 real actors/mounts/world; movement and persistence are independent boundaries.
+    const profile = ready(); profile.activeMission = createCavalrySweepMission('guide')
+    profile.activeMission.templateId = templateId; profile.activeMission.phase = 'MARCHING'
+    const update = vi.fn(), leaderPosition = new THREE.Vector3(25, 0, -80)
+    const c = Object.assign(Object.create(BanditMissionController.prototype), {
+      readProfile: () => profile, player: () => ({ dead: false, combatPosition: new THREE.Vector3() }),
+      checkpoint: { advance: vi.fn() }, friendlies: [], camps: [],
+      travelEncounter: { active: false }, ensureLivingLeader: () => false,
+      leader: { combatPosition: leaderPosition }, persistRuntimeProgress: vi.fn(),
+      guide: { update },
+    }) as { updateSweep(dt: number, cameraYaw: number): void }
+    c.updateSweep(.016, 0)
+    expect(update).toHaveBeenCalledExactlyOnceWith('MARCHING', new THREE.Vector3(), 0,
+      templateId === CAPTAIN_CAVALRY_COMMAND_ID ? SWEEP_CENTER : leaderPosition, 0, false, false,
+      templateId === CAPTAIN_CAVALRY_COMMAND_ID ? 'captain-sweep' : undefined)
+  })
+})
 
 describe('Cavalry Sweep eligibility', () => {
   it.each(CAREER_RANKS)('%s needs only a usable owned mount', rank => {

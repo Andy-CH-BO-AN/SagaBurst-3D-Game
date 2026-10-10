@@ -14,8 +14,17 @@ import { MountType, type Mount } from '../../src/world/Mount'
 import { AIType, Faction, type NPC } from '../../src/world/NPC'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import type { ObstacleData } from '../../src/world/Terrain'
+import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { recording, RecordingMount, RecordingNpc, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
+vi.mock('../../src/world/NPC', async original => ({
+  ...(await original<typeof import('../../src/world/NPC')>()),
+  NPC: (await import('../helpers/npcSpawnRecording')).RecordingNpc,
+}))
+vi.mock('../../src/world/Mount', async original => ({
+  ...(await original<typeof import('../../src/world/Mount')>()),
+  Mount: (await import('../helpers/npcSpawnRecording')).RecordingMount,
+}))
 vi.mock('../../src/career/MissionGuide', () => ({ MissionGuide: class { hide() {} dispose() {} } }))
 afterEach(() => { resetSpawnRecording(); vi.restoreAllMocks() })
 
@@ -25,7 +34,8 @@ const gateCenters: Record<TownGateId, readonly [number, number]> = {
 }
 
 /** Full capacity is necessary input for accumulated occupied-slot avoidance.
- * Cost: 223 recording NPCs, one recording cat, real fortifications/NavigationWorld;
+ * Cost: 228 resident recordings, one queued attacker recording and one recording cat,
+ * real fortifications/NavigationWorld;
  * 0 real NPC/Mount/TownWorld/GLB. Actor commands are observed, not simulated.
  */
 function placementFixture() {
@@ -66,9 +76,9 @@ function placementFixture() {
   } as unknown as Player
   let profile = createCareerProfile('roman')
   profile.activeMission = createEnemyTownAssaultMission('capacity-placement')
-  // Saved attacker casualties remove unrelated spawn work. Resident deployment remains fresh:
-  // real start/plan production and the sealed prepareDeployment finalizer run without draining a queue.
-  profile.activeMission.deadFriendlyActorIds = Array.from({ length: 119 }, (_, i) => `capacity-placement:siege:${i}`)
+  // One saved surviving foot attacker keeps the finalizer pending without unrelated army construction.
+  // Resident deployment remains fresh and uses the real full-capacity plan.
+  profile.activeMission.deadFriendlyActorIds = Array.from({ length: 119 }, (_, i) => i).filter(i => i != 19).map(i => `capacity-placement:siege:${i}`)
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const scheduler = new NpcSpawnScheduler()
@@ -76,15 +86,32 @@ function placementFixture() {
     next => { profile = next; return true }, cat as unknown as Mount, navigation, {
       gates: city.gates, obstacles, patrol: new TownCavalryPatrolController(residents), closureBodies: () => [],
     }, scheduler)
-  return { controller, residents, navigation, obstacles, scheduler }
+  return { controller, residents, navigation, obstacles, scheduler, driver: new NpcSpawnTestDriver(scheduler) }
 }
 
 describe('full-capacity Siege resident placement', () => {
-  it('deploys all 203 military and 20 civilians through real fortifications with late-slot sector, clearance and occupancy guarantees', () => {
+  it('places all 203 military and 20 civilians before enemy readiness, retaining late-slot sector, clearance and occupancy guarantees', () => {
     const h = placementFixture()
     expect(h.controller.startActiveMission()).toBe(true)
-    expect(h.scheduler.pending).toBe(0)
+    expect(h.scheduler.pending).toBe(1)
+    expect(h.controller.ready).toBe(false)
     expect(recording.npcs).toHaveLength(228)
+    expect(recording.mounts).toHaveLength(1)
+    // Observe actual placement writes before the queued enemy/finalizer can run.
+    // These constructor doubles do not establish native locomotion behavior.
+    const deployed = h.residents.filter(resident => !resident.spec.eagle)
+    expect(deployed).toHaveLength(223)
+    expect(h.controller.groups.map(group => group.id).sort()).toEqual(['east', 'north', 'south', 'west'])
+    for (const { spec } of deployed) {
+      const npc = recording.npcs.find(actor => actor.combatantId === spec.id)!
+      expect(npc.formationTarget, `${spec.id} has an immediate deployment target`).toBeDefined()
+      expect(npc.group.position.toArray(), `${spec.id} is positioned before enemy readiness`)
+        .toEqual(npc.formationTarget!.position.toArray())
+    }
+    h.driver.drain()
+    expect(h.scheduler.pending).toBe(0)
+    expect(h.controller.ready).toBe(true)
+    expect(recording.npcs).toHaveLength(229)
     expect(recording.mounts).toHaveLength(1)
     const military = h.residents.filter(resident => resident.spec.role !== 'civilian' && !resident.spec.eagle)
     const airborne = h.residents.filter(resident => resident.spec.eagle)

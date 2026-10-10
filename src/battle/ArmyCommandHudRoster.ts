@@ -1,7 +1,7 @@
 import { matchesArmyCommandTarget, type ArmyCommandTarget, type SquadIdentity } from './CommandTarget'
 
 /** Read-only display membership. A pending identity has no NPC and cannot receive orders. */
-export type ArmyHudMemberState = 'deployed' | 'returning' | 'pending' | 'dead' | 'missing' | 'reserve' | 'exited'
+export type ArmyHudMemberState = 'deployed' | 'returning' | 'training' | 'pending' | 'dead' | 'missing' | 'reserve' | 'exited'
 
 export interface ArmyHudMember {
   id: string
@@ -20,6 +20,7 @@ export interface ArmyHudCounts {
   alive: number
   deployed: number
   returning: number
+  training: number
   pending: number
   dead: number
   missing: number
@@ -29,7 +30,7 @@ export interface ArmyHudCounts {
 
 /** Counts people by combatant ID, not mounts or rendered objects; reserves have no field presence. */
 export function countArmyHudRoster(roster: ArmyHudRoster, target: ArmyCommandTarget): ArmyHudCounts {
-  const counts: ArmyHudCounts = { total: 0, alive: 0, deployed: 0, returning: 0, pending: 0, dead: 0, missing: 0, reserve: 0, exited: 0 }
+  const counts: ArmyHudCounts = { total: 0, alive: 0, deployed: 0, returning: 0, training: 0, pending: 0, dead: 0, missing: 0, reserve: 0, exited: 0 }
   const seen = new Set<string>()
   for (const member of roster.members) {
     if (!matchesArmyCommandTarget(member, target) || seen.has(member.id)) continue
@@ -39,11 +40,12 @@ export function countArmyHudRoster(roster: ArmyHudRoster, target: ArmyCommandTar
       continue
     }
     counts.total++
-    if (member.state === 'deployed' || member.state === 'returning') {
-      // RETURNING is a living, present soldier; only command eligibility is suspended.
+    if (member.state === 'deployed' || member.state === 'returning' || member.state === 'training') {
+      // Returning and training Town residents remain living, present soldiers.
       counts.deployed++
       counts.alive++
       if (member.state === 'returning') counts.returning++
+      if (member.state === 'training') counts.training++
     } else {
       counts[member.state]++
     }

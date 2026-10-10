@@ -26,16 +26,17 @@ function resident(spec: TownActorSpec) {
   homeMount?.group.position.copy(group.position)
   let formation: NPC['combatFormationCheckpoint']
   const actor = { group, combatPosition: group.position, combatantId: spec.id, name: spec.id,
-    dead: false, hp: 73, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
+    dead: false, hp: 73, maxHp: 100, combatAmmoCapacity: 30, inCombat: false, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
     mount: homeMount ?? null, isMounted: Boolean(homeMount), isFalling: false, combatAmmo: 12,
     tacticalOrder: 'attack' as NPC['tacticalOrder'], formationCommandId: null as number | null,
     shield: { shieldImpactRemaining: 1, shieldImpactMax: 8 }, respawnEnabled: false,
     setCommandAllegiance: vi.fn((faction: Faction) => { actor.faction = faction }),
     setCommandSquad: vi.fn((squad: NPC['squadId']) => { actor.squadId = squad }),
-    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn(),
+    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn(() => { actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; actor.formationCommandId = null; formation = undefined }),
     assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; formation = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false } }),
     isFormationTargetReached: vi.fn(() => false), updateTownTravel: vi.fn(),
+    refitCombat: vi.fn(() => { actor.hp = 100; actor.dead = false; actor.combatAmmo = 30; actor.shield.shieldImpactRemaining = 8 }),
     restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp === 0 }), restoreCombatAmmo: vi.fn(),
     get combatFormationCheckpoint() { return formation },
   }
@@ -82,6 +83,26 @@ describe('permanent Captain Town command roster', () => {
     controller.beginHostility()
     expect(controller.authorizedActorIds).toHaveLength(30); expect(residents[0].npc.faction).toBe(Faction.PLAYER)
   })
+  it('Sergeant refit commits full resources before reviving the permanent residents and rejects offensive orders', () => {
+    const residents = townCommandSquadRoster('roman').map(resident), p = player()
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    let saving = true
+    const commit = vi.fn((next: typeof profile) => { if (!saving) return false; profile = next; return true })
+    const controller = new TownCommandSquadController(residents, () => p, () => profile, commit)
+    controller.grant(); controller.issue('follow')
+    // An unmounted resident is enough to verify transaction staging; real rider revival belongs to HR lifecycle.
+    const foot = residents.find(r => !r.homeMount)!
+    foot.actor.dead = true; foot.actor.hp = 0
+    saving = false; expect(controller.refit()).toBe(false); expect(foot.npc.dead).toBe(true)
+    saving = true; expect(controller.refit()).toBe(true)
+    expect(foot.npc.hp).toBe(100); expect(foot.npc.dead).toBe(false)
+    expect(profile.townCommandSquad?.members?.[foot.spec.id]).toMatchObject({ hp: 100, ammo: 30, shieldImpact: 8, status: 'deployed' })
+    foot.actor.inCombat = true; expect(controller.refit()).toBe(false)
+    foot.actor.inCombat = false
+    foot.actor.tacticalOrder = 'attack'; expect(controller.refit()).toBe(false)
+    foot.actor.tacticalOrder = 'charge'; expect(controller.refit()).toBe(false)
+  })
+
   it('keeps returning soldiers loyal but rejects new orders until their real travel owner reports arrival', () => {
     const residents = townCommandSquadRoster('roman').map(resident), p = player()
     let profile = createCareerProfile('roman'); profile.rank = 'captain'
@@ -125,14 +146,27 @@ describe('permanent Captain Town command roster', () => {
     const hpAndMount = residents.map(r => [r.npc.hp, r.homeMount?.currentHp])
     const h = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
       undefined, { accepts: npc => owner.accepts(npc), enabled: () => owner.commandsEnabled,
-        issue: (order, target) => owner.issue(order, target) }, () => town.commandHudRoster())
+        issue: (order, target) => owner.issue(order, target) }, () => town.commandHudRoster(),
+      (order, target) => { owner.issue(order, target) })
     const summary = () => h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:1')?.summary
 
     expect(summary()).toBe('30/30')
+    expect(owner.trainingActorIds).toHaveLength(30)
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
+    h.input.pressAll(); h.controller.update(); h.input.press('1'); h.controller.update()
+    expect(owner.trainingActorIds).toEqual([])
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'attack')).toBe(true)
     h.input.press('1'); h.controller.update(); h.input.press('6'); h.controller.update()
     expect(owner.state).toBe('RETURNING')
     expect(owner.returningActorIds).toHaveLength(30)
     expect(summary()).toBe('30/30 · 返回中 30')
+    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.order])).toEqual([
+      ['squad:1', 'returning'], ['all', 'returning'],
+    ])
+    // A newly constructed HUD must read real return state even with default attack caches.
+    const resumedHud = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, { accepts: npc => owner.accepts(npc), enabled: () => owner.commandsEnabled }, () => town.commandHudRoster())
+    expect(resumedHud.ui.render.mock.lastCall![0].every(entry => entry.order === 'returning')).toBe(true)
     expect(owner.actors.every(actor => !owner.accepts(actor))).toBe(true)
     const successes = h.ui.showFeedback.mock.calls.length
     const orderCalls = residents.map(r => r.actor.setTacticalOrder.mock.calls.length)
@@ -143,8 +177,16 @@ describe('permanent Captain Town command roster', () => {
     expect(residents.map(r => r.actor.setTacticalOrder.mock.calls.length)).toEqual(orderCalls)
     expect(residents.map(r => r.npc.combatPosition.equals(positions[residents.indexOf(r)]))).toEqual(Array(30).fill(true))
 
+    // Early arrivals resume training while the remainder still return; this is still a return lifecycle.
+    const first = residents[0]
+    first.actor.isFormationTargetReached.mockReturnValue(true)
+    owner.updateResident(first, .016, new THREE.Vector3(), [], {} as NavigationWorld)
+    h.controller.update()
+    expect(owner.trainingActorIds).toEqual([first.spec.id])
+    expect(summary()).toBe('30/30 · 返回中 29')
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'returning')).toBe(true)
     // Existing travel owner, not HUD, decides when the physical return finishes.
-    for (const r of residents) {
+    for (const r of residents.slice(1)) {
       r.actor.isFormationTargetReached.mockReturnValue(true)
       expect(owner.updateResident(r, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(true)
     }
@@ -152,6 +194,20 @@ describe('permanent Captain Town command roster', () => {
     expect(owner.state).toBe('TRAINING')
     h.controller.update()
     expect(summary()).toBe('30/30')
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
+    // A fresh HUD and real serialization reload must both ignore their initial attack cache.
+    const saved = owner.checkpoint()!
+    town.profile = parseCareerProfile(JSON.parse(JSON.stringify({ ...town.profile, townCommandSquad: saved })))!
+    const restored = new TownCommandSquadController(residents, () => p, () => town.profile,
+      next => { town.profile = next; return true })
+    town.townCommand = restored
+    expect(restored.restore()).toBe(true)
+    const trainingHud = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, { accepts: npc => restored.accepts(npc), enabled: () => restored.commandsEnabled }, () => town.commandHudRoster())
+    expect(trainingHud.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
+    expect(trainingHud.ui.render.mock.lastCall![0].every(entry => entry.summary === '30/30')).toBe(true)
+    // The existing live owner remains available to this HUD's command adapter.
+    town.townCommand = owner
     h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
     expect(h.ui.showFeedback).toHaveBeenLastCalledWith('第 1 隊 → 防禦')
     expect(residents.every(r => r.actor.setTacticalOrder.mock.lastCall?.[0] === 'defend')).toBe(true)

@@ -8,7 +8,7 @@ import {
 } from './UnitPresetCatalog'
 import type { TacticalOrder } from './TacticalOrder'
 import { armyHudCountSummary, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
-import { ArmyCommandUI, type ArmyCommandHudEntry } from '../ui/ArmyCommandUI'
+import { ArmyCommandUI, type ArmyCommandHudEntry, type ArmyCommandHudOrder } from '../ui/ArmyCommandUI'
 import type { FormationController } from './FormationController'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import {
@@ -387,7 +387,7 @@ export class ArmyCommandController {
         return
       }
       this._clearFormationDesiredOrders(target)
-      if (order === 'follow') this._setDesiredOrder(target, order)
+      this._setDesiredOrder(target, order === 'dismiss' ? 'defend' : order)
       this.ui.showFeedback(`${this._targetLabel(target)} → ${order === 'follow' ? 'Follow me' : 'Dismiss · 收隊'}`)
       this._closeSubmenu()
       return
@@ -639,11 +639,30 @@ export class ArmyCommandController {
         key: shortcut.key,
         target: shortcut.target,
         label: this._targetLabel(shortcut.target),
-        order: isAll ? this.allOrder : (this.orders.get(shortcut.target) ?? this.initialOrder),
+        order: this._hudOrder(shortcut.target),
         side: isAll || Number(shortcut.key) <= (this.groupingMode === 'squad' ? 4 : (this.faction === 'viking' ? 3 : 4)) ? 'left' : 'right',
         summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
+  }
+
+  /** Scene-owned return/training lifecycles override stale combat command caches. */
+  private _hudOrder(target: ArmyCommandTarget): ArmyCommandHudOrder {
+    const desired = target === 'all' ? this.allOrder : this.orders.get(target) ?? this.initialOrder
+    if (!this.hudRosterSnapshot || this.groupingMode !== 'squad') return desired
+    const counts = countArmyHudRoster(this.hudRosterSnapshot, target)
+    if (counts.returning > 0) return counts.returning + counts.training === counts.alive ? 'returning' : 'mixed'
+    if (counts.training > 0) return counts.training === counts.alive ? 'training' : 'mixed'
+    if (counts.total === 0 && counts.reserve > 0) return 'reserve'
+    if (target === 'all') {
+      // Reserve-only HR groups have no field order and must not make the active
+      // army's status mixed merely because their old cached order differs.
+      const orders = this._availableShortcuts().filter(shortcut => shortcut.target !== 'all'
+        && countArmyHudRoster(this.hudRosterSnapshot!, shortcut.target).total > 0)
+        .map(shortcut => this._hudOrder(shortcut.target))
+      if (orders.length) return orders.every(order => order === orders[0]) ? orders[0] : 'mixed'
+    }
+    return desired
   }
 
   private _targetLabel(target: ArmyCommandTarget | null): string {

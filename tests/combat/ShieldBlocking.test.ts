@@ -120,7 +120,7 @@ describe('Routing, progression and controls', () => {
     const emit = vi.fn(), award = vi.fn(); p.onShieldBlock = award
     const hit = { ...context(), weaponId: 'steel_sword', emit }
     expect(damagePlayer(p, 80, { setFill() {} } as any, 'scutum_t3', hit).appliedDamage).toBe(0)
-    expect(emit).not.toHaveBeenCalled(); expect(award).toHaveBeenCalledExactlyOnceWith(1)
+    expect(emit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ type: 'hit_blocked', blockedImpact: 1, target: expect.objectContaining({ targetId: 'player' }) })); expect(award).toHaveBeenCalledExactlyOnceWith(1)
     damagePlayer(p, 80, {} as any, 'scutum_t3', { ...hit, hostileToTarget: false })
     damagePlayer(p, 80, {} as any, 'scutum_t3', { ...hit, source: { ...hit.source, actorId: 'player', actorType: 'player' } })
     expect(award).toHaveBeenCalledTimes(1)

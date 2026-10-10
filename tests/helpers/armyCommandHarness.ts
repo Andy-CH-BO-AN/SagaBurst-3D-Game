@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 import { ArmyCommandController, type ArmyCommandAuthority } from '../../src/battle/ArmyCommandController'
 import type { ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
 import type { TacticalOrder } from '../../src/battle/TacticalOrder'
+import type { ArmyCommandTarget } from '../../src/battle/CommandTarget'
 import type { NPC, Faction } from '../../src/world/NPC'
 import type { PlayerInput } from '../../src/player/PlayerInput'
 import type { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
@@ -34,6 +35,7 @@ export function createArmyCommandHarness(
   personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
   authority?: ArmyCommandAuthority,
   hudRoster?: () => ArmyHudRoster | undefined,
+  onCommandIssued: ((order: TacticalOrder, target?: ArmyCommandTarget) => void) | null = null,
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -80,7 +82,7 @@ export function createArmyCommandHarness(
     input as unknown as PlayerInput,
     ui as unknown as ArmyCommandUI,
     formation as FormationController | null,
-    null,
+    onCommandIssued,
     'attack',
     canIssueOrder,
     inventory,

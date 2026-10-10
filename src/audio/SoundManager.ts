@@ -3,8 +3,10 @@
  * Runtime playback for the V3 battle pack and lazy Career mission voice pack.
  */
 
+import { publicAssetUrl } from '../assets/publicAssetUrl'
+
 export type AudioFaction = 'roman' | 'viking'
-export type CareerMissionVoiceCue = 'missionAccepted' | 'follow' | 'return' | 'townDefense'
+export type CareerMissionVoiceCue = 'missionAccepted' | 'follow' | 'return' | 'dismiss' | 'townDefense'
 export type AudioCommand = 'attack' | 'defend' | 'formation' | 'charge'
 
 export interface HorseGallopCandidate {
@@ -70,6 +72,9 @@ const ASSETS: Record<AudioAsset, string> = {
 
 // Kept separate from ASSETS: non-Career scenes never preload this pack.
 const CAREER_ASSETS = {
+  // Optional future recordings: public URLs permit adding files without command changes.
+  'roman:dismiss': publicAssetUrl('audio/career/roman/dismiss.wav'),
+  'viking:dismiss': publicAssetUrl('audio/career/viking/dismiss.wav'),
   'roman:missionAccepted': new URL('../../sagaburst_voice_pack_v1/mission/roman/mission_accepted.wav', import.meta.url).href,
   'roman:follow': new URL('../../sagaburst_voice_pack_v1/mission/roman/follow.wav', import.meta.url).href,
   'roman:return': new URL('../../sagaburst_voice_pack_v1/mission/roman/return.wav', import.meta.url).href,

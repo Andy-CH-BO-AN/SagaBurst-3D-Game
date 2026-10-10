@@ -16,7 +16,8 @@ import { initialPersonalEquipment } from './CareerInventory'
 import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 import { careerMountType } from './CareerMountController'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
-import type { CareerProfile } from './CareerProfile'
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { refitCommandActor, refitCommandCheckpoint } from './CareerCommandActorCheckpoint'
 import { snapshotPersonalMission, clonePersonalMission, type PersonalActorCheckpoint, type PersonalActorPosition,
   type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
 
@@ -51,6 +52,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
 
 export interface PersonalSquadRuntimeOptions {
   scheduler?: NpcSpawnScheduler
+  canRefit?: () => boolean
   sceneKey?: string
   hasHR?: boolean
   /** Validated outdoor pads; flying mounts never materialize in the HR courtyard. */
@@ -104,6 +106,9 @@ export class PersonalSquadRuntime {
   owns(actor: NPC): boolean { return this.actorSet.has(actor) }
   /** HUD-only views: expose the live accepted roster without checkpoint writes or spawning actors. */
   get hudMission(): Readonly<PersonalSquadMission> | undefined { return this.mission }
+  get hudReturningIds(): readonly string[] {
+    return this.state === 'RETURNING' ? this.actors.filter(actor => !actor.dead).map(actor => actor.combatantId) : []
+  }
   get hudPendingIds(): readonly string[] {
     return [...this.pending].filter(([, batch]) => batch.status === 'pending').map(([id]) => id)
   }
@@ -123,8 +128,10 @@ export class PersonalSquadRuntime {
   captureForMission(value: PersonalSquadMission): PersonalSquadMission {
     const previous = this.mission
     this.mission = clonePersonalMission(value)
-    for (const id of this.pending.keys()) if (this.mission.memberIds.includes(id) && previous?.members[id])
-      this.mission.members[id] = clonePersonalMission(previous).members[id]
+    // A casualty or wounded reserve may have no materialized actor after reload.
+    // Retain every owned checkpoint; live actors overwrite theirs below.
+    const savedMembers = previous ? clonePersonalMission(previous).members : undefined
+    for (const id of this.mission.memberIds) if (savedMembers?.[id]) this.mission.members[id] = savedMembers[id]
     try { return this.checkpoint()! }
     finally { this.mission = previous }
   }
@@ -161,6 +168,41 @@ export class PersonalSquadRuntime {
     this.mission.sceneKey = this.sceneKey
     this.returnCommand = Math.min(-1000, ...Object.values(this.mission.members).map(member => member.formation?.commandId ?? -1000))
     this.checkpoint()
+  }
+
+  /** HR repairs live members; absent casualties return to reserve for the next deployment. */
+  get canRefit(): boolean {
+    const profile = this.read()
+    return this.hasHR && this.ready && !profile.activeMission && !profile.activeOutpostMission
+      && Boolean(profile.personalSquad?.members.length) && this.command !== 'attack' && this.command !== 'charge'
+      && !this.actors.some(actor => !actor.dead && (actor.inCombat || actor.tacticalOrder === 'attack' || actor.tacticalOrder === 'charge'))
+      && (this.options.canRefit?.() ?? true)
+  }
+  refit(commit: (profile: CareerProfile) => boolean): boolean {
+    const profile = this.read()
+    if (!this.canRefit) return false
+    const saved = this.checkpoint()
+    if (saved) {
+      for (const id of saved.memberIds) {
+        const npc = this.actors.find(actor => actor.combatantId === id)
+        const previous = saved.members[id], mount = this.memberMounts.get(id)
+        saved.members[id] = npc ? { ...refitCommandCheckpoint(npc, mount),
+          ...(previous?.eaglePadId ? { eaglePadId: previous.eaglePadId } : {}),
+          ...(previous?.boarding && !npc.dead && !mount?.dead ? { boarding: true } : {}) }
+          : { status: 'reserve' }
+      }
+    }
+    const next = cloneCareerProfile(profile); next.personalSquadRuntime = saved
+    if (!commit(next)) return false
+    for (const [index, npc] of this.actors.entries()) {
+      const mount = this.memberMounts.get(npc.combatantId)
+      refitCommandActor(npc, mount)
+      if (mount && npc.mount === mount) this.boarding.delete(npc)
+      if (npc.tacticalOrder === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
+    }
+    if (saved) this.mission = clonePersonalMission(saved)
+    this.checkpoint()
+    return true
   }
 
   follow(): boolean {

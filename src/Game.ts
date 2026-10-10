@@ -1,3 +1,4 @@
+import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
 import { AerialViewPolicy, usesAerialView } from './camera/AerialViewPolicy'
@@ -1178,7 +1179,11 @@ export class Game {
       !this.isTrainingGround && (Boolean(this.captainCheckpoint || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
       this.personalSquad ? {
         enabled: () => !this.player.dead && this.controlMode !== 'spectator',
-        issue: order => order === 'follow' ? this.personalSquad!.follow() : this.personalSquad!.dismiss(),
+        issue: order => {
+          const accepted = order === 'follow' ? this.personalSquad!.follow() : this.personalSquad!.dismiss()
+          if (accepted) this.soundManager.playCareerMissionVoice(playerFaction, order === 'follow' ? 'follow' : 'dismiss')
+          return accepted
+        },
       } : undefined,
       this.captainCheckpoint ? this._captainCommandAuthority() : undefined,
       this.careerProfile && (this.captainCheckpoint || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
@@ -2012,6 +2017,7 @@ export class Game {
         && !this.spawningStopped),
       personal,
       personalPendingIds: this.personalSquad?.hudPendingIds,
+      personalReturningIds: this.personalSquad?.hudReturningIds,
       actors: this.npcs,
     })
   }
@@ -2035,7 +2041,10 @@ export class Game {
             accepted = true
           }
         }
-        if (accepted) this._persistCaptainMission(true)
+        if (accepted) {
+          this.soundManager.playCareerMissionVoice(this.careerProfile!.faction, order === 'follow' ? 'follow' : 'dismiss')
+          this._persistCaptainMission(true)
+        }
         return accepted
       },
     }
@@ -2852,7 +2861,7 @@ export class Game {
     const next = activeMissionId
       ? profile?.activeMission ? clearCareerMission(profile, activeMissionId) : profile
       : profile ? clearCareerOutpost(profile) : null
-    if (!next || !this.careerStore.save(next)) { this._showNotify('無法保存返回狀態，請重試'); return }
+    if (!next || !this.careerStore.save(refitTownCommandForSceneChange(next))) { this._showNotify('無法保存返回狀態，請重試'); return }
     this.personalSquad?.endMission(true)
     this._disposeCareerOutpostBattleActors()
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)

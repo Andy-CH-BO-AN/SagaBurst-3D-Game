@@ -16,9 +16,13 @@ export interface CareerCommandHudSource {
   officialPending?: boolean
   /** Currently present, living Town soldiers whose genuine return travel blocks commands. */
   officialReturningIds?: readonly string[]
+  /** Present Town residents training peacefully, as reported by their live owner. */
+  officialTrainingIds?: readonly string[]
   personal?: PersonalSquadMission
   /** IDs actually queued by the active runtime, not persisted stale pendingMemberIds. */
   personalPendingIds?: readonly string[]
+  /** Living private actors currently following their runtime-owned return destinations. */
+  personalReturningIds?: readonly string[]
   actors: readonly HudActor[]
 }
 
@@ -27,13 +31,15 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
   const { official, personal } = source
   const live = new Map(source.actors.map(actor => [actor.combatantId, actor]))
   const pendingPersonal = new Set(source.personalPendingIds ?? [])
+  const returningPersonal = new Set(source.personalReturningIds ?? [])
   const returningOfficial = new Set(official?.type === 'town-command' ? source.officialReturningIds ?? [] : [])
+  const trainingOfficial = new Set(official?.type === 'town-command' ? source.officialTrainingIds ?? [] : [])
   const members: ArmyHudMember[] = []
 
   for (const id of new Set(official?.actorIds ?? [])) {
     const actor = live.get(id)
     const saved = official?.members?.[id]
-    const state: ArmyHudMemberState = actor ? actor.dead ? 'dead' : returningOfficial.has(id) ? 'returning' : 'deployed'
+    const state: ArmyHudMemberState = actor ? actor.dead ? 'dead' : returningOfficial.has(id) ? 'returning' : trainingOfficial.has(id) ? 'training' : 'deployed'
       : saved?.status === 'dead' || saved?.hp === 0 ? 'dead'
       : saved?.status === 'exited' ? 'exited'
       : source.officialPending ? 'pending' : 'missing'
@@ -44,7 +50,7 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     const actor = live.get(id)
     const saved = personal?.members[id]
     const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
-      : actor ? actor.dead ? 'dead' : 'deployed'
+      : actor ? actor.dead ? 'dead' : returningPersonal.has(id) ? 'returning' : 'deployed'
       : saved?.status === 'dead' || saved?.hp === 0 ? 'dead'
       : pendingPersonal.has(id) ? 'pending'
       : saved?.status === 'reserve' || !saved ? 'reserve' : 'missing'

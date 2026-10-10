@@ -51,3 +51,48 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
       new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), f.speedLimit, f.arrivalOrder, f.reached)
   } else if (!npc.dead && saved.order && saved.order !== 'follow') npc.setTacticalOrder(saved.order)
 }
+
+/** Stages restored resources before a service transaction mutates the live army. */
+export function refitCommandCheckpoint(npc: NPC, homeMount?: Mount,
+  status: PersonalActorCheckpoint['status'] = 'deployed'): PersonalActorCheckpoint {
+  const saved = snapshotCommandActor(npc, homeMount, status)
+  saved.status = status; saved.hp = npc.maxHp; saved.ammo = npc.combatAmmoCapacity
+  saved.shieldImpact = npc.shield.shieldImpactMax
+  if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
+  delete saved.fall
+  const mount = homeMount ?? npc.mount
+  if (saved.mount && mount) {
+    saved.mount.hp = mount.maxHp
+    if (mount.dead || npc.dead) {
+      saved.mount.mounted = true
+      delete saved.mount.flight
+      saved.mount.position.y = getTerrainHeight(saved.mount.position.x, saved.mount.position.z)
+    }
+  }
+  return saved
+}
+
+/** Full, explicit service repair. Live flight and accepted orders survive a refit. */
+export function refitCommandActor(npc: NPC, homeMount?: Mount): void {
+  const saved = snapshotCommandActor(npc, homeMount)
+  const mount = homeMount ?? npc.mount ?? undefined
+  const remount = Boolean(mount && (saved.mount?.mounted || mount.dead || npc.dead))
+  if (mount && (mount.dead || npc.dead && mount.isAirborne)) {
+    if (npc.mount === mount) npc.dismountFromMount()
+    const p = mount.group.position
+    mount.restoreForTown(p.x, p.z, mount.group.rotation.y)
+  } else if (mount) mount.currentHp = mount.maxHp
+  npc.refitCombat()
+  saved.status = 'deployed'; saved.hp = npc.maxHp
+  saved.ammo = npc.combatAmmo; saved.shieldImpact = npc.shield.shieldImpactMax
+  if (saved.fall && saved.position) saved.position.y = getTerrainHeight(saved.position.x, saved.position.z)
+  delete saved.fall
+  if (saved.mount && mount) {
+    saved.mount.hp = mount.maxHp
+    saved.mount.mounted = remount
+    // A revived eagle starts on the ground; restoring its corpse flight would undo recovery.
+    saved.mount.position = position(mount.group.position, mount.group.rotation.y)
+    saved.mount.flight = mount.flight?.snapshot()
+  }
+  restoreCommandActor(npc, saved, mount)
+}

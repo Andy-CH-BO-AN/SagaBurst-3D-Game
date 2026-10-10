@@ -22,6 +22,7 @@ import {
   createStructureCombatTargetRef,
   emitActorKilled,
   emitDamageApplied,
+  emitHitBlocked,
   emitStructureDamage,
   type CombatDamageContext,
 } from './CombatAttribution'
@@ -66,6 +67,7 @@ function shieldDamage(target: NPC | Player, damage: number, context?: CombatDama
     || (context.method !== 'melee' && context.method !== 'projectile') || !target.shield?.active) return { damage, blockedImpact: 0 }
   const player = 'blockingLevel' in target ? target : null
   const result = target.shield.absorb(damage, context.method === 'projectile' || (context.attackSource ?? context.contact?.attackSource) === 'xongkoro' ? 1 : weaponShieldImpact(context.weaponId, context.source.isMounted), player?.blockingLevel ?? 0)
+  emitHitBlocked(context, player ? createPlayerCombatTargetRef(player) : createNpcCombatTargetRef(target as NPC), result.blockedImpact)
   target.shieldCollider?.refreshVisibility()
   const hostile = context.hostileToTarget ?? context.source.allegiance === 'ENEMY'
   if (player && !player.spectatorOnly && hostile && context.source.actorType !== 'player' && result.blockedImpact > 0) {

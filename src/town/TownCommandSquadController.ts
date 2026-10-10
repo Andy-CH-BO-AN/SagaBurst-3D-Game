@@ -3,7 +3,7 @@ import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { cloneTownCommandSquad, type TownCommandSquadState } from '../career/CareerCommandAuthority'
-import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
@@ -27,7 +27,7 @@ export class TownCommandSquadController {
 
   constructor(private readonly residents: readonly TownCommandResident[], private readonly player: () => Player,
     private readonly read: () => CareerProfile, private readonly commit: (profile: CareerProfile) => boolean,
-    private readonly options: { sceneKey?: string } = {}) {
+    private readonly options: { sceneKey?: string; canRefit?: () => boolean } = {}) {
     this.residentsById = new Map(residents.map(resident => [resident.npc.combatantId, resident]))
   }
 
@@ -38,6 +38,14 @@ export class TownCommandSquadController {
   get returningActorIds(): readonly string[] {
     return this.commandsEnabled
       ? this.actors.filter(npc => !npc.dead && this.ownsPeacefulTravel(npc)).map(npc => npc.combatantId)
+      : []
+  }
+  /** Dummy practice uses native attack; the HUD must read the peaceful lifecycle instead. */
+  get trainingActorIds(): readonly string[] {
+    return this.commandsEnabled && !this.townHostile
+      ? this.actors.filter(npc => !npc.dead && !this.isReturning(npc.combatantId)
+        && (this.value?.state === 'TRAINING' || this.value?.members?.[npc.combatantId]?.status === 'reserve'))
+        .map(npc => npc.combatantId)
       : []
   }
   get actors(): NPC[] { return this.value?.sceneKey === this.sceneKey ? this.value.actorIds.flatMap(id => this.residentsById.get(id)?.npc ?? []) : [] }
@@ -133,6 +141,8 @@ export class TownCommandSquadController {
       const resident = this.residentsById.get(id)
       if (!resident) continue
       const npc = resident.npc, actor = this.value.members?.[id]
+      // A running mission owns this resident's squad, orders and combat state.
+      if (!restore && this.read().activeMission?.officialSquad?.actorIds.includes(id)) continue
       if (restore && actor) restoreCommandActor(npc, actor, resident.homeMount)
       npc.combatOwnership = this.value.authorized ? 'town-command' : undefined
       npc.setCommandAllegiance(this.value.authorized ? Faction.PLAYER : Faction.TOWN)
@@ -144,6 +154,48 @@ export class TownCommandSquadController {
       else if (actor.status === 'deployed' && actor.order === 'follow') npc.assignFollowTarget(this.player(), index,
         officialFollowLocalOffset(index, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
     }
+  }
+
+  /** Sergeant service repairs the permanent roster, including casualties, in this scene. */
+  get canRefit(): boolean {
+    return this.commandsEnabled && !this.townHostile && this.actors.length > 0
+      && !this.actors.some(npc => !npc.dead && (npc.inCombat || this.value?.members?.[npc.combatantId]?.status === 'deployed'
+        && (npc.tacticalOrder === 'attack' || npc.tacticalOrder === 'charge')))
+      && (this.options.canRefit?.() ?? true)
+  }
+  refit(): boolean {
+    if (!this.canRefit) return false
+    const next = this.stageRefit(this.read())
+    if (!this.commit(next)) return false
+    this.applyRefit(next.townCommandSquad)
+    return true
+  }
+
+  /** Automatic refit shares the service's resource staging, without its peace-only gate. */
+  stageRefit(current: CareerProfile, defenseStart = false): CareerProfile {
+    const next = cloneCareerProfile(current), value = this.checkpoint() ?? next.townCommandSquad
+    if (!value) return next
+    value.members ??= {}
+    for (const npc of this.actors) {
+      const resident = this.residentsById.get(npc.combatantId)!
+      const status = defenseStart || value.members[npc.combatantId]?.status === 'reserve' ? 'reserve' : 'deployed'
+      const member = refitCommandCheckpoint(npc, resident.homeMount, status)
+      if (defenseStart) {
+        member.order = 'attack'; delete member.formation
+        member.position = { x: resident.spec.x, z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI }
+        if (member.mount) member.mount.position = { ...member.position }
+      }
+      value.members[npc.combatantId] = member
+    }
+    if (defenseStart) { value.authorized = false; value.state = 'TRAINING' }
+    next.townCommandSquad = value
+    return next
+  }
+
+  /** Call only after saving and completing the Player's return, or a manual refit. */
+  applyRefit(value: TownCommandSquadState | undefined): void {
+    for (const npc of this.actors) refitCommandActor(npc, this.residentsById.get(npc.combatantId)!.homeMount)
+    this.applySavedState(value)
   }
 
   /** Follow and Dismiss remain physical movement. Other orders are subsequently assigned by the common command UI. */

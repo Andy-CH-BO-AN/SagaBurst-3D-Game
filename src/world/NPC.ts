@@ -297,6 +297,7 @@ export class NPC {
   }
 
   get combatAmmo(): number { return this.arrows }
+  get combatAmmoCapacity(): number { return this.rangedWeaponId ? 30 : 0 }
 
   /** Restores saved ammunition after selecting a runtime loadout, without changing its canonical equipment. */
   restoreCombatAmmo(ammo: number): void {
@@ -2031,53 +2032,44 @@ export class NPC {
       return null
     }
     if (this.mount?.isFlyingMount) return this._findEagleTarget(player, allNPCs, hostileNpcGrid)
-    let closestTarget = null
-    let closestDistSq = Infinity
+    const preferGroundTargets = !this.hasActiveRangedWeapon
+    const findNearest = (groundOnly: boolean) => {
+      let closestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
+      let closestDistSq = Infinity
 
-    if (this.playerHitFocus > 0 && this.targetsPlayer && player.targetable && !player.dead) {
-      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
-      return { position: playerPos, isDead: false, isPlayer: true }
-    }
-
-    // Check Player separately because Player is not stored in the NPC spatial grids.
-    if (this.targetsPlayer && player.targetable && !player.dead) {
-      const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
-      const dSq = this.combatPosition.distanceToSquared(playerPos)
-      if (dSq < closestDistSq) {
-        closestDistSq = dSq
-        closestTarget = { position: playerPos, isDead: player.dead, isPlayer: true }
+      // Player is absent from the NPC grid, but follows the same target priority.
+      if (this.targetsPlayer && player.targetable && !player.dead
+        && (!groundOnly || !player.currentMount?.isFlyingMount)) {
+        const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
+        if (this.playerHitFocus > 0) return { position: playerPos, isDead: false, isPlayer: true }
+        closestDistSq = this.combatPosition.distanceToSquared(playerPos)
+        closestTarget = { position: playerPos, isDead: false, isPlayer: true }
       }
-    }
 
-    if (hostileNpcGrid) {
-      // Units inside the same 4m chase group share one nearest-hostile lookup.
-      const npc = chaseTargetCoordinator
-        ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid)
-        : hostileNpcGrid.findNearest(
-          this.combatPosition,
-          candidate => !candidate.dead && combatAllegiancesHostile(this, candidate),
-        )
-      if (npc) {
-        const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
-        if (dSq < closestDistSq) {
-          closestDistSq = dSq
-          closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
+      if (hostileNpcGrid) {
+        const npc = chaseTargetCoordinator
+          ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid, groundOnly)
+          : hostileNpcGrid.findNearest(this.combatPosition, candidate => !candidate.dead
+            && combatAllegiancesHostile(this, candidate) && (!groundOnly || !candidate.mount?.isFlyingMount))
+        if (npc && combatAllegiancesHostile(this, npc)) {
+          const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
+          if (dSq < closestDistSq) closestTarget = { position: npc.combatPosition, isDead: false, isPlayer: false, npc }
+        }
+      } else {
+        for (const npc of allNPCs) {
+          if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)
+            || groundOnly && npc.mount?.isFlyingMount) continue
+          const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
+          if (dSq < closestDistSq) {
+            closestDistSq = dSq
+            closestTarget = { position: npc.combatPosition, isDead: false, isPlayer: false, npc }
+          }
         }
       }
-    } else {
-      // Compatibility fallback for isolated tests/dev callers that do not own a grid.
-      for (let i = 0; i < allNPCs.length; i++) {
-        const npc = allNPCs[i]
-        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)) continue
-        const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
-        if (dSq < closestDistSq) {
-          closestDistSq = dSq
-          closestTarget = { position: npc.combatPosition, isDead: npc.dead, isPlayer: false, npc }
-        }
-      }
+      return closestTarget
     }
-
-    return closestTarget
+    // Ground melee troops engage people on foot or ground mounts before eagle riders.
+    return (preferGroundTargets ? findNearest(true) : null) ?? findNearest(false)
   }
 
 
@@ -3511,6 +3503,21 @@ export class NPC {
     this._rangedVisibleTargetHoldFrames = 0
     this._targetAcquisitionInitialized = false
     for (const cb of this.onRespawnCallbacks) cb(this)
+  }
+
+  /** Explicit squad refit revives casualties without changing allegiance or command ownership. */
+  refitCombat(): void {
+    const point = this.combatPosition.clone(), yaw = this.group.rotation.y
+    this.restoreCombatLoadout()
+    this.pendingFall.clear()
+    this.respawn({ x: point.x, z: point.z, yaw })
+    this._cancelEquipmentCombatState()
+    this.shieldId = this.loadout?.shieldId ?? this.shieldId
+    this.rebuildShield()
+    this.restoreCombatAmmo(this.rangedWeaponId ? 30 : 0)
+    this.stamina = MAX_STAMINA
+    this.isSprinting = false
+    this.chargeSprintLatched = false
   }
 
   restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {

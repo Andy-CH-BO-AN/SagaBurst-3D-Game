@@ -37,6 +37,29 @@ describe('Career Outpost defense uses the existing translucent mission guide', (
     expect(label.textContent).toBe('FIELD BATTLE · 敵軍剩餘 40')
   })
 
+  it.each(['ASSEMBLING', 'MARCHING', 'ENGAGING'] as const)('Captain sweep %s points directly at Bandits instead of the muster', phase => {
+    const { instance, label, arrow } = guide()
+    instance.update(phase, new THREE.Vector3(), 0, new THREE.Vector3(0, 0, -120), 40, false, false, 'captain-sweep')
+    expect(label.textContent).toBe('前往 Bandits 所在位置 · 120m · 剩餘 40')
+    expect(arrow.style.transform).toBe(`rotate(${-Math.PI / 2}rad)`)
+    expect(arrow.style.opacity).toBe('.58')
+    instance.update('ASSEMBLING', new THREE.Vector3(), 0, new THREE.Vector3(0, 0, -20), 40)
+    expect(label.textContent).toBe('前往集合點 · 20m')
+  })
+
+  it('labels the commanded North gate during town preparation, arrival and combat', () => {
+    const { instance, label, arrow } = guide(), rally = new THREE.Vector3(0, 0, -103)
+    instance.updateTownDefense('PREPARING', new THREE.Vector3(), 0, rally, 120, 0, 10, '北門')
+    expect(label.textContent).toBe('開戰倒數 10 秒 · 北門 103m')
+    expect(arrow.style.transform).toBe(`rotate(${-Math.PI / 2}rad)`)
+    instance.updateTownDefense('PREPARING', rally, 0, rally, 120, 0, 5, '北門')
+    expect(label.textContent).toBe('開戰倒數 5 秒 · 北門 · 準備迎戰')
+    instance.updateTownDefense('ATTACKING', rally, 0, rally, 119, 1, 0, '北門')
+    expect(label.textContent).toBe('TOWN DEFENSE · 北門 · 敵軍剩餘 119 · 平民死亡 1/10')
+    instance.updateTownDefense('PREPARING', new THREE.Vector3(), 0, new THREE.Vector3(0, 0, 51), 120, 0, 10)
+    expect(label.textContent).toBe('開戰倒數 10 秒 · 防守位置 51m')
+  })
+
   it('dims the same arrow on the defense line and hides it for a terminal result', () => {
     const { instance, root, arrow, label } = guide()
     const point = new THREE.Vector3(0, 0, -20)

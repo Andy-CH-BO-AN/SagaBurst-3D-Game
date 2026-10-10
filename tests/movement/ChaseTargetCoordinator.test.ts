@@ -34,6 +34,20 @@ describe('ChaseTargetCoordinator', () => {
     expect(findNearest).toHaveBeenCalledTimes(1)
   })
 
+  it('partitions ground-only and unrestricted caches for colocated melee and ranged allies', () => {
+    const coordinator = new ChaseTargetCoordinator(), grid = new SpatialGrid<NPC>(20)
+    const eagle = npc(5, 0, Faction.ENEMY), ground = npc(80, 0, Faction.ENEMY)
+    Object.assign(eagle, { mount: { isFlyingMount: true } })
+    grid.insert(eagle); grid.insert(ground)
+    const ally = npc(.5, .5, Faction.PLAYER)
+    expect(coordinator.findGroupTarget(ally, grid)).toBe(eagle)
+    expect(coordinator.findGroupTarget(ally, grid, true)).toBe(ground)
+    expect(coordinator.findGroupTarget(ally, grid)).toBe(eagle)
+    // A grounded target boarding an eagle must immediately leave the ground cache.
+    Object.assign(ground, { mount: { isFlyingMount: true } })
+    expect(coordinator.findGroupTarget(ally, grid, true)).toBeNull()
+  })
+
   it('uses separate target lookups for different 4m chase groups', () => {
     const coordinator = new ChaseTargetCoordinator()
     const hostileGrid = new SpatialGrid<NPC>(20)

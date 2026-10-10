@@ -3,14 +3,14 @@ import { CombatEventStream } from '../../src/combat/CombatAttribution'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import type { Player } from '../../src/player/Player'
 import { describe, expect, it } from 'vitest'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, captainGateDefenseBriefing, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
 import { availableCareerMissionsForPage, careerMissionPage, defaultCareerMissionPage } from '../../src/career/CareerMissionCatalog'
 import { acceptCaptainCavalryCommand } from '../../src/career/CavalrySweep'
 import { acceptCaptainSiegeCommand, acceptEnemyTownAssault } from '../../src/career/EnemyTownAssault'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
@@ -42,14 +42,25 @@ describe('Captain mission eligibility and official roster policy without actor m
     expect(getCaptainMissionAvailability(owned, CAPTAIN_EAGLE_BATTLE_ID).unlocked).toBe(true)
     expect(acceptCaptainEagle(owned)!.selectedMountId).toBe('xongkoro')
   })
-  it('uses existing North gate infantry and excludes unavailable residents without filling missing slots', () => {
-    const residents = townRoster()
+  it.each(['roman', 'viking'] as const)('authorizes the complete %s North infantry plan including ranged infantry and the foot officer', faction => {
+    const residents = withTownCommandSquadRoster(faction, townRoster())
     const ids = captainGateDefenseActorIds(residents)
-    expect(ids.length).toBeGreaterThan(0)
-    expect(ids.length).toBeLessThanOrEqual(30)
+    expect(ids).toEqual([
+      ...Array.from({ length: 10 }, (_, index) => `gate:north:${index}`),
+      'melee_cavalry-0', 'melee_cavalry-4', 'lancer_cavalry-3', 'ranged_cavalry-2', 'ranged_cavalry-6',
+      'ranged_infantry-0', 'ranged_infantry-4', 'ranged_infantry-8', 'ranged_infantry-12', 'ranged_infantry-16',
+      'melee_infantry-0', 'melee_infantry-4', 'melee_infantry-8', 'spearman_infantry-2', 'spearman_infantry-6', 'deployment',
+    ])
+    expect(captainGateDefenseBriefing(residents)).toContain('北門 26 名')
+    expect(captainGateDefenseBriefing(residents, new Set(ids.slice(0, 2)))).toContain('北門 24 名')
     expect(ids.filter(id => id.startsWith('gate:'))).toEqual(Array.from({ length: 10 }, (_, index) => `gate:north:${index}`))
     expect(captainGateDefenseActorIds(residents, new Set(ids))).toEqual([])
     expect(captainGateDefenseActorIds(residents.filter(actor => actor.id === 'gate:north:0'))).toEqual(['gate:north:0'])
+  })
+  it('does not truncate a North infantry plan larger than the former 30-person ceiling', () => {
+    const guard = townRoster().find(actor => actor.id === 'gate:north:0')!
+    const residents = Array.from({ length: 31 }, (_, index) => ({ ...guard, id: `north-full:${index}`, index }))
+    expect(captainGateDefenseActorIds(residents)).toEqual(Array.from({ length: 31 }, (_, index) => `north-full:${index}`))
   })
   it.each([0, 1, 7, 30])('%i personal members remain extra troops outside every official roster', count => {
     const profile = captain()

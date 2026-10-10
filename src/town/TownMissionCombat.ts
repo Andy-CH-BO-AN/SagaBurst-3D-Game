@@ -104,6 +104,20 @@ export class TownMissionCombat {
     return [...new Set([...this.externalThreatActors, ...(this.town.patrol?.().combatActors ?? [])])].filter(npc => !npc.hostileToPlayer)
   }
 
+  /** Already deployed command recipients can travel while enemy spawn work is pending. */
+  updateCommandTravel(dt: number, actors: readonly NPC[]): void {
+    this.town.navigation.sync(this.town.obstacles)
+    this.town.navigation.beginFrame()
+    this.grid.clear()
+    for (const npc of new Set([...this.town.residents.map(r => r.npc), ...actors])) if (!npc.dead) this.grid.insert(npc)
+    for (const npc of actors) {
+      if (npc.dead || npc.missionMovement || npc.formationCommandId === null
+        || npc.tacticalOrder !== 'formation' && npc.tacticalOrder !== 'follow') continue
+      npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
+        this.grid.getNearbyInto(npc.combatPosition, 4, this.neighbors), this.town.obstacles, this.town.navigation)
+    }
+  }
+
   /** Damage wakes the actual actor/squad without changing a mission party's route phase. */
   noteExternalHit(target: NPC, source?: NPC): void {
     const outskirts = this.town.outskirts?.()
@@ -722,7 +736,8 @@ export class TownMissionCombat {
       }
       if (this.town.updateEagleDuty?.(actor, dt, defense.phase !== 'PREPARING' && defense.phase !== 'RESULT' && defense.phase !== 'RESET' && !defense.active?.result)) continue
       defense.updateCivilianOrder(actor)
-      const individualDefense = !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
+      const individualDefense = !defense.active?.officialSquad?.actorIds.includes(actor.combatantId)
+        && !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
       const travelOrder = individualDefense && (actor.tacticalOrder === 'formation' || actor.tacticalOrder === 'follow'
         || actor.tacticalOrder === 'defend' && actor.formationCommandId != null)
         ? actor.tacticalOrder : null
