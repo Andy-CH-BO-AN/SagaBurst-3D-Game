@@ -37,6 +37,16 @@ describe('Career Outpost defense uses the existing translucent mission guide', (
     expect(label.textContent).toBe('FIELD BATTLE · 敵軍剩餘 40')
   })
 
+  it.each(['ASSEMBLING', 'MARCHING', 'ENGAGING'] as const)('Captain sweep %s points directly at Bandits instead of the muster', phase => {
+    const { instance, label, arrow } = guide()
+    instance.update(phase, new THREE.Vector3(), 0, new THREE.Vector3(0, 0, -120), 40, false, false, 'captain-sweep')
+    expect(label.textContent).toBe('前往 Bandits 所在位置 · 120m · 剩餘 40')
+    expect(arrow.style.transform).toBe(`rotate(${-Math.PI / 2}rad)`)
+    expect(arrow.style.opacity).toBe('.58')
+    instance.update('ASSEMBLING', new THREE.Vector3(), 0, new THREE.Vector3(0, 0, -20), 40)
+    expect(label.textContent).toBe('前往集合點 · 20m')
+  })
+
   it('dims the same arrow on the defense line and hides it for a terminal result', () => {
     const { instance, root, arrow, label } = guide()
     const point = new THREE.Vector3(0, 0, -20)

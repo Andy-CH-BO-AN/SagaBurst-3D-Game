@@ -297,9 +297,9 @@ describe('shared four-gate Siege runtime', () => {
         const released = group.id === 'north' || group.id === 'west'
         for (const npc of [...group.members, ...group.cavalry] as NPC[]) {
           if (npc.dead) continue
-          expect(npc.missionMovement).toBe(true)
-          expect(npc.tacticalOrder).toBe('formation')
-          if (released) expect((npc as any).missionCombatTarget).toBeNull()
+          expect(npc.missionMovement).toBe(!released)
+          expect(npc.tacticalOrder).toBe(released ? 'charge' : 'formation')
+          if (released) expect((npc as any).missionCombatTarget).toBeUndefined()
         }
       }
     }
@@ -410,7 +410,7 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(f.controller.releasedEnemies).toHaveLength(2)
   })
 
-  it('wires representative infantry and cavalry into their own breach relief', () => {
+  it('frees breached gate infantry and cavalry to pursue threats across gate sectors', () => {
     const gateId: TownGateId = 'north'
     // Representative native placement belongs to the preceding deployment owner.
     // North leader + infantry, West defender, two independently placed threats.
@@ -442,19 +442,19 @@ describe('Siege deployment and shared rule ownership', () => {
       expect(npc.missionMovement).toBe(false)
       expect(npc.tacticalOrder).toBe('charge')
       expect((npc as any)._getTarget(.05, f.player, f.controller.enemies)?.npc).toBe(enemy)
-      expect((npc as any)._trySwitchToVisibleRangedTarget(f.player, [distraction], null, [])).toBe(false)
     }
     const start = guard.combatPosition.clone()
     guard.update(.05, f.player, [enemy, distraction], [], [], null as never, () => {}, () => {}, true)
     expect(guard.combatPosition.distanceTo(start)).toBeGreaterThan(0)
     place(enemy, siegePoint(otherGate, 0, 5))
     f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [enemy, distraction])).toBeNull()
-    expect(guard.missionMovement).toBe(true)
-    expect(siegeNearestGate((f.controller as any).orders.get(guard))).toBe(gateId)
+    expect((guard as any)._findTarget(f.player, [enemy, distraction])).not.toBeNull()
+    expect(guard.missionMovement).toBe(false)
+    expect(guard.tacticalOrder).toBe('charge')
+    expect((f.controller as any).orders.has(guard)).toBe(false)
     f.player.group.position.copy(siegePoint(gateId, 0, 5))
     f.controller.updateFlow(.05, 0)
-    expect((guard as any)._getTarget(.05, f.player, [])?.isPlayer).toBe(true)
+    expect((guard as any)._findTarget(f.player, [])?.isPlayer).toBe(true)
     f.controller.cleanupMission()
     expect((guard as any).missionCombatTarget).toBeUndefined()
   })
@@ -646,8 +646,10 @@ describe('Captain Siege command ownership caller', () => {
   })
   it('leaves the authorized North infantry formation intact after defense reserve release', () => {
     const h = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
-    h.profile().activeMission!.phase = 'ATTACKING'
     const guard = h.residents[0].npc
+    expect(guard.missionMovement).toBe(false)
+    expect(guard.tacticalOrder).toBe('defend')
+    h.profile().activeMission!.phase = 'ATTACKING'
     guard.assignFormationTarget(766, siegePoint('north', 8, 24), new THREE.Vector3(0, 0, 1))
     h.gates.get('north')!.destroy()
     h.controller.updateFlow(.1, 0)

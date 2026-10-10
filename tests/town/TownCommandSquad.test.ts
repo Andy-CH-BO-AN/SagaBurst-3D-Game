@@ -26,16 +26,17 @@ function resident(spec: TownActorSpec) {
   homeMount?.group.position.copy(group.position)
   let formation: NPC['combatFormationCheckpoint']
   const actor = { group, combatPosition: group.position, combatantId: spec.id, name: spec.id,
-    dead: false, hp: 73, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
+    dead: false, hp: 73, maxHp: 100, combatAmmoCapacity: 30, inCombat: false, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
     mount: homeMount ?? null, isMounted: Boolean(homeMount), isFalling: false, combatAmmo: 12,
     tacticalOrder: 'attack' as NPC['tacticalOrder'], formationCommandId: null as number | null,
     shield: { shieldImpactRemaining: 1, shieldImpactMax: 8 }, respawnEnabled: false,
     setCommandAllegiance: vi.fn((faction: Faction) => { actor.faction = faction }),
     setCommandSquad: vi.fn((squad: NPC['squadId']) => { actor.squadId = squad }),
-    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn(),
+    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn(() => { actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; actor.formationCommandId = null; formation = undefined }),
     assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; formation = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false } }),
     isFormationTargetReached: vi.fn(() => false), updateTownTravel: vi.fn(),
+    refitCombat: vi.fn(() => { actor.hp = 100; actor.dead = false; actor.combatAmmo = 30; actor.shield.shieldImpactRemaining = 8 }),
     restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp === 0 }), restoreCombatAmmo: vi.fn(),
     get combatFormationCheckpoint() { return formation },
   }
@@ -82,6 +83,26 @@ describe('permanent Captain Town command roster', () => {
     controller.beginHostility()
     expect(controller.authorizedActorIds).toHaveLength(30); expect(residents[0].npc.faction).toBe(Faction.PLAYER)
   })
+  it('Sergeant refit commits full resources before reviving the permanent residents and rejects offensive orders', () => {
+    const residents = townCommandSquadRoster('roman').map(resident), p = player()
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    let saving = true
+    const commit = vi.fn((next: typeof profile) => { if (!saving) return false; profile = next; return true })
+    const controller = new TownCommandSquadController(residents, () => p, () => profile, commit)
+    controller.grant(); controller.issue('follow')
+    // An unmounted resident is enough to verify transaction staging; real rider revival belongs to HR lifecycle.
+    const foot = residents.find(r => !r.homeMount)!
+    foot.actor.dead = true; foot.actor.hp = 0
+    saving = false; expect(controller.refit()).toBe(false); expect(foot.npc.dead).toBe(true)
+    saving = true; expect(controller.refit()).toBe(true)
+    expect(foot.npc.hp).toBe(100); expect(foot.npc.dead).toBe(false)
+    expect(profile.townCommandSquad?.members?.[foot.spec.id]).toMatchObject({ hp: 100, ammo: 30, shieldImpact: 8, status: 'deployed' })
+    foot.actor.inCombat = true; expect(controller.refit()).toBe(false)
+    foot.actor.inCombat = false
+    foot.actor.tacticalOrder = 'attack'; expect(controller.refit()).toBe(false)
+    foot.actor.tacticalOrder = 'charge'; expect(controller.refit()).toBe(false)
+  })
+
   it('keeps returning soldiers loyal but rejects new orders until their real travel owner reports arrival', () => {
     const residents = townCommandSquadRoster('roman').map(resident), p = player()
     let profile = createCareerProfile('roman'); profile.rank = 'captain'

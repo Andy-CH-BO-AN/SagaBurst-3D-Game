@@ -129,6 +129,21 @@ describe('Lazy Career audio runtime', () => {
     expect(sources).toHaveLength(4)
   })
 
+  it.each(['roman', 'viking'] as const)('keeps a missing %s Dismiss silent and plays it after the recording becomes available', async faction => {
+    const manager = new SoundManager()
+    await manager.preload()
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response)
+    manager.playCareerMissionVoice(faction, 'dismiss')
+    await flush()
+    expect(sources).toHaveLength(0)
+    expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toBe(`/audio/career/${faction}/dismiss.wav`)
+    manager.playCareerMissionVoice(faction, 'dismiss')
+    await flush()
+    expect(sources).toHaveLength(1)
+    expect(sources[0].start).toHaveBeenCalledOnce()
+    expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toBe(`/audio/career/${faction}/dismiss.wav`)
+  })
+
   it('starts and deduplicates the lazy alarm, resolving at actual onset', async () => {
     const manager = new SoundManager()
     await manager.preload()

@@ -722,7 +722,8 @@ export class TownMissionCombat {
       }
       if (this.town.updateEagleDuty?.(actor, dt, defense.phase !== 'PREPARING' && defense.phase !== 'RESULT' && defense.phase !== 'RESET' && !defense.active?.result)) continue
       defense.updateCivilianOrder(actor)
-      const individualDefense = !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
+      const individualDefense = !defense.active?.officialSquad?.actorIds.includes(actor.combatantId)
+        && !actor.missionMovement && warfareActive && this.shouldDefendAgainstOutskirts(actor)
       const travelOrder = individualDefense && (actor.tacticalOrder === 'formation' || actor.tacticalOrder === 'follow'
         || actor.tacticalOrder === 'defend' && actor.formationCommandId != null)
         ? actor.tacticalOrder : null

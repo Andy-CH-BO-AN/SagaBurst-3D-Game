@@ -1443,8 +1443,10 @@ export class BanditMissionController {
     }
     if (this.phase !== 'ASSEMBLING') this.mountedMarch?.update(!this.travelEncounter.active)
     this.persistRuntimeProgress()
+    const captainCommand = active.templateId === CAPTAIN_CAVALRY_COMMAND_ID
     this.updateGuide(this.phase!, this.player().combatPosition, cameraYaw,
-      this.phase === 'ASSEMBLING' ? SWEEP_CAPTAIN_START : this.leader?.combatPosition ?? SWEEP_CENTER, this.remainingEnemies)
+      captainCommand ? SWEEP_CENTER : this.phase === 'ASSEMBLING' ? SWEEP_CAPTAIN_START : this.leader?.combatPosition ?? SWEEP_CENTER,
+      this.remainingEnemies, false, false, captainCommand ? 'captain-sweep' : undefined)
   }
 
   private updateMountedAssembly(yaw: number, { assemblyRadius = 0 } = {}): void {

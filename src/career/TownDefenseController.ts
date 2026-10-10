@@ -221,7 +221,10 @@ export class TownDefenseController {
       for (const [index, actorId] of (this.active?.officialSquad?.actorIds ?? []).entries()) {
         const npc = this.fieldNpcs.find(npc => npc.combatantId === actorId)
         const saved = deployed.officialSquad?.members?.[actorId]
-        if (!npc || !saved) continue
+        if (!npc) continue
+        npc.missionMovement = false
+        this.orders.delete(npc)
+        if (!saved) { npc.setTacticalOrder('defend'); continue }
         restoreCommandActor(npc, saved, this.actorMounts.get(npc))
         if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
       }
@@ -434,33 +437,15 @@ export class TownDefenseController {
 
   private updateGateDefenseOrders(): void {
     if (!this.siege) return
-    const player = this.player()
-    const attackers = [...this.enemies, ...(this.siegeContext?.outskirts?.actors ?? []), ...(this.siegeContext?.ambientEnemies?.() ?? [])]
     for (const group of this.groups) {
       if (!this.siege.releasedReserveGateIds.includes(group.id)) continue
-      const gate = siegePoint(group.id, 0, 0)
-      const inSector = (point: THREE.Vector3) => siegeNearestGate(point) === group.id
-        && Math.hypot(point.x - gate.x, point.z - gate.z) <= 75
-      const candidates: (NPC | Player)[] = attackers.filter(npc => !npc.dead && inSector(npc.combatPosition))
-      if (!player.dead && player.targetable && inSector(player.combatPosition)) candidates.push(player)
-      for (const [index, npc] of [...group.members, ...group.cavalry].entries()) {
+      for (const npc of [...group.members, ...group.cavalry]) {
         if (npc.dead || this.isPlayerCommanded(npc)) continue
-        let target: NPC | Player | null = null, distance = Infinity
-        for (const candidate of candidates) {
-          if (candidate === player ? !npc.hostileToPlayer : (candidate as NPC).faction === npc.faction) continue
-          const d = npc.combatPosition.distanceToSquared(candidate.combatPosition)
-          if (d < distance) { distance = d; target = candidate }
-        }
-        npc.setMissionCombatTarget(target)
-        if (target) {
-          npc.missionMovement = false
-          npc.assignSiegeObstacle(null)
-          if (npc.tacticalOrder !== 'charge') npc.setTacticalOrder('charge')
-          this.orders.delete(npc)
-        } else if (!this.orders.has(npc)) {
-          // Return to this breach when its threat leaves, never chase to another gate.
-          this.order(npc, this.walkable(siegePoint(group.id, (index % 5 - 2) * 4, 12 + Math.floor(index / 5) * 4), [], npc.isMounted ? 4.8 : 2.5, group.id))
-        }
+        npc.setMissionCombatTarget(undefined)
+        npc.missionMovement = false
+        npc.assignSiegeObstacle(null)
+        if (npc.tacticalOrder !== 'charge') npc.setTacticalOrder('charge')
+        this.orders.delete(npc)
       }
     }
   }

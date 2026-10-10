@@ -4,7 +4,7 @@
 
 ## 發布與資產網址
 
-開發使用 `dev`，正式部署與 tag 來源使用預設分支 `main`；功能 PR 先進 `dev`，驗證後再以 PR 推進 `main`。Web 與 Electron 共用 `src/`，`vite.config.ts` 分別輸出 Pages 的 `dist/`（`/SagaBurst-3D-Game/`）與桌面版的 `dist-desktop/`（`/`）。Public runtime 資產透過 `src/assets/publicAssetUrl.ts` 使用 Vite base，音效／語音維持 `SoundManager` 的 Vite URL。Electron 僅以 `sagaburst://game/` 提供打包內容與安全視窗，沿用原本 Web storage 與存檔格式。發版與 GitHub 一次性設定見 [RELEASING.md](../docs/RELEASING.md)。
+開發使用 `dev`，正式部署與 tag 來源使用預設分支 `main`；功能 PR 先進 `dev`，驗證後再以 PR 推進 `main`。Web 與 Electron 共用 `src/`，`vite.config.ts` 分別輸出 Pages 的 `dist/`（`/SagaBurst-3D-Game/`）與桌面版的 `dist-desktop/`（`/`）。Public runtime 資產透過 `src/assets/publicAssetUrl.ts` 使用 Vite base，音效／語音由 `SoundManager` 集中播放：既有錄音使用 Vite URL，尚未錄製的 Dismiss 使用可選的 `public/audio/career/{roman,viking}/dismiss.wav`，缺檔安靜略過，下次命令重試；新增音檔無須修改命令接線，打包版本需重建。Electron 僅以 `sagaburst://game/` 提供打包內容與安全視窗，沿用原本 Web storage 與存檔格式。發版與 GitHub 一次性設定見 [RELEASING.md](../docs/RELEASING.md)。
 
 ## 程式入口
 

@@ -36,12 +36,17 @@ export class MissionGuide {
     remainingEnemies: number,
     lagging = false,
     patrol = false,
-    context?: 'mounted-field' | 'travel-encounter',
+    context?: 'mounted-field' | 'travel-encounter' | 'captain-sweep',
   ): void {
     this.root.hidden = false
     if (context === 'travel-encounter' && target) {
       this.pointAt(playerPosition, cameraYaw, target)
       this.label.textContent = `途中遭遇敵軍 · 支援隊伍 · 剩餘 ${remainingEnemies}`
+      return
+    }
+    if (context === 'captain-sweep' && target && (phase === 'ASSEMBLING' || phase === 'MARCHING' || phase === 'ENGAGING')) {
+      const distance = this.pointAt(playerPosition, cameraYaw, target)
+      this.label.textContent = `前往 Bandits 所在位置 · ${Math.round(distance)}m · 剩餘 ${remainingEnemies}`
       return
     }
     if (phase === 'ENGAGING') {

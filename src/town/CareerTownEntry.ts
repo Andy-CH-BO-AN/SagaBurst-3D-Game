@@ -5,6 +5,7 @@ import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerComb
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
 import { clearCareerMission } from '../career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
+import { refitTownCommandForSceneChange } from '../career/SquadRefit'
 import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -42,6 +43,14 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     }
     form.remove()
     const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
+    const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void): void => {
+      const next = refitTownCommandForSceneChange(value)
+      if (store.save(next)) { proceed(next); return }
+      loading.textContent = '無法保存城防整補，尚未轉場。'
+      document.body.append(loading)
+      const retry = document.createElement('button'); retry.textContent = '重試轉場'
+      retry.onclick = () => transition(value, proceed); loading.append(retry)
+    }
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
       sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
@@ -51,10 +60,13 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         if (!location.search.includes('nolock')) {
           try { container.requestPointerLock?.()?.catch(() => {}) } catch { /* Canvas click retries if denied. */ }
         }
-        sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, config.careerMissionId)
-        sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        void launchCampaign(config)
-      }, p => { void start(p) }, () => {
+        const missionId = config.careerMissionId
+        transition(store.loadChecked().profile ?? profile, () => {
+          sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, missionId)
+          sessionStorage.removeItem(TOWN_ENTRY_KEY)
+          void launchCampaign(config)
+        })
+      }, p => transition(p, next => { void start(next) }), () => {
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         home()
       }, message => { loading.textContent = message })

@@ -3,7 +3,7 @@ import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { cloneTownCommandSquad, type TownCommandSquadState } from '../career/CareerCommandAuthority'
-import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
@@ -27,7 +27,7 @@ export class TownCommandSquadController {
 
   constructor(private readonly residents: readonly TownCommandResident[], private readonly player: () => Player,
     private readonly read: () => CareerProfile, private readonly commit: (profile: CareerProfile) => boolean,
-    private readonly options: { sceneKey?: string } = {}) {
+    private readonly options: { sceneKey?: string; canRefit?: () => boolean } = {}) {
     this.residentsById = new Map(residents.map(resident => [resident.npc.combatantId, resident]))
   }
 
@@ -144,6 +144,29 @@ export class TownCommandSquadController {
       else if (actor.status === 'deployed' && actor.order === 'follow') npc.assignFollowTarget(this.player(), index,
         officialFollowLocalOffset(index, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
     }
+  }
+
+  /** Sergeant service repairs the permanent roster, including casualties, in this scene. */
+  get canRefit(): boolean {
+    return this.commandsEnabled && !this.townHostile && this.actors.length > 0
+      && !this.actors.some(npc => !npc.dead && (npc.inCombat || this.value?.members?.[npc.combatantId]?.status === 'deployed'
+        && (npc.tacticalOrder === 'attack' || npc.tacticalOrder === 'charge')))
+      && (this.options.canRefit?.() ?? true)
+  }
+  refit(): boolean {
+    if (!this.canRefit) return false
+    const value = this.checkpoint()!
+    value.members ??= {}
+    for (const npc of this.actors) {
+      const resident = this.residentsById.get(npc.combatantId)!
+      const status = value.members[npc.combatantId]?.status === 'reserve' ? 'reserve' : 'deployed'
+      value.members[npc.combatantId] = refitCommandCheckpoint(npc, resident.homeMount, status)
+    }
+    const next = cloneCareerProfile(this.read()); next.townCommandSquad = value
+    if (!this.commit(next)) return false
+    for (const npc of this.actors) refitCommandActor(npc, this.residentsById.get(npc.combatantId)!.homeMount)
+    this.applySavedState(value)
+    return true
   }
 
   /** Follow and Dismiss remain physical movement. Other orders are subsequently assigned by the common command UI. */

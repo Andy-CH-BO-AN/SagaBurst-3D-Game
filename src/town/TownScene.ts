@@ -1,3 +1,4 @@
+import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { playerEagleProjectileBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { TownEagleGarrisonController } from './TownEagleGarrisonController'
@@ -186,6 +187,7 @@ export class TownScene {
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
+  private squadRefitSafety = new SquadRefitSafety()
   private townCommand?: TownCommandSquadController
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
@@ -285,7 +287,8 @@ export class TownScene {
     this.outskirts.synchronizeRank()
     this.outskirts.restoreCheckpoint(this.profile.activeMission?.patrolOutskirts)
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
-      { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}` })
+      { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
+        canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []) })
     this.townCommand.restore()
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
       { personalActors: () => this.personalSquad?.actors ?? [] })
@@ -294,23 +297,10 @@ export class TownScene {
     this.personalFormation = new FormationController(this.scene, this.camera, this.commandActors, this.world.terrainMesh,
       this.world.obstacles, this.navigation, TOWN_NAVIGATION_BOUNDS)
     this.personalCommands = new ArmyCommandController(this.commandActors, profile.faction, this.input, this.personalCommandUI,
-      this.personalFormation, order => {
-        const target = this.personalCommands?.selected ?? 'all'
-        if (target === 'squad:personal' || target === 'all') this.personalSquad?.resumeCommand(order)
-        this.townCommand?.issue(order, target)
-        for (const npc of this.commandActors) if (this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) && matchesArmyCommandTarget(npc, target)) npc.missionMovement = false
-        if (order === 'attack' || order === 'charge' || order === 'defend') sound.playCommanderCommand(this.profile.faction, order)
-      },
+      this.personalFormation, (order, target) => this.onPlayerCommandIssued(order, target ?? 'all'),
       'attack', () => this.commandsEnabled(), this.inventory, 'squad', true, {
         enabled: () => this.personalCommandsEnabled(),
-        issue: order => {
-          if (order === 'follow') {
-            const accepted = this.personalSquad!.follow()
-            if (accepted) sound.playCareerMissionVoice(this.profile.faction, 'follow')
-            return accepted
-          }
-          return this.personalSquad!.dismiss()
-        },
+        issue: order => this.issuePartyOrder(order, 'squad:personal'),
       }, { enabled: () => this.commandsEnabled(), accepts: npc => this.isAuthorizedCommandActor(npc), issue: (order, target) => this.issuePartyOrder(order, target) },
       () => this.commandHudRoster())
     this.personalCommandUI.setEnabled(this.commandsEnabled())
@@ -763,7 +753,7 @@ export class TownScene {
     if (!this.result && !this.missionResultOpen) this.button(panel, '關閉 · Q / Esc', () => this.closePanel())
     document.body.append(panel); this.panel = panel; return panel
   }
-  private button(parent: HTMLElement, label: string, action: () => void): void { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b) }
+  private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b); return b }
   private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy'): void {
     if (this.player.dead || this.event.hostile || !this.serviceAvailable(id)) return
     if (id === 'hr-officer') { this.openRecruitmentPanel(response); return }
@@ -884,6 +874,7 @@ export class TownScene {
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
+    if (this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) && !this.profile.activeMission.result) return true
     if (this.townCommand?.accepts(npc)) return this.townCommand.commandsEnabled
     return Boolean(!this.player.dead && !this.profile.activeMission?.result && this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId))
   }
@@ -931,6 +922,16 @@ export class TownScene {
     this.commandActors.push(...new Set([...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.personalSquad?.actors ?? [])]))
   }
 
+  private onPlayerCommandIssued(order: TacticalOrder, target: ArmyCommandTarget): void {
+    if (target === 'squad:personal' || target === 'all') this.personalSquad?.resumeCommand(order)
+    this.townCommand?.issue(order, target)
+    for (const npc of this.commandActors) {
+      if (this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId)
+        && matchesArmyCommandTarget(npc, target)) npc.missionMovement = false
+    }
+    if (order !== 'follow') sound.playCommanderCommand(this.profile.faction, order)
+  }
+
   private issuePartyOrder(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget): boolean {
     let accepted = false
     if (target === 'all' || target === 'squad:personal') accepted = (order === 'follow' ? this.personalSquad?.follow() : this.personalSquad?.dismiss()) ?? false
@@ -942,10 +943,15 @@ export class TownScene {
       npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.profile.personalSquad?.members.length)))
     }
     if (actors.length) accepted = true
-    if (accepted && order === 'follow') this.playMissionVoice('follow')
+    if (accepted) this.playMissionVoice(order === 'follow' ? 'follow' : 'dismiss')
     return accepted
   }
+  private canRefitSquad(actors: readonly NPC[]): boolean {
+    return !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [])
+      && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
+  }
   private emitCombatEvent(event: CombatEvent): void {
+    (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
     else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
   }
@@ -965,6 +971,12 @@ export class TownScene {
       + (members.length === 30 ? '\n你的隊伍已經滿了。三十人，是目前允許你的上限。' : '')
       + '\nFollow me：從 HR Center 出發 · Dismiss：返回整補'
     panel.append(summary)
+    const refit = this.button(panel, '整補私兵部隊', () => {
+      const repaired = this.personalSquad?.refit(next => this.commit(next))
+      this.openRecruitmentPanel(repaired ? '私兵全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補私兵。')
+    })
+    refit.disabled = !this.personalSquad?.canRefit
+    refit.title = refit.disabled ? '僅限和平狀態；請先停止交戰並改用 Follow、Defend 或 Formation。' : ''
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
     for (const item of PERSONAL_SQUAD_PRODUCTS) {
       const row = document.createElement('article'); row.className = 'town-product'
@@ -1019,6 +1031,14 @@ export class TownScene {
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
     const panel = this.openPanel('士官長', greeting)
+    if (this.townCommand?.commandsEnabled) {
+      const refit = this.button(panel, '整補城防部隊', () => {
+        const repaired = this.townCommand!.refit()
+        this.openDeploymentPanel(repaired ? '城防全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補城防部隊。', context, firstOutpost)
+      })
+      refit.disabled = !this.townCommand.canRefit
+      refit.title = refit.disabled ? '僅限和平狀態；請先停止交戰並改用 Follow、Defend 或 Formation。' : ''
+    }
     const arrows = document.createElement('p'); arrows.className = 'town-summary'; arrows.textContent = `箭袋 ${this.player.arrowCount}/${PLAYER_ARROW_CAPACITY}`; panel.append(arrows)
     if (this.player.arrowCount < PLAYER_ARROW_CAPACITY) this.button(panel, '申請補滿箭矢', () => {
       this.player.setArrowCount(PLAYER_ARROW_CAPACITY)
@@ -1331,6 +1351,7 @@ export class TownScene {
     const home = context.worldFaction === profile.faction
     const privateEaglePads = this.privateEaglePads = new EaglePadReservations(home ? this.world.eagleTraining.pads : [])
     this.personalSquad = new TownPersonalSquadController(this.scene, this.world.hr, () => this.profile, () => this.player, undefined, {
+      canRefit: () => this.canRefitSquad(this.personalSquad?.actors ?? []),
       sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       hasHR: home, eaglePads: privateEaglePads,
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
@@ -2458,7 +2479,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
-        ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
+        ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
         ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
         : this.profile.activeMission.kind === 'town-defense'
