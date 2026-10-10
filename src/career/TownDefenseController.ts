@@ -63,6 +63,14 @@ export class TownDefenseController {
     const active = this.active
     return Boolean(active && !active.result && active.officialSquad?.actorIds.includes(npc.combatantId))
   }
+  /** Player orders replace both scripted travel and the preparation combat hold. */
+  releasePlayerCommand(npc: NPC): void {
+    if (!this.isPlayerCommanded(npc)) return
+    npc.missionMovement = false
+    npc.setMissionCombatTarget(undefined)
+    npc.assignSiegeObstacle(null)
+    this.orders.delete(npc)
+  }
   freezeStats(): void { this.tracker?.freeze() }
   readonly events = new CombatEventStream()
   readonly guide = new MissionGuide()
@@ -204,9 +212,23 @@ export class TownDefenseController {
           if (hp !== undefined && hp < gate.damageable.currentHp) gate.damageable.takeDamage(gate.damageable.currentHp - hp)
           if (active.phase !== 'PREPARING') gate.close()
         }
-        this.gateListeners.push(gate.onStateChange(state => { if (state === 'destroyed') this.releaseReserve(id) }))
-        if (gate.state === 'destroyed' || this.siege!.releasedReserveGateIds.includes(id)) this.releaseReserve(id)
+        this.gateListeners.push(gate.onStateChange(state => {
+          if (state === 'destroyed' && !this.siege!.destroyedGateIds.includes(id)) this.siege!.destroyedGateIds.push(id)
+        }))
+        if (this.siege!.releasedReserveGateIds.includes(id)) this.releaseReserve(id)
       }
+      // Gate lifecycle fires before attributed damage. Only the lethal attack
+      // event can distinguish an enemy breach from friendly destruction.
+      this.gateListeners.push(this.events.subscribe(event => {
+        if (event.type !== 'structure_destroyed') return
+        const enemy = this.assault
+          ? event.source.allegiance === Faction.PLAYER || event.source.allegiance === Faction.TOWN
+          : event.source.allegiance === Faction.ENEMY || event.source.allegiance === Faction.BANDIT
+        if (!enemy) return
+        for (const [id, gate] of context.gates) {
+          if (gate.state === 'destroyed' && event.target.targetId === `structure:${gate.damageable.root.uuid}`) this.releaseReserve(id)
+        }
+      }))
       context && this.navigation.sync(context.obstacles)
       if (active.phase !== 'PREPARING') for (const npc of this.military) {
         if (!npc.dead && !this.isEagleGuard(npc) && !insideSiegeTown(npc.combatPosition)) this.order(npc, npc.combatPosition.clone())
@@ -237,7 +259,7 @@ export class TownDefenseController {
       }
       if (this.phase === 'PREPARING') this.closeGates()
       if (this.phase !== 'PREPARING') this.beginAttack()
-      else for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(null)
+      else for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(this.isPlayerCommanded(npc) ? undefined : null)
       this.persistRuntimeProgress(true)
     })
     return true

@@ -163,17 +163,18 @@ describe('new defense acceptance refit and reload', () => {
     expect(f.store.load()?.townCommandSquad?.members?.[f.spec.id].hp).toBe(37)
     expect(f.guard.hp).toBe(37)
   })
-  it('refits after a saved death return completes, with no early revival or failed-save mutation', () => {
+  it.each(['death', 'defense-settlement'] as const)('refits after a saved %s return completes, with no early revival or failed-save mutation', reason => {
     const f = defenseAcceptanceFixture()
     f.town.acceptMission('veteran-town-defense-01')
-    f.town.player.dead = true
+    f.town.player.dead = reason === 'death'
+    if (reason === 'defense-settlement') f.town.profile.activeMission!.result = { outcome: 'victory' } as NonNullable<CareerProfile['activeMission']>['result']
     const next = cloneCareerProfile(f.town.profile); next.activeMission = undefined
     f.storage.failWrites = true
     expect(f.town.commit(next)).toBe(false)
     expect(f.guard.dead).toBe(true)
     f.storage.failWrites = false
     expect(f.town.commit(next)).toBe(true)
-    expect(f.guard.dead).toBe(true); expect(f.town.player.dead).toBe(true)
+    expect(f.guard.dead).toBe(true); expect(f.town.player.dead).toBe(reason === 'death')
     Object.assign(f.town, {
       temporaryMounts: { cleanup: vi.fn() }, careerMounts: { restInTown: vi.fn() }, inventory: { sheathAll: vi.fn() },
       spectator: null, hp: { setFill: vi.fn() }, stamina: { setFill: vi.fn() }, quiver: { setArrowCount: vi.fn() },

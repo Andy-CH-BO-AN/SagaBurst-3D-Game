@@ -133,6 +133,8 @@ export class TownCommandSquadController {
       const resident = this.residentsById.get(id)
       if (!resident) continue
       const npc = resident.npc, actor = this.value.members?.[id]
+      // A running mission owns this resident's squad, orders and combat state.
+      if (!restore && this.read().activeMission?.officialSquad?.actorIds.includes(id)) continue
       if (restore && actor) restoreCommandActor(npc, actor, resident.homeMount)
       npc.combatOwnership = this.value.authorized ? 'town-command' : undefined
       npc.setCommandAllegiance(this.value.authorized ? Faction.PLAYER : Faction.TOWN)

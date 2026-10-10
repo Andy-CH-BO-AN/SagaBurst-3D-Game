@@ -205,7 +205,7 @@ export class TownScene {
   private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
-  private townRefitOnRespawn = false
+  private townRefitOnReturn = false
   private get sceneContext() { return resolveCareerTownSceneContext(this.profile) }
   private pointerWasLocked = false
   private careerSaveFailures = 0
@@ -524,7 +524,8 @@ export class TownScene {
     const townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
     const startsDefense = startsFormal && next.activeMission?.kind === 'town-defense'
     const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
-    if ((startsDefense || respawning) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
+    const returningFromDefense = Boolean(this.profile.activeMission?.kind === 'town-defense' && this.profile.activeMission.result && !next.activeMission)
+    if ((startsDefense || respawning || returningFromDefense) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
     else if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
     else if (!townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
     if (startsFormal && next.activeMission && next.townCommandSquad) {
@@ -574,7 +575,7 @@ export class TownScene {
     if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
     if (newMission || newOutpost) next.personalSquadRuntime = undefined
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
-    if (respawning) this.townRefitOnRespawn = true
+    if (respawning || returningFromDefense) this.townRefitOnReturn = true
     // Authorize the live controller only after the transition and permission are durably saved.
     if (settledTownEvent && this.garrisonRestored) for (const resident of this.residents ?? []) {
       if (resident.spec.eagle) this.eagleGarrison?.beginRefit(resident.spec.id)
@@ -593,7 +594,7 @@ export class TownScene {
     const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
     this.profile = next
     if (startsFormal || townStateChanged || endedFormal) this.townCommand?.applySavedState(next.townCommandSquad)
-    if (!this.townRefitOnRespawn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
+    if (!this.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
     this.synchronizeCommandActors()
     if (missionFinished) this.personalSquad?.regroupAfterMission()
     this.careerSkillsDirty = false
@@ -933,7 +934,10 @@ export class TownScene {
     this.townCommand?.issue(order, target)
     for (const npc of this.commandActors) {
       if (this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId)
-        && matchesArmyCommandTarget(npc, target)) npc.missionMovement = false
+        && matchesArmyCommandTarget(npc, target)) {
+        npc.missionMovement = false
+        this.defense?.releasePlayerCommand(npc)
+      }
     }
     if (order !== 'follow') sound.playCommanderCommand(this.profile.faction, order)
   }
@@ -946,6 +950,7 @@ export class TownScene {
     const actors = order === 'follow' ? this.commandActors.filter(npc => ids.has(npc.combatantId) && !npc.dead && matchesArmyCommandTarget(npc, target)) : []
     for (const [index, npc] of actors.entries()) {
       npc.missionMovement = false
+      this.defense?.releasePlayerCommand(npc)
       npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.profile.personalSquad?.members.length)))
     }
     if (actors.length) accepted = true
@@ -1646,9 +1651,9 @@ export class TownScene {
     this.careerMounts.restInTown()
     this.inventory.sheathAll()
     this.player.restoreForTown()
-    if (this.townRefitOnRespawn) {
+    if (this.townRefitOnReturn) {
       this.townCommand?.applyRefit(this.profile.townCommandSquad)
-      this.townRefitOnRespawn = false
+      this.townRefitOnReturn = false
       this.townCommand?.grant()
     }
     if (this.spectator) {
