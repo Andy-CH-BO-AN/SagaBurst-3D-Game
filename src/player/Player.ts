@@ -28,7 +28,7 @@ import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { damagePlayer } from '../combat/DamageRouter'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
-import type { EagleAimHeading } from './EagleFlightAim'
+import { EAGLE_AIM, eagleRiderAimYaw, type EagleAimHeading } from './EagleFlightAim'
 import { fitStandingRider } from '../world/StandingRider'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
@@ -127,6 +127,8 @@ export class Player {
   private readonly fallFeet = new THREE.Vector3()
   private readonly seatUp = new THREE.Vector3()
   private flightSteering: EagleAimHeading | null = null
+  private flightRiderAimYaw: number | null = null
+  private flightRiderYaw = 0
   private damageHud?: Pick<HpBar, 'setFill'>
 
   get isFalling(): boolean { return this.fallingRider.active }
@@ -136,6 +138,7 @@ export class Player {
     this.flightSteering ??= { yaw: 0, pitch: 0 }
     Object.assign(this.flightSteering, heading)
   }
+  setFlightRiderAim(yaw: number | null): void { this.flightRiderAimYaw = yaw }
   setDamageHud(hud: Pick<HpBar, 'setFill'>): void { this.damageHud = hud }
 
   public maxHp: number = DEFAULT_PLAYER_MAX_HP
@@ -543,6 +546,8 @@ export class Player {
     this.isMounted = true
     this.currentMount = mount
     this.flightSteering = null
+    this.flightRiderAimYaw = null
+    this.flightRiderYaw = 0
     mount.setPlayerRider(this)
     const targetHeading = heading !== undefined ? heading : this.facingYaw
     this.setMountedHeading(targetHeading)
@@ -555,6 +560,7 @@ export class Player {
       this.currentMount.getRiderStandingSeatWorld(this.group.position)
       this.group.quaternion.copy(this.currentMount.group.quaternion)
       this.group.position.add(this.seatUp.set(0, PLAYER_HALF_HEIGHT, 0).applyQuaternion(this.group.quaternion))
+      this.group.rotateY(this.flightRiderYaw)
       if (!this.usesExternalForwardAdapter) this.group.rotateY(Math.PI)
       if (!this.rig.equipmentGripFrames) applyCharacterMountedPose(this.rig, true, this.currentMount.type as MountedPoseKind)
       this.rig.animation?.setEquipmentState?.({ mounted: true, mountKind: this.currentMount.type as MountedPoseKind })
@@ -601,6 +607,8 @@ export class Player {
     this.group.rotation.x = 0
     this.group.rotation.z = 0
     this.flightSteering = null
+    this.flightRiderAimYaw = null
+    this.flightRiderYaw = 0
     this.velY = 0
   }
 
@@ -997,6 +1005,14 @@ export class Player {
         bankInput: Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])),
         sprint: this.isSprinting, brake: Boolean(input.keys['KeyS']), takeoff: Boolean(input.keys['KeyW']) })
       flyingMount.finishControlledFrame(dt, obstacles)
+      // Resolve against this frame's flight pose. Smooth both aim entry and
+      // release, and keep only a bounded local turn rather than accumulating it.
+      const riderTarget = this.flightRiderAimYaw === null ? 0
+        : eagleRiderAimYaw(flyingMount.group.quaternion, this.flightRiderAimYaw)
+      const riderDelta = Math.atan2(Math.sin(riderTarget - this.flightRiderYaw), Math.cos(riderTarget - this.flightRiderYaw))
+      const riderAlpha = 1 - Math.exp(-(this.flightRiderAimYaw === null ? EAGLE_AIM.releaseRate : 18) * dt)
+      this.flightRiderYaw += riderDelta * riderAlpha
+      this.flightRiderYaw = Math.atan2(Math.sin(this.flightRiderYaw), Math.cos(this.flightRiderYaw))
       this.syncMountTransform()
     }
     this.animator.setLocomotion(flyingMount ? 0 : effectiveSpeed, this.isMounted, this.isSprinting)

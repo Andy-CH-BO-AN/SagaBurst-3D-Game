@@ -158,6 +158,7 @@ export class ThirdPersonCamera {
       this.flightAim.update(dx, dy, input.isRightMouseDown, flight, dt,
         Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])))
       this.player.setFlightSteering(this.flightAim.steering)
+      this.player.setFlightRiderAim(input.isRightMouseDown ? this.flightAim.aim.yaw : null)
       this.yaw = this.flightAim.aim.yaw - Math.PI
       this.pitch = LEVEL_AIM_PITCH - this.flightAim.aim.pitch + EAGLE_AIM.followDownPitch * (1 - this.aimViewBlend)
     } else {
@@ -214,10 +215,7 @@ export class ThirdPersonCamera {
     )
 
     this.thirdPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, -this.thirdPersonDistance)
-    if (flight) {
-      const aimDistance = resolveCameraDistance(this.cameraTarget, this.cameraBackward, EAGLE_AIM.aimDistance, obstacles, { terrainHeight: getTerrainHeight })
-      this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, -aimDistance)
-    } else this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, safeFirstPersonDistance)
+    this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, safeFirstPersonDistance)
     this.camera.position.lerpVectors(this.thirdPersonPosition, this.firstPersonPosition, this.aimViewBlend)
     this.camera.lookAt(this.lookTarget.copy(this.camera.position).add(this.aimDirection))
   }
