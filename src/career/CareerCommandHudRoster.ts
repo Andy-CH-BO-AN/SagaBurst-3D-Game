@@ -14,7 +14,7 @@ export interface CareerCommandHudSource {
   official?: OfficialCommandAuthority
   /** Only missing official actors in a still-running deployment are pending. */
   officialPending?: boolean
-  /** Currently present, living Town soldiers whose genuine return travel blocks commands. */
+  /** Currently present, living official soldiers whose genuine return travel blocks commands. */
   officialReturningIds?: readonly string[]
   /** Present Town residents training peacefully, as reported by their live owner. */
   officialTrainingIds?: readonly string[]
@@ -32,7 +32,7 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
   const live = new Map(source.actors.map(actor => [actor.combatantId, actor]))
   const pendingPersonal = new Set(source.personalPendingIds ?? [])
   const returningPersonal = new Set(source.personalReturningIds ?? [])
-  const returningOfficial = new Set(official?.type === 'town-command' ? source.officialReturningIds ?? [] : [])
+  const returningOfficial = new Set(source.officialReturningIds ?? [])
   const trainingOfficial = new Set(official?.type === 'town-command' ? source.officialTrainingIds ?? [] : [])
   const members: ArmyHudMember[] = []
 

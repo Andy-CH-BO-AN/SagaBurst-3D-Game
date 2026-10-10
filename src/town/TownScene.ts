@@ -293,7 +293,8 @@ export class TownScene {
         canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []) })
     this.townCommand.restore()
     this.captainPatrol = new CaptainPatrolCommandController(this.residents, this.patrol, () => this.player, () => this.profile, p => this.commit(p),
-      { personalActors: () => this.personalSquad?.actors ?? [] })
+      { personalActors: () => this.personalSquad?.actors ?? [],
+        resumeFormation: (npc, reference) => this.personalFormation?.joinCommand(npc, reference) ?? false })
     this.initializePersonalSquad()
     this.personalCommandUI = new ArmyCommandUI(profile.faction, this.hud)
     this.personalFormation = new FormationController(this.scene, this.camera, this.commandActors, this.world.terrainMesh,
@@ -743,7 +744,8 @@ export class TownScene {
     const failures = this.careerSaveFailures
     const skillsSaved = this.flushCareerSkillProgression()
     this.persistPersonalSquad(0, true)
-    if (this.duel?.active) this.duel.persistRuntimeProgress(true)
+    if (this.captainPatrol?.active) this.captainPatrol.persist(true)
+    else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
     else if (this.defense?.active) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
     else if (this.profile.activeMission) this.mission.persistRuntimeProgress(true)
     const saved = this.commit(this.profile)
@@ -960,7 +962,7 @@ export class TownScene {
     if (target === 'all' || target === 'squad:personal') accepted = (order === 'follow' ? this.personalSquad?.follow() : this.personalSquad?.dismiss()) ?? false
     if (this.townCommand?.commandsEnabled) accepted = this.townCommand.issue(order, target) || accepted
     const ids = new Set(this.profile.activeMission?.officialSquad?.actorIds ?? [])
-    const actors = order === 'follow' ? this.commandActors.filter(npc => ids.has(npc.combatantId) && !npc.dead && matchesArmyCommandTarget(npc, target)) : []
+    const actors = order === 'follow' ? this.commandActors.filter(npc => ids.has(npc.combatantId) && !npc.dead && this.isAuthorizedCommandActor(npc) && matchesArmyCommandTarget(npc, target)) : []
     for (const [index, npc] of actors.entries()) {
       npc.missionMovement = false
       this.defense?.releasePlayerCommand(npc)

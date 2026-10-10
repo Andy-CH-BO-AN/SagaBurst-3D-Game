@@ -1,15 +1,15 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, cloneCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
-import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController, resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from '../../src/town/TownCommandSquadController'
 import { TownScene } from '../../src/town/TownScene'
 import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
-import type { ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
+import { countArmyHudRoster, armyHudCountSummary, type ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
-import { TownEvent, townCommandSquadRoster, townRoster, townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
+import { TownEvent, townCommandSquadRoster, townRoster, townSitePoint, townMilitaryEquipment, type TownActorSpec } from '../../src/town/TownRules'
 import { Faction, type NPC } from '../../src/world/NPC'
 import type { Mount } from '../../src/world/Mount'
 import type { Player } from '../../src/player/Player'
@@ -17,6 +17,10 @@ import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import type { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
+import { FormationController } from '../../src/battle/FormationController'
 
 /** Recording resident boundary: 0 real NPC/0 Mount/0 world. It verifies ownership and saved state, not locomotion. */
 function resident(spec: TownActorSpec) {
@@ -28,11 +32,12 @@ function resident(spec: TownActorSpec) {
   const actor = { group, combatPosition: group.position, combatantId: spec.id, name: spec.id,
     dead: false, hp: 73, maxHp: 100, combatAmmoCapacity: 30, inCombat: false, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
     mount: homeMount ?? null, isMounted: Boolean(homeMount), isFalling: false, combatAmmo: 12,
+    activeFollowTarget: null as NPC | Player | null, activeFollowSlotIndex: -1, presetId: townMilitaryEquipment('roman', spec).presetId,
     tacticalOrder: 'attack' as NPC['tacticalOrder'], formationCommandId: null as number | null,
     shield: { shieldImpactRemaining: 1, shieldImpactMax: 8 }, respawnEnabled: false,
     setCommandAllegiance: vi.fn((faction: Faction) => { actor.faction = faction }),
     setCommandSquad: vi.fn((squad: NPC['squadId']) => { actor.squadId = squad }),
-    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn(() => { actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
+    setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn((target: NPC | Player, slot: number) => { actor.activeFollowTarget = target; actor.activeFollowSlotIndex = slot; actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; actor.formationCommandId = null; formation = undefined }),
     assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; formation = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false } }),
     isFormationTargetReached: vi.fn(() => false), updateTownTravel: vi.fn(),
@@ -337,7 +342,7 @@ describe('Captain Patrol actual combat objective and handover', () => {
 
   it('accepts nineteen fighters while preserving one individual return owner through acceptance, reload and refit completion', () => {
     const residents = townRoster().filter(spec => spec.patrolId === 'A').map(resident)
-    const patrol = new TownCavalryPatrolController(residents), p = player(), returning = residents[0]
+    const patrol = new TownCavalryPatrolController(residents), p = careerCheckpointPlayer() as Player, returning = residents[0]
     patrol.beginMissionReturn(returning.spec.id)
     patrol.beginFrame(new Set())
     patrol.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)
@@ -346,15 +351,29 @@ describe('Captain Patrol actual combat objective and handover', () => {
     const position = returning.npc.combatPosition.clone(), formation = returning.npc.combatFormationCheckpoint
     let profile = createCareerProfile('roman'); profile.rank = 'captain'
     profile.activeMission = createCaptainPatrolCommandMission(profile, patrol.selectAvailableSquad()!.actorIds, 'mixed')
-    const commit = (next: typeof profile) => { profile = parseCareerProfile(JSON.parse(JSON.stringify(next)))!; return true }
+    const store = new CareerProfileStore(new MemoryStorage())
+    const town = Object.assign(townProfileCheckpoint(profile, store), {
+      player: p, residents, commandActors: residents.map(r => r.npc),
+      playMissionVoice: vi.fn(), dispose: vi.fn(), onHome: vi.fn(),
+      mission: { ambientBandits: [], fieldNpcs: [], persistRuntimeProgress: vi.fn() },
+    // The prototype supplies private caller methods; this seam declares only those exercised here.
+    }) as unknown as ReturnType<typeof townProfileCheckpoint> & {
+      captainPatrol: CaptainPatrolCommandController
+      isAuthorizedCommandActor(npc: NPC): boolean
+      issuePartyOrder(order: 'follow', target: 'squad:1'): boolean
+      commandHudRoster(): ArmyHudRoster
+      returnHome(): void
+      onHome: ReturnType<typeof vi.fn>
+      mission: { persistRuntimeProgress: ReturnType<typeof vi.fn> }
+    }
+    const commit = (next: typeof profile) => { const saved = town.commit(next); profile = town.profile; return saved }
     const runtime = new CaptainPatrolCommandController(residents, patrol, () => p, () => profile, commit)
     onTestFinished(() => runtime.dispose())
     profile.activeMission = runtime.captureForMission(profile.activeMission)!
     expect(runtime.resume(false)).toBe(true)
     expect(runtime.actors).toHaveLength(20); expect(runtime.fieldNpcs).toHaveLength(19)
     expect(runtime.accepts(returning.npc)).toBe(false); expect(patrol.owns(returning.npc)).toBe(true)
-    const town = Object.assign(Object.create(TownScene.prototype) as { isAuthorizedCommandActor(npc: NPC): boolean },
-      { profile, player: p, captainPatrol: runtime })
+    town.captainPatrol = runtime
     expect(town.isAuthorizedCommandActor(returning.npc)).toBe(false)
     expect(town.isAuthorizedCommandActor(residents[1].npc)).toBe(true)
     expect(returning.npc.combatOwnership).toBeUndefined()
@@ -362,7 +381,27 @@ describe('Captain Patrol actual combat objective and handover', () => {
     expect(returning.npc.combatFormationCheckpoint).toEqual(formation)
     expect(returning.actor.refitCombat).not.toHaveBeenCalled()
     expect(runtime.guideTarget).toBe(residents[1].npc.combatPosition)
-    expect(runtime.persist(true)).toBe(true)
+    expect(town.issuePartyOrder('follow', 'squad:1')).toBe(true)
+    expect(residents.slice(1).every(r => r.actor.assignFollowTarget.mock.calls.length === 1)).toBe(true)
+    expect(returning.actor.assignFollowTarget).not.toHaveBeenCalled()
+    expect(returning.npc.combatFormationCheckpoint).toEqual(formation)
+    const roster = town.commandHudRoster()
+    expect(roster.members.filter(member => member.state === 'deployed')).toHaveLength(19)
+    expect(roster.members.filter(member => member.state === 'returning')).toHaveLength(1)
+    expect(armyHudCountSummary(countArmyHudRoster(roster, 'squad:1'))).toBe('20/20 · 返回中 1')
+    // Home must save recent changes through Captain's real checkpoint and storage parser.
+    returning.actor.hp = 37; returning.npc.combatPosition.x += 7
+    residents[1].actor.hp = 41
+    const merit = profile.availableMerit
+    town.returnHome()
+    expect(town.onHome).toHaveBeenCalledOnce()
+    expect(town.mission.persistRuntimeProgress).not.toHaveBeenCalled()
+    profile = store.load()!
+    town.profile = profile
+    expect(profile.availableMerit).toBe(merit)
+    expect(profile.activeMission!.officialSquad!.members![returning.spec.id]).toMatchObject({ hp: 37, position: { x: position.x + 7 }, formation })
+    expect(profile.activeMission!.officialSquad!.members![residents[1].spec.id].hp).toBe(41)
+    expect(profile.activeMission!.patrolReturnStates?.[returning.spec.id]).toBe('RETURN_TO_BARRACKS')
     runtime.dispose()
     const restoredPatrol = new TownCavalryPatrolController(residents)
     const restored = new CaptainPatrolCommandController(residents, restoredPatrol, () => p, () => profile, commit)
@@ -376,7 +415,42 @@ describe('Captain Patrol actual combat objective and handover', () => {
     restored.update(1)
     expect(restored.accepts(returning.npc)).toBe(true); expect(restored.fieldNpcs).toHaveLength(20)
     expect(restoredPatrol.owns(returning.npc)).toBe(false)
+    expect(returning.npc.tacticalOrder).toBe('follow')
+    expect(returning.npc.activeFollowTarget).toBe(p)
+    expect(new Set(restored.fieldNpcs.map(npc => npc.activeFollowSlotIndex)).size).toBe(20)
+    expect(profile.availableMerit).toBe(merit)
     expect(profile.activeMission!.patrolReturnStates).toEqual({})
+    expect(returning.actor.refitCombat).not.toHaveBeenCalled()
+  })
+
+  it.each(['attack', 'charge', 'defend', 'formation'] as const)('inherits the applicable %s command only after individual refit finishes', order => {
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').map(resident), patrol = new TownCavalryPatrolController(residents)
+    const returning = residents[0], reference = residents.find(r => r !== returning && r.npc.presetId === returning.npc.presetId)!, p = player()
+    patrol.beginMissionReturn(returning.spec.id)
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    profile.activeMission = createCaptainPatrolCommandMission(profile, patrol.selectAvailableSquad()!.actorIds, 'rejoin-order')
+    const formation = new FormationController(new THREE.Scene(), new THREE.PerspectiveCamera(), residents.map(r => r.npc), new THREE.Object3D(), [])
+    onTestFinished(() => formation.cancelPlacement())
+    const runtime = new CaptainPatrolCommandController(residents, patrol, () => p, () => profile, next => { profile = next; return true },
+      { resumeFormation: (npc, peer) => formation.joinCommand(npc, peer) })
+    onTestFinished(() => runtime.dispose())
+    profile.activeMission = runtime.captureForMission(profile.activeMission)!
+    runtime.resume(false)
+    if (order === 'formation') reference.npc.assignFormationTarget(7, new THREE.Vector3(100, 0, 100), new THREE.Vector3(0, 0, 1))
+    else reference.npc.setTacticalOrder(order)
+    const before = returning.npc.tacticalOrder, target = reference.npc.combatFormationCheckpoint
+    runtime.update(0)
+    expect(returning.npc.tacticalOrder).toBe(before)
+    expect(runtime.accepts(returning.npc)).toBe(false)
+    patrol.restoreMissionReturn(returning.spec.id, 'REJOIN_PATROL')
+    runtime.update(0)
+    expect(returning.npc.tacticalOrder).toBe(order)
+    expect(runtime.accepts(returning.npc)).toBe(true)
+    if (order === 'formation') {
+      expect(returning.npc.formationCommandId).toBe(7)
+      expect(returning.npc.combatFormationCheckpoint?.position).not.toEqual(target?.position)
+      expect(reference.npc.combatFormationCheckpoint).toEqual(target)
+    }
     expect(returning.actor.refitCombat).not.toHaveBeenCalled()
   })
 

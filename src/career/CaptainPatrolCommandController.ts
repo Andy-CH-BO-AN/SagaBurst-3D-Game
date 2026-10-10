@@ -33,11 +33,13 @@ export function resolveCaptainPatrolCommandOutcome(kills: number, playerDead: bo
 
 export interface CaptainPatrolRuntimeOptions {
   personalActors?(): readonly NPC[]
+  /** The existing formation owner chooses an unoccupied, navigable slot. */
+  resumeFormation?(npc: NPC, reference: NPC): boolean
   /** Scene supplies the actual Bandit/roaming enemy actors, including mount owners. */
   isEligibleTarget?(target: CombatTargetRef): boolean
 }
 
-/** The autonomous Patrol gives up all twenty identities until this mission returns them. */
+/** Keeps the official identities while Patrol retains ownership of individual refit travel. */
 export class CaptainPatrolCommandController {
   readonly events = new CombatEventStream()
   private readonly residentsById: Map<string, PatrolResident>
@@ -190,12 +192,29 @@ export class CaptainPatrolCommandController {
       if (this.patrol.isRefitting(id)) continue
       const npc = this.residentsById.get(id)!.npc
       if (!this.patrol.relinquish(id)) continue
+      const peers = this.fieldNpcs.filter(actor => !actor.dead)
       this.refittingActors.delete(id)
       npc.combatOwnership = 'mission-official'; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(1)
       npc.respawnEnabled = false
+      this.resumeSquadOrder(npc, peers)
     }
     this.saveElapsed += Math.max(0, dt)
     if (this.saveElapsed >= 1) { this.saveElapsed = 0; this.persist() }
+  }
+  /** Inherit the applicable live command only after Patrol releases the refitted actor. */
+  private resumeSquadOrder(npc: NPC, peers: readonly NPC[]): void {
+    const reference = peers.find(actor => actor.presetId === npc.presetId) ?? peers[0]
+    if (!reference) return
+    if (reference.tacticalOrder === 'follow') {
+      const target = reference.activeFollowTarget ?? this.player()
+      const occupied = new Set(peers.filter(actor => actor.tacticalOrder === 'follow' && actor.activeFollowTarget === target)
+        .map(actor => actor.activeFollowSlotIndex))
+      let slot = 0
+      while (occupied.has(slot)) slot++
+      npc.assignFollowTarget(target, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
+    } else if (reference.combatFormationCheckpoint) {
+      if (!this.options.resumeFormation?.(npc, reference)) npc.setTacticalOrder('defend')
+    } else npc.setTacticalOrder(reference.tacticalOrder)
   }
   evaluateOutcome(): CareerMissionOutcome | null {
     if (!this.ready || this.active?.result) return null

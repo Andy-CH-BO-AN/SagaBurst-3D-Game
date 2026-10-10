@@ -199,6 +199,37 @@ export class FormationController {
     return { accepted: true, count: assignments.length, commandId, participants: snapshot.participants }
   }
 
+  /** Add a newly commandable member without moving soldiers already assigned to this formation. */
+  joinCommand(npc: NPC, reference: NPC): boolean {
+    const saved = reference.combatFormationCheckpoint
+    if (!saved || npc.dead || this.participantPolicy && !this.participantPolicy(npc)) return false
+    this.navigationWorld?.sync(this.obstacles)
+    const participants = this.npcs.filter(actor => actor !== npc && !actor.dead && actor.formationCommandId === saved.commandId)
+    const point = new THREE.Vector3(saved.position.x, getTerrainHeight(saved.position.x, saved.position.z), saved.position.z)
+    const forward = new THREE.Vector3(Math.sin(saved.position.yaw), 0, Math.cos(saved.position.yaw))
+    const component = this.getFormationComponent([reference, npc]), inside = this.getFormationRegionSide(point, [reference])
+    const radius = npc.isMounted ? 1 : .5
+    const slots = resolveFormationSlots([point], forward, [npc], () => radius, slot => {
+      if (Math.abs(slot.x) > PLAYABLE_WORLD_BOUND || Math.abs(slot.z) > PLAYABLE_WORLD_BOUND
+        || this.isSlotBlocked(slot, npc) || !npc.mount?.isFlyingMount && !this.isInFormationComponent(slot, component)
+        || !this.isInFormationRegion(slot, inside)) return false
+      return participants.every(actor => {
+        const p = actor.combatFormationCheckpoint?.position
+        if (!p) return true
+        return (slot.x - p.x) ** 2 + (slot.z - p.z) ** 2 >= (radius + (actor.isMounted ? 1 : .5)) ** 2
+      })
+    }, getTerrainHeight, PLAYABLE_WORLD_BOUND)
+    if (!slots) return false
+    const slot = slots[0]
+    if (npc.mount?.isFlyingMount) slot.y = getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight
+    npc.assignFormationTarget(saved.commandId, slot, forward, saved.speedLimit, saved.arrivalOrder)
+    this.nextCommandId = Math.max(this.nextCommandId, saved.commandId + 1)
+    const command = this.activeCommands.find(command => command.id === saved.commandId)
+    if (command) { if (!command.participants.includes(npc)) command.participants.push(npc) }
+    else this.activeCommands.push({ id: saved.commandId, target: 'all', participants: [...participants, npc] })
+    return true
+  }
+
   /** Call after NPC updates so arrival is observed without adding work to every NPC frame. */
   updateCompletion(): void {
     if (this.activeCommands.length === 0) return
