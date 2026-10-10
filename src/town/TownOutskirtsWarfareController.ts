@@ -121,6 +121,13 @@ export class TownOutskirtsWarfareController {
       waypoint: squad.waypoint, ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}),
       members: Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc)])) })) }
   }
+  /** Ordinary Town saves need timers and generations, not a materialized roaming roster. */
+  cooldownCheckpoint(): TownOutskirtsCheckpoint {
+    return { squads: this.squads.filter(squad => squad.spec.kind === 'bandit'
+      || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY)
+      .map(squad => ({ id: squad.id, generation: squad.generation, state: squad.state, waypoint: squad.waypoint,
+        ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}), members: {} })) }
+  }
   /** Call before advancing spawn queues. Generation IDs, surviving HP and cooldown survive reload. */
   restoreCheckpoint(value: TownOutskirtsCheckpoint | undefined): void {
     if (!value) return

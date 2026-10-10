@@ -130,7 +130,8 @@ export class TownCavalryPatrolController {
 
   private squadUnavailableReason(squad: PatrolSquad): 'owned' | 'returning' | null {
     if (squad.members.some(r => this.relinquished.has(r.spec.id) || this.excluded.has(r.npc) || r.npc.combatOwnership)) return 'owned'
-    if (squad.members.some(r => ['RETURN_TO_BARRACKS', 'REFIT'].includes(this.returning.get(r.spec.id)?.state ?? ''))) return 'returning'
+    if (squad.members.every(r => this.isRefitting(r.spec.id))
+      || squad.state === 'RETURN_TO_BARRACKS' && squad.members.some(r => this.isRefitting(r.spec.id))) return 'returning'
     return null
   }
 
@@ -157,6 +158,8 @@ export class TownCavalryPatrolController {
       && sameActorIds(candidate.members.map(resident => resident.spec.id), actorIds))
     if (!squad) return false
     for (const resident of squad.members) {
+      // An individual casualty keeps its physical return owner while the rest can be commanded.
+      if (this.isRefitting(resident.spec.id)) continue
       this.relinquished.add(resident.spec.id); this.available.delete(resident.spec.id); this.returning.delete(resident.spec.id)
       if (!preserveCombat) resident.npc.clearEncounter()
     }
@@ -209,6 +212,10 @@ export class TownCavalryPatrolController {
   }
 
   returnStateFor(actorId: string): TownPatrolReturnState | null { return this.returning.get(actorId)?.state ?? null }
+  isRefitting(actorId: string): boolean {
+    const state = this.returnStateFor(actorId)
+    return state === 'RETURN_TO_BARRACKS' || state === 'REFIT'
+  }
 
   owns(npc: NPC): boolean {
     return !this.siegeOwned && !this.hostile && this.residents.get(npc.combatantId)?.npc === npc

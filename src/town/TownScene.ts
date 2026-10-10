@@ -105,7 +105,7 @@ import { townMeleeBuildingContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { TownEquipment } from './TownEquipment'
-import { TownMissionSettlement } from './TownMissionSettlement'
+import { TownMissionSettlement, type MissionCommitOptions } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
@@ -287,7 +287,7 @@ export class TownScene {
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
       undefined, this.profile.activeMission?.siege?.attackerIds)
     this.outskirts.synchronizeRank()
-    this.outskirts.restoreCheckpoint(this.profile.activeMission?.patrolOutskirts)
+    this.restoreOutskirtsCheckpoint()
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
       { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
         canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []) })
@@ -350,7 +350,7 @@ export class TownScene {
     )
     const town = this
     this.missionSettlement = new TownMissionSettlement(
-      { read: () => this.profile, commit: p => this.commit(p) },
+      { read: () => this.profile, commit: (p, options) => this.commit(p, options) },
       { field: this.mission, duel: this.duel, defense: this.defense, patrol: this.captainPatrol },
       {
         residents: this.residents, cat: this.cat,
@@ -518,7 +518,11 @@ export class TownScene {
     return true
   }
 
-  private commit(profile: CareerProfile): boolean {
+  private restoreOutskirtsCheckpoint(): void {
+    this.outskirts?.restoreCheckpoint(this.profile.activeMission?.patrolOutskirts ?? this.profile.townOutskirts?.[this.world.faction])
+  }
+
+  private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
     this.clearCareerSkillSaveTimer()
     let next = cloneCareerProfile(profile)
     const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
@@ -538,6 +542,8 @@ export class TownScene {
       next.activeMission.friendlyActorIds = next.activeMission.friendlyActorIds.filter(id => !returning.has(id))
       if (next.activeMission.officialSquad) next.activeMission.officialSquad.actorIds = next.activeMission.officialSquad.actorIds.filter(id => !returning.has(id))
     }
+    const outskirts = this.outskirts?.cooldownCheckpoint()
+    if (outskirts?.squads.length) next.townOutskirts = { ...next.townOutskirts, [this.world.faction]: outskirts }
     if (next.activeMission?.kind === 'captain-patrol-command') {
       next.activeMission.patrolOutskirts = this.outskirts?.checkpoint() ?? next.activeMission.patrolOutskirts
       if (this.mission?.ambientBandits.length) next.activeMission.patrolAmbient = {
@@ -557,8 +563,8 @@ export class TownScene {
       for (const pair of snapshot.pairs) if (settledTownEvent || refit?.has(pair.riderId)) pair.refitAllowed = true
       next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: snapshot }
     }
-    if (this.player && !this.restoringAerialState) next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
-    if (respawning) delete next.playerAerialState
+    if (this.player && !this.restoringAerialState && !options.groundedTownReturn) next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
+    if (respawning || options.groundedTownReturn) delete next.playerAerialState
     const newMission = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
     const newOutpost = Boolean(next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
     const missionFinished = Boolean(next.activeMission?.result
@@ -609,9 +615,10 @@ export class TownScene {
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
     const garrisonActive = Boolean(garrison?.pairs.some(pair => pair.duty !== 'standby' || pair.hp === 0 || pair.mount.hp === 0))
     const townCommand = this.townCommand?.checkpoint()
-    if (!saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive) return
+    const outskirts = this.outskirts?.cooldownCheckpoint()
+    if (!saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !outskirts?.squads.length) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([outskirts?.squads.map(squad => [squad.id, squad.state, squad.generation]), townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -883,6 +890,7 @@ export class TownScene {
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
+    if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
     if (this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) && !this.profile.activeMission.result) return true
     if (this.townCommand?.accepts(npc)) return this.townCommand.commandsEnabled
     return Boolean(!this.player.dead && !this.profile.activeMission?.result && this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId))
@@ -911,7 +919,8 @@ export class TownScene {
       faction: this.profile.faction,
       ...(active ? { missionId: active.id } : {}),
       official,
-      officialReturningIds: official?.type === 'town-command' ? this.townCommand?.returningActorIds : undefined,
+      officialReturningIds: mission?.kind === 'captain-patrol-command' ? this.captainPatrol?.returningActorIds
+        : official?.type === 'town-command' ? this.townCommand?.returningActorIds : undefined,
       officialTrainingIds: official?.type === 'town-command' ? this.townCommand?.trainingActorIds : undefined,
       officialPending: Boolean(mission && official?.type === 'mission-official'
         && !this.deploymentReady && !this.deploymentFailed),

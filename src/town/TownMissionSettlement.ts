@@ -18,8 +18,10 @@ import type { CaptainPatrolCommandController } from '../career/CaptainPatrolComm
 interface MissionProfiles {
   read(): CareerProfile
   /** Publishes the profile only after saving it; false leaves the current profile unchanged. */
-  commit(profile: CareerProfile): boolean
+  commit(profile: CareerProfile, options?: MissionCommitOptions): boolean
 }
+
+export interface MissionCommitOptions { groundedTownReturn?: boolean }
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
@@ -123,7 +125,9 @@ export class TownMissionSettlement {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
-    if (!this.profiles.commit(next)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
+    const groundedTownReturn = captainPatrol && intent === 'direct'
+    if (groundedTownReturn) delete next.playerAerialState
+    if (!this.profiles.commit(next, groundedTownReturn ? { groundedTownReturn: true } : undefined)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (captainPatrol) this.missions.patrol?.release()
 

@@ -6,6 +6,11 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import type { NpcSpawnSpec } from '../../src/battle/BattleSpawner'
 import { createCareerProfile, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -98,6 +103,44 @@ function setup(rank: CareerRank = 'captain', townFaction: CharacterFaction = 'ro
 const asTest = (npc: NPC) => npc as unknown as TestNpc
 
 describe('Town outskirts runtime', () => {
+  it.each(['no mission', 'completed Captain I'] as const)('persists ordinary Town cooldown through real save/reload with %s and no actor roster', scenario => {
+    const scheduler = new NpcSpawnScheduler(), test = setup('captain', 'roman', 'roman', [], scheduler)
+    onTestFinished(() => test.controller.dispose())
+    test.controller.restoreCheckpoint({ squads: [{ id: 'outskirts:cavalry:a', generation: 3,
+      state: 'RESPAWN_COOLDOWN', waypoint: 0, respawnRemaining: 60, members: {} }] })
+    test.controller.prepareFrame(25, [], test.player)
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    if (scenario === 'completed Captain I') {
+      profile.activeMission = createCaptainPatrolCommandMission(profile, ['town-patrol:a:captain'], 'clear')
+      profile = claimCareerMission(profile, 'clear', 'victory', { damageDealt: 0, damageTaken: 0, kills: 30,
+        structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }).profile
+    }
+    const store = new CareerProfileStore(new MemoryStorage()), town = townProfileCheckpoint(profile, store)
+    town.outskirts = test.controller
+    town.persistPersonalSquad(0, true)
+    if (scenario === 'completed Captain I') {
+      const next = clearCareerMission(town.profile, 'clear')
+      expect(town.commit(next, { groundedTownReturn: true })).toBe(true)
+    }
+    const loaded = store.load()!
+    expect(loaded.activeMission).toBeUndefined()
+    const saved = loaded.townOutskirts!.roman!.squads.find(s => s.id === 'outskirts:cavalry:a')!
+    expect(saved).toMatchObject({ generation: 3, respawnRemaining: 35 })
+    expect(loaded.townOutskirts!.roman!.squads.every(s => Object.keys(s.members).length === 0)).toBe(true)
+    const restored = setup('captain', 'roman', 'roman', [], new NpcSpawnScheduler())
+    onTestFinished(() => restored.controller.dispose())
+    const reloadedTown = townProfileCheckpoint(loaded, store); reloadedTown.outskirts = restored.controller
+    reloadedTown.restoreOutskirtsCheckpoint()
+    const squad = restored.controller.squads.find(s => s.id === 'outskirts:cavalry:a')!
+    expect(squad).toMatchObject({ generation: 3, state: 'RESPAWN_COOLDOWN', respawnRemaining: 35, members: [] })
+    restored.controller.prepareFrame(34, [], restored.player)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.respawnRemaining).toBe(1)
+    expect(restored.controller.batches.filter(b => b.status === 'pending')).toHaveLength(8)
+    expect(restored.created).toHaveLength(0)
+    restored.controller.prepareFrame(1, [], restored.player)
+    expect(squad).toMatchObject({ generation: 4, state: 'SPAWNING', members: [] })
+    expect(restored.controller.batches.filter(b => b.status === 'pending')).toHaveLength(9)
+  })
   it.each(['recruit', 'soldier', 'veteran'] as const)('creates no warfare actors at %s rank and unlocks on promotion', rank => {
     const test = setup(rank)
     expect(test.controller.actors).toHaveLength(0)

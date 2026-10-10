@@ -320,9 +320,9 @@ describe('Captain Patrol actual combat objective and handover', () => {
   it('reports returning only for both returning squads and distinguishes mission ownership, Siege and invalid identities', () => {
     const residents = townRoster().filter(spec => spec.duty === 'patrol').map(resident)
     const patrol = new TownCavalryPatrolController(residents)
-    patrol.beginMissionReturn(residents.find(r => r.spec.patrolId === 'A')!.spec.id)
+    residents.filter(r => r.spec.patrolId === 'A').forEach(r => patrol.beginMissionReturn(r.spec.id))
     expect(patrol.selectAvailableSquad()?.patrolId).toBe('B')
-    patrol.beginMissionReturn(residents.find(r => r.spec.patrolId === 'B')!.spec.id)
+    residents.filter(r => r.spec.patrolId === 'B').forEach(r => patrol.beginMissionReturn(r.spec.id))
     expect(patrol.selectAvailableSquad()).toBeNull()
     expect(patrol.unavailableReason).toBe('巡邏隊正在返回兵營，請稍後再接受任務。')
     residents.find(r => r.spec.patrolId === 'A')!.npc.combatOwnership = 'mission-official'
@@ -333,6 +333,51 @@ describe('Captain Patrol actual combat objective and handover', () => {
     residents[1].actor.combatantId = residents[0].spec.id
     expect(invalid.selectAvailableSquad()).toBeNull()
     expect(invalid.unavailableReason).toContain('編制')
+  })
+
+  it('accepts nineteen fighters while preserving one individual return owner through acceptance, reload and refit completion', () => {
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').map(resident)
+    const patrol = new TownCavalryPatrolController(residents), p = player(), returning = residents[0]
+    patrol.beginMissionReturn(returning.spec.id)
+    patrol.beginFrame(new Set())
+    patrol.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)
+    residents.slice(1).forEach(r => { r.actor.inCombat = true })
+    expect(patrol.selectAvailableSquad()?.actorIds).toHaveLength(20)
+    const position = returning.npc.combatPosition.clone(), formation = returning.npc.combatFormationCheckpoint
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    profile.activeMission = createCaptainPatrolCommandMission(profile, patrol.selectAvailableSquad()!.actorIds, 'mixed')
+    const commit = (next: typeof profile) => { profile = parseCareerProfile(JSON.parse(JSON.stringify(next)))!; return true }
+    const runtime = new CaptainPatrolCommandController(residents, patrol, () => p, () => profile, commit)
+    onTestFinished(() => runtime.dispose())
+    profile.activeMission = runtime.captureForMission(profile.activeMission)!
+    expect(runtime.resume(false)).toBe(true)
+    expect(runtime.actors).toHaveLength(20); expect(runtime.fieldNpcs).toHaveLength(19)
+    expect(runtime.accepts(returning.npc)).toBe(false); expect(patrol.owns(returning.npc)).toBe(true)
+    const town = Object.assign(Object.create(TownScene.prototype) as { isAuthorizedCommandActor(npc: NPC): boolean },
+      { profile, player: p, captainPatrol: runtime })
+    expect(town.isAuthorizedCommandActor(returning.npc)).toBe(false)
+    expect(town.isAuthorizedCommandActor(residents[1].npc)).toBe(true)
+    expect(returning.npc.combatOwnership).toBeUndefined()
+    expect(returning.npc.combatPosition).toEqual(position)
+    expect(returning.npc.combatFormationCheckpoint).toEqual(formation)
+    expect(returning.actor.refitCombat).not.toHaveBeenCalled()
+    expect(runtime.guideTarget).toBe(residents[1].npc.combatPosition)
+    expect(runtime.persist(true)).toBe(true)
+    runtime.dispose()
+    const restoredPatrol = new TownCavalryPatrolController(residents)
+    const restored = new CaptainPatrolCommandController(residents, restoredPatrol, () => p, () => profile, commit)
+    onTestFinished(() => restored.dispose())
+    expect(restored.resume()).toBe(true)
+    expect(restoredPatrol.returnStateFor(returning.spec.id)).toBe('RETURN_TO_BARRACKS')
+    expect(restored.accepts(returning.npc)).toBe(false)
+    expect(returning.npc.combatFormationCheckpoint).toEqual(formation)
+    // The patrol owner's completed-refit boundary releases the individual; no new refit is requested by Captain.
+    restoredPatrol.restoreMissionReturn(returning.spec.id, 'REJOIN_PATROL')
+    restored.update(1)
+    expect(restored.accepts(returning.npc)).toBe(true); expect(restored.fieldNpcs).toHaveLength(20)
+    expect(restoredPatrol.owns(returning.npc)).toBe(false)
+    expect(profile.activeMission!.patrolReturnStates).toEqual({})
+    expect(returning.actor.refitCombat).not.toHaveBeenCalled()
   })
 
   it('live combat handover retains orders, HP and mounts, and guides the moving Captain until death regardless of dismount', () => {
