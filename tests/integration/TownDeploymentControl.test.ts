@@ -12,6 +12,7 @@ import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnSc
 import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { Mount, MountType } from '../../src/world/Mount'
 import { getTerrainHeight } from '../../src/world/Terrain'
+import type { NPC } from '../../src/world/NPC'
 
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()),
@@ -52,7 +53,8 @@ function controlFixture() {
     event: { hostile: false, evaluate: vi.fn(() => null) },
     mission: { get ready() { return batch.ready }, spawnBatches: [batch], evaluate: vi.fn(() => null), returnComplete: false },
     defense: { ready: true, active: false }, duel: { active: false },
-    missionCombat: { update: vi.fn(), updateDepartingCavalry: vi.fn(), updateDefeatedActors: vi.fn() },
+    commandActors: [] as NPC[],
+    missionCombat: { update: vi.fn(), updateCommandTravel: vi.fn(), updateDepartingCavalry: vi.fn(), updateDefeatedActors: vi.fn() },
     weaponWheel: { cycle: vi.fn() },
     melee: vi.fn(), updateHostile: vi.fn(), refreshCombatMounts: vi.fn(),
     updateCareerHorseAudio: vi.fn(), resolveBodies: vi.fn(), updateShots: vi.fn(),
@@ -72,6 +74,22 @@ function controlFixture() {
 afterEach(() => vi.restoreAllMocks())
 
 describe('Career deployment control dispatch', () => {
+  it('dispatches travel only for authorized command actors while the enemy roster is pending', () => {
+    const h = controlFixture()
+    // Recording recipients verify scene authority filtering, not NPC locomotion.
+    const guard = { combatantId: 'guard' } as NPC, bystander = { combatantId: 'bystander' } as NPC
+    h.town.commandActors.push(guard, bystander)
+    Object.assign(h.town, { residents: [{ npc: guard }, { npc: bystander }],
+      townCommand: { accepts: (npc: NPC) => npc === guard, commandsEnabled: true, beginFrame: vi.fn() } })
+    h.town.updateGameplay(.05)
+    expect(h.town.missionCombat.updateCommandTravel).toHaveBeenCalledExactlyOnceWith(.05, [guard])
+    expect(h.town.missionCombat.update).not.toHaveBeenCalled()
+    h.driver.drain()
+    h.town.updateGameplay(.05)
+    expect(h.town.missionCombat.updateCommandTravel).toHaveBeenCalledTimes(1)
+    expect(h.town.missionCombat.update).toHaveBeenCalledOnce()
+  })
+
   it('moves and orbits while pending, freezes simulation/time/outcomes, then updates Player only once when complete', () => {
     const h = controlFixture(), before = h.player.position.clone(), yaw = h.orbit.cameraYaw
     h.town.updateGameplay(.05)

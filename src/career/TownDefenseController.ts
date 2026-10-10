@@ -59,6 +59,7 @@ export class TownDefenseController {
   get personalContribution() { return this.tracker?.commandCheckpoint() }
   get officialContribution() { return this.tracker?.officialCommandCheckpoint() }
   private readonly originalCommandSquads = new Map<NPC, NPC['squadId']>()
+  private readonly playerIssuedCommands = new Set<NPC>()
   private isPlayerCommanded(npc: NPC): boolean {
     const active = this.active
     return Boolean(active && !active.result && active.officialSquad?.actorIds.includes(npc.combatantId))
@@ -66,6 +67,7 @@ export class TownDefenseController {
   /** Player orders replace both scripted travel and the preparation combat hold. */
   releasePlayerCommand(npc: NPC): void {
     if (!this.isPlayerCommanded(npc)) return
+    this.playerIssuedCommands.add(npc)
     npc.missionMovement = false
     npc.setMissionCombatTarget(undefined)
     npc.assignSiegeObstacle(null)
@@ -253,6 +255,8 @@ export class TownDefenseController {
         if (!npc) continue
         npc.missionMovement = false
         this.orders.delete(npc)
+        // Commands can arrive while the enemy roster is still being built.
+        if (this.playerIssuedCommands.has(npc)) continue
         if (!saved) { npc.setTacticalOrder('defend'); continue }
         restoreCommandActor(npc, saved, this.actorMounts.get(npc))
         if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
@@ -355,7 +359,11 @@ export class TownDefenseController {
 
   private prepareDeployment(): void {
     const occupied: { point: THREE.Vector3; spacing: number }[] = []
-    for (const npc of this.military) { npc.beginExternalThreat(); npc.respawnEnabled = false; if (npc.mount) this.actorMounts.set(npc, npc.mount) }
+    for (const npc of this.military) {
+      if (!this.playerIssuedCommands.has(npc)) npc.beginExternalThreat()
+      npc.respawnEnabled = false
+      if (npc.mount) this.actorMounts.set(npc, npc.mount)
+    }
     for (const group of this.groups) {
       group.members.forEach((npc, index) => this.order(npc, this.walkable(siegePoint(group.id, (index % 7 - 3) * 2.6, 12 + Math.floor(index / 7) * 3), occupied, 2.5)))
       group.cavalry.forEach((npc, index) => {
@@ -374,7 +382,7 @@ export class TownDefenseController {
   private isEagleGuard(npc: NPC): boolean { return this.residents.some(r => r.npc === npc && r.spec.duty === 'eagle_garrison') }
 
   private order(npc: NPC, point: THREE.Vector3): void {
-    if (npc.dead || this.isEagleGuard(npc) || this.tracker && this.isPlayerCommanded(npc)) return
+    if (npc.dead || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
     const prior = this.orders.get(npc)
     if (prior && Math.hypot(prior.x - point.x, prior.z - point.z) < .5 && npc.missionMovement) return
     npc.assignSiegeObstacle(null)
@@ -720,6 +728,7 @@ export class TownDefenseController {
   }
 
   private disposeEnemies(): void {
+    this.playerIssuedCommands.clear()
     this.spawnBatch?.cancel(); this.spawnBatch = undefined; this.startedMissionId = undefined
     for (const release of this.claimedEventSinks.values()) release()
     this.claimedEventSinks.clear(); this.claimedActors.clear()

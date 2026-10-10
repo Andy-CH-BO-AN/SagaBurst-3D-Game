@@ -2396,6 +2396,8 @@ export class TownScene {
     if (ready) {
       this.updateMissionSimulation(dt)
     } else {
+      this.missionCombat.updateCommandTravel(dt, (this.commandActors ?? []).filter(npc => this.isAuthorizedCommandActor(npc)))
+      this.personalCommands?.postUpdate()
       // Player.update owns ridden locomotion; this only maintains an unoccupied
       // owned mount (including eagle landing) and never runs impact/combat checks.
       this.careerMounts.update(dt)
