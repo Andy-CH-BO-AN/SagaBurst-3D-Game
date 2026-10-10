@@ -573,7 +573,7 @@ export class TownScene {
     const active = next.activeMission ?? next.activeOutpostMission
     if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
       const roster = snapshotPersonalMission(next)
-      if (roster) active!.personalSquad = this.personalSquad?.captureForMission(roster) ?? roster
+      if (roster) active!.personalSquad = this.personalSquad?.captureForNewMission(roster) ?? roster
     } else if (active?.personalSquad) {
       const saved = this.personalSquad?.checkpoint()
       if (saved) {
@@ -592,7 +592,7 @@ export class TownScene {
     if (newMission || newOutpost) {
       this.personalCommands?.close()
       if (next.activeMission?.kind === 'duel') this.personalSquad?.cleanup()
-      else this.personalSquad?.bindMission(active?.personalSquad)
+      else this.personalSquad?.beginMission(active?.personalSquad)
     }
     if (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id) {
       this.player?.shield?.reset()

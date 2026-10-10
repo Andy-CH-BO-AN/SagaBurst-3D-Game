@@ -52,6 +52,27 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
+/** Only fresh acceptance may readmit HR arrivals; reload keeps exited/dead checkpoints. */
+export function preparePersonalMissionAcceptance(value: PersonalSquadMission): PersonalSquadMission {
+  const next = clonePersonalMission(value)
+  next.pendingMemberIds = next.pendingMemberIds?.filter(id => next.memberIds.includes(id))
+  delete next.playerLastPosition
+  for (const id of next.memberIds) {
+    const member = next.members[id]
+    if (member.status === 'exited') {
+      // A new actor's loadout supplies full HP, ammo, shield and mount health.
+      next.members[id] = { status: 'reserve' }
+      continue
+    }
+    delete member.order
+    delete member.formation
+    if (member.status === 'deployed' || next.pendingMemberIds?.includes(id)) member.order = 'defend'
+  }
+  if (next.state === 'RETURNING') next.state = next.pendingMemberIds?.length ? 'DEPLOYING'
+    : next.memberIds.some(id => next.members[id].status === 'deployed') ? 'ACTIVE' : 'RESERVE'
+  return next
+}
+
 /** Regroup only deployed or already queued survivors; reserves and casualties stay untouched. */
 export function followDeployedPersonalMission(value: PersonalSquadMission): PersonalSquadMission {
   const next = clonePersonalMission(value)

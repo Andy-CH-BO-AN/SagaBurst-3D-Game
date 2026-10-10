@@ -18,7 +18,7 @@ import { careerMountType } from './CareerMountController'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { refitCommandActor, refitCommandCheckpoint } from './CareerCommandActorCheckpoint'
-import { snapshotPersonalMission, clonePersonalMission, type PersonalActorCheckpoint, type PersonalActorPosition,
+import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAcceptance, type PersonalActorCheckpoint, type PersonalActorPosition,
   type PersonalSquadMission, type PersonalSquadState } from './CareerPersonalSquadMission'
 
 export type PersonalSquadSpawnSlot = PersonalActorPosition
@@ -134,6 +134,39 @@ export class PersonalSquadRuntime {
     for (const id of this.mission.memberIds) if (savedMembers?.[id]) this.mission.members[id] = savedMembers[id]
     try { return this.checkpoint()! }
     finally { this.mission = previous }
+  }
+
+  /** Stage a fresh roster without changing the live Town owner before storage succeeds. */
+  captureForNewMission(value: PersonalSquadMission): PersonalSquadMission {
+    const saved = this.captureForMission(value)
+    // Ground members wait for the last arrival before batch cleanup. Those already
+    // safely at HR have completed the same refit boundary as exited eagle riders.
+    if (this.hasHR && this.state === 'RETURNING') for (const actor of this.actors) {
+      if (saved.memberIds.includes(actor.combatantId) && !actor.dead && !actor.mount?.isFlyingMount
+        && !actor.mount?.isAirborne && !actor.pendingFall?.active
+        && actor.formationCommandId === this.returnCommand && actor.isFormationTargetReached(this.returnCommand)) {
+        saved.members[actor.combatantId] = { status: 'exited' }
+      }
+    }
+    return preparePersonalMissionAcceptance(saved)
+  }
+
+  /** Adopt fresh acceptance only after saving; pending callbacks use the new command revision. */
+  beginMission(value: PersonalSquadMission | undefined): void {
+    if (value) {
+      this.state = value.state
+      this.command = 'defend'; this.commandRevision++
+      this.returningOnFoot.clear(); this.awaitingEaglePad.clear()
+      for (const actor of this.actors) {
+        const saved = value.members[actor.combatantId]
+        if (!saved || actor.dead) continue
+        if (saved.status === 'reserve') refitCommandActor(actor, this.memberMounts.get(actor.combatantId))
+        if (actor.mount?.isFlyingMount) actor.setEagleFlightOrder(null)
+        actor.setTacticalOrder('defend')
+        this.applyCommand(actor, value.memberIds.indexOf(actor.combatantId))
+      }
+    }
+    this.bindMission(value)
   }
 
   bindMission(value: PersonalSquadMission | undefined): void {

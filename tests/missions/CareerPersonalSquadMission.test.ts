@@ -1,8 +1,8 @@
 import { followLocalOffset } from '../../src/battle/FollowOrder'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
-import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { completeNpcDeployment, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PERSONAL_SQUAD_ID, squadCommandTarget } from '../../src/battle/CommandTarget'
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
@@ -14,8 +14,10 @@ import { careerMissionCommandMeritPolicy, createActiveCareerMission, createTownD
 import { snapshotPersonalMission, clonePersonalMission, personalMissionSourcePolicy } from '../../src/career/CareerPersonalSquadMission'
 import { PersonalSquadRuntime, type spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
 import { claimCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { TownScene } from '../../src/town/TownScene'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { acceptEnemyTownAssault } from '../../src/career/EnemyTownAssault'
@@ -39,11 +41,12 @@ function runtimeHarness(sceneKey = 'town-home', hasHR = true, scheduler?: NpcSpa
     const mount = member.type === 'soldier' ? undefined : {
       group: group.clone(), currentHp: 100, maxHp: 100, disposed: false,
       get dead() { return this.currentHp === 0 }, takeDamage(amount: number) { this.currentHp = Math.max(0, this.currentHp - amount) },
+      restoreForTown() { this.currentHp = 100 },
       dispose: vi.fn(),
     }
     const npc = {
       combatantId: member.id, squadId: PERSONAL_SQUAD_ID, combatOwnership: 'player-personal',
-      faction: Faction.PLAYER, characterFaction: 'roman', group, hp: 100, combatAmmo: 30,
+      faction: Faction.PLAYER, characterFaction: 'roman', group, hp: 100, maxHp: 100, combatAmmo: 30, combatAmmoCapacity: 30,
       shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 }, mount: mount ?? null,
       tacticalOrder: 'attack', activeFollowTarget: null, formation: undefined as any,
       get dead() { return this.hp === 0 }, get combatPosition() { return this.mount?.group.position ?? group.position },
@@ -52,6 +55,8 @@ function runtimeHarness(sceneKey = 'town-home', hasHR = true, scheduler?: NpcSpa
       get combatFormationCheckpoint() { return this.formation },
       restoreCombatHealth(hp: number) { this.hp = Math.max(0, Math.min(100, hp)) },
       restoreCombatAmmo(ammo: number) { this.combatAmmo = ammo },
+      refitCombat() { this.hp = 100; this.combatAmmo = 30; this.shield.shieldImpactRemaining = 100 },
+      mountVehicle(value: NonNullable<typeof mount>) { this.mount = value },
       setTacticalOrder(order: string) { this.tacticalOrder = order; this.formation = undefined; this.activeFollowTarget = null },
       assignFollowTarget(target: any) { this.setTacticalOrder('follow'); this.activeFollowTarget = target },
       assignFormationTarget(commandId: number, point: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: string, reached = false) {
@@ -74,6 +79,177 @@ function runtimeHarness(sceneKey = 'town-home', hasHR = true, scheduler?: NpcSpa
   return { runtime, profile, player, spawn, slots, accept,
     restore: (key = sceneKey, hr = hasHR) => new PersonalSquadRuntime(scene, slots, () => profile, () => player, spawn, { sceneKey: key, hasHR: hr, scheduler }) }
 }
+
+describe('Fresh Career acceptance versus same-mission reload', () => {
+  const runtimes: PersonalSquadRuntime[] = []
+  afterEach(() => { runtimes.splice(0).reverse().forEach(runtime => runtime.cleanup()) })
+
+  function acceptanceHarness() {
+    // Three recording actors at most; no real NPC, Mount, TownWorld or official armies.
+    const driver = new NpcSpawnTestDriver(), scheduler = driver.scheduler, h = runtimeHarness('town-home', true, scheduler)
+    h.profile.personalSquad!.members[0].type = 'captain'
+    h.profile.completedOutpostStages = [1, 2, 3]
+    h.profile.ownedMounts = ['horse']; h.profile.selectedMountId = 'horse'
+    const values = new Map<string, string>()
+    let failSave = false
+    const store = new CareerProfileStore({ getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { if (failSave) throw new Error('storage full'); values.set(key, value) },
+      get length() { return values.size }, key: index => [...values.keys()][index] ?? null,
+      clear: () => values.clear(), removeItem: key => { values.delete(key) },
+    })
+    // Narrow seam for the private production commit entry; all transition logic is real.
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: h.profile, personalSquad: h.runtime, player: h.player, world: { faction: 'roman' },
+      skills: { skillState: h.profile.skills }, store, careerSkillSaveTimer: null,
+    }) as { profile: CareerProfile; commit(next: CareerProfile): boolean }
+    runtimes.push(h.runtime)
+    const restore = (saved: ReturnType<typeof snapshotPersonalMission>, key = 'outpost:new', hasHR = false) => {
+      const runtime = h.restore(key, hasHR); runtimes.push(runtime)
+      driver.complete(() => { runtime.restoreMission(saved); runtime.restoreMission(saved) })
+      return runtime
+    }
+    return { ...h, scheduler, driver, store, town, restore, failSave: (value: boolean) => { failSave = value } }
+  }
+
+  const acceptances: [string, (profile: CareerProfile) => CareerProfile | null][] = [
+    ...([1, 2, 3] as const).map(stage => [`Outpost Duty ${stage}`, (profile: CareerProfile) => acceptCareerOutpost(profile, stage, `outpost-${stage}`)] as [string, (profile: CareerProfile) => CareerProfile | null]),
+    ['Outpost Relief', profile => acceptCareerOutpostRelief(profile, 'relief')],
+    ['Veteran field', profile => acceptVeteranMission(profile, 'veteran-dread-outpost', { missionId: 'veteran' })],
+    ['Captain patrol', profile => ({ ...profile, activeMission: createCaptainPatrolCommandMission(profile, ['patrol-1'], 'captain') })],
+  ]
+
+  it.each(acceptances)('%s deploys returned, returning and reserve members with only returned members refitted', (_name, accept) => {
+    const h = acceptanceHarness(), saved = snapshotPersonalMission(h.profile)!
+    saved.state = 'RETURNING'
+    saved.members['personal:test-0'] = { status: 'exited', hp: 9, ammo: 1, shieldImpact: 2,
+      mount: { hp: 0, mounted: false, position: { x: 900, z: 900, yaw: 1 } } }
+    saved.members['personal:test-1'] = { status: 'deployed', hp: 40, ammo: 5, shieldImpact: 6,
+      position: { x: 800, z: 800, yaw: 1 }, order: 'formation',
+      formation: { commandId: -1001, position: h.slots[1], reached: false },
+      mount: { hp: 30, mounted: false, position: { x: 800, z: 800, yaw: 1 } } }
+    h.runtime.restoreMission(saved); h.driver.advanceFrame()
+    const returning = h.runtime.actors[0], before = h.runtime.checkpoint()!
+    const next = accept(h.profile)!
+    expect(next).not.toBeNull(); expect(h.town.commit(next)).toBe(true)
+    const accepted = h.store.load()!
+    const roster = (accepted.activeMission ?? accepted.activeOutpostMission)!.personalSquad!
+    expect(roster.memberIds).toEqual(['personal:test-0', 'personal:test-1', 'personal:test-2'])
+    expect(roster.members['personal:test-0']).toEqual({ status: 'reserve' })
+    expect(roster.members['personal:test-1']).toMatchObject({ status: 'deployed', hp: 40, ammo: 5, shieldImpact: 6, mount: { hp: 30, mounted: false } })
+    expect(roster.state).not.toBe('RETURNING')
+    expect(roster.members['personal:test-1'].formation).toBeUndefined()
+    expect(returning.tacticalOrder).toBe('defend'); expect(returning.formationCommandId).toBeNull()
+    expect(returning.hp).toBe(before.members['personal:test-1'].hp)
+    h.runtime.cleanup()
+    h.profile.personalSquad!.members.push({ id: 'personal:later', type: 'soldier' })
+    const field = h.restore(roster)
+    expect(field.actors.map(actor => actor.combatantId)).toEqual(['personal:test-0', 'personal:test-1', 'personal:test-2'])
+    expect(new Set(field.actors.map(actor => actor.combatantId)).size).toBe(3)
+    expect(field.actors.map(actor => actor.hp)).toEqual([100, 40, 100])
+    expect(field.actors.map(actor => actor.combatAmmo)).toEqual([30, 5, 30])
+    expect(field.actors.map(actor => actor.shield.shieldImpactRemaining)).toEqual([100, 6, 100])
+    expect(field.mounts.map(mount => mount.currentHp)).toEqual([100, 30, 100])
+    expect(field.actors[0].isMounted).toBe(true); expect(field.actors[1].isMounted).toBe(false)
+    expect(field.actors.every(actor => actor.tacticalOrder === 'defend' && actor.formationCommandId === null)).toBe(true)
+    expect(h.spawn).toHaveBeenCalledTimes(4)
+    for (const actor of field.actors) expect(actor.combatPosition.z).toBe(-20)
+  })
+
+  it('reloads dead, exited and wounded deployed members without reviving or adding hires', () => {
+    const h = acceptanceHarness(), next = acceptCareerOutpost(h.profile, 1, 'same')!
+    const roster = next.activeOutpostMission!.personalSquad!
+    roster.sceneKey = 'outpost:new'; roster.state = 'ACTIVE'
+    roster.members['personal:test-0'] = { status: 'dead', hp: 0 }
+    roster.members['personal:test-1'] = { status: 'exited', hp: 12 }
+    roster.members['personal:test-2'] = { status: 'deployed', hp: 40, ammo: 5, shieldImpact: 6,
+      position: { x: 50, z: 60, yaw: .5 }, mount: { hp: 30, mounted: true, position: { x: 50, z: 60, yaw: .5 } } }
+    expect(h.store.save(next)).toBe(true)
+    const parsed = h.store.load()!.activeOutpostMission!.personalSquad!
+    h.profile.personalSquad!.members.push({ id: 'personal:later', type: 'soldier' })
+    const field = h.restore(parsed)
+    expect(field.actors.map(actor => actor.combatantId)).toEqual(['personal:test-2'])
+    expect(field.checkpoint()!.members['personal:test-0']).toEqual({ status: 'dead', hp: 0 })
+    expect(field.checkpoint()!.members['personal:test-1']).toEqual({ status: 'exited', hp: 12 })
+    expect(field.actors[0]).toMatchObject({ hp: 40, combatAmmo: 5, shield: { shieldImpactRemaining: 6 } })
+    expect(field.mounts[0].currentHp).toBe(30)
+    expect(field.actors[0].combatPosition).toMatchObject({ x: 50, z: 60 })
+    expect(h.spawn).toHaveBeenCalledOnce()
+  })
+
+  it('failed acceptance preserves Town return orders, checkpoints and pending jobs for retry', () => {
+    const h = acceptanceHarness()
+    h.runtime.follow(); h.driver.advanceFrame()
+    h.runtime.actors[0].restoreCombatHealth(40)
+    h.runtime.dismiss()
+    const before = h.runtime.checkpoint()!, next = acceptCareerOutpost(h.profile, 1, 'retry')!
+    h.failSave(true)
+    expect(h.town.commit(next)).toBe(false)
+    expect(h.town.profile).toBe(h.profile); expect(h.store.load()).toBeNull()
+    expect(h.runtime.checkpoint()).toEqual(before)
+    expect(h.runtime.actors[0].formationCommandId).toBe(-1001)
+    expect(h.runtime.state).toBe('RETURNING'); expect(h.scheduler.pending).toBe(0)
+    h.failSave(false)
+    expect(h.town.commit(next)).toBe(true)
+    expect(h.runtime.state).not.toBe('RETURNING')
+    h.runtime.updateLifecycle()
+    expect(h.runtime.actors).toHaveLength(1); expect(h.runtime.actors[0].hp).toBe(40)
+    h.runtime.cleanup()
+    const field = h.restore(h.store.load()!.activeOutpostMission!.personalSquad)
+    expect(field.actors).toHaveLength(3); expect(field.actors[0].hp).toBe(40)
+    expect(new Set(field.actors.map(actor => actor.combatantId)).size).toBe(3)
+  })
+
+  it('refits a ground arrival waiting for the last returning member only after acceptance saves', () => {
+    const h = acceptanceHarness()
+    h.driver.complete(() => h.runtime.follow())
+    const [arrived, returning] = h.runtime.actors
+    for (const actor of [arrived, returning]) {
+      actor.restoreCombatHealth(40); actor.restoreCombatAmmo(5); actor.shield.shieldImpactRemaining = 6
+    }
+    arrived.mount!.takeDamage(999); arrived.dismountFromMount()
+    h.runtime.dismiss()
+    // Recording movement boundary reports one completed HR target; no locomotion claim.
+    arrived.assignFormationTarget(-1001, new THREE.Vector3(h.slots[0].x, 0, h.slots[0].z), new THREE.Vector3(0, 0, 1), undefined, undefined, true)
+    h.runtime.updateLifecycle()
+    const before = h.runtime.checkpoint()!, next = acceptCareerOutpost(h.profile, 1, 'ground-arrival')!
+    h.failSave(true)
+    expect(h.town.commit(next)).toBe(false)
+    expect(h.runtime.checkpoint()).toEqual(before); expect(h.runtime.mounts[0].dead).toBe(true)
+    h.failSave(false)
+    expect(h.town.commit(next)).toBe(true)
+    expect(arrived).toMatchObject({ hp: 100, combatAmmo: 30, shield: { shieldImpactRemaining: 100 } })
+    expect(h.runtime.mounts[0].currentHp).toBe(100); expect(arrived.isMounted).toBe(true)
+    expect(returning.hp).toBe(40)
+    const saved = h.store.load()!.activeOutpostMission!.personalSquad!
+    expect(saved.members['personal:test-0']).toEqual({ status: 'reserve' })
+    expect(saved.members['personal:test-1'].hp).toBe(40)
+  })
+
+  it('keeps casualties and queued IDs across fresh save/reload, cancelling the previous owner without duplicate jobs', () => {
+    const h = acceptanceHarness()
+    h.runtime.follow(); h.driver.advanceFrame()
+    h.runtime.actors[0].restoreCombatHealth(0)
+    h.runtime.resumeCommand('follow')
+    const before = h.runtime.checkpoint()!, next = acceptCareerOutpost(h.profile, 1, 'queued')!
+    h.failSave(true)
+    expect(h.town.commit(next)).toBe(false)
+    expect(h.runtime.checkpoint()).toEqual(before); expect(h.scheduler.pending).toBe(2)
+    h.failSave(false)
+    expect(h.town.commit(next)).toBe(true)
+    const saved = h.store.load()!.activeOutpostMission!.personalSquad!
+    expect(saved.pendingMemberIds).toEqual(['personal:test-1', 'personal:test-2'])
+    expect(saved.members['personal:test-0']).toMatchObject({ status: 'dead', hp: 0 })
+    h.driver.advanceFrame()
+    expect(h.runtime.actors[1].tacticalOrder).toBe('defend')
+    expect(h.runtime.actors[1].activeFollowTarget).toBeNull()
+    h.runtime.cleanup(); expect(h.scheduler.pending).toBe(0)
+    const field = h.restore(saved)
+    expect(field.actors.map(actor => actor.combatantId)).toEqual(['personal:test-1', 'personal:test-2'])
+    expect(field.hudPendingIds).toEqual([])
+    expect(h.spawn).toHaveBeenCalledTimes(4)
+    expect(h.scheduler.pending).toBe(0)
+  })
+})
 
 describe('Career personal mission membership and authority', () => {
   it('freezes accepted IDs, preserves legacy empty rosters, and never includes a later hire', () => {
