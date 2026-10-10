@@ -308,7 +308,7 @@ describe('Town cavalry mission and Patrol integration', () => {
       field: f.mission, duel: { actors: [], cleanupMission: vi.fn(), snapshot: () => f.mission.snapshot() },
       defense: { active: undefined, cleanupMission: vi.fn(), snapshot: () => f.mission.snapshot(), civilianSurvived: 0, civilianDeaths: 0 },
     }, {
-      residents: f.residents, player: f.player, cat: { restoreForTown: vi.fn(), catVisual: null },
+      residents: f.residents, player: { ...f.player, resetForScene: vi.fn() }, cat: { restoreForTown: vi.fn(), catVisual: null },
       world: f.world, navigation: f.navigation, inventory: f.town.inventory,
       releaseExternalThreat: vi.fn(), beginPatrolMissionReturn: id => { f.patrol.beginMissionReturn(id) },
       clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(),

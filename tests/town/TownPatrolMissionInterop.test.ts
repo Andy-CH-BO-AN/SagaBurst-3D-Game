@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
-import { Faction } from '../../src/world/NPC'
-import { TOWN_SITES, townMilitaryEquipment } from '../../src/town/TownRules'
+import { Faction, NPC, AIType, AIState } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { TOWN_SITES, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
+import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
+import { CaptainPatrolCommandController } from '../../src/career/CaptainPatrolCommandController'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { createCareerProfile } from '../../src/career/CareerProfile'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { advanceUntil } from '../helpers/simulation'
@@ -31,6 +36,48 @@ function expectBarracksRefitPoint(point: { x: number; z: number; yaw?: number })
 }
 
 describe('Town patrol mission ownership and return interop', () => {
+  it('hands over a real attacking Captain without cancelling animation or losing either combat target (2 NPC, 1 Mount)', () => {
+    const h = createTownPatrolFixture({ patrolMembers: { A: 1 } }), leader = h.residents[0]
+    leader.npc.dismountFromMount()
+    leader.npc.group.position.set(150, getTerrainHeight(150, 0), 0)
+    const enemy = new NPC(h.scene, 150, 2, Faction.ENEMY, 'viking', AIType.MELEE, 'Hostile', 2, false, undefined, undefined, undefined, 'enemy:live')
+    enemy.respawnEnabled = false
+    onTestFinished(() => enemy.dispose())
+    // The other 19 official identities are casualties: records protect handover policy without constructing a full squad.
+    const records = townRoster().filter(spec => spec.patrolId === 'A' && spec.id !== leader.spec.id).map(spec => {
+      const npc = Object.assign(combatActor(spec.id), { dead: true, hp: 0, combatAmmo: 0, shield: { shieldImpactRemaining: 0 },
+        name: spec.id, setCommandAllegiance: vi.fn(), setCommandSquad: vi.fn(), setTownPeaceful: vi.fn() })
+      return { spec, npc }
+    })
+    const residents = [leader, ...records], patrol = new TownCavalryPatrolController(residents)
+    let profile = createCareerProfile('roman'); profile.rank = 'captain'
+    const p = { dead: false, targetable: false, combatPosition: new THREE.Vector3(1000, 0, 1000), currentMount: null } as unknown as Player
+    leader.npc.configureBanditEncounter(leader.npc.combatPosition, [], 58); leader.npc.triggerEncounterAlert()
+    const f = combatFixture({ simulation: { player: () => p,
+      residents: [leader, { ...leader, npc: enemy, spec: { ...leader.spec, id: enemy.combatantId } }],
+      commandActors: () => [leader.npc, enemy] } })
+    advanceUntil(() => leader.npc.currentState === AIState.ATTACK && enemy.inCombat,
+      () => f.combat.update(.05, 0, 0), { secondsPerStep: .05, maxSimulationSeconds: 5, failureMessage: 'Both real NPCs must engage before handover' })
+    // Narrow observation seam: the public state plus actual targeting cache protect the ongoing swing.
+    const captainTarget = leader.npc as unknown as { _cachedTargetNpc: NPC | null; animator: { cancel(): void } }
+    const enemyTarget = enemy as unknown as { _cachedTargetNpc: NPC | null }
+    expect(captainTarget._cachedTargetNpc).toBe(enemy); expect(enemyTarget._cachedTargetNpc).toBe(leader.npc)
+    const cancel = vi.spyOn(captainTarget.animator, 'cancel'), hp = leader.npc.hp, position = leader.npc.combatPosition.clone()
+    const runtime = new CaptainPatrolCommandController(residents, patrol, () => p, () => profile, next => { profile = next; return true })
+    onTestFinished(() => runtime.dispose())
+    profile.activeMission = runtime.captureForMission(createCaptainPatrolCommandMission(profile, patrol.selectAvailableSquad()!.actorIds, 'combat-handover'))!
+    expect(runtime.resume(false)).toBe(true)
+    expect(cancel).not.toHaveBeenCalled()
+    expect(leader.npc.currentState).toBe(AIState.ATTACK)
+    expect(captainTarget._cachedTargetNpc).toBe(enemy); expect(enemyTarget._cachedTargetNpc).toBe(leader.npc)
+    expect(leader.npc.hp).toBe(hp); expect(leader.npc.combatPosition).toEqual(position)
+    expect(leader.npc.mount).toBeNull(); expect(runtime.aliveCombatants).toBe(1)
+    expect(runtime.commandsEnabled).toBe(true)
+    f.combat.update(.05, 0, 1)
+    expect(captainTarget._cachedTargetNpc).toBe(enemy); expect(enemyTarget._cachedTargetNpc).toBe(leader.npc)
+    leader.npc.setTacticalOrder('defend')
+    expect(leader.npc.tacticalOrder).toBe('defend')
+  })
   it.each(['field', 'duel', 'defense'] as const)('continues during active %s while excluding only actual mission actors', kind => {
     const h = createTownPatrolFixture({ patrolMembers: { A: 2 } }), borrowed = h.residents[1], before = h.residents[0].npc.combatPosition.clone()
     const mission = combatFixture({ simulation: {

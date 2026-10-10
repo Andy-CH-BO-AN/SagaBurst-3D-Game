@@ -18,6 +18,29 @@ function guide() {
   return { instance, root, arrow: root.children[0], label: root.children[1] }
 }
 describe('Career Outpost defense uses the existing translucent mission guide', () => {
+  it('guides Captain Patrol toward a moving leader and hides only its own UI at the result', () => {
+    const { instance, root, arrow, label } = guide()
+    const other = new MissionGuide('career-duel-guide')
+    const target = new THREE.Vector3(185, 0, 0)
+    instance.updateCaptainPatrol('ENGAGING', new THREE.Vector3(), 0, target)
+    expect(root.hidden).toBe(false); expect(label.textContent).toBe('前往巡邏隊長 · 185m')
+    expect(arrow.style.transform).toBe('rotate(0rad)')
+    target.set(0, 0, -25)
+    instance.updateCaptainPatrol('ENGAGING', new THREE.Vector3(), 0, target)
+    expect(label.textContent).toBe('前往巡邏隊長 · 25m')
+    expect(arrow.style.transform).toBe(`rotate(${-Math.PI / 2}rad)`)
+    instance.updateCaptainPatrol('ENGAGING', new THREE.Vector3(0, 0, -20), 0, target)
+    expect(label.textContent).toBe('已抵達巡邏隊 · 按 Q 指揮')
+    other.updateDuel('RETURNING', new THREE.Vector3(), 0, target)
+    instance.updateCaptainPatrol('RESULT', new THREE.Vector3(), 0, target)
+    expect(root.hidden).toBe(true)
+    expect((document.body as unknown as Element).children[1].hidden).toBe(false)
+    instance.updateCaptainPatrol('RETURNING', new THREE.Vector3(), 0, target)
+    expect(label.textContent).toBe('返回小鎮 · 25m')
+    instance.updateCaptainPatrol('ENGAGING', new THREE.Vector3(), 0, null)
+    expect(root.hidden).toBe(true)
+    instance.dispose(); other.dispose()
+  })
   it('points toward the real defense rally point in the active camera view', () => {
     const { instance, root, arrow, label } = guide()
     instance.updateOutpostDefense('ATTACKING', new THREE.Vector3(), 0, new THREE.Vector3(0, 0, -20), 50)

@@ -229,6 +229,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     ...(officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id && officialSquad.townFaction === faction
       && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? { officialSquad } : {}),
     ...(template?.kind === 'captain-patrol-command' ? { patrolKilledActorIds: uniqueStrings(raw.patrolKilledActorIds),
+      ...(raw.patrolReturnStates && typeof raw.patrolReturnStates === 'object' ? { patrolReturnStates: Object.fromEntries(
+        Object.entries(raw.patrolReturnStates).filter(([id, state]) => officialSquad?.actorIds.includes(id)
+          && (state === 'RETURN_TO_BARRACKS' || state === 'REFIT' || state === 'REJOIN_PATROL')),
+      ) as ActiveCareerMission['patrolReturnStates'] } : {}),
       ...(parseTownOutskirtsCheckpoint(raw.patrolOutskirts) ? { patrolOutskirts: parseTownOutskirtsCheckpoint(raw.patrolOutskirts) } : {}),
       ...(parseOfficialCommandAuthority(raw.patrolAmbient) ? { patrolAmbient: parseOfficialCommandAuthority(raw.patrolAmbient) } : {}),
     } : {}),
@@ -426,6 +430,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.authorizedTownCommandActorIds ? { authorizedTownCommandActorIds: uniqueStrings(townEvent.authorizedTownCommandActorIds) } : {}), ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
     ...(parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) ? { townEagleGarrisons: parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) } : {}),
     ...(parseCareerAerialState(raw.playerAerialState) ? { playerAerialState: parseCareerAerialState(raw.playerAerialState) } : {}),
+    ...(raw.townOutskirts && typeof raw.townOutskirts === 'object' ? { townOutskirts: Object.fromEntries(
+      (['roman', 'viking'] as const).flatMap(faction => {
+        const saved = parseTownOutskirtsCheckpoint((raw.townOutskirts as CareerProfile['townOutskirts'])?.[faction])
+        return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: {} })) }]] : []
+      })) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),

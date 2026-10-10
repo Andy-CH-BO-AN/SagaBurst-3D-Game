@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCavalrySweepMission } from '../../src/career/CavalrySweep'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { createActiveCareerMission, createTownDefenseMission, type ActiveCareerMission, type CareerMissionOutcome } from '../../src/career/CareerMissionState'
 import { claimCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
@@ -15,10 +16,11 @@ import type { NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 const kinds = ['bandit', 'patrol', 'town-defense', 'cavalry-sweep', 'enemy-town-assault', 'duel'] as const
-type MissionKind = typeof kinds[number]
+type MissionKind = typeof kinds[number] | 'captain-patrol-command'
 const stats = { damageDealt: 200, damageTaken: 100, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
 
 function createMission(profile: CareerProfile, kind: MissionKind): ActiveCareerMission {
+  if (kind === 'captain-patrol-command') return createCaptainPatrolCommandMission(profile, ['patrol:captain'], 'settlement')
   if (kind === 'town-defense') return createTownDefenseMission(['captain'], ['civilian-0'], 'settlement')
   if (kind === 'cavalry-sweep') return createCavalrySweepMission('settlement', ['captain', 'infantry'])
   if (kind === 'enemy-town-assault') return createEnemyTownAssaultMission('settlement')
@@ -87,7 +89,9 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('town-repair')) },
     navigation: { sync: vi.fn(() => { events.push('navigation'); return true }) },
     inventory: { sheathAll: vi.fn(() => events.push('sheath')) },
-    player: { group: new THREE.Group() },
+    player: { group: new THREE.Group(), resetForScene: vi.fn((x: number, y: number, z: number) => {
+      events.push('player-reset'); town.player.group.position.set(x, y, z)
+    }) },
     clearCombatShots: vi.fn(() => events.push('shots')),
     restPlayer: vi.fn(() => events.push('player-rest')),
     restart: vi.fn(() => events.push('restart')),
@@ -99,8 +103,9 @@ function fixture(kind: MissionKind, options: { savedResult?: boolean; survived?:
     profile = store.loadChecked().profile!
     return true
   })
-  const settlement = new TownMissionSettlement({ read: () => profile, commit }, { field, duel, defense }, town)
-  return { settlement, field, duel, defense, town, threats, events, commit, storage, store, playerStats,
+  const patrol = { actors: fieldActors, statsSnapshot: { player: playerStats, squads: [] }, release: vi.fn(() => events.push('patrol-return')) }
+  const settlement = new TownMissionSettlement({ read: () => profile, commit }, { field, duel, defense, patrol }, town)
+  return { settlement, field, duel, defense, patrol, town, threats, events, commit, storage, store, playerStats,
     profile: () => profile, reload: () => { profile = store.loadChecked().profile! } }
 }
 
@@ -230,6 +235,30 @@ describe('Town mission result saving through the settlement interface', () => {
 })
 
 describe('Town mission return saving and recovery through the settlement interface', () => {
+  it.each(['direct', 'arrived'] as const)('Captain %s return saves once before physical Patrol return and preserves Career data', intent => {
+    const f = fixture('captain-patrol-command', { savedResult: true, survived: true, phase: intent === 'direct' ? 'RESULT' : 'RETURNING' })
+    const before = f.profile(), position = f.town.player.group.position.clone()
+    f.storage.writable = false
+    expect(f.settlement.returnToTown(intent)).toEqual({ status: 'save-failed', destination: 'party' })
+    expect(f.patrol.release).not.toHaveBeenCalled()
+    expectSceneUntouched(f)
+    f.storage.writable = true; f.reload()
+    expect(f.settlement.returnToTown(intent)).toEqual({ status: 'returned', kind: 'party' })
+    expect(f.events.slice(0, 3)).toEqual(['save', 'save', 'patrol-return'])
+    expect(f.town.restPlayer).toHaveBeenCalledOnce()
+    if (intent === 'direct') {
+      expect(f.town.player.resetForScene).toHaveBeenCalledExactlyOnceWith(0, getTerrainHeight(0, 9) + .9, 9)
+      expect(f.events.indexOf('player-reset')).toBeLessThan(f.events.indexOf('player-rest'))
+    } else expect(f.town.player.resetForScene).not.toHaveBeenCalled()
+    expect(f.field.cleanupMission).not.toHaveBeenCalled()
+    expect(f.town.residents.every(r => !vi.mocked(r.npc.restoreForTown).mock.calls.length)).toBe(true)
+    expect(f.town.player.group.position).toEqual(intent === 'direct' ? new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9) : position)
+    expect(f.profile().activeMission).toBeUndefined()
+    expect(f.profile()).toMatchObject({ totalMerit: before.totalMerit, skills: before.skills, lifetimeStats: before.lifetimeStats, claimedBattleIds: ['settlement'] })
+    f.reload()
+    expect(f.settlement.returnToTown(intent)).toEqual({ status: 'ignored' })
+    expect(f.patrol.release).toHaveBeenCalledOnce()
+  })
   it.each(['bandit', 'patrol', 'cavalry-sweep', 'duel'] as const)('directly returns a completed %s after death on the way home without changing the saved result', kind => {
     const f = fixture(kind, { savedResult: true, survived: true, phase: 'RETURNING' })
     const before = f.profile()

@@ -80,6 +80,15 @@ export class MissionGuide {
     this.label.textContent = `${action} · ${Math.round(Math.hypot(dx, dz))}m`
   }
 
+  updateCaptainPatrol(phase: CareerMissionPhase | null, playerPosition: THREE.Vector3,
+    cameraYaw: number, target: THREE.Vector3 | null): void {
+    if (!phase || !target || phase === 'RESULT') { this.hide(); return }
+    this.root.hidden = false
+    const distance = this.pointAt(playerPosition, cameraYaw, target)
+    this.label.textContent = phase === 'RETURNING' ? `返回小鎮 · ${Math.round(distance)}m`
+      : distance < 12 ? '已抵達巡邏隊 · 按 Q 指揮' : `前往巡邏隊長 · ${Math.round(distance)}m`
+  }
+
   updateTownDefense(
     phase: CareerMissionPhase,
     playerPosition: THREE.Vector3,

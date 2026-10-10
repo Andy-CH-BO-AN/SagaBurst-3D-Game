@@ -1,4 +1,5 @@
 import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
+import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
 import type { OfficialCommandAuthority } from './CareerCommandAuthority'
 import type { CareerOutpostCheckpoint } from './CareerOutpostMission'
 import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
@@ -57,6 +58,7 @@ export interface ActiveCareerMission {
   patrolKilledActorIds?: string[]
   patrolOutskirts?: TownOutskirtsCheckpoint
   patrolAmbient?: OfficialCommandAuthority
+  patrolReturnStates?: Record<string, TownPatrolReturnState>
   battle?: CareerOutpostCheckpoint
   eagleBattle?: CaptainEagleCheckpoint
   personalSquad?: PersonalSquadMission

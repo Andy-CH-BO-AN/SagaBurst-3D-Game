@@ -1,9 +1,16 @@
 import * as THREE from 'three'
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { CareerMountController } from '../../src/career/CareerMountController'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { createCareerProfile } from '../../src/career/CareerProfile'
+import { createCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
+import { captureCareerAerialState, restoreCareerAerialState } from '../../src/career/CareerAerialState'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
+import type { Player } from '../../src/player/Player'
+import type { Mount } from '../../src/world/Mount'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { purchaseTownMount } from '../../src/town/TownRules'
@@ -23,6 +30,47 @@ interface SoloTownCheckpoint {
 }
 
 describe('Career airborne state serialization', () => {
+  it.each(['flight', 'fall'] as const)('Captain direct return commits grounded Town before resetting a live %s and reload cannot restore the old position', state => {
+    // Real settlement + Town commit + storage + aerial restore boundaries; zero materialized actors.
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    let profile = createCareerProfile('roman')
+    profile.activeMission = createCaptainPatrolCommandMission(profile, ['town-patrol:a:captain'], 'ground-return')
+    const stats = { damageDealt: 0, damageTaken: 0, kills: 30, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
+    profile = claimCareerMission(profile, 'ground-return', 'victory', stats).profile
+    const town = townProfileCheckpoint(profile, store), player = { ...careerCheckpointPlayer(),
+      isFalling: state === 'fall', fallSnapshot: { active: true as const, highestFeetY: 90, velocity: { x: 3, y: -10, z: 1 } },
+      resetForScene: vi.fn((x: number, y: number, z: number) => {
+        // The saved transaction must already be grounded while the live Player is still airborne.
+        expect(store.load()!.playerAerialState).toBeUndefined()
+        expect(player.group.position.y).toBe(80)
+        player.currentMount = null; player.isFalling = false; player.group.position.set(x, y, z)
+      }) }
+    player.group.position.set(180, 80, 190)
+    if (state === 'flight') player.currentMount = { isAirborne: true, dead: false, currentHp: 100,
+      group: new THREE.Group(), flight: { snapshot: () => ({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 10, velocity: { x: 0, y: 0, z: 10 } }) } } as unknown as Mount
+    town.player = player
+    expect(town.commit(profile)).toBe(true)
+    expect(store.load()!.playerAerialState?.position.y).toBe(80)
+    const source = { actors: [], friendlies: [], snapshot: () => ({ player: stats, squads: [] }), cleanupMission: vi.fn() }
+    const settlement = new TownMissionSettlement({ read: () => town.profile, commit: (next, options) => town.commit(next, options) }, {
+      field: source, duel: source, defense: { ...source, active: undefined, civilianSurvived: 0, civilianDeaths: 0 },
+      patrol: { actors: [], release: vi.fn(), statsSnapshot: { player: stats, squads: [] } },
+    }, { residents: [], cat: { restoreForTown: vi.fn(), catVisual: null }, player,
+      world: { obstacles: [], restoreTownDamage: vi.fn() }, navigation: { sync: vi.fn() }, inventory: { sheathAll: vi.fn() },
+      releaseExternalThreat: vi.fn(), clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn() })
+    storage.writable = false
+    expect(settlement.returnToTown('direct').status).toBe('save-failed')
+    expect(player.resetForScene).not.toHaveBeenCalled(); expect(player.group.position.y).toBe(80)
+    storage.writable = true
+    expect(settlement.returnToTown('direct').status).toBe('returned')
+    expect(player.resetForScene).toHaveBeenCalledOnce()
+    const loaded = store.load()!
+    expect(loaded.activeMission).toBeUndefined(); expect(loaded.playerAerialState).toBeUndefined()
+    expect(loaded.totalMerit).toBe(profile.totalMerit)
+    expect(captureCareerAerialState(player as unknown as Player, 'town-home')).toBeUndefined()
+    expect(restoreCareerAerialState(player as unknown as Player, null, loaded.playerAerialState, 'town-home')).toBe(false)
+    expect(player.group.position).toEqual(new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9))
+  })
   it('the real town checkpoint caller saves solo pending falls and clears them after landing without a private squad', () => {
     // Data-only Player/persistence boundary: no NPC, Mount, Player constructor or TownWorld.
     const store = new CareerProfileStore(new MemoryStorage())
