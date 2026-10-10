@@ -215,10 +215,7 @@ export class ThirdPersonCamera {
     )
 
     this.thirdPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, -this.thirdPersonDistance)
-    if (flight) {
-      const aimDistance = resolveCameraDistance(this.cameraTarget, this.cameraBackward, EAGLE_AIM.aimDistance, obstacles, { terrainHeight: getTerrainHeight })
-      this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, -aimDistance)
-    } else this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, safeFirstPersonDistance)
+    this.firstPersonPosition.copy(this.cameraTarget).addScaledVector(this.aimDirection, safeFirstPersonDistance)
     this.camera.position.lerpVectors(this.thirdPersonPosition, this.firstPersonPosition, this.aimViewBlend)
     this.camera.lookAt(this.lookTarget.copy(this.camera.position).add(this.aimDirection))
   }

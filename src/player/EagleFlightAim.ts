@@ -13,7 +13,6 @@ export const EAGLE_AIM = Object.freeze({
   maxPitch: Math.PI * .36,
   followDistance: XONGKORO.cameraDistance,
   followHeight: XONGKORO.cameraHeight,
-  aimDistance: 4,
   aimHeight: .8,
   followDownPitch: .22,
 })

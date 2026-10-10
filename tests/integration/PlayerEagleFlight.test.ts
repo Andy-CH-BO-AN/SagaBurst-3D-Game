@@ -51,7 +51,7 @@ function harness(height = 40, hero?: HeroAssetId) {
     orbit.update(input, dt)
     player.update(dt, input, orbit.cameraYaw, orbit.getAimPoint(new THREE.Vector3()), [], stamina, quiver, sound, inventory, 1, combatEnabled)
   }
-  return { player, mount, hud, inventory, orbit, update }
+  return { player, mount, hud, inventory, camera, orbit, update }
 }
 
 function fitOffsetSoles(h: ReturnType<typeof harness>): THREE.Group {
@@ -67,6 +67,30 @@ function fitOffsetSoles(h: ReturnType<typeof harness>): THREE.Group {
 }
 
 describe('Player eagle production wiring', () => {
+  it('RMB ranged aim reaches first person along the reticle ray and release restores the eagle follow view', () => {
+    const h = harness()
+    const input = controls({ isRightMouseDown: true })
+    h.update(controls({ isRightMouseDown: true, consumeMouseDelta: () => ({ dx: -200, dy: 0 }) }))
+    for (let frame = 0; frame < 60; frame++) h.update(input)
+    // Observe the camera against the current rider position, without advancing
+    // flight another frame after the camera samples its anchor.
+    h.orbit.update(input, 1 / 60)
+    const direction = h.orbit.getAimDirection(new THREE.Vector3())
+    const eye = h.player.position.clone().add(new THREE.Vector3(0, .8, 0))
+    const offset = h.camera.position.clone().sub(eye)
+    expect(offset.dot(direction)).toBeCloseTo(.55, 4)
+    expect(offset.clone().cross(direction).length()).toBeLessThan(1e-6)
+    expect(h.camera.getWorldDirection(new THREE.Vector3()).dot(direction)).toBeGreaterThan(.999999)
+    expect(h.camera.fov).toBeCloseTo(28, 4)
+    expect(h.mount.flight!.yaw).toBe(0)
+
+    for (let frame = 0; frame < 90; frame++) h.update()
+    h.orbit.update(controls(), 1 / 60)
+    const follow = h.orbit.getAimDirection(new THREE.Vector3())
+    expect(h.camera.position.clone().sub(h.player.position).dot(follow)).toBeLessThan(-10)
+    expect(h.camera.fov).toBeCloseTo(58, 4)
+  })
+
   it.each([{ dx: 200, yaw: -.4 }, { dx: -200, yaw: .4 }])('RMB mouse dx=$dx turns the rider toward the reticle without turning the eagle', ({ dx, yaw }) => {
     const h = harness()
     const before = h.mount.group.quaternion.clone()
