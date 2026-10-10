@@ -827,7 +827,7 @@ describe('HR Center and personal runtime', () => {
     for (const npc of controller.actors) expect(npc.update).toHaveBeenCalledTimes(1)
     for (const call of f.defense.updateCivilianOrder.mock.calls) expect(controller.actors).not.toContain(call[0])
   })
-  it('binds an existing wounded party only after successfully saving a formal mission, preserving instances', () => {
+  it('binds an existing wounded party only after saving, preserving instances and clearing old Follow', () => {
     const { controller, profile, player } = harness(); completeNpcDeployment(() => controller.follow(), gameplayNpcSpawnDriver)
     const town = Object.assign(createTownCombatFixture(), {
       profile, player, personalSquad: controller, personalCommands: { close: vi.fn() },
@@ -839,11 +839,12 @@ describe('HR Center and personal runtime', () => {
     original[0].takeDamage(20); original[2].restoreCombatAmmo(3)
     const position = original[0].combatPosition.clone(), hp = original[0].hp
     expect(town.commit(next)).toBe(false); expect(controller.actors).toHaveLength(3)
+    expect(original.every(actor => actor.activeFollowTarget === player)).toBe(true)
     town.store.save.mockReturnValue(true)
     expect(town.commit(next)).toBe(true); expect(controller.state).toBe('DEPLOYING')
     expect(controller.actors).toEqual(original); expect(original[0].combatPosition).toEqual(position)
     expect(original[0].hp).toBe(hp); expect(original[2].combatAmmo).toBe(3)
-    expect(original.every(actor => actor.squadId === 'personal' && actor.activeFollowTarget === player)).toBe(true)
+    expect(original.every(actor => actor.squadId === 'personal' && actor.activeFollowTarget === null && actor.tacticalOrder === 'defend')).toBe(true)
     expect(town.profile.activeMission.personalSquad.memberIds).toEqual(original.map(actor => actor.combatantId))
     expect(town.profile.personalSquad).toEqual(profile.personalSquad)
     expect(town.personalCommands.close).toHaveBeenCalledOnce()
