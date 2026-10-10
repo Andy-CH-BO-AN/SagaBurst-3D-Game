@@ -2017,6 +2017,7 @@ export class Game {
         && !this.spawningStopped),
       personal,
       personalPendingIds: this.personalSquad?.hudPendingIds,
+      personalReturningIds: this.personalSquad?.hudReturningIds,
       actors: this.npcs,
     })
   }

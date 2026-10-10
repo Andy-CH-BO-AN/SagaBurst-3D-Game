@@ -1,6 +1,6 @@
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { followLocalOffset } from '../battle/FollowOrder'
-import { CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL } from './CaptainMissionCatalog'
+import { CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL, captainGateDefenseActorIds } from './CaptainMissionCatalog'
 import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
@@ -550,6 +550,13 @@ export class TownDefenseController {
     } else {
       mission.targetActorIds = [...siege.attackerIds]
       mission.deadTargetActorIds = [...dead]
+      if (mission.templateId === CAPTAIN_GATE_DEFENSE_ID && mission.officialSquad) {
+        // Old saves granted only selected infantry roles. Reconcile authority to
+        // the complete saved North plan, retaining all health/order checkpoints.
+        mission.officialSquad.actorIds = captainGateDefenseActorIds(this.residents.map(resident => resident.spec),
+          new Set(), siege.defensePlans.length ? siege.defensePlans : undefined)
+          .filter(id => mission.friendlyActorIds.includes(id))
+      }
     }
     if (!this.commit(profile)) return null
     this.pendingRoster = undefined

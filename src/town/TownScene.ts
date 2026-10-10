@@ -914,6 +914,7 @@ export class TownScene {
         && !this.deploymentReady && !this.deploymentFailed),
       personal,
       personalPendingIds: this.personalSquad?.hudPendingIds,
+      personalReturningIds: this.personalSquad?.hudReturningIds,
       actors: this.commandActors,
     })
   }

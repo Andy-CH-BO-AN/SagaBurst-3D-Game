@@ -61,7 +61,7 @@ describe('Veteran mission board integration', () => {
     const expectedTab = rank === 'veteran' ? '老兵任務' : '隊長任務'
     expect(town.deploymentPage).toBe(expectedPage)
     expect(elements.find(element => element.textContent === expectedTab)!.attributes['aria-pressed']).toBe('true')
-    if (rank !== 'veteran') expect(elements.some(element => element.textContent.includes('指揮北門 19 名'))).toBe(true)
+    if (rank !== 'veteran') expect(elements.some(element => element.textContent.includes('指揮北門 26 名'))).toBe(true)
     expect(board(rank, 'recruit').town.deploymentPage).toBe('recruit')
     expect(board(rank, 'soldier').town.deploymentPage).toBe('soldier')
     expect(board(rank, 'veteran').town.deploymentPage).toBe('veteran')

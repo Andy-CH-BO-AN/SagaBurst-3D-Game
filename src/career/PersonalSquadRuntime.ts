@@ -106,6 +106,9 @@ export class PersonalSquadRuntime {
   owns(actor: NPC): boolean { return this.actorSet.has(actor) }
   /** HUD-only views: expose the live accepted roster without checkpoint writes or spawning actors. */
   get hudMission(): Readonly<PersonalSquadMission> | undefined { return this.mission }
+  get hudReturningIds(): readonly string[] {
+    return this.state === 'RETURNING' ? this.actors.filter(actor => !actor.dead).map(actor => actor.combatantId) : []
+  }
   get hudPendingIds(): readonly string[] {
     return [...this.pending].filter(([, batch]) => batch.status === 'pending').map(([id]) => id)
   }

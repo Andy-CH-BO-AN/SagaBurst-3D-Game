@@ -150,10 +150,19 @@ describe('permanent Captain Town command roster', () => {
     const summary = () => h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:1')?.summary
 
     expect(summary()).toBe('30/30')
+    h.input.pressAll(); h.controller.update(); h.input.press('1'); h.controller.update()
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'attack')).toBe(true)
     h.input.press('1'); h.controller.update(); h.input.press('6'); h.controller.update()
     expect(owner.state).toBe('RETURNING')
     expect(owner.returningActorIds).toHaveLength(30)
     expect(summary()).toBe('30/30 · 返回中 30')
+    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.order])).toEqual([
+      ['squad:1', 'returning'], ['all', 'returning'],
+    ])
+    // A newly constructed HUD must read real return state even with default attack caches.
+    const resumedHud = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, { accepts: npc => owner.accepts(npc), enabled: () => owner.commandsEnabled }, () => town.commandHudRoster())
+    expect(resumedHud.ui.render.mock.lastCall![0].every(entry => entry.order === 'returning')).toBe(true)
     expect(owner.actors.every(actor => !owner.accepts(actor))).toBe(true)
     const successes = h.ui.showFeedback.mock.calls.length
     const orderCalls = residents.map(r => r.actor.setTacticalOrder.mock.calls.length)
@@ -173,6 +182,7 @@ describe('permanent Captain Town command roster', () => {
     expect(owner.state).toBe('TRAINING')
     h.controller.update()
     expect(summary()).toBe('30/30')
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'defend')).toBe(true)
     h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
     expect(h.ui.showFeedback).toHaveBeenLastCalledWith('第 1 隊 → 防禦')
     expect(residents.every(r => r.actor.setTacticalOrder.mock.lastCall?.[0] === 'defend')).toBe(true)

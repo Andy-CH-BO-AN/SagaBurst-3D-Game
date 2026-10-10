@@ -854,6 +854,50 @@ describe('Captain Siege command ownership caller', () => {
     expect(south.tacticalOrder).toBe('formation')
     expect(h.profile().activeMission!.officialSquad!.actorIds).toHaveLength(29)
   })
+  it('expands a saved partial Captain roster to the complete saved North plan without healing or overriding existing orders', () => {
+    // Four real residents (North melee/ranged/officer and South guard), one queued foot enemy,
+    // one cat, no TownWorld/GLB. Full census and role matrix stay in the data policy owner.
+    const f = siegeFixture({ captain: true, assault: false,
+      residentIds: ['gate:north:0', 'ranged_cavalry-2', 'deployment', 'gate:south:0'], attackerSlots: [20], includeRanger: false })
+    const guard = f.residents.find(r => r.spec.id === 'gate:north:0')!.npc
+    const ranged = f.residents.find(r => r.spec.id === 'ranged_cavalry-2')!.npc
+    const officer = f.residents.find(r => r.spec.id === 'deployment')!.npc
+    const south = f.residents.find(r => r.spec.id === 'gate:south:0')!.npc
+    // Reproduce a pre-fix saved roster: ranged infantry/officer were omitted.
+    f.profile().activeMission!.officialSquad!.actorIds = [guard.combatantId]
+    ranged.restoreCombatHealth(32)
+    officer.restoreCombatHealth(0)
+    f.controller.releasePlayerCommand(guard)
+    guard.assignFormationTarget(766, siegePoint('north', 8, 24), new THREE.Vector3(0, 0, 1))
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(f.profile().activeMission!.officialSquad!.actorIds).toEqual(['gate:north:0', 'ranged_cavalry-2', 'deployment'])
+    expect(guard.combatFormationCheckpoint?.commandId).toBe(766)
+    expect(guard.tacticalOrder).toBe('formation')
+    expect(ranged.hp).toBe(32)
+    expect(officer.dead).toBe(true)
+    expect(f.profile().activeMission!.deadFriendlyActorIds).toContain('deployment')
+    expect(ranged.squadId).toBe(1)
+    expect(ranged.missionMovement).toBe(false)
+    expect(south.missionMovement).toBe(true)
+    expect(south.tacticalOrder).toBe('formation')
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: f.profile(), player: f.player, commandActors: [guard, ranged], defense: f.controller,
+    }) as { issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean }
+    f.player.group.position.copy(ranged.combatPosition).z += 25
+    const start = ranged.combatPosition.clone()
+    expect(town.issuePartyOrder('follow', 'squad:1')).toBe(true)
+    const combat = combatFixture({ controllers: { defense: f.controller }, simulation: {
+      player: () => f.player, residents: f.residents.map(r => ({ ...r, cycle: -1, walkTime: 0 })),
+      navigation: f.navigation, obstacles: f.obstacles,
+    } }).combat
+    for (let frame = 0; frame < 30; frame++) combat.update(.02, 0, frame * .02)
+    expect(ranged.tacticalOrder).toBe('follow')
+    expect(ranged.combatPosition.distanceTo(start)).toBeGreaterThan(1)
+    expect(south.tacticalOrder).toBe('formation')
+    expect(f.gates.get('north')!.state).toBe('closed')
+  })
   it('leaves the authorized North infantry formation intact after defense reserve release', () => {
     const h = siegeFixture({ captain: true, assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false })
     const guard = h.residents[0].npc

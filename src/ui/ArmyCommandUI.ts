@@ -10,22 +10,26 @@ import {
   type CommandGroupingMode,
 } from '../battle/CommandTarget'
 
+export type ArmyCommandHudOrder = TacticalOrder | 'mixed' | 'returning' | 'reserve'
+
 export interface ArmyCommandHudEntry {
   key: string
   target: ArmyCommandTarget
   label: string
-  order: TacticalOrder | 'mixed'
+  order: ArmyCommandHudOrder
   side: 'left' | 'right'
   summary?: string
 }
 
-const ORDER_LABELS: Record<TacticalOrder | 'mixed', string> = {
+const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
   attack: '攻擊',
   defend: '防禦',
   charge: '衝鋒',
   formation: '列陣',
   follow: '跟隨',
   mixed: '混合',
+  returning: '返營',
+  reserve: '待命',
 }
 
 export function armyCommandTargetLabel(target: ArmyCommandTarget | null, officialSquadLabel?: string): string {

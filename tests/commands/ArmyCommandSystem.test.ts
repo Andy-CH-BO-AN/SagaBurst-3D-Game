@@ -391,6 +391,57 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(h.ui.render.mock.lastCall![0][0].summary).toBe('0/1 · 未部署 1')
   })
 
+  it.each(['squad:1', 'squad:personal', 'all'] as const)('shows genuine return state for %s after Attack then Dismiss while preserving other groups', target => {
+    // Constructor-free command/HUD protocol: only two field identities and one HR reserve.
+    const official: OfficialCommandAuthority = { type: 'town-command', townFaction: 'roman', squadId: 1,
+      actorIds: ['official'], contribution: emptyPersonalContribution() }
+    const personal: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'ACTIVE',
+      memberIds: ['personal:active', 'personal:reserve'], members: {
+        'personal:active': { status: 'deployed' }, 'personal:reserve': { status: 'reserve' },
+      }, contribution: emptyPersonalContribution() }
+    const actors: CommandRecipientFixture[] = [
+      { combatantId: 'official', squadId: 1, faction: Faction.PLAYER, dead: false, setTacticalOrder: vi.fn() },
+      { combatantId: 'personal:active', squadId: 'personal', faction: Faction.PLAYER, dead: false, setTacticalOrder: vi.fn() },
+    ]
+    let officialReturningIds: string[] = [], personalReturningIds: string[] = []
+    const provider = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', official, personal,
+      officialReturningIds, personalReturningIds, actors: actors as Array<{ combatantId: string; dead: boolean }> })
+    const issue = vi.fn((order: string, selected: string) => {
+      if (order !== 'dismiss') return false
+      if (selected === 'all' || selected === 'squad:1') officialReturningIds = ['official']
+      if (selected === 'all' || selected === 'squad:personal') personalReturningIds = ['personal:active']
+      return true
+    })
+    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => true, enabled: () => true, issue }, provider)
+    h.input.pressAll(); h.controller.update(); h.input.press('1'); h.controller.update()
+    if (target === 'all') h.input.pressAll()
+    else h.input.press(target === 'squad:1' ? '1' : '9')
+    h.controller.update(); h.input.press('6'); h.controller.update()
+    const entries = h.ui.render.mock.lastCall![0]
+    expect(entries.find(entry => entry.target === target)?.order).toBe('returning')
+    expect(entries.find(entry => entry.target === target)?.summary).toContain('返回中')
+    expect(entries.find(entry => entry.target === 'all')?.order).toBe(target === 'all' ? 'returning' : 'mixed')
+    if (target !== 'all') expect(entries.find(entry => entry.target === (target === 'squad:1' ? 'squad:personal' : 'squad:1'))?.order).toBe('attack')
+    for (const actor of actors) expect(actor.setTacticalOrder).toHaveBeenCalledOnce()
+  })
+  it('shows HR reserves as waiting without mixing their stale order into the active army', () => {
+    const official: OfficialCommandAuthority = { type: 'town-command', townFaction: 'roman', squadId: 1,
+      actorIds: ['official'], contribution: emptyPersonalContribution() }
+    const personal: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
+      memberIds: ['private'], members: { private: { status: 'reserve' } }, contribution: emptyPersonalContribution() }
+    const actors: CommandRecipientFixture[] = [{ combatantId: 'official', squadId: 1, faction: Faction.PLAYER,
+      dead: false, setTacticalOrder: vi.fn() }]
+    const provider = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', official, personal,
+      actors: actors as Array<{ combatantId: string; dead: boolean }> })
+    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => true, enabled: () => true }, provider)
+    h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
+    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.order])).toEqual([
+      ['squad:1', 'defend'], ['squad:personal', 'reserve'], ['all', 'defend'],
+    ])
+  })
+
   it('counts one eagle rider, pending infantry and casualties exactly once without counting HR reserves', () => {
     const personal: PersonalSquadMission = {
       squadId: 'personal', sceneKey: 'town-home', state: 'DEPLOYING',
