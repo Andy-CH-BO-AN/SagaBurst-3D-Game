@@ -83,6 +83,7 @@ interface CheckpointFixtureOptions {
   includeRanger?: boolean
   includeOfficerAttackers?: boolean
   freshDeployment?: boolean
+  beforeDeployment?: (controller: TownDefenseController, residents: { npc: NPC }[]) => void
   captain?: boolean
   /** Persisted borrowed IDs exercise reload identity without materializing its former roaming squad. */
   attackerIds?: Readonly<Record<number, string>>
@@ -94,7 +95,7 @@ interface CheckpointFixtureOptions {
  * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  freshDeployment = false, captain = false, attackerIds }: CheckpointFixtureOptions = {}) {
+  freshDeployment = false, captain = false, attackerIds, beforeDeployment }: CheckpointFixtureOptions = {}) {
   const rank = captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
@@ -153,7 +154,7 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const attackerCount = survivors.size
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
   onTestFinished(() => controller.dispose())
-  completeNpcDeployment(() => controller.startActiveMission(), gameplayNpcSpawnDriver)
+  completeNpcDeployment(() => { const started = controller.startActiveMission(); beforeDeployment?.(controller, residents); return started }, gameplayNpcSpawnDriver)
   return { controller, player, cat, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
@@ -201,6 +202,29 @@ describe('Siege faction and role wiring', () => {
 
 describe('shared four-gate Siege runtime', () => {
   const faction = 'roman' as const
+  it('places a fresh resident directly at its defense slot and resumes saved position, HP and Player order', () => {
+    // One real resident and one pending attacker verify initial placement before readiness.
+    const f = checkpointFixture({ assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false, freshDeployment: true, captain: true,
+      beforeDeployment: (controller, residents) => {
+        expect(controller.ready).toBe(false)
+        const npc = residents[0].npc, slot = siegePoint('north', -3 * 2.6, 12)
+        expect(npc.combatPosition.distanceTo(new THREE.Vector3(slot.x, npc.combatPosition.y, slot.z))).toBeLessThan(3)
+        controller.persistRuntimeProgress(true)
+        expect(controller.active?.actorPositions?.[npc.combatantId]).toMatchObject({ x: npc.combatPosition.x, z: npc.combatPosition.z })
+        expect(controller.active?.actorPositions?.['defense-test:siege:2']).toBeUndefined()
+      } })
+    const guard = f.residents[0].npc
+    const slot = siegePoint('north', -3 * 2.6, 12)
+    expect(guard.combatPosition.distanceTo(new THREE.Vector3(slot.x, guard.combatPosition.y, slot.z))).toBeLessThan(3)
+    expect(guard.missionMovement).toBe(false); expect(guard.tacticalOrder).toBe('defend')
+    guard.group.position.set(90, guard.group.position.y, 80); guard.restoreCombatHealth(37); guard.setTacticalOrder('follow')
+    f.controller.persistRuntimeProgress(true)
+    f.setProfile(parseCareerProfile(JSON.parse(JSON.stringify(f.profile())))!)
+    completeNpcDeployment(() => f.controller.startActiveMission(), gameplayNpcSpawnDriver)
+    expect(guard.combatPosition.x).toBe(90); expect(guard.combatPosition.z).toBe(80)
+    expect(guard.hp).toBe(37); expect(guard.tacticalOrder).toBe('follow'); expect(guard.missionMovement).toBe(false)
+  })
+
   it.each([true, false])('resumes the remaining countdown without repositioning or reinforcing, assault=%s', assault => {
     const f = checkpointFixture({ faction, assault, residentIds: ['gate:north:0'], attackerSlots: [2, 3], includeRanger: false })
     // Separate allegiance from character appearance: Assault attackers are allies,

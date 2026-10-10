@@ -6,6 +6,7 @@ import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career
 import { clearCareerMission } from '../career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
 import { refitTownCommandForSceneChange } from '../career/SquadRefit'
+import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -43,13 +44,14 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     }
     form.remove()
     const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
-    const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void): void => {
+    const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
       const next = refitTownCommandForSceneChange(value)
+      if (deathReturn) delete next.playerAerialState
       if (store.save(next)) { proceed(next); return }
       loading.textContent = '無法保存城防整補，尚未轉場。'
       document.body.append(loading)
       const retry = document.createElement('button'); retry.textContent = '重試轉場'
-      retry.onclick = () => transition(value, proceed); loading.append(retry)
+      retry.onclick = () => transition(value, proceed, deathReturn); loading.append(retry)
     }
     try {
       sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
@@ -66,7 +68,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
           sessionStorage.removeItem(TOWN_ENTRY_KEY)
           void launchCampaign(config)
         })
-      }, p => transition(p, next => { void start(next) }), () => {
+      }, (p, reason) => {
+        const before = resolveCareerTownSceneContext(profile), after = resolveCareerTownSceneContext(p)
+        if (reason === 'death-return' || before.worldFaction !== after.worldFaction) {
+          transition(p, next => { void start(next) }, reason === 'death-return')
+        } else void start(p)
+      }, () => {
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         home()
       }, message => { loading.textContent = message })

@@ -1,3 +1,9 @@
+import * as THREE from 'three'
+import { TownCommandSquadController } from '../../src/town/TownCommandSquadController'
+import { townRoster } from '../../src/town/TownRules'
+import type { NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import { CAPTAIN_GATE_DEFENSE_ID } from '../../src/career/CaptainMissionCatalog'
 import { describe, expect, it, vi } from 'vitest'
 import { TownScene } from '../../src/town/TownScene'
 import { TownEvent } from '../../src/town/TownRules'
@@ -88,4 +94,94 @@ describe('Captain TownScene saved command handover', () => {
     town.updatePlayerCommands()
     expect(update).toHaveBeenCalledOnce()
   })
+})
+
+/** One recording guard, zero real actors/world. Real acceptance, transaction, refit policy and serialized storage. */
+function defenseAcceptanceFixture() {
+  const profile = createCareerProfile('roman'); profile.rank = 'captain'; profile.totalMerit = 20000
+  profile.careerMissionCompletionsByTier = { 3: 5 }
+  const spec = townRoster().find(spec => spec.id === 'gate:north:0')!, group = new THREE.Group()
+  group.position.set(150, 0, 150)
+  const guard = { group, combatPosition: group.position, combatantId: spec.id, dead: true, hp: 0, maxHp: 100,
+    combatAmmo: 0, combatAmmoCapacity: 30, shield: { shieldImpactRemaining: 0, shieldImpactMax: 8, reset: vi.fn() },
+    tacticalOrder: 'follow' as NPC['tacticalOrder'], mount: null, isFalling: false,
+    setTownPeaceful: vi.fn(), setCommandAllegiance: vi.fn(), setCommandSquad: vi.fn(),
+    restoreCombatHealth: (hp: number) => { guard.hp = hp; guard.dead = hp === 0 }, restoreCombatAmmo: (ammo: number) => { guard.combatAmmo = ammo },
+    assignFollowTarget: vi.fn(),
+    setTacticalOrder: (order: NPC['tacticalOrder']) => { guard.tacticalOrder = order },
+    refitCombat: () => { guard.dead = false; guard.hp = 100; guard.combatAmmo = 30; guard.shield.shieldImpactRemaining = 8 },
+  }
+  profile.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman', actorIds: [spec.id],
+    contribution: emptyPersonalContribution(), members: { [spec.id]: { status: 'dead', hp: 0 } },
+    state: 'FOLLOWING', authorized: true, sceneKey: 'town-home' }
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage); store.save(profile)
+  const changes: string[] = []
+  const state = { profile, store, player: { dead: false, group: new THREE.Group(), currentMount: null },
+    residents: [{ spec, npc: guard as unknown as NPC }], event: { hostile: false }, commandActors: [] as NPC[],
+    skills: { skillState: profile.skills }, careerSaveFailures: 0, garrisonRestored: false,
+    world: { faction: 'roman' }, defense: { startActiveMission: vi.fn(), fieldNpcs: [] },
+    dispose: vi.fn(() => changes.push('dispose')), onRestart: vi.fn(() => {
+      expect(store.load()?.activeMission?.kind).toBe('town-defense'); changes.push('restart')
+    }), openPanel: vi.fn(),
+  }
+  const town = Object.assign(Object.create(TownScene.prototype) as object, state) as typeof state & {
+    townCommand: TownCommandSquadController; commit(next: CareerProfile): boolean;
+    acceptMission(id: string): void; acceptCaptainMission(id: string): void; restPlayerInTown(): void;
+  }
+  town.townCommand = new TownCommandSquadController(town.residents, () => town.player as unknown as Player,
+    () => town.profile, next => town.commit(next))
+  town.townCommand.applySavedState(profile.townCommandSquad)
+  const save = vi.spyOn(store, 'save').mockImplementation(next => { changes.push('save'); return CareerProfileStore.prototype.save.call(store, next) })
+  return { town, storage, store, guard, spec, changes, save }
+}
+
+describe('new defense acceptance refit and reload', () => {
+  it.each(['generic', 'generic-with-HR', 'captain'] as const)('%s saves the refit once before reloading and never starts defense in the old scene', kind => {
+    const f = defenseAcceptanceFixture()
+    if (kind === 'generic-with-HR') {
+      f.town.profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier', originalHirePrice: 50 }] }
+      f.store.save(f.town.profile); f.changes.length = 0; f.save.mockClear()
+    }
+    const accept = () => kind === 'captain' ? f.town.acceptCaptainMission(CAPTAIN_GATE_DEFENSE_ID) : f.town.acceptMission('veteran-town-defense-01')
+    const before = JSON.stringify(f.store.load())
+    f.storage.failWrites = true; accept()
+    expect(JSON.stringify(f.store.load())).toBe(before)
+    expect(f.guard.dead).toBe(true); expect(f.guard.hp).toBe(0)
+    expect(f.town.dispose).not.toHaveBeenCalled(); expect(f.town.onRestart).not.toHaveBeenCalled()
+    f.storage.failWrites = false; f.changes.length = 0; f.save.mockClear(); accept()
+    expect(f.changes).toEqual(['save', 'dispose', 'restart'])
+    expect(f.town.defense.startActiveMission).not.toHaveBeenCalled()
+    const saved = f.store.load()!
+    expect(saved.townCommandSquad?.members?.[f.spec.id]).toMatchObject({ status: 'reserve', hp: 100, ammo: 30, shieldImpact: 8, order: 'attack', position: { x: f.spec.x, z: f.spec.z } })
+    expect(saved.townCommandSquad).toMatchObject({ authorized: false, state: 'TRAINING' })
+    expect(saved.activeMission?.friendlyActorIds).toContain(f.spec.id)
+    if (kind === 'captain') expect(saved.activeMission?.officialSquad?.actorIds).toContain(f.spec.id)
+    if (kind === 'generic-with-HR') expect(saved.activeMission?.personalSquad?.memberIds).toEqual(['personal:dead'])
+    // Simulate the controller's first runtime checkpoint: accepted IDs cannot trigger another refit.
+    f.guard.dead = false; f.guard.hp = 37
+    expect(f.town.commit(cloneCareerProfile(f.town.profile))).toBe(true)
+    expect(f.store.load()?.townCommandSquad?.members?.[f.spec.id].hp).toBe(37)
+    expect(f.guard.hp).toBe(37)
+  })
+  it('refits after a saved death return completes, with no early revival or failed-save mutation', () => {
+    const f = defenseAcceptanceFixture()
+    f.town.acceptMission('veteran-town-defense-01')
+    f.town.player.dead = true
+    const next = cloneCareerProfile(f.town.profile); next.activeMission = undefined
+    f.storage.failWrites = true
+    expect(f.town.commit(next)).toBe(false)
+    expect(f.guard.dead).toBe(true)
+    f.storage.failWrites = false
+    expect(f.town.commit(next)).toBe(true)
+    expect(f.guard.dead).toBe(true); expect(f.town.player.dead).toBe(true)
+    Object.assign(f.town, {
+      temporaryMounts: { cleanup: vi.fn() }, careerMounts: { restInTown: vi.fn() }, inventory: { sheathAll: vi.fn() },
+      spectator: null, hp: { setFill: vi.fn() }, stamina: { setFill: vi.fn() }, quiver: { setArrowCount: vi.fn() },
+    })
+    Object.assign(f.town.player, { restoreForTown: () => { expect(f.guard.dead).toBe(true); f.town.player.dead = false } })
+    f.town.restPlayerInTown()
+    expect(f.guard.dead).toBe(false); expect(f.guard.hp).toBe(100)
+    expect(f.store.load()?.townCommandSquad?.members?.[f.spec.id]).toMatchObject({ hp: 100, ammo: 30, shieldImpact: 8 })
+  })
+
 })

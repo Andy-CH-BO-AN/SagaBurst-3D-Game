@@ -155,18 +155,37 @@ export class TownCommandSquadController {
   }
   refit(): boolean {
     if (!this.canRefit) return false
-    const value = this.checkpoint()!
+    const next = this.stageRefit(this.read())
+    if (!this.commit(next)) return false
+    this.applyRefit(next.townCommandSquad)
+    return true
+  }
+
+  /** Automatic refit shares the service's resource staging, without its peace-only gate. */
+  stageRefit(current: CareerProfile, defenseStart = false): CareerProfile {
+    const next = cloneCareerProfile(current), value = this.checkpoint() ?? next.townCommandSquad
+    if (!value) return next
     value.members ??= {}
     for (const npc of this.actors) {
       const resident = this.residentsById.get(npc.combatantId)!
-      const status = value.members[npc.combatantId]?.status === 'reserve' ? 'reserve' : 'deployed'
-      value.members[npc.combatantId] = refitCommandCheckpoint(npc, resident.homeMount, status)
+      const status = defenseStart || value.members[npc.combatantId]?.status === 'reserve' ? 'reserve' : 'deployed'
+      const member = refitCommandCheckpoint(npc, resident.homeMount, status)
+      if (defenseStart) {
+        member.order = 'attack'; delete member.formation
+        member.position = { x: resident.spec.x, z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI }
+        if (member.mount) member.mount.position = { ...member.position }
+      }
+      value.members[npc.combatantId] = member
     }
-    const next = cloneCareerProfile(this.read()); next.townCommandSquad = value
-    if (!this.commit(next)) return false
+    if (defenseStart) { value.authorized = false; value.state = 'TRAINING' }
+    next.townCommandSquad = value
+    return next
+  }
+
+  /** Call only after saving and completing the Player's return, or a manual refit. */
+  applyRefit(value: TownCommandSquadState | undefined): void {
     for (const npc of this.actors) refitCommandActor(npc, this.residentsById.get(npc.combatantId)!.homeMount)
     this.applySavedState(value)
-    return true
   }
 
   /** Follow and Dismiss remain physical movement. Other orders are subsequently assigned by the common command UI. */

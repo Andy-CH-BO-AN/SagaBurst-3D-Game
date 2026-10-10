@@ -196,7 +196,7 @@ describe('hostile save migration and settlement retries', () => {
     expect(next.claimedBattleIds).toEqual(['historical-battle'])
     if (result === 'town_defeated') { expect(next.rank).toBe('recruit'); expect(enlistmentMerit(next)).toBe(0) }
     town.finish(result); expect(save).toHaveBeenCalledTimes(2)
-    restartButtons.shift()!(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
+    restartButtons.shift()!(); expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile, result === 'player_defeated' ? 'death-return' : undefined)
     expect(town.dispose).toHaveBeenCalledOnce()
     town.restoreTownCasualties(); expect([...town.event.actors.values()].every(actor => !actor.dead)).toBe(true)
   })

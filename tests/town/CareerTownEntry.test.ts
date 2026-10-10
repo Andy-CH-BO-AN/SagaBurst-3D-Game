@@ -1,4 +1,5 @@
 import { acceptCaptainEagle, acceptCaptainFrontline, type CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
+import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { claimCareerMission } from '../../src/career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../../src/career/CareerOutpostMission'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -105,6 +106,28 @@ describe('Town load failure recovery', () => {
     local.failWrites = false
     body.children[1].children.find((child: ReturnType<typeof element>) => child.textContent === '重試轉場')!.onclick!()
     expect(launch).toHaveBeenCalledOnce()
+  })
+
+  it.each(['reload', 'enemy-map', 'death-return'] as const)('%s only refits for a real map change or completed death return', async kind => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'
+    profile.townCommandSquad = { type: 'town-command', squadId: 1, actorIds: ['guard'], townFaction: 'roman', sceneKey: 'town-home',
+      state: 'FOLLOWING', authorized: true, contribution: emptyPersonalContribution(), members: { guard: { status: 'dead', hp: 0 } } }
+    const store = new CareerProfileStore(local); store.save(profile)
+    const start = vi.fn()
+    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    const next = store.load()!
+    if (kind === 'enemy-map') next.activeMission = createEnemyTownAssaultMission('new-map')
+    vi.mocked(TownScene.create).mock.calls[0][3](next, kind === 'death-return' ? kind : undefined)
+    await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+    const restored = vi.mocked(TownScene.create).mock.calls[1][1]
+    expect(restored.townCommandSquad?.members?.guard).toEqual(kind === 'reload' ? { status: 'dead', hp: 0 } : undefined)
+    expect(store.load()?.townCommandSquad?.members?.guard).toEqual(kind === 'reload' ? { status: 'dead', hp: 0 } : { status: 'reserve' })
   })
 
   it.each([false, true])('clears the entry flag on failure and return without changing saved hostility=%s', async hostile => {

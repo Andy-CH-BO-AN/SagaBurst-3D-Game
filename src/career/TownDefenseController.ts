@@ -185,6 +185,12 @@ export class TownDefenseController {
     for (const plan of this.siege.defensePlans) {
       this.groups.push({ id: plan.gateId, members: plan.infantry.map(id => byId.get(id)!), cavalry: plan.cavalry.map(id => byId.get(id)!), leader: plan.leaderId ? byId.get(plan.leaderId)! : null })
     }
+    if (freshSiege) {
+      // Existing defenders take their gate/reserve slots immediately, before the
+      // enemy's paced deployment. Resumed missions keep checkpoint positions.
+      this.prepareDeployment()
+      for (const [npc, point] of this.orders) this.positionNpc(npc, point, siegeOutward(this.groupFor(npc)?.id ?? 'south'))
+    }
     this.spawnSiegeArmy(active, prepared.claim)
     batch.seal(() => {
       this.prepareDeployment()
@@ -214,6 +220,7 @@ export class TownDefenseController {
       // Checkpoints keep their actual positions, countdown and breaches.
       if (freshSiege) {
         for (const [npc, point] of this.orders) {
+          // Borrowed attackers retain their actual approach; these are not the resident defenders.
           if (this.claimedActors.has(npc)) continue
           this.positionNpc(npc, point, siegeOutward(this.groupFor(npc)?.id ?? 'south'))
         }
@@ -583,12 +590,19 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.result) return
     if (!this.ready) {
-      // Exiting during deployment saves only Player state. Keep the committed
-      // roster, casualties, clocks and gates intact; failed batches never checkpoint.
+      // Existing residents already took their initial slots. Keep those positions
+      // through a deployment reload without checkpointing a partial spawned army,
+      // changing roster/casualties/clocks/gates, or checkpointing failed batches.
       if (forceStats && this.spawnBatch?.status === 'pending' && active.siege) {
         const player = this.player(), position = player.currentMount?.group.position ?? player.combatPosition
         if (![position.x, position.z, player.group.rotation.y, player.hp, player.staminaValue].every(Number.isFinite)) return
-        this.checkpoint.persist(() => ({ ...active,
+        const actorPositions = { ...active.actorPositions }, actorHealth = { ...active.actorHealth }
+        for (const { npc, homeMount } of this.residents) {
+          const mount = npc.mount ?? homeMount, position = npc.combatPosition
+          actorPositions[npc.combatantId] = { x: position.x, z: position.z, yaw: npc.group.rotation.y }
+          actorHealth[npc.combatantId] = { hp: npc.hp, ...(mount ? { mountHp: mount.currentHp } : {}) }
+        }
+        this.checkpoint.persist(() => ({ ...active, actorPositions, actorHealth,
           siege: { ...active.siege!, playerPosition: { x: position.x, z: position.z, yaw: player.group.rotation.y } },
           playerHp: player.hp, playerStamina: player.staminaValue, playerDead: player.dead || Boolean(active.playerDead),
           ...(mountState ? { mountState } : {}),

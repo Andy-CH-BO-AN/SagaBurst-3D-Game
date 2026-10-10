@@ -125,8 +125,10 @@ export class PersonalSquadRuntime {
   captureForMission(value: PersonalSquadMission): PersonalSquadMission {
     const previous = this.mission
     this.mission = clonePersonalMission(value)
-    for (const id of this.pending.keys()) if (this.mission.memberIds.includes(id) && previous?.members[id])
-      this.mission.members[id] = clonePersonalMission(previous).members[id]
+    // A casualty or wounded reserve may have no materialized actor after reload.
+    // Retain every owned checkpoint; live actors overwrite theirs below.
+    const savedMembers = previous ? clonePersonalMission(previous).members : undefined
+    for (const id of this.mission.memberIds) if (savedMembers?.[id]) this.mission.members[id] = savedMembers[id]
     try { return this.checkpoint()! }
     finally { this.mission = previous }
   }

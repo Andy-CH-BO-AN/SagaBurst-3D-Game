@@ -32,7 +32,8 @@ import type { Player } from '../../src/player/Player'
 import { combatActor, combatFixture } from '../helpers/townMissionCombat'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { careerMissionCommandMeritPolicy, createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
+import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
+import { parsePersonalMission, snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
 
@@ -169,6 +170,29 @@ describe('HR Center and personal runtime', () => {
     expect(mountVehicle).toHaveBeenCalledOnce()
     controller.release('xongkoro')
     expect(pads.get('player')).toBeUndefined(); expect(controller.activeMount).toBeNull()
+  })
+
+  it('carries unmaterialized private casualties and wounded eagle reserves into a new mission without refitting them', () => {
+    // No NPC, Mount, world or assets: both checkpoints deliberately remain unmaterialized.
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', personalSquad: { members: [
+      { id: 'personal:dead', type: 'soldier' }, { id: 'personal:reserve', type: 'captain',
+        equipment: { melee: 'centurion_blade', ranged: null, shield: null, mount: 'xongkoro' } },
+    ] } }
+    const saved = snapshotPersonalMission(profile)!
+    saved.members['personal:dead'] = { status: 'dead', hp: 0, ammo: 0 }
+    saved.members['personal:reserve'] = { status: 'reserve', hp: 37, eaglePadId: 'private-eagle-pad:2',
+      mount: { hp: 0, mounted: false, position: { x: 60, z: 60, yaw: .4 } } }
+    const player = { group: new THREE.Group(), combatPosition: new THREE.Vector3(), dead: false } as unknown as Player
+    const runtime = new PersonalSquadRuntime(new THREE.Scene(), [], () => profile, () => player)
+    cleanups.push(() => runtime.cleanup())
+    runtime.restoreMission(saved)
+    const before = runtime.checkpoint()!
+    const captured = runtime.captureForMission(snapshotPersonalMission(profile)!)
+    expect(captured.memberIds).toEqual(['personal:dead', 'personal:reserve'])
+    expect(captured.members).toEqual(before.members)
+    expect(runtime.actors).toHaveLength(0); expect(runtime.mounts).toHaveLength(0)
+    expect(runtime.checkpoint()).toEqual(before)
+    expect(parsePersonalMission(JSON.parse(JSON.stringify(captured)))?.members).toEqual(before.members)
   })
 
   it('restores an already-saved legacy Player eagle when three squad home pads are reserved', () => {

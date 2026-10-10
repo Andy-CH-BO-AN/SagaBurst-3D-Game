@@ -1,3 +1,7 @@
+import * as THREE from 'three'
+import { ShieldState } from '../../src/combat/ShieldBlocking'
+import { damageNpc, damagePlayer } from '../../src/combat/DamageRouter'
+import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import { describe, expect, it } from 'vitest'
 import { SquadRefitSafety, refitTownCommandForSceneChange } from '../../src/career/SquadRefit'
 import { createCareerProfile } from '../../src/career/CareerProfile'
@@ -27,7 +31,30 @@ describe('peace-only squad refit policy', () => {
     safety.note({ type: 'damage_applied', source: { actorId: 'enemy', actorType: 'npc', allegiance: Faction.ENEMY, characterFaction: 'viking' },
       target: { targetId: 'horse', targetType: 'mount', ownerActorId: 'guard', name: 'Horse' }, method: 'projectile', requestedDamage: 4, appliedDamage: 4 }, 15000)
     expect(safety.allows(player, [guard], ['formation'], 19999)).toBe(false)
+    expect(safety.allows(player, [guard], ['formation'], 20000)).toBe(true)
   })
+  it.each(['npc', 'player'] as const)('a fully blocked %s hit starts cooldown for both participants without HP damage', side => {
+    // Real router + shield absorption + service consumer; lightweight damage receiver boundary.
+    const safety = new SquadRefitSafety(), events: CombatEvent[] = [], shield = new ShieldState()
+    shield.equip('scutum_t3')
+    const defender = { ...player, ...guard, group: new THREE.Group(), hp: 100, hpRatio: 1, name: 'guard',
+      shield, mount: null, currentMount: null, characterFaction: 'roman', faction: Faction.PLAYER, ...(side === 'player' ? { blockingLevel: 0 } : {}) }
+    const context = { source: { actorId: 'attacker', actorType: 'npc' as const, allegiance: Faction.ENEMY, characterFaction: 'viking' as const },
+      method: 'melee' as const, weaponId: 'steel_sword', contact: { kind: 'shield' as const, time: 0 },
+      emit: (event: CombatEvent) => { events.push(event); safety.note(event, 10000) } }
+    expect(safety.allows(player, [guard], [], 10000)).toBe(true)
+    const result = side === 'npc' ? damageNpc(defender as unknown as NPC, 80, context)
+      : damagePlayer(defender as unknown as Player, 80, { setFill() {} }, 'scutum_t3', context)
+    expect(result).toMatchObject({ appliedDamage: 0, blockedImpact: 1 })
+    expect(defender.hp).toBe(100)
+    expect(events.map(event => event.type)).toEqual(['hit_blocked'])
+    expect(events[0].target).toMatchObject({ targetType: side, targetId: side === 'npc' ? 'guard' : 'player' })
+    expect(safety.allows(player, side === 'npc' ? [guard] : [], [], 14999)).toBe(false)
+    expect(safety.allows(player, side === 'npc' ? [guard] : [], [], 15000)).toBe(true)
+    const attacker = { ...guard, combatantId: 'attacker' } as NPC
+    expect(safety.allows(player, [attacker], [], 14999)).toBe(false)
+  })
+
   it('refits the saved home roster only at an explicit map transition and preserves permanent membership', () => {
     const profile = createCareerProfile('roman')
     profile.townCommandSquad = { type: 'town-command', squadId: 1, actorIds: ['guard'], townFaction: 'roman', sceneKey: 'town-home',

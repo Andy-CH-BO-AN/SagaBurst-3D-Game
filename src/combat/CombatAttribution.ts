@@ -58,6 +58,16 @@ export interface DamageAppliedEvent {
   appliedDamage: number
 }
 
+/** A real shield contact, independent of HP damage and progression attribution. */
+export interface HitBlockedEvent {
+  type: 'hit_blocked'
+  source: CombatActorRef
+  target: CombatTargetRef
+  method: CombatDamageMethod
+  weaponId?: string
+  blockedImpact: number
+}
+
 export interface ActorKilledEvent {
   attackSource?: CombatAttackSource
   type: 'actor_killed'
@@ -88,6 +98,7 @@ export interface StructureDestroyedEvent {
 
 export type CombatEvent =
   | DamageAppliedEvent
+  | HitBlockedEvent
   | ActorKilledEvent
   | StructureDamagedEvent
   | StructureDestroyedEvent
@@ -198,6 +209,12 @@ export function emitDamageApplied(
     requestedDamage,
     appliedDamage,
   })
+}
+
+export function emitHitBlocked(context: CombatDamageContext | undefined, target: CombatTargetRef, blockedImpact: number): void {
+  if (!context?.emit || blockedImpact <= 0) return
+  context.emit({ type: 'hit_blocked', source: context.source, target, method: context.method,
+    weaponId: context.weaponId, blockedImpact })
 }
 
 export function emitActorKilled(

@@ -205,6 +205,7 @@ export class TownScene {
   private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
+  private townRefitOnRespawn = false
   private get sceneContext() { return resolveCareerTownSceneContext(this.profile) }
   private pointerWasLocked = false
   private careerSaveFailures = 0
@@ -216,7 +217,7 @@ export class TownScene {
       .some(batch => batch.status === 'failed') || Boolean(this.personalSquad?.error)
   }
 
-  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile) => void, onHome: () => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
+  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile, reason?: 'death-return') => void, onHome: () => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     try {
       progress('載入人物、坐騎與動畫…')
@@ -227,7 +228,7 @@ export class TownScene {
       try { await town.initialize(progress); return town } catch (error) { town.dispose(); throw error }
     } catch (error) { renderer.dispose(); throw error }
   }
-  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: CareerCombatLaunch) => void, private readonly onRestart: (p: CareerProfile) => void, private readonly onHome: () => void) {
+  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: CareerCombatLaunch) => void, private readonly onRestart: (p: CareerProfile, reason?: 'death-return') => void, private readonly onHome: () => void) {
     installTownStyles()
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
@@ -361,7 +362,7 @@ export class TownScene {
         clearCombatShots: () => this.clearMissionCombatShots(),
         restPlayer: () => this.restPlayerInTown(),
         returnPersonalSquad: direct => this.personalSquad?.endMission(direct),
-        restart: p => { this.missionResultOpen = false; this.dispose(); this.onRestart(p) },
+        restart: p => { this.missionResultOpen = false; const reason = this.player.dead ? 'death-return' : undefined; this.dispose(); this.onRestart(p, reason) },
       },
     )
     this.player.onPlayerDeath = () => this.enterMissionObserver()
@@ -521,7 +522,10 @@ export class TownScene {
     const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
       || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
     const townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
-    if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
+    const startsDefense = startsFormal && next.activeMission?.kind === 'town-defense'
+    const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
+    if ((startsDefense || respawning) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
+    else if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
     else if (!townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
     if (startsFormal && next.activeMission && next.townCommandSquad) {
       const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
@@ -551,6 +555,7 @@ export class TownScene {
       next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: snapshot }
     }
     if (this.player && !this.restoringAerialState) next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
+    if (respawning) delete next.playerAerialState
     const newMission = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
     const newOutpost = Boolean(next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
     const missionFinished = Boolean(next.activeMission?.result
@@ -569,6 +574,7 @@ export class TownScene {
     if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
     if (newMission || newOutpost) next.personalSquadRuntime = undefined
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (respawning) this.townRefitOnRespawn = true
     // Authorize the live controller only after the transition and permission are durably saved.
     if (settledTownEvent && this.garrisonRestored) for (const resident of this.residents ?? []) {
       if (resident.spec.eagle) this.eagleGarrison?.beginRefit(resident.spec.id)
@@ -587,7 +593,7 @@ export class TownScene {
     const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
     this.profile = next
     if (startsFormal || townStateChanged || endedFormal) this.townCommand?.applySavedState(next.townCommandSquad)
-    if ((endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
+    if (!this.townRefitOnRespawn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
     this.synchronizeCommandActors()
     if (missionFinished) this.personalSquad?.regroupAfterMission()
     this.careerSkillsDirty = false
@@ -1199,7 +1205,7 @@ export class TownScene {
       selectMissionCavalryActorIds(this.residents, 59, this.unavailableTownCavalryActorIds()))
     else if (templateId === CAPTAIN_GATE_DEFENSE_ID) {
       next = cloneCareerProfile(fresh)
-      const unavailable = this.unavailableTownCavalryActorIds()
+      const unavailable = this.unavailableTownCavalryActorIds(true)
       next.activeMission = createCaptainGateDefenseMission(fresh,
         townAssaultObjectiveRoster(this.residents.map(r => r.spec)).map(spec => spec.id),
         this.residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), this.residents.map(r => r.spec), undefined, unavailable)
@@ -1218,12 +1224,11 @@ export class TownScene {
       const launch = templateId === CAPTAIN_FRONTLINE_COMMAND_ID ? createCaptainFrontlineLaunch(this.profile) : createCaptainEagleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
-    if (templateId === CAPTAIN_SIEGE_COMMAND_ID) { this.dispose(); this.onRestart(this.profile); return }
+    if (templateId === CAPTAIN_SIEGE_COMMAND_ID || templateId === CAPTAIN_GATE_DEFENSE_ID) { this.dispose(); this.onRestart(this.profile); return }
     const started = templateId === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol!.resume(false)
-      : templateId === CAPTAIN_GATE_DEFENSE_ID ? this.defense.startActiveMission() : this.mission.startActiveMission()
+      : this.mission.startActiveMission()
     if (!started) { this.openPanel('任務部署失敗', '任務及兵權交接已保存。重新載入可恢復同一支部隊。'); return }
     if (templateId === CAPTAIN_CAVALRY_COMMAND_ID) this.careerMounts.activate(this.profile.selectedMountId!)
-    if (templateId === CAPTAIN_GATE_DEFENSE_ID) this.siegeOpeningPending = true
     this.inventory.prepareForCombat(); this.synchronizeCommandActors(); this.closePanel()
   }
   private acceptVeteranCareerMission(templateId: string): void {
@@ -1537,11 +1542,7 @@ export class TownScene {
       const mission = createTownDefenseMission(defenders, civilians, undefined, template.id, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-      if (!this.profile.activeMission?.personalSquad) { this.dispose(); this.onRestart(this.profile); return }
-      this.siegeOpeningPending = true
-      if (!this.defense.startActiveMission()) { this.openPanel('任務部署失敗', '任務已保存，重新載入後可恢復。'); return }
-      this.inventory.prepareForCombat()
-      this.closePanel()
+      this.dispose(); this.onRestart(this.profile)
       return
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
@@ -1556,9 +1557,9 @@ export class TownScene {
     this.playMissionVoice('missionAccepted')
     this.closePanel()
   }
-  private unavailableTownCavalryActorIds(): ReadonlySet<string> {
+  private unavailableTownCavalryActorIds(refitTownCommand = false): ReadonlySet<string> {
     return new Set(this.residents.filter(({ spec }) => this.patrol && !this.patrol.isReserveAvailable(spec.id)
-      || this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
+      || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
   private applyCareerPlayerIdentity(): void {
@@ -1645,6 +1646,11 @@ export class TownScene {
     this.careerMounts.restInTown()
     this.inventory.sheathAll()
     this.player.restoreForTown()
+    if (this.townRefitOnRespawn) {
+      this.townCommand?.applyRefit(this.profile.townCommandSquad)
+      this.townRefitOnRespawn = false
+      this.townCommand?.grant()
+    }
     if (this.spectator) {
       this.spectator = null
       document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
@@ -2319,7 +2325,7 @@ export class TownScene {
     if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
     this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
-    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile) })
+    this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile, result === 'player_defeated' ? 'death-return' : undefined) })
   }
   private showAmbientDefeat(): void {
     if (this.ambientDefeatShown) return
@@ -2330,7 +2336,7 @@ export class TownScene {
       const next = cloneCareerProfile(this.profile)
       this.missionResultOpen = false
       this.dispose()
-      this.onRestart(next)
+      this.onRestart(next, 'death-return')
     })
   }
   private veteranMissionHud(): string {
