@@ -34,6 +34,12 @@ export class TownCommandSquadController {
   get state(): TownCommandSquadState['state'] | null { return this.value?.state ?? null }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }
   get authorizedActorIds(): readonly string[] { return this.value?.authorized ? this.value.actorIds : [] }
+  /** Read-only HUD view of living residents physically returning home and not accepting orders. */
+  get returningActorIds(): readonly string[] {
+    return this.commandsEnabled
+      ? this.actors.filter(npc => !npc.dead && this.ownsPeacefulTravel(npc)).map(npc => npc.combatantId)
+      : []
+  }
   get actors(): NPC[] { return this.value?.sceneKey === this.sceneKey ? this.value.actorIds.flatMap(id => this.residentsById.get(id)?.npc ?? []) : [] }
   get commandsEnabled(): boolean {
     const profile = this.read()

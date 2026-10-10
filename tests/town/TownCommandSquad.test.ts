@@ -5,6 +5,9 @@ import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController, resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from '../../src/town/TownCommandSquadController'
+import { TownScene } from '../../src/town/TownScene'
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
+import type { ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { TownEvent, townCommandSquadRoster, townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { Faction, type NPC } from '../../src/world/NPC'
@@ -101,6 +104,59 @@ describe('permanent Captain Town command roster', () => {
     expect(returning.actor.assignFollowTarget).toHaveBeenCalledOnce()
     expect(residents.slice(1).every(r => r.actor.assignFollowTarget.mock.calls.length === 0)).toBe(true)
     expect(returning.npc.hp).toBe(73); expect(returning.homeMount!.currentHp).toBe(61)
+  })
+  it('shows 30 living Town soldiers as returning, refuses phantom orders, and restores commandability on arrival', () => {
+    const residents = townCommandSquadRoster('roman').map(resident), p = player()
+    const initial = createCareerProfile('roman'); initial.rank = 'captain'
+    // Real TownScene provider and Town command owner; zero constructed NPCs, mounts or world.
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: initial, player: p, world: { faction: 'roman' },
+      residents, commandActors: residents.map(r => r.npc),
+    }) as { profile: typeof initial; townCommand?: TownCommandSquadController; commandActors: NPC[]; commandHudRoster(): ArmyHudRoster }
+    const owner = new TownCommandSquadController(residents, () => p, () => town.profile,
+      next => { town.profile = next; return true })
+    town.townCommand = owner
+    expect(owner.grant()).toBe(true)
+    for (const r of residents) {
+      r.npc.combatPosition.x += 25
+      r.homeMount?.group.position.copy(r.npc.combatPosition)
+    }
+    const positions = residents.map(r => r.npc.combatPosition.clone())
+    const hpAndMount = residents.map(r => [r.npc.hp, r.homeMount?.currentHp])
+    const h = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, { accepts: npc => owner.accepts(npc), enabled: () => owner.commandsEnabled,
+        issue: (order, target) => owner.issue(order, target) }, () => town.commandHudRoster())
+    const summary = () => h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:1')?.summary
+
+    expect(summary()).toBe('30/30')
+    h.input.press('1'); h.controller.update(); h.input.press('6'); h.controller.update()
+    expect(owner.state).toBe('RETURNING')
+    expect(owner.returningActorIds).toHaveLength(30)
+    expect(summary()).toBe('30/30 · 返回中 30')
+    expect(owner.actors.every(actor => !owner.accepts(actor))).toBe(true)
+    const successes = h.ui.showFeedback.mock.calls.length
+    const orderCalls = residents.map(r => r.actor.setTacticalOrder.mock.calls.length)
+    for (const commandKey of ['1', '3']) {
+      h.input.press('1'); h.controller.update(); h.input.press(commandKey); h.controller.update()
+    }
+    expect(h.ui.showFeedback).toHaveBeenCalledTimes(successes)
+    expect(residents.map(r => r.actor.setTacticalOrder.mock.calls.length)).toEqual(orderCalls)
+    expect(residents.map(r => r.npc.combatPosition.equals(positions[residents.indexOf(r)]))).toEqual(Array(30).fill(true))
+
+    // Existing travel owner, not HUD, decides when the physical return finishes.
+    for (const r of residents) {
+      r.actor.isFormationTargetReached.mockReturnValue(true)
+      expect(owner.updateResident(r, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(true)
+    }
+    expect(owner.returningActorIds).toEqual([])
+    expect(owner.state).toBe('TRAINING')
+    h.controller.update()
+    expect(summary()).toBe('30/30')
+    h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
+    expect(h.ui.showFeedback).toHaveBeenLastCalledWith('第 1 隊 → 防禦')
+    expect(residents.every(r => r.actor.setTacticalOrder.mock.lastCall?.[0] === 'defend')).toBe(true)
+    expect(residents.map(r => [r.npc.hp, r.homeMount?.currentHp])).toEqual(hpAndMount)
+    expect(owner.authorizedActorIds).toHaveLength(30)
   })
   it('interrupts peaceful returns during saved hostility and restores normal command/combat without changing the soldiers', () => {
     const residents = townCommandSquadRoster('roman').map(resident), p = player()

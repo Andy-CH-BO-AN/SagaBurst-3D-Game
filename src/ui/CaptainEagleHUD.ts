@@ -1,5 +1,6 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { CareerMissionOutcome } from '../career/CareerMissionState'
+import type { ArmyHudCounts } from '../battle/ArmyCommandHudRoster'
 import { renderBattleStats } from './BattleStatsView'
 
 export class CaptainEagleHUD {
@@ -12,8 +13,15 @@ export class CaptainEagleHUD {
     document.body.append(this.root)
   }
 
-  update(ready: boolean, officialAlive: number, privateAlive: number, enemyAlive: number, pending: number): void {
-    this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${officialAlive} · 私兵 ${privateAlive}｜敵軍 ${enemyAlive}`
+  update(ready: boolean, officialAlive: number, privateAlive: number, enemyAlive: number, pending: number,
+    counts?: { official: ArmyHudCounts; personal: ArmyHudCounts }): void {
+    const official = counts
+      ? `${counts.official.alive}/${counts.official.total}${counts.official.pending ? `（待生成 ${counts.official.pending}）` : ''}`
+      : String(officialAlive)
+    const personal = counts
+      ? `${counts.personal.alive}/${counts.personal.total}${counts.personal.pending ? `（待生成 ${counts.personal.pending}）` : ''}`
+      : String(privateAlive)
+    this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 
   showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void): void {

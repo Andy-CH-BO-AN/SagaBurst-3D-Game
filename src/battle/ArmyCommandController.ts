@@ -7,6 +7,7 @@ import {
   type UnitPresetId,
 } from './UnitPresetCatalog'
 import type { TacticalOrder } from './TacticalOrder'
+import { armyHudCountSummary, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
 import { ArmyCommandUI, type ArmyCommandHudEntry } from '../ui/ArmyCommandUI'
 import type { FormationController } from './FormationController'
 import type { InventoryManager } from '../rpg/InventoryManager'
@@ -105,6 +106,8 @@ export class ArmyCommandController {
   private readonly seenSquadIds = new Set<SquadId>()
   private readonly groupingMode: CommandGroupingMode
   private rosterSignature = ''
+  private hudContextId = ''
+  private hudRosterSnapshot?: ArmyHudRoster
   private allOrder: TacticalOrder | 'mixed' = 'attack'
   private wheelInputMode: WheelInputMode = 'weapon'
   private selectedWeaponId: string | null = null
@@ -125,6 +128,7 @@ export class ArmyCommandController {
     private readonly commandsEnabled = true,
     private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
     private readonly commandAuthority?: ArmyCommandAuthority,
+    private readonly hudRoster?: () => ArmyHudRoster | undefined,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -269,6 +273,7 @@ export class ArmyCommandController {
         if (command === 'formation') {
           if (this.canIssueOrder && !this.canIssueOrder('formation')) return
           if (!this.formation || !this.selectedTarget) return
+          if (this.commandAuthority && !this._hasCommandRecipients(this.selectedTarget)) { this._closeSubmenu(); return }
           this.formation.beginPlacement(this.selectedTarget)
           this.ui.renderPlacement(this.selectedTarget)
         } else if (command) {
@@ -322,6 +327,7 @@ export class ArmyCommandController {
     if (command === 'formation') {
       if (this.canIssueOrder && !this.canIssueOrder('formation')) return
       if (!this.formation || !this.selectedTarget) return
+      if (this.commandAuthority && !this._hasCommandRecipients(this.selectedTarget)) { this._closeSubmenu(); return }
       this.formation.beginPlacement(this.selectedTarget)
       this.ui.renderPlacement(this.selectedTarget)
       return
@@ -387,6 +393,12 @@ export class ArmyCommandController {
       return
     }
     if (order === 'dismiss') return
+    // Career authority can retain living but returning (non-commandable) NPCs.
+    // Do not claim an order succeeded when every recipient is currently ineligible.
+    if (this.commandAuthority && !this._hasCommandRecipients(target)) {
+      this._closeSubmenu()
+      return
+    }
     this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
 
@@ -549,10 +561,42 @@ export class ArmyCommandController {
   }
 
   private _syncRosterSelection(): boolean {
+    const snapshot = this.hudRoster?.()
+    this.hudRosterSnapshot = snapshot
+    const context = snapshot?.contextId ?? ''
+    if (context !== this.hudContextId) {
+      // Mission ID and accepted IDs are part of context; a new roster may have the
+      // same size and squad:1 as the last mission without sharing its order/UI state.
+      this.formation?.cancelPlacement()
+      this.submenuOpen = false
+      this.selectedTarget = null
+      this.highlightedTarget = null
+      this.highlightedCommandIndex = 0
+      this.seenPresetIds.clear()
+      this.seenSquadIds.clear()
+      this.orders.clear()
+      for (const shortcut of this.shortcuts) {
+        if (shortcut.target !== 'all') this.orders.set(shortcut.target, this.initialOrder)
+      }
+      this.formationDesiredCommandByTarget.clear()
+      this.allOrder = this.initialOrder
+      this.rosterSignature = ''
+      this.hudContextId = context
+    }
+
     const previousPersonalOrder = this.orders.get('squad:personal')
-    if (this.commandAuthority) { this.seenPresetIds.clear(); this.seenSquadIds.clear() }
+    if (this.commandAuthority || snapshot) { this.seenPresetIds.clear(); this.seenSquadIds.clear() }
+    if (snapshot) for (const member of snapshot.members) {
+      // Reserve HR members may be selected for Follow, but are not field soldiers.
+      if (member.state === 'exited') continue
+      this.seenSquadIds.add(member.squadId)
+      const target = squadCommandTarget(member.squadId)
+      if (!this.orders.has(target)) this.orders.set(target, this.initialOrder)
+    }
+    const visibleIds = snapshot ? new Set(snapshot.members
+      .filter(member => member.state !== 'reserve' && member.state !== 'exited').map(member => member.id)) : null
     for (const npc of this.npcs) {
-      if (!this._acceptsNpc(npc)) continue
+      if (!this._acceptsNpc(npc) || visibleIds && !visibleIds.has(npc.combatantId)) continue
       if (npc.presetId) {
         this.seenPresetIds.add(npc.presetId)
         if (!this.orders.has(npc.presetId)) this.orders.set(npc.presetId, this.initialOrder)
@@ -563,11 +607,12 @@ export class ArmyCommandController {
         if (!this.orders.has(target)) this.orders.set(target, npc.squadId === 'personal' ? npc.tacticalOrder : this.initialOrder)
       }
     }
-    const personal = this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId === 'personal' && !npc.dead)
+    const personal = this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId === 'personal'
+      && !npc.dead && (!visibleIds || visibleIds.has(npc.combatantId)))
     if (personal.length) this.orders.set('squad:personal', personal.every(npc => npc.tacticalOrder === personal[0].tacticalOrder) ? personal[0].tacticalOrder : 'mixed')
 
     const available = this._availableShortcuts()
-    const signature = `${this.groupingMode}:${available
+    const signature = `${context}:${snapshot?.members.map(member => `${member.id}:${member.state}`).join('|') ?? ''}:${this.groupingMode}:${available
       .map(shortcut => this.groupingMode === 'squad'
         ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}` : shortcut.target)
       .join('|')}`
@@ -609,6 +654,10 @@ export class ArmyCommandController {
   }
 
   private _targetCountSummary(target: ArmyCommandTarget): string {
+    if (this.hudRosterSnapshot) {
+      const counts = countArmyHudRoster(this.hudRosterSnapshot, target)
+      return `${armyHudCountSummary(counts)}${target === 'squad:personal' && counts.reserve ? ` · 待命 ${counts.reserve}` : ''}`
+    }
     let total = 0
     let alive = 0
     for (const npc of this.npcs) {
@@ -681,6 +730,10 @@ export class ArmyCommandController {
 
   private _acceptsNpc(npc: NPC): boolean {
     return this.commandAuthority ? this.commandAuthority.accepts(npc) : npc.faction === Faction.PLAYER
+  }
+
+  private _hasCommandRecipients(target: ArmyCommandTarget): boolean {
+    return this.npcs.some(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target))
   }
 
   private _hasPartyCommands(): boolean { return Boolean(this.personalCommands || this.commandAuthority) }

@@ -10,6 +10,8 @@ import { squadEquipmentUI } from './TownSquadEquipmentUI'
 import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
+import { careerCommandHudRoster } from '../career/CareerCommandHudRoster'
+import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController } from '../battle/FormationController'
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
@@ -309,7 +311,8 @@ export class TownScene {
           }
           return this.personalSquad!.dismiss()
         },
-      }, { enabled: () => this.commandsEnabled(), accepts: npc => this.isAuthorizedCommandActor(npc), issue: (order, target) => this.issuePartyOrder(order, target) })
+      }, { enabled: () => this.commandsEnabled(), accepts: npc => this.isAuthorizedCommandActor(npc), issue: (order, target) => this.issuePartyOrder(order, target) },
+      () => this.commandHudRoster())
     this.personalCommandUI.setEnabled(this.commandsEnabled())
     // Enemy-territory field missions may reserve a Patrol officer instead of the
     // service Captain, or use only temporary officers. Recruit-party captain access
@@ -875,7 +878,7 @@ export class TownScene {
   }
   private personalCommandsEnabled(): boolean {
     const active = this.profile.activeMission ?? this.profile.activeOutpostMission
-    return Boolean(!this.player?.dead && this.profile.activeMission?.kind !== 'duel'
+    return Boolean(!this.player?.dead && !this.profile.activeMission?.result && this.profile.activeMission?.kind !== 'duel'
       && (!active || active.personalSquad) && this.profile.personalSquad?.members.length)
   }
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
@@ -884,13 +887,50 @@ export class TownScene {
     if (this.townCommand?.accepts(npc)) return this.townCommand.commandsEnabled
     return Boolean(!this.player.dead && !this.profile.activeMission?.result && this.profile.activeMission?.officialSquad?.actorIds.includes(npc.combatantId))
   }
+  /** Snapshot HUD membership from this scene and the current persisted authority only. */
+  private commandHudRoster() {
+    const mission = this.profile.activeMission
+    const active = mission ?? this.profile.activeOutpostMission
+    const official = mission?.officialSquad?.type === 'mission-official'
+      && mission.officialSquad.missionId === mission.id ? mission.officialSquad
+      : !active && this.townCommand?.commandsEnabled
+        && this.profile.townCommandSquad?.sceneKey === this.townCommand.sceneKey
+        ? this.profile.townCommandSquad : undefined
+    const accepted = active?.personalSquad
+    const live = this.personalSquad?.hudMission
+    // Match the accepted mission roster before using live checkpoints; today's HR list
+    // is not permission to append new recruits to a running mission.
+    const sameRoster = Boolean(accepted && live
+      && accepted.memberIds.length === live.memberIds.length
+      && accepted.memberIds.every((id, index) => id === live.memberIds[index]))
+    const personal: PersonalSquadMission | undefined = accepted
+      ? sameRoster ? { ...accepted, members: live!.members } : accepted
+      : !active ? live ? { ...live } : snapshotPersonalMission(this.profile) : undefined
+    return careerCommandHudRoster({
+      sceneKey: `town:${this.world?.faction ?? this.profile.faction}`,
+      faction: this.profile.faction,
+      ...(active ? { missionId: active.id } : {}),
+      official,
+      officialReturningIds: official?.type === 'town-command' ? this.townCommand?.returningActorIds : undefined,
+      officialPending: Boolean(mission && official?.type === 'mission-official'
+        && !this.deploymentReady && !this.deploymentFailed),
+      personal,
+      personalPendingIds: this.personalSquad?.hudPendingIds,
+      actors: this.commandActors,
+    })
+  }
+
   private synchronizeCommandActors(): void {
-    this.personalCommandUI?.setOfficialSquadLabel?.(this.profile?.activeMission?.officialSquad ? 'Mission Squad · 任務部隊'
-      : this.profile?.townCommandSquad?.authorized ? 'Town Command Squad · 城防指揮隊' : undefined)
+    const mission = this.profile?.activeMission
+    this.personalCommandUI?.setOfficialSquadLabel?.(mission?.officialSquad?.type === 'mission-official'
+      && mission.officialSquad.missionId === mission.id ? 'Mission Squad · 任務部隊'
+      : !mission && !this.profile?.activeOutpostMission && this.townCommand?.commandsEnabled
+        ? 'Town Command Squad · 城防指揮隊' : undefined)
     if (!this.commandActors) return
     this.commandActors.length = 0
     this.commandActors.push(...new Set([...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.personalSquad?.actors ?? [])]))
   }
+
   private issuePartyOrder(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget): boolean {
     let accepted = false
     if (target === 'all' || target === 'squad:personal') accepted = (order === 'follow' ? this.personalSquad?.follow() : this.personalSquad?.dismiss()) ?? false
@@ -2283,7 +2323,11 @@ export class TownScene {
     return `\n${definition.name} · 剩餘敵軍 ${this.mission.remainingEnemies}\n${orders}`
   }
   private updatePlayerCommands(): void {
-    if (this.player.dead || this.spectator) return
+    if (this.player.dead || this.spectator) {
+      if (this.personalCommands?.isSubmenuOpen || this.personalCommands?.isFormationPlacementMode) this.personalCommands.close()
+      this.personalCommandUI?.setEnabled(false)
+      return
+    }
     this.synchronizeCommandActors()
     if (this.commandsEnabled()) {
       if (this.personalCommands?.update()) this.player.clearTownAction()
@@ -2297,6 +2341,7 @@ export class TownScene {
   /** One living-player update per frame, independent of official mission readiness. */
   private updateGameplay(dt: number): void {
     if (this.panel || this.equipment.visible || this.result || this.spawnErrorShown || this.deploymentFailed) {
+      this.personalCommandUI?.setEnabled(false)
       sound?.updateHorseGallopLoops([])
       sound?.updateEagleWingbeats([])
       this.missionCombat.updateDefeatedActors(dt)
