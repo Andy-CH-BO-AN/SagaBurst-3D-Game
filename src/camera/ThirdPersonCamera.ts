@@ -14,6 +14,8 @@ const MAX_PITCH = 1.1             // ~+63 deg
 const CAMERA_DISTANCE = 6
 // The imported helmet and bow intersect the view at shorter offsets.
 const FIRST_PERSON_FORWARD_OFFSET = 0.55
+// The captain's larger head/helmet needs additional clearance during aim poses.
+const CAPTAIN_FIRST_PERSON_FORWARD_OFFSET = 1.1
 const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 const CAMERA_COLLISION_MARGIN = 0.28
@@ -209,7 +211,7 @@ export class ThirdPersonCamera {
     const safeFirstPersonDistance = resolveCameraDistance(
       this.cameraTarget,
       this.aimDirection,
-      FIRST_PERSON_FORWARD_OFFSET,
+      this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
       obstacles,
       { obstacleMargin: FIRST_PERSON_COLLISION_MARGIN },
     )
