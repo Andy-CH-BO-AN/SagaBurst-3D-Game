@@ -61,15 +61,22 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
     ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : { ...base } }
 }
 export const TOWN_SITES = {
-  weapons: { x: -29, z: -10, yaw: Math.PI / 2 },
-  stable: { x: -34, z: 20, yaw: Math.PI / 2 },
+  /** Retained legacy landmark; no Town Center building is materialized. */
+  hall: { x: 0, z: -34, yaw: 0 },
+  weapons: { x: -6, z: -17, yaw: Math.PI / 2 },
+  stable: { x: -5, z: -39, yaw: Math.PI / 2 },
+  /** Training entrance/refit anchor; the former Barracks building is removed. */
   barracks: { x: 33, z: 16, yaw: -Math.PI / 2 },
 } as const
 export function townSitePoint(site: keyof typeof TOWN_SITES, side: number, forward: number) {
   const { x, z, yaw } = TOWN_SITES[site]
   return { x: x + Math.cos(yaw) * side + Math.sin(yaw) * forward, z: z - Math.sin(yaw) * side + Math.cos(yaw) * forward, yaw }
 }
-/** Fixed mounted slots in the courtyard south of the Barracks hut, separate from Patrol startup formations. */
+export function townPlayerEntryPoint() {
+  const point = townSitePoint('barracks', 4, 12)
+  return { ...point, yaw: Math.PI / 2 }
+}
+/** Fixed mounted refit slots beside the training entrance, separate from Patrol startup formations. */
 export function townPatrolRefitPoint(actor: Pick<TownActorSpec, 'patrolId' | 'index'>) {
   const slot = (actor.patrolId === 'B' ? 20 : 0) + actor.index
   return townSitePoint('barracks', 22 + Math.floor(slot / 8) * 4.5, -(slot % 8) * 4.5)

@@ -36,6 +36,10 @@ import { NPC, AIType, Faction } from '../world/NPC'
 import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { eagleLandingFootprint } from '../world/EagleLanding'
+import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
+import { EagleLandingQueue } from '../world/EagleLandingQueue'
+import { TOWN_LAYOUT_VERSION } from './TownLayout'
+import { migratePersonalTownLayout } from './TownLayoutMigration'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
@@ -110,13 +114,14 @@ import { TownMissionCombat, type TownCombatResident as Resident } from './TownMi
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
-import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, townPlayerEntryPoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
 const NAMES: Record<string, string> = { captain: '騎兵隊長', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer', 'eagle-trainer': 'xongkoro 遊俠場主' }
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
+  private readonly eagleLandingQueue = new EagleLandingQueue()
   private garrisonRestored = false
   private readonly aerialView = new AerialViewPolicy()
   private readonly weaponWheel = new WeaponWheel()
@@ -261,7 +266,7 @@ export class TownScene {
     }
     await this.initializeResidents(roster, context, progress)
     this.patrol = new TownCavalryPatrolController(this.residents)
-    this.eagleGarrison = new TownEagleGarrisonController(this.residents)
+    this.eagleGarrison = new TownEagleGarrisonController(this.residents, this.eagleLandingQueue)
     this.world.finalizeTrainingTargets()
     progress('預熱動畫、材質與陰影…')
     this.camera.position.set(0, 24, 42); this.camera.lookAt(0, 0, 0)
@@ -280,7 +285,9 @@ export class TownScene {
     this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
-    this.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9); this.player.group.rotation.y = Math.PI
+    const townEntry = townPlayerEntryPoint()
+    this.player.group.position.set(townEntry.x, getTerrainHeight(townEntry.x, townEntry.z) + .9, townEntry.z)
+    this.player.group.rotation.y = townEntry.yaw
     this.orbit = new ThirdPersonCamera(this.camera, this.player)
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
@@ -1383,6 +1390,9 @@ export class TownScene {
       canRefit: () => this.canRefitSquad(this.personalSquad?.actors ?? []),
       sceneKey: context.worldFaction === profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       hasHR: home, eaglePads: privateEaglePads,
+      eagleLandingQueue: this.eagleLandingQueue, layoutVersion: home ? TOWN_LAYOUT_VERSION : undefined,
+      eaglePadClear: (pad, ownMount) => isEagleLandingClearOfMounts(pad, this.world.obstacles,
+        this.combatMounts, ownMount, TOWN_PLAYABLE_WORLD_BOUND),
       formationSlots: (anchor, occupied, count) => personalTownDeployment(anchor, occupied, count,
         TOWN_NAVIGATION_BOUNDS, this.world.obstacles, this.navigation),
       emit: event => this.emitCombatEvent(event),
@@ -1519,6 +1529,9 @@ export class TownScene {
 
   private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
     if (!saved || !this.personalSquad) return
+    if (this.personalSquad.hasHR) saved = migratePersonalTownLayout(saved, this.personalSquad.sceneKey,
+      { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
+        padForMember: id => this.privateEaglePads?.get(id) })!
     if (saved.sceneKey !== this.personalSquad.sceneKey && this.personalSquad.hasHR) {
       const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.group.rotation.y }
       const official = this.defense.active ? this.defense.deploymentPositions : this.mission.deploymentPositions
@@ -2411,6 +2424,7 @@ export class TownScene {
     const ready = this.deploymentReady
     if (ready) {
       this.elapsed += dt
+      this.eagleLandingQueue?.beginFrame(dt)
       this.townCommand?.beginFrame()
       this.eagleGarrison?.beginFrame(dt)
       this.outskirts?.synchronizeRank()

@@ -8,7 +8,7 @@ import { createActiveCareerMission, createTownDefenseMission, type ActiveCareerM
 import { claimCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
-import { townRoster, townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
+import { townPlayerEntryPoint, townRoster, townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import type { Mount } from '../../src/world/Mount'
@@ -246,13 +246,15 @@ describe('Town mission return saving and recovery through the settlement interfa
     expect(f.settlement.returnToTown(intent)).toEqual({ status: 'returned', kind: 'party' })
     expect(f.events.slice(0, 3)).toEqual(['save', 'save', 'patrol-return'])
     expect(f.town.restPlayer).toHaveBeenCalledOnce()
+    const entry = townPlayerEntryPoint(), entryPosition = new THREE.Vector3(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
     if (intent === 'direct') {
-      expect(f.town.player.resetForScene).toHaveBeenCalledExactlyOnceWith(0, getTerrainHeight(0, 9) + .9, 9)
+      expect(f.town.player.resetForScene).toHaveBeenCalledExactlyOnceWith(entry.x, entryPosition.y, entry.z)
+      expect(f.town.player.group.rotation.y).toBe(entry.yaw)
       expect(f.events.indexOf('player-reset')).toBeLessThan(f.events.indexOf('player-rest'))
     } else expect(f.town.player.resetForScene).not.toHaveBeenCalled()
     expect(f.field.cleanupMission).not.toHaveBeenCalled()
     expect(f.town.residents.every(r => !vi.mocked(r.npc.restoreForTown).mock.calls.length)).toBe(true)
-    expect(f.town.player.group.position).toEqual(intent === 'direct' ? new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9) : position)
+    expect(f.town.player.group.position).toEqual(intent === 'direct' ? entryPosition : position)
     expect(f.profile().activeMission).toBeUndefined()
     expect(f.profile()).toMatchObject({ totalMerit: before.totalMerit, skills: before.skills, lifetimeStats: before.lifetimeStats, claimedBattleIds: ['settlement'] })
     f.reload()
@@ -271,7 +273,9 @@ describe('Town mission return saving and recovery through the settlement interfa
       lifetimeStats: before.lifetimeStats, claimedBattleIds: ['settlement'] })
     if (kind === 'cavalry-sweep') {
       expect(f.town.restPlayer).toHaveBeenCalledOnce()
-      expect(f.town.player.group.position).toEqual(new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9))
+      const entry = townPlayerEntryPoint()
+      expect(f.town.player.group.position).toEqual(new THREE.Vector3(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z))
+      expect(f.town.player.group.rotation.y).toBe(entry.yaw)
     } else expect(f.town.restart).toHaveBeenCalledOnce()
   })
 
@@ -319,8 +323,12 @@ describe('Town mission return saving and recovery through the settlement interfa
     expect(source.cleanupMission).toHaveBeenCalledOnce()
   })
 
-  it.each([['bandit', 'arrived'], ['patrol', 'arrived'], ['cavalry-sweep', 'direct'], ['cavalry-sweep', 'arrived'], ['duel', 'arrived']] as const)('returns %s %s borrowed residents and their home mounts without resetting a bystander', (kind, intent) => {
-    const f = fixture(kind, { savedResult: true, phase: intent === 'arrived' ? 'RETURNING' : 'RESULT' })
+  it.each([
+    ['bandit', 'arrived', 'RETURNING'], ['patrol', 'arrived', 'RETURNING'],
+    ['cavalry-sweep', 'direct', 'RESULT'], ['cavalry-sweep', 'arrived', 'RETURNING'],
+    ['cavalry-sweep', 'arrived', 'RESULT'], ['duel', 'arrived', 'RETURNING'],
+  ] as const)('returns %s %s in %s with borrowed residents and home mounts without resetting a bystander', (kind, intent, phase) => {
+    const f = fixture(kind, { savedResult: true, phase })
     const [captain, infantry, bystander] = f.town.residents
     // This bystander was not a casualty; dead nonborrowed residents now recover on return.
     Object.assign(bystander.npc, { dead: false })
@@ -351,8 +359,11 @@ describe('Town mission return saving and recovery through the settlement interfa
       expect(f.town.cat.restoreForTown).toHaveBeenCalledExactlyOnceWith(catSpot.x, catSpot.z, catSpot.yaw)
       expect(f.town.cat.catVisual!.setEquipmentVisible).toHaveBeenCalledExactlyOnceWith(false)
     } else expect(f.town.cat.restoreForTown).not.toHaveBeenCalled()
-    if (kind === 'cavalry-sweep' && intent === 'direct') expect(f.town.player.group.position).toEqual(new THREE.Vector3(0, getTerrainHeight(0, 9) + .9, 9))
-    else expect(f.town.player.group.position).toEqual(position)
+    if (kind === 'cavalry-sweep' && (intent === 'direct' || phase !== 'RETURNING')) {
+      const entry = townPlayerEntryPoint()
+      expect(f.town.player.group.position).toEqual(new THREE.Vector3(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z))
+      expect(f.town.player.group.rotation.y).toBe(entry.yaw)
+    } else expect(f.town.player.group.position).toEqual(position)
   })
 
   it('restores all Town casualties after defense, including guards outside the defense roster', () => {

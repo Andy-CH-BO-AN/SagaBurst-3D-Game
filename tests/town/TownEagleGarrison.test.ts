@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { selectMissionInfantryActorIds } from '../../src/career/BanditMissionController'
 import { selectTownCavalryReserve } from '../../src/town/TownCavalryReserve'
 import { selectCareerDuelRoster } from '../../src/career/CareerDuelController'
@@ -8,12 +9,45 @@ import { townEagleRoster, resolveTownEagleGarrison, townMissionMilitaryIds } fro
 import { townMilitaryEquipment, townRoster, TownEvent } from '../../src/town/TownRules'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
+import { isEagleApproachClear } from '../../src/world/EagleApproach'
 import { isEagleLandingClear } from '../../src/world/EagleLanding'
+import { isEagleLandingClearOfMounts, type EagleLandingOccupant } from '../../src/world/EagleLandingOccupants'
 import { townCavalryReserveSource } from '../../src/town/TownCavalryReserve'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
+
+it.each([
+  { scenario: 'west-gate horse 22.7 m away leaves the eagle pad clear', x: -117.704, flying: false, clear: true },
+  { scenario: 'horse body inside the eagle wing footprint blocks the pad', x: -106.8, flying: false, clear: false },
+  { scenario: 'neighboring eagle retains full wing separation', x: -117.704, flying: true, clear: false },
+])('$scenario', ({ x, flying, clear }) => {
+  // Collision policy only: no real mounts, NPCs, assets or TownWorld.
+  const group = new THREE.Group(), geometry = new THREE.BoxGeometry(1.1, 1.65, 2.4)
+  const material = new THREE.MeshBasicMaterial(), aimCollider = new THREE.Mesh(geometry, material)
+  aimCollider.position.y = .825; group.add(aimCollider); group.position.set(x, 0, -75)
+  const occupant: EagleLandingOccupant = { group, aimCollider, isFlyingMount: flying, dead: false, disposed: false }
+  try {
+    expect(isEagleLandingClearOfMounts({ x: -95, z: -75, yaw: 0 }, [], [occupant], undefined, 350, () => 0)).toBe(clear)
+  } finally { geometry.dispose(); material.dispose() }
+})
+
+it('rejects a high rendered roof and unsafe parked eagle along an otherwise clear authored approach', () => {
+  const pad = { x: 0, z: 0, yaw: 0 }, flat = () => 0
+  const body = { box: new THREE.Box3(new THREE.Vector3(-4, 0, -55), new THREE.Vector3(4, 5, -45)), isBarricade: false }
+  const roof = { box: new THREE.Box3(new THREE.Vector3(-4, 14, -55), new THREE.Vector3(4, 31, -45)), isBarricade: false }
+  expect(isEagleApproachClear(pad, [body], [], 350, 20, flat)).toBe(true)
+  expect(isEagleApproachClear(pad, [body, roof], [], 350, 20, flat)).toBe(false)
+  expect(isEagleApproachClear(pad, [], [{ x: 0, z: -30, yaw: 0 }], 350, 20, flat)).toBe(false)
+  expect(isEagleApproachClear(pad, [], [{ x: 0, z: -50, yaw: 0 }], 350, 20, flat)).toBe(true)
+})
+
+it('rejects an authored staging corridor outside the map or below the airborne terrain envelope', () => {
+  expect(isEagleApproachClear({ x: 0, z: -300, yaw: 0 }, [], [], 350, 20, () => 0)).toBe(false)
+  expect(isEagleApproachClear({ x: 0, z: 0, yaw: 0 }, [], [], 350, 20,
+    (_x, z) => z < -40 ? 25 : 0)).toBe(false)
+})
 
 describe('Town-owned five-pair eagle roster policy', () => {
   it.each(['roman', 'viking'] as const)('%s uses five real T3 archers and fixed rider/mount/home identities independent of array order', faction => {
@@ -85,7 +119,8 @@ it('stages two ready crews by simulation time and gives only one return approach
   const crew = townEagleRoster(layout).slice(0, 2).map(spec => {
     const home = spec.eagle!.home, mountGroup = new THREE.Group(), group = new THREE.Group()
     mountGroup.position.set(home.x, getTerrainHeight(home.x, home.z), home.z); group.position.copy(mountGroup.position)
-    const mountState = { group: mountGroup, dead: false, isAirborne: false, currentHp: 200, maxHp: 200 }
+    const mountState = { group: mountGroup, dead: false, isFlyingMount: true, isAirborne: false, currentHp: 200, maxHp: 200,
+      flight: { phase: 'grounded' as const, speed: 0, yaw: home.yaw, velocity: { x: 0, y: 0, z: 0 } } }
     const mount = mountState as unknown as Mount
     const npcState = { group, dead: false, isFalling: false, mount: null as Mount | null, combatAmmo: 30, missionMovement: false,
       get combatPosition() { return group.position },

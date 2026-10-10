@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { getTerrainHeight, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { XONGKORO } from './XongkoroConfig'
 import { isEagleLandingClear } from '../world/EagleLanding'
+import { EAGLE_PAD_YAW_TOLERANCE } from '../world/EaglePadArrival'
 
 export type EagleFlightPhase = 'grounded' | 'takeoff' | 'cruise' | 'landing'
 export interface EagleFlightIntent { yaw: number; pitch: number; bankInput?: number; sprint?: boolean; brake?: boolean; takeoff?: boolean; landingTarget?: { x: number; z: number; yaw: number } }
@@ -81,7 +82,8 @@ export class EagleFlightController {
       if (this.phase === 'landing') {
         desiredPitch = 0
         const target = this.intent.landingTarget
-        if (target) desiredYaw = Math.atan2(target.x - position.x, target.z - position.z)
+        if (target) desiredYaw = target.yaw + Math.atan2(
+          (target.x - position.x) * Math.cos(target.yaw) - (target.z - position.z) * Math.sin(target.yaw), 12)
       }
       const edge = bound - XONGKORO.boundaryMargin
       const assignedLanding = this.intent.landingTarget
@@ -102,26 +104,36 @@ export class EagleFlightController {
       this.bank = approach(this.bank, THREE.MathUtils.clamp(-turn / step * .65, -XONGKORO.maxBank, XONGKORO.maxBank), XONGKORO.bankResponse * step)
       const landingTarget = this.intent.landingTarget
       const targetDistance = landingTarget ? Math.hypot(landingTarget.x - position.x, landingTarget.z - position.z) : Infinity
-      const targetSpeed = this.phase === 'landing' && landingTarget
-        ? Math.min(XONGKORO.minimumSpeed, targetDistance / Math.max(.1, (position.y - ground) / 3))
+      // Only an assigned final approach may fly below the ordinary minimum speed.
+      // Slow continuously towards a point just short of the centre, leaving
+      // enough time to settle vertically without travelling through the pad.
+      const targetSpeed = landingTarget && this.intent.brake
+        ? Math.min(XONGKORO.minimumSpeed, this.phase === 'landing'
+          ? Math.max(0, targetDistance - 1.1) * 1.5 : Math.max(.6, targetDistance * 1.5))
         : this.intent.brake ? XONGKORO.minimumSpeed : this.intent.sprint ? XONGKORO.sprintSpeed : XONGKORO.cruiseSpeed
       this.speed = approach(this.speed, targetSpeed, XONGKORO.acceleration * step)
       this.velocity.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).multiplyScalar(this.speed)
       this.previous.copy(position)
       position.addScaledVector(this.velocity, step)
       const surface = terrainHeight(position.x, position.z)
-      const landing = (this.phase === 'landing' || this.intent.brake && this.speed <= XONGKORO.landingSpeed && this.pitch <= .2)
-        && position.y - surface <= XONGKORO.landingHeight && this.canLand(position, obstacles, terrainHeight, bound)
-        && (!landingTarget || targetDistance < 5.5 && Math.abs(angleDelta(landingTarget.yaw, this.yaw)) < .4)
+      const assignedFinal = !!landingTarget && this.intent.brake
+      // Begin the pad flare before a steep nose-down torso contacts terrain.
+      // This remains a continuous descent; ground contact still gates touchdown.
+      const captureHeight = assignedFinal ? Math.max(XONGKORO.landingHeight,
+        XONGKORO.bodyHalfLength * Math.sin(Math.abs(this.pitch)) + .3) : XONGKORO.landingHeight
+      const landing = (this.phase === 'landing' && (!landingTarget || assignedFinal)
+        || this.intent.brake && this.speed <= XONGKORO.landingSpeed && this.pitch <= .2)
+        && position.y - surface <= captureHeight && this.canLand(position, obstacles, terrainHeight, bound)
+        && (!landingTarget || assignedFinal && targetDistance < 5.5
+          && Math.abs(angleDelta(landingTarget.yaw, this.yaw)) <= EAGLE_PAD_YAW_TOLERANCE)
       if (this.phase === 'landing' && !landing) this.phase = 'cruise'
       if (landing) {
         this.phase = 'landing'
         // An assigned pad controls the final glide: reach it by displacement,
         // rather than touching down several metres early or snapping X/Z.
-        const descentRate = landingTarget && targetDistance > .2
-          ? Math.min(3, Math.max(.1, (position.y - surface) * this.speed / targetDistance)) : 3
-        position.y = approach(position.y, surface, descentRate * step)
-        if (position.y <= surface + .05) {
+        position.y = approach(position.y, surface, 3 * step)
+        const parked = !landingTarget || targetDistance < 2 && this.speed <= 1.5
+        if (position.y <= surface + .05 && parked) {
           position.y = surface; this.phase = 'grounded'; this.speed = 0; this.pitch = 0; this.bank = 0
           this.velocity.set(0, 0, 0)
           break

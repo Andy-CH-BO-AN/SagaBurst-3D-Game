@@ -12,6 +12,8 @@ import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
+import type { EagleLandingQueue } from '../world/EagleLandingQueue'
+import { isEaglePadArrived } from '../world/EaglePadArrival'
 import { initialPersonalEquipment } from './CareerInventory'
 import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 import { careerMountType } from './CareerMountController'
@@ -59,6 +61,10 @@ export interface PersonalSquadRuntimeOptions {
   eagleMuster?: readonly PersonalSquadSpawnSlot[]
   /** One shared allocator for Player and the private squad in this scene. */
   eaglePads?: EaglePadReservations
+  /** Scene-owned automatic approach queue; permanent pad reservations remain independent. */
+  eagleLandingQueue?: EagleLandingQueue
+  eaglePadClear?(pad: PersonalSquadSpawnSlot, mount: Mount): boolean
+  layoutVersion?: number
   emit?: CombatEventSink
   formationSlots?(anchor: PersonalActorPosition, occupied: readonly PersonalActorPosition[], count: number): PersonalActorPosition[]
   onSpawn?(npc: NPC, mount?: Mount): void
@@ -78,6 +84,7 @@ export class PersonalSquadRuntime {
   private readonly boarding = new Map<NPC, { pad: PersonalSquadSpawnSlot; index: number }>()
   private readonly returningOnFoot = new Set<NPC>()
   private readonly awaitingEaglePad = new Set<NPC>()
+  private readonly approachingEagles = new Set<NPC>()
   private lastPlayerPosition?: PersonalActorPosition
   private returnCommand = -1000
   private readonly pending = new Map<string, NpcSpawnBatch>()
@@ -158,6 +165,7 @@ export class PersonalSquadRuntime {
       this.command = 'defend'; this.commandRevision++
       this.returningOnFoot.clear(); this.awaitingEaglePad.clear()
       for (const actor of this.actors) {
+        this.releaseEagleApproach(actor)
         const saved = value.members[actor.combatantId]
         if (!saved || actor.dead) continue
         if (saved.status === 'reserve') refitCommandActor(actor, this.memberMounts.get(actor.combatantId))
@@ -294,7 +302,10 @@ export class PersonalSquadRuntime {
   resumeCommand(order?: TacticalOrder): void {
     if (this.state === 'RETURNING') {
       this.state = 'ACTIVE'; this.awaitingEaglePad.clear()
-      for (const actor of this.actors) if (actor.mount?.isFlyingMount) actor.setEagleFlightOrder(null)
+      for (const actor of this.actors) {
+        this.releaseEagleApproach(actor)
+        if (actor.mount?.isFlyingMount) actor.setEagleFlightOrder(null)
+      }
     }
     if (order) {
       this.command = order; this.commandRevision++
@@ -345,6 +356,7 @@ export class PersonalSquadRuntime {
     if (!this.mission) return undefined
     this.mission.pendingMemberIds = [...this.pending.keys()]
     this.mission.state = this.state; this.mission.sceneKey = this.sceneKey
+    if (this.options.layoutVersion !== undefined) this.mission.layoutVersion = this.options.layoutVersion
     if (this.lastPlayerPosition) this.mission.playerLastPosition = { ...this.lastPlayerPosition }
     for (const actor of this.actors) {
       if (!this.mission.memberIds.includes(actor.combatantId)) continue
@@ -375,6 +387,7 @@ export class PersonalSquadRuntime {
     this.pending.clear(); this.batches.length = 0; this.spawnFailed = false
     this.command = undefined; this.commandRevision++
     for (const actor of this.actors) {
+      this.releaseEagleApproach(actor)
       this.options.onDispose?.(actor, this.memberMounts.get(actor.combatantId))
       if (actor.mount) actor.dismountFromMount()
       actor.dispose()
@@ -476,6 +489,7 @@ export class PersonalSquadRuntime {
   }
 
   private releaseEaglePad(id: string): void {
+    this.options.eagleLandingQueue?.release(id)
     this.eaglePads.release(id)
     this.reservedEagleOwners.delete(id)
   }
@@ -491,7 +505,25 @@ export class PersonalSquadRuntime {
     this.reservedEagleOwners.add(actor.combatantId)
     this.awaitingEaglePad.delete(actor)
     this.walkTo(actor, pad)
-    actor.setEagleFlightOrder({ kind: 'return', target: new THREE.Vector3(pad.x, getTerrainHeight(pad.x, pad.z), pad.z), landingYaw: pad.yaw })
+    actor.setEagleFlightOrder({ kind: 'hold' })
+    this.updateEagleApproach(actor, pad)
+  }
+
+  private releaseEagleApproach(actor: NPC, completed = false): void {
+    if (completed) this.options.eagleLandingQueue?.complete(actor.combatantId)
+    else this.options.eagleLandingQueue?.release(actor.combatantId)
+    this.approachingEagles.delete(actor)
+  }
+
+  private updateEagleApproach(actor: NPC, pad: PersonalSquadSpawnSlot): void {
+    const mount = this.memberMounts.get(actor.combatantId)
+    if (!mount || mount.dead || actor.dead) { this.releaseEagleApproach(actor); return }
+    const clear = this.options.eaglePadClear?.(pad, mount) ?? true
+    const permitted = this.options.eagleLandingQueue?.request(actor.combatantId, clear) ?? clear
+    if (permitted && !this.approachingEagles.has(actor)) {
+      this.approachingEagles.add(actor)
+      actor.setEagleFlightOrder({ kind: 'return', target: new THREE.Vector3(pad.x, getTerrainHeight(pad.x, pad.z), pad.z), landingYaw: pad.yaw })
+    } else if (!permitted && this.approachingEagles.delete(actor)) actor.setEagleFlightOrder({ kind: 'hold' })
   }
 
   /** Refit each returned rider before admitting a legacy overflow owner to the same physical pad. */
@@ -529,19 +561,26 @@ export class PersonalSquadRuntime {
       else if (this.eaglePads.get(actor.combatantId) || this.eaglePads.reserve(actor.combatantId)) this.orderEagleReturn(actor)
     }
     for (const actor of this.actors) {
-      if (actor.dead || this.returningOnFoot.has(actor) || this.awaitingEaglePad.has(actor)) continue
+      if (actor.dead) { this.releaseEagleApproach(actor); continue }
+      if (this.returningOnFoot.has(actor) || this.awaitingEaglePad.has(actor)) continue
       const mount = this.memberMounts.get(actor.combatantId)
+      if (mount?.dead) this.releaseEagleApproach(actor)
       if (mount?.isFlyingMount && actor.mount !== mount && !actor.isFalling) {
+        this.releaseEagleApproach(actor)
         this.returningOnFoot.add(actor)
         this.walkTo(actor, this.slots.get(actor)!)
         continue
       }
       const pad = this.eaglePad(actor)
-      if (!mount?.isFlyingMount || actor.mount !== mount || mount.isAirborne || !pad
-        || Math.hypot(mount.group.position.x - pad.x, mount.group.position.z - pad.z) > 3) continue
+      if (!mount?.isFlyingMount || actor.mount !== mount || !pad) continue
+      this.updateEagleApproach(actor, pad)
+      if (!mount.flight || !isEaglePadArrived({ position: mount.group.position, flight: mount.flight, pad,
+        groundHeight: getTerrainHeight(mount.group.position.x, mount.group.position.z),
+        clear: this.options.eaglePadClear?.({ x: mount.group.position.x, z: mount.group.position.z, yaw: mount.flight.yaw }, mount) ?? true })) continue
       actor.setEagleFlightOrder(null)
       actor.dismountFromMount()
       if (actor.mount === mount) continue
+      this.releaseEagleApproach(actor, true)
       this.returningOnFoot.add(actor)
       this.walkTo(actor, this.slots.get(actor)!)
     }

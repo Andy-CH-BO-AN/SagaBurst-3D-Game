@@ -138,11 +138,15 @@ Duel arena 由 `TownDuelArena` 在步兵／騎兵訓練區之間的 forecourt �
 
 `TemporaryBattlefieldMounts` 只維護 combat-local 騎乘資格與 cleanup，不讀寫 Career profile／inventory／購買狀態。玩家用既有 mountVehicle／dismountFromMount 暫時騎乘、下馬與再騎；任務結算、失敗、放棄、撤退、回城／場景退出會解除臨時騎乘並沿用 controller cleanup。只登記本次 combat 生成或騎兵死亡後釋放的可借用坐騎，排除 owned mount 與 Town service／merchant mounts。原有駐軍坐騎僅在本次 combat 釋放後暫時允許騎乘；cleanup 保留其 Town 實體並恢復 reserved 資格，其他臨時無主坐騎清除，仍被 NPC 騎乘者依原 controller 返程／離場。永久選擇與 HP persistence 始終指向原購入坐騎，runtime temporary 標記不進存檔。
 
-`TownEagleTrainingGround` 從實際 Town 障礙、道路、巡邏與 HR footprint 搜尋候選起降空地，正式 layout 只建立三個私人 pad，另由 `TownEagleGarrison` 建立五個獨立 Town pad。兩處標示重用騎兵場大型木看板，每根實體支架依自身地形高度接地並註冊碰撞；不保留懸空標牌。訓練場仍售 xongkoro（10,000 availableMerit、Captain／Commander），domain 以 CareerInventory canonical quantity 限制同時持有三隻，包含 Player／私兵／Reserve／戰損；舊版超額庫存保留且禁止繼續購買。`EaglePadReservations` 依永久 owner ID 配置、保存優先 pad 與釋放，不使用整份私兵名冊 index；Player 與私兵共用私人配置，Town 不入私人庫存。敵城沒有友方 HR／私人訓練場：待任務設定 Player 的實際集結點後，`personalTownEagleDeployment` 在其附近建立共享的三個安全 field pad，普通私兵 muster 避讓其翼展；同場景合法飛行 checkpoint 仍優先恢復原位置。
+`TownLayout` 定義西側 HR 搜尋區、三個私人 pad 及独立 3+2 Town pad；`TownEagleTrainingGround` 與 `TownEagleGarrison` 驗證正式位置的完整翼展、障礙、道路、巡邏與 HR footprint。`EagleApproach` 提供 AI 與布局共用的單向進場高度及距離；Town 在生成樹木／岩石前保留城外進場走廊，再用實際樹冠、屋頂、看板及城牆高度驗證空域。兩處標示重用騎兵場大型木看板，每根實體支架依自身地形高度接地並註冊碰撞。訓練場仍售 xongkoro（10,000 availableMerit、Captain／Commander），domain 以 CareerInventory canonical quantity 限制同時持有三隻，包含 Player／私兵／Reserve／戰損；舊版超額庫存保留且禁止繼續購買。`EaglePadReservations` 依永久 owner ID 配置、保存優先 pad 與釋放，不使用整份私兵名冊 index；Player 與私兵共用私人配置，Town 不入私人庫存。敵城沒有友方 HR／私人訓練場：待任務設定 Player 的實際集結點後，`personalTownEagleDeployment` 在其附近建立共享的三個安全 field pad，普通私兵 muster 避讓其翼展；同場景合法飛行 checkpoint 仍優先恢復原位置。
 
 Siege 攻方的 `missionAerialDefense` 明確允許行軍時以現有武器 3D 射程回應真正飛行中的目標，目標離開／死亡即沿原 formation 繼續；地面接敵與其他任務仍維持 20m 行軍中斷政策。新版步弓越過城門後使用 `attack`，避免套用 Viking `charge` 收弓近戰規則。普通步弓 50m、馬弓 30m 與標槍等原武器數值不變，不能因目標是巨鷹而越過自身射程。
 
 `TownEagleGarrisonController` 管五對固定 rider／mount／home pad identity 與 duty，Roman／Viking 都為真正 T3 Archer。和平時地面待命；既有合法 combat phase 才實際步行登乘、錯峰起飛，返回時排隊飛抵自己的 pad、落地、卸乘與步行待命。空軍不進一般借兵名單；新增 rider 加入適用人口／objective，坐騎不加必殺目標。`townEagleGarrisons` 按城鎮陣營各自保存戰損、位置、飛行、未決墜落與 duty，整補只在既有結算授權後進行；舊任務保存的目標 IDs 保持權威，不因新名冊重置戰況。
+
+Town 空軍與 HR 私兵 Dismiss 共用場景擁有的 `EagleLandingQueue`，失敗／中斷進場釋放權限並留出拉升間隔，超過有界進場時間排到隊尾。`EaglePadArrival` 統一完成條件：指定 pad 水平誤差小於 3m、實際接地、速度歸零、符合指定朝向且實際停放翼展淨空；FlightController 最終連續滑行至 2m 內才 grounded，不做水平瞬移。`EagleLandingOccupants` 保留巨鷹完整翼展間距，地面坐騎則使用既有碰撞盒的實際世界範圍，避免城外巡邏馬誤擋城內鷹坪。Player 手動降落仍使用一般合法落地規則。`TownLayoutMigration` 依可選 `layoutVersion` 一次搬遷舊基地的存活接地巨鷹並重指 HR 返回目標；空中、墜落、死亡及野外停放的存檔狀態保持權威。
+
+Town Center 與 Barracks 建築已移除，武器店／馬店位於原 Town Center 一帶；訓練場、隊長、士官長與巡邏整補定位保留，服務 NPC 與展示坐騎共用 `TOWN_SITES`。`townPlayerEntryPoint()` 定義士官長前方的和平入口，首次入城、重建場景與同場景任務直接返回共用此位置；守城／攻城部署與空中續讀仍由各自 checkpoint 恢復。
 
 `EagleFlightAI` 在共用 FlightController 上維持 RANGED_GROUND／DIVE_GROUND／RANGED_AIR／DIVE_AIR 的持續 maneuver，固定 20–40m AGL 巡航、有限轉向／預測拉升與 3D 空軍鄰居避讓。弓箭裝備／彈藥可用性與已選定戰術分開：有箭的騎手先完成騎射承諾窗口，遇到安全且對準的近距機會才俯衝，完成 pass／拉升後重新取得騎射窗口；換目標不逐幀重選或永久延後戰術決策。Follow／Formation／Defend 不等於 Return；只有明確 return order 才指定安全降落。`AerialViewPolicy` 只在 xongkoro 騎乘或高空 observer 啟用 700m camera far／fog，返回地面時還原場景原值；既有 LOD 與 gameplay update 獨立，不扩大高精度模型距離。
 

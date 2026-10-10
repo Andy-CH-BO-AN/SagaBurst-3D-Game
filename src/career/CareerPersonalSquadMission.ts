@@ -28,6 +28,8 @@ export interface PersonalSquadMission {
   squadId: typeof PERSONAL_SQUAD_ID
   memberIds: string[]
   sceneKey: string
+  /** The town geometry last used by these checkpoints; absent in legacy saves. */
+  layoutVersion?: number
   state: PersonalSquadState
   members: Record<string, PersonalActorCheckpoint>
   contribution: PersonalCombatContribution
@@ -142,6 +144,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)
   return { squadId: PERSONAL_SQUAD_ID, memberIds: [...raw.memberIds], members, contribution,
+    ...(Number.isSafeInteger(raw.layoutVersion) && raw.layoutVersion! >= 1 ? { layoutVersion: raw.layoutVersion } : {}),
     ...(Array.isArray(raw.pendingMemberIds) ? { pendingMemberIds: raw.pendingMemberIds.filter(id => raw.memberIds!.includes(id) && members[id].status === 'reserve') } : {}),
     ...(position(raw.playerLastPosition) ? { playerLastPosition: position(raw.playerLastPosition) } : {}),
     sceneKey: typeof raw.sceneKey === 'string' ? raw.sceneKey : 'town-home',
