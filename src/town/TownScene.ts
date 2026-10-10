@@ -910,6 +910,7 @@ export class TownScene {
       ...(active ? { missionId: active.id } : {}),
       official,
       officialReturningIds: official?.type === 'town-command' ? this.townCommand?.returningActorIds : undefined,
+      officialTrainingIds: official?.type === 'town-command' ? this.townCommand?.trainingActorIds : undefined,
       officialPending: Boolean(mission && official?.type === 'mission-official'
         && !this.deploymentReady && !this.deploymentFailed),
       personal,

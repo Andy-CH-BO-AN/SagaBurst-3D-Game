@@ -40,6 +40,14 @@ export class TownCommandSquadController {
       ? this.actors.filter(npc => !npc.dead && this.ownsPeacefulTravel(npc)).map(npc => npc.combatantId)
       : []
   }
+  /** Dummy practice uses native attack; the HUD must read the peaceful lifecycle instead. */
+  get trainingActorIds(): readonly string[] {
+    return this.commandsEnabled && !this.townHostile
+      ? this.actors.filter(npc => !npc.dead && !this.isReturning(npc.combatantId)
+        && (this.value?.state === 'TRAINING' || this.value?.members?.[npc.combatantId]?.status === 'reserve'))
+        .map(npc => npc.combatantId)
+      : []
+  }
   get actors(): NPC[] { return this.value?.sceneKey === this.sceneKey ? this.value.actorIds.flatMap(id => this.residentsById.get(id)?.npc ?? []) : [] }
   get commandsEnabled(): boolean {
     const profile = this.read()

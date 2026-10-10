@@ -10,7 +10,7 @@ import {
   type CommandGroupingMode,
 } from '../battle/CommandTarget'
 
-export type ArmyCommandHudOrder = TacticalOrder | 'mixed' | 'returning' | 'reserve'
+export type ArmyCommandHudOrder = TacticalOrder | 'mixed' | 'returning' | 'training' | 'reserve'
 
 export interface ArmyCommandHudEntry {
   key: string
@@ -29,6 +29,7 @@ const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
   follow: '跟隨',
   mixed: '混合',
   returning: '返營',
+  training: '訓練',
   reserve: '待命',
 }
 

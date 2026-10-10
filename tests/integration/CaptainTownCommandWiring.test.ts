@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { TownCommandSquadController } from '../../src/town/TownCommandSquadController'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, townCommandSquadRoster, type TownActorSpec } from '../../src/town/TownRules'
+import type { ArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import { CAPTAIN_GATE_DEFENSE_ID } from '../../src/career/CaptainMissionCatalog'
@@ -96,28 +98,33 @@ describe('Captain TownScene saved command handover', () => {
   })
 })
 
-/** One recording guard, zero real actors/world. Real acceptance, transaction, refit policy and serialized storage. */
-function defenseAcceptanceFixture() {
+/** One or 30 recording guards, zero real actors/world. Real transactions, refit policy and serialized storage. */
+function defenseAcceptanceFixture(fullCommandRoster = false) {
   const profile = createCareerProfile('roman'); profile.rank = 'captain'; profile.totalMerit = 20000
   profile.careerMissionCompletionsByTier = { 3: 5 }
-  const spec = townRoster().find(spec => spec.id === 'gate:north:0')!, group = new THREE.Group()
-  group.position.set(150, 0, 150)
-  const guard = { group, combatPosition: group.position, combatantId: spec.id, dead: true, hp: 0, maxHp: 100,
-    combatAmmo: 0, combatAmmoCapacity: 30, shield: { shieldImpactRemaining: 0, shieldImpactMax: 8, reset: vi.fn() },
-    tacticalOrder: 'follow' as NPC['tacticalOrder'], mount: null, isFalling: false,
-    setTownPeaceful: vi.fn(), setCommandAllegiance: vi.fn(), setCommandSquad: vi.fn(),
-    restoreCombatHealth: (hp: number) => { guard.hp = hp; guard.dead = hp === 0 }, restoreCombatAmmo: (ammo: number) => { guard.combatAmmo = ammo },
-    assignFollowTarget: vi.fn(),
-    setTacticalOrder: (order: NPC['tacticalOrder']) => { guard.tacticalOrder = order },
-    refitCombat: () => { guard.dead = false; guard.hp = 100; guard.combatAmmo = 30; guard.shield.shieldImpactRemaining = 8 },
+  const specs = fullCommandRoster ? townCommandSquadRoster('roman') : [townRoster().find(spec => spec.id === 'gate:north:0')!]
+  function recordingGuard(spec: TownActorSpec) {
+    const group = new THREE.Group()
+    group.position.set(150, 0, 150)
+    const guard = { group, combatPosition: group.position, combatantId: spec.id, dead: true, hp: 0, maxHp: 100,
+      combatAmmo: 0, combatAmmoCapacity: 30, shield: { shieldImpactRemaining: 0, shieldImpactMax: 8, reset: vi.fn() },
+      tacticalOrder: 'follow' as NPC['tacticalOrder'], mount: null, isFalling: false, squadId: undefined as NPC['squadId'],
+      setTownPeaceful: vi.fn(), setCommandAllegiance: vi.fn(), setCommandSquad: (id: NPC['squadId']) => { guard.squadId = id },
+      restoreCombatHealth: (hp: number) => { guard.hp = hp; guard.dead = hp === 0 }, restoreCombatAmmo: (ammo: number) => { guard.combatAmmo = ammo },
+      assignFollowTarget: vi.fn(),
+      setTacticalOrder: (order: NPC['tacticalOrder']) => { guard.tacticalOrder = order },
+      refitCombat: () => { guard.dead = false; guard.hp = 100; guard.combatAmmo = 30; guard.shield.shieldImpactRemaining = 8 },
+    }
+    return guard
   }
-  profile.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman', actorIds: [spec.id],
-    contribution: emptyPersonalContribution(), members: { [spec.id]: { status: 'dead', hp: 0 } },
+  const guards = specs.map(recordingGuard), guard = guards[0], spec = specs[0]
+  profile.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman', actorIds: specs.map(spec => spec.id),
+    contribution: emptyPersonalContribution(), members: Object.fromEntries(specs.map(spec => [spec.id, { status: 'dead', hp: 0 }])),
     state: 'FOLLOWING', authorized: true, sceneKey: 'town-home' }
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage); store.save(profile)
   const changes: string[] = []
   const state = { profile, store, player: { dead: false, group: new THREE.Group(), currentMount: null },
-    residents: [{ spec, npc: guard as unknown as NPC }], event: { hostile: false }, commandActors: [] as NPC[],
+    residents: specs.map((spec, index) => ({ spec, npc: guards[index] as unknown as NPC })), event: { hostile: false }, commandActors: [] as NPC[],
     skills: { skillState: profile.skills }, careerSaveFailures: 0, garrisonRestored: false,
     world: { faction: 'roman' }, defense: { startActiveMission: vi.fn(), fieldNpcs: [] },
     dispose: vi.fn(() => changes.push('dispose')), onRestart: vi.fn(() => {
@@ -127,6 +134,7 @@ function defenseAcceptanceFixture() {
   const town = Object.assign(Object.create(TownScene.prototype) as object, state) as typeof state & {
     townCommand: TownCommandSquadController; commit(next: CareerProfile): boolean;
     acceptMission(id: string): void; acceptCaptainMission(id: string): void; restPlayerInTown(): void;
+    commandHudRoster(): ArmyHudRoster;
   }
   town.townCommand = new TownCommandSquadController(town.residents, () => town.player as unknown as Player,
     () => town.profile, next => town.commit(next))
@@ -164,7 +172,8 @@ describe('new defense acceptance refit and reload', () => {
     expect(f.guard.hp).toBe(37)
   })
   it.each(['death', 'defense-settlement'] as const)('refits after a saved %s return completes, with no early revival or failed-save mutation', reason => {
-    const f = defenseAcceptanceFixture()
+    // 30 recorded residents, zero real constructors: grant requires the permanent identity contract.
+    const f = defenseAcceptanceFixture(true)
     f.town.acceptMission('veteran-town-defense-01')
     f.town.player.dead = reason === 'death'
     if (reason === 'defense-settlement') f.town.profile.activeMission!.result = { outcome: 'victory' } as NonNullable<CareerProfile['activeMission']>['result']
@@ -183,6 +192,16 @@ describe('new defense acceptance refit and reload', () => {
     f.town.restPlayerInTown()
     expect(f.guard.dead).toBe(false); expect(f.guard.hp).toBe(100)
     expect(f.store.load()?.townCommandSquad?.members?.[f.spec.id]).toMatchObject({ hp: 100, ammo: 30, shieldImpact: 8 })
+    expect(f.town.townCommand.commandsEnabled).toBe(true)
+    const hud = createArmyCommandHarness(f.town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, undefined, () => f.town.commandHudRoster())
+    expect(hud.ui.render.mock.lastCall![0].map(entry => [entry.summary, entry.order])).toEqual([
+      ['30/30', 'training'], ['30/30', 'training'],
+    ])
+    f.town.profile = f.store.load()!
+    expect(f.town.townCommand.restore()).toBe(true)
+    hud.controller.update()
+    expect(hud.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
   })
 
 })

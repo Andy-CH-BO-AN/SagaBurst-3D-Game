@@ -146,11 +146,15 @@ describe('permanent Captain Town command roster', () => {
     const hpAndMount = residents.map(r => [r.npc.hp, r.homeMount?.currentHp])
     const h = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
       undefined, { accepts: npc => owner.accepts(npc), enabled: () => owner.commandsEnabled,
-        issue: (order, target) => owner.issue(order, target) }, () => town.commandHudRoster())
+        issue: (order, target) => owner.issue(order, target) }, () => town.commandHudRoster(),
+      (order, target) => { owner.issue(order, target) })
     const summary = () => h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:1')?.summary
 
     expect(summary()).toBe('30/30')
+    expect(owner.trainingActorIds).toHaveLength(30)
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
     h.input.pressAll(); h.controller.update(); h.input.press('1'); h.controller.update()
+    expect(owner.trainingActorIds).toEqual([])
     expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'attack')).toBe(true)
     h.input.press('1'); h.controller.update(); h.input.press('6'); h.controller.update()
     expect(owner.state).toBe('RETURNING')
@@ -173,8 +177,16 @@ describe('permanent Captain Town command roster', () => {
     expect(residents.map(r => r.actor.setTacticalOrder.mock.calls.length)).toEqual(orderCalls)
     expect(residents.map(r => r.npc.combatPosition.equals(positions[residents.indexOf(r)]))).toEqual(Array(30).fill(true))
 
+    // Early arrivals resume training while the remainder still return; this is still a return lifecycle.
+    const first = residents[0]
+    first.actor.isFormationTargetReached.mockReturnValue(true)
+    owner.updateResident(first, .016, new THREE.Vector3(), [], {} as NavigationWorld)
+    h.controller.update()
+    expect(owner.trainingActorIds).toEqual([first.spec.id])
+    expect(summary()).toBe('30/30 · 返回中 29')
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'returning')).toBe(true)
     // Existing travel owner, not HUD, decides when the physical return finishes.
-    for (const r of residents) {
+    for (const r of residents.slice(1)) {
       r.actor.isFormationTargetReached.mockReturnValue(true)
       expect(owner.updateResident(r, .016, new THREE.Vector3(), [], {} as NavigationWorld)).toBe(true)
     }
@@ -182,7 +194,20 @@ describe('permanent Captain Town command roster', () => {
     expect(owner.state).toBe('TRAINING')
     h.controller.update()
     expect(summary()).toBe('30/30')
-    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'defend')).toBe(true)
+    expect(h.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
+    // A fresh HUD and real serialization reload must both ignore their initial attack cache.
+    const saved = owner.checkpoint()!
+    town.profile = parseCareerProfile(JSON.parse(JSON.stringify({ ...town.profile, townCommandSquad: saved })))!
+    const restored = new TownCommandSquadController(residents, () => p, () => town.profile,
+      next => { town.profile = next; return true })
+    town.townCommand = restored
+    expect(restored.restore()).toBe(true)
+    const trainingHud = createArmyCommandHarness(town.commandActors, null, null, null, 'roman', 'squad', true,
+      undefined, { accepts: npc => restored.accepts(npc), enabled: () => restored.commandsEnabled }, () => town.commandHudRoster())
+    expect(trainingHud.ui.render.mock.lastCall![0].every(entry => entry.order === 'training')).toBe(true)
+    expect(trainingHud.ui.render.mock.lastCall![0].every(entry => entry.summary === '30/30')).toBe(true)
+    // The existing live owner remains available to this HUD's command adapter.
+    town.townCommand = owner
     h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
     expect(h.ui.showFeedback).toHaveBeenLastCalledWith('第 1 隊 → 防禦')
     expect(residents.every(r => r.actor.setTacticalOrder.mock.lastCall?.[0] === 'defend')).toBe(true)

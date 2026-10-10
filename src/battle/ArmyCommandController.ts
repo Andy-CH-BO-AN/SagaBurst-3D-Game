@@ -646,12 +646,13 @@ export class ArmyCommandController {
     })
   }
 
-  /** Return travel is scene-owned formation movement, not the previous combat order. */
+  /** Scene-owned return/training lifecycles override stale combat command caches. */
   private _hudOrder(target: ArmyCommandTarget): ArmyCommandHudOrder {
     const desired = target === 'all' ? this.allOrder : this.orders.get(target) ?? this.initialOrder
     if (!this.hudRosterSnapshot || this.groupingMode !== 'squad') return desired
     const counts = countArmyHudRoster(this.hudRosterSnapshot, target)
-    if (counts.returning > 0) return counts.returning === counts.alive ? 'returning' : 'mixed'
+    if (counts.returning > 0) return counts.returning + counts.training === counts.alive ? 'returning' : 'mixed'
+    if (counts.training > 0) return counts.training === counts.alive ? 'training' : 'mixed'
     if (counts.total === 0 && counts.reserve > 0) return 'reserve'
     if (target === 'all') {
       // Reserve-only HR groups have no field order and must not make the active

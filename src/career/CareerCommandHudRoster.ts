@@ -16,6 +16,8 @@ export interface CareerCommandHudSource {
   officialPending?: boolean
   /** Currently present, living Town soldiers whose genuine return travel blocks commands. */
   officialReturningIds?: readonly string[]
+  /** Present Town residents training peacefully, as reported by their live owner. */
+  officialTrainingIds?: readonly string[]
   personal?: PersonalSquadMission
   /** IDs actually queued by the active runtime, not persisted stale pendingMemberIds. */
   personalPendingIds?: readonly string[]
@@ -31,12 +33,13 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
   const pendingPersonal = new Set(source.personalPendingIds ?? [])
   const returningPersonal = new Set(source.personalReturningIds ?? [])
   const returningOfficial = new Set(official?.type === 'town-command' ? source.officialReturningIds ?? [] : [])
+  const trainingOfficial = new Set(official?.type === 'town-command' ? source.officialTrainingIds ?? [] : [])
   const members: ArmyHudMember[] = []
 
   for (const id of new Set(official?.actorIds ?? [])) {
     const actor = live.get(id)
     const saved = official?.members?.[id]
-    const state: ArmyHudMemberState = actor ? actor.dead ? 'dead' : returningOfficial.has(id) ? 'returning' : 'deployed'
+    const state: ArmyHudMemberState = actor ? actor.dead ? 'dead' : returningOfficial.has(id) ? 'returning' : trainingOfficial.has(id) ? 'training' : 'deployed'
       : saved?.status === 'dead' || saved?.hp === 0 ? 'dead'
       : saved?.status === 'exited' ? 'exited'
       : source.officialPending ? 'pending' : 'missing'
