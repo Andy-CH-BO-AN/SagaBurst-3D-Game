@@ -280,7 +280,7 @@ export class BanditMissionController {
   get departingNpcs(): NPC[] { return (this.departingCavalry ?? []).map(rider => rider.npc) }
   get remainingEnemies(): number { return this.missionBandits.filter(npc => !npc.dead).length }
   private get traveling(): boolean {
-    return Boolean(this.active && (this.phase === 'MARCHING' || this.phase === 'RETURNING'))
+    return Boolean(this.active && this.active.kind !== 'captain-patrol-command' && (this.phase === 'MARCHING' || this.phase === 'RETURNING'))
   }
 
   prepareTravelEncounter(dt: number, grid: SpatialGrid<NPC>, threats: MissionTravelThreats): void {
@@ -422,6 +422,7 @@ export class BanditMissionController {
   }
 
   updateFlow(dt: number, cameraYaw: number): void {
+    if (this.active?.kind === 'captain-patrol-command') { this.guide.hide(); return }
     if (!this.ready) return
     if (this.phase === 'RETURNING') {
       this.checkpoint.advance(dt)

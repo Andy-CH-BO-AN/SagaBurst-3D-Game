@@ -407,7 +407,7 @@ describe('Town outskirts combat routing', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
     const disposable = () => ({ dispose: vi.fn() })
     Object.assign(town, {
-      flushCareerSkillProgression: vi.fn(), weaponWheelUI: disposable(), duelHud: disposable(), duelGuide: disposable(),
+      flushCareerSkillProgression: vi.fn(), weaponWheelUI: disposable(), duelHud: disposable(), duelGuide: disposable(), captainPatrolGuide: disposable(),
       listeners: { abort: vi.fn() }, input: disposable(), equipment: { close: vi.fn() },
       hud: { remove: vi.fn() }, hint: { remove: vi.fn() }, pointerPrompt: { remove: vi.fn() }, ambientLabel: { remove: vi.fn() },
       mission: disposable(), defense: disposable(), player: disposable(), world: disposable(),

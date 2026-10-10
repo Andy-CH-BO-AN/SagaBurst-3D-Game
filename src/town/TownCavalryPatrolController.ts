@@ -109,20 +109,38 @@ export class TownCavalryPatrolController {
     })
   }
 
-  /** Captain borrows an intact permanent squad including its T4 Captain, never temporary replacements. */
+  /** Captain borrows permanent identities, including casualties; readiness is not health or combat. */
   selectAvailableSquad(): AvailableTownPatrolSquad | null {
     if (this.hostile || this.siegeOwned) return null
     for (const squad of this.squads) {
-      if (squad.members.length !== 20 || !squad.members.some(resident => resident.spec.patrolLeader)) continue
-      if (!squad.members.every(({ spec, npc, homeMount }) => !npc.dead && this.isReserveAvailable(spec.id)
-        && !this.returning.has(spec.id) && Boolean((npc.mount ?? homeMount) && !(npc.mount ?? homeMount)!.dead
-          && !(npc.mount ?? homeMount)!.disposed && !(npc.mount ?? homeMount)!.riderPlayer
-          && (!(npc.mount ?? homeMount)!.riderNpc || (npc.mount ?? homeMount)!.riderNpc === npc)))) continue
+      if (!this.validSquad(squad) || this.squadUnavailableReason(squad)) continue
       return { patrolId: squad.id, actorIds: [...squad.members]
         .sort((a, b) => Number(Boolean(b.spec.patrolLeader)) - Number(Boolean(a.spec.patrolLeader)) || a.spec.index - b.spec.index)
         .map(resident => resident.spec.id) }
     }
     return null
+  }
+
+  private validSquad(squad: PatrolSquad): boolean {
+    return (squad.id === 'A' || squad.id === 'B') && squad.members.length === 20
+      && new Set(squad.members.map(r => r.spec.id)).size === 20
+      && squad.members.some(r => r.spec.patrolLeader)
+      && squad.members.every(r => Boolean(r.spec.id) && r.npc.combatantId === r.spec.id && this.residents.get(r.spec.id) === r)
+  }
+
+  private squadUnavailableReason(squad: PatrolSquad): 'owned' | 'returning' | null {
+    if (squad.members.some(r => this.relinquished.has(r.spec.id) || this.excluded.has(r.npc) || r.npc.combatOwnership)) return 'owned'
+    if (squad.members.some(r => ['RETURN_TO_BARRACKS', 'REFIT'].includes(this.returning.get(r.spec.id)?.state ?? ''))) return 'returning'
+    return null
+  }
+
+  get unavailableReason(): string {
+    if (this.siegeOwned) return '巡邏隊已由 Siege 系統接管，請待攻城結束。'
+    if (this.hostile) return '城鎮處於敵對狀態，巡邏隊暫時不可接管。'
+    const squads = this.squads.filter(squad => this.validSquad(squad))
+    if (squads.length && squads.every(squad => this.squadUnavailableReason(squad) === 'returning')) return '巡邏隊正在返回兵營，請稍後再接受任務。'
+    if (squads.some(squad => this.squadUnavailableReason(squad) === 'owned')) return '巡邏隊已由其他任務接管，請待任務結束。'
+    return '巡邏隊正式編制尚未就緒，請稍後再接受任務。'
   }
 
   /** Atomic post-save handover. No member is released if the accepted roster is no longer available. */
@@ -133,16 +151,27 @@ export class TownCavalryPatrolController {
   }
 
   /** Reload uses saved identities even after injuries; autonomous patrol must not take them back. */
-  resumeSquad(actorIds: readonly string[]): boolean {
-    const squad = this.squads.find(candidate => candidate.members.length === 20
+  resumeSquad(actorIds: readonly string[], preserveCombat = false): boolean {
+    if (this.hostile || this.siegeOwned) return false
+    const squad = this.squads.find(candidate => this.validSquad(candidate)
       && sameActorIds(candidate.members.map(resident => resident.spec.id), actorIds))
     if (!squad) return false
     for (const resident of squad.members) {
       this.relinquished.add(resident.spec.id); this.available.delete(resident.spec.id); this.returning.delete(resident.spec.id)
-      resident.npc.clearEncounter()
+      if (!preserveCombat) resident.npc.clearEncounter()
     }
     squad.activeLeaderActorId = null; squad.participants.clear(); squad.threats.clear(); squad.engagementOrigin = null
     return true
+  }
+
+  /** Restore saved travel ownership without repeating a completed refit. */
+  restoreMissionReturn(actorId: string, state: TownPatrolReturnState): void {
+    if (state !== 'REJOIN_PATROL') { this.beginMissionReturn(actorId); return }
+    const resident = this.residents.get(actorId)
+    if (!resident) return
+    const point = townPatrolRefitPoint(resident.spec)
+    this.relinquished.delete(actorId)
+    this.returning.set(actorId, { state, destination: new THREE.Vector3(point.x, 0, point.z), yaw: point.yaw, commandedMounted: null })
   }
 
   /** Reclaim hands survivors and casualties to the existing physical return/refit owner. */
@@ -265,7 +294,7 @@ export class TownCavalryPatrolController {
 
   beginPatrolReturn(actorId: string): boolean {
     const resident = this.residents.get(actorId)
-    if (!resident?.homeMount || this.hostile) return false
+    if (!resident || this.hostile) return false
     this.relinquished.delete(actorId)
     this.available.delete(actorId)
     const refitPoint = townPatrolRefitPoint(resident.spec)
@@ -391,8 +420,10 @@ export class TownCavalryPatrolController {
     const destination = { x: returning.destination.x, z: returning.destination.z, yaw: returning.yaw }
     resident.npc.dismountFromMount()
     resident.npc.restoreForTown(destination)
-    resident.homeMount!.restoreForTown(destination.x, destination.z, destination.yaw)
-    resident.npc.mountVehicle(resident.homeMount!)
+    if (resident.homeMount) {
+      resident.homeMount.restoreForTown(destination.x, destination.z, destination.yaw)
+      resident.npc.mountVehicle(resident.homeMount)
+    }
     returning.state = 'REJOIN_PATROL'
   }
 

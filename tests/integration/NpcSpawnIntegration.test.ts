@@ -559,6 +559,8 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     expect(recording.npcs.every(npc => npc.mountVehicle.mock.calls.length === 1)).toBe(true)
     recording.npcs.forEach(npc => { npc.dead = true })
     runtime.prepareFrame(0, runtime.actors, player)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN')
+    runtime.prepareFrame(60, runtime.actors, player)
     expect(squad.state).toBe('SPAWNING')
     expect([...runtime.batches[0].actors.keys()]).toEqual(Array.from({ length: 10 }, (_, i) => `outskirts:cavalry:a:${i}:wave:1`))
     await step()

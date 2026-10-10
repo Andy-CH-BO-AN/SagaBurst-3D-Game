@@ -133,6 +133,11 @@ export class TownOutskirtsWarfareController {
       for (const mount of squad.mounts) { this.allMounts.splice(this.allMounts.indexOf(mount), 1); mount.dispose() }
       squad.members = []; squad.mounts = []; squad.generation = saved.generation; squad.waypoint = saved.waypoint % squad.route.length
       squad.respawnRemaining = saved.respawnRemaining
+      if (saved.state === 'RESPAWN_COOLDOWN') {
+        squad.state = 'RESPAWN_COOLDOWN'; squad.leader = null
+        squad.engagementOrigin = null; squad.commandedWaypoint = null
+        continue
+      }
       this.spawnSquad(squad, saved.state === 'ENTERING')
     }
   }
@@ -165,9 +170,10 @@ export class TownOutskirtsWarfareController {
         if (squad.respawnRemaining > 0) continue
         squad.generation++
         this.spawnSquad(squad, true)
+        continue
       }
       if (squad.members.length > 0 && squad.members.every(member => member.dead)) {
-        if (squad.spec.kind === 'bandit') {
+        if (squad.spec.kind === 'bandit' || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY) {
           squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
           continue
         }
@@ -368,6 +374,7 @@ export class TownOutskirtsWarfareController {
   }
 
   private spawnSquad(squad: OutskirtsSquad, edge: boolean): void {
+    squad.respawnRemaining = undefined
     for (const mount of squad.mounts) this.retiredMounts.add(mount)
     squad.mounts = []
     const army = outskirtsCavalryFaction(this.townFaction, this.readProfile().faction)

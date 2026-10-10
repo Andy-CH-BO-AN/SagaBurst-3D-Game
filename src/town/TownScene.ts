@@ -158,6 +158,7 @@ export class TownScene {
   private readonly hud = document.createElement('div')
   private readonly duelHud = new CareerDuelHUD()
   private readonly duelGuide = new MissionGuide('career-duel-guide')
+  private readonly captainPatrolGuide = new MissionGuide('career-captain-patrol-guide')
   private readonly hint = document.createElement('div')
   private readonly pointerPrompt = document.createElement('div')
   private panel: HTMLDivElement | null = null
@@ -335,7 +336,7 @@ export class TownScene {
         outskirts: () => this.outskirts,
         personalSquad: () => this.personalSquad,
         patrol: () => this.patrol,
-        commandActors: () => [...(this.captainPatrol?.active ? this.captainPatrol.actors : []), ...(this.townCommand?.combatActors ?? [])],
+        commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? [])],
         preparePeaceResidents: excluded => { this.patrol.beginFrame(excluded); this.townCommand?.beginFrame() },
         ownsPeacefulTravel: npc => this.townCommand?.ownsPeacefulTravel(npc) || this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc) && !this.captainPatrol?.owns(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
@@ -405,6 +406,7 @@ export class TownScene {
     window.addEventListener('pagehide', () => {
       this.flushCareerSkillProgression()
       this.persistPersonalSquad(0, true)
+      this.captainPatrol?.persist(true)
       if (this.defense?.active && !this.defense.active.result) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
       if (this.profile.activeMission?.kind === 'veteran-field'
         && (!this.profile.activeMission.result || this.profile.activeMission.phase === 'RETURNING')) this.mission.persistRuntimeProgress(true)
@@ -1185,7 +1187,7 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      const state = definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol ? '目前沒有完整、可用的 20 人巡邏隊。'
+      const state = definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol ? this.captainPatrol?.unavailableReason ?? '巡邏隊正式編制尚未就緒，請稍後再接受任務。'
         : definition.id === CAPTAIN_EAGLE_BATTLE_ID ? `本次可參戰私兵 ${this.profile.personalSquad?.members.length ?? 0} 人 · 依原裝備参加空戰或地面作戰`
         : '正式部隊與私兵分別指揮，有效貢獻共同計算軍功。'
       const briefing = definition.id === CAPTAIN_GATE_DEFENSE_ID
@@ -1207,7 +1209,7 @@ export class TownScene {
     let next: CareerProfile | null = null
     if (templateId === CAPTAIN_PATROL_COMMAND_ID) {
       const selected = this.captainPatrol?.selectAvailableSquad()
-      if (!selected) { this.openPanel('巡邏隊暫時不可用', '需一支完整可用的 20 人既有巡邏隊，包含其 Captain。'); return }
+      if (!selected) { this.openPanel('巡邏隊暫時不可用', this.captainPatrol?.unavailableReason ?? '巡邏隊正式編制尚未就緒，請稍後再接受任務。'); return }
       const mission = this.captainPatrol!.captureForMission(createCaptainPatrolCommandMission(fresh, selected.actorIds))
       if (!mission) return
       next = cloneCareerProfile(fresh); next.activeMission = mission
@@ -1240,6 +1242,7 @@ export class TownScene {
     if (!started) { this.openPanel('任務部署失敗', '任務及兵權交接已保存。重新載入可恢復同一支部隊。'); return }
     if (templateId === CAPTAIN_CAVALRY_COMMAND_ID) this.careerMounts.activate(this.profile.selectedMountId!)
     this.inventory.prepareForCombat(); this.synchronizeCommandActors(); this.closePanel()
+    if (templateId === CAPTAIN_PATROL_COMMAND_ID) this.updateCaptainPatrolGuide()
   }
   private acceptVeteranCareerMission(templateId: string): void {
     const definition = getVeteranMissionDefinition(templateId)
@@ -1629,7 +1632,16 @@ export class TownScene {
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
-    this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
+    this.button(panel, this.profile?.activeMission?.kind === 'captain-patrol-command' ? '直接返回城鎮' : `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
+    if (this.profile?.activeMission?.kind === 'captain-patrol-command') {
+      if (complete && result.stats.survived) this.button(panel, '跟隊伍走回去', () => {
+        if (!this.captainPatrol?.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
+        this.clearMissionCombatShots()
+        this.missionResultOpen = false; this.closePanel(); this.updateCaptainPatrolGuide()
+      })
+      this.updateCaptainPatrolGuide()
+      return
+    }
     if (this.profile?.activeMission?.kind === 'duel') {
       if (complete && result.stats.survived) this.button(panel, '跟隊長走回去', () => {
         if (!this.duel.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
@@ -1639,7 +1651,7 @@ export class TownScene {
       })
       return
     }
-    if (!result.defense && this.profile?.activeMission?.kind !== 'captain-patrol-command' && this.profile?.activeMission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
@@ -1676,7 +1688,7 @@ export class TownScene {
     this.personalSquad?.cancelPendingSpawns()
   }
   private returnToTown(intent: 'direct' | 'arrived'): void {
-    if (intent === 'direct') this.cancelPendingSpawns()
+    if (intent === 'direct' && !this.captainPatrol?.active) this.cancelPendingSpawns()
     const returned = this.missionSettlement.returnToTown(intent)
     if (returned.status === 'ignored' || returned.status === 'restarted') return
     if (returned.status === 'save-failed') {
@@ -1694,6 +1706,7 @@ export class TownScene {
       : returned.kind === 'sweep' ? '清剿結束。駐軍已返營，臨時騎兵正在離開。'
       : '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
     if (this.panel) this.closePanel()
+    this.updateCaptainPatrolGuide()
   }
   private serviceAvailable(id: string): boolean {
     if (this.sceneContext.missionOnlyResidents) return false
@@ -2453,8 +2466,14 @@ export class TownScene {
       const missionOutcome = this.captainPatrol?.active ? this.captainPatrol.evaluateOutcome() : this.duel?.active ? this.duel.evaluate(this.player.dead) : this.defense.active ? this.defense.evaluate(this.player.dead, personalAlive) : this.mission.evaluate(this.player.dead, personalAlive)
       if (missionOutcome && !this.panel) this.finishMission(missionOutcome)
       else if (!this.profile.activeMission && this.player.dead && !this.panel) this.showAmbientDefeat()
-      else if ((this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.returnToTown('arrived')
+      else if ((this.captainPatrol?.active ? this.captainPatrol.returnComplete : this.duel?.active ? this.duel.returnComplete : !this.defense.active && this.mission.returnComplete) && !this.panel) this.returnToTown('arrived')
     }
+  }
+
+  private updateCaptainPatrolGuide(): void {
+    const active = this.captainPatrol?.active
+    this.captainPatrolGuide?.updateCaptainPatrol(active && !this.panel && !this.equipment.visible ? active.phase : null,
+      this.player.combatPosition, this.orbit.cameraYaw, this.captainPatrol?.guideTarget ?? null)
   }
 
   private frame(time: number): void {
@@ -2486,6 +2505,7 @@ export class TownScene {
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
+    this.updateCaptainPatrolGuide()
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.mission?.travelEncounter?.active
@@ -2527,6 +2547,7 @@ export class TownScene {
     if (this.disposed) return
     this.personalSquad?.cleanup()
     this.captainPatrol?.dispose()
+    this.captainPatrolGuide.dispose()
     this.personalCommands?.close()
     this.personalFormation?.cancelPlacement()
     this.personalCommandUI?.dispose()

@@ -46,7 +46,7 @@ interface TownReturnScene {
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
   inventory: Pick<TownEquipment, 'sheathAll'>
-  readonly player: Pick<Player, 'group'>
+  readonly player: Pick<Player, 'group' | 'resetForScene'>
   clearCombatShots(): void
   restPlayer(): void
   returnPersonalSquad?(direct: boolean): void
@@ -109,6 +109,7 @@ export class TownMissionSettlement {
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
     const captainPatrol = active.kind === 'captain-patrol-command'
+    if (captainPatrol && !active.result) return { status: 'ignored' }
     const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
     if (veteranField && !active.result) return { status: 'ignored' }
     const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
@@ -145,9 +146,10 @@ export class TownMissionSettlement {
     if (defense) this.missions.defense.cleanupMission()
     else if (active.kind === 'duel') this.missions.duel.cleanupMission()
     else if (active.kind === 'cavalry-sweep' || veteranField) this.missions.field.cleanupMission(active.targetCampId, true)
-    else this.missions.field.cleanupMission(active.targetCampId)
+    else if (!captainPatrol) this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
     for (const resident of this.town.residents) {
+      if (captainPatrol) continue // Its owner already handed the exact roster to physical return/refit.
       if (this.town.preservesResident?.(resident.npc)) continue
       const restore = resident.npc.dead || (defense
         ? true
@@ -167,6 +169,7 @@ export class TownMissionSettlement {
       this.town.world.restoreTownDamage()
       this.town.navigation.sync(this.town.world.obstacles)
     }
+    if (captainPatrol && intent === 'direct') this.town.player.resetForScene(0, getTerrainHeight(0, 9) + .9, 9)
     this.town.restPlayer()
     if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) this.town.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
     return { status: 'returned', kind: defense ? 'defense' : active.kind === 'cavalry-sweep' ? 'sweep' : 'party' }

@@ -17,7 +17,7 @@ import type { HpBar } from '../../src/ui/HpBar'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { OUTSKIRTS_ENCOUNTER_LEASH, outskirtsActorId, outskirtsCavalryFaction, outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
-import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
+import { TownOutskirtsWarfareController, parseTownOutskirtsCheckpoint } from '../../src/town/TownOutskirtsWarfareController'
 import { TownWorld } from '../../src/town/TownWorld'
 
 class TestMount {
@@ -35,6 +35,9 @@ class TestNpc {
   deathPresentationComplete = false
   private readonly deathPresentation = new DeathFadeController()
   respawnEnabled = true
+  hp = 100
+  combatAmmo = 0
+  shield = { shieldImpactRemaining: 0 }
   mount: TestMount | null = null
   encounterAggroState: BanditAggroState = 'idle'
   formationCommandId: number | null = null
@@ -146,9 +149,10 @@ describe('Town outskirts runtime', () => {
     test.controller.dispose()
   })
 
-  it('starts each bandit squad cooldown at its own full wipe and waits exactly 60 seconds', () => {
+  it.each([['bandit', 0], ['enemy cavalry', 6]] as const)('starts each %s squad cooldown at its own full wipe and waits exactly 60 simulated seconds', (_kind, offset) => {
     const test = setup(); test.isolate()
-    const [a, b] = test.controller.squads
+    onTestFinished(() => test.controller.dispose())
+    const [a, b] = test.controller.squads.slice(offset)
     a.members.forEach(n => asTest(n).die()); test.frame()
     test.frame(30)
     b.members.forEach(n => asTest(n).die()); test.frame(0)
@@ -160,6 +164,37 @@ describe('Town outskirts runtime', () => {
     test.frame(30)
     expect(b.members.every(n => !n.dead)).toBe(true)
     test.controller.dispose()
+  })
+
+  it('restores the remaining enemy cavalry cooldown through serialization without enqueueing its dead generation', () => {
+    const test = setup(); test.isolate()
+    onTestFinished(() => test.controller.dispose())
+    const squad = test.controller.squads[6]
+    squad.members.forEach(npc => asTest(npc).die()); test.frame(0); test.frame(25)
+    const checkpoint = parseTownOutskirtsCheckpoint(JSON.parse(JSON.stringify({ squads: [test.controller.checkpoint().squads[6]] })))!
+    expect(checkpoint.squads[0].respawnRemaining).toBe(35)
+    const created = test.created.length
+    test.controller.restoreCheckpoint(checkpoint)
+    drainNpcSpawns(gameplayNpcSpawnDriver)
+    expect(test.created).toHaveLength(created)
+    expect(squad.members).toEqual([])
+    test.frame(34)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.generation).toBe(0)
+    test.controller.prepareFrame(1, test.controller.actors, test.player)
+    expect(squad.state).toBe('SPAWNING'); expect(squad.generation).toBe(1)
+    expect(squad.members).toEqual([])
+    drainNpcSpawns(gameplayNpcSpawnDriver)
+    expect(squad.state).toBe('ENTERING'); expect(squad.members).toHaveLength(10)
+  })
+
+  it('retains allied cavalry immediate reinforcement rather than applying enemy cooldown', () => {
+    const test = setup('captain', 'viking', 'roman'); test.isolate()
+    onTestFinished(() => test.controller.dispose())
+    const squad = test.controller.squads[6]
+    expect(squad.members[0].faction).toBe(Faction.TOWN)
+    squad.members.forEach(npc => asTest(npc).die()); test.frame(0)
+    expect(squad.state).toBe('ENTERING'); expect(squad.generation).toBe(1)
+    expect(squad.members.every(npc => !npc.dead)).toBe(true)
   })
 
   it('reloads a deterministic complete roster with independent routes and identities', () => {
@@ -285,7 +320,11 @@ describe('Town outskirts runtime', () => {
     const oldHorse = test.horses[0]
     oldHorse.riderPlayer = {}
     asTest(initial[initial.length - 1]).die()
-    test.frame()
+    test.frame(0)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(squad.generation).toBe(0)
+    test.frame(59)
+    expect(squad.state).toBe('RESPAWN_COOLDOWN'); expect(test.created).toHaveLength(60)
+    test.frame(1)
     expect(squad.members).toHaveLength(10)
     expect(squad.state).toBe('ENTERING')
     expect(squad.generation).toBe(1)
@@ -358,6 +397,7 @@ describe('Town outskirts runtime', () => {
     expect(old.slice(0, -1).every(npc => test.controller.owns(npc) && !asTest(npc).disposed)).toBe(true)
     asTest(old[old.length - 1]).die()
     test.frame()
+    test.frame(60)
     expect(test.controller.actors).toHaveLength(61)
     expect(old.slice(0, -1).every(npc => !test.controller.owns(npc) && !test.controller.combatEnabled(npc))).toBe(true)
     expect(old.slice(0, -1).every(npc => asTest(npc).dispose.mock.calls.length === 1)).toBe(true)

@@ -1,6 +1,8 @@
 import { completeNpcDeployment, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -78,6 +80,19 @@ function defenseFixture() {
 }
 
 describe('constructed controller checkpoint wiring', () => {
+  it('ambient field flow does not save or draw over Captain Patrol RETURNING ownership', () => {
+    const owner = profileOwner(createCareerProfile('roman'))
+    owner.read().activeMission = { ...createCaptainPatrolCommandMission(owner.read(), ['patrol:captain'], 'returning'), phase: 'RETURNING' }
+    const controller = new BanditMissionController(new THREE.Scene(), { camps: [] } as unknown as TownWorld,
+      {} as NavigationWorld, actor('captain'), [], () => ({ dead: false, combatPosition: new THREE.Vector3() } as Player), owner.read, owner.commit)
+    onTestFinished(() => controller.dispose())
+    controller.prepareTravelEncounter(1, new SpatialGrid(8), { owns: () => false })
+    controller.updateFlow(5, 0)
+    expect(controller.travelEncounter.active).toBe(false)
+    expect(owner.commit).not.toHaveBeenCalled()
+    expect(controller.guide.update).not.toHaveBeenCalled()
+    expect(controller.guide.hide).toHaveBeenCalled()
+  })
   it('Bandit cleanup and restart give a new mission its own full checkpoint interval', () => {
     const h = banditFixture()
     h.controller.updateFlow(4.99, 0)

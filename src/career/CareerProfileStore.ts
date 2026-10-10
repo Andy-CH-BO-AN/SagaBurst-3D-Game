@@ -229,6 +229,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     ...(officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id && officialSquad.townFaction === faction
       && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? { officialSquad } : {}),
     ...(template?.kind === 'captain-patrol-command' ? { patrolKilledActorIds: uniqueStrings(raw.patrolKilledActorIds),
+      ...(raw.patrolReturnStates && typeof raw.patrolReturnStates === 'object' ? { patrolReturnStates: Object.fromEntries(
+        Object.entries(raw.patrolReturnStates).filter(([id, state]) => officialSquad?.actorIds.includes(id)
+          && (state === 'RETURN_TO_BARRACKS' || state === 'REFIT' || state === 'REJOIN_PATROL')),
+      ) as ActiveCareerMission['patrolReturnStates'] } : {}),
       ...(parseTownOutskirtsCheckpoint(raw.patrolOutskirts) ? { patrolOutskirts: parseTownOutskirtsCheckpoint(raw.patrolOutskirts) } : {}),
       ...(parseOfficialCommandAuthority(raw.patrolAmbient) ? { patrolAmbient: parseOfficialCommandAuthority(raw.patrolAmbient) } : {}),
     } : {}),

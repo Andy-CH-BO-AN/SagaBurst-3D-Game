@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { veteranPlayerSpawn, veteranPlayerYaw } from '../../src/career/BanditMissionController'
 import { TownScene } from '../../src/town/TownScene'
 import { Player } from '../../src/player/Player'
-import { createCareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { createCareerProfile, claimCareerMission, type CareerRank } from '../../src/career/CareerProfile'
+import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 
@@ -45,6 +46,35 @@ function board(rank: CareerRank, page?: string, completed: string[] = [], tierCo
 }
 
 describe('Veteran mission board integration', () => {
+  it.each(['巡邏隊正在返回兵營，請稍後再接受任務。', '巡邏隊已由 Siege 系統接管，請待攻城結束。', '巡邏隊已由其他任務接管，請待任務結束。'])('Captain mission board displays actual unavailable reason: %s', reason => {
+    const { town, panel } = board('captain')
+    town.captainPatrol = { selectAvailableSquad: () => null, unavailableReason: reason }
+    panel.children = []
+    town.openCaptainMissionPage(panel)
+    expect(panel.children[0].children[1].textContent).toContain(reason)
+    expect(panel.children[0].children[2].disabled).toBe(true)
+    town.captainPatrol.selectAvailableSquad = () => ({ patrolId: 'B', actorIds: ['captain'] })
+    panel.children = []; town.openCaptainMissionPage(panel)
+    expect(panel.children[0].children[2].disabled).toBe(false)
+    expect(panel.children[0].children[1].textContent).not.toContain(reason)
+  })
+
+  it('Captain victory offers direct and physical return through their respective live owners', () => {
+    const { town, panel } = board('captain')
+    town.profile.activeMission = createCaptainPatrolCommandMission(town.profile, ['captain'], 'result')
+    town.profile = claimCareerMission(town.profile, 'result', 'victory', { damageDealt: 200, damageTaken: 0, kills: 30, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }).profile
+    const direct = vi.fn(), walk = vi.fn(() => true), hide = vi.fn(), close = vi.fn()
+    Object.assign(town, { returnToTown: direct, captainPatrol: { startReturning: walk },
+      clearMissionCombatShots: vi.fn(), closePanel: close, updateCaptainPatrolGuide: hide })
+    panel.children = []
+    town.openMissionResult(town.profile.activeMission.result, false)
+    expect(panel.children.map(child => child.textContent)).toEqual(['直接返回城鎮', '跟隊伍走回去'])
+    panel.children[0].onclick!(); expect(direct).toHaveBeenCalledExactlyOnceWith('direct')
+    walk.mockReturnValueOnce(false)
+    panel.children[1].onclick!(); expect(close).not.toHaveBeenCalled()
+    panel.children[1].onclick!(); expect(close).toHaveBeenCalledOnce()
+    expect(town.missionResultOpen).toBe(false)
+  })
   it.each(['recruit', 'soldier', 'veteran', 'captain', 'commander'] as const)('renders Veteran tab with correct rank lock for %s', rank => {
     const { elements } = board(rank)
     const tab = elements.find(element => element.textContent.startsWith('老兵任務'))

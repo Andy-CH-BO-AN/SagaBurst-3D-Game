@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { CombatEventStream, type CombatEvent, type CombatTargetRef } from '../combat/CombatAttribution'
@@ -9,6 +10,8 @@ import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorC
 import { cloneOfficialCommandAuthority, officialMissionSourcePolicy } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy } from './CareerPersonalSquadMission'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, type ActiveCareerMission, type CareerMissionOutcome } from './CareerMissionState'
+import { townSitePoint } from '../town/TownRules'
+import { getTerrainHeight } from '../world/Terrain'
 
 export const CAPTAIN_PATROL_KILL_TARGET = 30
 
@@ -46,6 +49,7 @@ export class CaptainPatrolCommandController {
   private saveElapsed = 0
   private readonly previousSquads = new Map<string, NPC['squadId']>()
   private readonly officialActors: NPC[] = []
+  private returned = false
 
   constructor(residents: readonly PatrolResident[], private readonly patrol: TownCavalryPatrolController,
     private readonly player: () => Player, private readonly read: () => CareerProfile,
@@ -58,15 +62,33 @@ export class CaptainPatrolCommandController {
     return active?.kind === 'captain-patrol-command' ? active : undefined
   }
   get actors(): readonly NPC[] { return this.officialActors }
-  get fieldNpcs(): readonly NPC[] { return this.officialActors }
+  get fieldNpcs(): readonly NPC[] { return this.active?.phase === 'RETURNING' ? [] : this.officialActors }
   get friendlyActors(): readonly NPC[] { return this.officialActors }
   get ready(): boolean { return Boolean(this.active && this.missionId === this.active.id && this.officialActors.length === 20) }
   get commandsEnabled(): boolean { return this.ready && !this.active?.result && !this.player().dead }
   get killCount(): number { return this.killed.size }
   get aliveCombatants(): number { return this.officialActors.filter(actor => !actor.dead).length }
-  owns(npc: NPC): boolean { return this.officialActors.includes(npc) }
+  owns(npc: NPC): boolean { return this.active?.phase !== 'RETURNING' && this.officialActors.includes(npc) }
   accepts(npc: NPC): boolean { return this.commandsEnabled && this.owns(npc) }
   selectAvailableSquad() { return this.patrol.selectAvailableSquad() }
+  get unavailableReason(): string { return this.patrol.unavailableReason }
+  get guideTarget(): THREE.Vector3 | null {
+    const active = this.active
+    if (!active || !this.ready) return null
+    if (active.phase === 'RETURNING') {
+      const p = townSitePoint('barracks', 0, 15)
+      return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z)
+    }
+    if (active.result) return null
+    // Accepted order puts the canonical Captain first; casualties elect the next official member.
+    return this.officialActors.find(npc => !npc.dead)?.combatPosition ?? null
+  }
+  get returnComplete(): boolean {
+    const target = this.guideTarget
+    return this.active?.phase === 'RETURNING' && !this.player().dead && Boolean(target && this.player().combatPosition.distanceTo(target) < 12)
+  }
+
+  private fighting(npc: NPC): boolean { return npc.inCombat || npc.encounterIsAlerted || this.patrol.combatEnabled(npc) }
 
   /** Attach original positions, health and mounts to the same transaction as mission acceptance. */
   captureForMission(mission: ActiveCareerMission): ActiveCareerMission | null {
@@ -76,8 +98,8 @@ export class CaptainPatrolCommandController {
     const official = cloneOfficialCommandAuthority(authority)
     official.members = Object.fromEntries(official.actorIds.map(id => {
       const resident = this.residentsById.get(id)!, actor = snapshotCommandActor(resident.npc, resident.homeMount)
-      // Autonomous route orders are deliberately ended at handover; accepted positions are unchanged.
-      actor.order = 'attack'; delete actor.formation
+      // End peaceful route orders only; ongoing combat remains the actor's responsibility.
+      if (!this.fighting(resident.npc)) { actor.order = 'attack'; delete actor.formation }
       return [id, actor]
     }))
     return { ...mission, officialSquad: official, friendlyActorIds: [...official.actorIds], patrolKilledActorIds: [...(mission.patrolKilledActorIds ?? [])] }
@@ -86,9 +108,15 @@ export class CaptainPatrolCommandController {
   /** Post-save bind; saved membership may contain casualties and unavailable mounts on reload. */
   resume(restore = true): boolean {
     const active = this.active, authority = active?.officialSquad
-    if (!active || !authority || authority.actorIds.length !== 20 || !this.patrol.resumeSquad(authority.actorIds)) return false
+    if (!active || !authority || authority.actorIds.length !== 20) return false
     if (this.missionId === active.id) return true
+    const fighting = new Set(authority.actorIds.filter(id => {
+      const resident = this.residentsById.get(id)
+      return resident && this.fighting(resident.npc)
+    }))
+    if (!this.patrol.resumeSquad(authority.actorIds, !restore)) return false
     this.tracker?.dispose(); this.officialActors.length = 0; this.previousSquads.clear(); this.killed.clear()
+    this.returned = false
     for (const id of active.patrolKilledActorIds ?? []) this.killed.add(id)
     for (const id of authority.actorIds) {
       const resident = this.residentsById.get(id)
@@ -97,10 +125,12 @@ export class CaptainPatrolCommandController {
       this.previousSquads.set(id, npc.squadId)
       if (restore && authority.members?.[id]) restoreCommandActor(npc, authority.members[id], resident.homeMount)
       npc.combatOwnership = 'mission-official'; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(1)
-      npc.setTownPeaceful(); npc.respawnEnabled = false
-      if (!authority.members?.[id]?.order || authority.members[id].order === 'attack') npc.setTacticalOrder('attack')
-      else if (authority.members[id].order === 'follow') npc.assignFollowTarget(this.player(), this.officialActors.length,
-        officialFollowLocalOffset(this.officialActors.length, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
+      npc.respawnEnabled = false
+      if (restore || !fighting.has(id)) {
+        if (!authority.members?.[id]?.order || authority.members[id].order === 'attack') npc.setTacticalOrder('attack')
+        else if (authority.members[id].order === 'follow') npc.assignFollowTarget(this.player(), this.officialActors.length,
+          officialFollowLocalOffset(this.officialActors.length, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
+      }
       this.officialActors.push(npc)
     }
     this.missionId = active.id
@@ -109,6 +139,7 @@ export class CaptainPatrolCommandController {
     for (const npc of this.officialActors) this.tracker.registerNpc(npc, true)
     for (const npc of this.options.personalActors?.() ?? []) this.tracker.registerNpc(npc, true)
     if (active.result) this.tracker.freeze()
+    if (active.phase === 'RETURNING') this.returnOfficialSquad(true)
     return true
   }
 
@@ -143,7 +174,7 @@ export class CaptainPatrolCommandController {
   }
 
   update(dt: number): void {
-    if (!this.ready || this.active?.result) return
+    if (!this.ready || this.active?.result && this.active.phase !== 'RETURNING') return
     this.saveElapsed += Math.max(0, dt)
     if (this.saveElapsed >= 1) { this.saveElapsed = 0; this.persist() }
   }
@@ -166,6 +197,8 @@ export class CaptainPatrolCommandController {
       const resident = this.residentsById.get(id)!
       return [id, snapshotCommandActor(resident.npc, resident.homeMount)]
     }))
+    if (active.phase === 'RETURNING') next.patrolReturnStates = Object.fromEntries(next.officialSquad.actorIds.map(id =>
+      [id, this.patrol.returnStateFor(id) ?? 'REJOIN_PATROL']))
     const official = this.tracker?.officialCommandCheckpoint(), personal = this.tracker?.commandCheckpoint()
     if (official) next.officialSquad.contribution = official
     if (personal && next.personalSquad) next.personalSquad = { ...next.personalSquad, contribution: personal }
@@ -173,21 +206,46 @@ export class CaptainPatrolCommandController {
   }
   persist(force = false): boolean {
     const saved = this.checkpoint(), current = this.active
-    if (!saved || !current || current.result) return false
+    if (!saved || !current || current.result && current.phase !== 'RETURNING') return false
     if (!force && JSON.stringify(saved) === JSON.stringify(current)) return true
     const next = cloneCareerProfile(this.read()); next.activeMission = saved
     return this.commit(next)
   }
 
+  startReturning(): boolean {
+    const active = this.active
+    if (!active?.result || active.result.outcome !== 'victory' || this.player().dead) return false
+    if (active.phase === 'RETURNING') return true
+    const next = cloneCareerProfile(this.read())
+    next.activeMission = { ...this.checkpoint()!, phase: 'RETURNING',
+      patrolReturnStates: Object.fromEntries(active.officialSquad!.actorIds.map(id => [id, 'RETURN_TO_BARRACKS' as const])) }
+    if (!this.commit(next)) return false
+    this.returnOfficialSquad(false)
+    this.persist(true)
+    return true
+  }
+
+  private returnOfficialSquad(restore: boolean): void {
+    for (const npc of this.officialActors) {
+      npc.combatOwnership = undefined; npc.setCommandSquad(this.previousSquads.get(npc.combatantId)); npc.setTownPeaceful()
+      const state = restore ? this.active?.patrolReturnStates?.[npc.combatantId] : undefined
+      if (state) this.patrol.restoreMissionReturn(npc.combatantId, state)
+      else this.patrol.beginMissionReturn(npc.combatantId)
+    }
+    this.returned = true
+  }
+
   /** Invoke after settlement/cancellation is saved. Autonomous ownership resumes through physical refit. */
   release(): void {
     this.tracker?.dispose(); this.tracker = undefined
-    const ids = this.officialActors.map(npc => npc.combatantId)
-    for (const npc of this.officialActors) {
-      npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
-      npc.setCommandSquad(this.previousSquads.get(npc.combatantId)); npc.setTownPeaceful()
+    if (!this.returned) {
+      const ids = this.officialActors.map(npc => npc.combatantId)
+      for (const npc of this.officialActors) {
+        npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
+        npc.setCommandSquad(this.previousSquads.get(npc.combatantId)); npc.setTownPeaceful()
+      }
+      this.patrol.returnSquad(ids)
     }
-    this.patrol.returnSquad(ids)
     this.officialActors.length = 0; this.previousSquads.clear(); this.missionId = undefined
   }
   dispose(): void { this.tracker?.dispose(); this.tracker = undefined }

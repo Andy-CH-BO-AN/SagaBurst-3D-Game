@@ -453,6 +453,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.patrolOutskirts ? { patrolOutskirts: structuredClone(profile.activeMission.patrolOutskirts) } : {}),
       ...(profile.activeMission.patrolAmbient ? { patrolAmbient: cloneOfficialCommandAuthority(profile.activeMission.patrolAmbient) } : {}),
       ...(profile.activeMission.patrolKilledActorIds ? { patrolKilledActorIds: [...profile.activeMission.patrolKilledActorIds] } : {}),
+      ...(profile.activeMission.patrolReturnStates ? { patrolReturnStates: { ...profile.activeMission.patrolReturnStates } } : {}),
       ...(profile.activeMission.battle ? { battle: structuredClone(profile.activeMission.battle) } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),
       ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
