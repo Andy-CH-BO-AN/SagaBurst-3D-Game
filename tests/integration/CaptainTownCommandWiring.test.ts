@@ -69,4 +69,23 @@ describe('Captain TownScene saved command handover', () => {
     expect(loyal.beginTownHostility).not.toHaveBeenCalled(); expect(guard.beginTownHostility).toHaveBeenCalledOnce()
     expect(event.evaluate(false)).toBe('town_defeated')
   })
+
+  it('hides stale command controls on Player death and restores live updates on re-entry', () => {
+    const setEnabled = vi.fn(), close = vi.fn(), update = vi.fn(() => false)
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile: createCareerProfile('roman'), player: { dead: true }, spectator: null,
+      commandActors: [], residents: [], world: { faction: 'roman' },
+      townCommand: { commandsEnabled: true },
+      personalCommands: { isSubmenuOpen: true, isFormationPlacementMode: false, close, update },
+      personalCommandUI: { setEnabled, setOfficialSquadLabel: vi.fn() },
+    }) as { updatePlayerCommands(): void; player: { dead: boolean } }
+    town.updatePlayerCommands()
+    expect(close).toHaveBeenCalledOnce()
+    expect(setEnabled).toHaveBeenCalledWith(false)
+    expect(update).not.toHaveBeenCalled()
+
+    town.player.dead = false
+    town.updatePlayerCommands()
+    expect(update).toHaveBeenCalledOnce()
+  })
 })

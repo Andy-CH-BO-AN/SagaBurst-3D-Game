@@ -231,4 +231,46 @@ describe('Captain battlefield Game callers', () => {
     expect(npc).toMatchObject({ hp: 18, combatAmmo: 2, squadId: 2, tacticalOrder: 'charge', mount: { currentHp: 31 } })
     expect(batch).toEqual([])
   })
+
+  it('stops command HUD refresh in spectator mode, then resumes after Player control returns', () => {
+    const h = fixture()
+    const setEnabled = vi.fn(), update = vi.fn(() => false)
+    Object.assign(h.game, {
+      armyCommandUI: { setEnabled },
+      armyCommandController: { update },
+      equipmentUI: { visible: false },
+      isModelStudio: false,
+    })
+    const input = h.game as unknown as { _updatePlayerInputOwnership(): void; controlMode: 'player' | 'spectator'; player: { dead: boolean } }
+    input.player.dead = true; input.controlMode = 'spectator'
+    input._updatePlayerInputOwnership()
+    expect(setEnabled).toHaveBeenCalledWith(false)
+    expect(update).not.toHaveBeenCalled()
+    input.player.dead = false; input.controlMode = 'player'
+    input._updatePlayerInputOwnership()
+    expect(update).toHaveBeenCalledOnce()
+    // Result overlays must not reactivate command input on the next living frame.
+    Object.assign(h.game, { captainResultPending: 'victory' })
+    input._updatePlayerInputOwnership()
+    expect(setEnabled).toHaveBeenLastCalledWith(false)
+    expect(update).toHaveBeenCalledOnce()
+    Object.assign(h.game, { captainResultPending: undefined, defenseCampaignConfig: { careerMissionId: 'outpost' },
+      defenseCampaignRuntime: { getSnapshot: () => ({ battleFinished: true }) } })
+    input._updatePlayerInputOwnership()
+    expect(setEnabled).toHaveBeenLastCalledWith(false)
+    expect(update).toHaveBeenCalledOnce()
+  })
+
+  it('renders the accepted Captain eagle roster as pending before any real NPC is built', () => {
+    const h = fixture(), plan = createCaptainEagleSpawnPlan(h.game.careerProfile)
+    h.game._declareCaptainEagleRoster(plan); h.game._queueCaptainEagleRoster(plan)
+    h.game._updateCaptainBattle(0)
+    const counts = h.hud.update.mock.lastCall?.[5] as {
+      official: { total: number; alive: number; pending: number }
+      personal: { total: number; alive: number; pending: number }
+    }
+    expect(counts.official).toMatchObject({ total: 29, alive: 0, pending: 29 })
+    expect(counts.personal).toMatchObject({ total: 0, alive: 0, pending: 0 })
+    expect(recording.npcs).toHaveLength(0)
+  })
 })

@@ -145,6 +145,9 @@ import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { ArmyCommandController, type ArmyCommandAuthority } from './battle/ArmyCommandController'
 import { matchesArmyCommandTarget } from './battle/CommandTarget'
+import { countArmyHudRoster } from './battle/ArmyCommandHudRoster'
+import { careerCommandHudRoster } from './career/CareerCommandHudRoster'
+import type { PersonalSquadMission } from './career/CareerPersonalSquadMission'
 import { officialFollowLocalOffset } from './battle/FollowOrder'
 import { FormationController } from './battle/FormationController'
 import {
@@ -1178,6 +1181,7 @@ export class Game {
         issue: order => order === 'follow' ? this.personalSquad!.follow() : this.personalSquad!.dismiss(),
       } : undefined,
       this.captainCheckpoint ? this._captainCommandAuthority() : undefined,
+      this.careerProfile && (this.captainCheckpoint || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
     )
 
 
@@ -1984,6 +1988,34 @@ export class Game {
       ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
   }
 
+  /** Only this battle's saved permission and actual NPCs contribute to command counts. */
+  private _careerCommandHudRoster() {
+    const profile = this.careerProfile
+    if (!profile) return undefined
+    const mission = profile.activeMission ?? profile.activeOutpostMission
+    const current = profile.activeMission
+    const official = current?.officialSquad?.type === 'mission-official'
+      && current.officialSquad.missionId === current.id ? current.officialSquad : undefined
+    const accepted = mission?.personalSquad
+    const live = this.personalSquad?.hudMission
+    const sameRoster = Boolean(accepted && live
+      && accepted.memberIds.length === live.memberIds.length
+      && accepted.memberIds.every((id, index) => id === live.memberIds[index]))
+    const personal: PersonalSquadMission | undefined = accepted
+      ? sameRoster ? { ...accepted, members: live!.members } : accepted : undefined
+    return careerCommandHudRoster({
+      sceneKey: this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
+      faction: profile.faction,
+      ...(mission ? { missionId: mission.id } : {}),
+      official,
+      officialPending: Boolean(official && this.captainEagleSpawnBatch && !this.captainEagleSpawnBatch.ready
+        && !this.spawningStopped),
+      personal,
+      personalPendingIds: this.personalSquad?.hudPendingIds,
+      actors: this.npcs,
+    })
+  }
+
   private _captainCommandAuthority(): ArmyCommandAuthority {
     return {
       accepts: npc => this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) === true
@@ -2186,7 +2218,13 @@ export class Game {
     const enemyAlive = this.npcs.filter(npc => !npc.dead && enemyIds.has(npc.combatantId)).length
     const pending = this.captainEagleSpawnBatch?.pending ?? 0
     const ready = this.captainEagleSpawnBatch?.ready === true && (!this.personalSquad || this.personalSquad.ready)
-    this.captainEagleHud?.update(ready, officialAlive, this.personalSquad?.aliveCombatants ?? 0, enemyAlive, pending)
+    const roster = this._careerCommandHudRoster()
+    const officialCounts = roster && countArmyHudRoster(roster, 'squad:1')
+    const personalCounts = roster && countArmyHudRoster(roster, 'squad:personal')
+    this.captainEagleHud?.update(ready, officialCounts?.alive ?? officialAlive,
+      personalCounts?.alive ?? this.personalSquad?.aliveCombatants ?? 0, enemyAlive,
+      pending + (personalCounts?.pending ?? 0),
+      officialCounts && personalCounts ? { official: officialCounts, personal: personalCounts } : undefined)
     if (!ready) return
     if (this.captainResultPending) return
     if (mission.result) {
@@ -2203,6 +2241,7 @@ export class Game {
   }
 
   private _showCaptainEagleResult(outcome: 'victory' | 'failure'): void {
+    this.armyCommandUI?.setEnabled(false)
     this.captainResultPending = outcome
     this.battleStats.freeze()
     const stats = this.careerResultStats ??= this.battleStats.snapshot(this.npcs, this.player)
@@ -2752,6 +2791,7 @@ export class Game {
     allowObserve = false,
   ): void {
     if (!this.defenseCampaignHud) return
+    if (this.defenseCampaignConfig?.careerMissionId) this.armyCommandUI?.setEnabled(false)
     const campaign = this.defenseCampaignConfig
     const onNext = result === 'victory' && campaign && !campaign.careerMissionId && campaign.stageId < 9
       ? () => this._returnToNextDefenseCampaignSetup()
@@ -3152,12 +3192,15 @@ export class Game {
   }
 
   private _updatePlayerInputOwnership(): void {
+    const careerEnded = Boolean(this.captainResultPending || this.careerProfile?.activeMission?.result
+      || this.defenseCampaignConfig?.careerMissionId && this.defenseCampaignRuntime?.getSnapshot().battleFinished)
+    if (this.player.dead || this.controlMode !== 'player' || careerEnded) this.armyCommandUI?.setEnabled(false)
     if (this.equipmentUI.visible) {
       this.input.clear()
       this.player.clearTownAction()
       return
     }
-    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player'
+    if (!this.isModelStudio && !this.player.dead && this.controlMode === 'player' && !careerEnded
       && this.armyCommandController.update()) this.player.clearTownAction()
   }
 
@@ -3410,6 +3453,7 @@ export class Game {
     this.input.clear()
     this.player.clearTownAction()
     this.armyCommandController.close()
+    this.armyCommandUI?.setEnabled(false)
     this.controlMode = 'spectator'
     this._spectatorReason = reason
     this.careerOutpostDefenseGuide?.hide()
