@@ -2,11 +2,21 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
 import { advanceUntil } from '../helpers/simulation'
+import { isEaglePadArrived } from '../../src/world/EaglePadArrival'
 
 function airborne(speed = 48 / 3.6) {
   const flight = new EagleFlightController()
   flight.restore({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed, velocity: { x: 0, y: 0, z: speed } })
   return { flight, position: new THREE.Vector3(0, 30, 0), rotation: new THREE.Euler() }
+}
+
+function reachGrounded(flight: EagleFlightController, position: THREE.Vector3, step: () => void,
+  maxFrames: number, scenario: string): void {
+  try {
+    advanceUntil(() => flight.phase === 'grounded', step, { maxFrames, failureMessage: scenario })
+  } catch (error) {
+    throw new Error(`${scenario}: ${JSON.stringify({ position, flight: flight.snapshot() })}`, { cause: error })
+  }
 }
 
 describe('Fixed-wing shared flight controller (zero actors)', () => {
@@ -50,6 +60,22 @@ describe('Fixed-wing shared flight controller (zero actors)', () => {
     expect(position.y).toBe(0)
     expect(flight.speed).toBe(0)
   })
+  it('continues a 4.5m assigned-pad touchdown until it is stopped within 2m, without snapping horizontally', () => {
+    const { flight, position, rotation } = airborne(7)
+    position.set(0, .02, -4.5)
+    const pad = { x: 0, z: 0, yaw: 0 }
+    flight.setIntent({ yaw: 0, pitch: 0, brake: true, landingTarget: pad })
+    flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+    expect(flight.phase).toBe('landing')
+    const previous = position.clone()
+    reachGrounded(flight, position, () => {
+      previous.copy(position)
+      flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+      expect(Math.hypot(position.x - previous.x, position.z - previous.z)).toBeLessThanOrEqual(7 / 60 + .001)
+    }, 600, 'Capture radius is not the completed pad arrival')
+    expect(position.distanceTo(new THREE.Vector3())).toBeLessThan(2)
+    expect(isEaglePadArrived({ position, flight, pad, groundHeight: 0, clear: true })).toBe(true)
+  })
   it('sweeps a thin wall during a low-FPS sprint without crossing its solid volume', () => {
     const { flight, position, rotation } = airborne(96 / 3.6)
     flight.setIntent({ yaw: 0, pitch: 0, sprint: true })
@@ -81,6 +107,21 @@ describe('Fixed-wing shared flight controller (zero actors)', () => {
     expect(flight.canLand(position, [], (x, z) => x > 5 && z > 5 ? 4 : 0)).toBe(false)
     position.x = 299
     expect(flight.canLand(position, [], () => 0, 300)).toBe(false)
+  })
+})
+
+describe('Shared assigned eagle-pad arrival (zero actors)', () => {
+  it.each([
+    ['outside radius', { x: 3, y: 0, z: 0 }, 'grounded', 0, 0, true, 0],
+    ['above terrain', { x: 0, y: .06, z: 0 }, 'grounded', 0, 0, true, 0],
+    ['airborne phase', { x: 0, y: 0, z: 0 }, 'landing', 0, 0, true, 0],
+    ['moving', { x: 0, y: 0, z: 0 }, 'grounded', .1, 0, true, 0],
+    ['residual velocity', { x: 0, y: 0, z: 0 }, 'grounded', 0, 0, true, .1],
+    ['wrong heading', { x: 0, y: 0, z: 0 }, 'grounded', 0, Math.PI, true, 0],
+    ['blocked footprint', { x: 0, y: 0, z: 0 }, 'grounded', 0, 0, false, 0],
+  ] as const)('does not complete %s', (_scenario, position, phase, speed, yaw, clear, velocityX) => {
+    expect(isEaglePadArrived({ position, flight: { phase, speed, yaw, velocity: { x: velocityX, y: 0, z: 0 } },
+      pad: { x: 0, z: 0, yaw: 0 }, groundHeight: 0, clear })).toBe(false)
   })
 })
 
@@ -258,17 +299,78 @@ describe('Eagle tactical safety aborts (zero actors)', () => {
   })
 })
 
-it('lands at a legal edge pad using the reciprocal in-bounds approach without boundary steering pushing it away', () => {
+it('lands at a legal edge pad along its authored in-bounds approach without boundary steering pushing it away', () => {
+  const { flight, position, rotation } = airborne()
+  position.set(190, 30, 50)
+  const ai = new EagleFlightAI(), destination = new THREE.Vector3(280, 0, 50)
+  const command: EagleFlightCommand = { kind: 'return', destination, landingYaw: Math.PI / 2 }
+  reachGrounded(flight, position, () => {
+    flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+    flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+  }, 7200, 'Authored edge-pad landing')
+  expect(flight.phase, JSON.stringify({ position, state: flight.snapshot() })).toBe('grounded')
+  expect(position.distanceTo(destination)).toBeLessThan(3)
+  expect(Math.abs(Math.atan2(Math.sin(flight.yaw - Math.PI / 2), Math.cos(flight.yaw - Math.PI / 2)))).toBeLessThan(.3)
+})
+
+it('keeps flying when the authored edge-pad corridor is outside the map instead of reversing the parked heading', () => {
   const { flight, position, rotation } = airborne()
   position.set(190, 30, 50)
   const ai = new EagleFlightAI(), destination = new THREE.Vector3(280, 0, 50)
   const command: EagleFlightCommand = { kind: 'return', destination, landingYaw: -Math.PI / 2 }
-  advanceUntil(() => flight.phase === 'grounded', () => {
+  for (let frame = 0; frame < 7200; frame++) {
     flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
     flight.update(position, rotation, 1 / 60, [], 300, () => 0)
-  }, { maxFrames: 7200, failureMessage: 'Reciprocal edge-pad landing' })
-  expect(flight.phase, JSON.stringify({ position, state: flight.snapshot() })).toBe('grounded')
-  expect(position.distanceTo(destination)).toBeLessThan(3)
+    expect(flight.phase).not.toBe('grounded')
+  }
+  expect(position.y).toBeGreaterThan(20)
+})
+
+it('re-enters the authored approach after loading an overshot low landing instead of stopping beyond its pad', () => {
+  const { flight, position, rotation } = airborne(7)
+  flight.restore({ ...flight.snapshot(), phase: 'landing' })
+  position.set(0, 1, 8)
+  const ai = new EagleFlightAI(), destination = new THREE.Vector3()
+  const command: EagleFlightCommand = { kind: 'return', destination, landingYaw: 0 }
+  let restaged = false
+  reachGrounded(flight, position, () => {
+    flight.setIntent(ai.update(1 / 60, flight, position, command, [], [], 300, () => 0))
+    flight.update(position, rotation, 1 / 60, [], 300, () => 0)
+    restaged ||= position.z < -40 && position.y > 20
+  }, 7200, 'Re-entry after an overshot saved landing')
+  expect(restaged).toBe(true)
+  expect(isEaglePadArrived({ position, flight, pad: { x: 0, z: 0, yaw: 0 }, groundHeight: 0, clear: true })).toBe(true)
+})
+
+it.each([20, 40])('returns from %sm cruise above an earlier parked eagle and wall, then lands within 2m without phase cycling', cruiseAltitude => {
+  const { flight, position, rotation } = airborne()
+  position.set(25, cruiseAltitude, -140)
+  const ai = new EagleFlightAI(); ai.setCruiseAltitude(cruiseAltitude)
+  const destination = new THREE.Vector3(), pad = { x: 0, z: 0, yaw: 0 }
+  const command: EagleFlightCommand = { kind: 'return', destination, landingYaw: 0 }
+  const parkedEagle = { box: new THREE.Box3(new THREE.Vector3(-12, .2, -57), new THREE.Vector3(12, 14.5, -43)), isBarricade: false }
+  const wall = { box: new THREE.Box3(new THREE.Vector3(-130, 0, -40.1), new THREE.Vector3(130, 12, -39.9)), isBarricade: false }
+  const obstacles = [parkedEagle, wall]
+  let crossedEagle = false, crossedWall = false, landingEntries = 0
+  reachGrounded(flight, position, () => {
+    const previousPhase = flight.phase, previousZ = position.z
+    flight.setIntent(ai.update(1 / 60, flight, position, command, [], obstacles, 300, () => 0))
+    flight.update(position, rotation, 1 / 60, obstacles, 300, () => 0)
+    if (Math.abs(position.x) < 12 && position.z >= -57 && position.z <= -43) {
+      crossedEagle = true
+      expect(position.y, '14.5m resting envelope + 7.46m downstroke + 2m tracking clearance').toBeGreaterThan(23.96)
+    }
+    if (previousZ < -40 && position.z >= -40 && Math.abs(position.x) < 130) {
+      crossedWall = true
+      expect(position.y, '12m wall + 7.46m downstroke + 2m tracking clearance').toBeGreaterThan(21.46)
+    }
+    if (previousPhase !== 'landing' && flight.phase === 'landing') landingEntries++
+    if (previousPhase === 'landing') expect(flight.phase).not.toBe('cruise')
+  }, 7200, `Parked eagle and city-wall approach at cruise=${cruiseAltitude}`)
+  expect(crossedEagle).toBe(true); expect(crossedWall).toBe(true)
+  expect(landingEntries).toBe(1)
+  expect(position.distanceTo(destination)).toBeLessThan(2)
+  expect(isEaglePadArrived({ position, flight, pad, groundHeight: 0, clear: true })).toBe(true)
 })
 
 it('rebuilds an outward dive stage on the in-bounds side of an edge target and reaches the attack window', () => {

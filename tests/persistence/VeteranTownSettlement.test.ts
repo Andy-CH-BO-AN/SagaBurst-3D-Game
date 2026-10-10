@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { townPlayerEntryPoint } from '../../src/town/TownRules'
+import { getTerrainHeight } from '../../src/world/Terrain'
 
 function fixture(result = true, liveSkills?: CareerProfile['skills']) {
   let profile = createCareerProfile('roman')
@@ -47,8 +49,9 @@ describe('Veteran field return through existing Career settlement', () => {
     expect(f.profile().totalMerit).toBe(before.totalMerit)
     expect(f.profile().lifetimeStats).toEqual(before.lifetimeStats)
     expect(f.town.restPlayer).toHaveBeenCalledOnce()
-    expect(f.town.player.group.position.x).toBe(0)
-    expect(f.town.player.group.position.z).toBe(9)
+    const entry = townPlayerEntryPoint()
+    expect(f.town.player.group.position).toEqual(new THREE.Vector3(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z))
+    expect(f.town.player.group.rotation.y).toBe(entry.yaw)
   })
 
   it.each(['failure', 'victory'] as const)('restores nonborrowed Town casualties and services after %s is cleared', outcome => {
@@ -97,9 +100,10 @@ describe('Veteran field return through existing Career settlement', () => {
     expect(f.profile().activeMission).toBeUndefined()
   })
 
-  it('restores borrowed residents and home mounts in place after a result, without touching bystanders', () => {
+  it.each(['direct', 'arrived'] as const)('returns to the shared Town entry on %s after a result while restoring borrowed residents and home mounts without touching bystanders', intent => {
     const f = fixture()
-    expect(f.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })
+    f.town.player.group.position.set(400, 1, 400)
+    expect(f.settlement.returnToTown(intent)).toEqual({ status: 'returned', kind: 'party' })
     expect(f.profile().activeMission).toBeUndefined()
     expect(f.field.cleanupMission).toHaveBeenCalledExactlyOnceWith(0, true)
     expect(f.npc.restoreForTown).toHaveBeenCalledOnce()
@@ -109,6 +113,9 @@ describe('Veteran field return through existing Career settlement', () => {
     expect(f.town.clearCombatShots).toHaveBeenCalledOnce()
     expect(f.town.restPlayer).toHaveBeenCalledOnce()
     expect(f.town.restart).not.toHaveBeenCalled()
+    const entry = townPlayerEntryPoint()
+    expect(f.town.player.group.position).toEqual(new THREE.Vector3(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z))
+    expect(f.town.player.group.rotation.y).toBe(entry.yaw)
   })
   it('cannot abandon or settle an unfinished Veteran battle through direct return', () => {
     const f = fixture(false)

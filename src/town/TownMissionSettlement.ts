@@ -8,7 +8,7 @@ import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
-import { townSitePoint, type TownActorSpec } from './TownRules'
+import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
@@ -173,9 +173,16 @@ export class TownMissionSettlement {
       this.town.world.restoreTownDamage()
       this.town.navigation.sync(this.town.world.obstacles)
     }
-    if (captainPatrol && intent === 'direct') this.town.player.resetForScene(0, getTerrainHeight(0, 9) + .9, 9)
+    const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
+    if (captainPatrol && intent === 'direct') {
+      this.town.player.resetForScene(entry.x, entryY, entry.z)
+      this.town.player.group.rotation.y = entry.yaw
+    }
     this.town.restPlayer()
-    if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) this.town.player.group.position.set(0, getTerrainHeight(0, 9) + .9, 9)
+    if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) {
+      this.town.player.group.position.set(entry.x, entryY, entry.z)
+      this.town.player.group.rotation.y = entry.yaw
+    }
     return { status: 'returned', kind: defense ? 'defense' : active.kind === 'cavalry-sweep' ? 'sweep' : 'party' }
   }
 

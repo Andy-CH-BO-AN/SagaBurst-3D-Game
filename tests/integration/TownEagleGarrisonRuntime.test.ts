@@ -15,12 +15,13 @@ import type { TownEagleGarrisonState } from '../../src/town/TownEagleGarrisonSta
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { advanceUntil } from '../helpers/simulation'
+import { EagleLandingQueue } from '../../src/world/EagleLandingQueue'
 
 vi.mock('../../src/world/XongkoroVisual', async () => ({ XongkoroVisual: (await import('../helpers/gameplayEagleVisual')).GameplayEagleVisualDouble }))
 vi.mock('../../src/world/Terrain', async original => ({ ...(await original<typeof import('../../src/world/Terrain')>()), getTerrainHeight: () => 0 }))
 
 /** One real rider/eagle, one non-targetable Player for the normal combat caller; zero GLBs/TownWorlds. */
-function fixture() {
+function fixture(landingQueue?: EagleLandingQueue) {
   const scene = new THREE.Scene(), spec = townEagleRoster({ pads: [{ id: 'town-eagle-pad:1', x: 0, z: 0, yaw: 0 }] })[0]
   const gear = townMilitaryEquipment('viking', spec)
   const npc = new NPC(scene, spec.x, spec.z, Faction.TOWN, 'viking', AIType.RANGED, 'Town eagle archer', 3, false, gear.loadout, gear.presetId, undefined, spec.id)
@@ -28,11 +29,12 @@ function fixture() {
   player.spectatorOnly = true
   npc.setTownPeaceful(); mount.reservedForTown = true
   onTestFinished(() => { npc.dispose(); mount.dispose(); player.dispose() })
-  const runtime = new TownEagleGarrisonController([{ spec, npc, homeMount: mount }]), navigation = new NavigationWorld()
+  const runtime = new TownEagleGarrisonController([{ spec, npc, homeMount: mount }], landingQueue), navigation = new NavigationWorld()
   navigation.sync([])
   const targets: NPC[] = [], shots: THREE.Vector3[] = []
   const step = (combat: boolean) => {
     navigation.beginFrame(); runtime.beginFrame(1 / 60)
+    landingQueue?.beginFrame(1 / 60)
     const handled = runtime.update(npc, 1 / 60, combat, new THREE.Vector3(0, 20, 0), [], navigation, [], [mount])
     if (!handled) npc.update(1 / 60, player, [npc, ...targets], [], [], { setFill() {} }, () => {}, origin => { shots.push(origin.clone()) }, false, 30, null, null, navigation)
     if (mount.dead || !mount.riderNpc) mount.update(1 / 60, [])
@@ -138,7 +140,8 @@ describe('Town eagle physical duty caller', () => {
     expect(replacement.npc.mount).toBeNull()
   })
   it('stands beside a grounded reserved eagle, walks to mount, climbs, returns to its pad and walks back without teleporting', () => {
-    const { runtime, npc, mount, spec, step, report, scene, targets, shots } = fixture()
+    const queue = new EagleLandingQueue()
+    const { runtime, npc, mount, spec, step, report, scene, targets, shots } = fixture(queue)
     for (let frame = 0; frame < 60; frame++) step(false)
     expect(npc.mount).toBeNull(); expect(mount.isAirborne).toBe(false)
     expect(mount.availableForPlayer).toBe(false)
@@ -148,8 +151,13 @@ describe('Town eagle physical duty caller', () => {
     expect(npc.mount).toBeNull(); expect(npc.group.position.distanceTo(start)).toBeGreaterThan(0); expect(npc.group.position.distanceTo(mount.group.position)).toBeGreaterThan(2.4)
     advanceUntil(() => mount.isAirborne && mount.group.position.y >= 19, () => step(true), { maxSimulationSeconds: 30, failureMessage: 'Town eagle walk/mount/climb' })
     expect(npc.mount).toBe(mount); expect(npc.hasActiveRangedWeapon).toBe(true)
+    expect(queue.request('personal:landing')).toBe(true)
     const airborne = mount.group.position.clone(); step(false)
-    expect(runtime.dutyFor(npc)).toBe('returning'); expect(mount.group.position.distanceTo(airborne)).toBeLessThan(1)
+    expect(runtime.dutyFor(npc)).toBe('return-queue'); expect(mount.group.position.distanceTo(airborne)).toBeLessThan(1)
+    queue.release('personal:landing')
+    advanceUntil(() => runtime.dutyFor(npc) === 'returning', () => step(false), {
+      maxSimulationSeconds: 5, failureMessage: 'Town caller waits for private final approach clearance',
+    })
     const enemy = new NPC(scene, mount.group.position.x, mount.group.position.z + 60, Faction.ENEMY, 'roman', AIType.MELEE, 'New legal threat', 1, false)
     onTestFinished(() => enemy.dispose()); targets.push(enemy)
     npc.beginExternalThreat(); step(true)
@@ -170,5 +178,7 @@ describe('Town eagle physical duty caller', () => {
     expect(npc.mount).toBeNull(); expect(mount.isAirborne).toBe(false)
     expect(Math.hypot(mount.group.position.x, mount.group.position.z)).toBeLessThan(3)
     expect(Math.hypot(npc.group.position.x - spec.x, npc.group.position.z - spec.z)).toBeLessThan(1)
+    queue.beginFrame(3)
+    expect(queue.request('personal:next')).toBe(true)
   })
 })

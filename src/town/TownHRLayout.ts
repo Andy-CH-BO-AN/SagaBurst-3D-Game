@@ -1,8 +1,8 @@
 import { townEagleRoster, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { eagleTrainerSpec, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import * as THREE from 'three'
-import { TOWN_CITY, TOWN_CAVALRY_FIELD, type TownRoad } from './TownLayout'
-import { TOWN_SITES, townRoster, type TownActorSpec } from './TownRules'
+import { TOWN_CITY, TOWN_CAVALRY_FIELD, TOWN_HR_REGION, townRoadIntersectsBox, type TownRoad } from './TownLayout'
+import { townRoster, type TownActorSpec } from './TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { ObstacleData } from '../world/Terrain'
 
@@ -21,40 +21,37 @@ function footprint(site: TownHRLayout['site'], width: number, depth: number): TH
   return new THREE.Box3(new THREE.Vector3(-width / 2, -100, -depth / 2), new THREE.Vector3(width / 2, 100, depth / 2))
     .applyMatrix4(new THREE.Matrix4().makeRotationY(site.yaw)).translate(new THREE.Vector3(site.x, 0, site.z))
 }
-/** Search the rear of the stable using actual built obstacles and all rendered road segments.
+/** Search the authored western district using actual built obstacles and road segments.
  * The full mounted courtyard is reserved even when buying only infantry. No fallback to blocked slots.
  */
 export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readonly ObstacleData[], roads: readonly TownRoad[]): TownHRLayout {
-  const stable = TOWN_SITES.stable
   const width = faction === 'roman' ? 16 : 13, depth = faction === 'roman' ? 13 : 22
   const cavalry = new THREE.Box3(new THREE.Vector3(TOWN_CAVALRY_FIELD.minX, -100, TOWN_CAVALRY_FIELD.minZ),
     new THREE.Vector3(TOWN_CAVALRY_FIELD.maxX, 100, TOWN_CAVALRY_FIELD.maxZ))
+  const residents = townRoster()
   const clear = (box: THREE.Box3) => {
     if (box.min.x < TOWN_CITY.minX + 5 || box.max.x > TOWN_CITY.maxX - 5
       || box.min.z < TOWN_CITY.minZ + 5 || box.max.z > TOWN_CITY.maxZ - 5 || cavalry.intersectsBox(box)) return false
     if (obstacles.some(obstacle => obstacle.box.intersectsBox(box))) return false
-    return !roads.some(road => {
-      const roadBox = new THREE.Box3(new THREE.Vector3(Math.min(road.ax, road.bx) - road.width / 2 - 1, -100, Math.min(road.az, road.bz) - road.width / 2 - 1),
-        new THREE.Vector3(Math.max(road.ax, road.bx) + road.width / 2 + 1, 100, Math.max(road.az, road.bz) + road.width / 2 + 1))
-      return box.intersectsBox(roadBox)
-    })
+    if (residents.some(actor => box.intersectsBox(new THREE.Box3(
+      new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6))))) return false
+    return !roads.some(road => townRoadIntersectsBox(road, box, 1))
   }
-  // Rear distance is measured in the Horse Shop's local forward frame, not world-axis guesses.
-  for (let rear = depth / 2 + 12; rear < TOWN_CITY.maxX - TOWN_CITY.minX; rear += 3) {
-    for (let offset = 0; offset <= TOWN_CITY.maxZ - TOWN_CITY.minZ; offset += 3) for (const side of offset ? [offset, -offset] : [0]) {
-      const site = point(stable, side, -rear)
-      if (!clear(footprint(site, width + 4, depth + 6))) continue
-      const officer = point(site, 0, depth / 2 + 4)
-      if (!clear(footprint(officer, 4, 4))) continue
-      for (const courtyardSide of [1, -1]) {
-        const muster = Array.from({ length: 30 }, (_, i) => point(site,
-          courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
-        const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
-        if (clear(area)) return { site, width, depth, officer, muster }
-      }
+  const sites = [{ x: -85, z: 25, yaw: TOWN_HR_REGION.yaw }]
+  for (let z = TOWN_HR_REGION.minZ; z <= TOWN_HR_REGION.maxZ; z += 3)
+    for (let x = TOWN_HR_REGION.minX; x <= TOWN_HR_REGION.maxX; x += 3) sites.push({ x, z, yaw: TOWN_HR_REGION.yaw })
+  for (const site of sites) {
+    if (!clear(footprint(site, width + 4, depth + 6))) continue
+    const officer = point(site, 0, depth / 2 + 4)
+    if (!clear(footprint(officer, 4, 4))) continue
+    for (const courtyardSide of [1, -1]) {
+      const muster = Array.from({ length: 30 }, (_, i) => point(site,
+        courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
+      const area = new THREE.Box3().setFromPoints(muster.map(p => new THREE.Vector3(p.x, 0, p.z))).expandByVector(new THREE.Vector3(2.2, 100, 2.2))
+      if (clear(area)) return { site, width, depth, officer, muster }
     }
   }
-  throw new Error('No walkable HR Center and mounted courtyard behind Horse Shop')
+  throw new Error('No walkable HR Center and mounted courtyard in the western district')
 }
 export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
   return { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,

@@ -3,10 +3,14 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { isEagleLandingClear } from '../world/EagleLanding'
+import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
+import { isEaglePadArrived } from '../world/EaglePadArrival'
+import { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownActorSpec } from './TownRules'
 import type { TownEagleDuty, TownEagleGarrisonState } from './TownEagleGarrisonState'
+import { TOWN_LAYOUT_VERSION } from './TownLayout'
+import { migrateTownEagleGarrisonLayout } from './TownLayoutMigration'
 
 interface Resident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 interface Pair { resident: Resident; duty: TownEagleDuty; refitAllowed: boolean }
@@ -20,8 +24,9 @@ export class TownEagleGarrisonController {
   private readonly pairs = new Map<NPC, Pair>()
   private time = 0
   private nextTakeoff = 0
-  private landingOwner: NPC | null = null
-  constructor(residents: readonly Resident[]) {
+  private readonly landingQueue: EagleLandingQueue
+  constructor(residents: readonly Resident[], private readonly sharedLandingQueue?: EagleLandingQueue) {
+    this.landingQueue = sharedLandingQueue ?? new EagleLandingQueue()
     for (const resident of residents) if (resident.spec.eagle && resident.homeMount) {
       this.pairs.set(resident.npc, { resident, duty: 'standby', refitAllowed: false })
       resident.npc.setEagleCruiseAltitude(resident.spec.eagle.cruiseAltitude)
@@ -30,7 +35,7 @@ export class TownEagleGarrisonController {
   }
   owns(npc: NPC): boolean { return this.pairs.has(npc) }
   dutyFor(npc: NPC): TownEagleDuty | undefined { return this.pairs.get(npc)?.duty }
-  beginFrame(dt: number): void { this.time += dt }
+  beginFrame(dt: number): void { this.time += dt; if (!this.sharedLandingQueue) this.landingQueue.beginFrame(dt) }
   /** Only called after the existing settlement has saved and authorized Town refit. */
   beginRefit(actorId: string): void {
     const pair = [...this.pairs.values()].find(p => p.resident.spec.id === actorId)
@@ -46,7 +51,7 @@ export class TownEagleGarrisonController {
     const distance = npc.group.position.distanceTo(camera)
     if (npc.dead || mount!.dead) {
       pair.duty = 'casualty'
-      if (this.landingOwner === npc) this.landingOwner = null
+      this.landingQueue.release(spec.id)
       if (!combat && pair.refitAllowed && !npc.isFalling && !mount!.isAirborne) {
         if (!npc.dead && Math.hypot(npc.combatPosition.x - spec.x, npc.combatPosition.z - spec.z) >= 1) {
           const destination = npc.combatFormationCheckpoint?.position
@@ -61,7 +66,7 @@ export class TownEagleGarrisonController {
       return true
     }
     if (combat && (pair.duty === 'standby' || pair.duty === 'walking-to-standby' || pair.duty === 'return-queue' || pair.duty === 'returning')) {
-      if (this.landingOwner === npc) this.landingOwner = null
+      this.landingQueue.release(spec.id)
       pair.refitAllowed = false
       if (npc.mount === mount) {
         pair.duty = mount!.isAirborne ? 'sortie' : 'mounted-waiting'
@@ -100,19 +105,23 @@ export class TownEagleGarrisonController {
     if (pair.duty === 'return-queue' || pair.duty === 'returning') {
       npc.setMissionCombatTarget(null)
       const clear = this.padClear(pair, obstacles, occupied)
-      if (!clear && pair.duty === 'returning' && mount!.isAirborne) {
-        this.landingOwner = null; pair.duty = 'return-queue'
+      const permitted = this.landingQueue.request(spec.id, clear)
+      if (!permitted && pair.duty === 'returning') {
+        pair.duty = 'return-queue'
         npc.setEagleFlightOrder({ kind: 'hold', cruiseAltitude: eagle.cruiseAltitude })
       }
-      if (clear && (!this.landingOwner || this.landingOwner === npc) && pair.duty !== 'returning') {
-        this.landingOwner = npc; pair.duty = 'returning'
+      if (permitted && pair.duty !== 'returning') {
+        pair.duty = 'returning'
         npc.setEagleFlightOrder({ kind: 'return', target: new THREE.Vector3(eagle.home.x, getTerrainHeight(eagle.home.x, eagle.home.z), eagle.home.z), cruiseAltitude: eagle.cruiseAltitude, landingYaw: eagle.home.yaw })
       }
       npc.updateTownTravel(dt, distance, nearby, obstacles, navigation)
-      if (!mount!.isAirborne && Math.hypot(mount!.group.position.x - eagle.home.x, mount!.group.position.z - eagle.home.z) < 3) {
+      if (isEaglePadArrived({ position: mount!.group.position, flight: mount!.flight!, pad: eagle.home,
+        groundHeight: getTerrainHeight(mount!.group.position.x, mount!.group.position.z),
+        clear: clear && this.padClear(pair, obstacles, occupied,
+          { x: mount!.group.position.x, z: mount!.group.position.z, yaw: mount!.flight!.yaw }) })) {
         npc.dismountFromMount()
         if (!npc.mount) {
-          this.landingOwner = null; npc.setEagleFlightOrder(null); pair.duty = 'walking-to-standby'
+          this.landingQueue.complete(spec.id); npc.setEagleFlightOrder(null); pair.duty = 'walking-to-standby'
           this.walk(npc, new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z), spec.yaw ?? 0)
         }
       }
@@ -132,11 +141,9 @@ export class TownEagleGarrisonController {
     npc.updateTownPeace(dt, distance, false, false)
     return true
   }
-  private padClear(pair: Pair, obstacles: ObstacleData[], occupied: readonly Mount[]): boolean {
-    const { spec, homeMount } = pair.resident, home = spec.eagle!.home
-    const ground = getTerrainHeight(home.x, home.z)
-    return isEagleLandingClear(home, obstacles, occupied.filter(other => other !== homeMount && !other.dead
-      && Math.abs(other.group.position.y - ground) < 15).map(other => ({ x: other.group.position.x, z: other.group.position.z, yaw: other.group.rotation.y })), TOWN_PLAYABLE_WORLD_BOUND)
+  private padClear(pair: Pair, obstacles: ObstacleData[], occupied: readonly Mount[],
+    point = pair.resident.spec.eagle!.home): boolean {
+    return isEagleLandingClearOfMounts(point, obstacles, occupied, pair.resident.homeMount, TOWN_PLAYABLE_WORLD_BOUND)
   }
   private walk(npc: NPC, point: THREE.Vector3, yaw: number): void {
     npc.missionMovement = false
@@ -144,7 +151,7 @@ export class TownEagleGarrisonController {
   }
   snapshot(sceneKey: string): TownEagleGarrisonState {
     const position = (group: THREE.Group) => ({ x: group.position.x, y: group.position.y, z: group.position.z, yaw: group.rotation.y })
-    return { version: 1, sceneKey, pairs: [...this.pairs.values()].map(({ resident: { npc, spec, homeMount }, duty, refitAllowed }) => ({
+    return { version: 1, sceneKey, layoutVersion: TOWN_LAYOUT_VERSION, pairs: [...this.pairs.values()].map(({ resident: { npc, spec, homeMount }, duty, refitAllowed }) => ({
       riderId: canonicalTownId(spec.id), mountId: canonicalTownId(spec.eagle!.mountId), homePadId: spec.eagle!.homePadId, duty, refitAllowed,
       hp: npc.hp, ammo: npc.combatAmmo, position: position(npc.group), mounted: npc.mount === homeMount,
       ...(npc.fallSnapshot ? { fall: npc.fallSnapshot } : {}),
@@ -152,6 +159,9 @@ export class TownEagleGarrisonController {
     })) }
   }
   restore(saved: TownEagleGarrisonState | undefined, sceneKey: string): void {
+    saved = migrateTownEagleGarrisonLayout(saved, sceneKey, [...this.pairs.values()].map(({ resident: { spec } }) => ({
+      id: spec.eagle!.homePadId, ...spec.eagle!.home,
+    })))
     if (!saved || saved.sceneKey !== sceneKey) return
     for (const pair of this.pairs.values()) {
       const { npc, spec, homeMount: mount } = pair.resident

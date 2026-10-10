@@ -59,9 +59,9 @@ describe('Town population and civilian combat', () => {
     expect(townCaptainProfile('roman')).toMatchObject({ visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian', mountOverride: 'corgi' })
     expect(townCaptainProfile('viking')).toMatchObject({ visualAssetId: 'viking-hero-t4', combatProfileId: 'varangian', mountOverride: 'black-cat' })
     const stalls = stableHorsePositions(); expect(stalls).toHaveLength(5); expect(new Set(stalls.map(s => s.variant)).size).toBe(3)
-    expect(stalls.every(s => s.x > -39.5 && s.x < -28.5 && s.z > 13 && s.z < 27)).toBe(true)
+    expect(stalls.every(s => s.x > -10.5 && s.x < .5 && s.z > -46 && s.z < -32)).toBe(true)
     for (const site of Object.values(TOWN_SITES)) expect(Math.sin(site.yaw) * -site.x + Math.cos(site.yaw) * -site.z).toBeGreaterThan(0)
-    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: -21.5, yaw: Math.PI / 2 })
+    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: 1.5, z: -17, yaw: Math.PI / 2 })
   })
   it('keeps Viking civilian wool/trousers and armor hiding consistent across LODs without changing shared Roman materials', () => {
     const cloth = new THREE.MeshStandardMaterial({ color: 0xff2222 }), skin = new THREE.MeshStandardMaterial({ color: 0xffccaa })

@@ -10,7 +10,7 @@ export interface TownEaglePairState {
   mount: { hp: number; position: Position; flight: EagleFlightSnapshot }
   refitAllowed: boolean
 }
-export interface TownEagleGarrisonState { version: 1; sceneKey: string; pairs: TownEaglePairState[] }
+export interface TownEagleGarrisonState { version: 1; sceneKey: string; layoutVersion?: number; pairs: TownEaglePairState[] }
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const position = (value: unknown): value is Position => !!value && typeof value === 'object'
   && ['x', 'y', 'z', 'yaw'].every(key => finite((value as Record<string, unknown>)[key]))
@@ -35,7 +35,8 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
       refitAllowed: pair.refitAllowed === true, ...(fall ? { fall } : {}),
       mount: { hp: pair.mount.hp, position: { ...pair.mount.position }, flight } })
   }
-  return { version: 1, sceneKey: raw.sceneKey, pairs }
+  return { version: 1, sceneKey: raw.sceneKey, pairs,
+    ...(Number.isSafeInteger(raw.layoutVersion) && raw.layoutVersion! >= 1 ? { layoutVersion: raw.layoutVersion } : {}) }
 }
 
 export type TownEagleGarrisons = Partial<Record<'roman' | 'viking', TownEagleGarrisonState>>

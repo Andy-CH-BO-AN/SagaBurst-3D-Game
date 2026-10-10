@@ -3,6 +3,8 @@ import type { EagleFlightController, EagleFlightIntent } from './EagleFlightCont
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { segmentBoxTime } from '../combat/ShieldBlocking'
 import { XONGKORO } from './XongkoroConfig'
+import { EAGLE_PAD_ARRIVAL_RADIUS, EAGLE_PAD_YAW_TOLERANCE } from '../world/EaglePadArrival'
+import { EAGLE_APPROACH, eagleApproachDistance, eagleApproachHeight } from '../world/EagleApproach'
 
 export type EagleTactic = 'RANGED_GROUND' | 'DIVE_GROUND' | 'RANGED_AIR' | 'DIVE_AIR'
 export type EagleManeuver = 'climb' | 'setup' | 'align' | 'dive' | 'pass' | 'recover' | 'cruise'
@@ -29,7 +31,7 @@ export class EagleFlightAI {
   private elapsed = 0
   private pass = 0
   private rangedCommitRemaining = 0
-  private landingStage: 'approach' | 'final' = 'approach'
+  private landingStage: 'approach' | 'align' | 'final' = 'approach'
   private landingX = Infinity
   private landingZ = Infinity
   private readonly goal = new THREE.Vector3()
@@ -199,7 +201,8 @@ export class EagleFlightAI {
     if (this.avoidanceRemaining > 0) this.direction.copy(this.avoidance).sub(position)
     this.progressSeconds += dt
     if (this.progressSeconds >= 2) {
-      if (flight.phase !== 'grounded' && position.distanceToSquared(this.progressPosition) < 4) {
+      const slowFinal = command.kind === 'return' && this.landingStage === 'final' && flight.speed < XONGKORO.minimumSpeed
+      if (flight.phase !== 'grounded' && !slowFinal && position.distanceToSquared(this.progressPosition) < 4) {
         this.avoidSide *= -1; this.avoidanceRemaining = 0
         this.landingStage = 'approach'
         if (command.kind === 'combat') this.recover(position, flight, ground)
@@ -286,31 +289,48 @@ export class EagleFlightAI {
       this.landingX = destination.x; this.landingZ = destination.z; this.landingStage = 'approach'
     }
     const ground = terrain(destination.x, destination.z)
-    const approachDistance = Math.max(65, this.cruiseAltitude * 2.7)
-    // A reciprocal runway heading has the same footprint; use it when the
-    // authored direction would require a staging point outside the scene.
-    if (Math.abs(destination.x - Math.sin(yaw) * approachDistance) > bound - 20
-      || Math.abs(destination.z - Math.cos(yaw) * approachDistance) > bound - 20) yaw += Math.PI
+    const approachDistance = eagleApproachDistance(this.cruiseAltitude)
+    const approachHeight = eagleApproachHeight(destination, approachDistance, this.cruiseAltitude, terrain)
     const sin = Math.sin(yaw), cos = Math.cos(yaw)
     const along = (destination.x - position.x) * sin + (destination.z - position.z) * cos
-    const across = Math.abs((destination.x - position.x) * cos - (destination.z - position.z) * sin)
-    if (flight.phase === 'grounded' && position.distanceToSquared(destination) < 9) {
+    const crossTrack = (destination.x - position.x) * cos - (destination.z - position.z) * sin
+    const across = Math.abs(crossTrack)
+    const headingError = Math.abs(Math.atan2(Math.sin(yaw - flight.yaw), Math.cos(yaw - flight.yaw)))
+    // Retain the assigned pad throughout staging/avoidance so a low return
+    // cannot accidentally fall through to the player's anywhere-landing rule.
+    this.landingTarget.x = destination.x; this.landingTarget.z = destination.z; this.landingTarget.yaw = yaw
+    this.intent.landingTarget = this.landingTarget
+    if (flight.phase === 'grounded' && position.distanceToSquared(destination) < EAGLE_PAD_ARRIVAL_RADIUS ** 2
+      && headingError <= EAGLE_PAD_YAW_TOLERANCE) {
       this.goal.copy(position); this.intent.takeoff = false; this.intent.brake = true; return
     }
-    this.goal.set(destination.x - sin * approachDistance, ground + this.cruiseAltitude, destination.z - cos * approachDistance)
-    this.goal.x = THREE.MathUtils.clamp(this.goal.x, -bound + 20, bound - 20)
-    this.goal.z = THREE.MathUtils.clamp(this.goal.z, -bound + 20, bound - 20)
-    if (this.landingStage === 'approach' && position.distanceTo(this.goal) < 15) this.landingStage = 'final'
-    if (this.landingStage === 'final') {
-      const headingError = Math.abs(Math.atan2(Math.sin(yaw - flight.yaw), Math.cos(yaw - flight.yaw)))
-      this.goal.copy(destination).setY(ground - .3)
+    this.goal.set(destination.x - sin * approachDistance, approachHeight, destination.z - cos * approachDistance)
+    if (Math.abs(this.goal.x) > bound - 20 || Math.abs(this.goal.z) > bound - 20) {
+      // An invalid authored corridor never silently reverses the pad heading.
+      this.orbit(position, destination, XONGKORO.aiOrbitRadius)
+      this.goal.y = approachHeight
+      return
+    }
+    this.intent.brake = position.distanceTo(this.goal) < 40
+    if (this.landingStage === 'approach' && position.distanceTo(this.goal) < 15) this.landingStage = 'align'
+    if (this.landingStage === 'align') {
+      const alignmentYaw = yaw + Math.atan2(crossTrack, 24)
+      this.goal.set(position.x + Math.sin(alignmentYaw) * 24, approachHeight,
+        position.z + Math.cos(alignmentYaw) * 24)
       this.intent.brake = true
-      if (along < -5 || across > 25 || position.y < ground + 4 && (across > 4 || headingError > .3)) {
+      if (across < 4 && headingError < .2 && along > EAGLE_APPROACH.terminalDistance + 12) this.landingStage = 'final'
+      else if (along < EAGLE_APPROACH.terminalDistance + 12 || across > 30) this.landingStage = 'approach'
+    }
+    if (this.landingStage === 'final') {
+      const steeringYaw = yaw + Math.atan2(crossTrack, 12)
+      const lookahead = Math.min(Math.max(12, flight.speed * 2), Math.max(1, along))
+      this.goal.set(position.x + Math.sin(steeringYaw) * lookahead,
+        eagleApproachHeight(destination, along - lookahead, this.cruiseAltitude, terrain) - .3,
+        position.z + Math.cos(steeringYaw) * lookahead)
+      this.intent.brake = true
+      if (along < -2 || across > 12 || position.y < ground + 4 && (across > 2 || headingError > EAGLE_PAD_YAW_TOLERANCE)) {
         this.landingStage = 'approach'; this.intent.brake = false
-        this.goal.set(destination.x - sin * approachDistance, ground + this.cruiseAltitude, destination.z - cos * approachDistance)
-      } else {
-        this.landingTarget.x = destination.x; this.landingTarget.z = destination.z; this.landingTarget.yaw = yaw
-        this.intent.landingTarget = this.landingTarget
+        this.goal.set(destination.x - sin * approachDistance, approachHeight, destination.z - cos * approachDistance)
       }
     }
     this.intent.takeoff = true
