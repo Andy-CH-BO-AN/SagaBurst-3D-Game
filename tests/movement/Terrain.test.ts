@@ -161,6 +161,26 @@ describe('walk surfaces', () => {
     expect(walkingUnderWedge.z).toBe(prevUnderWedge.z)
   })
 
+  it('caps head and zeroes velocity when jumping into elevated slab underside without horizontal push-out', () => {
+    const slab: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-5, 3.5, -5), new THREE.Vector3(5, 3.75, 5)),
+      isBarricade: false,
+    }
+    // Actor starts on ground under the slab: head at 1.9 <= 3.5
+    const prev = new THREE.Vector3(0, HALF, 0)
+    // Upward jump brings head to 3.8 > 3.5, within horizontal bounds
+    const jumping = new THREE.Vector3(0, 1.9 + HALF, 0) // head = 1.9 + 1.9 = 3.8
+    const result = resolveObstacleCollision(jumping, prev, 6, false, RADIUS, HEIGHT, HALF, [slab])
+
+    // Head must be capped at slab.min.y = 3.5 -> feet at 3.5 - 1.9 = 1.6 -> y = 1.6 + 0.95 = 2.55
+    expect(jumping.y - HALF + HEIGHT).toBeCloseTo(3.5, 5)
+    expect(result.velocityY).toBe(0)
+    expect(result.onGround).toBe(false)
+    // Horizontal position must not be pushed out sideways
+    expect(jumping.x).toBe(0)
+    expect(jumping.z).toBe(0)
+  })
+
   it('distinguishes empty headroom under elevated structures from physical plank blocking', () => {
     // Structure with coarse envelope and individual step/landing projectileBoxes
     const stepBox = new THREE.Box3(new THREE.Vector3(-1, 3.86, 9), new THREE.Vector3(1, 4.0, 11))

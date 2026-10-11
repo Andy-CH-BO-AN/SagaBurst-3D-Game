@@ -232,7 +232,7 @@ export function createOutpostWalkways(
     const dark: THREE.BufferGeometry[] = []
     // Overhead slab: does not block ground navigation grid, but physically stops projectiles hitting it.
     register({ box: deck.slab, isBarricade: false, navigationPassable: true })
-    for (const rail of deck.rails) register({ box: rail, isBarricade: false, navigationPassable: true })
+    for (const rail of deck.rails) register({ box: rail, isBarricade: false, navigationPassable: true, projectilePassable: true })
     for (const post of deck.posts) {
       register({ box: post, isBarricade: false })
       dark.push(boxGeometry(post))

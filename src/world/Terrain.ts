@@ -718,6 +718,17 @@ export function resolveObstacleCollision(
       continue
     }
 
+    // An ascending entity bonks into the obstacle's underside ceiling.
+    if (
+      previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
+      topY > box.min.y &&
+      overlapsHorizontally(position.x, position.z, box)
+    ) {
+      position.y = box.min.y - height + bottomOffset
+      if (velocityY > 0) velocityY = 0
+      continue
+    }
+
     // Above the obstacle: it is a walkable platform, not a wall.
     if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
 

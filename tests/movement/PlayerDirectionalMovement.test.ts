@@ -454,6 +454,33 @@ describe('Player Directional Movement & Stamina', () => {
       expect(feet()).toBeLessThanOrEqual(groundY + 0.1)
     })
 
+    it('jumping from beneath elevated walkway slab hits underside, avoids horizontal push-out, and lands naturally', () => {
+      const { deck, feet, place, run } = fixture('roman', -1)
+      const x = -20
+      const z = (deck.slab.min.z + deck.slab.max.z) / 2
+      const groundY = getTerrainHeight(x, z)
+      place(x, z, groundY)
+      run(2, {}, 0)
+      expect(feet()).toBeCloseTo(groundY, 2)
+
+      const startX = player.group.position.x
+      const startZ = player.group.position.z
+
+      // Jump upward directly under the deck slab without directional input
+      const takeoff = run(1, { Space: true }, 0)
+      const flight = run(60, {}, 0)
+
+      // 1. Head hits underside (deck.slab.min.y) and does not penetrate through to deck surface
+      const maxFeet = Math.max(...takeoff, ...flight)
+      expect(maxFeet).toBeLessThan(deck.topY - 1.0)
+
+      // 2. No horizontal ejection: X and Z remain in place without snapping sideways
+      expect(Math.hypot(player.group.position.x - startX, player.group.position.z - startZ)).toBeLessThan(0.01)
+
+      // 3. Player falls naturally back down under gravity and lands on the ground
+      expect(feet()).toBeLessThanOrEqual(groundY + 0.1)
+    })
+
     it('falls under gravity when leaving the unrailed inner edge instead of snapping to the ground', () => {
       const { ramp, deck, feet, place, run, yawToward } = fixture('roman', 1)
       const x = 20
