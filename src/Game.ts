@@ -156,6 +156,7 @@ import {
   getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
 } from './campaign/CampaignOutpost'
+import { isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
@@ -792,6 +793,12 @@ export class Game {
         this.scene,
         previewOutpostFaction,
         { obstacles, obstacleMeshes },
+        {
+          walkways: isOutpostWalkwayEnabled(
+            campaignConfig,
+            import.meta.env.DEV && startupQuery.get('outpostwalkway') === '1',
+          ),
+        },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
@@ -3787,6 +3794,7 @@ export class Game {
         radius: 0.38,
         height: 1.9,
         bottomOffset: 0.95,
+        walkSurfaces: true,
       })
     }
 
@@ -3824,7 +3832,8 @@ export class Game {
         body.radius,
         body.height,
         body.bottomOffset,
-        this.obstacles
+        this.obstacles,
+        { walkSurfaces: body.walkSurfaces }
       )
     }
   }

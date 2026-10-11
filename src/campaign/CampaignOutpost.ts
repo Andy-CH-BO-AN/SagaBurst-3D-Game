@@ -13,6 +13,7 @@ import {
 } from '../world/DamageableObstacle'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { CampaignBreachController, CampaignGateController } from './CampaignGate'
+import { createOutpostWalkways, type OutpostWalkways } from './CampaignOutpostWalkways'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
@@ -80,6 +81,13 @@ export interface CampaignOutpostResult {
   gate: DamageableObstacle
   gateController: CampaignGateController
   breachController: CampaignBreachController
+  /** Raised rampart and stairs; null unless the caller enabled them. */
+  walkways: OutpostWalkways | null
+}
+
+export interface CampaignOutpostOptions {
+  /** Adds the walkable rampart and stairs. Defaults to off so other modes are unchanged. */
+  walkways?: boolean
 }
 
 interface DamageablePieceOptions {
@@ -101,6 +109,7 @@ export function createCampaignOutpost(
   scene: THREE.Scene,
   defenderFaction: CharacterFaction,
   collections?: CampaignOutpostCollections,
+  options: CampaignOutpostOptions = {},
 ): CampaignOutpostResult {
   const root = new THREE.Group()
   root.name = `campaign-outpost-${defenderFaction}`
@@ -430,6 +439,17 @@ export function createCampaignOutpost(
   createCampfire('campaign-outpost-campfire-1', -16, 156 * zSign)
   createCampfire('campaign-outpost-campfire-2', 16, 156 * zSign)
 
+  let walkways: OutpostWalkways | null = null
+  if (options.walkways) {
+    walkways = createOutpostWalkways(
+      getCampaignOutpostPlacement(defenderFaction),
+      { obstacles, obstacleMeshes },
+      woodMaterial,
+      darkWoodMaterial,
+    )
+    root.add(walkways.root)
+  }
+
   return {
     root,
     obstacles,
@@ -438,5 +458,6 @@ export function createCampaignOutpost(
     gate,
     gateController,
     breachController,
+    walkways,
   }
 }

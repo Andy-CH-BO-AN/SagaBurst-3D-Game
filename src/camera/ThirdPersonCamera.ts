@@ -63,6 +63,7 @@ export function resolveCameraDistance(
   let allowedDistance = desiredDistance
 
   for (const obstacle of obstacles) {
+    if (obstacle.walkSurface) continue
     const box = obstacle.box
     const width = box.max.x - box.min.x
     const depth = box.max.z - box.min.z

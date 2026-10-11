@@ -222,4 +222,17 @@ describe('NavigationWorld', () => {
     )
     expect(result.status).toBe('path')
   })
+
+  it('ignores navigationPassable overhead obstacles when blocking the ground grid', () => {
+    const world = new NavigationWorld()
+    const overhead = { ...obstacle(-3, -3, 3, 3), navigationPassable: true }
+    const solid = obstacle(10, -3, 12, 3)
+    world.rebuild([overhead, solid])
+    const blockedAt = (x: number): boolean => world.grid.isBlocked(world.grid.worldToCell(new THREE.Vector3(x, 0, 0))!)
+
+    expect(blockedAt(0)).toBe(false)
+    expect(blockedAt(11)).toBe(true)
+    world.beginFrame()
+    expect(world.queryPath(new THREE.Vector3(-8, 0, 0), new THREE.Vector3(8, 0, 0)).status).toBe('path')
+  })
 })

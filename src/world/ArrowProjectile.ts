@@ -293,6 +293,7 @@ export class ArrowProjectile {
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
       for (const obs of obstacles) {
+        if (obs.projectilePassable) continue
         if (obs.projectileBoxes?.length) {
           for (const box of obs.projectileBoxes) {
             const time = segmentBoxTime(this.previousPosition, this.mesh.position, box)

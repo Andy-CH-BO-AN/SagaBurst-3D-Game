@@ -12,6 +12,8 @@ import type { StaminaBar } from '../../src/ui/StaminaBar'
 import type { QuiverUI } from '../../src/ui/QuiverUI'
 import type { SoundManager } from '../../src/audio/SoundManager'
 import { Mount, MountType } from '../../src/world/Mount'
+import { createCampaignOutpost } from '../../src/campaign/CampaignOutpost'
+import { getTerrainHeight } from '../../src/world/Terrain'
 
 function createMockInput(keys: Record<string, boolean> = {}): PlayerInput {
   return {
@@ -357,6 +359,100 @@ describe('Player Directional Movement & Stamina', () => {
       const footStartA = footPlayer.position.clone()
       updatePlayer(footPlayer, 0.1, createMockInput({ KeyA: true }))
       expect(horizontalDistance(footPlayer.position, footStartA)).toBeCloseTo(0.8, 5)
+    })
+  })
+  describe('Walkable outpost stairs and deck', () => {
+    // Real Player.update against the real walkway obstacles; only input is synthetic.
+    const PLAYER_FEET = 0.95
+    const FRAME = 1 / 60
+
+    function fixture(faction: 'roman' | 'viking', side: -1 | 1) {
+      const outpost = createCampaignOutpost(scene, faction, { obstacles: [], obstacleMeshes: [] }, { walkways: true })
+      onTestFinished(() => { outpost.root.removeFromParent() })
+      const layout = outpost.walkways!.layout
+      const stair = layout.stairs.find(s => s.side === side)!
+      const deck = layout.decks.find(d => d.side === side)!
+      const { ramp } = stair
+      const yawToward = (dirZ: number): number => (dirZ > 0 ? Math.PI : 0)
+      const feet = (): number => player.group.position.y - PLAYER_FEET
+      const place = (x: number, z: number, footY: number): void => {
+        player.group.position.set(x, footY + PLAYER_FEET, z)
+      }
+      /** Runs bounded frames; returns the per-frame feet trace so failures show where it stalled. */
+      const run = (maxFrames: number, keys: Record<string, boolean>, yaw: number, until?: () => boolean): number[] => {
+        const trace: number[] = []
+        for (let i = 0; i < maxFrames; i++) {
+          player.update(FRAME, createMockInput(keys), yaw, cameraAimPoint, outpost.obstacles, staminaBar, quiverUI, soundManager)
+          trace.push(feet())
+          if (until?.()) break
+        }
+        return trace
+      }
+      return { outpost, stair, deck, ramp, yawToward, feet, place, run }
+    }
+
+    const cases = [
+      ['roman', -1], ['roman', 1], ['viking', -1], ['viking', 1],
+    ] as const
+
+    it.each(cases)('%s side %i: W alone climbs the stair smoothly onto the deck and the outer rail stops the player', (faction, side) => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture(faction, side)
+      const startZ = ramp.startZ - ramp.dirZ * 2
+      place(ramp.startX, startZ, getTerrainHeight(ramp.startX, startZ))
+      const onDeck = (): boolean => feet() >= deck.topY - 1e-6 && (player.group.position.z - deck.slab.min.z) * (player.group.position.z - deck.slab.max.z) < 0
+
+      const trace = run(600, { KeyW: true }, yawToward(ramp.dirZ), onDeck)
+      expect(onDeck(), `stalled at feet ${feet().toFixed(2)} z ${player.group.position.z.toFixed(2)}`).toBe(true)
+      const biggestStep = Math.max(...trace.slice(1).map((y, i) => Math.abs(y - trace[i])))
+      expect(biggestStep).toBeLessThan(0.12)
+
+      run(120, { KeyW: true }, yawToward(ramp.dirZ))
+      expect(feet()).toBeCloseTo(deck.topY, 5)
+      const railInnerFace = ramp.dirZ > 0 ? deck.slab.max.z - 0.25 : deck.slab.min.z + 0.25
+      expect(ramp.dirZ > 0 ? player.group.position.z <= railInnerFace : player.group.position.z >= railInnerFace).toBe(true)
+    })
+
+    it.each(cases)('%s side %i: Space on the deck rises under normal gravity and lands back on the deck', (faction, side) => {
+      const { deck, feet, place, run, yawToward, ramp } = fixture(faction, side)
+      const x = side * 20
+      const z = (deck.slab.min.z + deck.slab.max.z) / 2
+      place(x, z, deck.topY)
+      run(2, {}, yawToward(ramp.dirZ))
+      expect(feet()).toBeCloseTo(deck.topY, 5)
+
+      const takeoff = run(1, { Space: true }, yawToward(ramp.dirZ))
+      const flight = run(120, {}, yawToward(ramp.dirZ), () => feet() <= deck.topY + 1e-6)
+      expect(Math.max(...takeoff, ...flight)).toBeGreaterThan(deck.topY + 0.5)
+      expect(feet()).toBeCloseTo(deck.topY, 5)
+    })
+
+    it.each(cases)('%s side %i: walking back down follows the slope to the ground without dropping or hovering', (faction, side) => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture(faction, side)
+      place(ramp.startX, (deck.slab.min.z + deck.slab.max.z) / 2, deck.topY)
+      // Start on the deck at the stair's X lane and walk inward, away from the wall.
+      const toward = yawToward(ramp.dirZ)
+      const away = toward === 0 ? Math.PI : 0
+      const trace = run(900, { KeyW: true }, away, () => feet() <= getTerrainHeight(player.group.position.x, player.group.position.z) + 1e-3)
+      const ground = getTerrainHeight(player.group.position.x, player.group.position.z)
+      expect(feet(), `stuck at feet ${feet().toFixed(2)} z ${player.group.position.z.toFixed(2)}`).toBeLessThanOrEqual(ground + 1e-3)
+      // Past the stair mouth the natural terrain may rise by gradient (<=0.21) x one frame of travel.
+      for (let i = 1; i < trace.length; i++) expect(trace[i]).toBeLessThanOrEqual(trace[i - 1] + 0.03)
+      expect(Math.max(...trace.slice(1).map((y, i) => Math.abs(y - trace[i])))).toBeLessThan(0.12)
+    })
+
+    it('falls under gravity when leaving the unrailed inner edge instead of snapping to the ground', () => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture('roman', 1)
+      const x = 20
+      place(x, deck.slab.max.z - 1, deck.topY)
+      run(2, {}, 0)
+      // Walk inward (away from the wall) off the deck edge.
+      const inward = yawToward(ramp.dirZ) === 0 ? Math.PI : 0
+      const trace = run(240, { KeyW: true }, inward, () => feet() <= getTerrainHeight(player.group.position.x, player.group.position.z) + 1e-3)
+      const firstDrop = trace.findIndex(y => y < deck.topY - 1e-3)
+      expect(firstDrop).toBeGreaterThan(0)
+      expect(trace[firstDrop]).toBeGreaterThan(deck.topY - 0.2)
+      expect(trace.length - firstDrop).toBeGreaterThan(10)
+      expect(feet()).toBeLessThanOrEqual(getTerrainHeight(player.group.position.x, player.group.position.z) + 1e-3)
     })
   })
 })

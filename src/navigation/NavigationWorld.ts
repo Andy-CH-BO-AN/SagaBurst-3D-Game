@@ -71,6 +71,7 @@ export class NavigationWorld {
   rebuild(obstacles: readonly ObstacleData[]): void {
     this.grid.clear()
     for (const obstacle of obstacles) {
+      if (obstacle.navigationPassable) continue
       this.grid.setBlockedBox(obstacle.navigationBox ?? obstacle.box, true)
     }
     this._rebuildComponents()
