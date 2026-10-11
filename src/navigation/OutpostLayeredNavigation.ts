@@ -222,17 +222,17 @@ export class OutpostLayeredNavigation {
     let targetLayer = this.getNavLayer(goalPos)
 
     // Mounted units (cavalry, pets, eagles) CANNOT climb stairs; their destination
-    // is projected to ground level beneath/beside the rampart.
+    // is projected to ground level beneath/beside the rampart and must be reached via ground navigation.
     if (isMounted) {
       if (targetLayer !== 'ground') {
         const groundY = getTerrainHeight(goalPos.x, goalPos.z)
         out.set(goalPos.x, groundY, goalPos.z)
         return {
           target: out,
-          isCrossLayer: false,
+          isCrossLayer: true,
           currentLayer: 'ground',
-          targetLayer: 'ground',
-          step: 'direct',
+          targetLayer,
+          step: 'ground_approach',
         }
       }
       out.copy(goalPos)

@@ -83,10 +83,11 @@ describe('OutpostLayeredNavigation', () => {
       const out = new THREE.Vector3()
       const result = nav.resolveMoveTarget(currentGround, goalOnDeck, true, out)
 
-      // Must stay on ground, projecting destination down to terrain
+      // Must stay on ground, projecting destination down to terrain with ground_approach step
       expect(result.currentLayer).toBe('ground')
-      expect(result.targetLayer).toBe('ground')
-      expect(result.isCrossLayer).toBe(false)
+      expect(result.targetLayer).toBe('rampart_left')
+      expect(result.isCrossLayer).toBe(true)
+      expect(result.step).toBe('ground_approach')
       expect(out.y).toBeCloseTo(getTerrainHeight(-20, goalOnDeck.z), 1)
       expect(out.x).toBeCloseTo(-20, 1)
     })

@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
   createCampaignOutpost,
+  getCampaignOutpostPlacement,
 } from '../../src/campaign/CampaignOutpost'
-import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { NAV_PATH_REQUESTS_PER_FRAME, NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { isStairLayer } from '../../src/navigation/OutpostLayeredNavigation'
 import { AIType, AIState, Faction, NPC } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { getTerrainHeight } from '../../src/world/Terrain'
@@ -252,6 +254,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       const attackerY = getTerrainHeight(leftStair.ramp.startX, attackerZ)
       const attacker = new NPC(scene, leftStair.ramp.startX, attackerZ, Faction.PLAYER, 'viking', AIType.MELEE, 'GroundAttacker', 2, false)
       attacker.group.position.set(leftStair.ramp.startX, attackerY, attackerZ)
+      attacker.setTacticalOrder('charge')
       onTestFinished(() => attacker.dispose())
 
       // Simulate combat approach
@@ -340,7 +343,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Stair Multi-NPC Traffic Anti-Deadlock', () => {
     it('two NPCs in opposing directions on stairs maintain lane separation and avoid deadlock', () => {
-      const { outpost, leftStair } = setupOutpost('viking')
+      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
       const dummyPlayer = new Player(scene)
       onTestFinished(() => dummyPlayer.dispose())
       dummyPlayer.group.position.set(0, -100, 0)
@@ -349,29 +352,192 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       const dirZ = leftStair.ramp.dirZ
       const midZ = leftStair.ramp.startZ + dirZ * (leftStair.ramp.length * 0.5)
 
-      // NPC A: Ascending up the stairs
-      const ascendingNpc = new NPC(scene, cx, midZ - dirZ * 1.5, Faction.PLAYER, 'viking', AIType.MELEE, 'AscendingNPC', 2, false)
-      // NPC B: Descending down the stairs
-      const descendingNpc = new NPC(scene, cx, midZ + dirZ * 1.5, Faction.PLAYER, 'viking', AIType.MELEE, 'DescendingNPC', 2, false)
+      // NPC A: Starts near bottom of stairs, moving UP to the rampart deck
+      const startBottomZ = leftStair.ramp.startZ + dirZ * 0.5
+      const startBottomY = getTerrainHeight(cx, startBottomZ)
+      const ascendingNpc = new NPC(scene, cx, startBottomZ, Faction.PLAYER, 'viking', AIType.MELEE, 'AscendingNPC', 2, false)
+      ascendingNpc.group.position.set(cx, startBottomY, startBottomZ)
+      ascendingNpc.assignFormationTarget(
+        1,
+        new THREE.Vector3(-22, leftDeck.topY, (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2),
+        new THREE.Vector3(0, 0, dirZ),
+      )
+
+      // NPC B: Starts near top of stairs on deck, moving DOWN to ground courtyard
+      const startTopZ = leftStair.ramp.startZ + dirZ * (leftStair.ramp.length - 0.5)
+      const startTopY = leftStair.ramp.topY
+      const descendingNpc = new NPC(scene, cx, startTopZ, Faction.PLAYER, 'viking', AIType.MELEE, 'DescendingNPC', 2, false)
+      descendingNpc.group.position.set(cx, startTopY, startTopZ)
+      const groundTargetZ = leftStair.ramp.startZ - dirZ * 6
+      const groundTargetY = getTerrainHeight(cx, groundTargetZ)
+      descendingNpc.assignFormationTarget(
+        2,
+        new THREE.Vector3(cx, groundTargetY, groundTargetZ),
+        new THREE.Vector3(0, 0, -dirZ),
+      )
 
       onTestFinished(() => {
         ascendingNpc.dispose()
         descendingNpc.dispose()
       })
 
-      // Update both NPCs on the stairs
-      for (let f = 0; f < 60; f++) {
+      const halfWidth = leftStair.ramp.halfWidth
+      let withinRailEnvelope = true
+
+      // Update both NPCs on the stairs over bounded frames
+      for (let f = 0; f < 150; f++) {
         navWorld.beginFrame()
         ascendingNpc.update(FRAME, dummyPlayer, [ascendingNpc, descendingNpc], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
         descendingNpc.update(FRAME, dummyPlayer, [ascendingNpc, descendingNpc], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+
+        const nav = navWorld.outpostNav!
+        if (isStairLayer(nav.getNavLayer(ascendingNpc.combatPosition))) {
+          if (ascendingNpc.group.position.x < cx - halfWidth || ascendingNpc.group.position.x > cx + halfWidth) {
+            withinRailEnvelope = false
+          }
+        }
+        if (isStairLayer(nav.getNavLayer(descendingNpc.combatPosition))) {
+          if (descendingNpc.group.position.x < cx - halfWidth || descendingNpc.group.position.x > cx + halfWidth) {
+            withinRailEnvelope = false
+          }
+        }
       }
 
-      // Both NPCs must remain within the 2.2m stair envelope without penetrating rails
-      const halfWidth = leftStair.ramp.halfWidth
-      expect(ascendingNpc.group.position.x).toBeGreaterThanOrEqual(cx - halfWidth)
-      expect(ascendingNpc.group.position.x).toBeLessThanOrEqual(cx + halfWidth)
-      expect(descendingNpc.group.position.x).toBeGreaterThanOrEqual(cx - halfWidth)
-      expect(descendingNpc.group.position.x).toBeLessThanOrEqual(cx + halfWidth)
+      // Both NPCs must remain within the 2.2m stair envelope throughout
+      expect(withinRailEnvelope, 'NPCs must remain within stair rail boundaries during traversal').toBe(true)
+
+      // Both NPCs must make true progress past each other without deadlocking midway
+      const ascendingProgress = dirZ * (ascendingNpc.group.position.z - midZ)
+      const descendingProgress = dirZ * (midZ - descendingNpc.group.position.z)
+      expect(ascendingProgress, `Ascending NPC should pass stair midpoint towards deck (z: ${ascendingNpc.group.position.z}, midZ: ${midZ})`).toBeGreaterThan(0)
+      expect(descendingProgress, `Descending NPC should pass stair midpoint towards ground (z: ${descendingNpc.group.position.z}, midZ: ${midZ})`).toBeGreaterThan(0)
+    })
+  })
+
+  describe('P1 Regression: Mounted unit combat with closed vs opened gate', () => {
+    it('mounted unit pursuing enemy on rampart cannot pass closed gate, but paths to ground below enemy once gate is opened', () => {
+      const { outpost, leftDeck } = setupOutpost('viking')
+      const placement = getCampaignOutpostPlacement('viking')
+      const dummyPlayer = new Player(scene)
+      onTestFinished(() => dummyPlayer.dispose())
+      dummyPlayer.group.position.set(0, -100, 0)
+
+      // Enemy stands on left rampart deck
+      const enemyX = -22
+      const enemyZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+      const enemy = new NPC(scene, enemyX, enemyZ, Faction.ENEMY, 'roman', AIType.MELEE, 'DeckDefender', 2, false)
+      enemy.group.position.set(enemyX, leftDeck.topY, enemyZ)
+      onTestFinished(() => enemy.dispose())
+
+      // Mounted attacker starts OUTSIDE the outpost front gate (Z < frontZ)
+      const gateZ = placement.frontZ
+      const outsideZ = gateZ - 14
+      const outsideY = getTerrainHeight(0, outsideZ)
+      const rider = new NPC(scene, 0, outsideZ, Faction.PLAYER, 'viking', AIType.MELEE, 'MountedAttacker', 2, true)
+      rider.group.position.set(0, outsideY, outsideZ)
+      onTestFinished(() => rider.dispose())
+
+      // Phase 1: Gate is closed. Rider in CHASE must NOT penetrate the closed gate/palisade
+      for (let f = 0; f < 60; f++) {
+        navWorld.beginFrame()
+        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      }
+
+      // Rider cannot penetrate through the gate into the courtyard
+      expect(rider.combatPosition.z, 'Mounted unit must not pass through closed gate').toBeLessThanOrEqual(gateZ + 0.5)
+      expect(rider.combatPosition.y, 'Mounted unit must stay on ground').toBeLessThan(leftDeck.topY - 1.5)
+
+      // Phase 2: Open gate and sync navigation grid
+      outpost.gateController.open()
+      navWorld.sync(outpost.obstacles)
+
+      // Update rider now that a walkable ground route is available through the gate
+      for (let f = 0; f < 120; f++) {
+        navWorld.beginFrame()
+        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      }
+
+      // Rider successfully navigates through the gate into the outpost toward the ground under the enemy
+      expect(rider.combatPosition.z, 'Mounted unit should enter through opened gate').toBeGreaterThan(gateZ)
+      // Rider remains strictly on ground, never climbs stairs
+      expect(rider.combatPosition.y, 'Mounted unit must never climb stairs onto rampart').toBeLessThan(leftDeck.topY - 1.5)
+    })
+  })
+
+  describe('P2 Regression: Cross-layer follow with closed gate and A* pending frame budget', () => {
+    it('ground follower safely stops outside when gate is closed and leader is on rampart', () => {
+      const { outpost, leftDeck } = setupOutpost('viking')
+      const placement = getCampaignOutpostPlacement('viking')
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+
+      // Player stands on elevated rampart deck inside outpost
+      const playerZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+      player.group.position.set(-20, leftDeck.topY + 0.95, playerZ)
+
+      // Ground follower starts outside the closed front gate
+      const gateZ = placement.frontZ
+      const outsideZ = gateZ - 14
+      const outsideY = getTerrainHeight(0, outsideZ)
+      const follower = new NPC(scene, 0, outsideZ, Faction.PLAYER, 'viking', AIType.MELEE, 'GateBlockedFollower', 2, false)
+      follower.group.position.set(0, outsideY, outsideZ)
+      onTestFinished(() => follower.dispose())
+
+      follower.assignFollowTarget(player, 0)
+      expect(outpost.gateController.state).toBe('closed')
+
+      // Simulate 60 frames while gate is closed
+      for (let f = 0; f < 60; f++) {
+        navWorld.beginFrame()
+        follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      }
+
+      // Follower must safely stop outside without passing through the closed gate/palisade
+      expect(follower.combatPosition.z, 'Follower must not penetrate through closed gate').toBeLessThanOrEqual(gateZ + 0.5)
+    })
+
+    it('NPC waiting for A* budget frame saturation (pending) safely waits and does not charge into wall', () => {
+      const { outpost, leftDeck } = setupOutpost('viking')
+      const placement = getCampaignOutpostPlacement('viking')
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+
+      // Open gate so route is theoretically walkable
+      outpost.gateController.open()
+      navWorld.sync(outpost.obstacles)
+
+      // Player stands on elevated rampart deck
+      const playerZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+      player.group.position.set(-20, leftDeck.topY + 0.95, playerZ)
+
+      // Follower starts outside the gate
+      const outsideZ = placement.frontZ - 14
+      const outsideY = getTerrainHeight(0, outsideZ)
+      const follower = new NPC(scene, 0, outsideZ, Faction.PLAYER, 'viking', AIType.MELEE, 'BudgetWaitFollower', 2, false)
+      follower.group.position.set(0, outsideY, outsideZ)
+      onTestFinished(() => follower.dispose())
+
+      follower.assignFollowTarget(player, 0)
+
+      // Exhaust A* frame budget for the current frame
+      navWorld.beginFrame()
+      for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
+        navWorld.queryPath({ x: -10 + i * 2, z: i * 4 }, { x: 10 + i * 2, z: i * 4 })
+      }
+      expect((navWorld as any).pathRequestsThisFrame).toBeGreaterThanOrEqual(NAV_PATH_REQUESTS_PER_FRAME)
+
+      const prevZ = follower.group.position.z
+
+      // Update follower during frame budget exhaustion: must receive pending and safely wait
+      follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+
+      // When pending, follower does not sprint into obstacle
+      expect(Math.abs(follower.group.position.z - prevZ), 'Follower must not displace when A* route is pending').toBeLessThan(0.01)
+
+      // Refresh frame budget on next frame: query resolves and follower moves
+      navWorld.beginFrame()
+      follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      expect(follower.group.position.z, 'Follower should begin moving once budget is available').toBeGreaterThan(prevZ)
     })
   })
 })

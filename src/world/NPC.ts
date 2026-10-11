@@ -2407,7 +2407,8 @@ export class NPC {
           this._clearSiegeFallback()
         }
         let siegeObstacle = navigationRoute === 'unreachable'
-          ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+          ? (this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+             ?? (layeredNav && isCrossLayer ? this._getActiveSiegeObstacle(this._tmpNavigationTarget, obstacles) : null))
           : null
 
         // Ranged units only draw melee against a genuinely close human target.
@@ -2428,7 +2429,7 @@ export class NPC {
           const directObstacle = this._findDirectDamageableBlocker(
             targetInfo.position,
             obstacles,
-          )
+          ) ?? (layeredNav && isCrossLayer ? this._findDirectDamageableBlocker(this._tmpNavigationTarget, obstacles) : null)
           if (directObstacle && this._activateDirectObstacle(directObstacle)) {
             siegeObstacle = directObstacle
           }
@@ -2437,11 +2438,9 @@ export class NPC {
         const moveDir = this._tmpMoveDir
         const movementTarget = siegeObstacle
           ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
-          : ((isCrossLayer || isRampartCorridor || (layeredNav && isStairLayer(npcLayer)))
-            ? this._tmpNavigationTarget
-            : (navigationRoute === 'unreachable'
-              ? targetInfo.position
-              : this._tmpNavigationTarget))
+          : navigationRoute === 'unreachable'
+            ? targetInfo.position
+            : this._tmpNavigationTarget
 
         if (siegeObstacle) {
           const obstacleDistance = this._distanceToObstacleXZ(siegeObstacle)
@@ -2541,6 +2540,9 @@ export class NPC {
             if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
             this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
             if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+            if (!this._detourActive && (navigationRoute === 'unreachable' || navigationRoute === 'pending')) {
+              moveDir.set(0, 0, 0)
+            }
           } else if (navigationRoute !== 'unreachable') {
             this._clearObstacleDetour()
           }
@@ -3268,6 +3270,7 @@ export class NPC {
 
     const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer) && layerSide(npcLayer) === layerSide(targetLayer)) : false
 
+    let isConfirmedLayeredStep = false
     if (layeredNav && (isDifferentLayer || isRampartCorridor)) {
       const layeredResult = layeredNav.resolveMoveTarget(
         this.combatPosition,
@@ -3281,7 +3284,8 @@ export class NPC {
           navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
         }
       } else {
-        navigationRoute = 'path'
+        isConfirmedLayeredStep = true
+        navigationRoute = 'direct'
       }
     } else if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
       this.followNavigationCheckRemaining -= dt
@@ -3332,16 +3336,33 @@ export class NPC {
     } else if (!skipBoidsAndObstacles) {
       navigationRoute = this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
     }
-    if (navigationRoute === 'path' || (layeredNav && (isDifferentLayer || isRampartCorridor))) {
+    if (isConfirmedLayeredStep) {
       moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
       this._clearObstacleDetour()
-    } else if (navigationRoute === 'pending' || navigationRoute === 'unreachable') {
-      this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
+    } else if (navigationRoute === 'path') {
+      moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'direct') {
+      moveDir.copy(navigationGoal).sub(this.combatPosition).setY(0).normalize()
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'pending') {
+      moveDir.set(0, 0, 0)
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'unreachable') {
+      if (isDifferentLayer) {
+        moveDir.set(0, 0, 0)
+        this._clearObstacleDetour()
+      } else {
+        this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
+        if (!this._detourActive) {
+          moveDir.set(0, 0, 0)
+        }
+      }
     } else {
       this._clearObstacleDetour()
     }
 
-    if (!skipBoidsAndObstacles) {
+    if (!skipBoidsAndObstacles && moveDir.lengthSq() > 0.0001) {
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
       for (const other of nearbyNPCs) {
@@ -3355,7 +3376,7 @@ export class NPC {
         }
       }
       if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
-      if (navigationRoute !== 'path' && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer) || isDifferentLayer))) {
+      if (navigationRoute !== 'path' && !isConfirmedLayeredStep && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer)))) {
         moveDir.copy(getObstacleAvoidanceDirection(
           this.group.position,
           moveDir,
