@@ -11,6 +11,9 @@ import {
   TERRAIN_SIZE,
   type ObstacleData,
 } from '../../src/world/Terrain'
+import { ArrowProjectile } from '../../src/world/ArrowProjectile'
+import { Faction } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
 
 describe('projectile obstacle geometry', () => {
   const obstacle: ObstacleData = {
@@ -209,5 +212,100 @@ describe('walk surfaces', () => {
     expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(0, 2.5, -10), new THREE.Vector3(0, 2.5, 10), [deckSlab])).toBeNull()
     // Through-plank fire (from above to below through y=4.6) is blocked
     expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(0, 6, 0), new THREE.Vector3(0, 3, 0), [deckSlab])).toBe(deckSlab)
+  })
+
+  it('consistently evaluates crenel firing gaps vs solid timber between ArrowProjectile and findBlockingProjectileObstacleAlongPath', () => {
+    // Parapet along Z = [-108.25, -108] with deck topY = 4.76m.
+    // Lower sill: topY to topY + 0.40m (4.76 to 5.16m) across X = [-30, -10].
+    // Merlon battlement: topY + 0.40m to topY + 0.90m (5.16 to 5.66m) across X = [-23.7, -22.7].
+    // Crenel opening: at X = -24.4, empty space above y = 5.16m.
+    const sillBox = new THREE.Box3(new THREE.Vector3(-30, 4.76, -108.25), new THREE.Vector3(-10, 5.16, -108))
+    const merlonBox = new THREE.Box3(new THREE.Vector3(-23.7, 5.16, -108.25), new THREE.Vector3(-22.7, 5.66, -108))
+    const parapet: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-30, 4.76, -108.25), new THREE.Vector3(-10, 5.66, -108)),
+      isBarricade: false,
+      projectileBoxes: [sillBox, merlonBox],
+    }
+
+    const dummyPlayer = { targetable: false, currentMount: null, characterFaction: 'viking' } as Player
+    function testShotWithArrow(origin: THREE.Vector3, target: THREE.Vector3): { stuck: boolean; finalPos: THREE.Vector3 } {
+      const scene = new THREE.Scene()
+      const direction = target.clone().sub(origin).normalize()
+      const arrow = new ArrowProjectile(scene, origin, direction, 40, 25, Faction.PLAYER, false)
+      for (let f = 0; f < 10 && arrow.isAlive && !arrow.isStuck; f++) {
+        arrow.update(0.02, dummyPlayer, [], [parapet], () => {}, () => ({
+          hitSuccess: false,
+          requestedDamage: 0,
+          appliedDamage: 0,
+          blockedImpact: 0,
+          targetId: '',
+          targetName: '',
+          killed: false,
+          hpRatio: 1,
+          isMountHit: false,
+          mountDied: false,
+        }))
+      }
+      const result = { stuck: arrow.isStuck, finalPos: arrow.mesh.position.clone() }
+      arrow.destroy()
+      return result
+    }
+
+    // 1. Arrow fired downward through open crenel (X = -24.4, crosses wall at y = 5.35m > 5.16m sill)
+    const crenelOrigin = new THREE.Vector3(-24.4, 5.4, -109.5)
+    const crenelTarget = new THREE.Vector3(-24.4, 0, -50)
+    // Terrain LOS check
+    expect(findBlockingProjectileObstacleAlongPath(crenelOrigin, crenelTarget, [parapet])).toBeNull()
+    // Live ArrowProjectile physics check
+    const crenelArrow = testShotWithArrow(crenelOrigin, crenelTarget)
+    expect(crenelArrow.stuck).toBe(false)
+    expect(crenelArrow.finalPos.z).toBeGreaterThan(-108) // passes through wall
+
+    // 2. Arrow fired directly into solid merlon timber (X = -23.2, crosses wall at y = 5.35m in [5.16, 5.66])
+    const merlonOrigin = new THREE.Vector3(-23.2, 5.4, -109.5)
+    const merlonTarget = new THREE.Vector3(-23.2, 0, -50)
+    // Terrain LOS check
+    expect(findBlockingProjectileObstacleAlongPath(merlonOrigin, merlonTarget, [parapet])).toBe(parapet)
+    // Live ArrowProjectile physics check
+    const merlonArrow = testShotWithArrow(merlonOrigin, merlonTarget)
+    expect(merlonArrow.stuck).toBe(true) // physically stopped by timber
+    expect(merlonArrow.finalPos.z).toBeLessThanOrEqual(-108 + 1e-4)
+
+    // 3. Arrow fired downward into the lower sill (X = -24.4, crosses wall at y = 4.95m < 5.16m sill)
+    const sillOrigin = new THREE.Vector3(-24.4, 5.0, -109.0)
+    const sillTarget = new THREE.Vector3(-24.4, 0, -50)
+    // Terrain LOS check
+    expect(findBlockingProjectileObstacleAlongPath(sillOrigin, sillTarget, [parapet])).toBe(parapet)
+    // Live ArrowProjectile physics check
+    const sillArrow = testShotWithArrow(sillOrigin, sillTarget)
+    expect(sillArrow.stuck).toBe(true) // physically stopped by sill
+    expect(sillArrow.finalPos.z).toBeLessThanOrEqual(-108 + 1e-4)
+
+    // 4. Arrow fired over the top of the merlon (X = -23.2, crosses wall at y = 5.80m > 5.66m)
+    const highOrigin = new THREE.Vector3(-23.2, 5.85, -109.5)
+    const highTarget = new THREE.Vector3(-23.2, 5.0, -50)
+    // Terrain LOS check
+    expect(findBlockingProjectileObstacleAlongPath(highOrigin, highTarget, [parapet])).toBeNull()
+    // Live ArrowProjectile physics check
+    const highArrow = testShotWithArrow(highOrigin, highTarget)
+    expect(highArrow.stuck).toBe(false)
+    expect(highArrow.finalPos.z).toBeGreaterThan(-108)
+
+    // 5. Anti-fall boundary: player body collision against parapet envelope
+    const playerFeet = 4.76
+    const playerCenterY = playerFeet + 0.95
+    const walkingToEdge = new THREE.Vector3(-24.4, playerCenterY, -108.3)
+    resolveObstacleCollision(
+      walkingToEdge,
+      new THREE.Vector3(-24.4, playerCenterY, -109.0),
+      0,
+      false,
+      0.45,
+      1.9,
+      0.95,
+      [parapet],
+    )
+    // Player is blocked and pushed back from the front edge
+    expect(walkingToEdge.z).toBeLessThanOrEqual(-108.25 - 0.45 + 0.001)
   })
 })

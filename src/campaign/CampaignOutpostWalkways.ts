@@ -26,6 +26,12 @@ export const OUTPOST_WALKWAY = {
   endMargin: 0.4,
   railHeight: 0.9,
   railThickness: 0.25,
+  /** Lower breastwork sill of the front parapet, allowing archery over the sill / through crenels. */
+  parapetSillHeight: 0.4,
+  /** Periodic spacing of battlements along the front parapet. */
+  crenelPeriod: 2.4,
+  /** Width of the open firing gap (crenel) in each period. */
+  crenelWidth: 1.4,
   postHalf: 0.25,
   postXs: [8, 16, 24, 31, 41.5],
   stairCenterX: 36,
@@ -43,6 +49,7 @@ export interface OutpostWalkwayDeck {
   slab: THREE.Box3
   rails: THREE.Box3[]
   posts: THREE.Box3[]
+  frontRailProjectileBoxes: THREE.Box3[]
 }
 
 export interface OutpostWalkwayStair {
@@ -97,12 +104,35 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
       box(side * xNear, topY, zAt(0), side * (xNear + W.railThickness), railTop, zAt(W.deckDepth)),
       box(side * (xFar - W.railThickness), topY, zAt(0), side * xFar, railTop, zAt(W.deckDepth)),
     ]
+
+    // Front parapet projectile geometry: continuous lower sill plus raised merlon battlements.
+    // Archers shoot over the lower sill through open crenels, while striking the wood (sill or merlons)
+    // physically stops projectiles.
+    const frontRailProjectileBoxes: THREE.Box3[] = [
+      box(side * xNear, topY, zAt(0), side * xFar, topY + W.parapetSillHeight, zAt(W.railThickness)),
+    ]
+    const hC = W.crenelWidth / 2
+    const totalPeriods = Math.ceil((xFar - xNear) / W.crenelPeriod)
+    for (let i = 0; i < totalPeriods; i++) {
+      const mX0 = xNear + i * W.crenelPeriod + hC
+      const mX1 = xNear + (i + 1) * W.crenelPeriod - hC
+      if (mX0 < xFar) {
+        frontRailProjectileBoxes.push(box(
+          side * mX0,
+          topY + W.parapetSillHeight,
+          zAt(0),
+          side * Math.min(xFar, mX1),
+          railTop,
+          zAt(W.railThickness),
+        ))
+      }
+    }
     const posts = W.postXs.map(px => {
       const x = side * px
       const groundY = getTerrainHeight(x, zAt(W.deckDepth - W.postHalf)) - 0.3
       return box(x - W.postHalf, groundY, zAt(W.deckDepth - 2 * W.postHalf), x + W.postHalf, topY - W.deckThickness, zAt(W.deckDepth))
     })
-    decks.push({ side, topY, slab, rails, posts })
+    decks.push({ side, topY, slab, rails, posts, frontRailProjectileBoxes })
 
     // Stair: climbs toward the wall along the Z axis, ends in a flat landing
     // that butts against the inner edge of the deck.
@@ -228,11 +258,30 @@ export function createOutpostWalkways(
 
   for (const deck of layout.decks) {
     const sideName = deck.side < 0 ? 'left' : 'right'
-    const wood: THREE.BufferGeometry[] = [boxGeometry(deck.slab), ...deck.rails.map(boxGeometry)]
+    const frontBoxes = deck.frontRailProjectileBoxes ?? [deck.rails[0]]
+    const wood: THREE.BufferGeometry[] = [
+      boxGeometry(deck.slab),
+      ...frontBoxes.map(boxGeometry),
+      ...deck.rails.slice(1).map(boxGeometry),
+    ]
     const dark: THREE.BufferGeometry[] = []
     // Overhead slab: does not block ground navigation grid, but physically stops projectiles hitting it.
     register({ box: deck.slab, isBarricade: false, navigationPassable: true })
-    for (const rail of deck.rails) register({ box: rail, isBarricade: false, navigationPassable: true, projectilePassable: true })
+
+    // Front parapet: 0.9m envelope prevents player from stepping/falling off;
+    // projectileBoxes models the lower sill and merlon risers so archers can shoot
+    // through open crenels or over the sill while solid timber blocks shots.
+    register({
+      box: deck.rails[0],
+      isBarricade: false,
+      navigationPassable: true,
+      projectileBoxes: frontBoxes,
+    })
+
+    // End-cap rails: solid barriers at the side ends.
+    for (let i = 1; i < deck.rails.length; i++) {
+      register({ box: deck.rails[i], isBarricade: false, navigationPassable: true })
+    }
     for (const post of deck.posts) {
       register({ box: post, isBarricade: false })
       dark.push(boxGeometry(post))

@@ -404,6 +404,17 @@ describe('CampaignOutpost walkways', () => {
     expect(slabs).toHaveLength(2)
     expect(slabs.every(obstacle => obstacle.navigationPassable && !obstacle.projectilePassable)).toBe(true)
     expect(outpost.obstacles.filter(obstacle => obstacle.damageable).every(obstacle => !obstacle.projectilePassable)).toBe(true)
+    // No walkway obstacle should ever be blanket-marked projectilePassable:
+    expect(outpost.walkways!.obstacles.every(obstacle => !obstacle.projectilePassable)).toBe(true)
+
+    // Front parapets have physical projectileBoxes for lower sill + merlons:
+    const frontRails = outpost.walkways!.obstacles.filter(obstacle => layout.decks.some(deck => deck.rails[0] === obstacle.box))
+    expect(frontRails).toHaveLength(2)
+    for (const rail of frontRails) {
+      expect(rail.projectileBoxes).toBeDefined()
+      expect(rail.projectileBoxes!.length).toBeGreaterThan(1)
+      expect(rail.projectilePassable).toBeFalsy()
+    }
   })
 })
 
