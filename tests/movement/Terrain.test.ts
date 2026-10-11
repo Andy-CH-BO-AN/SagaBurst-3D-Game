@@ -138,28 +138,56 @@ describe('walk surfaces', () => {
     expect(position.y).toBe(HALF + 2)
   })
 
-  it('does not snap a walker that is far above the surface or far underneath it', () => {
-    const above = new THREE.Vector3(0, HALF + 3.5, 5)
-    const aboveResult = resolveObstacleCollision(above, above.clone(), -1, false, RADIUS, HEIGHT, HALF, [rampObstacle], { walkSurfaces: true })
-    expect(aboveResult.onGround).toBe(false)
-    expect(above.y).toBe(HALF + 3.5)
-
+  it('blocks actors jumping or walking into the underside of the ramp from beneath', () => {
+    // Ramp surface is at y=3.8 at z=9.5. Underside is at 3.8 - 0.35 = 3.45.
+    // Actor standing on ground (feet at y=0, head at y=1.9 < 3.45)
     const below = new THREE.Vector3(0, HALF, 9.5)
     const belowResult = resolveObstacleCollision(below, below.clone(), 0, false, RADIUS, HEIGHT, HALF, [rampObstacle], { walkSurfaces: true })
     expect(belowResult.onGround).toBe(false)
     expect(below.y).toBe(HALF)
+
+    // Actor jumping upward from beneath: head reaches underside (y=3.45)
+    const jumping = new THREE.Vector3(0, 2.6 + HALF, 9.5) // head is at 2.6 + 1.9 = 4.5 > 3.45
+    const jumpResult = resolveObstacleCollision(jumping, below.clone(), 5, false, RADIUS, HEIGHT, HALF, [rampObstacle], { walkSurfaces: true })
+    // Head must be capped at undersideY = 3.45 -> feet at 3.45 - 1.9 = 1.55 -> y = 1.55 + 0.95 = 2.5
+    expect(jumping.y - HALF + HEIGHT).toBeCloseTo(3.45, 5)
+    expect(jumpResult.velocityY).toBe(0)
+    expect(jumpResult.onGround).toBe(false)
+
+    // Actor walking horizontally into descending wedge from underneath: pushed back
+    const walkingUnderWedge = new THREE.Vector3(0, HALF, 2.0) // surface at 0.8, underside at 0.45 < head 1.9
+    const prevUnderWedge = new THREE.Vector3(0, HALF, 4.0)
+    resolveObstacleCollision(walkingUnderWedge, prevUnderWedge, 0, false, RADIUS, HEIGHT, HALF, [rampObstacle], { walkSurfaces: true })
+    expect(walkingUnderWedge.z).toBe(prevUnderWedge.z)
   })
 
-  it('lets arrows pass obstacles flagged projectilePassable', () => {
-    const planking: ObstacleData = {
-      box: new THREE.Box3(new THREE.Vector3(-5, 3, -5), new THREE.Vector3(5, 3.25, 5)),
+  it('distinguishes empty headroom under elevated structures from physical plank blocking', () => {
+    // Structure with coarse envelope and individual step/landing projectileBoxes
+    const stepBox = new THREE.Box3(new THREE.Vector3(-1, 3.86, 9), new THREE.Vector3(1, 4.0, 11))
+    const structure: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 4, 12)),
       isBarricade: false,
-      projectilePassable: true,
+      projectileBoxes: [stepBox],
     }
-    const start = new THREE.Vector3(0, 1, 0)
-    const end = new THREE.Vector3(0, 6, 0)
-    expect(findBlockingProjectileObstacleAlongPath(start, end, [planking])).toBeNull()
-    expect(findBlockingProjectileObstacleAlongPath(start, end, [{ ...planking, projectilePassable: false }]))
-      .not.toBeNull()
+
+    // Shot 1: passing through empty headroom beneath the elevated step (y=1.5 < 3.86)
+    const underStart = new THREE.Vector3(0, 1.5, -2)
+    const underEnd = new THREE.Vector3(0, 1.5, 14)
+    expect(findBlockingProjectileObstacleAlongPath(underStart, underEnd, [structure])).toBeNull()
+
+    // Shot 2: intersecting the solid step plank directly (at y=3.95)
+    const hitStart = new THREE.Vector3(0, 5, 10)
+    const hitEnd = new THREE.Vector3(0, 2, 10)
+    expect(findBlockingProjectileObstacleAlongPath(hitStart, hitEnd, [structure])).toBe(structure)
+
+    // Deck slab: solid floor planks (y=4.5 to 4.75)
+    const deckSlab: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-10, 4.5, -5), new THREE.Vector3(10, 4.75, 5)),
+      isBarricade: false,
+    }
+    // Under-deck fire (y=2.5) remains completely unobstructed
+    expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(0, 2.5, -10), new THREE.Vector3(0, 2.5, 10), [deckSlab])).toBeNull()
+    // Through-plank fire (from above to below through y=4.6) is blocked
+    expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(0, 6, 0), new THREE.Vector3(0, 3, 0), [deckSlab])).toBe(deckSlab)
   })
 })

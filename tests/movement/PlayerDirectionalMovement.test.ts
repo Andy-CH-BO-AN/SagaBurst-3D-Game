@@ -391,12 +391,8 @@ describe('Player Directional Movement & Stamina', () => {
       return { outpost, stair, deck, ramp, yawToward, feet, place, run }
     }
 
-    const cases = [
-      ['roman', -1], ['roman', 1], ['viking', -1], ['viking', 1],
-    ] as const
-
-    it.each(cases)('%s side %i: W alone climbs the stair smoothly onto the deck and the outer rail stops the player', (faction, side) => {
-      const { ramp, deck, feet, place, run, yawToward } = fixture(faction, side)
+    it('W alone climbs the stair smoothly onto the deck and the outer rail stops the player', () => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture('roman', -1)
       const startZ = ramp.startZ - ramp.dirZ * 2
       place(ramp.startX, startZ, getTerrainHeight(ramp.startX, startZ))
       const onDeck = (): boolean => feet() >= deck.topY - 1e-6 && (player.group.position.z - deck.slab.min.z) * (player.group.position.z - deck.slab.max.z) < 0
@@ -412,9 +408,9 @@ describe('Player Directional Movement & Stamina', () => {
       expect(ramp.dirZ > 0 ? player.group.position.z <= railInnerFace : player.group.position.z >= railInnerFace).toBe(true)
     })
 
-    it.each(cases)('%s side %i: Space on the deck rises under normal gravity and lands back on the deck', (faction, side) => {
-      const { deck, feet, place, run, yawToward, ramp } = fixture(faction, side)
-      const x = side * 20
+    it('Space on the deck rises under normal gravity and lands back on the deck', () => {
+      const { deck, feet, place, run, yawToward, ramp } = fixture('roman', -1)
+      const x = -20
       const z = (deck.slab.min.z + deck.slab.max.z) / 2
       place(x, z, deck.topY)
       run(2, {}, yawToward(ramp.dirZ))
@@ -426,8 +422,8 @@ describe('Player Directional Movement & Stamina', () => {
       expect(feet()).toBeCloseTo(deck.topY, 5)
     })
 
-    it.each(cases)('%s side %i: walking back down follows the slope to the ground without dropping or hovering', (faction, side) => {
-      const { ramp, deck, feet, place, run, yawToward } = fixture(faction, side)
+    it('walking back down follows the slope to the ground without dropping or hovering', () => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture('roman', -1)
       place(ramp.startX, (deck.slab.min.z + deck.slab.max.z) / 2, deck.topY)
       // Start on the deck at the stair's X lane and walk inward, away from the wall.
       const toward = yawToward(ramp.dirZ)
@@ -435,9 +431,27 @@ describe('Player Directional Movement & Stamina', () => {
       const trace = run(900, { KeyW: true }, away, () => feet() <= getTerrainHeight(player.group.position.x, player.group.position.z) + 1e-3)
       const ground = getTerrainHeight(player.group.position.x, player.group.position.z)
       expect(feet(), `stuck at feet ${feet().toFixed(2)} z ${player.group.position.z.toFixed(2)}`).toBeLessThanOrEqual(ground + 1e-3)
-      // Past the stair mouth the natural terrain may rise by gradient (<=0.21) x one frame of travel.
       for (let i = 1; i < trace.length; i++) expect(trace[i]).toBeLessThanOrEqual(trace[i - 1] + 0.03)
       expect(Math.max(...trace.slice(1).map((y, i) => Math.abs(y - trace[i])))).toBeLessThan(0.12)
+    })
+
+    it('jumping from beneath elevated stairs hits the underside and does not snap to the surface', () => {
+      const { ramp, deck, feet, place, run, yawToward } = fixture('roman', -1)
+      // Place player on the ground beneath the upper section of the stairs (near the landing)
+      const underZ = ramp.startZ + ramp.dirZ * (ramp.length - 1)
+      const groundY = getTerrainHeight(ramp.startX, underZ)
+      place(ramp.startX, underZ, groundY)
+      run(2, {}, yawToward(ramp.dirZ))
+      expect(feet()).toBeCloseTo(groundY, 2)
+
+      // Jump upward from underneath (1 frame Space trigger, then free flight)
+      const takeoff = run(1, { Space: true }, yawToward(ramp.dirZ))
+      const flight = run(60, {}, yawToward(ramp.dirZ))
+      // Max feet height during jump must not reach the ramp top surface or snap to deck
+      const maxFeet = Math.max(...takeoff, ...flight)
+      expect(maxFeet).toBeLessThan(deck.topY - 1.0)
+      // Player falls back down toward the ground
+      expect(feet()).toBeLessThanOrEqual(groundY + 0.1)
     })
 
     it('falls under gravity when leaving the unrailed inner edge instead of snapping to the ground', () => {

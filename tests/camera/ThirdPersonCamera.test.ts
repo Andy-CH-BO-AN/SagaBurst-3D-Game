@@ -43,6 +43,25 @@ describe('ThirdPersonCamera collision', () => {
     expect(distance).toBeGreaterThan(1.5)
     expect(distance).toBeLessThan(2.7)
   })
+
+  it('collides with physical projectileBoxes planks while ignoring empty headroom inside coarse envelopes', () => {
+    // Stair obstacle: coarse envelope from y=0 to 4m, but solid step plank only at y=3.86 to 4.0m
+    const stepPlank = new THREE.Box3(new THREE.Vector3(-2, 3.86, 3), new THREE.Vector3(2, 4.0, 5))
+    const stairObstacle: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-2, 0, 3), new THREE.Vector3(2, 4, 5)),
+      isBarricade: false,
+      projectileBoxes: [stepPlank],
+    }
+
+    // Camera ray 1: passes through open headroom under the stair (at y=1.5 < 3.86) -> not blocked
+    const underRay = resolveCameraDistance(new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 0, 1), 6, [stairObstacle])
+    expect(underRay).toBe(6)
+
+    // Camera ray 2: aimed directly at the step plank (at y=3.95) -> collides with margin
+    const hitRay = resolveCameraDistance(new THREE.Vector3(0, 3.95, 0), new THREE.Vector3(0, 0, 1), 6, [stairObstacle])
+    // Step box starts at z=3, margin is 0.28 -> distance is 3 - 0.28 = 2.72
+    expect(hitRay).toBeCloseTo(2.72, 5)
+  })
 })
 
 // Camera policy only: 0 actors, 0 GLBs. Player supplies hero identity and anchor.

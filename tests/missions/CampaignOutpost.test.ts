@@ -397,12 +397,12 @@ describe('CampaignOutpost walkways', () => {
     expect(destroyed.outpost.obstacles.filter(obstacle => !obstacle.damageable)).toHaveLength(destroyed.outpost.walkways!.obstacles.length)
   })
 
-  it('lets arrows fly through the raised planking while the low palisade keeps its own collision', () => {
+  it('keeps raised deck slabs solid to projectiles while ground navigation passes underneath', () => {
     const { outpost } = build('roman')
     const { layout } = outpost.walkways!
     const slabs = outpost.walkways!.obstacles.filter(obstacle => layout.decks.some(deck => deck.slab === obstacle.box))
     expect(slabs).toHaveLength(2)
-    expect(slabs.every(obstacle => obstacle.projectilePassable && obstacle.navigationPassable)).toBe(true)
+    expect(slabs.every(obstacle => obstacle.navigationPassable && !obstacle.projectilePassable)).toBe(true)
     expect(outpost.obstacles.filter(obstacle => obstacle.damageable).every(obstacle => !obstacle.projectilePassable)).toBe(true)
   })
 })
@@ -410,7 +410,7 @@ describe('CampaignOutpost walkways', () => {
 describe('outpost walkway mode isolation', () => {
   const standard: OutpostWalkwayLaunchFields = { type: 'defense' }
 
-  it('enables the rampart for a standard Defense Campaign launch only', () => {
+  it('enables the rampart for standard Defense Campaign launches', () => {
     expect(isOutpostWalkwayEnabled(standard, false)).toBe(true)
     expect(isOutpostWalkwayEnabled(undefined, false)).toBe(false)
     expect(isOutpostWalkwayEnabled(null, false)).toBe(false)
@@ -421,9 +421,8 @@ describe('outpost walkway mode isolation', () => {
     ['career outpost relief', { careerMissionKind: 'outpost-relief', careerReliefPhase: 'march' }],
     ['career mission id only', { careerMissionId: 'm1' }],
     ['captain frontline', { careerMissionKind: 'captain-outpost-defense' }],
-    ['veteran outpost', { careerMissionKind: 'veteran-outpost-defense' }],
-    ['capability override', { capabilities: { reinforcementsEnabled: false } }],
-    ['deployment override', { deploymentSeconds: 5 }],
+    ['veteran outpost', { careerVeteranOutpost: { missionId: 'v1' } as any }],
+    ['personal squad defense', { careerPersonalSquad: { missionId: 'p1' } as any }],
   ])('keeps %s on the original outpost', (_label, overrides) => {
     expect(isOutpostWalkwayEnabled({ ...standard, ...overrides }, false)).toBe(false)
   })

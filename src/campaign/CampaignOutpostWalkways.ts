@@ -163,11 +163,11 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
 
 export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
   'type' | 'careerMissionId' | 'careerMissionKind' | 'careerReliefPhase'
-  | 'careerVeteranOutpost' | 'careerPersonalSquad' | 'capabilities' | 'deploymentSeconds'>
+  | 'careerVeteranOutpost' | 'careerPersonalSquad'>
 
 /**
- * Standard Defense Campaign launches (no Career linkage, no capability or
- * deployment overrides) get the rampart. DEV previews opt in explicitly.
+ * Standard Defense Campaign launches (no Career linkage) get the rampart.
+ * DEV previews opt in explicitly.
  */
 export function isOutpostWalkwayEnabled(
   config: OutpostWalkwayLaunchFields | null | undefined,
@@ -181,8 +181,6 @@ export function isOutpostWalkwayEnabled(
     && !config!.careerReliefPhase
     && !config!.careerVeteranOutpost
     && !config!.careerPersonalSquad
-    && config!.capabilities === undefined
-    && config!.deploymentSeconds === undefined
 }
 
 export interface OutpostWalkways {
@@ -232,8 +230,8 @@ export function createOutpostWalkways(
     const sideName = deck.side < 0 ? 'left' : 'right'
     const wood: THREE.BufferGeometry[] = [boxGeometry(deck.slab), ...deck.rails.map(boxGeometry)]
     const dark: THREE.BufferGeometry[] = []
-    // Overhead structure: it neither blocks the ground grid nor arrows flying beneath it.
-    register({ box: deck.slab, isBarricade: false, navigationPassable: true, projectilePassable: true })
+    // Overhead slab: does not block ground navigation grid, but physically stops projectiles hitting it.
+    register({ box: deck.slab, isBarricade: false, navigationPassable: true })
     for (const rail of deck.rails) register({ box: rail, isBarricade: false, navigationPassable: true })
     for (const post of deck.posts) {
       register({ box: post, isBarricade: false })
@@ -259,13 +257,23 @@ export function createOutpostWalkways(
     const wood: THREE.BufferGeometry[] = []
     const dark: THREE.BufferGeometry[] = []
 
+    const stepBoxes: THREE.Box3[] = []
     const steps = Math.max(6, Math.round(ramp.length / 0.45))
+    const hw = ramp.halfWidth
     for (let i = 0; i < steps; i++) {
-      const along = (i + 0.5) * ramp.length / steps
-      wood.push(new THREE.BoxGeometry(ramp.halfWidth * 2, 0.14, ramp.length / steps + 0.02)
-        .translate(cx, surfaceAt(along) - 0.07, zAlong(along)))
+      const a0 = i * ramp.length / steps
+      const a1 = (i + 1) * ramp.length / steps
+      const yMid = surfaceAt((i + 0.5) * ramp.length / steps)
+      stepBoxes.push(box(cx - hw, yMid - 0.14, zAlong(a0), cx + hw, yMid, zAlong(a1)))
+      wood.push(new THREE.BoxGeometry(hw * 2, 0.14, ramp.length / steps + 0.02)
+        .translate(cx, yMid - 0.07, zAlong((i + 0.5) * ramp.length / steps)))
     }
-    wood.push(new THREE.BoxGeometry(ramp.halfWidth * 2, 0.14, ramp.landing)
+    const landingBox = box(
+      cx - hw, ramp.topY - 0.14, zAlong(ramp.length),
+      cx + hw, ramp.topY, zAlong(ramp.length + ramp.landing),
+    )
+    stepBoxes.push(landingBox)
+    wood.push(new THREE.BoxGeometry(hw * 2, 0.14, ramp.landing)
       .translate(cx, ramp.topY - 0.07, zAlong(ramp.length + ramp.landing / 2)))
     for (const rail of stair.rails) wood.push(boxGeometry(rail))
 
@@ -284,7 +292,7 @@ export function createOutpostWalkways(
       box: stair.bounds,
       isBarricade: false,
       walkSurface: ramp,
-      projectilePassable: true,
+      projectileBoxes: [...stepBoxes, ...stair.rails, stair.cap],
     })
     for (const rail of stair.rails) register({ box: rail, isBarricade: false })
     register({ box: stair.cap, isBarricade: false })

@@ -666,18 +666,38 @@ export function resolveObstacleCollision(
   for (const obstacle of candidates) {
     const ramp = options.walkSurfaces ? obstacle.walkSurface : undefined
     if (ramp) {
-      // Ramp support rides the real movement: it only lifts feet that gravity or
-      // walking left slightly below the surface, or keeps a descending walker
-      // from skipping off the slope. Rising (jumping) actors are never touched.
       const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
-      if (surfaceY !== null && velocityY <= 0) {
+      if (surfaceY !== null) {
         const feetY = position.y - bottomOffset
         const slope = Math.abs(ramp.topY - ramp.startY) / ramp.length
         const travel = Math.hypot(position.x - previousPosition.x, position.z - previousPosition.z)
-        if (feetY <= surfaceY + travel * slope + 0.03 && feetY >= surfaceY - WALK_SURFACE_STEP_UP) {
+
+        // 1. Standing or moving on top of the ramp surface:
+        // Lifts feet that gravity or walking left slightly below the surface,
+        // or keeps a descending walker from skipping off the slope.
+        if (velocityY <= 0 && feetY <= surfaceY + travel * slope + 0.03 && feetY >= surfaceY - WALK_SURFACE_STEP_UP) {
           position.y = surfaceY + bottomOffset
           velocityY = 0
           onGround = true
+          continue
+        }
+
+        const RAMP_THICKNESS = 0.35
+        const undersideY = surfaceY - RAMP_THICKNESS
+
+        // 2. Rising/jumping into the underside of the ramp from beneath:
+        // Actor hits their head on the underside and cannot pass upward through the stairs.
+        if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
+          position.y = undersideY - height + bottomOffset
+          if (velocityY > 0) velocityY = 0
+          continue
+        }
+
+        // 3. Body horizontal penetration into the descending solid wedge from underneath:
+        if (feetY < undersideY && topY > undersideY) {
+          position.x = previousPosition.x
+          position.z = previousPosition.z
+          continue
         }
       }
       continue
