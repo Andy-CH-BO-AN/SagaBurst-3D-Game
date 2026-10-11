@@ -340,6 +340,7 @@ export function createOutpostWalkways(
     register({
       box: stair.bounds,
       isBarricade: false,
+      navigationPassable: true,
       walkSurface: ramp,
       projectileBoxes: [...stepBoxes, ...stair.rails, stair.cap],
     })

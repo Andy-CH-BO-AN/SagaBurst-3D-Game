@@ -807,6 +807,9 @@ export class Game {
         const attackerFaction = outpost.gateController.attackerFaction
         this._applyCampaignBreachOrders(attackerFaction)
       })
+      if (outpost.walkways) {
+        this.navigationWorld.setOutpostWalkways(outpost.walkways.layout)
+      }
     }
 
     this.obstacles = obstacles
@@ -3806,6 +3809,7 @@ export class Game {
         radius: 0.5,
         height: 2.3,
         bottomOffset: 0,
+        walkSurfaces: true,
       })
     }
 
