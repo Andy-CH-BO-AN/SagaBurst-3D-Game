@@ -309,10 +309,7 @@ export class TownScene {
       this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault')
     this.outskirts.synchronizeRank()
     this.restoreOutskirtsCheckpoint()
-    this.enemyEaglePatrol = new EnemyEaglePatrolController(this.scene, context.worldFaction,
-      () => this.profile, this.world.airspaceObstacles, this.navigation, undefined, undefined,
-      !this.ambientEaglePatrolAllowed(), this.eagleLandingQueue)
-    this.enemyEaglePatrol.restoreCheckpoint(this.profile.enemyEaglePatrols?.[context.worldFaction])
+    this.initializeEnemyEaglePatrol(context.worldFaction)
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
       { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
         canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []) })
@@ -1417,6 +1414,14 @@ export class TownScene {
     }
     for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) addMount(mount)
     return bodies
+  }
+
+  private initializeEnemyEaglePatrol(faction: CareerProfile['faction']): void {
+    // The external enemy base serializes its own approaches independently of Town/HR pads.
+    this.enemyEaglePatrol = new EnemyEaglePatrolController(this.scene, faction,
+      () => this.profile, this.world.airspaceObstacles, this.navigation, undefined, undefined,
+      !this.ambientEaglePatrolAllowed())
+    this.enemyEaglePatrol.restoreCheckpoint(this.profile.enemyEaglePatrols?.[faction])
   }
 
   private initializePersonalSquad(): void {

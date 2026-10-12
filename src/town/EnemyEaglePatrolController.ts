@@ -54,6 +54,7 @@ export class EnemyEaglePatrolController {
   private readonly ownership = new Map<NPC, Pair>()
   private readonly retired: Retired[] = []
   private readonly retiredActors = new Set<NPC>()
+  private readonly disposedActors = new WeakSet<NPC>()
   private landingOccupants: readonly Mount[] = []
   private readonly grid = new SpatialGrid<NPC>(32)
   private readonly nearby: NPC[] = []
@@ -210,9 +211,10 @@ export class EnemyEaglePatrolController {
     this.time += dt
     if (!this.sharedLandingQueue) this.queue.beginFrame(dt)
     this.lastParticipants = participants
-    this.grid.clear()
-    for (const npc of participants) if (!npc.dead) this.grid.insert(npc)
     this.pruneRetired()
+    this.grid.clear()
+    // The caller may have captured participants before old generations were pruned.
+    for (const npc of participants) if (!npc.dead && !this.disposedActors.has(npc)) this.grid.insert(npc)
     for (const p of this.pairs) {
       if (p.state === 'SPAWNING') continue
       if (p.state === 'RESPAWN_COOLDOWN') {
@@ -519,7 +521,7 @@ export class EnemyEaglePatrolController {
     for (const actor of this.lastParticipants) if (actor !== npc) actor.releaseCombatTarget(npc)
     this.ownership.delete(npc)
     this.retiredActors.delete(npc)
-    this.grid.clear()
+    this.disposedActors.add(npc)
     npc.setMissionCombatTarget(null)
     npc.dispose()
     mount.dispose()

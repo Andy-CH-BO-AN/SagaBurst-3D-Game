@@ -229,6 +229,45 @@ describe('independent ambient enemy eagle spawn and lifecycle wiring', () => {
     expect(f.owner.actors).toHaveLength(3)
     expect(f.owner.mounts).toHaveLength(3)
   })
+  it('prunes a living old-generation rider without interrupting another patrol target or retaining disposed neighbors', () => {
+    const f = fixture()
+    f.drain()
+    const retired = f.npcs[0], observer = f.npcs[1]
+    // Mount-only incapacity leaves a living rider eligible for accidental grid insertion.
+    f.mounts[0].dead = true
+    f.advance(0)
+    f.advance(60)
+    f.mounts[0].deathPresentationComplete = false
+    const target = new AirNpc(f.scene, 220, -170, Faction.TOWN, 'roman', observer.aiType,
+      'defender', 3, false, observer.loadout)
+    const targetMount = new AirMount(f.scene, f.mounts[1].type, 220, -170)
+    targetMount.isAirborne = true
+    target.mountVehicle(targetMount)
+    cleanup.push(() => { target.dispose(); targetMount.dispose() })
+    // Recording positions only; real flight/target acquisition is covered by its own runtime suite.
+    f.mounts[1].group.position.set(220, 30, -170)
+    retired.group.position.copy(f.mounts[1].group.position)
+    const participants = [...f.owner.actors, target as unknown as NPC]
+    f.owner.prepareFrame(0.35, participants, f.player)
+    expect(f.owner.checkpoint().pairs[1].state).toBe('ENGAGING')
+    expect(observer.setMissionCombatTarget).toHaveBeenLastCalledWith(target)
+    expect(retired.dispose).not.toHaveBeenCalled()
+
+    f.mounts[0].deathPresentationComplete = true
+    observer.setMissionCombatTarget.mockClear()
+    f.owner.prepareFrame(0.35, participants, f.player)
+
+    expect(retired.dispose).toHaveBeenCalledTimes(1)
+    expect(f.owner.actors).not.toContain(retired)
+    expect(f.owner.checkpoint().pairs[1].state).toBe('ENGAGING')
+    expect(f.owner.combatEnabled(observer as unknown as NPC)).toBe(true)
+    expect(observer.setMissionCombatTarget).not.toHaveBeenCalled()
+    expect(observer.releaseCombatTarget).toHaveBeenCalledWith(retired)
+    f.owner.updateTravel(observer as unknown as NPC, 0, new THREE.Vector3())
+    const neighbors = observer.updateTownTravel.mock.lastCall![2]
+    expect(neighbors).toContain(target)
+    expect(neighbors).not.toContain(retired)
+  })
   it('partial deployment saves queued injured flight checkpoint without healing and replays only once', () => {
     const f = fixture()
     f.drain()
