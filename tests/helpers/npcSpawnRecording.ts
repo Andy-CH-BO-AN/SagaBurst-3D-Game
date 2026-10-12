@@ -51,6 +51,7 @@ export class RecordingNpc {
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
   readonly setEagleFlightOrder = vi.fn()
   readonly setTownPeaceful = vi.fn()
+  readonly beginTownHostility = vi.fn()
   readonly configureBanditEncounter = vi.fn()
   readonly clearEncounter = vi.fn()
   readonly triggerEncounterAlert = vi.fn(() => { this.encounterIsAlerted = true })

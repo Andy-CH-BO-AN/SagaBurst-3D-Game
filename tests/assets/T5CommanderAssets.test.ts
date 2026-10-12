@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import type { HumanoidAnimationState } from '../../src/world/CharacterVisuals'
+import * as ProceduralMaterials from '../../src/world/ProceduralMaterials'
 import { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
@@ -269,16 +270,38 @@ describe.each(['roman', 'viking'] as const)('%s T5 commander asset package', fac
       const pivot = new THREE.Group(), grip = new THREE.Group()
       pivot.add(grip); actor.rig.left.handSocket.add(pivot)
       const bow = new CharacterBowVisual(pivot, grip, actor.root)
-      bow.rebuild('recurve_longbow')
-      const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
+      // Record cache-owned materials at the builder boundary, including the
+      // polished nocked shaft. Names/types are not an ownership contract.
+      const borrowed = new Set<THREE.Material>()
+      const original = ProceduralMaterials.proceduralMaterial
+      const materialLookup = vi.spyOn(ProceduralMaterials, 'proceduralMaterial').mockImplementation(options => {
+        const material = original(options); borrowed.add(material); return material
+      })
       onTestFinished(() => {
         pivot.removeFromParent()
+        const geometries = new Set<THREE.BufferGeometry>(), owned = new Set<THREE.Material>()
         pivot.traverse(node => {
           if (!(node instanceof THREE.Mesh)) return
-          node.geometry.dispose()
-          for (const material of Array.isArray(node.material) ? node.material : [node.material]) material.dispose()
+          geometries.add(node.geometry)
+          for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+            if (!borrowed.has(material)) owned.add(material)
+          }
         })
+        const sharedDisposed = vi.fn()
+        for (const material of borrowed) material.addEventListener('dispose', sharedDisposed)
+        try {
+          for (const geometry of geometries) geometry.dispose()
+          for (const material of owned) material.dispose()
+          expect(geometries.size).toBeGreaterThan(0)
+          expect(owned.size).toBeGreaterThan(0)
+          expect(borrowed.size).toBeGreaterThan(0)
+          expect(sharedDisposed).not.toHaveBeenCalled()
+        } finally {
+          for (const material of borrowed) material.removeEventListener('dispose', sharedDisposed)
+        }
       })
+      try { bow.rebuild('recurve_longbow') } finally { materialLookup.mockRestore() }
+      const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
       return { actor, grip, bow, animator }
     }
     // A banked/rotated scene parent prevents root-local quaternion shortcuts

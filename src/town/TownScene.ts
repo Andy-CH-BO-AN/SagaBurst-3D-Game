@@ -21,6 +21,8 @@ import { TownPersonalSquadController } from './TownPersonalSquadController'
 import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
+import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
+import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -82,17 +84,18 @@ import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } 
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
+import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
-import { CareerDuelController } from '../career/CareerDuelController'
+import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
-import { isCareerDuelUnlocked } from '../career/CareerDuelState'
-import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
+import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
+import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
 import { acceptEnemyTownAssault, acceptCaptainSiegeCommand } from '../career/EnemyTownAssault'
@@ -118,7 +121,7 @@ import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMi
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
-const NAMES: Record<string, string> = { captain: '騎兵隊長', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer', 'eagle-trainer': 'xongkoro 遊俠場主' }
+const NAMES: Record<string, string> = { captain: '騎兵隊長', commander: '指揮官', deployment: '士官長', merchant: '武器店主', ranger: '遊俠 Maki', cat: '黑貓店主', civilian: '平民 Civilian', 'hr-officer': '人力資源官 HR Officer', 'eagle-trainer': 'xongkoro 遊俠場主' }
 export class TownScene {
   private eagleGarrison?: TownEagleGarrisonController
   private readonly eagleLandingQueue = new EagleLandingQueue()
@@ -218,6 +221,7 @@ export class TownScene {
   private careerSaveFailures = 0
   private spawnErrorShown = false
   private residentSpawnBatch?: NpcSpawnBatch
+  private commanderReturnPending = false
   private get deploymentReady(): boolean { return (this.mission?.ready ?? true) && (this.defense?.ready ?? true) }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? [])]
@@ -229,7 +233,8 @@ export class TownScene {
     try {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
-      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : [])])
+      const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(profile.faction) : null
+      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : [])])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -244,6 +249,10 @@ export class TownScene {
     const context = this.sceneContext
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
+    if (shouldSpawnTownCommander(profile)) {
+      this.navigation.sync(this.world.obstacles)
+      population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, population)))
+    }
     this.residentRoster = careerTownSceneRoster(profile, population)
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
@@ -294,7 +303,8 @@ export class TownScene {
     this.navigation.sync(this.world.obstacles)
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
-      undefined, this.profile.activeMission?.siege?.attackerIds)
+      undefined, this.profile.activeMission?.siege?.attackerIds,
+      this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault')
     this.outskirts.synchronizeRank()
     this.restoreOutskirtsCheckpoint()
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
@@ -433,7 +443,7 @@ export class TownScene {
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
   }
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
-    context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void): Promise<void> {
+    context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void, additionalPopulation = false): Promise<void> {
     const created: Resident[] = []
     const residentBatch = gameplayNpcSpawns.batch(() => {
       for (const resident of created) {
@@ -442,7 +452,8 @@ export class TownScene {
           resident.homeMount.dispose()
           const index = this.mounts.indexOf(resident.homeMount); if (index >= 0) this.mounts.splice(index, 1)
         }
-        this.event.allActors.delete(resident.spec.id); this.event.actors.delete(resident.spec.id)
+        if (additionalPopulation) this.event.unregisterAdditionalResident(resident.spec.id)
+        else { this.event.allActors.delete(resident.spec.id); this.event.actors.delete(resident.spec.id) }
         this.serviceMarkers.delete(resident.spec.id)
         const index = this.residents.indexOf(resident); if (index >= 0) this.residents.splice(index, 1)
       }
@@ -450,14 +461,19 @@ export class TownScene {
     this.residentSpawnBatch = residentBatch
     for (const { spec, characterFaction, allegiance, borrowed } of roster) {
       residentBatch.enqueue(spec.id, () => {
+        if (additionalPopulation && (this.disposed || !shouldSpawnTownCommander(this.profile))) throw new Error('Commander return cancelled by scene transition')
         const civilian = isCivilian(spec.role), ranger = (spec.role === 'ranger' || spec.role === 'eagle-trainer'), cavalry = spec.mounted, ranged = spec.unitKind === 'ranged' || spec.unitKind === 'archer' || spec.unitKind === 'horse_archer' || ranger
         const residentArmyFaction = context.missionOnlyResidents && !borrowed ? context.worldFaction : context.residentFaction
         const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
         const preset = military?.presetId
         const hero = townActorHeroProfile(residentArmyFaction, spec)
+        const heroAsset = spec.role === 'commander' ? townCommanderHeroAsset(residentArmyFaction) : hero?.visualAssetId
+        const combatProfile = heroAsset ? HERO_COMBAT_PROFILE_BY_ASSET[heroAsset] : undefined
         const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : hero?.visualAssetId, ranger ? 'ranger' : hero?.combatProfileId, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction))
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction))
+        if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
+        if (additionalPopulation && this.event.hostile) npc.beginTownHostility()
         let homeMount: Mount | undefined
         if (spec.role === 'ranger') homeMount = this.cat
         if (spec.eagle) {
@@ -469,7 +485,8 @@ export class TownScene {
         if (cavalry) { const mount = trackNpcSpawn(new Mount(this.scene, hero ? mountTypeFromId(hero.mountOverride) : MountType.HORSE, spec.x, spec.z)); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); homeMount = mount }
         if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : hero ? 2 : 2.2)) }
         const training = !context.missionOnlyResidents && spec.training, target = training ? this.world.addTarget(spec.x, spec.z - (spec.mounted ? ranged ? 4 : 3 : ranged ? 3 : 1.5), ranged) : undefined
-        this.event.register(spec.id, npc)
+        if (additionalPopulation) this.event.registerAdditionalResident(spec.id, npc)
+        else this.event.register(spec.id, npc)
         if (homeMount && homeMount !== this.cat) this.mounts.push(homeMount)
         const resident = { spec, npc, homeMount, target, cycle: -1, walkTime: 0 }
         this.residents.push(resident); created.push(resident)
@@ -628,7 +645,7 @@ export class TownScene {
     const outskirts = this.outskirts?.cooldownCheckpoint()
     if (!saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !outskirts?.squads.length) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([outskirts?.squads.map(squad => [squad.id, squad.state, squad.generation]), townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([outskirts?.squads.map(squad => [squad.id, squad.state, squad.generation, squad.cavalryTier, Object.entries(squad.members).map(([id, member]) => [id, member.hp === 0, member.mount?.hp === 0])]), townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -795,20 +812,20 @@ export class TownScene {
       next.townDialogueSeen = [...(next.townDialogueSeen ?? []), ...(firstMeet ? [key] : []), ...(firstOutpost ? [outpostKey] : [])]
       if (!this.commit(next)) { this.openPanel('無法保存交談紀錄', this.notice); return }
     }
-    const p = this.profile, context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet }
+    const p = this.profile, context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) }
     const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
-    if (id === 'captain') {
-      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], merit = enlistmentMerit(p), eligible = Boolean(next && merit >= CAREER_RANK_THRESHOLDS[next])
+    if (id === 'captain' || id === 'commander') {
+      const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id)
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
-      const panel = this.openPanel('騎兵隊長 · 任命', greeting + '\n\n' + (response ? '' : text))
+      const panel = this.openPanel(id === 'commander' ? `${p.faction === 'roman' ? '羅馬' : '維京'}指揮官 · 任命` : '騎兵隊長 · 任命', greeting + (response || greeting === text ? '' : '\n\n' + text))
       const detail = document.createElement('p'); detail.className = 'town-summary'; detail.textContent = promotionDetails(p); panel.append(detail)
       if (eligible) {
         const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
           if (this.promotionAttempt) return
           accept.disabled = true; accept.textContent = '正在準備任命…'
-          const promoted = await this.acceptCareerPromotion()
+          const promoted = await this.acceptCareerPromotion(id)
           if (this.disposed || this.panel !== panel) return
-          if (promoted) this.talk('captain', selectTownDialogue({ ...context, playerRank: this.profile.rank }, 'promotionSuccess'))
+          if (promoted) this.talk(id, selectTownDialogue({ ...context, playerRank: this.profile.rank }, 'promotionSuccess'))
           else {
             detail.textContent = this.notice || '任命尚未完成，請重試。'
             accept.disabled = false; accept.textContent = '重試接受任命'
@@ -1313,23 +1330,23 @@ export class TownScene {
       button.textContent = `${preset.nameEn} · ${preset.nameZh}`
       button.setAttribute('aria-pressed', String(preset.id === selected.id))
       const progress = document.createElement('small')
-      progress.textContent = ([1, 2, 3, 4] as const).map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
+      progress.textContent = CAREER_DUEL_TIERS.map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
       button.onclick = () => { this.duelPresetId = preset.id; this.talk('deployment') }
       row.append(button, progress); units.append(row)
     }
     const tiers = document.createElement('h3'); tiers.textContent = `Tier · ${selected.nameEn}`; panel.append(tiers)
-    for (const tier of [1, 2, 3, 4] as const) {
+    for (const tier of CAREER_DUEL_TIERS) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = `T${tier} ${selected.nameEn}`
       const details = document.createElement('small')
       const unlocked = isCareerDuelUnlocked(this.profile, selected.id, tier)
-      details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 4 ? selected.traits.includes('bow_fire') ? ' · Maki 出戰' : ' · Captain 出戰，Maki 裁判' : ''}` : `先擊敗 T${tier - 1} ${selected.nameEn}`
+      details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected.traits.includes('bow_fire') ? ' · Maki 出戰' : ' · Captain 出戰，Maki 裁判' : ''}` : `${tier === 5 ? '正式晉升 Commander，並' : ''}先擊敗 T${tier - 1} ${selected.nameEn}`
       const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : 'Locked'; accept.disabled = !unlocked
       accept.onclick = () => this.acceptDuel(selected.id, tier)
       row.append(title, details, accept); panel.append(row)
     }
   }
-  private acceptDuel(presetId: UnitPresetId, tier: UnitTier): void {
+  private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
     const fresh = this.store.load()
     if (!fresh || this.player.dead || this.event.hostile || !isCareerDuelUnlocked(fresh, presetId, tier) || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '生涯存檔已變更、該兵種 Tier 尚未解鎖，或目前正在交戰。'); return
@@ -1609,15 +1626,18 @@ export class TownScene {
       || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
-  private async acceptCareerPromotion(): Promise<boolean> {
-    if (this.promotionAttempt || this.disposed) return false
+  private async acceptCareerPromotion(npcRole: CareerAppointingRole): Promise<boolean> {
+    const authorized = () => canAppointCareerRank(this.profile, npcRole)
+      && this.residents.some(resident => resident.spec.id === npcRole && resident.spec.role === npcRole && !resident.npc.dead)
+      && this.serviceAvailable(npcRole)
+      && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
+    if (this.promotionAttempt || this.disposed || !authorized()) return false
     const next = promoteCareer(this.profile)
     if (!next) return false
     const attempt = {}; this.promotionAttempt = attempt
     const panel = this.panel, rank = this.profile.rank, faction = this.profile.faction
     const stillCurrent = () => this.promotionAttempt === attempt && !this.disposed && this.panel === panel
-      && this.profile.rank === rank && this.profile.faction === faction
-      && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
+      && this.profile.rank === rank && this.profile.faction === faction && authorized()
     try {
       const hero = resolveCareerHeroAsset(next)
       if (hero && hero !== this.player.heroAssetId) await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero].descriptor)
@@ -1788,10 +1808,34 @@ export class TownScene {
       : '隊伍已整隊返營。駐軍歸位，馬廄與城鎮服務已恢復。'
     if (this.panel) this.closePanel()
     this.updateCaptainPatrolGuide()
+    if (returned.kind === 'defense') {
+      this.outskirts?.resumeAfterSiege()
+      void this.ensureTownCommanderAfterReturn()
+    }
+  }
+  private async ensureTownCommanderAfterReturn(): Promise<void> {
+    if (this.disposed || this.commanderReturnPending || !shouldSpawnTownCommander(this.profile)
+      || this.residents.some(resident => resident.spec.id === 'commander')) return
+    this.commanderReturnPending = true
+    try {
+      await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCommanderHeroAsset(this.profile.faction)].descriptor)
+      if (this.disposed || !shouldSpawnTownCommander(this.profile)) return
+      this.navigation.sync(this.world.obstacles)
+      const spec = townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, this.residents.map(resident => resident.spec)))
+      const entries = careerTownSceneRoster(this.profile, [spec])
+      await this.initializeResidents(entries, this.sceneContext, () => {}, true)
+      this.residentRoster.push(...entries)
+    } catch (error) {
+      if (this.disposed || !shouldSpawnTownCommander(this.profile)) return
+      this.notice = `指揮官尚未返回，其他城鎮服務不受影響。${error instanceof Error ? error.message : String(error)}`
+      const panel = this.openPanel('指揮官返回失敗', this.notice)
+      this.button(panel, '重試指揮官返回', () => { this.closePanel(); void this.ensureTownCommanderAfterReturn() })
+    } finally { this.commanderReturnPending = false }
   }
   private serviceAvailable(id: string): boolean {
     if (this.sceneContext.missionOnlyResidents) return false
-    if (this.duel?.active && (id === 'captain' || id === 'ranger' || id === 'cat')) return false
+    if (id === 'commander' && !this.residents.some(resident => resident.spec.id === id)) return false
+    if (this.duel?.active && (id === 'captain' || id === 'commander' || id === 'ranger' || id === 'cat')) return false
     if (this.defense?.servicesLocked) return false
     if (id === 'captain' && this.mission?.missionLeader) return false
     if (this.event.allActors.get(id)?.dead) return false
@@ -2407,7 +2451,7 @@ export class TownScene {
       }
     }
     this.target = null; let nearest = 2.6
-    if (!this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
+    if (!this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
       const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
       // Use the grounded mount's base, so the giant eagle's standing seat can still talk.

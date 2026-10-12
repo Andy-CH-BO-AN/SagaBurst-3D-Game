@@ -1,10 +1,11 @@
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { describe, expect, it } from 'vitest'
 import { ROMAN_PRESET_IDS, VIKING_PRESET_IDS, type UnitPresetId, type UnitTier } from '../../src/battle/UnitPresetCatalog'
 import { Faction } from '../../src/world/NPC'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
 import {
   CAREER_DUEL_TEMPLATE_ID, careerDuelPresets, createCareerDuelMission,
-  isCareerDuelUnlocked, resolveCareerDuelOutcome,
+  isCareerDuelUnlocked, resolveCareerDuelOutcome, type CareerDuelTier,
 } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -12,13 +13,13 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
-function duel(profile: CareerProfile, presetId: UnitPresetId, tier: UnitTier, id = `${presetId}-${tier}`): CareerProfile {
-  const activeMission = createCareerDuelMission(profile, presetId, tier, 'soldier-1', 'captain', id)
+function duel(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTier, id = `${presetId}-${tier}`): CareerProfile {
+  const activeMission = createCareerDuelMission(profile, presetId, tier, tier === 5 ? 'commander' : 'soldier-1', 'captain', id)
   expect(activeMission).not.toBeNull()
   return { ...profile, activeMission: activeMission! }
 }
 
-function win(profile: CareerProfile, presetId: UnitPresetId, tier: UnitTier, id?: string): CareerProfile {
+function win(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTier, id?: string): CareerProfile {
   const current = duel(profile, presetId, tier, id)
   const claim = claimCareerMission(current, current.activeMission!.id, 'victory', stats)
   return clearCareerMission(claim.profile, current.activeMission!.id)
@@ -88,6 +89,45 @@ describe('Career Duel progression per unit preset', () => {
 })
 
 describe('Career Duel settlement and safe storage', () => {
+  it('requires formal Commander appointment and a same-preset T4 victory for T5', () => {
+    const profile = { ...createCareerProfile('roman'), totalMerit: 20000,
+      rank: 'captain' as const, duelHighestDefeatedTierByPreset: { roman_archer: 4 as const, roman_lancer: 3 as const } }
+    expect(isCareerDuelUnlocked(profile, 'roman_archer', 5)).toBe(false)
+    expect(createCareerDuelMission(profile, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
+    const appointed = { ...profile, rank: 'commander' as const }
+    expect(isCareerDuelUnlocked(appointed, 'roman_archer', 5)).toBe(true)
+    expect(isCareerDuelUnlocked(appointed, 'roman_lancer', 5)).toBe(false)
+    expect(createCareerDuelMission(appointed, 'roman_archer', 5, 'captain', 'captain', 'wrong', 'ranger')).toBeNull()
+    expect(createCareerDuelMission({ ...appointed, townEvent: { id: 'war', state: 'hostile' } }, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
+    const active = duel(appointed, 'roman_archer', 5)
+    expect(createCareerDuelMission(active, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
+  })
+
+  it('saves T5 progress, original Commander resources and active travel through real storage and settlement', () => {
+    const profile = duel({ ...createCareerProfile('viking'), rank: 'commander',
+      duelHighestDefeatedTierByPreset: { viking_archer: 4 } }, 'viking_archer', 5, 'commander-duel')
+    Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 19.25,
+      duelOpponentHp: 48, duelOpponentAmmo: 7, duelCommanderHome: { hp: 712, ammo: 13 },
+      duelTravel: { actors: { captain: { x: 1, y: 2, z: 3, yaw: .5 }, commander: { x: 4, y: 5, z: 6, yaw: 1 } },
+        player: { x: 7, y: 8, z: 9, yaw: 2 }, staging: true } })
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.activeMission).toMatchObject({ duelTier: 5, duelOpponentActorId: 'commander', duelRefereeActorId: 'captain',
+      duelCountdownElapsed: 5, duelCombatElapsed: 19.25, duelOpponentHp: 48, duelOpponentAmmo: 7,
+      duelCommanderHome: { hp: 712, ammo: 13 }, duelTravel: profile.activeMission!.duelTravel })
+    const copy = cloneCareerProfile(loaded)
+    copy.activeMission!.duelTravel!.actors.commander.x = 999
+    expect(loaded.activeMission!.duelTravel!.actors.commander.x).toBe(4)
+    const settled = clearCareerMission(claimCareerMission(loaded, 'commander-duel', 'victory', stats).profile, 'commander-duel')
+    expect(store.save(settled)).toBe(true)
+    const restored = store.load()!
+    expect(restored.activeMission).toBeUndefined()
+    expect(restored.duelHighestDefeatedTierByPreset).toEqual({ viking_archer: 5 })
+    expect(restored.townCommanderRecovery).toEqual({ faction: 'viking', hp: 712, ammo: 13 })
+    expect(restored.careerMissionCompletionsByTier).toBeUndefined()
+  })
+
   it('awards normal mission merit and lifetime stats once while preserving both mission board counters', () => {
     let profile = createCareerProfile('roman')
     profile.careerMissionCompletions = 12; profile.careerMissionCompletionsByTier = { 1: 7, 2: 5 }
@@ -148,7 +188,7 @@ describe('Career Duel settlement and safe storage', () => {
   it('filters malformed progression without deriving it from legacy global progression, and clones without sharing references', () => {
     const profile = createCareerProfile('roman')
     const loaded = parseCareerProfile({ ...profile, duelHighestDefeatedTier: 4, duelHighestDefeatedTierByPreset: {
-      roman_archer: 3, roman_spearman: 1, roman_lancer: 5, roman_horse_archer: 2.5, roman_heavy_infantry: -1,
+      roman_archer: 3, roman_spearman: 1, roman_lancer: 6, roman_horse_archer: 2.5, roman_heavy_infantry: -1,
       nonexistent_preset: 4, viking_archer: 2,
     } })!
     expect(loaded.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: 3, roman_spearman: 1, viking_archer: 2 })
@@ -160,7 +200,7 @@ describe('Career Duel settlement and safe storage', () => {
 
   it('rejects invalid Duel payloads and clamps excess elapsed time without adding time', () => {
     const profile = duel(createCareerProfile('roman'), 'roman_archer', 1)
-    for (const invalid of [{ duelTier: 5 }, { duelPresetId: 'missing' }, { duelPresetId: 'viking_archer' },
+    for (const invalid of [{ duelTier: 6 }, { duelPresetId: 'missing' }, { duelPresetId: 'viking_archer' },
       { duelOpponentActorId: '' }, { duelCaptainActorId: '' }, { targetCampId: 0 }, { templateId: 'missing' }]) {
       expect(parseCareerProfile({ ...profile, activeMission: { ...profile.activeMission, ...invalid } })!.activeMission).toBeUndefined()
     }

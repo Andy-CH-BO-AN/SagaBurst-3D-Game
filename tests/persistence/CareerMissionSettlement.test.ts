@@ -235,6 +235,39 @@ describe('Town mission result saving through the settlement interface', () => {
 })
 
 describe('Town mission return saving and recovery through the settlement interface', () => {
+  it.each(['direct', 'arrived'] as const)('T5 %s return commits original Commander resources before restoring service or restarting', intent => {
+    const f = fixture('duel', { savedResult: true, survived: true, phase: intent === 'direct' ? 'RESULT' : 'RETURNING' })
+    const active = f.profile().activeMission!
+    Object.assign(active, { duelTier: 5, duelOpponentActorId: 'commander', duelRefereeActorId: 'captain',
+      targetActorIds: ['commander'], friendlyActorIds: ['captain'], duelCommanderHome: { hp: 613, ammo: 17 } })
+    const commander = f.town.residents[1]
+    commander.spec.id = 'commander'; commander.spec.role = 'commander'; commander.spec.yaw = 1.2
+    vi.mocked(commander.npc.restoreForTown).mockImplementation(() => { Object.assign(commander.npc, { dead: false }); commander.npc.group.rotation.y = 0 })
+    let hp = 0, ammo = 2
+    Object.assign(commander.npc, {
+      restoreCombatHealth: vi.fn((value: number) => { hp = value }),
+      restoreCombatAmmo: vi.fn((value: number) => { ammo = value }),
+    })
+    f.storage.writable = false
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(f.settlement.returnToTown(intent).status).toBe('save-failed')
+    expect(hp).toBe(0); expect(ammo).toBe(2)
+    expect(commander.npc.restoreForTown).not.toHaveBeenCalled()
+    expect(f.duel.cleanupMission).not.toHaveBeenCalled()
+    f.storage.writable = true
+    expect(f.settlement.returnToTown(intent).status).toBe(intent === 'direct' ? 'restarted' : 'returned')
+    expect(f.events.indexOf('save')).toBeLessThan(f.events.indexOf('duel-cleanup'))
+    expect(f.store.load()!.townCommanderRecovery).toEqual({ faction: 'roman', hp: 613, ammo: 17 })
+    if (intent === 'arrived') {
+      expect(commander.npc.dead).toBe(false)
+      expect(hp).toBe(613); expect(ammo).toBe(17)
+      expect(commander.npc.group.rotation.y).toBeCloseTo(1.2)
+      expect(f.threats.has(commander.npc)).toBe(false)
+      expect(commander.cycle).toBe(-1)
+    } else expect(f.town.restart).toHaveBeenCalledOnce()
+    expect(commander.npc.dispose).not.toHaveBeenCalled()
+  })
+
   it.each(['direct', 'arrived'] as const)('Captain %s return saves once before physical Patrol return and preserves Career data', intent => {
     const f = fixture('captain-patrol-command', { savedResult: true, survived: true, phase: intent === 'direct' ? 'RESULT' : 'RETURNING' })
     const before = f.profile(), position = f.town.player.group.position.clone()

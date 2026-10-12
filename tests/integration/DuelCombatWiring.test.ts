@@ -196,6 +196,18 @@ class ElementStub {
 }
 
 describe('Duel unit/tier page', () => {
+  it('enables the fifth tier only after formal Commander appointment and the selected T4 win', () => {
+    vi.stubGlobal('document', { createElement: () => new ElementStub() })
+    const town = harness()
+    town.profile.rank = 'commander'; town.profile.duelHighestDefeatedTierByPreset = { roman_archer: 4 }
+    town.duelPresetId = 'roman_archer'
+    const panel = new ElementStub(); town.openDuelPage(panel)
+    expect(panel.children.slice(3)[4].children[2].disabled).toBe(false)
+    town.duelPresetId = 'roman_spearman'
+    const locked = new ElementStub(); town.openDuelPage(locked)
+    expect(locked.children.slice(3)[4].children[2].disabled).toBe(true)
+  })
+
   it.each(['roman', 'viking'] as const)('shows every %s catalog preset with its own tier statuses', faction => {
     vi.stubGlobal('document', { createElement: () => new ElementStub() })
     const town = harness(); town.profile = createCareerProfile(faction)
@@ -207,7 +219,8 @@ describe('Duel unit/tier page', () => {
     expect(unitRows.filter(row => row.children[1].textContent.includes('T2 已解鎖'))).toHaveLength(1)
     expect(unitRows.every(row => row.children[1].textContent.includes('T1 已解鎖'))).toBe(true)
     const tiers = panel.children.slice(3)
-    expect(tiers).toHaveLength(4)
-    expect(tiers.every(row => !row.children[2].disabled)).toBe(true)
+    expect(tiers).toHaveLength(5)
+    expect(tiers.slice(0, 4).every(row => !row.children[2].disabled)).toBe(true)
+    expect(tiers[4].children[2].disabled).toBe(true)
   })
 })

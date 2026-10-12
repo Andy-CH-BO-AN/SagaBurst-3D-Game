@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { ROMAN_PRESET_IDS, UNIT_PRESETS, VIKING_PRESET_IDS, type UnitLoadout, type UnitPresetId, type UnitTier } from '../../src/battle/UnitPresetCatalog'
 import { applyHeroIncomingDamage } from '../../src/battle/T4HeroCatalog'
+import { townCommanderSpec } from '../../src/town/TownCommander'
+import type { CareerDuelTier } from '../../src/career/CareerDuelState'
 import { CareerDuelController, selectCareerDuelRoster, type CareerDuelResident } from '../../src/career/CareerDuelController'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -28,11 +30,13 @@ function actorStub(id: string, presetId?: UnitPresetId, canonical: UnitLoadout =
     combatantId: id, name: id, faction: Faction.TOWN, characterFaction: 'roman', presetId,
     group: new THREE.Group(), dead: false, hp: 100, maxHp: 100, mount: null as Mount | null, respawnEnabled: false,
     loadout: { ...canonical }, equipped: { ...canonical }, duelHostile: false, townHostile: false, combatAmmo: canonical.rangedWeaponId ? 30 : 0,
-    combatProfileId: id === 'captain' ? 'praetorian' as const : undefined,
+    combatProfileId: id === 'captain' ? 'praetorian' as const : id === 'commander' ? 'roman-commander' as const : undefined,
     get combatPosition() { return this.mount ? this.mount.group.position : this.group.position },
     setDuelHostility: vi.fn((active: boolean) => { npc.duelHostile = active }),
     applyTemporaryCombatLoadout: vi.fn((loadout: UnitLoadout) => { npc.equipped = { ...loadout } }),
     restoreCombatLoadout: vi.fn(() => { npc.equipped = { ...npc.loadout } }),
+    restoreForTown: vi.fn(() => { npc.dead = false; npc.hp = npc.maxHp; npc.restoreCombatLoadout() }),
+    restoreCombatHealth: vi.fn((hp: number) => { npc.hp = hp; npc.dead = hp <= 0 }),
     restoreCombatAmmo: vi.fn((ammo: number) => { npc.combatAmmo = Math.max(0, Math.floor(ammo)) }),
     setTacticalOrder: vi.fn(), assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(),
     mountVehicle: vi.fn((mount: Mount) => { npc.mount = mount; mount.riderNpc = npc as unknown as NPC }),
@@ -42,9 +46,9 @@ function actorStub(id: string, presetId?: UnitPresetId, canonical: UnitLoadout =
   return npc as unknown as NPC
 }
 
-function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile) {
+function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile, commanderOnly = false) {
   const blackCat = mountStub()
-  const residents: CareerDuelResident[] = townRoster().filter(spec => spec.role !== 'cat').map(spec => {
+  const residents: CareerDuelResident[] = (commanderOnly ? [townRoster().find(spec => spec.duty === 'training' && !spec.mounted)!, townRoster().find(spec => spec.role === 'captain')!, townCommanderSpec({ x: 20, z: 20, yaw: 0 })] : townRoster()).filter(spec => spec.role !== 'cat').map(spec => {
     const equipment = townMilitaryEquipment(faction, spec.role)
     const loadout = spec.role === 'ranger' ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: null } : equipment.loadout
     const npc = actorStub(spec.id, equipment.presetId, loadout)
@@ -70,7 +74,7 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile)
     grid: { findNearestWalkableCell: vi.fn(), cellToWorld: vi.fn() },
   } as unknown as NavigationWorld
   const controller = new CareerDuelController(new THREE.Scene(), world, navigation, residents, blackCat, () => player, () => profile, commit)
-  const start = (preset: UnitPresetId = `${faction}_archer`, tier: UnitTier = 1, phase: CareerMissionPhase = 'PREPARING') => {
+  const start = (preset: UnitPresetId = `${faction}_archer`, tier: CareerDuelTier = 1, phase: CareerMissionPhase = 'PREPARING') => {
     const mission = controller.createMission(preset, tier)
     if (!mission) throw new Error('test mission unavailable')
     profile = { ...profile, activeMission: { ...mission, phase } }
@@ -85,6 +89,60 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile)
 }
 
 describe('Career Duel existing actor and loadout selection', () => {
+  it.each(['roman_archer', 'viking_horse_archer', 'viking_lancer', 'roman_sword_cavalry'] as const)('T5 %s borrows the sole Commander with Captain referee and canonical selected weapons', preset => {
+    const faction = UNIT_PRESETS[preset].faction
+    const h = harness(faction, { ...createCareerProfile(faction), rank: 'commander',
+      duelHighestDefeatedTierByPreset: { [preset]: 4 } }, true)
+    const commander = h.residents.find(r => r.spec.role === 'commander')!.npc
+    commander.restoreCombatHealth(73); commander.restoreCombatAmmo(11)
+    const canonical = { ...commander.loadout }
+    const roster = selectCareerDuelRoster(h.residents, h.blackCat, preset, 5)!
+    expect(roster.opponent.npc).toBe(commander)
+    expect(roster.referee.spec.role).toBe('captain')
+    expect(roster.mount).toBeNull()
+    expect(roster.loadout).toMatchObject(preset === 'roman_archer' || preset === 'viking_horse_archer'
+      ? { rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: null }
+      : preset === 'viking_lancer' ? { meleeWeaponId: 'heavy_lance', shieldId: null, mountId: null }
+      : { meleeWeaponId: 'paladin_sword_t4', shieldId: 'paladin_shield_t4', mountId: null })
+    h.start(preset, 5)
+    expect(h.controller.actors).toHaveLength(2)
+    expect(h.controller.opponent).toBe(commander)
+    expect(h.controller.referee).toBe(h.controller.captain)
+    expect(commander.applyTemporaryCombatLoadout).toHaveBeenCalledWith(roster.loadout)
+    expect(commander.loadout).toEqual(canonical)
+    commander.takeDamage(9999)
+    h.controller.cleanupMission()
+    expect(commander.dead).toBe(false)
+    expect(commander.hp).toBe(73)
+    expect(commander.combatAmmo).toBe(11)
+    expect(commander).toMatchObject({ equipped: canonical })
+    expect(h.residents.filter(r => r.spec.id === 'commander')).toHaveLength(1)
+  })
+
+  it('reloads T5 actual positions, combat resources and original service resources without refreshing them', () => {
+    const h = harness('roman', { ...createCareerProfile('roman'), rank: 'commander',
+      duelHighestDefeatedTierByPreset: { roman_archer: 4 } }, true)
+    const commander = h.residents.find(r => r.spec.role === 'commander')!.npc
+    commander.restoreCombatHealth(83); commander.restoreCombatAmmo(9)
+    h.start('roman_archer', 5, 'ENGAGING')
+    commander.group.position.set(12, 4, 15); commander.takeDamage(100); commander.restoreCombatAmmo(4)
+    h.player.group.position.set(19, 2, 25)
+    h.controller.update(12.3)
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(h.profile)))!
+    const reloaded = harness('roman', saved, true)
+    expect(reloaded.controller.startActiveMission()).toBe(true)
+    const opponent = reloaded.controller.opponent!
+    expect(opponent.group.position.toArray()).toEqual([12, 4, 15])
+    expect(reloaded.player.group.position.toArray()).toEqual([19, 2, 25])
+    expect(opponent.hp).toBe(33)
+    expect(opponent.combatAmmo).toBe(4)
+    expect(reloaded.controller.combatRemaining).toBeCloseTo(17.7)
+    reloaded.controller.cleanupMission()
+    expect(opponent.hp).toBe(83)
+    expect(opponent.combatAmmo).toBe(9)
+    h.controller.cleanupMission()
+  })
+
   for (const faction of ['roman', 'viking'] as const) {
     it.each(faction === 'roman' ? ROMAN_PRESET_IDS : VIKING_PRESET_IDS)(`${faction} %s reuses exact T1–T3 catalog gear and existing cavalry mounts`, preset => {
       for (const tier of [1, 2, 3] as const) {
@@ -229,12 +287,12 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(h.commit).toHaveBeenCalledTimes(3)
   })
 
-  it('blocks melee, projectile, and mount damage before the full five second countdown', () => {
-    const h = harness()
-    h.start('roman_lancer')
-    const opponent = h.controller.opponent!, mount = opponent.mount!
+  it.each([1, 5] as const)('T%s blocks melee, projectile, and mount damage before the full five second countdown', tier => {
+    const h = tier === 5 ? harness('roman', { ...createCareerProfile('roman'), rank: 'commander', duelHighestDefeatedTierByPreset: { roman_lancer: 4 } }, true) : harness()
+    h.start('roman_lancer', tier)
+    const opponent = h.controller.opponent!, mount = opponent.mount
     expect(h.controller.canDamageOpponent(opponent)).toBe(false)
-    expect(h.controller.canDamageOpponent(mount)).toBe(false)
+    if (mount) expect(h.controller.canDamageOpponent(mount)).toBe(false)
     expect(h.controller.canDamagePlayer(opponent)).toBe(false)
     h.controller.update(4.99)
     expect(h.controller.phase).toBe('PREPARING')
@@ -242,24 +300,25 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     h.controller.update(.01)
     expect(h.controller.phase).toBe('ENGAGING')
     expect(h.controller.canDamageOpponent(opponent)).toBe(true)
-    expect(h.controller.canDamageOpponent(mount)).toBe(true)
+    if (mount) expect(h.controller.canDamageOpponent(mount)).toBe(true)
     expect(opponent.setDuelHostility).toHaveBeenLastCalledWith(true)
   })
 
-  it('times out at 30 seconds, gives player death immediate failure, and opponent death victory', () => {
-    const h = harness()
-    h.start('roman_archer', 1, 'ENGAGING')
+  it.each([1, 5] as const)('T%s times out at 30 seconds, gives player death immediate failure, and opponent death victory', tier => {
+    const setup = () => tier === 5 ? harness('roman', { ...createCareerProfile('roman'), rank: 'commander', duelHighestDefeatedTierByPreset: { roman_archer: 4 } }, true) : harness()
+    const h = setup()
+    h.start('roman_archer', tier, 'ENGAGING')
     h.controller.update(29.9)
     expect(h.controller.outcome).toBeNull()
     h.controller.update(.1)
     expect(h.controller.outcome).toBe('failure')
     expect(h.controller.combatEnabled).toBe(false)
-    const death = harness()
-    death.start('roman_archer', 1, 'ASSEMBLING')
+    const death = setup()
+    death.start('roman_archer', tier, 'ASSEMBLING')
     death.player.dead = true
     expect(death.controller.outcome).toBe('failure')
-    const victory = harness()
-    victory.start('roman_archer', 1, 'ENGAGING')
+    const victory = setup()
+    victory.start('roman_archer', tier, 'ENGAGING')
     victory.controller.opponent!.takeDamage(1000)
     expect(victory.controller.outcome).toBe('victory')
     victory.player.dead = true
