@@ -13,7 +13,7 @@ import {
 } from '../world/DamageableObstacle'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { CampaignBreachController, CampaignGateController } from './CampaignGate'
-import { createOutpostWalkways, type OutpostWalkways } from './CampaignOutpostWalkways'
+import { createOutpostWalkways, getOutpostWalkwayLayout, type OutpostWalkways } from './CampaignOutpostWalkways'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
@@ -127,7 +127,13 @@ export function createCampaignOutpost(
   const darkWoodMaterial = timberMaterial(0x514333)
   const unitBox = new THREE.BoxGeometry(1, 1, 1)
   const palisadeHeight = CAMPAIGN_PALISADE_HEIGHT[defenderFaction]
-  const palisadeStakeGeometry = createPalisadeStakeGeometry(palisadeHeight)
+  const placement = getCampaignOutpostPlacement(defenderFaction)
+  const walkwayLayout = options.walkways ? getOutpostWalkwayLayout(placement) : null
+  const leftDeck = walkwayLayout?.decks.find(d => d.side === -1)
+  const rightDeck = walkwayLayout?.decks.find(d => d.side === 1)
+  const wallTopY = walkwayLayout ? Math.max(leftDeck!.topY, rightDeck!.topY) : null
+  const nominalHeight = wallTopY != null ? (wallTopY - getTerrainHeight(0, placement.frontZ)) : palisadeHeight
+  const palisadeStakeGeometry = createPalisadeStakeGeometry(nominalHeight)
 
   const unregisterHitMeshes = (hitMeshes: readonly THREE.Object3D[]): void => {
     for (const mesh of hitMeshes) {
@@ -171,9 +177,20 @@ export function createCampaignOutpost(
     z: number,
     widthX: number,
     depthZ: number,
+    topY?: number | ((px: number, pz: number) => number),
   ): DamageableObstacle => {
-    const segment = buildPalisadeSegment({ name, x, z, widthX, depthZ, height: palisadeHeight,
-      stakeGeometry: palisadeStakeGeometry, woodMaterial, railMaterial: darkWoodMaterial })
+    const segment = buildPalisadeSegment({
+      name,
+      x,
+      z,
+      widthX,
+      depthZ,
+      height: nominalHeight,
+      stakeGeometry: palisadeStakeGeometry,
+      woodMaterial,
+      railMaterial: darkWoodMaterial,
+      topY,
+    })
     root.add(segment.root)
     const palisade = registerDamageablePiece({
       kind: 'palisade',
@@ -189,11 +206,12 @@ export function createCampaignOutpost(
   }
 
   const zSign = defenderFaction === 'roman' ? -1 : 1
-  const { frontZ, backZ, halfWidth, gateWidth, stakeLineZ } = getCampaignOutpostPlacement(defenderFaction)
+  const { frontZ, backZ, halfWidth, gateWidth, stakeLineZ } = placement
   const frontSideSpan = halfWidth - gateWidth / 2
   const frontSegmentLength = frontSideSpan / 3
 
   for (const side of [-1, 1] as const) {
+    const deckTopY = side < 0 ? leftDeck?.topY : rightDeck?.topY
     for (let i = 0; i < 3; i++) {
       const distanceFromGate = frontSegmentLength * (i + 0.5)
       const x = side * (gateWidth / 2 + distanceFromGate)
@@ -203,12 +221,14 @@ export function createCampaignOutpost(
         frontZ,
         frontSegmentLength,
         0.8,
+        deckTopY,
       )
     }
   }
 
   const sideSegmentDepth = Math.abs(backZ - frontZ) / 5
   for (const side of [-1, 1] as const) {
+    const deckTopY = side < 0 ? leftDeck?.topY : rightDeck?.topY
     for (let i = 0; i < 5; i++) {
       const z = frontZ + zSign * sideSegmentDepth * (i + 0.5)
       createPalisadeSegment(
@@ -217,6 +237,7 @@ export function createCampaignOutpost(
         z,
         0.8,
         sideSegmentDepth,
+        deckTopY,
       )
     }
   }
@@ -224,16 +245,21 @@ export function createCampaignOutpost(
   const rearSegmentWidth = (halfWidth * 2) / 7
   for (let i = 0; i < 7; i++) {
     const x = -halfWidth + rearSegmentWidth * (i + 0.5)
+    const rearTopY = (leftDeck && rightDeck)
+      ? (px: number) => leftDeck.topY + (rightDeck.topY - leftDeck.topY) * ((px + halfWidth) / (2 * halfWidth))
+      : undefined
     createPalisadeSegment(
       `campaign-rear-palisade-${i + 1}`,
       x,
       backZ,
       rearSegmentWidth,
       0.8,
+      rearTopY,
     )
   }
 
   const gateTerrainY = getTerrainHeight(0, frontZ)
+  const gateHeight = wallTopY != null ? (wallTopY - gateTerrainY) : palisadeHeight
   const gateRoot = new THREE.Group()
   gateRoot.name = `campaign-outpost-gate-${defenderFaction}`
 
@@ -245,13 +271,13 @@ export function createCampaignOutpost(
   gateRoot.add(leftGateHinge)
 
   const leftGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  leftGate.position.set(gateWidth / 4, (palisadeHeight - 0.14) / 2, 0)
-  leftGate.scale.set(gateWidth / 2, palisadeHeight - 0.14, 0.9)
+  leftGate.position.set(gateWidth / 4, (gateHeight - 0.14) / 2, 0)
+  leftGate.scale.set(gateWidth / 2, gateHeight - 0.14, 0.9)
   leftGate.castShadow = true
   leftGateHinge.add(leftGate)
 
   const leftGateTop = new THREE.Mesh(unitBox, woodMaterial)
-  leftGateTop.position.set(gateWidth / 4, palisadeHeight - 0.07, 0)
+  leftGateTop.position.set(gateWidth / 4, gateHeight - 0.07, 0)
   leftGateTop.scale.set(gateWidth / 2, 0.14, 1.05)
   leftGateTop.castShadow = true
   leftGateHinge.add(leftGateTop)
@@ -262,13 +288,13 @@ export function createCampaignOutpost(
   gateRoot.add(rightGateHinge)
 
   const rightGate = new THREE.Mesh(unitBox, darkWoodMaterial)
-  rightGate.position.set(-gateWidth / 4, (palisadeHeight - 0.14) / 2, 0)
-  rightGate.scale.set(gateWidth / 2, palisadeHeight - 0.14, 0.9)
+  rightGate.position.set(-gateWidth / 4, (gateHeight - 0.14) / 2, 0)
+  rightGate.scale.set(gateWidth / 2, gateHeight - 0.14, 0.9)
   rightGate.castShadow = true
   rightGateHinge.add(rightGate)
 
   const rightGateTop = new THREE.Mesh(unitBox, woodMaterial)
-  rightGateTop.position.set(-gateWidth / 4, palisadeHeight - 0.07, 0)
+  rightGateTop.position.set(-gateWidth / 4, gateHeight - 0.07, 0)
   rightGateTop.scale.set(gateWidth / 2, 0.14, 1.05)
   rightGateTop.castShadow = true
   rightGateHinge.add(rightGateTop)
@@ -276,16 +302,19 @@ export function createCampaignOutpost(
   // Plank relief, diagonal bracing and iron straps travel with each hinged leaf.
   const gateDetails: THREE.Object3D[] = []
   const iron = new THREE.MeshStandardMaterial({ color: 0x3e4140, roughness: 0.78, metalness: 0.5 })
+  const strapYs = gateHeight > 2.5
+    ? [0.27, gateHeight * 0.35, gateHeight * 0.65, gateHeight - 0.27]
+    : [0.27, gateHeight - 0.27]
   for (const [hinge, sign] of [[leftGateHinge, 1], [rightGateHinge, -1]] as const) {
     const woodParts: THREE.BufferGeometry[] = []
     const ironParts: THREE.BufferGeometry[] = []
     for (let plank = 0; plank < 10; plank++) {
-      woodParts.push(new THREE.BoxGeometry(gateWidth / 20 - 0.025, palisadeHeight - 0.13, 0.94)
-        .translate(sign * (plank + 0.5) * gateWidth / 20, palisadeHeight / 2, 0))
+      woodParts.push(new THREE.BoxGeometry(gateWidth / 20 - 0.025, gateHeight - 0.13, 0.94)
+        .translate(sign * (plank + 0.5) * gateWidth / 20, gateHeight / 2, 0))
     }
     for (const face of [-1, 1]) {
-      woodParts.push(beamBetween(new THREE.Vector3(sign * 0.15, 0.18, face * 0.49), new THREE.Vector3(sign * (gateWidth / 2 - 0.15), palisadeHeight - 0.18, face * 0.49), 0.065))
-      for (const y of [0.27, palisadeHeight - 0.27]) {
+      woodParts.push(beamBetween(new THREE.Vector3(sign * 0.15, 0.18, face * 0.49), new THREE.Vector3(sign * (gateWidth / 2 - 0.15), gateHeight - 0.18, face * 0.49), 0.065))
+      for (const y of strapYs) {
         ironParts.push(new THREE.BoxGeometry(gateWidth / 2 - 0.12, 0.09, 0.025).translate(sign * gateWidth / 4, y, face * 0.485))
         for (const x of [0.2, 1.3, 2.6, 3.8]) {
           ironParts.push(new THREE.SphereGeometry(0.038, 6, 4).translate(sign * x, y, face * 0.51))
@@ -305,12 +334,31 @@ export function createCampaignOutpost(
     hitMeshes: [leftGate, leftGateTop, rightGate, rightGateTop, ...gateDetails],
     box: new THREE.Box3(
       new THREE.Vector3(-gateWidth / 2, gateTerrainY, frontZ - 0.45),
-      new THREE.Vector3(gateWidth / 2, gateTerrainY + palisadeHeight, frontZ + 0.45),
+      new THREE.Vector3(gateWidth / 2, gateTerrainY + gateHeight, frontZ + 0.45),
     ),
     isBarricade: true,
   })
   const gateObstacle = obstacles.find(obstacle => obstacle.damageable === gate)
   if (!gateObstacle) throw new Error('Campaign gate obstacle registration failed')
+
+  if (options.walkways) {
+    const gateFrame = new THREE.Group()
+    gateFrame.name = 'campaign-gate-frame'
+    const postWidth = 0.45
+    const postDepth = 0.95
+    const postHeight = gateHeight + 0.5
+    const leftPost = new THREE.Mesh(new THREE.BoxGeometry(postWidth, postHeight, postDepth), darkWoodMaterial)
+    leftPost.position.set(-gateWidth / 2, gateTerrainY + postHeight / 2, frontZ)
+    leftPost.castShadow = true
+    const rightPost = new THREE.Mesh(new THREE.BoxGeometry(postWidth, postHeight, postDepth), darkWoodMaterial)
+    rightPost.position.set(gateWidth / 2, gateTerrainY + postHeight / 2, frontZ)
+    rightPost.castShadow = true
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(gateWidth + postWidth * 2 + 0.2, 0.4, postDepth + 0.1), woodMaterial)
+    lintel.position.set(0, gateTerrainY + gateHeight + 0.2, frontZ)
+    lintel.castShadow = true
+    gateFrame.add(leftPost, rightPost, lintel)
+    root.add(gateFrame)
+  }
 
   const gateController = new CampaignGateController({
     defenderFaction,

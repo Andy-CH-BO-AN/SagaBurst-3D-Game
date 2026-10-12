@@ -416,6 +416,128 @@ describe('CampaignOutpost walkways', () => {
       expect(rail.projectilePassable).toBeFalsy()
     }
   })
+
+  it.each(['roman', 'viking'] as const)(
+    'elevates %s palisades and gate to meet the walkway deck height while remaining damageable',
+    faction => {
+      const plain = build(faction, false)
+      const walled = build(faction, true)
+      const { layout } = walled.outpost.walkways!
+      const leftDeck = layout.decks.find(d => d.side === -1)!
+      const rightDeck = layout.decks.find(d => d.side === 1)!
+      const wallTopY = Math.max(leftDeck.topY, rightDeck.topY)
+
+      // Plain mode gate remains low
+      const plainGateObstacle = plain.outpost.obstacles.find(o => o.damageable === plain.outpost.gate)!
+      expect(plainGateObstacle.box.getSize(new THREE.Vector3()).y).toBeCloseTo(CAMPAIGN_PALISADE_HEIGHT[faction])
+      expect(plain.outpost.root.getObjectByName('campaign-gate-frame')).toBeUndefined()
+
+      // Elevated gate reaches wallTopY and has fixed overhead frame
+      const walledGateObstacle = walled.outpost.obstacles.find(o => o.damageable === walled.outpost.gate)!
+      expect(walledGateObstacle.box.max.y).toBeCloseTo(wallTopY)
+      const gateFrame = walled.outpost.root.getObjectByName('campaign-gate-frame')
+      expect(gateFrame).toBeDefined()
+
+      // Front palisades match corresponding deck topY
+      for (let i = 1; i <= 3; i++) {
+        const leftPalisade = walled.outpost.damageableObstacles.find(
+          o => o.root.name === `campaign-front-palisade-left-${i}`,
+        )!
+        const rightPalisade = walled.outpost.damageableObstacles.find(
+          o => o.root.name === `campaign-front-palisade-right-${i}`,
+        )!
+        const leftBox = walled.outpost.obstacles.find(o => o.damageable === leftPalisade)!.box
+        const rightBox = walled.outpost.obstacles.find(o => o.damageable === rightPalisade)!.box
+        expect(leftBox.max.y).toBeCloseTo(leftDeck.topY)
+        expect(rightBox.max.y).toBeCloseTo(rightDeck.topY)
+      }
+
+      // Side and rear palisades are elevated to fortress wall height (>= 3.0m)
+      const sidePalisades = walled.outpost.damageableObstacles.filter(
+        o => o.root.name.includes('side-palisade'),
+      )
+      expect(sidePalisades).toHaveLength(10)
+      for (const sidePalisade of sidePalisades) {
+        const obs = walled.outpost.obstacles.find(o => o.damageable === sidePalisade)!
+        expect(obs.box.max.y).toBeGreaterThanOrEqual(3.0)
+      }
+
+      const rearPalisades = walled.outpost.damageableObstacles.filter(
+        o => o.root.name.includes('rear-palisade'),
+      )
+      expect(rearPalisades).toHaveLength(7)
+      for (const rearPalisade of rearPalisades) {
+        const obs = walled.outpost.obstacles.find(o => o.damageable === rearPalisade)!
+        expect(obs.box.max.y).toBeGreaterThanOrEqual(3.0)
+      }
+    },
+  )
+
+  it.each(['roman', 'viking'] as const)(
+    'removes collision and allows ground A* breach passage when an elevated %s front palisade is destroyed',
+    faction => {
+      const walled = build(faction, true)
+      const zSign = faction === 'roman' ? -1 : 1
+      const targetPalisade = walled.outpost.damageableObstacles.find(
+        o => o.root.name === 'campaign-front-palisade-left-2',
+      )!
+      const palisadeObstacle = walled.outpost.obstacles.find(o => o.damageable === targetPalisade)!
+      const segmentX = (palisadeObstacle.box.min.x + palisadeObstacle.box.max.x) / 2
+
+      const nav = new NavigationWorld()
+      nav.sync(walled.outpost.obstacles)
+      nav.beginFrame()
+
+      const outsidePoint = new THREE.Vector3(segmentX, 0, walled.placement.frontZ - zSign * 10)
+      const insidePoint = new THREE.Vector3(segmentX, 0, walled.placement.frontZ + zSign * 10)
+
+      // Before destruction, closed perimeter cannot connect outside and inside
+      expect(nav.areConnected(outsidePoint, insidePoint)).toBe(false)
+      expect(nav.queryPath(outsidePoint, insidePoint).status).toBe('unreachable')
+
+      // Destroy the elevated palisade
+      targetPalisade.destroy()
+      expect(walled.outpost.obstacles).not.toContain(palisadeObstacle)
+      expect(targetPalisade.root.parent).toBeNull()
+
+      nav.sync(walled.outpost.obstacles)
+      nav.beginFrame()
+      expect(nav.areConnected(outsidePoint, insidePoint)).toBe(true)
+      const breachResult = nav.queryPath(outsidePoint, insidePoint)
+      expect(breachResult.status).toBe('path')
+      if (breachResult.status === 'path') {
+        const worldPath = breachResult.path.map(cell => nav.grid.cellToWorld(cell))
+        const crossedThroughBreach = worldPath.some(
+          pt => Math.abs(pt.x - segmentX) < 4.0 && Math.abs(pt.z - walled.placement.frontZ) < 3.0,
+        )
+        expect(crossedThroughBreach).toBe(true)
+      }
+    },
+  )
+
+  it('retains overhead lintel without blocking ground passage when gate is opened or destroyed', () => {
+    const walled = build('roman', true)
+    const gateFrame = walled.outpost.root.getObjectByName('campaign-gate-frame')
+    expect(gateFrame).toBeDefined()
+
+    // Gate open
+    walled.outpost.gateController.open()
+    expect(gateFrame!.parent).toBe(walled.outpost.root)
+    const outside = new THREE.Vector3(0, 0, walled.placement.frontZ + 15)
+    const inside = new THREE.Vector3(0, 0, walled.placement.frontZ - 15)
+    const nav = new NavigationWorld()
+    nav.sync(walled.outpost.obstacles)
+    nav.beginFrame()
+    expect(nav.queryPath(outside, inside).status).toBe('path')
+
+    // Destroy gate
+    walled.outpost.gate.destroy()
+    expect(walled.outpost.gate.root.parent).toBeNull()
+    expect(gateFrame!.parent).toBe(walled.outpost.root)
+    nav.sync(walled.outpost.obstacles)
+    nav.beginFrame()
+    expect(nav.queryPath(outside, inside).status).toBe('path')
+  })
 })
 
 describe('outpost walkway mode isolation', () => {
