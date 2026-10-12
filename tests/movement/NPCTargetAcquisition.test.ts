@@ -443,6 +443,44 @@ function sensorActor(faction: Faction, x: number, y: number, z: number, eagle = 
 }
 
 describe('eagle bounded legal target acquisition', () => {
+  it('releases a retired target without clearing another owner’s explicit target', () => {
+    // One NPC owns the real target setter/cache; candidates are data-only sensor fixtures.
+    const shooter = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'roman', AIType.MELEE, 'Guard', 1, false)
+    onTestFinished(() => shooter.dispose())
+    const retired = sensorActor(Faction.ENEMY, 10, 0, 0)
+    const current = sensorActor(Faction.ENEMY, 20, 0, 0)
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    const grid = new SpatialGrid<NPC>(); grid.insert(current)
+    const probe = shooter as unknown as EagleSensorProbe
+    shooter.setMissionCombatTarget(current)
+    shooter.releaseCombatTarget(retired)
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(current)
+    shooter.setMissionCombatTarget(retired)
+    shooter.releaseCombatTarget(retired)
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(current)
+    shooter.setMissionCombatTarget(null)
+    shooter.releaseCombatTarget(retired)
+    expect(probe._findTarget(player, [], grid)).toBeNull()
+  })
+
+  it('prioritizes an airborne hostile over nearer ground threats and resumes ground selection after it leaves or dies', () => {
+    const shooter = sensorActor(Faction.PLAYER, 0, 30, 0, true)
+    const ground = sensorActor(Faction.ENEMY, 5, 0, 0)
+    const air = sensorActor(Faction.ENEMY, 0, 30, 80, true)
+    Object.assign(air.mount!, { isAirborne: true })
+    const grid = new SpatialGrid<NPC>(); grid.insert(ground); grid.insert(air)
+    const probe = shooter as unknown as EagleSensorProbe
+    const player = { group: new THREE.Group(), targetable: false } as Player
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(air)
+    air.group.position.z = 351
+    grid.clear(); grid.insert(ground); grid.insert(air)
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(ground)
+    air.group.position.z = 80
+    grid.clear(); grid.insert(ground); grid.insert(air)
+    Object.defineProperty(air, 'dead', { value: true })
+    expect(probe._findTarget(player, [], grid)?.npc).toBe(ground)
+  })
+
   it('uses the grid to acquire a legal 490m hostile without changing the global nearest search', () => {
     const shooter = sensorActor(Faction.PLAYER, -200, 30, 0, true)
     const friend = sensorActor(Faction.PLAYER, -195, 30, 0)

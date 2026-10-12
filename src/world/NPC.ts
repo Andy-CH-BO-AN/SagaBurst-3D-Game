@@ -100,7 +100,9 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
-export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number } | { kind: 'hold'; cruiseAltitude?: number }
+export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number }
+  | { kind: 'patrol'; target: THREE.Vector3; cruiseAltitude?: number }
+  | { kind: 'hold'; cruiseAltitude?: number }
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
@@ -196,8 +198,18 @@ export class NPC {
 
   get eagleTactic(): EagleTactic | null { return this.eaglePilot.tactic }
   setEagleCruiseAltitude(altitude: number): void { this.eaglePilot.setCruiseAltitude(altitude) }
+  /** A retiring actor releases only its own references, never another owner's target. */
+  releaseCombatTarget(target: NPC): void {
+    if (this.missionCombatTarget === target) this.setMissionCombatTarget(undefined)
+    if (this._cachedTargetNpc === target) {
+      this._cachedTargetNpc = null
+      this._targetAcquisitionInitialized = false
+      this._rangedVisibleTargetHoldFrames = 0
+    }
+    if (this.eagleLastTarget === target) this.eagleLastTarget = undefined
+  }
   setEagleFlightOrder(order: NpcEagleFlightOrder | null): void {
-    this.eagleFlightOrder = order?.kind === 'return' ? { ...order, target: order.target.clone() } : order
+    this.eagleFlightOrder = order && 'target' in order ? { ...order, target: order.target.clone() } : order
     if (order?.cruiseAltitude !== undefined) this.eaglePilot.setCruiseAltitude(order.cruiseAltitude)
     this.eaglePilot.reset()
     this.eagleAnchorSet = false
@@ -2001,9 +2013,11 @@ export class NPC {
     let nearest: NPC | null = null
     let distanceSq = range * range + 1e-6
     let playerTarget = false
+    let airborneTarget = false
     const playerPosition = this._getPlayerPosition(player, this._tmpTargetPosition)
     if (this.targetsPlayer && player.targetable && !player.dead && this._isEagleTargetInBounds(playerPosition)) {
       playerTarget = true
+      airborneTarget = player.currentMount?.isAirborne === true
       distanceSq = this.combatPosition.distanceToSquared(playerPosition)
       if (this.playerHitFocus > 0) return { position: playerPosition, isDead: false, isPlayer: true }
     }
@@ -2012,7 +2026,10 @@ export class NPC {
       if (candidate === this || candidate.dead || !combatAllegiancesHostile(this, candidate)
         || !this._isEagleTargetInBounds(candidate.combatPosition)) continue
       const candidateDistanceSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
-      if (candidateDistanceSq < distanceSq) { nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false }
+      const airborne = candidate.mount?.isAirborne === true
+      if (airborne && !airborneTarget || airborne === airborneTarget && candidateDistanceSq < distanceSq) {
+        nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false; airborneTarget = airborne
+      }
     }
     return playerTarget ? { position: playerPosition, isDead: false, isPlayer: true }
       : nearest ? { position: nearest.combatPosition, isDead: false, isPlayer: false, npc: nearest } : null
@@ -2935,6 +2952,10 @@ export class NPC {
     command.target = undefined; command.altitude = undefined; command.landingYaw = undefined
     if (order?.kind === 'return') {
       command.kind = 'return'; this.eagleGoal.copy(order.target); command.landingYaw = order.landingYaw
+    } else if (order?.kind === 'patrol') {
+      // Reuse the pilot's ordinary waypoint approach without follow sprint or a
+      // formation assignment left over from boarding. The owner advances waypoints.
+      command.kind = 'formation'; this.eagleGoal.copy(order.target)
     } else if (follow) {
       command.kind = 'follow'
       const leader = this.followTarget!
@@ -2956,7 +2977,7 @@ export class NPC {
     mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
     mount.finishControlledFrame(dt, obstacles)
     this._syncToMount()
-    if (formation && order?.kind !== 'return' && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
+    if (formation && !order && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
       formation.reached = true
       if (formation.arrivalOrder) this.tacticalOrder = formation.arrivalOrder
     }

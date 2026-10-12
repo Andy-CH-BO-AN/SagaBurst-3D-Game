@@ -1,11 +1,15 @@
+import type { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { getTerrainHeight } from '../../src/world/Terrain'
+import { TownEagleGarrisonController } from '../../src/town/TownEagleGarrisonController'
+import { parseTownEagleGarrisonState } from '../../src/town/TownEagleGarrisonState'
 import * as THREE from 'three'
 import { selectMissionInfantryActorIds } from '../../src/career/BanditMissionController'
 import { selectTownCavalryReserve } from '../../src/town/TownCavalryReserve'
 import { selectCareerDuelRoster } from '../../src/career/CareerDuelController'
 import type { NPC } from '../../src/world/NPC'
 import type { Mount } from '../../src/world/Mount'
-import { describe, expect, it } from 'vitest'
-import { townEagleRoster, resolveTownEagleGarrison, townMissionMilitaryIds } from '../../src/town/TownEagleGarrison'
+import { describe, expect, it, vi } from 'vitest'
+import { townEagleRoster, resolveTownEagleGarrison, townMissionMilitaryIds, townEaglePatrolRoute } from '../../src/town/TownEagleGarrison'
 import { townMilitaryEquipment, townRoster, TownEvent } from '../../src/town/TownRules'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
@@ -147,4 +151,223 @@ it('stages two ready crews by simulation time and gives only one return approach
   expect(crew[0].npc.mount).toBeNull()
   expect(runtime.dutyFor(crew[1].npc)).toBe('returning')
   expect(crew[1].npcState.setEagleFlightOrder).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'return', landingYaw: crew[1].spec.eagle!.home.yaw }))
+})
+
+// Duty policy uses recording actor boundaries, not locomotion or rendered assets.
+function patrolPolicyFixture(count = 1) {
+  const rows = townEagleRoster().slice(0, count).map(spec => {
+    const home = spec.eagle!.home, group = new THREE.Group(), mountGroup = new THREE.Group()
+    mountGroup.position.set(home.x, getTerrainHeight(home.x, home.z), home.z); group.position.copy(mountGroup.position)
+    const flight = { phase: 'grounded' as import('../../src/movement/EagleFlightController').EagleFlightSnapshot['phase'], speed: 0, pitch: 0, bank: 0, yaw: home.yaw, velocity: { x: 0, y: 0, z: 0 },
+      snapshot() { return { phase: this.phase, speed: this.speed, pitch: this.pitch, bank: this.bank, yaw: this.yaw, velocity: { ...this.velocity } } },
+      restore(state: import('../../src/movement/EagleFlightController').EagleFlightSnapshot) { Object.assign(this, state) },
+    }
+    const mountState = { group: mountGroup, dead: false, isFlyingMount: true, isAirborne: false, currentHp: 200, maxHp: 200, flight,
+      restoreForTown: vi.fn(() => { mountState.dead = false; mountState.currentHp = 200 }),
+      takeDamage: () => { mountState.dead = true; mountState.currentHp = 0 },
+    }
+    const mount = mountState as unknown as Mount
+    const npcState = { group, dead: false, hp: 100, maxHp: 100, isFalling: false, mount: null as Mount | null, combatAmmo: 30, missionMovement: false,
+      get combatPosition() { return group.position },
+      setEagleCruiseAltitude: vi.fn(), setEagleFlightOrder: vi.fn(), setMissionCombatTarget: vi.fn(), setTownPeaceful: vi.fn(),
+      setTacticalOrder: vi.fn(), restoreCombatAmmo: (ammo: number) => { npcState.combatAmmo = ammo },
+      restoreCombatHealth: (hp: number) => { npcState.hp = hp },
+      assignFormationTarget: vi.fn(), updateTownTravel: vi.fn(), updateTownPeace: vi.fn(),
+      mountVehicle: (vehicle: Mount) => { npcState.mount = vehicle }, dismountFromMount: () => { npcState.mount = null },
+      restoreForTown: vi.fn(() => { npcState.dead = false; npcState.hp = 100; npcState.combatAmmo = 30 }),
+      takeDamage: () => { npcState.dead = true; npcState.hp = 0 },
+    }
+    return { spec, npc: npcState as unknown as NPC, homeMount: mount, npcState, mountState }
+  })
+  const runtime = new TownEagleGarrisonController(rows), camera = new THREE.Vector3(), navigation = {} as NavigationWorld
+  const tick = (combat = false, index = 0) => runtime.update(rows[index].npc, 0, combat, camera, [], navigation, [], rows.map(row => row.homeMount))
+  return { rows, runtime, tick }
+}
+
+it('gives each fixed pad a distinct finite town-centered circuit with a generous map turning margin', () => {
+  const routes = [1, 2, 3, 4, 5].map(slot => townEaglePatrolRoute(`town-eagle-pad:${slot}`))
+  expect(new Set(routes.map(route => JSON.stringify(route))).size).toBe(5)
+  for (const route of routes) {
+    expect(route).toHaveLength(6)
+    for (const point of route) { expect(Math.abs(point.x)).toBeLessThan(230); expect(Math.abs(point.z)).toBeLessThan(230) }
+  }
+})
+
+it('requires explicit ambient authority and spaces all five grounded takeoff orders by 1.5 seconds', () => {
+  const { rows, runtime, tick } = patrolPolicyFixture(5)
+  rows.forEach((_, index) => tick(false, index))
+  expect(rows.map(row => runtime.dutyFor(row.npc))).toEqual(Array(5).fill('standby'))
+  runtime.setAmbientPatrolAllowed(true)
+  rows.forEach((_, index) => tick(false, index))
+  rows.forEach((_, index) => tick(false, index))
+  expect(rows.map(row => runtime.dutyFor(row.npc))).toEqual(['patrolling', 'mounted-waiting', 'mounted-waiting', 'mounted-waiting', 'mounted-waiting'])
+  for (let index = 1; index < 5; index++) {
+    runtime.beginFrame(1.49); tick(false, index)
+    expect(runtime.dutyFor(rows[index].npc)).toBe('mounted-waiting')
+    runtime.beginFrame(.011); tick(false, index)
+    expect(runtime.dutyFor(rows[index].npc)).toBe('patrolling')
+    expect(rows[index].homeMount.group.position.y).toBe(getTerrainHeight(rows[index].spec.eagle!.home.x, rows[index].spec.eagle!.home.z))
+  }
+})
+
+it('changes patrol orders only at waypoints, resumes the interrupted circuit and returns after one lap', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  const order = row.npcState.setEagleFlightOrder, initialCalls = order.mock.calls.length
+  tick(); tick(); expect(order).toHaveBeenCalledTimes(initialCalls)
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  expect(tick(true)).toBe(false); expect(runtime.dutyFor(row.npc)).toBe('sortie')
+  tick(); expect(runtime.dutyFor(row.npc)).toBe('patrolling')
+  expect(order).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'patrol', cruiseAltitude: 20 }))
+  for (const point of townEaglePatrolRoute(row.spec.eagle!.homePadId)) {
+    row.homeMount.group.position.x = point.x; row.homeMount.group.position.z = point.z
+    tick()
+  }
+  expect(runtime.dutyFor(row.npc)).toBe('returning')
+  expect(order).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'return' }))
+  tick(true) // Completed patrols cannot be trapped in an endless re-intercept/return cycle.
+  expect(runtime.dutyFor(row.npc)).toBe('returning')
+})
+
+it('bounds a stalled or continuously fighting ambient patrol by simulation time without aerial refit', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  row.npcState.hp = 52; row.npcState.combatAmmo = 3; row.mountState.currentHp = 87
+  tick(true); runtime.beginFrame(180); tick(true); tick(true)
+  expect(runtime.dutyFor(row.npc)).toBe('returning')
+  expect(row.npcState.hp).toBe(52); expect(row.npcState.combatAmmo).toBe(3); expect(row.mountState.currentHp).toBe(87)
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+})
+
+it.each(['rider', 'mount', 'both'] as const)('retains %s incapacity through a real save and cannot recover at 59 seconds', casualty => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true)
+  row.npcState.group.position.set(row.spec.x, getTerrainHeight(row.spec.x, row.spec.z), row.spec.z)
+  if (casualty !== 'mount') row.npcState.takeDamage()
+  if (casualty !== 'rider') row.mountState.takeDamage()
+  tick(); runtime.beginFrame(30); tick()
+  const profile = createCareerProfile('roman'), store = new CareerProfileStore(new MemoryStorage())
+  profile.townEagleGarrisons = { roman: runtime.snapshot('town:roman') }
+  expect(store.save(profile)).toBe(true)
+  const reload = patrolPolicyFixture()
+  reload.runtime.restore(store.load()!.townEagleGarrisons!.roman, 'town:roman'); reload.runtime.setAmbientPatrolAllowed(true)
+  reload.runtime.beginFrame(29); reload.tick()
+  expect(reload.runtime.snapshot('town:roman').pairs[0].replacementRemaining).toBe(1)
+  expect(reload.rows[0].npcState.restoreForTown).not.toHaveBeenCalled()
+  reload.runtime.beginFrame(1); reload.tick()
+  expect(reload.rows[0].npcState.restoreForTown).toHaveBeenCalledTimes(1)
+  expect(reload.rows[0].mountState.restoreForTown).toHaveBeenCalledTimes(1)
+  reload.tick(); expect(reload.rows[0].npcState.restoreForTown).toHaveBeenCalledTimes(1)
+})
+
+it('pauses ambient casualty recovery during formal events and never revives in midair', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); row.npcState.takeDamage(); row.mountState.isAirborne = true
+  tick(); runtime.beginFrame(60); tick(); expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  runtime.setAmbientPatrolAllowed(false); row.mountState.isAirborne = false; tick()
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  runtime.setAmbientPatrolAllowed(true); tick()
+  expect(row.npcState.restoreForTown).toHaveBeenCalledTimes(1)
+})
+
+it('recovers a stranded living orphan at its original ground base only after 60s and complete rider presentation', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true)
+  row.npcState.takeDamage(); row.mountState.isAirborne = true
+  row.homeMount.group.position.set(250, 30, 250)
+  tick(); runtime.beginFrame(59); tick()
+  expect(row.mountState.restoreForTown).not.toHaveBeenCalled()
+  runtime.beginFrame(1); tick()
+  expect(row.mountState.restoreForTown).not.toHaveBeenCalled()
+  Object.assign(row.npcState, { deathPresentationComplete: true, isFalling: true })
+  tick(); expect(row.mountState.restoreForTown).not.toHaveBeenCalled()
+  row.npcState.isFalling = false; tick()
+  const home = row.spec.eagle!.home
+  expect(row.mountState.restoreForTown).toHaveBeenCalledExactlyOnceWith(home.x, home.z, home.yaw)
+  expect(row.npcState.restoreForTown).toHaveBeenCalledExactlyOnceWith({ x: row.spec.x, z: row.spec.z, yaw: row.spec.yaw })
+})
+
+it('migrates legacy v1 conservatively and rejects corrupt patrol clocks or waypoint indices', () => {
+  const { runtime } = patrolPolicyFixture(), state = runtime.snapshot('town:roman')
+  delete state.nextTakeoffRemaining
+  const pair = state.pairs[0]
+  delete pair.patrol; delete pair.replacementRemaining; delete pair.ambientRecovery; delete pair.restRemaining
+  expect(parseTownEagleGarrisonState(JSON.parse(JSON.stringify(state)))).toEqual(state)
+  for (const patrol of [{ active: true, waypoint: 7, elapsed: 0 }, { active: true, waypoint: 0, elapsed: -1 }]) {
+    expect(parseTownEagleGarrisonState({ ...state, pairs: [{ ...pair, patrol }] })).toBeUndefined()
+  }
+  expect(parseTownEagleGarrisonState({ ...state, nextTakeoffRemaining: Infinity })).toBeUndefined()
+  expect(parseTownEagleGarrisonState({ ...state, pairs: [{ ...pair, replacementRemaining: 61 }] })).toBeUndefined()
+})
+
+it('never grants automatic recovery to a casualty first observed under formal or hostile ownership', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  row.npcState.takeDamage(); tick(true)
+  runtime.beginFrame(60); runtime.setAmbientPatrolAllowed(true); tick()
+  expect(runtime.dutyFor(row.npc)).toBe('casualty')
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  runtime.beginRefit(row.spec.id); tick()
+  expect(row.npcState.restoreForTown).toHaveBeenCalledTimes(1)
+})
+
+it('does not heal a grounded eagle away from its own base even with settlement refit authority', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  row.homeMount.group.position.x += 100; row.mountState.currentHp = 50
+  runtime.beginRefit(row.spec.id); tick()
+  expect(row.mountState.currentHp).toBe(50)
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+})
+
+it.each(['patrolling', 'sortie', 'returning', 'return-queue', 'walking-to-standby', 'resting', 'casualty'] as const)(
+  'round-trips %s duty, flight, resources and progress through storage without replenishing', duty => {
+    const { runtime } = patrolPolicyFixture(), state = runtime.snapshot('town:roman'), pair = state.pairs[0]
+    const mounted = ['patrolling', 'sortie', 'returning', 'return-queue'].includes(duty)
+    Object.assign(pair, { duty, hp: duty === 'casualty' ? 0 : 13, ammo: 4, mounted,
+      patrol: { active: duty !== 'resting', waypoint: 2, elapsed: 70 }, replacementRemaining: duty === 'casualty' ? 1 : 0,
+      ambientRecovery: duty === 'casualty', restRemaining: duty === 'resting' ? 8 : 0,
+    })
+    pair.mount.hp = 37; pair.mount.flight.phase = mounted ? 'cruise' : 'grounded'
+    if (mounted) { pair.mount.position.y += 25; pair.position.y += 25 }
+    state.nextTakeoffRemaining = .75
+    const profile = createCareerProfile('roman'), storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    profile.townEagleGarrisons = { roman: state }
+    storage.failWrites = true; expect(store.save(profile)).toBe(false)
+    storage.failWrites = false; expect(store.save(profile)).toBe(true)
+    const reload = patrolPolicyFixture(); reload.runtime.restore(store.load()!.townEagleGarrisons!.roman, 'town:roman')
+    const restored = reload.runtime.snapshot('town:roman')
+    expect(restored.nextTakeoffRemaining).toBe(.75)
+    expect(restored.pairs[0]).toMatchObject({
+      duty: duty === 'returning' ? 'return-queue' : duty, hp: pair.hp, ammo: 4,
+      patrol: pair.patrol, replacementRemaining: pair.replacementRemaining, restRemaining: pair.restRemaining,
+      mount: { hp: 37, flight: pair.mount.flight },
+    })
+    expect(reload.rows[0].npcState.restoreForTown).not.toHaveBeenCalled()
+  },
+)
+
+it.each(['rider HP', 'mount HP', 'ammunition'] as const)('returns for depleted %s without accepting a fresh intercept or refitting in flight', resource => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  if (resource === 'rider HP') row.npcState.hp = 25
+  if (resource === 'mount HP') row.mountState.currentHp = 50
+  if (resource === 'ammunition') row.npcState.combatAmmo = 0
+  tick(true); tick(true)
+  expect(runtime.dutyFor(row.npc)).toBe('returning')
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+})
+
+it('preserves an airborne patrol waypoint and budget while a formal owner temporarily borrows it', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  runtime.beginFrame(20); tick(true)
+  const before = runtime.snapshot('town:roman').pairs[0].patrol
+  runtime.setAmbientPatrolAllowed(false); runtime.beginFrame(300); tick(true)
+  expect(runtime.dutyFor(row.npc)).toBe('sortie')
+  expect(runtime.snapshot('town:roman').pairs[0].patrol).toEqual(before)
+  runtime.setAmbientPatrolAllowed(true); tick()
+  expect(runtime.dutyFor(row.npc)).toBe('patrolling')
+  expect(runtime.snapshot('town:roman').pairs[0].patrol).toEqual(before)
 })
