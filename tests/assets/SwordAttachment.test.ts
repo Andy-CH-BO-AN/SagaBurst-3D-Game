@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import * as THREE from 'three'
 import { describe, it, expect, vi } from 'vitest'
 import { readGlb, loadRig } from '../../tools/lib/humanoid-glb.mjs'
-import { applySwordAttachment, weaponGripWorld } from '../../src/world/SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from '../../src/world/SwordAttachmentContract'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { createHumanoidRigAdapter, MixerController } from '../../src/world/HumanoidAssetRegistry'
 import { createEquipmentSocketProxies } from '../../src/world/HumanoidEquipmentSockets'
@@ -16,6 +16,22 @@ const base = 'public/models/characters/v2'
 const vector = () => new THREE.Vector3()
 
 describe('正式 GLB 的固定握劍契約', () => {
+  it('selected axe sweep follows the visible grip rotation without extending reach or changing legacy references', () => {
+    const model = new THREE.Group(), visual = new THREE.Group()
+    model.position.set(10, 20, 30)
+    visual.name = 'dane-axe-visual'; visual.position.y = .15
+    visual.rotation.x = Math.PI / 2; model.add(visual)
+    const local = new THREE.Vector3(0, 1.51, 0)
+    const legacy = weaponTipWorld(model, local, new THREE.Vector3())
+    const selected = weaponTipWorld(model, local, new THREE.Vector3(), true)
+    expect(legacy.toArray()).toEqual([10, 21.51, 30])
+    expect(selected.distanceTo(new THREE.Vector3(10, 20.15, 31.36))).toBeLessThan(1e-8)
+    const grip = model.localToWorld(new THREE.Vector3(0, .15, 0))
+    expect(selected.distanceTo(grip)).toBeCloseTo(legacy.distanceTo(grip), 8)
+    visual.removeFromParent()
+    expect(weaponTipWorld(model, local, new THREE.Vector3(), true).toArray()).toEqual(legacy.toArray())
+  })
+
   it('Roman 雙臂與手腕保留原有動作，不能套用 Viking 手臂重定向', async () => {
     const baseline = JSON.parse(fs.readFileSync('artifacts/animation_sources/sword_baselines/roman-locomotion.json', 'utf8'))
     for (const lod of [0, 1, 2]) {

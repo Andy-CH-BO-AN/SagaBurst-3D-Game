@@ -32,7 +32,7 @@ import {
   BASE_UNIT_TIERS,
   CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
-import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
@@ -192,7 +192,10 @@ export function validateDefenseCampaignLaunchConfig(
   if (config.defenderFaction !== 'roman' && config.defenderFaction !== 'viking') {
     errors.push('Invalid defender faction')
   }
-  if (config.playerHeroId !== undefined && config.playerHeroId !== null && !isHeroAssetId(config.playerHeroId)) {
+  // Career rebuilds its launch from the saved mission. Free Campaign storage rejects Career markers.
+  const isAllowedPlayerHero = typeof config.careerMissionId === 'string' && config.careerMissionId.length > 0
+    ? isHeroAssetId : isSetupPlayerHeroId
+  if (config.playerHeroId !== undefined && config.playerHeroId !== null && !isAllowedPlayerHero(config.playerHeroId)) {
     errors.push('Invalid player Hero')
   }
   if (veteranOutpost) {

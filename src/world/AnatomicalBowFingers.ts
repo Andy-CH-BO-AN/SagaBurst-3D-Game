@@ -75,17 +75,34 @@ export function buildAnatomicalBowFingerShape(
   const centers = components.map(points => points.reduce((sum, p) => sum + p.t, 0) / points.length)
   const digitByWeld = new Map<number, number>()
   components.forEach((points, digit) => points.forEach(p => digitByWeld.set(vertexWeld[p.index], digit)))
-  const roots = components.map(points => {
-    const low = points.slice().sort((a, b) => a.f - b.f).slice(0, Math.max(6, Math.ceil(points.length * .15)))
-    return low.reduce((sum, p) => sum.add(p.point), new THREE.Vector3()).multiplyScalar(1 / low.length)
-  })
-  const digitOf = (p: Sample): number => {
-    if (p.f > split) return digitByWeld.get(vertexWeld[p.index]) ?? -1
-    const distances = roots.map(root => Math.hypot(p.n - root.dot(normal), p.t - root.dot(thumb)))
-    const closest = Math.min(...distances)
-    return closest < .045 ? distances.indexOf(closest) : -1
-  }
   const rootF = base - (maxF - base) * .18
+  // Extend the distal labels towards the knuckles along the actual surface.
+  // A cupped thumb can sit beside an index knuckle in space while belonging to
+  // another branch of the mesh. Euclidean nearest-root assignment curled that
+  // thumb web as an index finger and tore it away from the stationary thumb.
+  // Unclassified distal branches are seeds too: their label stays non-finger.
+  const links = unique.map(() => new Set<number>())
+  for (let i = 0; i < geometry.index.count; i += 3) {
+    const triangle = [0, 1, 2].map(k => vertexWeld[geometry.index!.getX(i + k)])
+    for (const x of triangle) for (const y of triangle) {
+      if (x >= 0 && y >= 0 && x !== y && unique[x].f > rootF && unique[y].f > rootF) links[x].add(y)
+    }
+  }
+  const distances = unique.map(p => p.f > split ? 0 : Infinity)
+  const labels = unique.map((p, i) => p.f > split ? digitByWeld.get(i) ?? -1 : -1)
+  const pending = unique.flatMap((p, i) => p.f > rootF ? [i] : [])
+  while (pending.length) {
+    let nearest = 0
+    for (let i = 1; i < pending.length; i++) if (distances[pending[i]] < distances[pending[nearest]]) nearest = i
+    const vertex = pending[nearest]
+    pending[nearest] = pending[pending.length - 1]; pending.pop()
+    if (!Number.isFinite(distances[vertex])) break
+    for (const next of links[vertex]) {
+      const distance = distances[vertex] + unique[vertex].point.distanceTo(unique[next].point)
+      if (distance < distances[next]) { distances[next] = distance; labels[next] = labels[vertex] }
+    }
+  }
+  const digitOf = (p: Sample): number => labels[vertexWeld[p.index]] ?? -1
   const grip = frame.palmContactCenter.clone().addScaledVector(normal, gripRadius)
   const centerF = grip.dot(finger), centerN = grip.dot(normal)
   const diagnostics: BowDigitDiagnostic[] = []

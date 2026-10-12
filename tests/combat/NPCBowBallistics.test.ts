@@ -1,10 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { MountType, type Mount } from '../../src/world/Mount'
+import { MountType, Mount } from '../../src/world/Mount'
 import { eagleBowEngagementRange } from '../../src/combat/EagleRangedCombat'
+
+import { InventoryManager } from '../../src/rpg/InventoryManager'
+
+vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
+  CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
+}))
 
 const GRAVITY = 9.8
 
@@ -147,5 +154,78 @@ describe('eagle bow engagement override consumes actual equipment', () => {
     expect(npc.maxRangedAttackDistance).toBe(100)
     expect(eagleBowEngagementRange('xongkoro', WEAPONS['maki-ranger-bow'])).toBeUndefined()
     expect(rangePolicyNpc('legionary_pilum', MountType.XONGKORO).maxRangedAttackDistance).toBe(15)
+  })
+})
+
+
+// These caller checks intentionally use procedural visual fixtures, not GLBs.
+// Asset pose/bow-facing coverage belongs to the asset pose integration owner.
+// One real mount suffices for the ground-mounted launch branch; eagle interception
+// and its separate projectile path remain owned by EagleNpcRuntime/PlayerEagleFlight.
+describe('Commander mounted bow projectile callers', () => {
+  it.each(['roman', 'viking'] as const)('%s Player release retains camera-target direction and consumes exactly one arrow', faction => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, faction, `${faction}-hero-t5`)
+    onTestFinished(() => player.dispose())
+    const mount = new Mount(scene, MountType.CORGI, 0, 0, 0)
+    onTestFinished(() => mount.dispose())
+    player.mountVehicle(mount)
+    const inventory = new InventoryManager({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'elven_runebow', shieldId: null })
+    const target = new THREE.Vector3(11, 5, 23)
+    const launches: Array<{ origin: THREE.Vector3; direction: THREE.Vector3 }> = []
+    player.onFireArrow = event => launches.push(event)
+    const initialAmmo = player.arrowCount
+    const controls = {
+      keys: {}, isLeftMouseDown: true, isRightMouseDown: true,
+      consumeLeftClick: () => false, consumeLeftClickRelease: () => false,
+      consumeMouseDelta: () => ({ dx: 0, dy: 0 }),
+    }
+    const tick = () => player.update(1 / 60, controls, Math.atan2(11, 23), target, [],
+      { setFill() {} } as Parameters<Player['update']>[5],
+      { setAiming() {}, setChargeRatio() {}, setShieldBlocked() {} } as Parameters<Player['update']>[6],
+      { playBowRelease() {}, playSwing() {}, playHit() {} } as Parameters<Player['update']>[7], inventory)
+    for (let frame = 0; frame < 40; frame++) tick()
+    expect(player.bowDrawRatio).toBeGreaterThan(0)
+    controls.isLeftMouseDown = false
+    controls.consumeLeftClickRelease = () => true
+    tick()
+    controls.consumeLeftClickRelease = () => false
+    for (let frame = 0; frame < 60; frame++) tick()
+    expect(launches).toHaveLength(1)
+    expect(player.arrowCount).toBe(initialAmmo - 1)
+    const shot = launches[0]
+    expect(shot.direction.length()).toBeCloseTo(1, 7)
+    expect(target.clone().sub(shot.origin).normalize().dot(shot.direction)).toBeGreaterThan(.999999)
+  })
+
+  it.each(['roman', 'viking'] as const)('%s NPC release retains gravity-compensated target direction while mounted', faction => {
+    const scene = new THREE.Scene()
+    const target = new Player(scene)
+    onTestFinished(() => target.dispose())
+    target.setPosition(11, 0, 23)
+    const npc = new NPC(scene, 0, 0, Faction.ENEMY, faction, AIType.RANGED, 'Commander bow caller', 4, false,
+      { meleeWeaponId: 'steel_sword', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
+      undefined, undefined, undefined, undefined, `${faction}-hero-t5`, `${faction}-commander`)
+    onTestFinished(() => npc.dispose())
+    const mount = new Mount(scene, MountType.CORGI, 0, 0, 0)
+    onTestFinished(() => mount.dispose())
+    npc.mountVehicle(mount)
+    const initialAmmo = npc.combatAmmo
+    let shot: { origin: THREE.Vector3; direction: THREE.Vector3; target: THREE.Vector3; kind: string } | undefined
+    for (let frame = 0; frame < 360 && !shot; frame++) {
+      npc.update(1 / 60, target, [npc], [], [], { setFill() {} }, () => {}, (origin, direction, kind) => {
+        shot = { origin: origin.clone(), direction: direction.clone(), target: target.position.clone().add(new THREE.Vector3(0, target.bodyBaseOffset + 1.4, 0)), kind }
+      }, true)
+    }
+    expect(shot, `state=${npc.currentState}, action=${npc.combatAnimationAction}`).toBeDefined()
+    const launched = shot!
+    expect(launched.kind).toBe('arrow')
+    expect(npc.combatAmmo).toBe(initialAmmo - 1)
+    const distance = Math.hypot(launched.target.x - launched.origin.x, launched.target.z - launched.origin.z)
+    const time = distance / (Math.hypot(launched.direction.x, launched.direction.z) * npc.rangedProjectileSpeed)
+    const impact = launched.origin.clone().addScaledVector(launched.direction, npc.rangedProjectileSpeed * time)
+    impact.y -= .5 * GRAVITY * time * time
+    // Arrow centre starts ahead of the nock; retain a small physical tolerance.
+    expect(impact.distanceTo(launched.target)).toBeLessThan(.05)
   })
 })

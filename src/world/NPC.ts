@@ -28,10 +28,11 @@ import {
 } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
-import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveMakiEquipmentMode } from './MakiRangerEquipment'
-import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, resolveT4UnitLoadout, type T4CombatProfileId } from '../battle/T4HeroCatalog'
+import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
 const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
@@ -39,7 +40,7 @@ const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
-import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
 import { Mount } from './Mount'
 import { EquipmentVisualLODController } from './EquipmentVisualLODController'
@@ -218,7 +219,7 @@ export class NPC {
   private _tier: 1 | 2 | 3 | 4
   get tier(): 1 | 2 | 3 | 4 { return this._tier }
   readonly visualAssetId?: HeroAssetId
-  readonly combatProfileId?: T4CombatProfileId
+  readonly combatProfileId?: HeroCombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
   presetId?: UnitPresetId
   private _squadId?: SquadId
@@ -324,7 +325,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (!kind) return 22.0
     const eagleRange = eagleBowEngagementRange(this.isMounted ? this.mount?.type : undefined, this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined)
-    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getT4HeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
+    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getHeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
   }
 
   get rangedProjectileSpeed(): number {
@@ -593,7 +594,7 @@ export class NPC {
   getWeaponTipPosition(): THREE.Vector3 {
     if (this.banditHammerTip) return this.banditHammerTip.getWorldPosition(this._tmpWeaponTip)
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getTopTipPosition(this._tmpWeaponTip)
-    return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
+    return weaponTipWorld(this.swordGripPivot, this.swordTipLocal, this._tmpWeaponTip, this.rig.meleeTipFollowsVisual)
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -620,7 +621,7 @@ export class NPC {
     combatantId?: string,
     combatEventSink?: CombatEventSink,
     visualAssetId?: HeroAssetId,
-    combatProfileId?: T4CombatProfileId,
+    combatProfileId?: HeroCombatProfileId,
     specialCombatProfile?: 'maki-ranger',
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
@@ -636,7 +637,7 @@ export class NPC {
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
     this.currentHp = this.maxHp
     this.loadout = loadout
     this.presetId = presetId
@@ -935,6 +936,7 @@ export class NPC {
     this.mount = null
     this.animator.cancel()
     this.rig.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.alertSprite.material.map?.dispose()
     this.alertSprite.material.dispose()
     this.group.removeFromParent()
@@ -1088,7 +1090,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (kind === 'javelin') {
       this.rig.right.handSocket.add(this.bowPivot)
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', this.rig.rangedGripFrame ? .55 : 0, this.rig.rangedGripFrame)
       // The chosen weapon's tier controls its visual, independently of actor tier.
       WeaponMeshFactory.buildNpcRanged('roman', WEAPONS[this.rangedWeaponId!].tier, this.bowGripPivot)
     } else {
@@ -2672,7 +2674,7 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
           const rangedKind = this.rangedCombatKind ?? 'bow'
-          const cooldown = getRangedCooldown(rangedKind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+          const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
@@ -2685,12 +2687,12 @@ export class NPC {
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
             if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
-              this.animator.start('bowRelease', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+              this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
             }
           } else {
             if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
               this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
-              if (this.animator.start('pilumThrow', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
+              if (this.animator.start('pilumThrow', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
             }
           }
 
@@ -2740,14 +2742,14 @@ export class NPC {
             Boolean(this.shieldId),
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
+            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
             this.attackHitProcessed = false
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const attackSpeed = getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
+          const attackSpeed = getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
           this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
           const meleeEvents = this.animator.update(
             dt * berserker.meleeAttackRateMultiplier,
@@ -3026,7 +3028,7 @@ export class NPC {
       this.eagleShotCheckRemaining = .15
     }
     const canShoot = eligible && this.eagleShotClear
-    const cooldown = getRangedCooldown(kind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+    const cooldown = getRangedCooldown(kind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
     if (ranged && kind === 'javelin') this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
     if (canShoot && target) {
       if (kind === 'bow') this.attackTimer += dt
@@ -3303,7 +3305,7 @@ export class NPC {
     }
     this.isSprinting = this.chargeSprintLatched && this.stamina > 0
     const sprintMultiplier = this.isSprinting ? SPRINT_MULTIPLIER : 1
-    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getT4HeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getHeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -3340,9 +3342,10 @@ export class NPC {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitCorgiSeat(): void {
-    if (!this.mount?.corgiVisual || this.dead) return
-    this.mount.corgiVisual.fitRider(this.characterVisualGroup)
+  fitMountedSeat(): void {
+    if (!this.mount || this.dead) return
+    this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
+    this.mount.catVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

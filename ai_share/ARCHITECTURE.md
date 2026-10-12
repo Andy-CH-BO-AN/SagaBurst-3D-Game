@@ -23,7 +23,7 @@
 
 ## 角色資產與動畫
 
-- `HumanoidAssetRegistry` 在產生角色前載入可用 manifest／GLB；正式模式不以舊程序人物靜默替代失敗資產。`HeroAssetCatalog` 集中 T4 英雄描述。
+- `HumanoidAssetRegistry` 在產生角色前載入可用 manifest／GLB；正式模式不以舊程序人物靜默替代失敗資產。`HeroAssetCatalog` 集中 T4／T5 描述，`SETUP_PLAYER_HERO_IDS` 另限制自由模式的選角。`HeroCombatProfile` 共用 Player／NPC 的英雄數值，Player 技能由原管線套用一次，NPC 不套玩家技能。實例銷毀及 render warmup 結束釋放各自的 skeleton bone texture，保留共享 geometry／material／texture。 選定 T5 的三個 LOD 經 `SelectedLodPose` 驗證相同骨架 bind 與動畫樣本後，共用單一角色的骨架／mixer；不同角色仍擁有獨立可變狀態。來源 raw clips 保留，runtime 只略過每段來源動畫中均等於 bind 的不變屬性。
 - geometry、material、texture、clip 共用模板；每個角色持有獨立 skeleton、mixer、socket 與動作狀態。`CharacterVisuals` 提供共用 `CharacterRig` 契約及舊測試模型。
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。
 - 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。跳過的 visual dt 只能補算一次。
@@ -43,6 +43,7 @@
 - Lance idle 沿用 Sword Idle 人體／手形，加固定 attachment；攻擊才加右臂 FK 前伸。不在無關工作恢復舊 Ready pose、左手支撐或 lance IK。
 - Maki 使用來源持弓 idle；近戰仍持同一把弓，以重定向 `axeAttack2H` 播放，Player 裝備固定弓近戰／無盾。站立側身姿勢、移動／騎乘腿部所有權見 [posed-source characters](skills/humanoid-rig-skinning/references/posed-source-characters.md)。
 - `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 瞄準只改 FOV；Player 從 nock 向準星 world ray 命中點發射。
+- T5 selected-source 騎乘弓姿由 `CharacterEquipmentPose` 將就座移除的來源骨盆 world rotation 等分轉移到 torso chain，保留肩手與固定弓握點的朝向；`MixerController` 依實際 bow clip 權重維持淡出到 idle 期間的補償。巨鷹衝刺仍保留下胸俯身，但瞄準時維持上胸 world orientation。站立、T4、actor／mount heading、來源 clips 與 projectile direction 不由此 adapter 改寫。
 - T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`，沿用原本 Maki 弓外觀、動畫與近戰 fallback。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
 - 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
@@ -150,8 +151,10 @@ Town Center 與 Barracks 建築已移除，武器店／馬店位於原 Town Cent
 
 `EagleFlightAI` 在共用 FlightController 上維持 RANGED_GROUND／DIVE_GROUND／RANGED_AIR／DIVE_AIR 的持續 maneuver，固定 20–40m AGL 巡航、有限轉向／預測拉升與 3D 空軍鄰居避讓。弓箭裝備／彈藥可用性與已選定戰術分開：有箭的騎手先完成騎射承諾窗口，遇到安全且對準的近距機會才俯衝，完成 pass／拉升後重新取得騎射窗口；換目標不逐幀重選或永久延後戰術決策。Follow／Formation／Defend 不等於 Return；只有明確 return order 才指定安全降落。`AerialViewPolicy` 只在 xongkoro 騎乘或高空 observer 啟用 700m camera far／fog，返回地面時還原場景原值；既有 LOD 與 gameplay update 獨立，不扩大高精度模型距離。
 
-`CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份所有權，tier 跟隨任命軍階；舊 tier ID 由存檔相容處理。Captain／Commander 的 T4 身體替換保留運行中玩家狀態；正式隊指揮權由接受時保存的 authority 決定。
+`CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份所有權，tier 跟隨任命軍階；舊 tier ID 由存檔相容處理。Captain 使用同陣營 T4，Commander 使用 `roman-hero-t5`／`viking-hero-t5`。任命先載入並暫建新角色，保存成功才替換；失敗保留舊角色與可重試的任命，取消及重複點擊不重複提交。替換保留原坐騎、位置／朝向、HP 比例、體力、彈藥、全部盾牌耐久及 inventory／skills，原相機重新綁定角色以保留視角狀態。舊 Commander 存檔載入 T5，失敗不降回 T4。正式隊指揮權由接受時保存的 authority 決定。
 
 ## 效能解讀
 
 `Renderer Submit` 是 `renderer.render()` 的 CPU 側耗時，可能含 driver／GPU back-pressure，不等同純 GPU 時間。預設 `renderer.info` 在 shadow 後 reset，通常只報 main pass；mesh 數也不等於 submissions。完整 pass 歸因及 A/B 方法以 [benchmark skill](skills/sagaburst-performance-benchmark/SKILL.md) 為準，舊 PR 數據不代替當前 baseline。
+
+`tools/benchmark-hero.mjs` 以 DEV `devcombat=commander` 固定場景分別比較 Roman／Viking 的 100 名 T4 與 T5，近／中／遠相機、相同裝備及正常畫質各跑至少三組配對，門檻附近追加量測。測試用持續近戰 fixture 每次承傷前恢復生命以維持 100 人，仍走原本 AI、動畫與傷害流程；不新增正式 T5 招募或戰役名冊。報告保存平均 FPS、1% Low、P95、main-pass draw calls、JS heap／WebGL 資源數、來源與 runtime LOD 面數、HTTP 資產雜湊及循環載入結果；JS heap 不代表總 RAM／VRAM。基準期間禁止變動程式／資產或降低陰影、解析度與材質設定。

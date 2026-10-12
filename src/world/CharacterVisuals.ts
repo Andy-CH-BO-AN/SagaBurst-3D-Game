@@ -58,6 +58,7 @@ export interface HumanoidAnimationPlayOptions {
 }
 
 export interface HumanoidAnimationController {
+  getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined
   playHitReaction?(): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
@@ -71,12 +72,24 @@ export interface HumanoidAnimationController {
   stop(): void
 }
 
+/** Source seconds remain on the clip; this describes its gameplay clock. */
+export interface HumanoidMeleeTiming {
+  duration: number
+  activeStart: number
+  hit: number
+  activeEnd: number
+  clipTimeScale: number
+}
+
 export interface CharacterRig {
   equipmentGripFrames?: import('./EquipmentAttachmentContract').EquipmentGripFrames
   upperChest?: THREE.Object3D
   clavicleLeft?: THREE.Object3D
   clavicleRight?: THREE.Object3D
   swordGripFrame?: import('./SwordAttachmentContract').SwordGripFrame
+  rangedGripFrame?: import('./SwordAttachmentContract').SwordGripFrame
+  /** Selected source clips use the displayed axe arc for their swept contact. */
+  meleeTipFollowsVisual?: boolean
   right: ArmRig
   left: ArmRig
   rightLeg: LegRig

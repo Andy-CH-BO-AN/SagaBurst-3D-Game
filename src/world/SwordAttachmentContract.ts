@@ -59,6 +59,14 @@ export function weaponGripWorld(model: THREE.Object3D, target: THREE.Vector3): T
   return model.localToWorld(target.fromArray(model.userData.gripCenterLocal ?? [0, 0, 0]))
 }
 
+/** Preserve the configured reach, but follow the axe's visible grip rotation.
+ * Legacy clips were authored for the unrotated reference and keep that path. */
+export function weaponTipWorld(model: THREE.Object3D, local: THREE.Vector3, target: THREE.Vector3, followVisual = false): THREE.Vector3 {
+  const visual = followVisual ? model.getObjectByName('dane-axe-visual') : undefined
+  if (visual) return visual.localToWorld(target.copy(local).sub(visual.position))
+  return model.localToWorld(target.copy(local))
+}
+
 /** Select only on context changes; both transforms retain the model grip. */
 const axeAttackRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), .45)
 const axeCarryRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .55)

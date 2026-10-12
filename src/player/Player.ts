@@ -32,10 +32,10 @@ import { EAGLE_AIM, eagleRiderAimYaw, type EagleAimHeading } from './EagleFlight
 import { fitStandingRider } from '../world/StandingRider'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
-import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from '../world/CharacterCombatAnimator'
 import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
-import { applySwordAttachment, weaponGripWorld } from '../world/SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import {
   CharacterBowVisual,
@@ -316,20 +316,26 @@ export class Player {
     this.shieldPivot = new THREE.Group()
     this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
 
-    this._buildMesh(2)
+    try {
+      this._buildMesh(2)
 
-    const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
-    if (heroCombat) this.setMaxHp(heroCombat.maxHp)
+      const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
+      if (heroCombat) this.setMaxHp(heroCombat.maxHp)
 
-    // Build default initial weapons (Steel Sword & Recurve Longbow)
-    this.rebuildMeleeWeapon('steel_sword')
-    this.rebuildRangedWeapon('recurve_longbow')
+      // Build default initial weapons (Steel Sword & Recurve Longbow)
+      this.rebuildMeleeWeapon('steel_sword')
+      this.rebuildRangedWeapon('recurve_longbow')
 
-    scene.add(this.group)
+      scene.add(this.group)
 
-    // Initial position calibrated with terrain height at [0, 0]
-    const terrainY = getTerrainHeight(0, 0)
-    this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
+      // Initial position calibrated with terrain height at [0, 0]
+      const terrainY = getTerrainHeight(0, 0)
+      this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
+    } catch (error) {
+      // A failed constructor has no caller-owned instance to dispose later.
+      this.dispose()
+      throw error
+    }
   }
 
   private _buildMesh(tier: 1 | 2 | 3): void {
@@ -337,6 +343,9 @@ export class Player {
     this.swordPivot.removeFromParent()
     this.bowPivot.removeFromParent()
     this.shieldPivot.removeFromParent()
+    this.animator?.cancel()
+    this.rig?.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.characterVisualGroup.clear()
     this.characterVisualGroup.position.y = HumanoidAssetRegistry.ready
       ? -PLAYER_HALF_HEIGHT
@@ -448,7 +457,7 @@ export class Player {
     this.bowGripPivot.clear()
     if (weapon?.animationKind === 'pilum') {
       this.bowVisual = null
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', this.rig.rangedGripFrame ? .55 : 0, this.rig.rangedGripFrame)
       this.rig.right.handSocket.add(this.bowPivot)
       WeaponMeshFactory.buildNpcRanged('roman', weapon.tier, this.bowGripPivot)
     } else {
@@ -464,7 +473,7 @@ export class Player {
   getSwordTipPosition(): THREE.Vector3 {
     if (this.meleeBowVisual) return this.meleeBowVisual.getTopTipPosition(this._tmpTipWorld)
     const tipWorld = this._tmpTipWorld
-    this.swordGripPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
+    weaponTipWorld(this.swordGripPivot, this.swordTipLocal, tipWorld, this.rig.meleeTipFollowsVisual)
     return tipWorld
   }
 
@@ -720,8 +729,9 @@ export class Player {
     this.fallingRider.clear()
     this.fallContext = undefined
     this.onPlayerDeath = null
-    this.animator.cancel()
-    this.rig.animation?.stop()
+    this.animator?.cancel()
+    this.rig?.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.onFireArrow = null
     this.group.removeFromParent()
   }
@@ -1172,9 +1182,10 @@ export class Player {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitCorgiSeat(): void {
-    if (!this.currentMount?.corgiVisual || this.dead) return
-    this.currentMount.corgiVisual.fitRider(this.characterVisualGroup)
+  fitMountedSeat(): void {
+    if (!this.currentMount || this.dead) return
+    this.currentMount.corgiVisual?.fitRider(this.characterVisualGroup)
+    this.currentMount.catVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

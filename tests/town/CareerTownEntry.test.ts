@@ -11,6 +11,7 @@ import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn(), starterThumbnails: vi.fn() }))
@@ -130,17 +131,19 @@ describe('Town load failure recovery', () => {
     expect(store.load()?.townCommandSquad?.members?.guard).toEqual(kind === 'reload' ? { status: 'dead', hp: 0 } : { status: 'reserve' })
   })
 
-  it.each([false, true])('clears the entry flag on failure and return without changing saved hostility=%s', async hostile => {
+  it.each([[false, 'recruit'], [true, 'recruit'], [false, 'commander'], [true, 'commander']] as const)('clears the entry flag on failure without changing saved hostility=%s and appointment=%s', async (hostile, rank) => {
     const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
     vi.stubGlobal('document', { body, createElement: () => element() })
     vi.stubGlobal('location', { search: '?nolock' })
     const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    profile.rank = rank; profile.totalMerit = rank === 'commander' ? 20000 : 0
     if (hostile) profile.townEvent = { id: 'existing-hostility', state: 'hostile' }
     const store = new CareerProfileStore(local); store.save(profile)
     const saved = local.getItem('sagaburst_career_v1'), home = vi.fn()
-    vi.mocked(TownScene.create).mockImplementation(async () => {
+    vi.mocked(TownScene.create).mockImplementation(async (_container, requestedProfile) => {
       expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
+      expect(resolveCareerHeroAsset(requestedProfile)).toBe(rank === 'commander' ? 'roman-hero-t5' : null)
       throw new Error('asset load failed')
     })
     enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
@@ -151,6 +154,7 @@ describe('Town load failure recovery', () => {
     back.onclick!()
     expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull(); expect(home).toHaveBeenCalledTimes(1)
     expect(local.getItem('sagaburst_career_v1')).toBe(saved)
+    expect(store.load()?.rank).toBe(rank)
     expect(store.load()?.townEvent?.state).toBe(hostile ? 'hostile' : undefined)
   })
 })

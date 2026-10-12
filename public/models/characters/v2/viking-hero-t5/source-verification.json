@@ -1,0 +1,23 @@
+{
+  "model": "Steppe_Selected_11Clips_Candidate.glb",
+  "sha256": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
+  "size_bytes": 24099480,
+  "animation_count": 11,
+  "animation_names": [
+    "axeMountedIdle",
+    "bowHold",
+    "bowLoad",
+    "bowRelease",
+    "idle",
+    "pilumThrow",
+    "run",
+    "swordSlash",
+    "walk",
+    "axeAttack1H",
+    "axeAttack2H"
+  ],
+  "embedded_image_count": 3,
+  "external_buffer_or_image_dependencies": false,
+  "previous_asset_audit": "Passed structural checks; does not certify runtime or collision/weapon contacts.",
+  "repackaging": "GLB unchanged byte-for-byte from latest selected full-fidelity delivery."
+}

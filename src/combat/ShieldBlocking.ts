@@ -37,6 +37,18 @@ export class ShieldState {
     this.shieldRaised = false
   }
   reset(): void { this.used.clear(); this.shieldImpactRemaining = this.shieldImpactMax; this.shieldRaised = false }
+  /** Instance transfer preserves damage to both the held shield and previously equipped shields. */
+  captureDurability(): Readonly<Record<string, number>> {
+    return { ...Object.fromEntries(this.used), ...(this.id ? { [this.id]: this.shieldImpactRemaining } : {}) }
+  }
+  restoreDurability(remaining: Readonly<Record<string, number>>): void {
+    this.used.clear()
+    for (const [id, value] of Object.entries(remaining)) {
+      if (ARMORS[id] && Number.isFinite(value)) this.used.set(id, Math.max(0, Math.min(ARMORS[id].shieldImpactMax, value)))
+    }
+    this.shieldImpactRemaining = this.id ? this.used.get(this.id) ?? this.shieldImpactMax : 0
+    this.shieldRaised = false
+  }
   absorb(damage: number, impact: number, level = 0): { damage: number; blockedImpact: number } {
     if (!this.active || !Number.isFinite(impact) || impact <= 0) return { damage, blockedImpact: 0 }
     const blockedImpact = Math.min(this.shieldImpactRemaining, impact)

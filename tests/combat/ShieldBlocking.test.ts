@@ -52,6 +52,18 @@ describe('Shield impact and overflow', () => {
     const s = shield(3); s.shieldImpactRemaining = remaining
     expect(s.absorb(80, 8, level).damage).toBe(expected); expect(s.shieldBroken).toBe(true)
   })
+  it('transfers held and previously used shield durability without sharing mutable state', () => {
+    const original = shield(); original.absorb(10, 3)
+    original.equip('scutum_t2'); original.absorb(10, 15)
+    const replacement = new ShieldState(); replacement.equip('scutum_t2')
+    replacement.restoreDurability(original.captureDurability())
+    expect(replacement.shieldBroken).toBe(true)
+    replacement.equip('round_shield_t1')
+    expect(replacement.shieldImpactRemaining).toBe(2)
+    replacement.absorb(10, 1)
+    original.equip('round_shield_t1')
+    expect(original.shieldImpactRemaining).toBe(2)
+  })
   it('does not repair on equipment toggle, only explicit battle/respawn reset', () => {
     const s = shield(); s.absorb(10, 3); s.equip(null); s.equip('round_shield_t1')
     expect(s.shieldImpactRemaining).toBe(2); s.reset(); expect(s.shieldImpactRemaining).toBe(5)

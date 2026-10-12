@@ -20,12 +20,12 @@ export function encodeGlb(document, binary) {
 }
 
 /** Parse an in-memory copy without image decoding; never change the asset. */
-export async function loadRig(asset) {
+export async function loadRig(asset, loader = new GLTFLoader()) {
   const document = structuredClone(asset.document)
   delete document.images; delete document.textures; delete document.materials
   for (const mesh of document.meshes) for (const primitive of mesh.primitives) delete primitive.material
   const bytes = encodeGlb(document, asset.binary)
-  return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '')
+  return loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '')
 }
 
 export function readAccessor(asset, index) {

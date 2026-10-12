@@ -1,0 +1,330 @@
+{
+  "source": {
+    "title": "Masked Roman",
+    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
+    "sourceEntry": "Roman/Masked_Roman_Selected_11Clips.glb",
+    "sourceSha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
+    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
+    "licenseEvidence": "source-readme.txt"
+  },
+  "fileSha256": {
+    "lod0": "2de7b2a5ea9262d83956570302e19d316aa80e6c0173c07001610e40d6da29cf",
+    "lod1": "9cb11039ef8da123c73395472c2a189fa55483f07fff681dc5dcb478ef5b493f",
+    "lod2": "52048d25a373e133ecc47f7f269abca3a4c573635da611592370066b5998d010"
+  },
+  "metrics": {
+    "heightM": 1.8191270070256114,
+    "shoulderWidthM": 0.5211178487681826,
+    "neckLengthM": 0.11045054826976493,
+    "triangles": {
+      "lod0": 10317,
+      "lod1": 9739,
+      "lod2": 9375
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScale": 1.0700747833646937,
+    "bodyLandmarks": [
+      {
+        "name": "hips",
+        "source": 0.9662821888923645,
+        "reference": 0.9768297534648483
+      },
+      {
+        "name": "upper_arm_l",
+        "source": 1.337609733838733,
+        "reference": 1.4504396187893256
+      },
+      {
+        "name": "upper_arm_r",
+        "source": 1.3346660983565397,
+        "reference": 1.4504396182238901
+      }
+    ]
+  },
+  "jointCount": 66,
+  "animations": [
+    {
+      "name": "idle",
+      "channels": 198
+    },
+    {
+      "name": "walk",
+      "channels": 198
+    },
+    {
+      "name": "run",
+      "channels": 198
+    },
+    {
+      "name": "swordSlash",
+      "channels": 198
+    },
+    {
+      "name": "bowLoad",
+      "channels": 198
+    },
+    {
+      "name": "bowHold",
+      "channels": 198
+    },
+    {
+      "name": "bowRelease",
+      "channels": 198
+    },
+    {
+      "name": "pilumThrow",
+      "channels": 198
+    },
+    {
+      "name": "axeMountedIdle",
+      "channels": 198
+    },
+    {
+      "name": "axeAttack1H",
+      "channels": 132
+    },
+    {
+      "name": "axeAttack2H",
+      "channels": 132
+    }
+  ],
+  "sourceRepairs": {
+    "kind": "retain-authored-cupped-fingers",
+    "correctedChannels": [
+      "axeAttack1H:mixamorig:LeftHandThumb4",
+      "axeAttack1H:mixamorig:LeftHandThumb3",
+      "axeAttack1H:mixamorig:LeftHandThumb2",
+      "axeAttack1H:mixamorig:LeftHandThumb1",
+      "axeAttack1H:mixamorig:LeftHandPinky4",
+      "axeAttack1H:mixamorig:LeftHandPinky3",
+      "axeAttack1H:mixamorig:LeftHandPinky2",
+      "axeAttack1H:mixamorig:LeftHandPinky1",
+      "axeAttack1H:mixamorig:LeftHandRing4",
+      "axeAttack1H:mixamorig:LeftHandRing3",
+      "axeAttack1H:mixamorig:LeftHandRing2",
+      "axeAttack1H:mixamorig:LeftHandRing1",
+      "axeAttack1H:mixamorig:LeftHandMiddle4",
+      "axeAttack1H:mixamorig:LeftHandMiddle3",
+      "axeAttack1H:mixamorig:LeftHandMiddle2",
+      "axeAttack1H:mixamorig:LeftHandMiddle1",
+      "axeAttack1H:mixamorig:LeftHandIndex4",
+      "axeAttack1H:mixamorig:LeftHandIndex3",
+      "axeAttack1H:mixamorig:LeftHandIndex2",
+      "axeAttack1H:mixamorig:LeftHandIndex1",
+      "axeAttack1H:mixamorig:RightHandThumb4",
+      "axeAttack1H:mixamorig:RightHandThumb3",
+      "axeAttack1H:mixamorig:RightHandThumb2",
+      "axeAttack1H:mixamorig:RightHandThumb1",
+      "axeAttack1H:mixamorig:RightHandPinky4",
+      "axeAttack1H:mixamorig:RightHandPinky3",
+      "axeAttack1H:mixamorig:RightHandPinky2",
+      "axeAttack1H:mixamorig:RightHandPinky1",
+      "axeAttack1H:mixamorig:RightHandRing4",
+      "axeAttack1H:mixamorig:RightHandRing3",
+      "axeAttack1H:mixamorig:RightHandRing2",
+      "axeAttack1H:mixamorig:RightHandRing1",
+      "axeAttack1H:mixamorig:RightHandMiddle4",
+      "axeAttack1H:mixamorig:RightHandMiddle3",
+      "axeAttack1H:mixamorig:RightHandMiddle2",
+      "axeAttack1H:mixamorig:RightHandMiddle1",
+      "axeAttack1H:mixamorig:RightHandIndex4",
+      "axeAttack1H:mixamorig:RightHandIndex3",
+      "axeAttack1H:mixamorig:RightHandIndex2",
+      "axeAttack1H:mixamorig:RightHandIndex1",
+      "axeAttack2H:mixamorig:LeftHandThumb4",
+      "axeAttack2H:mixamorig:LeftHandThumb3",
+      "axeAttack2H:mixamorig:LeftHandThumb2",
+      "axeAttack2H:mixamorig:LeftHandThumb1",
+      "axeAttack2H:mixamorig:LeftHandPinky4",
+      "axeAttack2H:mixamorig:LeftHandPinky3",
+      "axeAttack2H:mixamorig:LeftHandPinky2",
+      "axeAttack2H:mixamorig:LeftHandPinky1",
+      "axeAttack2H:mixamorig:LeftHandRing4",
+      "axeAttack2H:mixamorig:LeftHandRing3",
+      "axeAttack2H:mixamorig:LeftHandRing2",
+      "axeAttack2H:mixamorig:LeftHandRing1",
+      "axeAttack2H:mixamorig:LeftHandMiddle4",
+      "axeAttack2H:mixamorig:LeftHandMiddle3",
+      "axeAttack2H:mixamorig:LeftHandMiddle2",
+      "axeAttack2H:mixamorig:LeftHandMiddle1",
+      "axeAttack2H:mixamorig:LeftHandIndex4",
+      "axeAttack2H:mixamorig:LeftHandIndex3",
+      "axeAttack2H:mixamorig:LeftHandIndex2",
+      "axeAttack2H:mixamorig:LeftHandIndex1",
+      "axeAttack2H:mixamorig:RightHandThumb4",
+      "axeAttack2H:mixamorig:RightHandThumb3",
+      "axeAttack2H:mixamorig:RightHandThumb2",
+      "axeAttack2H:mixamorig:RightHandThumb1",
+      "axeAttack2H:mixamorig:RightHandPinky4",
+      "axeAttack2H:mixamorig:RightHandPinky3",
+      "axeAttack2H:mixamorig:RightHandPinky2",
+      "axeAttack2H:mixamorig:RightHandPinky1",
+      "axeAttack2H:mixamorig:RightHandRing4",
+      "axeAttack2H:mixamorig:RightHandRing3",
+      "axeAttack2H:mixamorig:RightHandRing2",
+      "axeAttack2H:mixamorig:RightHandRing1",
+      "axeAttack2H:mixamorig:RightHandMiddle4",
+      "axeAttack2H:mixamorig:RightHandMiddle3",
+      "axeAttack2H:mixamorig:RightHandMiddle2",
+      "axeAttack2H:mixamorig:RightHandMiddle1",
+      "axeAttack2H:mixamorig:RightHandIndex4",
+      "axeAttack2H:mixamorig:RightHandIndex3",
+      "axeAttack2H:mixamorig:RightHandIndex2",
+      "axeAttack2H:mixamorig:RightHandIndex1"
+    ],
+    "preserved": "Source mesh, indices, UVs, textures, four weight sets, inverse binds, 66 joints, all body/wrist channels and original clip timing"
+  },
+  "lodAudit": "lod-audit.json",
+  "sourceVerification": "source-verification.json",
+  "performanceAcceptance": {
+    "status": "passed",
+    "date": "2026-10-12",
+    "protocol": "hero-100-continuous-melee-v1",
+    "hardware": {
+      "cpu": "Apple M1 Pro",
+      "physicalMemoryBytes": 17179869184
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "observationMs": 20000,
+    "warmupMs": 6000,
+    "unchangedQualityAndShadows": true,
+    "sourceSha256": "31587285929e855d8eb777ba93e4922cc331f3f506baf7f144b1849088bda21a",
+    "comparisons": [
+      {
+        "faction": "roman",
+        "view": "near",
+        "pairs": 5,
+        "baseline": {
+          "sampleCount": 2266,
+          "durationMs": 20001.4,
+          "meanFps": 113.29150313726471,
+          "onePercentLowFps": 56.4278704612352,
+          "meanFrameMs": 8.826787290379523,
+          "p95FrameMs": 16.5
+        },
+        "candidate": {
+          "sampleCount": 2048,
+          "durationMs": 20016,
+          "meanFps": 102.3155896385482,
+          "onePercentLowFps": 55.08919202518352,
+          "meanFrameMs": 9.773681640625,
+          "p95FrameMs": 16.799999999999272
+        },
+        "baselineLods": [
+          93,
+          7,
+          0
+        ],
+        "candidateLods": [
+          93,
+          7,
+          0
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 0.903117946229224,
+          "onePercentLowFps": 0.9762762899767532,
+          "p95FrameMs": 1.0181818181817741
+        },
+        "passed": true,
+        "nearBoundary": true
+      },
+      {
+        "faction": "roman",
+        "view": "mid",
+        "pairs": 3,
+        "baseline": {
+          "sampleCount": 2199,
+          "durationMs": 20008.2,
+          "meanFps": 109.8571706907663,
+          "onePercentLowFps": 55.7103064066858,
+          "meanFrameMs": 9.102728512960438,
+          "p95FrameMs": 16.69999999999709
+        },
+        "candidate": {
+          "sampleCount": 2294,
+          "durationMs": 20000.1,
+          "meanFps": 114.65070019891448,
+          "onePercentLowFps": 57.18547986076775,
+          "meanFrameMs": 8.722144725370532,
+          "p95FrameMs": 10.30000000000291
+        },
+        "baselineLods": [
+          0,
+          100,
+          0
+        ],
+        "candidateLods": [
+          0,
+          100,
+          0
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 1.0436341977315378,
+          "onePercentLowFps": 1.0264793635007707,
+          "p95FrameMs": 0.61676646706615
+        },
+        "passed": true,
+        "nearBoundary": false
+      },
+      {
+        "faction": "roman",
+        "view": "far",
+        "pairs": 3,
+        "baseline": {
+          "sampleCount": 2263,
+          "durationMs": 20008,
+          "meanFps": 113.10193167903641,
+          "onePercentLowFps": 56.538839724680024,
+          "meanFrameMs": 8.841581970835174,
+          "p95FrameMs": 16.599999999998545
+        },
+        "candidate": {
+          "sampleCount": 2322,
+          "durationMs": 20001,
+          "meanFps": 116.09419529023549,
+          "onePercentLowFps": 58.05515239477509,
+          "meanFrameMs": 8.613695090439277,
+          "p95FrameMs": 10.199999999998909
+        },
+        "baselineLods": [
+          0,
+          0,
+          100
+        ],
+        "candidateLods": [
+          0,
+          0,
+          100
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 1.026456343996764,
+          "onePercentLowFps": 1.026818956269334,
+          "p95FrameMs": 0.6144578313252893
+        },
+        "passed": true,
+        "nearBoundary": false
+      }
+    ],
+    "reloadCyclesPerTierPerView": 5,
+    "allLifecycleChecksPassed": true,
+    "rawEvidence": "Local ignored output/t5-acceptance/benchmark-{near,mid,far}-optimized.json",
+    "limitations": [
+      "DEV-instrumented game loop; not uninstrumented production.",
+      "JS heap/resource counts are not total RAM/VRAM.",
+      "Near mean FPS ratio is 90.31%, close to 90% gate; measured five paired windows."
+    ]
+  }
+}

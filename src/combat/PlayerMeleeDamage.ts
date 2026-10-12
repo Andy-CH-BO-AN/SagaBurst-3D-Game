@@ -1,4 +1,4 @@
-import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage } from '../battle/T4HeroCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage } from '../battle/HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { WeaponCombatKind } from '../rpg/WeaponDatabase'

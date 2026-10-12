@@ -430,7 +430,7 @@ describe('Mission identity, attribution and claim', () => {
   })
 })
 
-describe('Career mounts and appointed T4 identity', () => {
+describe('Career mounts and appointed hero identity', () => {
   it('round-trips active-outing mount HP and death state without sharing clone references', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-02', 1, 12, 0, 'mount-outing')
@@ -472,8 +472,8 @@ describe('Career mounts and appointed T4 identity', () => {
     expect(resolveCareerHeroAsset(profile)).toBe('roman-hero-t4')
     expect(resolveCareerCombatProfile(profile)).toBe('praetorian')
     profile.faction = 'viking'; profile.rank = 'commander'
-    expect(resolveCareerHeroAsset(profile)).toBe('viking-hero-t4')
-    expect(resolveCareerCombatProfile(profile)).toBe('varangian')
+    expect(resolveCareerHeroAsset(profile)).toBe('viking-hero-t5')
+    expect(resolveCareerCombatProfile(profile)).toBe('viking-commander')
     expect(preserveHpRatio(100, 200, 500)).toBe(250)
     expect(preserveHpRatio(0, 200, 500)).toBe(0)
   })

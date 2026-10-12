@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
+import { CampaignSetupUI } from '../../src/ui/CampaignSetupUI'
 import { BattleReferenceUI } from '../../src/ui/BattleReferenceUI'
 import { MainMenuUI } from '../../src/ui/MainMenuUI'
 import { COMBAT_BALANCE } from '../../src/combat/CombatBalance'
@@ -204,6 +205,21 @@ describe('Battle setup and standalone reference UI', () => {
     expect(armyTab?.classList.contains('active')).toBe(true)
 
     ui.destroy()
+  })
+
+  it.each(['custom', 'campaign'] as const)('%s hero choices remain T4 after Commander assets are registered', mode => {
+    const ui = mode === 'custom' ? new BattleSetupUI() : new CampaignSetupUI()
+    if (ui instanceof BattleSetupUI) ui.mount(container, () => {})
+    else ui.mount(container, () => {}, () => {}, { defenderFaction: 'roman', stageId: 1 })
+    try {
+      const containerId = mode === 'custom' ? 'battle-setup-container' : 'campaign-setup-container'
+      const html = (domRegistry.get(containerId) as MockElement & { innerHTML: string }).innerHTML
+      expect(html).toContain('value="roman-hero-t4"')
+      expect(html).toContain('value="viking-hero-t4"')
+      expect(html).toContain('value="maki-archer-t4"')
+      expect(html).not.toContain('value="roman-hero-t5"')
+      expect(html).not.toContain('value="viking-hero-t5"')
+    } finally { ui.destroy() }
   })
 
   it('launches Training Ground directly and keeps Custom Battle/Career while removing hero trial choices', () => {
