@@ -8,7 +8,12 @@ import { NAV_PATH_REQUESTS_PER_FRAME, NavigationWorld } from '../../src/navigati
 import { isStairLayer } from '../../src/navigation/OutpostLayeredNavigation'
 import { AIType, AIState, Faction, NPC } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
-import { getTerrainHeight } from '../../src/world/Terrain'
+import {
+  getTerrainHeight,
+  resolveObstacleCollision,
+  type EntityCollisionBody,
+} from '../../src/world/Terrain'
+import { EntityCollisionBroadPhase } from '../../src/world/EntityCollisionBroadPhase'
 
 describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
   let scene: THREE.Scene
@@ -350,7 +355,6 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
       const cx = leftStair.ramp.startX
       const dirZ = leftStair.ramp.dirZ
-      const midZ = leftStair.ramp.startZ + dirZ * (leftStair.ramp.length * 0.5)
 
       // NPC A: Starts near bottom of stairs, moving UP to the rampart deck
       const startBottomZ = leftStair.ramp.startZ + dirZ * 0.5
@@ -383,34 +387,86 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
       const halfWidth = leftStair.ramp.halfWidth
       let withinRailEnvelope = true
+      let bothReachedDestination = false
+      let finalFrames = 0
 
-      // Update both NPCs on the stairs over bounded frames
-      for (let f = 0; f < 150; f++) {
+      const broadPhase = new EntityCollisionBroadPhase()
+      const allNpcs = [ascendingNpc, descendingNpc]
+      const bodies: EntityCollisionBody[] = [
+        { position: ascendingNpc.position, radius: 0.5, height: 2.3, bottomOffset: 0, walkSurfaces: true },
+        { position: descendingNpc.position, radius: 0.5, height: 2.3, bottomOffset: 0, walkSurfaces: true },
+      ]
+
+      // Update both NPCs on the stairs over bounded frames with real boid separation and production entity collision
+      for (let f = 0; f < 220; f++) {
+        finalFrames = f + 1
         navWorld.beginFrame()
-        ascendingNpc.update(FRAME, dummyPlayer, [ascendingNpc, descendingNpc], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
-        descendingNpc.update(FRAME, dummyPlayer, [ascendingNpc, descendingNpc], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        ascendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        descendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+
+        // Production entity collision resolution: broad phase pair resolve + obstacle pushout
+        broadPhase.resolve(bodies, outpost.obstacles)
+        for (const b of bodies) {
+          resolveObstacleCollision(
+            b.position,
+            b.position,
+            0,
+            true,
+            b.radius,
+            b.height,
+            b.bottomOffset,
+            outpost.obstacles,
+            { walkSurfaces: b.walkSurfaces },
+          )
+        }
 
         const nav = navWorld.outpostNav!
-        if (isStairLayer(nav.getNavLayer(ascendingNpc.combatPosition))) {
+        const ascLayer = nav.getNavLayer(ascendingNpc.combatPosition)
+        const dscLayer = nav.getNavLayer(descendingNpc.combatPosition)
+
+        if (isStairLayer(ascLayer)) {
           if (ascendingNpc.group.position.x < cx - halfWidth || ascendingNpc.group.position.x > cx + halfWidth) {
             withinRailEnvelope = false
           }
         }
-        if (isStairLayer(nav.getNavLayer(descendingNpc.combatPosition))) {
+        if (isStairLayer(dscLayer)) {
           if (descendingNpc.group.position.x < cx - halfWidth || descendingNpc.group.position.x > cx + halfWidth) {
             withinRailEnvelope = false
           }
         }
+
+        const ascReachedDeck = ascLayer === 'rampart_left'
+        const dscReachedGround = dscLayer === 'ground'
+          && dirZ * (leftStair.ramp.startZ - descendingNpc.group.position.z) >= 0.5
+
+        if (ascReachedDeck && dscReachedGround) {
+          bothReachedDestination = true
+          break
+        }
+      }
+
+      const nav = navWorld.outpostNav!
+      const finalDiagnostic = {
+        frames: finalFrames,
+        ascending: {
+          pos: { x: ascendingNpc.group.position.x, y: ascendingNpc.group.position.y, z: ascendingNpc.group.position.z },
+          layer: nav.getNavLayer(ascendingNpc.combatPosition),
+          progressAlongRamp: dirZ * (ascendingNpc.group.position.z - leftStair.ramp.startZ),
+        },
+        descending: {
+          pos: { x: descendingNpc.group.position.x, y: descendingNpc.group.position.y, z: descendingNpc.group.position.z },
+          layer: nav.getNavLayer(descendingNpc.combatPosition),
+          progressAlongRamp: dirZ * (leftStair.ramp.startZ + dirZ * leftStair.ramp.length - descendingNpc.group.position.z),
+        },
       }
 
       // Both NPCs must remain within the 2.2m stair envelope throughout
-      expect(withinRailEnvelope, 'NPCs must remain within stair rail boundaries during traversal').toBe(true)
+      expect(withinRailEnvelope, `NPCs must remain within stair rail boundaries during traversal: ${JSON.stringify(finalDiagnostic)}`).toBe(true)
 
-      // Both NPCs must make true progress past each other without deadlocking midway
-      const ascendingProgress = dirZ * (ascendingNpc.group.position.z - midZ)
-      const descendingProgress = dirZ * (midZ - descendingNpc.group.position.z)
-      expect(ascendingProgress, `Ascending NPC should pass stair midpoint towards deck (z: ${ascendingNpc.group.position.z}, midZ: ${midZ})`).toBeGreaterThan(0)
-      expect(descendingProgress, `Descending NPC should pass stair midpoint towards ground (z: ${descendingNpc.group.position.z}, midZ: ${midZ})`).toBeGreaterThan(0)
+      // Both NPCs must physically pass the meeting area and arrive at their target destination regions without deadlock
+      expect(bothReachedDestination, `Both NPCs should complete traversal without deadlocking: ${JSON.stringify(finalDiagnostic)}`).toBe(true)
+      expect(finalDiagnostic.ascending.layer).toBe('rampart_left')
+      expect(finalDiagnostic.descending.layer).toBe('ground')
     })
   })
 
@@ -538,6 +594,65 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       navWorld.beginFrame()
       follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
       expect(follower.group.position.z, 'Follower should begin moving once budget is available').toBeGreaterThan(prevZ)
+    })
+  })
+
+  describe('P1 Regression: Ground navigation around solid stair ramp', () => {
+    it('mounted NPC routes around stair ramp in courtyard and reaches ground target on opposite side without getting stuck', () => {
+      const { outpost, leftStair } = setupOutpost('viking')
+      const dummyPlayer = new Player(scene)
+      onTestFinished(() => dummyPlayer.dispose())
+      dummyPlayer.group.position.set(0, -100, 0)
+
+      const cx = leftStair.ramp.startX
+      const dirZ = leftStair.ramp.dirZ
+      // A point along the lower half of the stair ramp
+      const crossingZ = leftStair.ramp.startZ + dirZ * 2.5
+      // Start 3.5m to the left of the stair
+      const startX = cx - 3.5
+      const startY = getTerrainHeight(startX, crossingZ)
+      // Goal 3.5m to the right of the stair (direct segment cuts directly through stair.bounds)
+      const goalX = cx + 3.5
+      const goalY = getTerrainHeight(goalX, crossingZ)
+
+      const rider = new NPC(scene, startX, crossingZ, Faction.PLAYER, 'viking', AIType.MELEE, 'CourtyardRider', 2, true)
+      rider.group.position.set(startX, startY, crossingZ)
+      onTestFinished(() => rider.dispose())
+
+      rider.assignFormationTarget(
+        1,
+        new THREE.Vector3(goalX, goalY, crossingZ),
+        new THREE.Vector3(1, 0, 0),
+      )
+
+      // Simulate movement around the stair ramp
+      let reachedGoal = false
+      let minDistanceToGoal = Infinity
+      let frameCount = 0
+      for (let f = 0; f < 200; f++) {
+        frameCount = f + 1
+        navWorld.beginFrame()
+        rider.update(FRAME, dummyPlayer, [rider], [rider], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+
+        const dist = Math.hypot(rider.combatPosition.x - goalX, rider.combatPosition.z - crossingZ)
+        if (dist < minDistanceToGoal) minDistanceToGoal = dist
+        if (dist <= 1.5 || (rider as any).formationTarget?.reached) {
+          reachedGoal = true
+          break
+        }
+      }
+
+      const nav = navWorld.outpostNav!
+      const diagnostic = {
+        frameCount,
+        finalPos: rider.combatPosition.clone(),
+        minDistanceToGoal,
+        layer: nav.getNavLayer(rider.combatPosition),
+      }
+
+      // Mounted unit should navigate around the stair ramp without getting permanently blocked
+      expect(reachedGoal, `Mounted unit must reach goal on opposite side of stair: ${JSON.stringify(diagnostic)}`).toBe(true)
+      expect(diagnostic.layer).toBe('ground')
     })
   })
 })
