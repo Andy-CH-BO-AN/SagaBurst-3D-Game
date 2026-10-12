@@ -5,6 +5,7 @@ import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnima
 import { swordHandMatrix } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
+import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 const smooth = (x: number): number => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
 const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
@@ -61,7 +62,7 @@ class ArmSolver {
     this.lowerLength = arm.wrist.position.length()
   }
 
-  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false): void {
+  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false): void {
     this.root.updateWorldMatrix(true, true)
     this.inverseRoot.copy(this.root.matrixWorld).invert()
     this.root.getWorldQuaternion(this.rootQ)
@@ -91,6 +92,14 @@ class ArmSolver {
       this.x.subVectors(this.sampledWrist, this.sampledElbow).normalize()
       this.y.subVectors(this.wrist, this.elbow).normalize()
       this.lowerRotation.copy(this.sampledLower).premultiply(this.swing.setFromUnitVectors(this.x, this.y))
+      if (alignForearmRoll) {
+        // The selected rigs have no separate forearm-twist joints. Keep the
+        // sampled elbow plane, but put grasp pronation in the forearm rather
+        // than concentrating a full axial twist at the wrist/cuff seam.
+        this.lowerRotation.copy(handRotation).multiply(this.neutralWrist)
+        this.x.copy(this.lowerAxis).applyQuaternion(this.lowerRotation)
+        this.lowerRotation.premultiply(this.swing.setFromUnitVectors(this.x, this.y))
+      }
       this.x.subVectors(this.sampledElbow, this.shoulder).normalize()
       this.y.subVectors(this.elbow, this.shoulder).normalize()
       this.q.copy(this.sampledUpper).premultiply(this.swing.setFromUnitVectors(this.x, this.y))
@@ -130,6 +139,7 @@ class ArmSolver {
 
 /** 每個 LOD 一份骨架求值器；不持有或修正武器物件。 */
 export class CharacterEquipmentPose {
+  private readonly mountedSkirt?: SelectedMountedSkirt
   private readonly saved: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
   private applied = false
   private readonly left: ArmSolver
@@ -165,6 +175,7 @@ export class CharacterEquipmentPose {
   private readonly hipsY: number
   private readonly seatedHips: THREE.Object3D
   private readonly seatedSpine: THREE.Object3D | undefined
+  private readonly seatedTorso: THREE.Object3D[]
   private readonly hipsBindPosition: THREE.Vector3
   private readonly hipsSamplePosition = new THREE.Vector3()
   private readonly seatedRotation = new THREE.Quaternion()
@@ -176,7 +187,8 @@ export class CharacterEquipmentPose {
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource) {
+    if (selectedSource?.rig === 'steppe37') this.mountedSkirt = new SelectedMountedSkirt(root)
     this.left = new ArmSolver(root, rig.left, 1)
     this.axeRight = new ArmSolver(root, rig.right, -1)
     this.axeLeftBones = [rig.left.shoulder, rig.left.elbow, rig.left.wrist]
@@ -194,13 +206,18 @@ export class CharacterEquipmentPose {
     this.shieldBody = rig.upperChest ?? rig.left.shoulder.parent!
     this.shieldBindInverse.copy(this.shieldBody.matrixWorld).invert().multiply(root.matrixWorld)
     this.seatedHips = rig.pelvis?.parent ?? rig.rightLeg.hip.parent!
-    this.seatedSpine = rig.upperChest ?? root.getObjectByName('spine')
+    this.seatedSpine = selectedSource ? root.getObjectByName('spine') : rig.upperChest ?? root.getObjectByName('spine')
+    this.seatedTorso = selectedSource
+      ? ['spine', 'chest', 'upper_chest'].map(name => root.getObjectByName(name)).filter((node): node is THREE.Object3D => !!node)
+      : []
     this.bowSpine = root.getObjectByName('spine')
     this.hipsBindPosition = this.seatedHips.position.clone()
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     nodes.push(this.seatedHips)
+    if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
+    nodes.push(...this.seatedTorso.filter(node => node !== this.seatedSpine))
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
     root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
@@ -256,19 +273,49 @@ export class CharacterEquipmentPose {
       this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
       this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
     }
-    if (live && state.mounted && (state.mountKind === 'CORGI' || state.mountKind === 'xongkoro') && this.seatedSpine) {
-      // Foot attacks twist the pelvis by up to a quarter turn. Transfer that
-      // rotation to the upper chest so the attack keeps its upper-body arc while
-      // the seated legs stay either side of the source corgi's barrel.
-      this.seatedSpine.getWorldQuaternion(this.seatedRotation)
+    if (live && state.mounted && (this.selectedSource || state.mountKind === 'CORGI' || state.mountKind === 'xongkoro') && this.seatedSpine) {
+      // Selected foot clips turn the pelvis by over 100 degrees. Mask the
+      // seated pelvis; a sword swing may carry at most 45 degrees of its yaw
+      // through the whole torso, never through a single lumbar joint.
+      if (!this.selectedSource) this.seatedSpine.getWorldQuaternion(this.seatedRotation)
+      else this.seatedHips.getWorldQuaternion(this.seatedRotation)
       setRigRotation(this.seatedHips, 0, 0, 0)
       this.seatedHips.position.x = this.hipsBindPosition.x
       this.seatedHips.position.z = this.hipsBindPosition.z
       if (state.mountKind === 'xongkoro') this.seatedHips.position.y = this.hipsBindPosition.y
-      this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
-      this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
+      if (!this.selectedSource) {
+        this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
+        this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
+      } else if (state.action === 'axeAttack2H' && this.seatedTorso.length) {
+        // Seating removes the foot clip's pelvis rotation. Carry that rotation
+        // through the torso so the authored right-high / left-low axe arc keeps
+        // its world direction, with the saddle and legs remaining planted.
+        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        this.seatedRotation.multiply(this.parentInverse).normalize()
+        if (this.seatedRotation.w < 0) this.seatedRotation.set(-this.seatedRotation.x, -this.seatedRotation.y, -this.seatedRotation.z, -this.seatedRotation.w)
+        this.attackAxis.set(this.seatedRotation.x, this.seatedRotation.y, this.seatedRotation.z)
+        const angle = 2 * Math.acos(THREE.MathUtils.clamp(this.seatedRotation.w, -1, 1))
+        const blend = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06))
+        if (this.attackAxis.lengthSq() > 1e-12) {
+          this.attackAxis.normalize()
+          for (const joint of this.seatedTorso) this.rotateArm(joint, angle * blend / this.seatedTorso.length)
+        }
+      } else if (state.action === 'swordSlash' && this.seatedTorso.length) {
+        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        this.seatedRotation.multiply(this.parentInverse)
+        this.root.getWorldQuaternion(this.rootWorld)
+        this.parentInverse.copy(this.rootWorld).invert()
+        this.seatedRotation.premultiply(this.parentInverse).multiply(this.rootWorld)
+        const yaw = THREE.MathUtils.euclideanModulo(2 * Math.atan2(this.seatedRotation.y, this.seatedRotation.w) + Math.PI, 2 * Math.PI) - Math.PI
+        const { windup, active, recovery } = COMBAT_ANIMATION_PROFILES.swordSlash
+        const release = 1 - smooth((state.elapsed - windup - active) / recovery)
+        const turn = THREE.MathUtils.clamp(yaw, -Math.PI / 4, Math.PI / 4) * release
+        this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
+        for (const joint of this.seatedTorso) this.rotateArm(joint, turn / this.seatedTorso.length)
+      }
     }
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted) this.mountedSkirt?.apply()
     if (live && state.mounted && state.mountKind === 'xongkoro' && this.seatedSpine && state.flightLean) {
       this.seatedRotation.setFromAxisAngle(this.attackAxis.set(1, 0, 0), THREE.MathUtils.clamp(state.flightLean, 0, 1) * XONGKORO_VISUAL.sprintRiderLean)
       this.seatedSpine.quaternion.multiply(this.seatedRotation)
@@ -294,6 +341,7 @@ export class CharacterEquipmentPose {
     // forward and outside that thigh, retaining the sampled wrist orientation
     // and fixed weapon grip. This is shared by mounted melee weapons.
     if (live && state.mounted && state.mountKind === 'CORGI'
+      && !this.selectedSource
       && state.action !== 'bowAim' && state.action !== 'bowRelease' && state.action !== 'pilumThrow') {
       this.root.updateWorldMatrix(true, true)
       this.rig.right.wrist.getWorldQuaternion(this.handWorld)
@@ -356,8 +404,8 @@ export class CharacterEquipmentPose {
         this.rotateArm(this.rig.right.shoulder, (-.65 + .85 * swing) * weight)
         this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
         this.rotateArm(this.rig.right.shoulder, -.55 * weight)
-      } else this.rotateArm(this.rig.right.shoulder, -.35 * lift)
-      if (state.mountKind === 'CORGI' && state.action === 'axeAttack2H') {
+      } else if (!this.selectedSource) this.rotateArm(this.rig.right.shoulder, -.35 * lift)
+      if (!this.selectedSource && state.mountKind === 'CORGI' && state.action === 'axeAttack2H') {
         // Keep the descending two-handed arc on the rider's right flank;
         // the Corgi's ears stand above the horse-neck clearance envelope.
         this.axeInverseRoot.copy(this.root.matrixWorld).invert()
@@ -384,7 +432,11 @@ export class CharacterEquipmentPose {
         // Hold the tall scutum outside the saddle during torso rotation.
         // The shield remains attached to the same palm grip.
         this.target.set(.55, this.hipsY + .26, .22)
-        this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
+        if (this.selectedSource) {
+          this.target.applyMatrix4(this.shieldBodyDelta)
+          this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
+          this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
+        } else this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
       } else {
         this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward).applyMatrix4(this.shieldBodyDelta)
         this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
@@ -434,7 +486,7 @@ export class CharacterEquipmentPose {
       }
       this.axeRight.solve(this.axeRightGrip, this.axeRightRotation, this.frames.lanceRight, undefined, true)
       this.target.copy(this.axeRightGrip).add(this.axeLeftOffset)
-      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true)
+      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, !!this.selectedSource)
       for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
     }
     for (const morph of this.morphs) {

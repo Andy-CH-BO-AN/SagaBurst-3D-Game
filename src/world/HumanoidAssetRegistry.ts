@@ -1,3 +1,6 @@
+import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
+import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
+import { shareSelectedLodPose, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { applyCivilianAppearance } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
@@ -33,16 +36,19 @@ import type {
   HumanoidAnimationController,
   HumanoidAnimationPlayOptions,
   HumanoidAnimationState,
+  HumanoidMeleeTiming,
   LegRig,
 } from './CharacterVisuals'
 
 export interface HumanoidAnimationBinding {
   clip: HumanoidAnimationState
-  source: 'Kevin Iglesias' | 'Quaternius' | 'tokeshi'
+  source: 'Kevin Iglesias' | 'Quaternius' | 'tokeshi' | 'Meshy' | 'SagaBurst'
   sourceClip: string
   loop: boolean
   duration: number
   nominalSpeed?: number
+  /** Runtime cycle only; the embedded clip and its source event times stay intact. */
+  meleeCycleSeconds?: number
   events?: Record<string, number>
 }
 
@@ -65,6 +71,7 @@ export interface HumanoidAssetManifest {
     triangles: { lod0: number, lod1: number, lod2: number }
     textures: { lod0: number, lod1: number, lod2: number }
   } | null
+  selectedSource?: SelectedHumanoidSource
   boneMap?: string
   audit?: string
   handGripFrames?: {
@@ -83,6 +90,8 @@ export interface HumanoidAssetManifest {
   swordGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
   /** Posed source hands already authored in the asset; do not apply faction morphs. */
   handShapeMode?: 'authored'
+  /** Generate grip morphs on each authored LOD without substituting LOD0 hand geometry. */
+  preserveLodHandTopology?: boolean
   /** These clips already contain asset-specific equipment contact constraints. */
   bakedEquipmentActions?: string[]
   /** Authored standing bow pose turns the whole body; locomotion owns moving/mounted legs. */
@@ -203,6 +212,16 @@ export interface HumanoidCharacterInstance {
   attribution: string
   update(dt: number, cameraDistance?: number): void
   dispose(): void
+}
+
+/** SkeletonUtils clones own their bone textures; geometry/material/skin textures stay shared.
+ * Safe to repeat and deduplicated when several meshes use the same instance skeleton. */
+export function disposeHumanoidInstanceSkeletons(root: THREE.Object3D): void {
+  const skeletons = new Set<THREE.Skeleton>()
+  root.traverse(object => {
+    if (object instanceof THREE.SkinnedMesh) skeletons.add(object.skeleton)
+  })
+  for (const skeleton of skeletons) skeleton.dispose()
 }
 
 const REQUIRED_BONES = {
@@ -424,6 +443,9 @@ export class MixerController implements HumanoidAnimationController {
 
   /** Called after Three selects its actual render LOD, before traversing meshes. */
   setVisibleLOD(index: number): void {
+    // Selected LOD meshes share the primary pose; their render level is not a
+    // separate mixer index. Legacy assets retain one mixer per representation.
+    if (this.mixers.length === 1) index = 0
     if (index === this.visibleLOD) return
     this.visibleLOD = index
     this.catchUp(index)
@@ -444,6 +466,7 @@ export class MixerController implements HumanoidAnimationController {
   private readonly actions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
   private readonly rawActions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
   private readonly durations = new Map<HumanoidAnimationState, number>()
+  private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
@@ -458,7 +481,14 @@ export class MixerController implements HumanoidAnimationController {
     for (const action of this.hitReactions) action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(.65).play()
   }
 
-  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel) {
+  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = []) {
+    for (const binding of bindings) {
+      if (binding.meleeCycleSeconds === undefined) continue
+      const { activeStart, hit, activeEnd } = binding.events ?? {}
+      if (!(binding.meleeCycleSeconds > 0 && activeStart >= 0 && hit > activeStart && activeEnd > hit && binding.duration > activeEnd)) throw new Error(`Invalid melee timeline: ${binding.clip}`)
+      const ratio = binding.meleeCycleSeconds / binding.duration
+      this.meleeTimings.set(binding.clip, { duration: binding.meleeCycleSeconds, activeStart: activeStart * ratio, hit: hit * ratio, activeEnd: activeEnd * ratio, clipTimeScale: 1 / ratio })
+    }
     this.pendingMixerDt = mixers.map(() => 0)
     mixers.forEach((mixer, index) => {
       const source = clipsPerLevel[index].find(clip => clip.name === 'hit')
@@ -531,6 +561,10 @@ export class MixerController implements HumanoidAnimationController {
 
   getDuration(state: HumanoidAnimationState): number | undefined {
     return this.durations.get(state)
+  }
+
+  getMeleeTiming(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined {
+    return this.meleeTimings.get(state)
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
@@ -767,6 +801,7 @@ export class HumanoidAssetRegistry {
     if (!response.ok) throw new Error(`Cannot load ${faction} humanoid manifest (${response.status})`)
     const manifest = await response.json() as HumanoidAssetManifest
     validateHumanoidManifest(faction, manifest, descriptor)
+    if (manifest.selectedSource?.rig === 'mixamo66') loader.register(multiInfluenceSkinningPlugin)
     const files = manifest.files!
     const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
       ? `lod0.${expGroup}.glb`
@@ -781,6 +816,8 @@ export class HumanoidAssetRegistry {
       lod2Promise,
     ])
     const levels = [lod0, lod1, lod2Loaded.gltf]
+    if (manifest.selectedSource) for (const level of levels) prepareSelectedHumanoidSource(level, manifest.selectedSource)
+    if (manifest.selectedSource) validateSelectedLodAnimations(levels.map(level => level.animations))
     if (descriptor) validateEmbeddedAnimations(faction, manifest, levels)
     for (const level of levels) {
       firstSkinnedMesh(level.scene)
@@ -797,7 +834,8 @@ export class HumanoidAssetRegistry {
       if (manifest.handShapeMode === 'authored') continue
       prepareBladeGrip(level.scene, faction)
       const handFrame = readHandFrame(manifest)
-      if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene)
+      if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene,
+        { preserveLodHandTopology: manifest.preserveLodHandTopology })
     }
     levels.forEach((level, index) => {
       const swordFrame = manifest.swordGripFrames?.[`lod${index}` as 'lod0' | 'lod1' | 'lod2']
@@ -828,8 +866,10 @@ export class HumanoidAssetRegistry {
     }
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)
-    const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
-    const bowClips = levels.map((level, index) => frame ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
+    const animationClips = manifest.selectedSource
+      ? levels.map(level => optimizeSelectedAnimationClips(level.scene, level.animations))
+      : resolveHumanoidAnimationClips(levels.map(level => level.animations))
+    const bowClips = levels.map((level, index) => frame && !manifest.selectedSource ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
     let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
     if (faction === 'roman' && !descriptor) {
       if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
@@ -860,6 +900,7 @@ export class HumanoidAssetRegistry {
     for (const [faction, template] of this.templates) {
       template.levels.forEach((gltf, index) => {
         const levelClone = cloneSkeleton(gltf.scene) as THREE.Group
+        configureMultiInfluenceSkinning(levelClone)
         levelClone.name = `${faction}-warmup-lod${index}`
         levelClone.traverse((obj) => {
           if (obj instanceof THREE.Mesh) {
@@ -923,6 +964,7 @@ export class HumanoidAssetRegistry {
     let skeleton: THREE.Skeleton | null = null
     template.levels.forEach((gltf, index) => {
       const level = cloneSkeleton(gltf.scene) as THREE.Group
+      configureMultiInfluenceSkinning(level)
       level.name = `${assetId ?? config.faction}-lod${index}`
       level.traverse((object) => {
         if (object instanceof THREE.Mesh) {
@@ -945,7 +987,9 @@ export class HumanoidAssetRegistry {
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))
       }
       if (config.civilian) applyCivilianAppearance(level, config.civilianStyle ?? 'roman')
+      if (template.manifest.selectedSource && primaryScene) shareSelectedLodPose(primaryScene, level)
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
+      if (template.manifest.selectedSource && index > 0) return
       mixers.push(new THREE.AnimationMixer(level))
       const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
@@ -964,9 +1008,13 @@ export class HumanoidAssetRegistry {
     })
     root.add(lod)
     if (!primaryScene || !skeleton) throw new Error(`Failed to clone ${config.faction} humanoid`)
-    const animation = new MixerController(mixers, clipsPerLevel, rawClipsPerLevel)
+    const animation = new MixerController(mixers, clipsPerLevel, rawClipsPerLevel, template.manifest.animations?.embedded)
     const rig = createHumanoidRigAdapter(primaryScene, animation)
     rig.swordGripFrame = template.manifest.swordGripFrames?.lod0
+    if (template.manifest.selectedSource) {
+      rig.rangedGripFrame = rig.swordGripFrame
+      rig.meleeTipFollowsVisual = true
+    }
     if (template.manifest.handGripFrames?.left) {
       const leftGrip = readHandFrame(template.manifest)!
       rig.handGripFrames = { left: leftGrip }
@@ -975,8 +1023,9 @@ export class HumanoidAssetRegistry {
       }
     }
     for (const [index, level] of lod.levels.entries()) {
+      if (template.manifest.selectedSource && index > 0) continue
       const frames = level.object.userData.equipmentGripFrames as EquipmentGripFrames | undefined
-      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance)
+      if (frames) animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, createHumanoidRigAdapter(level.object, animation), frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource)
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig)
     animation.onPoseEvaluated()
@@ -999,6 +1048,8 @@ export class HumanoidAssetRegistry {
       update: (dt, cameraDistance = 0) => animation.update(dt, cameraDistance),
       dispose: () => {
         animation.stop()
+        disposeHumanoidInstanceSkeletons(root)
+        for (const mixer of mixers) mixer.uncacheRoot(mixer.getRoot())
         root.removeFromParent()
       },
     }

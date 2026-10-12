@@ -50,7 +50,7 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
-import { getTerrainHeight, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
+import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
@@ -173,6 +173,7 @@ export class TownScene {
   private last = performance.now()
   private elapsed = 0
   private disposed = false
+  private promotionAttempt: object | null = null
   private restoringAerialState = true
   private result: TownResult | null = null
   chargeSpeakerId: string | null = null
@@ -227,7 +228,8 @@ export class TownScene {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     try {
       progress('載入人物、坐騎與動畫…')
-      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor)])
+      const playerHero = resolveCareerHeroAsset(profile)
+      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : [])])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -639,10 +641,10 @@ export class TownScene {
     if (this.commit(next)) { this.personalSaveElapsed = 0; this.personalCriticalState = critical }
   }
 
-  private bindBlockingProgression(): void {
-    this.player.setDamageHud(this.hp)
-    this.player.blockingLevel = this.skills.skillState.blocking.level
-    this.player.onShieldBlock = impact => this.awardCareerSkillXp('melee', impact * SHIELD_CONFIG.xpPerBlockedImpact, 'blocking')
+  private bindBlockingProgression(player = this.player): void {
+    player.setDamageHud(this.hp)
+    player.blockingLevel = this.skills.skillState.blocking.level
+    player.onShieldBlock = impact => this.awardCareerSkillXp('melee', impact * SHIELD_CONFIG.xpPerBlockedImpact, 'blocking')
   }
 
   private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number, skillOverride?: 'blocking' | 'mountedImpact'): void {
@@ -766,9 +768,11 @@ export class TownScene {
   }
 
   private closePanel(): void {
+    this.promotionAttempt = null
     this.panel?.remove(); this.panel = null; this.equipment.close(); this.input.clear(); this.player.clearTownAction(); if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
   }
   private openPanel(title: string, text: string): HTMLDivElement {
+    this.promotionAttempt = null
     this.personalCommands?.close()
     this.panel?.remove(); this.equipment.close(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
     const panel = document.createElement('div'); panel.id = 'town-dialog'; panel.className = 'town-panel'
@@ -798,13 +802,19 @@ export class TownScene {
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
       const panel = this.openPanel('騎兵隊長 · 任命', greeting + '\n\n' + (response ? '' : text))
       const detail = document.createElement('p'); detail.className = 'town-summary'; detail.textContent = promotionDetails(p); panel.append(detail)
-      if (eligible) this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', () => {
-        const fresh = promoteCareer(this.profile)
-        if (fresh && this.commit(fresh)) {
-          this.applyCareerPlayerIdentity()
-          this.talk('captain', selectTownDialogue({ ...context, playerRank: fresh.rank }, 'promotionSuccess'))
-        }
-      })
+      if (eligible) {
+        const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
+          if (this.promotionAttempt) return
+          accept.disabled = true; accept.textContent = '正在準備任命…'
+          const promoted = await this.acceptCareerPromotion()
+          if (this.disposed || this.panel !== panel) return
+          if (promoted) this.talk('captain', selectTownDialogue({ ...context, playerRank: this.profile.rank }, 'promotionSuccess'))
+          else {
+            detail.textContent = this.notice || '任命尚未完成，請重試。'
+            accept.disabled = false; accept.textContent = '重試接受任命'
+          }
+        })
+      }
     } else if (id === 'deployment') {
       this.openDeploymentPanel(greeting, context, firstOutpost)
     } else {
@@ -1599,37 +1609,84 @@ export class TownScene {
       || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
-  private applyCareerPlayerIdentity(): void {
-    const hero = resolveCareerHeroAsset(this.profile)
-    if (this.player.heroAssetId === hero) return
+  private async acceptCareerPromotion(): Promise<boolean> {
+    if (this.promotionAttempt || this.disposed) return false
+    const next = promoteCareer(this.profile)
+    if (!next) return false
+    const attempt = {}; this.promotionAttempt = attempt
+    const panel = this.panel, rank = this.profile.rank, faction = this.profile.faction
+    const stillCurrent = () => this.promotionAttempt === attempt && !this.disposed && this.panel === panel
+      && this.profile.rank === rank && this.profile.faction === faction
+      && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
+    try {
+      const hero = resolveCareerHeroAsset(next)
+      if (hero && hero !== this.player.heroAssetId) await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero].descriptor)
+      if (!stillCurrent()) return false
+      // Re-read live progress after loading rather than overwriting changes with the initial snapshot.
+      const fresh = promoteCareer(this.profile)
+      return fresh ? this.applyCareerPlayerIdentity(fresh) : false
+    } catch (error) {
+      if (stillCurrent()) this.notice = `任命尚未完成，原有角色與軍階已保留。請重試。${error instanceof Error ? `（${error.message}）` : ''}`
+      return false
+    } finally {
+      if (this.promotionAttempt === attempt) this.promotionAttempt = null
+    }
+  }
+
+  private applyCareerPlayerIdentity(profile: CareerProfile): boolean {
+    const hero = resolveCareerHeroAsset(profile)
+    if (this.player.heroAssetId === hero) return this.commit(profile)
     const old = this.player
     const position = old.group.position.clone()
     const facing = old.facingYaw
-    const oldHp = old.hp
-    const oldMaxHp = old.maxHp
-    const stamina = old.staminaValue
-    const arrows = old.arrowCount
     const mount = old.currentMount
     const mountHeading = mount?.group.rotation.y
-    const cameraYaw = this.orbit.cameraYaw
-    const cameraPitch = this.orbit.cameraPitch
-    if (mount) old.dismountFromMount()
-    old.dispose()
-    this.player = new Player(this.scene, this.profile.faction, hero)
-    this.bindBlockingProgression()
-    const newMaxHp = resolveCareerPlayerMaxHp(this.profile, DEFAULT_PLAYER_MAX_HP)
-    this.player.setMaxHp(newMaxHp, true)
-    this.player.group.position.copy(position)
-    this.player.faceDirection(Math.sin(facing), Math.cos(facing))
-    this.player.setHp(preserveHpRatio(oldHp, oldMaxHp, newMaxHp))
-    this.player.setStamina(stamina)
-    this.player.setArrowCount(arrows)
-    this.player.onPlayerDeath = () => this.enterMissionObserver()
-    this.player.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, true, false, event.visualKind)
-    if (mount && !mount.dead) this.player.mountVehicle(mount, mountHeading)
-    this.orbit = new ThirdPersonCamera(this.camera, this.player); this.orbit.setYaw(cameraYaw); this.orbit.setPitch(cameraPitch)
-    this.player.update(0, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
-    this.hp.setFill(this.player.hpRatio)
+    const oldOrbit = this.orbit
+    // Build away from the live scene; failed creation leaves the original actor usable.
+    const stagingScene = new THREE.Scene()
+    setScenePlayableWorldBound(stagingScene, getScenePlayableWorldBound(this.scene))
+    const candidate = new Player(stagingScene, profile.faction, hero)
+    let committed = false
+    try {
+      this.bindBlockingProgression(candidate)
+      const newMaxHp = resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP)
+      candidate.setMaxHp(newMaxHp, true)
+      candidate.group.position.copy(position)
+      candidate.faceDirection(Math.sin(facing), Math.cos(facing))
+      candidate.setHp(preserveHpRatio(old.hp, old.maxHp, newMaxHp))
+      candidate.setStamina(old.staminaValue)
+      candidate.setArrowCount(old.arrowCount)
+      candidate.onPlayerDeath = () => this.enterMissionObserver()
+      candidate.onFireArrow = event => this.fire(event.origin, event.direction, event.speed, event.damage, true, false, event.visualKind)
+      candidate.update(0, this.input, oldOrbit.cameraYaw, oldOrbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
+      candidate.shield.restoreDurability(old.shield.captureDurability())
+      candidate.shieldCollider.refreshVisibility()
+      if (mount) {
+        old.dismountFromMount({ preserveWorldPosition: true })
+        candidate.mountVehicle(mount, mountHeading)
+        if (candidate.currentMount !== mount) throw new Error('坐騎交接失敗')
+      }
+      candidate.group.position.copy(position)
+      candidate.faceDirection(Math.sin(facing), Math.cos(facing))
+      this.player = candidate
+      oldOrbit.followPlayer(candidate)
+      this.scene.add(candidate.group)
+      if (!this.commit(profile)) return false
+      committed = true
+      old.dispose()
+      this.hp.setFill(candidate.hpRatio)
+      return true
+    } finally {
+      if (!committed) {
+        if (candidate.currentMount) candidate.dismountFromMount({ preserveWorldPosition: true })
+        if (mount && old.currentMount !== mount) old.mountVehicle(mount, mountHeading)
+        old.group.position.copy(position)
+        old.faceDirection(Math.sin(facing), Math.cos(facing))
+        this.player = old
+        oldOrbit.followPlayer(old)
+        candidate.dispose()
+      }
+    }
   }
   private finishMission(outcome: CareerMissionOutcome): void {
     if (this.captainPatrol?.active) { this.captainPatrol.persist(true); this.captainPatrol.freezeStats() }
@@ -2565,6 +2622,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.promotionAttempt = null
     this.cancelPendingSpawns()
     this.flushCareerSkillProgression()
     sound?.updateHorseGallopLoops([])

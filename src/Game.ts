@@ -299,6 +299,9 @@ import { CombatTrajectoryDebugger } from './debug/CombatTrajectoryDebugger'
 import { createBowComparisonPanel } from './debug/BowComparisonPanel'
 import type { GameplayBowQAPanel } from './debug/GameplayBowQAPanel'
 import { HumanoidStudioPlayback } from './debug/HumanoidStudioPlayback'
+import { commanderValidationHero } from './debug/CommanderValidation'
+import { parseHeroBenchmarkQuery, createHeroBenchmarkScenario, configureHeroBenchmarkActors } from './debug/HeroBenchmark'
+import { createHeroBenchmarkRecorder } from './debug/HeroBenchmarkRecorder'
 import { HumanoidAssetRegistry } from './world/HumanoidAssetRegistry'
 import type { HumanoidCharacterInstance } from './world/HumanoidAssetRegistry'
 import {
@@ -396,6 +399,10 @@ export class Game {
       await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
+      const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
+      if (validationHero) heroAssets.add(validationHero)
+      const benchmarkSettings = import.meta.env.DEV && !trainingGround ? parseHeroBenchmarkQuery(query) : null
+      if (benchmarkSettings) heroAssets.add(createHeroBenchmarkScenario(benchmarkSettings).assetId)
       for (const member of personalMembers) {
         const hero = personalMemberLoadout(member, personalProfile!.faction).hero
         if (hero) heroAssets.add(hero.visualAssetId)
@@ -817,7 +824,9 @@ export class Game {
     }
 
     // ── Player & Input ──
-    const playerFaction = campaignConfig?.careerVeteranOutpost?.playerFaction
+    const validationHero = import.meta.env.DEV && this.isTrainingGround ? commanderValidationHero(startupQuery) : undefined
+    const playerFaction = (validationHero ? HERO_ASSETS[validationHero].descriptor.faction : undefined)
+      ?? campaignConfig?.careerVeteranOutpost?.playerFaction
       ?? campaignConfig?.defenderFaction
       ?? battleConfig?.playerFaction
       ?? (isRomanDefenseDevScenario
@@ -829,13 +838,15 @@ export class Game {
             : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId
+    const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
     this.player = new Player(this.scene, playerFaction, playerHeroId)
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
 
     const query = startupQuery
+    const benchmarkSettings = import.meta.env.DEV && !this.isTrainingGround ? parseHeroBenchmarkQuery(query) : null
+    const heroBenchmark = benchmarkSettings ? createHeroBenchmarkScenario(benchmarkSettings) : null
     this.isDevCombat = !this.isTrainingGround && query.has('devcombat')
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = this.isTrainingGround ? null : query.get('devmodels')
@@ -867,6 +878,9 @@ export class Game {
       }
     } else if (this.captainEagleMissionId && this.careerProfile) {
       battlePlan = createCaptainEagleSpawnPlan(this.careerProfile)
+    } else if (heroBenchmark) {
+      activeBattleConfig = heroBenchmark.config
+      battlePlan = heroBenchmark.plan
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -1127,7 +1141,7 @@ export class Game {
       this.armyCommandUI.setOfficialSquadLabel('Mission Squad · 任務部隊')
     }
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = this.isTrainingGround ? createTrainingInventory() : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
+    this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
     if (this.careerProfile) {
       const inventory = new TownEquipment(() => this.careerProfile!, profile => {
         if (!this.careerStore.save(profile)) return false
@@ -1234,6 +1248,34 @@ export class Game {
     this._setupResize()
     this._setupShortcuts()
     if (this.isTrainingGround) this._initializeTrainingGround()
+    if (heroBenchmark && benchmarkSettings) {
+      const terrainHeight = getTerrainHeight(0, 0)
+      this.camera.position.fromArray(heroBenchmark.camera.position)
+      this.camera.position.y += terrainHeight
+      const target = new THREE.Vector3(...heroBenchmark.camera.target)
+      target.y += terrainHeight
+      this.camera.lookAt(target)
+      this.spectatorController.initFromCamera(this.camera)
+      let releaseFixture = configureHeroBenchmarkActors(this.npcs)
+      const recorder = createHeroBenchmarkRecorder({ npcs: this.npcs, mounts: this.mounts,
+        camera: this.camera, renderer: this.renderer, profiler: this.runtimeProfiler }, benchmarkSettings, async () => {
+        // The scheduler runs before the frozen-simulation branch. Hold combat while
+        // partial batches materialize, then install the fixture before the first hit.
+        const wasFrozen = this.isSimulationFrozen
+        this.setSimulationFrozen(true)
+        try {
+          releaseFixture()
+          for (const npc of this.npcs) { this._aimTargetRegistry.unregisterNpc(npc); npc.dispose() }
+          this.npcs.length = 0
+          for (const batch of this.spawnBatches) batch.cancel()
+          this.spawnBatches.length = 0
+          await this._executeBattleSpawnPlan(createHeroBenchmarkScenario(benchmarkSettings).plan)
+          releaseFixture = configureHeroBenchmarkActors(this.npcs)
+          CombatRenderWarmup.warmup(this.renderer, this.camera, this.scene)
+        } finally { this.setSimulationFrozen(wasFrozen) }
+      })
+      Object.assign(window, { __heroBenchmark: recorder })
+    }
     if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
     if (this.personalSquad) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
@@ -4253,8 +4295,8 @@ export class Game {
     // Seat the preview rider on this frame's animated saddle before drawing.
     if (this.isMountStudio) this._updateMountStudioStatus()
     else {
-      this.player.fitCorgiSeat()
-      for (const npc of this.npcs) npc.fitCorgiSeat()
+      this.player.fitMountedSeat()
+      for (const npc of this.npcs) npc.fitMountedSeat()
     }
 
     // 7. Renderer Submit (measures synchronous CPU-side render submission, not GPU time)

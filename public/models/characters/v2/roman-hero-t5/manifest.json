@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "id": "roman-hero-t5",
+  "status": "ready",
+  "skeleton": "project-humanoid-v1",
+  "source": {
+    "title": "Masked Roman",
+    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
+    "sourceEntry": "Roman/Masked_Roman_Selected_11Clips.glb",
+    "sourceSha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
+    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
+    "licenseEvidence": "source-readme.txt"
+  },
+  "attribution": "Masked Roman: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
+  "selectedSource": {
+    "rig": "mixamo66",
+    "uniformScale": 1.0700747833646937
+  },
+  "handShapeMode": "authored",
+  "preserveLodHandTopology": true,
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "metrics": {
+    "heightM": 1.8191270070256114,
+    "shoulderWidthM": 0.5211178487681826,
+    "neckLengthM": 0.11045054826976493,
+    "triangles": {
+      "lod0": 10317,
+      "lod1": 9739,
+      "lod2": 9375
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScale": 1.0700747833646937,
+    "bodyLandmarks": [
+      {
+        "name": "hips",
+        "source": 0.9662821888923645,
+        "reference": 0.9768297534648483
+      },
+      {
+        "name": "upper_arm_l",
+        "source": 1.337609733838733,
+        "reference": 1.4504396187893256
+      },
+      {
+        "name": "upper_arm_r",
+        "source": 1.3346660983565397,
+        "reference": 1.4504396182238901
+      }
+    ]
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "walk",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "run",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "swordSlash",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowLoad",
+        "loop": false,
+        "duration": 0.8333333333333334
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowHold",
+        "loop": true,
+        "duration": 1.3333333333333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowRelease",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "pilumThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.5666666666666667,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "axeAttack1H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.7,
+          "actionComplete": 3
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
+        "loop": false,
+        "duration": 3
+      },
+      {
+        "clip": "axeAttack2H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.9666666666666667,
+          "hit": 1.0666666666666667,
+          "activeEnd": 1.2,
+          "actionComplete": 2.8333332538604736
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
+        "loop": false,
+        "duration": 2.8333332538604736
+      }
+    ],
+    "runtimeGenerated": [
+      "mounted",
+      "death",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.0185,
+        0.0904,
+        -0.0296
+      ],
+      "palmNormal": [
+        0.41158711058505226,
+        0.015853904654593482,
+        -0.9112325192328526
+      ],
+      "thumbDir": -1,
+      "thumbDirection": [
+        0.9104441033578199,
+        -0.05222096335033039,
+        0.41032244107255345
+      ],
+      "fingerDirection": [
+        0.04108022713208372,
+        0.9985097018526993,
+        0.035927569425302126
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "fingerBase": 0.07979508267900672,
+      "thumbBaseCenter": [
+        0.018883140757679915,
+        0.0187496133148668,
+        0.015039738267660144
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        -0.032,
+        0.09,
+        -0.047
+      ],
+      "gripAxisLocal": [
+        -0.856459370489902,
+        -0.052791516977924585,
+        0.5135079380449832
+      ],
+      "palmNormalLocal": [
+        -0.5143752529439172,
+        0.0033789131281105854,
+        -0.8575585589946345
+      ],
+      "fingerDirection": [
+        -0.04353671851348058,
+        0.9985998391153698,
+        0.030048551709454703
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.013849943876266424,
+        0.023458734154701344,
+        0.020128866657614708
+      ],
+      "fingerBase": 0.08429718793023037,
+      "gripRadius": 0.019
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.032,
+        0.09,
+        -0.047
+      ],
+      "gripAxisLocal": [
+        -0.856459370489902,
+        -0.052791516977924585,
+        0.5135079380449832
+      ],
+      "palmNormalLocal": [
+        -0.5143752529439172,
+        0.0033789131281105854,
+        -0.8575585589946345
+      ],
+      "fingerDirection": [
+        -0.04353671851348058,
+        0.9985998391153698,
+        0.030048551709454703
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.013849943876266424,
+        0.023458734154701344,
+        0.020128866657614708
+      ],
+      "fingerBase": 0.08429718793023037,
+      "gripRadius": 0.019
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.032,
+        0.09,
+        -0.047
+      ],
+      "gripAxisLocal": [
+        -0.856459370489902,
+        -0.052791516977924585,
+        0.5135079380449832
+      ],
+      "palmNormalLocal": [
+        -0.5143752529439172,
+        0.0033789131281105854,
+        -0.8575585589946345
+      ],
+      "fingerDirection": [
+        -0.04353671851348058,
+        0.9985998391153698,
+        0.030048551709454703
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.013849943876266424,
+        0.023458734154701344,
+        0.020128866657614708
+      ],
+      "fingerBase": 0.08429718793023037,
+      "gripRadius": 0.019
+    }
+  },
+  "fileSha256": {
+    "lod0": "2de7b2a5ea9262d83956570302e19d316aa80e6c0173c07001610e40d6da29cf",
+    "lod1": "9cb11039ef8da123c73395472c2a189fa55483f07fff681dc5dcb478ef5b493f",
+    "lod2": "52048d25a373e133ecc47f7f269abca3a4c573635da611592370066b5998d010"
+  },
+  "sourceRepairs": {
+    "kind": "retain-authored-cupped-fingers",
+    "correctedChannels": [
+      "axeAttack1H:mixamorig:LeftHandThumb4",
+      "axeAttack1H:mixamorig:LeftHandThumb3",
+      "axeAttack1H:mixamorig:LeftHandThumb2",
+      "axeAttack1H:mixamorig:LeftHandThumb1",
+      "axeAttack1H:mixamorig:LeftHandPinky4",
+      "axeAttack1H:mixamorig:LeftHandPinky3",
+      "axeAttack1H:mixamorig:LeftHandPinky2",
+      "axeAttack1H:mixamorig:LeftHandPinky1",
+      "axeAttack1H:mixamorig:LeftHandRing4",
+      "axeAttack1H:mixamorig:LeftHandRing3",
+      "axeAttack1H:mixamorig:LeftHandRing2",
+      "axeAttack1H:mixamorig:LeftHandRing1",
+      "axeAttack1H:mixamorig:LeftHandMiddle4",
+      "axeAttack1H:mixamorig:LeftHandMiddle3",
+      "axeAttack1H:mixamorig:LeftHandMiddle2",
+      "axeAttack1H:mixamorig:LeftHandMiddle1",
+      "axeAttack1H:mixamorig:LeftHandIndex4",
+      "axeAttack1H:mixamorig:LeftHandIndex3",
+      "axeAttack1H:mixamorig:LeftHandIndex2",
+      "axeAttack1H:mixamorig:LeftHandIndex1",
+      "axeAttack1H:mixamorig:RightHandThumb4",
+      "axeAttack1H:mixamorig:RightHandThumb3",
+      "axeAttack1H:mixamorig:RightHandThumb2",
+      "axeAttack1H:mixamorig:RightHandThumb1",
+      "axeAttack1H:mixamorig:RightHandPinky4",
+      "axeAttack1H:mixamorig:RightHandPinky3",
+      "axeAttack1H:mixamorig:RightHandPinky2",
+      "axeAttack1H:mixamorig:RightHandPinky1",
+      "axeAttack1H:mixamorig:RightHandRing4",
+      "axeAttack1H:mixamorig:RightHandRing3",
+      "axeAttack1H:mixamorig:RightHandRing2",
+      "axeAttack1H:mixamorig:RightHandRing1",
+      "axeAttack1H:mixamorig:RightHandMiddle4",
+      "axeAttack1H:mixamorig:RightHandMiddle3",
+      "axeAttack1H:mixamorig:RightHandMiddle2",
+      "axeAttack1H:mixamorig:RightHandMiddle1",
+      "axeAttack1H:mixamorig:RightHandIndex4",
+      "axeAttack1H:mixamorig:RightHandIndex3",
+      "axeAttack1H:mixamorig:RightHandIndex2",
+      "axeAttack1H:mixamorig:RightHandIndex1",
+      "axeAttack2H:mixamorig:LeftHandThumb4",
+      "axeAttack2H:mixamorig:LeftHandThumb3",
+      "axeAttack2H:mixamorig:LeftHandThumb2",
+      "axeAttack2H:mixamorig:LeftHandThumb1",
+      "axeAttack2H:mixamorig:LeftHandPinky4",
+      "axeAttack2H:mixamorig:LeftHandPinky3",
+      "axeAttack2H:mixamorig:LeftHandPinky2",
+      "axeAttack2H:mixamorig:LeftHandPinky1",
+      "axeAttack2H:mixamorig:LeftHandRing4",
+      "axeAttack2H:mixamorig:LeftHandRing3",
+      "axeAttack2H:mixamorig:LeftHandRing2",
+      "axeAttack2H:mixamorig:LeftHandRing1",
+      "axeAttack2H:mixamorig:LeftHandMiddle4",
+      "axeAttack2H:mixamorig:LeftHandMiddle3",
+      "axeAttack2H:mixamorig:LeftHandMiddle2",
+      "axeAttack2H:mixamorig:LeftHandMiddle1",
+      "axeAttack2H:mixamorig:LeftHandIndex4",
+      "axeAttack2H:mixamorig:LeftHandIndex3",
+      "axeAttack2H:mixamorig:LeftHandIndex2",
+      "axeAttack2H:mixamorig:LeftHandIndex1",
+      "axeAttack2H:mixamorig:RightHandThumb4",
+      "axeAttack2H:mixamorig:RightHandThumb3",
+      "axeAttack2H:mixamorig:RightHandThumb2",
+      "axeAttack2H:mixamorig:RightHandThumb1",
+      "axeAttack2H:mixamorig:RightHandPinky4",
+      "axeAttack2H:mixamorig:RightHandPinky3",
+      "axeAttack2H:mixamorig:RightHandPinky2",
+      "axeAttack2H:mixamorig:RightHandPinky1",
+      "axeAttack2H:mixamorig:RightHandRing4",
+      "axeAttack2H:mixamorig:RightHandRing3",
+      "axeAttack2H:mixamorig:RightHandRing2",
+      "axeAttack2H:mixamorig:RightHandRing1",
+      "axeAttack2H:mixamorig:RightHandMiddle4",
+      "axeAttack2H:mixamorig:RightHandMiddle3",
+      "axeAttack2H:mixamorig:RightHandMiddle2",
+      "axeAttack2H:mixamorig:RightHandMiddle1",
+      "axeAttack2H:mixamorig:RightHandIndex4",
+      "axeAttack2H:mixamorig:RightHandIndex3",
+      "axeAttack2H:mixamorig:RightHandIndex2",
+      "axeAttack2H:mixamorig:RightHandIndex1"
+    ],
+    "preserved": "Source mesh, indices, UVs, textures, four weight sets, inverse binds, 66 joints, all body/wrist channels and original clip timing"
+  },
+  "visualAcceptance": "Representative source/runtime, equipped action, front/side/back LOD comparison reviewed; performance acceptance recorded separately.",
+  "knownLimitations": [
+    "Source swordSlash 0.1231° and bowRelease 1.8778° exceed source strict 0.1° threshold.",
+    "Conservative UV-boundary LODs exceed the suggested triangle targets; aggressive collapse candidates failed appearance review.",
+    "No runtime cloth collision; extreme garment contact follows the source/helper rig."
+  ]
+}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
 import {
   HUMANOID_LOD_DISTANCES,
@@ -85,6 +85,47 @@ function addRomanLod2ConsolidationPairs(root: THREE.Group): void {
 }
 
 describe('Humanoid LOD Distances and Animation Throttle', () => {
+  it('disposing an instance releases every LOD bone texture and preserves peer and shared asset resources', () => {
+    const levels = [0, 1, 2].map(lod => ({ scene: createMockLODScene(lod), animations: [] }))
+    const templates = HumanoidAssetRegistry._snapshotTemplatesForTesting()
+    type Template = NonNullable<ReturnType<typeof templates.get>>
+    // Minimal synthetic assets own this GPU-resource lifetime contract; no real GLB or actor needed.
+    templates.set('roman', {
+      manifest: { status: 'ready', files: { lod0: '', lod1: '', lod2: '' }, metrics: { heightM: 1.8, shoulderWidthM: .5, neckLengthM: .1 } },
+      levels, bowClips: [[], [], []],
+    } as unknown as Template)
+    HumanoidAssetRegistry._restoreTemplatesForTesting(templates)
+    const instance = HumanoidAssetRegistry.createCharacterInstance({ faction: 'roman', tier: 3, isPlayer: false })
+    const peer = HumanoidAssetRegistry.createCharacterInstance({ faction: 'roman', tier: 3, isPlayer: false })
+    onTestFinished(() => { instance.dispose(); peer.dispose() })
+    const instanceTextures: THREE.DataTexture[] = []
+    const peers: THREE.Skeleton[] = []
+    const assetDisposals = vi.fn(), textureDisposals = vi.fn()
+    levels.forEach(level => level.scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      object.geometry.addEventListener('dispose', assetDisposals)
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.addEventListener('dispose', assetDisposals)
+    }))
+    instance.root.traverse(object => {
+      if (!(object instanceof THREE.SkinnedMesh)) return
+      object.skeleton.computeBoneTexture()
+      instanceTextures.push(object.skeleton.boneTexture!)
+      object.skeleton.boneTexture!.addEventListener('dispose', textureDisposals)
+    })
+    peer.root.traverse(object => {
+      if (!(object instanceof THREE.SkinnedMesh)) return
+      object.skeleton.computeBoneTexture()
+      peers.push(object.skeleton)
+    })
+    instance.dispose()
+    expect(instanceTextures).toHaveLength(3)
+    expect(textureDisposals).toHaveBeenCalledTimes(3)
+    expect(assetDisposals).not.toHaveBeenCalled()
+    expect(peers.every(skeleton => skeleton.boneTexture !== null)).toBe(true)
+    instance.dispose()
+    expect(textureDisposals).toHaveBeenCalledTimes(3)
+  })
+
   it('defines HUMANOID_LOD_DISTANCES as [0, 28, 60] for 0-28m LOD0, 28-60m LOD1, >60m LOD2', () => {
     expect(HUMANOID_LOD_DISTANCES).toEqual([0, 28, 60])
     expect(HUMANOID_LOD_DISTANCES[0]).toBe(0)

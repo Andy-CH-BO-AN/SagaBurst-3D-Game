@@ -1,0 +1,28 @@
+{
+  "roundTripMatched": 15491,
+  "sourceVertices": 15491,
+  "lods": [
+    {
+      "level": 1,
+      "triangles": 9517,
+      "vertices": 14914,
+      "sets": 1,
+      "discardedWeightMax": 0,
+      "bytes": 7110800,
+      "strategy": "index-only, locked UV boundaries, exact retained attributes",
+      "simplifierError": 0.002928216941654682,
+      "protectedTriangles": 2579
+    },
+    {
+      "level": 2,
+      "triangles": 9181,
+      "vertices": 14647,
+      "sets": 1,
+      "discardedWeightMax": 0,
+      "bytes": 3632568,
+      "strategy": "index-only, locked UV boundaries, exact retained attributes",
+      "simplifierError": 0.014997197315096855,
+      "protectedTriangles": 2579
+    }
+  ]
+}

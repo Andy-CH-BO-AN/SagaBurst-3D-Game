@@ -93,13 +93,19 @@ export class CharacterCombatAnimator {
   }
 
   get currentAction(): CombatAction { return this.action }
+  private get meleeTiming() { return this.rig.animation?.getMeleeTiming?.(this.action as HumanoidAnimationState) }
+  private poseTime(elapsed: number): number {
+    const timing = this.meleeTiming
+    return timing ? elapsed * .48 / timing.duration : elapsed
+  }
   private get isMeleeAction(): boolean {
     return this.action !== 'idle' && this.action !== 'bowAim' && this.action !== 'bowRelease' && this.action !== 'pilumThrow'
   }
   get meleeHitActive(): boolean {
     if (!this.isMeleeAction) return false
     const p = COMBAT_ANIMATION_PROFILES[this.action]
-    return this.elapsed >= p.windup && this.elapsed <= p.windup + p.active
+    const timing = this.meleeTiming
+    return this.elapsed >= (timing?.activeStart ?? p.windup) && this.elapsed <= (timing?.activeEnd ?? p.windup + p.active)
   }
   get currentOwnership(): 'clip' | 'procedural' { return this.ownership }
   get busy(): boolean { return this.action !== 'idle' && this.action !== 'bowAim' }
@@ -136,7 +142,7 @@ export class CharacterCombatAnimator {
   }
 
   setLocomotion(speed: number, mounted = false, sprinting = false): void {
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.elapsed) : 0, this.usesTwoHandedAxeCarry)
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed)) : 0, this.usesTwoHandedAxeCarry)
     const state = mounted ? 'mounted' : speed <= 0.1 ? 'idle' : sprinting ? 'run' : 'walk'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
@@ -164,7 +170,8 @@ export class CharacterCombatAnimator {
       : null
     this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
     this.elapsed = 0
-    if (this.ownership === 'clip') this.rig.animation?.play(action, { fadeSeconds: 0.1, loop: false, ...(timeScale === 1 ? {} : { timeScale }) })
+    const clipTimeScale = timeScale * (this.meleeTiming?.clipTimeScale ?? 1)
+    if (this.ownership === 'clip') this.rig.animation?.play(action, { fadeSeconds: 0.1, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
     return true
   }
 
@@ -187,8 +194,8 @@ export class CharacterCombatAnimator {
     if (!Number.isFinite(dt) || dt < 0) return this.events
     const actionDt = dt * this.actionTimeScale
     const mounted = this.locomotion === 'mounted'
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.elapsed + actionDt) : 0, this.usesTwoHandedAxeCarry)
-    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.elapsed + actionDt, lance: this.lanceEquipped })
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry)
+    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.poseTime(this.elapsed + actionDt), lance: this.lanceEquipped })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
     this.rig.animation?.update(dt, this.isMeleeAction ? 0 : cameraDistance)
@@ -203,7 +210,7 @@ export class CharacterCombatAnimator {
     const importedPilumDuration = this.action === 'pilumThrow' && this.ownership === 'clip'
       ? this.rig.animation?.getDuration('pilumThrow')
       : undefined
-    const total = Math.round((importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
+    const total = Math.round((this.meleeTiming?.duration ?? importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
       const pilumReleaseTime = (this.ownership === 'clip' ? PILUM_THROW_RELEASE_TIME : profile.windup) - 1e-9
@@ -219,9 +226,9 @@ export class CharacterCombatAnimator {
       }
     } else {
       const isLance = this.action === 'lanceThrust' || this.action === 'mountedLance'
-      const contactTime = this.action === 'axeAttack1H' || this.action === 'axeAttack2H'
+      const contactTime = this.meleeTiming?.hit ?? (this.action === 'axeAttack1H' || this.action === 'axeAttack2H'
         ? AXE_HIT_TIMES[this.action]
-        : Math.round((profile.windup + profile.active * (isLance ? 0.9 : 0.8)) * 1e9) / 1e9
+        : Math.round((profile.windup + profile.active * (isLance ? 0.9 : 0.8)) * 1e9) / 1e9)
       if (previous < contactTime && this.elapsed >= contactTime) {
         this.events.hitActiveStarted = true
       }

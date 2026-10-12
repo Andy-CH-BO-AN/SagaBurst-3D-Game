@@ -34,7 +34,7 @@ import {
   type PlayerMountId,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
-import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, getHeroFixedEquipment, isSetupPlayerHeroId, type SetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -55,7 +55,7 @@ export class CampaignSetupUI {
   private stageId: CampaignStageId = 1
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
-  private playerHeroId: PlayerHeroId | null = null
+  private playerHeroId: SetupPlayerHeroId | null = null
   private commandGrouping: CommandGroupingMode = 'preset'
   private squadAssignments: SquadAssignment[] = []
   private selectedSquadId: SquadId = 1
@@ -335,7 +335,7 @@ export class CampaignSetupUI {
             <span>玩家角色 / PLAYER CHARACTER</span>
             <select id="campaign-player-hero">
               <option value="" ${!this.playerHeroId ? 'selected' : ''}>一般士兵 Standard</option>
-              ${HERO_ASSET_IDS.map(id => `<option value="${id}" ${this.playerHeroId === id ? 'selected' : ''}>${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+              ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}" ${this.playerHeroId === id ? 'selected' : ''}>${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
             </select>
           </label>
           <label class="campaign-loadout-field">
@@ -433,7 +433,9 @@ export class CampaignSetupUI {
       this.playerLoadout.meleeWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['meleeWeaponId']
     })
     this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
-      this.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      const heroId = (event.target as HTMLSelectElement).value
+      if (heroId !== '' && !isSetupPlayerHeroId(heroId)) return
+      this.playerHeroId = heroId || null
       if (this.playerHeroId === 'maki-archer-t4' && this.playerLoadout
         && WEAPONS[this.playerLoadout.rangedWeaponId]?.combatKind !== 'bow') {
         this.playerLoadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { swordHandMatrix, type SwordGripFrame } from './SwordAttachmentContract'
 
 /**
  * Hand Grip Frame:
@@ -53,8 +54,9 @@ export function computeSocketAttachment(
   side: 'l' | 'r',
   weaponType: 'melee' | 'ranged',
   gripY = 0,
+  handFrame?: SwordGripFrame,
 ): { position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3 } {
-  const fHand = getHandGripFrame(side)
+  const fHand = handFrame ? swordHandMatrix(handFrame) : getHandGripFrame(side)
   const fWeapon = getWeaponGripFrame(weaponType, gripY)
 
   const invW = new THREE.Matrix4().copy(fWeapon).invert()
@@ -78,8 +80,9 @@ export function applyAttachmentContract(
   weaponPivot: THREE.Object3D,
   weaponType: 'melee' | 'ranged',
   gripY = 0,
+  handFrame?: SwordGripFrame,
 ): void {
-  const { position, quaternion, scale } = computeSocketAttachment(socket, side, weaponType, gripY)
+  const { position, quaternion, scale } = computeSocketAttachment(socket, side, weaponType, gripY, handFrame)
   weaponPivot.position.copy(position)
   weaponPivot.quaternion.copy(quaternion)
   weaponPivot.scale.copy(scale)

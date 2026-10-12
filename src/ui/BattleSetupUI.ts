@@ -35,7 +35,7 @@ import {
   getUnitPresetsForFaction,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
-import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, getHeroFixedEquipment, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -168,7 +168,7 @@ export class BattleSetupUI {
         <label class="campaign-loadout-field">玩家角色 / PLAYER CHARACTER
           <select id="battle-player-hero">
             <option value="">一般士兵 Standard</option>
-            ${HERO_ASSET_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+            ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
           </select>
         </label>
         <p id="battle-fixed-equipment" hidden>遊俠固定使用 T4 弓作近戰，不攜帶盾牌。</p>
@@ -386,7 +386,9 @@ export class BattleSetupUI {
 
     // Number Inputs
     this.container.querySelector<HTMLSelectElement>('#battle-player-hero')?.addEventListener('change', event => {
-      this.config.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
+      const heroId = (event.target as HTMLSelectElement).value
+      if (heroId !== '' && !isSetupPlayerHeroId(heroId)) return
+      this.config.playerHeroId = heroId || null
       if (this.config.playerHeroId === 'maki-archer-t4'
         && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
         this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
